@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArrowLeft01Icon,
+  ArrowLeft02Icon,
   CloudIcon,
   GitBranchIcon,
   GitCommitIcon,
@@ -18,12 +18,13 @@ import { prLook } from "../../lib/pr-look";
 import type { DiffMode } from "../../electron";
 import type { ChangesMode } from "../../lib/pull-request-view";
 import { buildDiffTree } from "../../lib/diff-tree";
+import { Segmented } from "../primitives/Segmented";
 import { Select } from "../primitives/Select";
 import type { Comparison } from "./useComparison";
 import Tooltip from "../primitives/Tooltip";
 import type { DiffList } from "./useDiffFiles";
 import { useRefreshSpin } from "./useRefreshSpin";
-import { Tree, type TreeProps } from "./DiffTree";
+import { FLAT_LIST_MAX, FlatList, Tree, type TreeProps } from "./DiffTree";
 import { Counts } from "./DiffIndicators";
 export { Counts } from "./DiffIndicators";
 import { CommitFiles } from "./CommitFiles";
@@ -111,14 +112,7 @@ export function ChangesPanel({
             {comparison?.view === "commits" ? (
               <CommitHistory comparison={comparison} />
             ) : (
-              <ChangesSections
-                compactComparison={!!comparison && !comparison.unavailable}
-                lists={lists}
-                mode={mode}
-                onSelectFile={onSelectFile}
-                activePath={activePath}
-                commentCounts={commentCounts}
-              />
+              <ChangesSections lists={lists} mode={mode} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />
             )}
           </ScrollArea>
         </>
@@ -131,7 +125,8 @@ export function ChangesPanel({
 function BranchLabel({ name }: { name: string }) {
   const split = Math.ceil(name.length * 0.55);
   return (
-    <span title={name} className="flex min-w-0 flex-1 text-left">
+    // Branch names in mono at the PR tab's size, so the branch line reads one way in both tabs.
+    <span title={name} className="flex min-w-0 flex-1 text-left font-mono text-11">
       <span className="min-w-0 truncate">{name.slice(0, split)}</span>
       <span className="max-w-[45%] shrink-0 overflow-hidden whitespace-nowrap [direction:rtl]">{name.slice(split)}</span>
     </span>
@@ -164,30 +159,24 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
           variant="chip"
           triggerClassName="min-w-[64px] max-w-[50%] shrink"
         />
-        <HugeiconsIcon icon={ArrowLeft01Icon} size={14} className="hidden shrink-0 @[300px]:block" />
+        <HugeiconsIcon icon={ArrowLeft02Icon} size={14} aria-hidden className="hidden shrink-0 @[300px]:block" />
         <span className="flex min-w-0 flex-1 items-center gap-1.5" aria-label={`Current branch: ${data?.branch ?? `detached HEAD ${current}`}`}>
           <HugeiconsIcon icon={data?.branch ? GitBranchIcon : GitCommitIcon} size={14} className="hidden shrink-0 @[300px]:block" />
           <BranchLabel name={current} />
           {data && !data.branch && <span className="shrink-0 rounded-inline bg-field px-1 text-10 text-ink-2">detached</span>}
         </span>
       </div>
-      <div className="flex gap-5 px-3" aria-label="Changes view" role="tablist" onKeyDown={moveTab}>
-        {(["files", "commits"] as const).map((view) => (
-          <button
-            key={view}
-            type="button"
-            role="tab"
-            aria-selected={c.view === view}
-            tabIndex={c.view === view ? 0 : -1}
-            data-comparison-view={view}
-            onClick={() => c.setView(view)}
-            className={`flex items-center gap-1.5 border-b-2 py-2 text-12 ${c.view === view ? "border-accent font-semibold text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}
-          >
-            {view === "files" ? "Files" : "Commits"}
-            <span className="font-normal tabular-nums text-ink-3">{view === "files" ? fileCount : data?.total}</span>
-          </button>
-        ))}
-      </div>
+      <Segmented
+        label="Changes view"
+        value={c.view}
+        onChange={c.setView}
+        dataKey="comparison-view"
+        className="mx-3 mb-2"
+        options={[
+          { value: "files", label: "Files", count: fileCount },
+          { value: "commits", label: "Commits", count: data?.total },
+        ]}
+      />
       {c.missing && (
         <div role="status" className="flex items-start gap-2 px-3 py-2 text-11 text-ink-3">
           <p className="min-w-0 flex-1 break-words">
@@ -316,7 +305,7 @@ function tabLook(pr: PullRequest | undefined) {
 }
 
 /** Left and right arrows select the next tab, as a tab row does. */
-export function moveTab(event: KeyboardEvent<HTMLDivElement>) {
+function moveTab(event: KeyboardEvent<HTMLDivElement>) {
   const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
   if (!step) return;
   const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]")];
@@ -456,14 +445,12 @@ const SECTIONS = [
  * the section the diff shows (`mode`), since a file can be in both.
  */
 export function ChangesSections({
-  compactComparison = false,
   lists,
   mode,
   onSelectFile,
   activePath,
   commentCounts,
 }: {
-  compactComparison?: boolean;
   lists: ChangesLists;
   mode: ChangesMode;
   onSelectFile: (path: string, mode: DiffMode) => void;
@@ -481,7 +468,6 @@ export function ChangesSections({
         <ChangesSection
           key={section.mode}
           label={section.label}
-          compactComparison={compactComparison}
           list={lists[section.mode]}
           onSelectFile={(path) => onSelectFile(path, section.mode)}
           activePath={mode === section.mode ? activePath : undefined}
@@ -494,25 +480,21 @@ export function ChangesSections({
   );
 }
 
-function ChangesSection({ label, list, compactComparison, ...treeProps }: { label: string; list: DiffList; compactComparison: boolean } & TreeProps) {
+function ChangesSection({ label, list, ...treeProps }: { label: string; list: DiffList } & TreeProps) {
   const files = filesOf(list);
   const tree = useMemo(() => buildDiffTree(files), [files]);
   const base = list.state === "ready" && list.isRepo ? list.base : null;
   return (
     <section aria-label={label} data-changes-section={label} className="pb-1.5">
-      <h3 className="flex h-7 items-center gap-1.5 px-3 text-11 text-ink-3">
-        <span className="font-medium text-ink-2">{label}</span>
-        <span className="tabular-nums">{files.length}</span>
-        {label === "Not committed" && <span className="text-10">vs HEAD</span>}
-        {base && !compactComparison && (
-          <span data-diff-base className="min-w-0 truncate">
-            since <span className="font-mono">{base}</span>
-          </span>
-        )}
-        <span className="flex-1" />
-        <Counts added={files.reduce((sum, file) => sum + file.added, 0)} removed={files.reduce((sum, file) => sum + file.removed, 0)} />
+      {/* A plain label: the count is on the Changes tab and the Files segment, the totals on each row. What the section
+          compares with goes in its tooltip; the comparison row above names the base when it shows. */}
+      <h3 className="flex h-7 items-center px-3 text-12 text-ink-3">
+        <Tooltip label={label === "Not committed" ? "Compared with the last commit" : `Compared with ${base ?? "the base branch"}`} side="bottom" align="start">
+          <span>{label}</span>
+        </Tooltip>
       </h3>
-      <Tree nodes={tree} depth={0} {...treeProps} />
+      {/* A few files read best as a flat list in the diff's order; a larger set gets the folder tree. */}
+      {files.length <= FLAT_LIST_MAX ? <FlatList files={files} {...treeProps} /> : <Tree nodes={tree} depth={0} {...treeProps} />}
     </section>
   );
 }

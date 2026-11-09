@@ -41,6 +41,8 @@ export function useChanges({
   // A Chat without a PR shows its own changes, whatever was picked for another Chat.
   const mode: ChangesMode = chosenMode === "pr" && !pullRequest ? "uncommitted" : chosenMode;
   const [scrollTarget, setScrollTarget] = useState<{ path: string; nonce: number } | null>(null);
+  // The file whose header is pinned at the top of the open diff, which the tree marks as it scrolls.
+  const [visiblePath, setVisiblePath] = useState<string | null>(null);
   const shown = open && available;
   const bridge = bridgeForKey(chatId);
   const comparison = useComparison(cwd ?? "", base, bridge, shown && panelLists);
@@ -101,6 +103,7 @@ export function useChanges({
       if (fileMode) setMode(fileMode);
       setDiffChatId(chatId);
       setScrollTarget((previous) => ({ path, nonce: (previous?.nonce ?? 0) + 1 }));
+      setVisiblePath(path);
     },
     [chatId],
   );
@@ -138,7 +141,8 @@ export function useChanges({
     showPullRequest,
     pullRequestNumber: pullRequest?.number,
     scrollTarget,
-    activePath: diffOpen ? scrollTarget?.path : undefined,
+    activePath: diffOpen ? (visiblePath ?? scrollTarget?.path) : undefined,
+    setVisiblePath,
     selectFile,
     openFile,
     ...files,

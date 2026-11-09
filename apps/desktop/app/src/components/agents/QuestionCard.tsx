@@ -13,6 +13,8 @@ import {
   draftOf,
   MAX_ANSWER_IMAGES,
   nextTab,
+  chooseOther,
+  otherChosen,
   pickOption,
   primaryAction,
   primaryEnabled,
@@ -35,9 +37,17 @@ import { DownloadRing, DroppingArrow } from "../DownloadRing";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Button, IconButton } from "../primitives/Button";
 import { CheckboxBox } from "../primitives/Checkbox";
-import { Input } from "../primitives/Field";
 import { Icon } from "../primitives/Icon";
 import { Tabs } from "../primitives/Tabs";
+import { formatElapsed } from "@milagre/shared/display-clock";
+import { useDisplayValue } from "../../lib/display-clock";
+import { WaitingForApproval } from "./step-approval";
+
+/** How long the turn has waited, beside "Waiting for answer": the time the turn timer showed before the card came. */
+function WaitedFor({ startedAt }: { startedAt: number }) {
+  const elapsed = useDisplayValue(1000, (now) => formatElapsed(now - startedAt));
+  return <span className="text-ink-3 tabular-nums">· {elapsed}</span>;
+}
 
 /**
  * The open chat's oldest question: the agent's options as rows, an answer of the user's own, and Dismiss.
@@ -55,7 +65,10 @@ function OrdinaryQuestionCard({
   answering,
   onAnswer,
   dictationChat,
+  startedAt,
 }: {
+  /** When the turn waiting on this question began: the card shows how long it has waited, as an approval row does. */
+  startedAt?: number;
   /** The Chat asking: dictation reads its Project's words and its agent fixes misheard names, as in the composer. */
   dictationChat?: { cwd: string; scope?: string; chatId?: number; provider?: string };
   request: QuestionRequest;
@@ -71,6 +84,7 @@ function OrdinaryQuestionCard({
   const [selected, setActive] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const otherRef = useRef<HTMLInputElement>(null);
   const [imageError, setImageError] = useState("");
   // A dictated answer goes after what was typed: the words show as they're heard, and the fix-up may rewrite them after.
   const dictated = useRef<{ question: AgentQuestion; base: string } | null>(null);
@@ -159,7 +173,11 @@ function OrdinaryQuestionCard({
     if (answerImageCount(drafts) + files.length > MAX_ANSWER_IMAGES) return setImageError(`Attach at most ${MAX_ANSWER_IMAGES} images to your answers.`);
     try {
       const read = await Promise.all(files.map(readImage));
-      setDrafts((current) => setAnswerImages(current, target, [...(draftOf(current, target.id).images ?? []), ...read]));
+      setDrafts((current) => {
+        const next = setAnswerImages(current, target, [...(draftOf(current, target.id).images ?? []), ...read]);
+        // Images go with the typed answer, so attaching chooses its row, as typing does.
+        return otherChosen(draftOf(next, target.id)) ? next : chooseOther(next, target);
+      });
     } catch (error) {
       setImageError(error instanceof Error ? error.message : "Could not read the image. Try again.");
     }
@@ -188,6 +206,7 @@ function OrdinaryQuestionCard({
 
   if (!question) return null;
   const draft = draftOf(drafts, question.id);
+  const otherOn = otherChosen(draft);
 
   return (
     <motion.section
@@ -199,9 +218,11 @@ function OrdinaryQuestionCard({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={reduce ? undefined : { opacity: 0, y: 6, scale: 0.985 }}
       transition={reduce ? { duration: 0 } : SPRING_SWAP}
-      className="flex max-h-[min(72vh,620px)] w-full flex-col overflow-hidden rounded-card bg-surface shadow-overlay"
+      // Flat like the approval block: a line-strong hairline, no shadow, no footer band.
+      className="flex max-h-[min(72vh,620px)] w-full flex-col overflow-hidden rounded-card border border-line-strong bg-surface"
     >
-      <ScrollArea className="grid flex-1 gap-3 p-4">
+      {/* 12px in from the border, as the approval block: its waiting dot sits on the tool rows' glyph line. */}
+      <ScrollArea className="grid flex-1 gap-3 p-3">
         {several && (
           <Tabs
             label="Questions"
@@ -225,7 +246,14 @@ function OrdinaryQuestionCard({
           aria-label={several ? tabLabel(question, active) : question.question}
           className="grid gap-1.5"
         >
-          <h2 className="text-15 font-semibold text-ink">{question.question}</h2>
+          <div>
+            {/* The approval row's state, in the same words and orange: the agent is blocked on the user. */}
+            <p aria-hidden className="flex items-center gap-1.5 text-11 font-medium">
+              <WaitingForApproval label="Waiting for answer" className="" />
+              {startedAt !== undefined && <WaitedFor startedAt={startedAt} />}
+            </p>
+            <h2 className="mt-0.5 text-15 font-semibold text-ink">{question.question}</h2>
+          </div>
           {question.multiSelect && <p className="text-12 text-ink-3">Pick any that apply.</p>}
           {question.options.map((option, index) => {
             const picked = draft.picked.includes(option.label);
@@ -249,8 +277,36 @@ function OrdinaryQuestionCard({
             );
           })}
           {question.allowOther && (
-            <div className="flex items-center gap-1.5">
-              <Input
+            // The typed answer is one more option row: the same frame, its radio (or checkbox) on the options' line, the
+            // field as its label and the mic and image buttons inside it. The row's border is the field: no edge of its own.
+            <div
+              data-question-other
+              onClick={(event) => {
+                if (!pending || event.target !== event.currentTarget) return;
+                if (!otherOn) setDrafts(chooseOther(drafts, question));
+                otherRef.current?.focus();
+              }}
+              // As tall as a two-line option row (52px), its one line centred, so the three rows share one rhythm.
+              className={`flex min-h-13 w-full items-center gap-2 rounded-control border px-2.5 py-2 transition-colors ${pending ? "cursor-text" : ""} ${otherOn ? "border-line-strong bg-inset" : `border-line bg-surface ${pending ? "hover:border-line-strong hover:bg-hover" : ""}`}`}
+            >
+              {question.options.length > 0 && (
+                <button
+                  type="button"
+                  role={question.multiSelect ? "checkbox" : "radio"}
+                  aria-checked={otherOn}
+                  aria-label="Other"
+                  disabled={!pending}
+                  onClick={() => {
+                    setDrafts(chooseOther(drafts, question));
+                    otherRef.current?.focus();
+                  }}
+                  className="flex shrink-0 rounded-full disabled:cursor-default"
+                >
+                  <CheckboxBox checked={otherOn} radio={!question.multiSelect} />
+                </button>
+              )}
+              <input
+                ref={otherRef}
                 type={question.secret ? "password" : "text"}
                 value={draft.typed}
                 disabled={!pending}
@@ -266,65 +322,64 @@ function OrdinaryQuestionCard({
                 placeholder={question.options.length ? "Other…" : "Type your answer"}
                 aria-label={`Your own answer to: ${question.question}`}
                 autoComplete="off"
-                className="min-w-0 flex-1"
+                className="h-5 min-w-0 flex-1 border-0 bg-transparent p-0 text-13 font-medium leading-5 text-ink outline-none placeholder:text-ink-3 disabled:cursor-default"
               />
               {!question.secret && (
-                <span className="relative flex shrink-0">
-                  {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
-                  {dictation.download ? (
-                    <button
-                      type="button"
-                      aria-label={`Downloading speech model, ${Math.round((dictation.download.received / dictation.download.total) * 100)}%. Cancel`}
-                      onClick={dictation.cancel}
-                      className="flex size-8 items-center justify-center rounded-full text-ink"
-                    >
-                      <DownloadRing size={28} progress={dictation.download.received / dictation.download.total}>
-                        <DroppingArrow size={14} well={20} />
-                      </DownloadRing>
-                    </button>
-                  ) : dictating ? (
-                    <span data-dictation-capsule className="flex h-8 items-center gap-1 rounded-full bg-hover px-1">
+                // 24px controls, centred in the row, trailing on the options' content inset.
+                <span className="-my-1 flex shrink-0 items-center gap-0.5">
+                  <span className="relative flex shrink-0">
+                    {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
+                    {dictation.download ? (
                       <button
                         type="button"
-                        aria-label="Discard dictation"
-                        title="Discard dictation"
+                        aria-label={`Downloading speech model, ${Math.round((dictation.download.received / dictation.download.total) * 100)}%. Cancel`}
                         onClick={dictation.cancel}
-                        className="flex size-6 items-center justify-center rounded-full text-ink-2 transition-colors hover:text-ink"
+                        className="flex size-6 items-center justify-center rounded-full text-ink"
                       >
-                        <Icon icon={Cancel01Icon} size={14} />
+                        <DownloadRing size={24} progress={dictation.download.received / dictation.download.total}>
+                          <DroppingArrow size={14} well={20} />
+                        </DownloadRing>
                       </button>
-                      {dictation.phase === "recording" ? (
+                    ) : dictating ? (
+                      <span data-dictation-capsule className="flex h-6 items-center gap-1 rounded-full bg-hover">
                         <button
-                          ref={(node) => {
-                            // oxlint-disable-next-line react/immutability -- the hook's meter ref, as the composer sets it: useDictation writes --level on it each frame.
-                            dictation.meter.current = node;
-                          }}
                           type="button"
-                          aria-label="Stop dictation"
-                          title="Stop dictation"
-                          onClick={() => void dictation.stop()}
-                          className="relative flex size-6 items-center justify-center rounded-full"
+                          aria-label="Discard dictation"
+                          title="Discard dictation"
+                          onClick={dictation.cancel}
+                          className="flex size-6 items-center justify-center rounded-full text-ink-2 transition-colors hover:text-ink"
                         >
-                          <span
-                            aria-hidden
-                            className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
-                            style={{ transform: "scale(calc(1 + var(--level, 0) * 0.38))" }}
-                          />
-                          <span aria-hidden className="relative block size-2.5 rounded-inline bg-red" />
+                          <Icon icon={Cancel01Icon} size={14} />
                         </button>
-                      ) : (
-                        <span aria-hidden className="flex size-6 items-center justify-center">
-                          <span className="block size-4 rounded-full border-2 border-line border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
-                        </span>
-                      )}
-                    </span>
-                  ) : (
-                    <IconButton label="Dictate" icon={Mic01Icon} size={32} disabled={!pending} onClick={() => startDictation(question)} />
-                  )}
-                </span>
-              )}
-              {!question.secret && (
-                <>
+                        {dictation.phase === "recording" ? (
+                          <button
+                            ref={(node) => {
+                              // oxlint-disable-next-line react/immutability -- the hook's meter ref, as the composer sets it: useDictation writes --level on it each frame.
+                              dictation.meter.current = node;
+                            }}
+                            type="button"
+                            aria-label="Stop dictation"
+                            title="Stop dictation"
+                            onClick={() => void dictation.stop()}
+                            className="relative flex size-6 items-center justify-center rounded-full"
+                          >
+                            <span
+                              aria-hidden
+                              className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
+                              style={{ transform: "scale(calc(1 + var(--level, 0) * 0.38))" }}
+                            />
+                            <span aria-hidden className="relative block size-2.5 rounded-inline bg-red" />
+                          </button>
+                        ) : (
+                          <span aria-hidden className="flex size-6 items-center justify-center">
+                            <span className="block size-4 rounded-full border-2 border-line border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <IconButton label="Dictate" icon={Mic01Icon} size={24} disabled={!pending} onClick={() => startDictation(question)} />
+                    )}
+                  </span>
                   <input
                     ref={fileRef}
                     type="file"
@@ -337,8 +392,8 @@ function OrdinaryQuestionCard({
                       event.target.value = "";
                     }}
                   />
-                  <IconButton label="Attach images" icon={Image01Icon} size={32} disabled={!pending} onClick={() => fileRef.current?.click()} />
-                </>
+                  <IconButton label="Attach images" icon={Image01Icon} size={24} disabled={!pending} onClick={() => fileRef.current?.click()} />
+                </span>
               )}
             </div>
           )}
@@ -370,14 +425,12 @@ function OrdinaryQuestionCard({
             animate={{ opacity: 1, y: 0 }}
             exit={reduce ? undefined : { opacity: 0, y: 6 }}
             transition={reduce ? { duration: 0 } : SPRING_SWAP}
-            className="flex flex-wrap justify-start gap-2 border-t border-line bg-inset px-4 py-3"
+            className="flex flex-wrap justify-end gap-2 px-3 pb-3"
           >
-            <Button variant="secondary" onClick={() => onAnswer(null)}>
-              <Icon icon={Cancel01Icon} size={14} />
+            <Button variant="ghost" size={28} onClick={() => onAnswer(null)}>
               Dismiss
             </Button>
-            <Button disabled={!ready || dictating} onClick={advance}>
-              <Icon icon={Tick02Icon} size={14} />
+            <Button size={28} disabled={!ready || dictating} onClick={advance}>
               {action === "next" ? "Next" : count === 1 ? "Send answer" : "Send answers"}
             </Button>
           </motion.div>

@@ -44,13 +44,14 @@ test("text reads at 4.5:1 on the page, cards, fields and the hover-2 highlight, 
           for (const bg of bgs) assert.ok(contrastRatio(p[key], bg) >= 4.5, `${theme.id} ${scheme} ${key} ${p[key]} on ${name} ${bg}`);
       for (const key of ["greenInk", "orangeInk", "redInk"] as const)
         for (const bg of [p.page, p.surface]) assert.ok(contrastRatio(p[key], bg) >= 4.5, `${theme.id} ${scheme} ${key} ${p[key]} on ${bg}`);
-      for (const [ink, tint] of [
-        ["greenInk", "greenTint"],
-        ["orangeInk", "orangeTint"],
-        ["redInk", "redTint"],
-        ["accentInk", "accentTint"],
+      // The status inks letter 10px badges on their tints (A/M/D in Changes): 4.8:1 there, not just 4.5.
+      for (const [ink, tint, ratio] of [
+        ["greenInk", "greenTint", 4.8],
+        ["orangeInk", "orangeTint", 4.8],
+        ["redInk", "redTint", 4.8],
+        ["accentInk", "accentTint", 4.5],
       ] as const)
-        for (const bg of behind(p[tint])) assert.ok(contrastRatio(p[ink], bg) >= 4.5, `${theme.id} ${scheme} ${ink} ${p[ink]} on ${tint} ${bg}`);
+        for (const bg of behind(p[tint])) assert.ok(contrastRatio(p[ink], bg) >= ratio, `${theme.id} ${scheme} ${ink} ${p[ink]} on ${tint} ${bg}`);
       for (const [label, fill] of [
         ["onGreen", "greenInk"],
         ["onOrange", "orangeInk"],

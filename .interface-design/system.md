@@ -29,7 +29,8 @@ Two weights: 500 (medium) and 600 (semibold). 700 only for the phone's 34pt larg
 - A group heading above a card is `SectionLabel`: 12 medium ink-3 (11 in menus), phone 13 footnote ink3, 16pt in from
   the card edge. 15 semibold is only for a title inside a card. Routines' groups use `SectionLabel` too.
 - Sentence case everywhere; no tracked uppercase labels. Product nouns stay capitalised: Project, Chat, Routine, Run,
-  Link, Heartbeat, Worktree ("Rename Chat", "New Worktree"). Shared words live in `UI_COPY` (`@milagre/shared/model-copy`).
+  Link, Heartbeat, Worktree, and Done, the named Chat state ("Rename Chat", "New Worktree", "Archive Done Chats after").
+  Shared words live in `UI_COPY` (`@milagre/shared/model-copy`).
 - Button labels: desktop 500, phone 600 (platform style, not drift).
 - Letter-spacing 0 everywhere (the desktop `body` included), except `-0.02em` on 22px titles.
 
@@ -125,6 +126,12 @@ on every screen, header and body alike; section gap 24; overlays under the chat 
 - Menus and pickers: one moving highlight, `bg-hover-2`, for pointer and keyboard, plus the inset accent ring on
   keyboard focus. A checked row shows only a 14px tick, no fill.
 - Selection is ink on both platforms: a tick, a fill or a dot. Accent never marks a selection.
+- Chat status marks: orange means "needs you" (an approval's shield, a question's bubble, the top bar's "2 waiting"
+  chip dot), work in progress is quiet ink-3 (the running spinner, the background ring), failed is red. Unread is the
+  one accent status mark, an 8px accent dot, a deliberate exception kept from macOS Mail and Slack; nothing else uses
+  accent as a status.
+- Scrollbars are overlays: the thumb is transparent at rest and shows while its scroller is hovered or scrolling
+  (`data-scrolling`, 800ms after the last scroll event), as on macOS.
 - Toggles: a pressed or open toggle is `bg-hover-2` with an ink glyph (phone: `hover2` fill, ink icon). `accent-tint`
   with `accent-ink` only for an armed mode that changes what a click does (comment mode).
 - A number or word on a coloured fill uses the -ink fill and its label: `bg-red-ink text-on-red`, `bg-green-ink
@@ -159,13 +166,22 @@ Shared looks (each app maps the palette keys and icon names to its own): `chatMa
 `permissionPresentation` (Full is the only orange mode; `model-copy`), `presenceTone` (green, orange, red, ink-4 offline;
 `chat-scopes`), `projectAvatarRadius` / `PROJECT_AVATAR` (`project-list`), `IMAGE_COLOR` (`file-kinds`).
 
+## Settings
+
+Settings is a deliberate in-window dialog, not a second window: Milagre is a one-window app, so Settings opens over the
+Chat it was opened from (`rounded-window`, scrim behind, ⌘, and Esc), keeps its own search and nav, and closes back to
+where you were. The phone shows it as its own stack of screens.
+
+## Approvals
+
+Desktop approvals are built inline on their tool row ("Waiting for approval", then Deny · Always allow · Allow once under
+it, what it would run beneath; `agents/step-approval.tsx`); the phone keeps the card for its 44pt buttons.
+
 ## Decided, not built yet
 
 Victor picked these on 2026-10-28; each lands in its own PR, desktop and phone together:
 
 - Chat text default 14px with 1.6 line height (today 13 / 1.55).
-- Desktop approvals inline on their tool row ("Waiting for approval · Decline · Approve · More"); the phone keeps the
-  card for 44pt buttons.
 - Two-row composer: prompt on top, attach bottom-left, model · effort · send bottom-right, no collapsed state.
   Needs its own design pass first.
 - Diagonal stripes at about 4% under the transcript column, and every uppercase label in sentence case.

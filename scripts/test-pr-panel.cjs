@@ -143,7 +143,7 @@ async function browserChecks() {
     assert.equal(await text("[data-pr-merge]"), "Merge", "A ready PR gets the Merge button");
 
     // Summary | Files 2, with the checks status and its bar beside them.
-    assert.equal(await evaluate('document.querySelector("[data-pr-tab=summary]").getAttribute("aria-selected")'), "true");
+    assert.equal(await evaluate('document.querySelector("[data-pr-tab=summary]").getAttribute("aria-checked")'), "true");
     assert.match(await text("[data-pr-tab=files]"), /Files\s*2/);
     assert.equal(await evaluate('document.querySelector("[data-pr-checks-status]").getAttribute("data-pr-checks-status")'), "pass");
     assert.equal(await text("[data-pr-checks-status]"), "1 passed · 1 skipped");

@@ -101,7 +101,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   { page: "general", title: "Done" },
   {
     page: "general",
-    title: "Archive Done chats after",
+    title: "Archive Done Chats after",
     group: "Done",
     keywords: "retention days hours cleanup",
   },
@@ -134,7 +134,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   {
     page: "appearance",
     title: "Mode",
-    description: "System follows macOS. Every theme has a light and a dark version. ⌘⇧T switches.",
+    description: "System follows macOS. Every theme has a light and a dark version. ⇧⌘T switches.",
     keywords: "dark light system theme appearance",
   },
   { page: "appearance", title: "Catppuccin", keywords: "theme color palette" },

@@ -161,18 +161,46 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-changes-toggle]").click()');
     await waitFor('!!document.querySelector("[data-diff-tree-file]")');
 
-    // The Changes tab counts both sections, a file in both once; each section is its own tree, with its summed counts.
+    // The Changes tab counts both sections, a file in both once. Ten files or fewer list flat (name, then folder, in the
+    // diff's order) with their counts in columns; the folder tree is for larger sets.
     assert.equal(await evaluate('document.querySelector("[data-changes-tab=changes]").textContent'), "Changes6");
-    const folders = await evaluate(
-      `[...document.querySelectorAll("[data-changes-section='Not committed'] [data-diff-tree-folder]")].map(node => node.dataset.diffTreeFolder)`,
-    );
-    assert.deepEqual(folders, ["assets", "assets/data", "packages/app/src", "packages/app/src/components/Calendar"], "Single-child folders merge into one row");
     assert.equal(
-      await evaluate("document.querySelector(\"[data-diff-tree-folder='packages/app/src/components/Calendar']\").textContent"),
-      "components/Calendar+3−2",
+      await evaluate(`document.querySelectorAll("[data-changes-section='Not committed'] [data-diff-tree-folder]").length`),
+      0,
+      "A small set lists flat",
     );
-    assert.equal(await evaluate("document.querySelector(\"[data-diff-tree-folder='packages/app/src']\").textContent"), "packages/app/src+5−2");
-    assert.match(await evaluate(`document.querySelector("[data-changes-section='Not committed'] h3").textContent`), /^Not committed6.*\+3507−3$/);
+    assert.deepEqual(
+      await evaluate(`[...document.querySelectorAll("[data-changes-section='Not committed'] [data-diff-tree-file]")].map(node => node.dataset.diffTreeFile)`),
+      [CAL, "packages/app/src/components/Calendar/Calendar.tsx", "packages/app/src/index.ts", "README.md", "assets/data/big.json", "assets/logo.png"],
+      "The flat list keeps the diff's order",
+    );
+    // The folder shortens by whole segments from the middle to the room it has, never mid-word, keeping the first two
+    // and the last; the full path stays on the cell.
+    assert.match(
+      await evaluate(`document.querySelector(${JSON.stringify(`[data-diff-tree-file="${CAL}"]`)}).textContent`),
+      /^CalendarEmptyState\.tsxpackages\/app\/(src\/components|…\/components|…)\/Calendar\+2−2M$/,
+    );
+    assert.equal(
+      await evaluate(`document.querySelector(${JSON.stringify(`[data-diff-tree-file="${CAL}"] [data-diff-tree-folder-path]`)}).dataset.diffTreeFolderPath`),
+      "packages/app/src/components/Calendar",
+    );
+    assert.equal(
+      await evaluate(
+        `new Set([...document.querySelectorAll("[data-changes-section='Not committed'] [data-diff-tree-folder-path]")].map((cell) => Math.round(cell.getBoundingClientRect().left))).size`,
+      ),
+      1,
+      "Every folder starts at one x",
+    );
+    assert.equal(
+      await evaluate(`document.querySelector('[data-diff-tree-file="README.md"] [data-diff-tree-folder-path]')`),
+      null,
+      "A root file shows no folder",
+    );
+    assert.match(
+      await evaluate(`document.querySelector("[data-changes-section='Not committed'] h3").textContent`),
+      /^Not committed$/,
+      "The section label stands alone; totals are on the rows",
+    );
     assert.equal(await evaluate("document.querySelector(\"[data-diff-tree-file='packages/app/src/index.ts'] [data-status]\").dataset.status"), "A");
     assert.equal(await evaluate('document.querySelectorAll("[data-diff-view]").length'), 0, "Diff view waits for a file click");
     await delay(200);

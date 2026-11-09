@@ -121,7 +121,8 @@ export function FindBar({
     };
   }, [query]);
 
-  useEffect(() => {
+  // Before paint, so the count ("2 of 5") and the match scrolling into view land in the same frame.
+  useLayoutEffect(() => {
     paint(ranges.current, active);
     if (!reveal.current) return;
     ranges.current[active]?.startContainer.parentElement?.scrollIntoView({ block: "center" });

@@ -32,7 +32,12 @@ import { MediaLightbox } from "../motion/LazyMediaLightbox";
 
 const AttachmentPreview = lazyView(() => import("../AttachmentPreview").then((module) => module.AttachmentPreview));
 
-const CODE_CLASS = "rounded-inline bg-field px-1 py-px font-mono text-[0.92em] text-ink";
+/**
+ * An inline code chip: translucent ink, so it shows on the page, in the user's bubble (a field) and on a card in every
+ * theme. A field fill matched the light page and the chip vanished.
+ */
+export const CODE_CHIP = "rounded-inline bg-hover-2 px-1 py-px font-mono text-[0.875em] text-ink";
+const CODE_CLASS = CODE_CHIP;
 const MarkdownImages = createContext<ImageAttachment[] | undefined>(undefined);
 /** Reads a remote image the text shows inline, as a data URL; null for an image it doesn't read, which stays a link. */
 export type MarkdownImageLoader = (src: string) => Promise<string> | null;

@@ -215,14 +215,7 @@ function ProjectChanges({
           {comparison.view === "commits" ? (
             <CommitHistory comparison={comparison} />
           ) : (
-            <ChangesSections
-              compactComparison={!comparison.unavailable}
-              lists={lists}
-              mode={mode}
-              onSelectFile={onSelectFile}
-              activePath={activePath}
-              commentCounts={commentCounts}
-            />
+            <ChangesSections lists={lists} mode={mode} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />
           )}
         </div>
       )}

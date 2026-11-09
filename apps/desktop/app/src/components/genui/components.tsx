@@ -34,7 +34,7 @@ const Heading: GenuiRenderer<"Heading"> = ({ props }) => (
 const TONE = { default: "text-ink", muted: "text-ink-2", strong: "font-medium text-ink" } as const;
 
 const Text: GenuiRenderer<"Text"> = ({ props }) => (
-  <p className={`m-0 text-[length:var(--chat-size)] leading-[1.55] ${TONE[props.tone ?? "default"]}`}>{props.text}</p>
+  <p className={`m-0 text-[length:var(--chat-size)] leading-[1.6] ${TONE[props.tone ?? "default"]}`}>{props.text}</p>
 );
 
 const KeyValue: GenuiRenderer<"KeyValue"> = ({ props }) => (

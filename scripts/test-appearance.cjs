@@ -126,10 +126,10 @@ async function browserChecks() {
     await waitFor(`document.documentElement.classList.contains('dark')`);
 
     // Defaults change nothing.
-    assert.equal(await style(bubble, "fontSize"), "13px", "default chat size");
+    assert.equal(await style(bubble, "fontSize"), "14px", "default chat size");
     assert.equal(await style(".chat-title-current", "fontSize"), "14px", "default sidebar size");
     assert.equal(await style("pre.font-mono", "fontSize"), "12px", "default code size");
-    assert.ok((await columnWidth()) <= 768, "comfortable column is at most 768px");
+    assert.ok((await columnWidth()) <= 704, "comfortable column is at most 704px");
     assert.equal(
       await style(marker, "color"),
       await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--green').trim()`).then(hexToRgb),
@@ -179,8 +179,8 @@ async function browserChecks() {
 
     // Sizes.
     await set({ chatSize: "large", codeSize: "large", sidebarSize: "larger" });
-    await waitFor(`getComputedStyle(document.querySelector('${bubble}')).fontSize === '15px'`);
-    assert.equal(await style(bubble, "fontSize"), "15px", "large chat text is 15px");
+    await waitFor(`getComputedStyle(document.querySelector('${bubble}')).fontSize === '16px'`);
+    assert.equal(await style(bubble, "fontSize"), "16px", "large chat text is 16px");
     assert.equal(await style("pre.font-mono", "fontSize"), "14px", "large code is 14px");
     assert.equal(await style(".chat-title-current", "fontSize"), "16px", "the larger sidebar grows a chat name by 2px");
     await evaluate(`window.__mountTerminal()`);
@@ -189,7 +189,7 @@ async function browserChecks() {
     await waitFor(`window.__term.options.fontSize === 11.5`);
     await set({ chatSize: "default", codeSize: "default", sidebarSize: "default" });
     await waitFor(`window.__term.options.fontSize === 12.5`);
-    assert.equal(await style(bubble, "fontSize"), "13px", "back to default");
+    assert.equal(await style(bubble, "fontSize"), "14px", "back to default");
 
     // Diff colors follow the pair, per scheme (the fixture is dark).
     const blue = DIFF_PAIRS.find((pair) => pair.id === "blue-orange");
@@ -323,7 +323,7 @@ async function browserChecks() {
           where + ": the edges fade without blurring the transcript",
         );
         assert.deepEqual(await tintOf(".chat-top-blur"), bottom, where + ": the top fade mirrors the bottom's tint");
-        assert.equal((await rectOf(".chat-bottom-blur")).height, 56, where + ": the bottom fade is 56px tall");
+        assert.equal((await rectOf(".chat-bottom-blur")).height, 64, where + ": the bottom fade is 64px tall");
         // Over empty space the middle of the fade is the background itself: same pixels as just above the fade.
         const overlay = await rectOf(".chat-bottom-blur");
         // Clear of the terminal the size checks left at the window's bottom-left corner.

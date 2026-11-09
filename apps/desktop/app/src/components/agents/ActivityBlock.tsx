@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { activityDuration, stepDisplayTitle } from "@milagre/shared/tool-activity";
 import { useDisplayValue } from "../../lib/display-clock";
-import { ActivitySources } from "./ActivitySource";
+import { ActivitySources, StepIcon } from "./ActivitySource";
 import { Alert02Icon, ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import type { ChatStep } from "../../model";
 import { activitySummary, titleSpans } from "../../lib/reply-parts";
@@ -9,8 +9,9 @@ import type { ActivityEntry } from "../../lib/reply-parts";
 import { activityBoundary, earlierStepsLabel } from "../../lib/activity-window";
 import { useSettings } from "../../lib/settings";
 import { useStepTitleSweep } from "../../lib/step-sweep";
-import { Markdown } from "../markdown/Markdown";
+import { CODE_CHIP, Markdown } from "../markdown/Markdown";
 import { StepRow } from "./StepRow";
+import { InlineApproval, useStepApproval, useStepApprovalId, WaitingForApproval } from "./step-approval";
 import { Icon } from "../primitives/Icon";
 import { Button } from "../primitives/Button";
 
@@ -22,7 +23,7 @@ function Title({ step, running }: { step: ChatStep; running: boolean }) {
     <>
       {titleSpans(stepDisplayTitle(step, running)).map((span, index) =>
         span.code ? (
-          <code key={index} className={`rounded-inline bg-field px-1 py-px font-mono text-[0.92em] text-ink ${sweep.className ?? ""}`}>
+          <code key={index} className={`${CODE_CHIP} ${sweep.className ?? ""}`}>
             {span.text}
           </code>
         ) : (
@@ -63,15 +64,25 @@ export function ActivityBlock({
   const { toolCallDisplay } = useSettings();
   const steps = entries.flatMap((entry): ChatStep[] => (entry.type === "step" ? [entry.step] : []));
   const elapsed = useDisplayValue(1000, (now) => activityDuration(steps, streaming, now), streaming);
+  // The step waiting on the approval the transcript shows leads the line, so its Deny and Allow sit under its name.
+  const approvalStepId = useStepApprovalId();
+  const current = streaming
+    ? (steps.find((step) => step.status === "running" && step.id === approvalStepId && waitingStepIds.includes(step.id)) ??
+      steps.find((step) => step.status === "running" && waitingStepIds.includes(step.id)) ??
+      steps.findLast((step) => step.status === "running"))
+    : undefined;
+  const waiting = current ? waitingStepIds.includes(current.id) : false;
+  const folded = toolCallDisplay !== "full" && !(entries.length === 1 && entries[0]?.type === "step");
+  const approval = useStepApproval(folded && waiting ? current?.id : undefined);
   if (!entries.length) return null;
   if (toolCallDisplay === "full")
     return (
-      <div data-slot="activity-inline" className="-mx-1.5 my-1 flex min-w-0 flex-col">
+      <div data-slot="activity-inline" className="my-1 flex min-w-0 flex-col">
         {entries.map((entry, index) =>
           entry.type === "step" ? (
             <StepRow key={entry.step.id} step={entry.step} waiting={waitingStepIds.includes(entry.step.id)} />
           ) : (
-            <div key={`text-${index}`} className="px-1.5 py-1.5">
+            <div key={`text-${index}`} className="py-1.5">
               <Markdown text={entry.text} />
             </div>
           ),
@@ -81,50 +92,69 @@ export function ActivityBlock({
   const first = entries[0];
   if (entries.length === 1 && first?.type === "step") return <StepRow key={first.step.id} step={first.step} waiting={waitingStepIds.includes(first.step.id)} />;
 
-  const current = streaming
-    ? (steps.find((step) => step.status === "running" && waitingStepIds.includes(step.id)) ?? steps.findLast((step) => step.status === "running"))
-    : undefined;
-  const waiting = current ? waitingStepIds.includes(current.id) : false;
   const summary = activitySummary(steps, { credits });
 
-  return (
-    <div data-slot="activity" className="-mx-1.5 my-1 flex min-w-0 flex-col">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => {
-          if (boundary === null) setBoundary(activityBoundary(entries, waitingStepIds, streaming));
-          setOpen((value) => !value);
-        }}
-        className="flex h-6 w-fit max-w-full min-w-0 items-center gap-2 rounded-control px-1.5 text-left text-12 text-ink-2 transition-colors hover:bg-hover hover:text-ink"
-      >
+  const line = (
+    <button
+      type="button"
+      aria-expanded={open}
+      onClick={() => {
+        if (boundary === null) setBoundary(activityBoundary(entries, waitingStepIds, streaming));
+        setOpen((value) => !value);
+      }}
+      // The whole line is the toggle: hovering anywhere fills it and lights the chevron and time at its right end too.
+      className="group/fold flex h-6 w-full min-w-0 items-center gap-2 rounded-control px-[var(--row-inset,13px)] text-left text-12 text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+    >
+      {/* A waiting line is about one call: its glyph alone, not the reply's mix. */}
+      {waiting && current ? (
+        <span aria-hidden className="flex shrink-0 text-ink-3">
+          <StepIcon step={current} />
+        </span>
+      ) : (
         <ActivitySources steps={steps} />
-        <span role="status" className="min-w-0 truncate">
-          {current ? (
-            steps.filter((step) => step.status === "running").length > 1 && !waiting ? (
-              `Running ${steps.filter((step) => step.status === "running").length} calls`
-            ) : (
-              <Title key={current.id} step={current} running={!waiting} />
-            )
-          ) : streaming ? (
-            "Working"
+      )}
+      <span role="status" className="min-w-0 truncate">
+        {current ? (
+          steps.filter((step) => step.status === "running").length > 1 && !waiting ? (
+            `Running ${steps.filter((step) => step.status === "running").length} calls`
           ) : (
-            summary.text
-          )}
-        </span>
-        {waiting && <span className="shrink-0 text-11 text-ink-3">Waiting for approval</span>}
-        {summary.failed > 0 && (
-          <span className="flex shrink-0 items-center gap-1 text-11 text-red-ink">
-            <Icon icon={Alert02Icon} size={12} />
-            {summary.failed} failed
-          </span>
+            <Title key={current.id} step={current} running={!waiting} />
+          )
+        ) : streaming ? (
+          "Working"
+        ) : (
+          summary.text
         )}
-        {streaming && <span className="shrink-0 text-11 text-ink-3">{steps.length} calls</span>}
-        <span aria-hidden className={`shrink-0 text-ink-3 transition-transform duration-base ease-enter ${open ? "rotate-180" : ""}`}>
-          <Icon icon={ArrowDown01Icon} size={12} />
+      </span>
+      {waiting && <WaitingForApproval />}
+      {summary.failed > 0 && (
+        <span className="flex shrink-0 items-center gap-1 text-11 text-red-ink">
+          <Icon icon={Alert02Icon} size={12} />
+          {summary.failed} failed
         </span>
-        {elapsed && <span className="shrink-0 text-11 text-ink-3 tabular-nums">{elapsed}</span>}
-      </button>
+      )}
+      {streaming && !waiting && <span className="shrink-0 text-11 text-ink-3">{steps.length} calls</span>}
+      {/* The chevron and time take the rows' columns, so every duration ends on one right edge. */}
+      <span aria-hidden className="flex-1" />
+      <span
+        aria-hidden
+        className={`shrink-0 text-ink-3 transition-[color,rotate,transform] duration-base ease-enter group-hover/fold:text-ink ${open ? "rotate-180" : ""}`}
+      >
+        <Icon icon={ArrowDown01Icon} size={12} />
+      </span>
+      {elapsed && <span className="min-w-10 shrink-0 text-right text-11 text-ink-3 tabular-nums transition-colors group-hover/fold:text-ink-2">{elapsed}</span>}
+    </button>
+  );
+
+  return (
+    <div data-slot="activity" className="my-1 flex min-w-0 flex-col">
+      {approval && current ? (
+        <InlineApproval approval={approval} title={stepDisplayTitle(current, false)}>
+          {line}
+        </InlineApproval>
+      ) : (
+        line
+      )}
 
       <div
         inert={!open}
@@ -139,14 +169,15 @@ export function ActivityBlock({
             role="group"
             aria-label="Activity"
             aria-live="off"
-            className="relative mt-0.5 ml-3 border-l border-line pl-2 outline-none"
+            // The open fold's rows keep the summary's glyph line: one inset line for every tool row.
+            className="relative mt-0.5 outline-none"
           >
             {hidden > 0 && (
               <Button
                 variant="secondary"
                 size={24}
                 data-earlier-steps
-                className="self-start"
+                className="ml-[var(--row-inset,13px)] self-start"
                 onClick={() => {
                   setBoundary(0);
                   body.current?.focus({ preventScroll: true });
@@ -158,9 +189,9 @@ export function ActivityBlock({
             {boundary !== null &&
               entries.slice(hidden).map((entry, index) =>
                 entry.type === "step" ? (
-                  <StepRow key={entry.step.id} step={entry.step} waiting={waitingStepIds.includes(entry.step.id)} />
+                  <StepRow key={entry.step.id} step={entry.step} waiting={waitingStepIds.includes(entry.step.id)} hostsApproval={!approval} />
                 ) : (
-                  <div key={`text-${hidden + index}`} className="px-1.5 py-1 text-12 leading-[1.55] text-ink-2">
+                  <div key={`text-${hidden + index}`} className="px-[var(--row-inset,13px)] py-1 text-12 leading-[1.55] text-ink-2">
                     <Markdown text={entry.text} />
                   </div>
                 ),

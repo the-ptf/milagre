@@ -7,7 +7,7 @@ const none = () => false;
 
 test("emits size, width and motion variables", () => {
   const vars = appearanceVars({ ...DEFAULT_APPEARANCE, chatSize: "large", chatWidth: "full", diffColors: "blue-orange", motion: "off" }, true, none);
-  assert.equal(vars["--chat-size"], "15px");
+  assert.equal(vars["--chat-size"], "16px");
   assert.equal(vars["--chat-width"], "none");
   assert.equal(vars["--motion-scale"], "0");
   assert.equal(vars["--code-size"], "12px");
@@ -16,8 +16,8 @@ test("emits size, width and motion variables", () => {
 
 test("defaults keep today's values", () => {
   const vars = appearanceVars(DEFAULT_APPEARANCE, false, none);
-  assert.equal(vars["--chat-size"], "13px");
-  assert.equal(vars["--chat-width"], "768px");
+  assert.equal(vars["--chat-size"], "14px");
+  assert.equal(vars["--chat-width"], "704px");
   assert.equal(vars["--motion-scale"], "1");
 });
 

@@ -200,14 +200,17 @@ async function browserChecks() {
         win.setSize(640, 650);
         await delay(200);
         const attention = await bounds("[data-attention-button]");
-        assert.ok(attention.left >= (await evaluate("readChrome().controlsEnd")), "a long Chat title stays clear of the sidebar tools at narrow widths");
+        assert.ok(attention.left >= (await evaluate("readChrome().controlsEnd")), "the attention chip stays clear of the sidebar tools at narrow widths");
         assert.ok(attention.right + 8 <= (await bounds('[data-slot="panel-toggles"]')).left, "attention reserves space for the panel icons");
         assert.equal(
-          await evaluate(
-            `document.querySelector('[data-attention-button] span').scrollWidth > document.querySelector('[data-attention-button] span').clientWidth`,
-          ),
-          true,
-          "long Chat titles truncate to the available space",
+          await evaluate(`document.querySelector('[data-attention-button]').textContent`),
+          "1 waiting",
+          "the chip counts, never names, the waiting Chat",
+        );
+        assert.equal(
+          await evaluate(`document.querySelector('[data-attention-button]').getAttribute("aria-label")`),
+          "Review the notification toolbar layout and accessibility needs attention",
+          "its accessible name still names the Chat",
         );
         await capture(integrated ? "integrated-narrow-attention" : "native-narrow-attention");
         win.setSize(1100, 650);

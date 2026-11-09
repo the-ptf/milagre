@@ -2,6 +2,25 @@ import { type HTMLAttributes, type Ref, useImperativeHandle, useRef } from "reac
 import { useScrollFade } from "../../lib/use-scroll-fade";
 
 /**
+ * The scrollbar is an overlay: styles.css shows its thumb only on hover or while its element carries data-scrolling.
+ * One capture listener marks whichever element scrolls (a ScrollArea, the diff view, the transcript) for 800ms after
+ * each scroll event, so a wheel or trackpad flick shows the thumb, then lets it go.
+ */
+const SCROLLING_MS = 800;
+const scrollingTimers = new WeakMap<Element, number>();
+function markScrolling(event: Event) {
+  const target = event.target instanceof Element ? event.target : document.scrollingElement;
+  if (!target) return;
+  target.setAttribute("data-scrolling", "");
+  window.clearTimeout(scrollingTimers.get(target));
+  scrollingTimers.set(
+    target,
+    window.setTimeout(() => target.removeAttribute("data-scrolling"), SCROLLING_MS),
+  );
+}
+if (typeof document !== "undefined") document.addEventListener("scroll", markScrolling, { capture: true, passive: true });
+
+/**
  * The app's scroll container: vertical scroll that stays inside it, the shared thin scrollbar from styles.css, and
  * edge fades that show only while there's more to scroll that way. Every scrolling list or panel uses this instead
  * of wiring overflow, overscroll and useScrollFade by hand. Cap its height through the parent (a max-height flex

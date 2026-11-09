@@ -425,7 +425,10 @@ async function main() {
       false,
       "The committed section does not repeat the comparison base",
     );
-    assert.match(await evaluate(`document.querySelector(${JSON.stringify(committed(apiId) + " h3")}).textContent`), /\+1−1$/);
+    assert.equal(
+      await evaluate(`document.querySelector(${JSON.stringify(committed(apiId) + ' [data-diff-tree-file="status.txt"] [data-diff-counts]')}).textContent`),
+      "+1−1",
+    );
     await waitFor(
       () =>
         evaluate(

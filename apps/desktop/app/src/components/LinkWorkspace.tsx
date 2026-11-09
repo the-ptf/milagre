@@ -56,6 +56,7 @@ import type { useAgentRuns } from "./useAgentRuns";
 import { attachmentPrompt } from "../lib/media";
 import { sentDecision, sentReply } from "../lib/agent-runs";
 import { PermissionCard } from "./agents/PermissionCard";
+import { useStepApprovalScope } from "./agents/step-approval";
 import { QuestionCard } from "./agents/QuestionCard";
 import { getSettings } from "../lib/settings";
 import { EditorLinks } from "./editor-links";
@@ -611,6 +612,10 @@ export function LinkWorkspace({
   const recents = scopeChats(owner, state, chatOrder, runMarks, { pins }).filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))));
   const approval = run?.approvals[0],
     question = approval ? undefined : run?.questions[0];
+  // As in a Project's Chat: the approval shows on its tool row, its card only while no row takes it.
+  const stepApproval = useStepApprovalScope(approval, (run?.approvals.length ?? 1) - 1, approval ? sentDecision(run, approval.requestId) : null, (decision) => {
+    if (approval && chatId) void agents.respond(chatId, approval.requestId, decision).catch((failure) => setError(ipcErrorMessage(failure)));
+  });
   async function refreshChanges() {
     if (prShown) prLocal.refresh();
     await Promise.all([uncommittedLists.refresh(), committedLists.refresh(), ...(chosen ? [changes.refresh()] : []), ...(prShown ? [prReview.refresh()] : [])]);
@@ -900,8 +905,9 @@ export function LinkWorkspace({
                         findSignal={findSignal}
                         findSeed={findSeed}
                         onFindClose={() => setFindOpen(false)}
+                        stepApproval={chatId ? stepApproval.value : null}
                         approval={
-                          approval && chatId ? (
+                          approval && chatId && !stepApproval.inline ? (
                             <PermissionCard
                               request={approval}
                               waiting={(run?.approvals.length ?? 1) - 1}
@@ -1045,8 +1051,8 @@ export function LinkWorkspace({
                     else pick(null);
                   },
                 },
-                { id: "link", label: "Link Projects…", group: "Actions", icon: "folder", run: onLinkProject },
-                { id: "edit-link", label: "Edit Link…", group: "Actions", icon: "folder", run: () => onEditLink(opened.link.id) },
+                { id: "link", label: "Link Projects…", group: "Actions", icon: "link", run: onLinkProject },
+                { id: "edit-link", label: "Edit Link…", group: "Actions", icon: "link", run: () => onEditLink(opened.link.id) },
                 ...recents.map((row) => ({ id: row.id, label: row.label, group: "Chats", icon: "chat" as const, run: () => pick(Number(row.id)) })),
                 ...opened.projects.map((project) => ({
                   id: project.id,

@@ -4,6 +4,11 @@ import type { AgentQuestion, ImageAttachment, QuestionAnswers, QuestionImages } 
 export interface QuestionDraft {
   picked: string[];
   typed: string;
+  /**
+   * Whether the typed answer (the "Other" row) is chosen. Picking an option on a single-choice question moves the choice
+   * away but keeps the text; typing chooses it again. Absent on older drafts: a typed answer then counts.
+   */
+  other?: boolean;
   images?: ImageAttachment[];
 }
 
@@ -17,19 +22,35 @@ export function draftOf(drafts: QuestionDrafts, questionId: string): QuestionDra
   return drafts[questionId] ?? { picked: [], typed: "" };
 }
 
-/** Picks an option. A single-choice question keeps only that option and drops a typed answer; a multi-select one toggles it. */
+/**
+ * Picks an option. A single-choice question keeps only that option and moves the choice off the typed answer (its text
+ * stays, so choosing Other again brings it back); a multi-select one toggles it.
+ */
 export function pickOption(drafts: QuestionDrafts, question: AgentQuestion, label: string): QuestionDrafts {
   const draft = draftOf(drafts, question.id);
-  if (!question.multiSelect) return { ...drafts, [question.id]: { ...draft, picked: [label], typed: "" } };
+  if (!question.multiSelect) return { ...drafts, [question.id]: { ...draft, picked: [label], other: false } };
   const picked = draft.picked.includes(label) ? draft.picked.filter((item) => item !== label) : [...draft.picked, label];
   return { ...drafts, [question.id]: { ...draft, picked } };
 }
 
-/** Types an answer of the user's own. On a single-choice question it replaces the picked option. */
+/** Types an answer of the user's own, which chooses it. On a single-choice question it replaces the picked option. */
 export function typeAnswer(drafts: QuestionDrafts, question: AgentQuestion, typed: string): QuestionDrafts {
   const draft = draftOf(drafts, question.id);
-  const picked = !question.multiSelect && typed.trim() ? [] : draft.picked;
-  return { ...drafts, [question.id]: { ...draft, picked, typed } };
+  const wrote = Boolean(typed.trim());
+  const picked = !question.multiSelect && wrote ? [] : draft.picked;
+  return { ...drafts, [question.id]: { ...draft, picked, typed, other: wrote || (draft.other ?? false) } };
+}
+
+/** Chooses the typed answer's row: the only choice on a single-choice question, toggled on a multi-select one. */
+export function chooseOther(drafts: QuestionDrafts, question: AgentQuestion): QuestionDrafts {
+  const draft = draftOf(drafts, question.id);
+  if (!question.multiSelect) return { ...drafts, [question.id]: { ...draft, picked: [], other: true } };
+  return { ...drafts, [question.id]: { ...draft, other: !(draft.other ?? Boolean(draft.typed.trim())) } };
+}
+
+/** Whether the typed answer's row is chosen. */
+export function otherChosen(draft: QuestionDraft): boolean {
+  return draft.other ?? Boolean(draft.typed.trim());
 }
 
 /** Attaches images to a question's answer, or removes one (`images` the question keeps). */
@@ -67,7 +88,7 @@ export function draftAnswers(questions: AgentQuestion[], drafts: QuestionDrafts)
   for (const question of questions) {
     const draft = draftOf(drafts, question.id);
     const picked = question.options.map((option) => option.label).filter((label) => draft.picked.includes(label));
-    const typed = question.allowOther ? draft.typed.trim() : "";
+    const typed = question.allowOther && otherChosen(draft) ? draft.typed.trim() : "";
     const values = typed ? [...picked, typed] : picked;
     // Images alone answer a question too: the agent gets their paths.
     if (!values.length && !draft.images?.length) return null;

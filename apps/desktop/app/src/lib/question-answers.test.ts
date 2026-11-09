@@ -11,6 +11,7 @@ import {
   withDictation,
   nextTab,
   pickOption,
+  chooseOther,
   primaryAction,
   primaryEnabled,
   questionAnswered,
@@ -44,20 +45,30 @@ test("a single-choice question keeps one option, and a typed answer replaces it"
   let drafts: QuestionDrafts = {};
   drafts = pickOption(drafts, color, "Red");
   drafts = pickOption(drafts, color, "Green");
-  assert.deepEqual(drafts.color, { picked: ["Green"], typed: "" });
+  assert.deepEqual(drafts.color, { picked: ["Green"], typed: "", other: false });
   drafts = typeAnswer(drafts, color, "Purple");
-  assert.deepEqual(drafts.color, { picked: [], typed: "Purple" });
+  assert.deepEqual(drafts.color, { picked: [], typed: "Purple", other: true });
+  assert.deepEqual(draftAnswers([color], drafts), { color: ["Purple"] });
+  // Picking an option moves the choice but keeps the text, so choosing Other again brings it back.
   drafts = pickOption(drafts, color, "Blue");
-  assert.deepEqual(drafts.color, { picked: ["Blue"], typed: "" });
-  assert.deepEqual(typeAnswer(drafts, color, "   ").color, { picked: ["Blue"], typed: "   " });
+  assert.deepEqual(drafts.color, { picked: ["Blue"], typed: "Purple", other: false });
+  assert.deepEqual(draftAnswers([color], drafts), { color: ["Blue"] });
+  assert.deepEqual(typeAnswer(drafts, color, "   ").color, { picked: ["Blue"], typed: "   ", other: false });
+  drafts = chooseOther(drafts, color);
+  assert.deepEqual(drafts.color, { picked: [], typed: "Purple", other: true });
+  assert.deepEqual(draftAnswers([color], drafts), { color: ["Purple"] });
 });
 
 test("a multi-select question toggles options and adds a typed answer", () => {
   let drafts: QuestionDrafts = {};
   for (const label of ["Cherry", "Apple", "Banana", "Banana"]) drafts = pickOption(drafts, fruits, label);
   drafts = typeAnswer(drafts, fruits, " Mango ");
-  assert.deepEqual(drafts.fruits, { picked: ["Cherry", "Apple"], typed: " Mango " });
+  assert.deepEqual(drafts.fruits, { picked: ["Cherry", "Apple"], typed: " Mango ", other: true });
   assert.deepEqual(draftAnswers([fruits], drafts), { fruits: ["Apple", "Cherry", "Mango"] });
+  // Its Other box toggles like an option; unticked, the text stays but isn't sent.
+  drafts = chooseOther(drafts, fruits);
+  assert.deepEqual(draftAnswers([fruits], drafts), { fruits: ["Apple", "Cherry"] });
+  assert.equal(drafts.fruits?.typed, " Mango ");
 });
 
 test("answers are ready only once every question has one", () => {

@@ -6,7 +6,8 @@ import { SPRING_SWAP } from "../../lib/ease";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Icon } from "../primitives/Icon";
 import { Button } from "../primitives/Button";
-import { SectionLabel } from "../primitives/SectionLabel";
+import { titleSpans } from "@milagre/shared/reply-parts";
+import { CODE_CHIP } from "../markdown/Markdown";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 
 export type ToolApprovalStatus = "pending" | "approving" | "approved" | "denied" | "running" | "complete" | "error";
@@ -82,15 +83,30 @@ export function ToolApprovalCode({ code, language = "bash", className = "", plai
         <code>{code}</code>
       </pre>
     );
+  // The row's label already says what this is (Command, Changes, Details): no language bar over the code.
   return (
-    <div className={`min-w-0 overflow-hidden rounded-control border border-line bg-inset ${className}`}>
-      <SectionLabel as="div" variant="menu" className="border-b border-line px-3 py-1">
-        {language}
-      </SectionLabel>
-      <pre className="max-h-44 overflow-auto px-3 py-2 text-11 leading-5 text-ink-2">
+    <div data-language={language} className={`min-w-0 overflow-hidden rounded-control border border-line bg-inset ${className}`}>
+      <pre className="max-h-44 overflow-auto px-3 py-2 text-12 leading-5 text-ink-2">
         <code className="whitespace-pre-wrap break-words">{code}</code>
       </pre>
     </div>
+  );
+}
+
+/** An approval's title with its `code` spans drawn as code chips, never as literal backticks. */
+export function ApprovalTitle({ title }: { title: string }) {
+  return (
+    <>
+      {titleSpans(title).map((span, index) =>
+        span.code ? (
+          <code key={index} className={CODE_CHIP}>
+            {span.text}
+          </code>
+        ) : (
+          <span key={index}>{span.text}</span>
+        ),
+      )}
+    </>
   );
 }
 
@@ -140,14 +156,16 @@ export function ToolApproval({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={reduce ? undefined : { opacity: 0, y: 6, scale: 0.985 }}
       transition={reduce ? { duration: 0 } : SPRING_SWAP}
-      className={`${inline ? "flex w-full flex-col gap-4" : "flex max-h-[min(72vh,620px)] w-full flex-col overflow-hidden rounded-card bg-surface shadow-overlay"} ${className}`}
+      className={`${inline ? "flex w-full flex-col gap-4" : "flex max-h-[min(72vh,620px)] w-full flex-col overflow-hidden rounded-card bg-surface shadow-card"} ${className}`}
     >
       <div className={`flex items-start gap-3 ${inline ? "" : "p-4"}`}>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="truncate text-11 font-medium text-ink-3">{tool}</p>
-              <h2 className={`mt-0.5 ${inline ? "text-13" : "text-15"} font-semibold text-ink`}>{title}</h2>
+              <h2 className={`mt-0.5 ${inline ? "text-13" : "text-15"} font-semibold text-ink`}>
+                {typeof title === "string" ? <ApprovalTitle title={title} /> : title}
+              </h2>
             </div>
             {!inline && (
               <span className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-chip px-2 text-10 font-semibold ${statusTone(status)}`}>

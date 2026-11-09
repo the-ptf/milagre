@@ -138,7 +138,7 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[aria-label="New chat"]').click()`);
     await waitFor(`!!document.querySelector('[data-new-chat-pickers]')`);
     if (!(await evaluate(`document.querySelector('[data-new-chat-pickers]').textContent.includes('New Worktree')`))) {
-      await click("Local", { exact: false });
+      await click("This checkout", { exact: false });
       await click("New Worktree", { exact: false });
     }
     await waitFor(`!!document.querySelector('[data-prompt-editor]')`);

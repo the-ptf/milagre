@@ -1,11 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useShortcutLabel } from "../../lib/keybindings";
-import { ArrowDown01Icon, ArrowLeft02Icon, ArrowRight02Icon, GitBranchIcon, GridViewIcon, HierarchySquare02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft02Icon, FileDiffIcon, GridViewIcon, HierarchySquare02Icon } from "@hugeicons/core-free-icons";
 import { useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { chatMarkPresentation } from "@milagre/shared/chats";
+import { attentionCount } from "@milagre/shared/attention";
 import Tooltip from "../primitives/Tooltip";
-import { Button, buttonClass, IconButton } from "../primitives/Button";
+import { buttonClass, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { MenuRow, Popover } from "../primitives/Popover";
 import { DURATION, EASE_OUT } from "../../lib/ease";
@@ -21,12 +22,15 @@ import { useControlsClearance, useWindowChrome } from "../../lib/window-chrome";
 export function DiffBar({
   open,
   onBack,
+  label = "Back",
   send,
   trailing,
   corner,
 }: {
   open: boolean;
   onBack: () => void;
+  /** Where Back goes, as a breadcrumb in the Chat title's place: the Chat's title over a Chat's diff. */
+  label?: string;
   send?: { count: number; onSend: () => void };
   trailing?: React.ReactNode;
   /** Width (px) of the corner toggles top right, which the trailing controls keep clear of. */
@@ -49,10 +53,21 @@ export function DiffBar({
           transition={reduced ? { duration: 0 } : { duration: DURATION.base, ease: EASE_OUT }}
         >
           <div className="no-drag flex items-center gap-2">
-            <Button variant="secondary" data-diff-back onClick={onBack} className="pl-2">
-              <Icon icon={ArrowLeft02Icon} size={16} />
-              Back
-            </Button>
+            {/* A 28px ghost breadcrumb where the Chat's title sits (ChatIdentity): "← <Chat title>". */}
+            <Tooltip label={label === "Back" ? "Back" : `Back to ${label}`} side="bottom" align="start" asChild>
+              <button
+                type="button"
+                data-diff-back
+                aria-label={label === "Back" ? "Back" : `Back to ${label}`}
+                onClick={onBack}
+                className="group flex h-7 max-w-[min(50vw,480px)] min-w-0 items-center gap-1.5 rounded-control px-2 text-13 font-medium text-ink transition-colors hover:bg-hover active:scale-press"
+              >
+                <span className="flex shrink-0 text-ink-3 transition-colors group-hover:text-ink">
+                  <Icon icon={ArrowLeft02Icon} size={14} />
+                </span>
+                <span className="min-w-0 truncate">{label}</span>
+              </button>
+            </Tooltip>
             <AnimatePresence initial={false}>
               {send && send.count > 0 && (
                 <motion.button
@@ -83,9 +98,9 @@ export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () 
   const chrome = useWindowChrome();
   const shortcut = useShortcutLabel("changes.toggle");
   return (
-    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60] rounded-card bg-page" style={{ right: 12 + chrome.rightInset }}>
-      <Tooltip label={open ? "Hide changes" : "Show changes"} shortcut={shortcut} compactHint side="bottom" align="end">
-        <IconButton label="Toggle changes panel" icon={GitBranchIcon} size={32} aria-pressed={open} data-changes-toggle onClick={onToggle} />
+    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset }}>
+      <Tooltip label={open ? "Hide Changes" : "Show Changes"} shortcut={shortcut} compactHint side="bottom" align="end">
+        <IconButton label="Toggle changes panel" icon={FileDiffIcon} size={32} aria-pressed={open} data-changes-toggle onClick={onToggle} />
       </Tooltip>
     </div>
   );
@@ -96,7 +111,7 @@ export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset
   const chrome = useWindowChrome();
   const shortcut = useShortcutLabel("grid.toggle");
   return (
-    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60] rounded-card bg-page" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
+    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
       <Tooltip label={grid ? "Show one Chat" : "Show active Chats as a grid"} shortcut={shortcut} compactHint side="bottom" align="end">
         <IconButton label="Show active Chats as a grid" icon={GridViewIcon} size={32} aria-pressed={grid} data-layout-toggle onClick={onToggle} />
       </Tooltip>
@@ -112,7 +127,7 @@ export function SubchatsButton({ count, shown, offset, onToggle }: { count: numb
   const chrome = useWindowChrome();
   const label = shown ? "Back to the open Chat" : `Show the ${count} subchat${count === 1 ? "" : "s"} side by side`;
   return (
-    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60] rounded-card bg-page" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
+    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
       <Tooltip label={label} compactHint side="bottom" align="end">
         <button
           type="button"
@@ -135,11 +150,16 @@ export function SubchatsButton({ count, shown, offset, onToggle }: { count: numb
   );
 }
 
+/** About how wide the attention chip draws ("2 waiting"), for a bar along <main>'s top that keeps clear of it. */
+export const ATTENTION_CHIP_WIDTH = 96;
+
 export type AttentionItem = { key: string; project: string; title?: string; asking: boolean; waitingFor?: string };
 
 /**
- * Top right, left of the panel buttons when they show (the changes toggle, and a Chat's designs and simulator). One waiting chat opens on click; several open a menu
- * that lists each, oldest first, so you pick where to go.
+ * Top right, left of the panel buttons when they show (the changes toggle, and a Chat's designs and simulator): a calm,
+ * fixed chip, an orange dot and "2 waiting", never a Chat's title, so it doesn't change width or outshout the Chat. One
+ * waiting Chat opens on click (its title is the tooltip); several open a menu that lists each, oldest first. `label`
+ * names them in a sentence, for the tooltip and screen readers.
  */
 export function AttentionButton({ label, items, offset, onOpen }: { label: string; items: AttentionItem[]; offset: number; onOpen: (key: string) => void }) {
   const chrome = useWindowChrome();
@@ -153,7 +173,7 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
   return (
     <div
       data-attention
-      className="no-drag fixed top-[var(--window-chrome-top)] z-[60]"
+      className="no-drag fixed top-[var(--window-chrome-top)] z-[60] flex h-8 items-center"
       // Left of the buttons in the corner: `offset` is how many there are, 40px each (PanelToggles' CORNER_PITCH).
       style={{
         right: 12 + chrome.rightInset + offset * 40,
@@ -161,18 +181,19 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
         animation: "fade-in var(--duration-fast) var(--ease-enter)",
       }}
     >
-      <Tooltip label={label} side="bottom" align="end" asChild>
+      <Tooltip label={many ? label : `Open ${items[0]?.title || "the Chat"}`} side="bottom" align="end" asChild>
         <button
           ref={trigger}
           type="button"
           data-attention-button
+          aria-label={label}
           aria-haspopup={many ? "menu" : undefined}
           aria-expanded={many ? open : undefined}
           onClick={() => (many ? setOpen((value) => !value) : items[0] && go(items[0].key))}
-          className="flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control bg-surface/90 px-3 text-13 font-medium text-orange-ink backdrop-blur-chip transition-colors hover:bg-surface aria-expanded:bg-surface-2"
+          className="flex h-7 max-w-full items-center gap-2 overflow-hidden rounded-control bg-hover px-2.5 text-13 font-medium tabular-nums text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink active:scale-press aria-expanded:bg-hover-2 aria-expanded:text-ink"
         >
-          <span className="min-w-0 max-w-80 truncate">{label}</span>
-          <Icon className="shrink-0" icon={many ? ArrowDown01Icon : ArrowRight02Icon} size={14} />
+          <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-orange" />
+          <span className="min-w-0 truncate">{attentionCount(items.length)}</span>
         </button>
       </Tooltip>
       {open && many && (
@@ -185,10 +206,7 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
               title={item.title || item.waitingFor || "Chat"}
               subtitle={
                 <>
-                  {item.project} ·{" "}
-                  <span className={item.asking ? "text-accent-ink" : "text-orange-ink"}>
-                    {chatMarkPresentation(item.asking ? "question" : "waiting").label}
-                  </span>
+                  {item.project} · <span className="text-orange-ink">{chatMarkPresentation(item.asking ? "question" : "waiting").label}</span>
                 </>
               }
             />
