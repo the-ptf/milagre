@@ -43,6 +43,7 @@ import {
   PinOffIcon,
   Pulse01Icon,
   Refresh01Icon,
+  Bug01Icon,
   ShieldAlertIcon,
   SourceCodeIcon,
   Tick02Icon,
@@ -161,6 +162,8 @@ export type ChatRowActions = {
   onMarkUnread?: (id: string, unread: boolean) => void;
   /** Restarts the chat's agent so it picks up new MCP servers, skills or a sign-in (stopping a running turn). */
   onReload?: (id: string) => void;
+  /** Opens the chat with "Report a Milagre bug: " in its composer, for its agent to file (report_milagre_bug). */
+  onReportBug?: (id: string) => void;
   /** Pins the chat at `order` among the pinned chats (the end when left out), or unpins it (null). */
   onPin?: (id: string, order?: number | null) => void;
   /** Marks the chat Done: the hover "Done" button and E on a hovered or focused row. */
@@ -1647,6 +1650,16 @@ function ChatMenu({
       onSelect: run(() => actions.onReload?.(item.id)),
       disabled: !actions.onReload,
     },
+    ...(actions.onReportBug
+      ? [
+          {
+            key: "report-bug",
+            label: UI_COPY.reportMilagreBug,
+            icon: Bug01Icon,
+            onSelect: run(() => actions.onReportBug?.(item.id)),
+          },
+        ]
+      : []),
     // Unlink and Link are offered on the same Worktrees (own, not shared, not the main checkout), as on the phone.
     ...(details.linkable
       ? details.linearKey

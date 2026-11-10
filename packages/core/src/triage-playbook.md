@@ -84,6 +84,10 @@ update. If the user insists on preparing a fix PR, use a separate clean clone of
 
 ## 8. File the issue well
 
+If this session runs inside Milagre and you have its `report_milagre_bug` tool, file through it instead of `gh`: it adds
+the version, OS and host log itself, replaces anything that identifies the user's work, and shows the user the exact text
+to approve. Pass the diagnosis in Milagre's terms. The rest of this section is for sessions without it.
+
 - Follow `.github/ISSUE_TEMPLATE/bug_report.yml`: expected behavior, actual behavior, steps to reproduce, Milagre version,
   OS version, Node.js version. Add the diagnosis, evidence and related issues below it.
 - Under version, give the version the bug happened on from step 4, or say it is unknown. Name the triage CLI version only

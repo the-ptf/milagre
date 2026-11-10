@@ -28,6 +28,7 @@ import {
 import type { QuestionDrafts } from "../../lib/question-answers";
 import { SPRING_SWAP } from "../../lib/ease";
 import { SecretCard } from "./SecretCard";
+import { BugReportCard } from "./BugReportCard";
 import { Attachments } from "../Attachments";
 import { readImage } from "../usePastedImages";
 import { InlineError } from "../primitives/InlineError";
@@ -56,6 +57,8 @@ function WaitedFor({ startedAt }: { startedAt: number }) {
 export function QuestionCard(props: Parameters<typeof OrdinaryQuestionCard>[0]) {
   if (props.request.secretRequest)
     return <SecretCard key={props.request.requestId} request={props.request} busy={props.answering !== null} onAnswer={props.onAnswer} />;
+  if (props.request.bugReport)
+    return <BugReportCard key={props.request.requestId} request={props.request} busy={props.answering !== null} onAnswer={props.onAnswer} />;
   return <OrdinaryQuestionCard {...props} />;
 }
 
