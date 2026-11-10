@@ -79,19 +79,24 @@ async function browserChecks() {
     })()`);
   const promptIs = (text) => waitFor(`${prompt}?.value === ${JSON.stringify(text)}`);
   const press = (key) => evaluate(`${prompt}.dispatchEvent(new KeyboardEvent('keydown', { key: '${key}', bubbles: true, cancelable: true }))`);
+  // The permission lives in the model picker's footer; the model trigger carries the current mode.
+  const trigger = `document.querySelector('[data-promptbar] [data-permission-mode]')`;
+  const modeIs = (mode) => `${trigger}?.dataset.permissionMode === ${JSON.stringify(mode.toLowerCase())}`;
   const setPermissionMode = async (mode) => {
     // Mode is "Ask", "Auto", or "Full"
-    // Wait for the permission mode dropdown and click it
-    await evaluate(
-      `[...document.querySelectorAll('button')].find(b => b.textContent === 'Ask' || b.textContent === 'Auto' || b.textContent === 'Full')?.click()`,
-    );
-    await waitFor(`!![...document.querySelectorAll('button[data-picker-row]')].find(b => b.textContent.includes('${mode}'))`);
-    await evaluate(`[...document.querySelectorAll('button[data-picker-row]')].find(b => b.textContent.includes('${mode}'))?.click()`);
-    // Wait for it to apply
-    await waitFor(`[...document.querySelectorAll('button')].find(b => b.textContent === '${mode}')`);
+    await evaluate(`${trigger}.click()`);
+    const footer = `document.querySelector('[data-permission-footer] button[aria-label="Agent permissions"]')`;
+    await waitFor(`!!${footer}`);
+    await evaluate(`${footer}.click()`);
+    const row = `[...document.querySelectorAll('button[data-picker-row]')].find(b => b.textContent.includes('${mode}'))`;
+    await waitFor(`!!${row}`);
+    await evaluate(`${row}.click()`);
+    await waitFor(modeIs(mode));
+    await evaluate(`${trigger}.click()`);
+    await waitFor(`!document.querySelector('[data-model-picker]')`);
   };
   const expectPermissionMode = async (mode) => {
-    await waitFor(`[...document.querySelectorAll('button')].find(b => b.textContent === '${mode}')`);
+    await waitFor(modeIs(mode));
   };
   async function openChat(title) {
     const row = `[...document.querySelectorAll('aside [data-row]')].find(row => row.textContent.includes(${JSON.stringify(title)}))`;

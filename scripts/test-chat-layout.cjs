@@ -132,7 +132,7 @@ async function browserChecks() {
       const element = document.activeElement;
       return element.getAttribute('aria-label') || (element.querySelector('[data-model-name]') ? 'Model' : element.textContent.trim());
     })()`;
-    const expectedFocus = ["New Worktree", "main", "Linear issue", "Prompt", "Add attachments and sources", "Model", "Agent permissions", "Dictate", "Send"];
+    const expectedFocus = ["New Worktree", "main", "Linear issue", "Prompt", "Attach files", "Model", "Dictate", "Send"];
     const tab = async (backwards = false) => {
       const modifiers = backwards ? ["shift"] : [];
       window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab", modifiers });
@@ -143,18 +143,18 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-new-chat-pickers] button").focus()');
     const forward = [await evaluate(focusLabel)];
     for (let i = 1; i < expectedFocus.length; i++) forward.push(await tab());
-    assert.deepEqual(forward, expectedFocus, "New Chat tabs through setup, prompt, add, model, permissions, dictate and send in order");
+    assert.deepEqual(forward, expectedFocus, "New Chat tabs through setup, prompt, attach, model, dictate and send in order");
     const backward = [await evaluate(focusLabel)];
     for (let i = 1; i < expectedFocus.length; i++) backward.push(await tab(true));
     assert.deepEqual(backward, expectedFocus.toReversed(), "Shift+Tab reverses the New Chat focus order");
     assert.ok(
       await evaluate(`(() => {
         const prompt = document.querySelector('[data-prompt-editor]').getBoundingClientRect();
-        const add = document.querySelector('[aria-label="Add attachments and sources"]').getBoundingClientRect();
+        const add = document.querySelector('[aria-label="Attach files"]').getBoundingClientRect();
         const model = document.querySelector('[data-model-name]').getBoundingClientRect();
         return prompt.bottom <= add.top && add.right <= model.left;
       })()`),
-      "The New Chat prompt stays above the toolbar with Add to the left of Model",
+      "The New Chat prompt stays above the toolbar with Attach files to the left of Model",
     );
     if (process.env.MILAGRE_SCREENSHOT_DIR)
       await window.webContents
@@ -584,11 +584,14 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[data-model-picker]')`);
     await evaluate('window.setDraft("short")');
     await waitFor('document.querySelector("[data-prompt-editor]").value === "short"');
-    const compactTop = await evaluate('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top');
+    // The prompt has its own row above the model and permission controls at every width.
+    const promptAboveControls = `document.querySelector("[data-prompt-editor]").getBoundingClientRect().bottom <= document.querySelector('${trigger}').getBoundingClientRect().top`;
+    assert.ok(await evaluate(promptAboveControls), "The prompt sits above its controls");
+    const emptyTop = await evaluate('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top');
     await evaluate(`window.setDraft(${JSON.stringify("A longer prompt ".repeat(50))})`);
-    await waitFor('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top < ' + compactTop);
+    await waitFor('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top < ' + emptyTop);
     await evaluate('window.setDraft("")');
-    await waitFor('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top === ' + compactTop);
+    await waitFor('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top === ' + emptyTop);
     await evaluate('window.setModel("claude-sonnet-5-5")');
     await waitFor(`!document.querySelector('${trigger} [data-fast-mode]')`);
     await evaluate(`document.querySelector('${trigger}').click()`);
@@ -605,20 +608,27 @@ async function browserChecks() {
     await evaluate(`document.querySelector('${trigger}').click()`);
     await waitFor(`!document.querySelector('[data-model-picker]')`);
     await evaluate('window.setModel("claude-sonnet-5-5")');
-    // A composer narrow enough that the empty prompt's placeholder wraps must not flip between layouts forever.
+    // A narrow composer keeps the same layout and settles while its placeholder wraps.
     window.webContents.setZoomFactor(3);
     await delay(250);
     await evaluate('window.setDraft("x")');
     await evaluate('window.setDraft("")');
     await delay(500);
+    assert.ok(await evaluate(promptAboveControls), "A narrow composer puts the prompt above its controls");
     window.webContents.setZoomFactor(1);
     await delay(250);
     assert.ok(!consoleErrors.some((message) => message.includes("Maximum update depth")), "A narrow composer with an empty draft settles");
-    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top'), compactTop, "The empty prompt is compact again");
+    assert.equal(
+      await evaluate('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top'),
+      emptyTop,
+      "The empty prompt is back to its own height",
+    );
     console.log("PASS: long chats open at the bottom before paint and stay there while messages measure, including after reading older messages");
     console.log("PASS: Go to bottom appears while reading earlier messages, hides at the bottom, and resumes following new messages");
     console.log("PASS: PR action pill placement, click action, disabled state, tones, and removal");
-    console.log("PASS: fast mode appears for Codex models and the Opus models that have it, the prompt expands on wrapping, and a narrow empty prompt settles");
+    console.log(
+      "PASS: fast mode appears for Codex models and the Opus models that have it, the prompt sits above its controls at any width, grows with a long draft, and a narrow empty prompt settles",
+    );
     console.log("PASS: message previews stay inside the conversation and above the prompt");
     console.log("PASS: navigation stays capped at 15 lines across the full Chat");
     // Project and Link fallback warnings share one stack, even while a connection banner is present.

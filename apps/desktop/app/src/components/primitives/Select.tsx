@@ -61,6 +61,7 @@ export function Select<T extends string>({
   compact = false,
   leading,
   align,
+  side = "below",
   onOpenChange,
 }: {
   label: string;
@@ -79,7 +80,7 @@ export function Select<T extends string>({
    * panel opens from its left edge. Each fades to 40% while disabled.
    */
   variant?: "field" | "chip" | "text";
-  /** The field at 28px, beside the toolbar's 28px icon buttons. */
+  /** The field (or the `text` trigger) at 28px, beside the toolbar's 28px icon buttons. */
   compact?: boolean;
   /** Shown before the label when the selected option has no icon of its own. */
   leading?: ReactNode;
@@ -90,6 +91,9 @@ export function Select<T extends string>({
    * default for `text`) for one that starts a row, such as the Routines page's filters.
    */
   align?: "start" | "end";
+  /** Where the panel opens when it fits on both sides: a trigger at the bottom of a popover opens it `above`, over
+   * the popover, rather than over whatever sits below it. */
+  side?: "above" | "below";
 }) {
   const fromStart = (align ?? (variant === "text" ? "start" : "end")) === "start";
   const [open, setOpen] = useState(false);
@@ -113,8 +117,9 @@ export function Select<T extends string>({
     const roomAbove = trigger.top - GAP - INSET;
     // Open upward when the panel would not fit below and there is more room above, so a trigger near the bottom shows its rows.
     const fitsBelow = roomBelow >= naturalHeight(options, searchable);
+    const fitsAbove = roomAbove >= naturalHeight(options, searchable);
     setPosition(
-      fitsBelow || roomBelow >= roomAbove
+      !(side === "above" && fitsAbove) && (fitsBelow || roomBelow >= roomAbove)
         ? { left, top: trigger.bottom + GAP, maxHeight: roomBelow }
         : { left, bottom: window.innerHeight - trigger.top + GAP, maxHeight: roomAbove },
     );
@@ -191,7 +196,7 @@ export function Select<T extends string>({
           variant === "chip"
             ? `${chipClass({ variant: "field", chevron: true })} ${triggerClassName}`
             : variant === "text"
-              ? `-mx-1.5 flex min-w-0 max-w-full items-center gap-1 rounded-chip px-1.5 text-left text-ink transition-colors disabled:opacity-40 ${open ? "bg-hover-2" : "enabled:hover:bg-hover"} ${triggerClassName}`
+              ? `-mx-1.5 flex ${compact ? "h-7 text-12" : ""} min-w-0 max-w-full items-center gap-1 rounded-chip px-1.5 text-left text-ink transition-colors disabled:opacity-40 ${open ? "bg-hover-2" : "enabled:hover:bg-hover"} ${triggerClassName}`
               : `flex ${compact ? "h-7 text-12" : "h-8 text-13"} items-center gap-2 rounded-control pr-2 pl-3 font-medium text-ink shadow-btn transition-colors disabled:opacity-40 ${open ? "bg-hover-2" : "bg-surface enabled:hover:bg-hover"} ${triggerClassName}`
         }
       >

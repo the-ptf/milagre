@@ -1,4 +1,3 @@
-import { permissionPresentation } from "@milagre/shared/model-copy";
 import { useShortcutLabel } from "../lib/keybindings";
 import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
@@ -8,29 +7,14 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import type { ComponentProps, KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Add01Icon,
-  CleanIcon,
-  Cancel01Icon,
-  ArrowDown01Icon,
-  ArrowUp02Icon,
-  Attachment01Icon,
-  ClipboardPasteIcon,
-  FlashIcon,
-  Mic01Icon,
-  SecurityCheckIcon,
-  Shield01Icon,
-  ShieldAlertIcon,
-} from "@hugeicons/core-free-icons";
+import { CleanIcon, Cancel01Icon, ArrowUp02Icon, Attachment01Icon, FlashIcon, Mic01Icon, ShieldAlertIcon } from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
-import { effortCopy, PERMISSION_MODE_LABEL, PERMISSION_MODES } from "../model";
+import { effortCopy, PERMISSION_MODE_LABEL } from "../model";
 import { cliNotice, messageParts } from "../lib/cli-status";
 import type { ImageDraft } from "./usePastedImages";
-import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { ModelPicker } from "./ModelPicker";
 import { UltracodeFatality } from "./UltracodeFatality";
 import { useDismiss } from "../lib/use-dismiss";
-import { composerLayout, type CompactOverflow } from "../lib/composer-layout";
 import { useSettings } from "../lib/settings";
 import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
@@ -75,23 +59,6 @@ function Icon({ icon, size = 15 }: { icon: IconData; size?: number }) {
 }
 
 type MenuRow = { key: string; name: string; desc: string; group?: string; source?: string; path?: string; chatId?: number; computer?: string };
-
-type Source = { key: string; name: string; desc: string; icon: IconData };
-
-const SOURCES: Source[] = [
-  {
-    key: "attach",
-    name: "Add files",
-    desc: "Choose files from your computer",
-    icon: Attachment01Icon,
-  },
-  {
-    key: "paste",
-    name: "Paste image",
-    desc: "Attach an image from the clipboard",
-    icon: ClipboardPasteIcon,
-  },
-];
 
 const UNDO_COMMAND = {
   key: "undo",
@@ -162,8 +129,6 @@ interface PromptComposerProps {
   onFastModeChange: (on: boolean) => void;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
-  /** Keep the tall layout (input above the controls) even while the draft is empty. */
-  alwaysExpanded?: boolean;
   /** How full the agent's context window is, shown as a ring beside Send. */
   contextUsage?: ContextUsage;
   /** The Chat is saved: `/undo` is offered, and sending it opens Undo changes instead of reaching the agent. */
@@ -182,6 +147,7 @@ const DICTATION_LABELS = {
   transcribing: "Transcribing",
 } as const;
 
+// A popover above the composer clears its top edge by this much, so it never covers the prompt.
 const POPOVER_GAP = 12;
 // Clear space between a popover and the edge of the area that clips it.
 const POPOVER_EDGE = 8;
@@ -203,23 +169,6 @@ const POPOVER_BOTTOM_INSET = 16;
 const POPOVER_MIN_BELOW = 220;
 
 /** Rising bars, one per level the model offers; the filled ones show how hard the agent will think. */
-function EffortMeter({ level, total }: { level: number; total: number }) {
-  return (
-    <span aria-hidden className="flex h-3 items-end gap-0.5">
-      {Array.from({ length: total }, (_, index) => (
-        <span
-          key={index}
-          className="w-[2.5px] rounded-full transition-[background-color,height] duration-base ease-enter motion-reduce:transition-none"
-          style={{
-            height: `${4 + (index * 8) / Math.max(1, total - 1)}px`,
-            background: index <= level ? "currentColor" : "var(--line-strong)",
-          }}
-        />
-      ))}
-    </span>
-  );
-}
-
 export function PromptComposer({
   offlineName,
   reconnectingName,
@@ -259,7 +208,6 @@ export function PromptComposer({
   onFastModeChange,
   permissionMode,
   onPermissionModeChange,
-  alwaysExpanded = false,
   contextUsage,
   canUndo = false,
   placeholder,
@@ -267,12 +215,10 @@ export function PromptComposer({
   const mentions = useChatMentions();
   const mentionComputers = useMentionComputers();
   const [dismissed, setDismissed] = useState(false);
-  const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
-  const [permissionOpen, setPermissionOpen] = useState(false);
   // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Church).
   const [fatality, setFatality] = useState(0);
-  const { ultracodeFatality, appearance, dictationAction, dictationShortcutMode, showContextSize, compactButtonDisplay } = useSettings();
+  const { ultracodeFatality, dictationAction, dictationShortcutMode, showContextSize, compactButtonDisplay } = useSettings();
   const { settings: contextSettings } = useContextSettings();
   // Settings › Chat decides whether a follow-up steers or queues; a provider that can't steer always queues.
   const delivery = followUpDelivery(contextSettings.followUps);
@@ -281,9 +227,6 @@ export function PromptComposer({
   const compactButton = compactButtonState(compactButtonDisplay, contextUsage, Boolean(onCompact), contextSettings.buttonThreshold, quiet);
   const compactLabel = compacting ? "Compacting…" : compactQueued ? "Queued for after turn" : running ? "Compact after turn" : "Compact";
   const compactBlocked = compacting ? "Compacting context." : sendBlocked ? "Not available right now." : null;
-  const chatSize = appearance.chatSize;
-  const effortLevels = capability.efforts;
-  const effortIndex = Math.max(0, effortLevels.indexOf(effort ?? ""));
   const effortName = effort ? effortCopy(effort).name : "";
   // Ultracode (Claude) and Codex's ultra level both hand work to parallel agents: they share Ultracode's purple.
   // With Ultracode on, the composer itself turns purple. It only counts for a model that has it.
@@ -306,11 +249,7 @@ export function PromptComposer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [active, setActive] = useState(0);
   const [engaged, setEngaged] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const inputRef = useRef<PromptEditorHandle>(null);
-  const compactWidthRef = useRef(0);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const overflowRef = useRef<CompactOverflow>(null);
   const popoverRootRef = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<{
     left: number;
@@ -336,9 +275,9 @@ export function PromptComposer({
 
   const [caret, setCaret] = useState(draft.length);
   const token = dismissed ? null : promptToken(draft, Math.min(caret, draft.length));
-  const menu: "at" | "slash" | null = plusOpen ? "at" : (token?.kind ?? null);
-  const tokenQuery = plusOpen ? "" : (token?.query ?? "");
-  const fileSearch = useProjectFiles(projectPath, tokenQuery, menu === "at" && !plusOpen);
+  const menu: "at" | "slash" | null = token?.kind ?? null;
+  const tokenQuery = token?.query ?? "";
+  const fileSearch = useProjectFiles(projectPath, tokenQuery, menu === "at");
   const { skills, warnings: skillWarnings, loading: skillsLoading } = useSkills(skillScope ?? projectPath, menu === "slash" || /(^|\s)\//.test(draft));
   const skillRows = ["bundled", "workspace", "user"].flatMap((scope) =>
     skills
@@ -419,35 +358,30 @@ export function PromptComposer({
   }, [chipPaths, imageDraft.files, imageDraft.scope, imageDraft.remote]);
   const onSendLatest = useRef(onSend);
   onSendLatest.current = onSend;
-  const inputTextClass = expanded
-    ? "min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
-    : "min-h-7 px-1 py-[5px] text-[length:var(--chat-size)] leading-[18px]";
-  const chatMatches = menu === "at" && !plusOpen ? matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId) : [];
+  const chatMatches = menu === "at" ? matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId) : [];
   // Only with another computer to name: This Mac alone is no choice.
-  const computerMatches = menu === "at" && !plusOpen && mentionComputers.length > 1 ? matchingMentionComputers(mentionComputers, tokenQuery) : [];
+  const computerMatches = menu === "at" && mentionComputers.length > 1 ? matchingMentionComputers(mentionComputers, tokenQuery) : [];
   const rows: MenuRow[] =
     menu === "at"
-      ? plusOpen
-        ? SOURCES
-        : [
-            ...fileSearch.files
-              .slice(0, chatMatches.length || computerMatches.length ? 3 : undefined)
-              .map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path, group: "Files" })),
-            ...chatMatches.map((chat) => ({
-              key: `chat:${chat.id}`,
-              name: chat.title,
-              desc: chat.branch,
-              chatId: chat.id,
-              group: "Chats",
-            })),
-            ...computerMatches.map((computer) => ({
-              key: `computer:${computer.id}`,
-              name: computer.name,
-              desc: computer.self ? "This Mac" : computer.online ? "Online" : "Offline",
-              computer: computer.name,
-              group: "Computers",
-            })),
-          ]
+      ? [
+          ...fileSearch.files
+            .slice(0, chatMatches.length || computerMatches.length ? 3 : undefined)
+            .map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path, group: "Files" })),
+          ...chatMatches.map((chat) => ({
+            key: `chat:${chat.id}`,
+            name: chat.title,
+            desc: chat.branch,
+            chatId: chat.id,
+            group: "Chats",
+          })),
+          ...computerMatches.map((computer) => ({
+            key: `computer:${computer.id}`,
+            name: computer.name,
+            desc: computer.self ? "This Mac" : computer.online ? "Online" : "Offline",
+            computer: computer.name,
+            group: "Computers",
+          })),
+        ]
       : menu === "slash"
         ? rankSkillMatches(commands, tokenQuery, (command) => ({
             name: command.name,
@@ -471,8 +405,7 @@ export function PromptComposer({
     !imageDraft.files.length &&
     !imageDraft.loading &&
     !menu &&
-    !modelOpen &&
-    !permissionOpen
+    !modelOpen
       ? suggestion
       : undefined;
 
@@ -487,37 +420,11 @@ export function PromptComposer({
     if (target) setRowBox({ top: target.offsetTop, height: target.offsetHeight });
   }, [active, engaged, menu, tokenQuery, rows.length]);
 
-  useLayoutEffect(() => {
-    const input = inputRef.current?.root;
-    if (!input) return;
-    const contentHeight = input.scrollHeight;
-    if (!expanded) compactWidthRef.current = input.clientWidth;
-    const next = composerLayout({
-      draft,
-      expanded,
-      // Quote rows read as a message being written: the prompt goes under them, the controls below.
-      alwaysExpanded: alwaysExpanded || quotes.length > 0,
-      contentHeight,
-      compactWidth: compactWidthRef.current,
-      overflow: overflowRef.current,
-      measure: (text) => {
-        const context = (canvasRef.current ??= document.createElement("canvas")).getContext("2d");
-        if (!context) return null;
-        context.font = `${getComputedStyle(document.documentElement).getPropertyValue("--chat-size").trim() || "13px"} ${getComputedStyle(input).fontFamily}`;
-        return context.measureText(text).width;
-      },
-    });
-    overflowRef.current = next.overflow;
-    if (next.expanded !== expanded) setExpanded(next.expanded);
-  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, quotes.length, chatSize, showContextSize, compactButton.visible]);
-
   // Any press outside the open picker closes it, including the prompt field and the rest of the composer.
   useDismiss(
-    modelOpen || plusOpen || permissionOpen,
+    modelOpen,
     () => {
       setModelOpen(false);
-      setPlusOpen(false);
-      setPermissionOpen(false);
     },
     (target) => !!target.closest("[data-picker-panel], [data-promptbar] button[aria-expanded]"),
     () => {
@@ -545,8 +452,8 @@ export function PromptComposer({
     const highest = fits ? root.width - width : Math.max(max, root.width - width);
     const left = Math.max(lowest, Math.min((alignRight ? button.right - width : button.left) - root.left, highest));
     const roomBelow = window.innerHeight - button.bottom - POPOVER_BUTTON_GAP - POPOVER_BOTTOM_INSET;
-    const below = expanded && roomBelow >= POPOVER_MIN_BELOW;
-    const edge = expanded ? button.top - POPOVER_BUTTON_GAP : root.top - POPOVER_GAP;
+    const below = roomBelow >= POPOVER_MIN_BELOW;
+    const edge = root.top - POPOVER_GAP;
     setAnchor(
       below
         ? {
@@ -578,8 +485,6 @@ export function PromptComposer({
   function send() {
     browsing.current = null;
     setModelOpen(false);
-    setPermissionOpen(false);
-    setPlusOpen(false);
     // Every chip's file goes with the message, even one whose attachment the effect hasn't caught up with yet; the
     // parent's send reads its attachments from its render, so commit them first and send from the new render.
     const missing = chipPaths.filter((path) => !imageDraft.files.includes(path));
@@ -813,12 +718,7 @@ export function PromptComposer({
   }
 
   function pick(row: MenuRow) {
-    const source = SOURCES.find((item) => item.key === row.key);
-    if (source?.key === "attach") {
-      fileInputRef.current?.click();
-    } else if (source?.key === "paste") {
-      insertImages(imageDraft.pasteImage());
-    } else if (menu === "at") {
+    if (menu === "at") {
       if (token && (row.chatId !== undefined || row.computer)) {
         const mention = row.computer ? formatComputerMention(row.computer) : formatChatMention(row.chatId!);
         onDraftChange(insertPromptToken(draft, token, mention));
@@ -837,7 +737,6 @@ export function PromptComposer({
       onDraftChange(token ? insertPromptToken(draft, token, row.name) : `${draft}${row.name} `);
       inputRef.current?.setSelection(token ? token.start + row.name.length + 1 : draft.length + row.name.length + 1);
     }
-    setPlusOpen(false);
     setDismissed(true);
     inputRef.current?.focus();
   }
@@ -845,12 +744,10 @@ export function PromptComposer({
   // Escape closes the slash/@ menu or an open picker, from the prompt or a picker's search field.
   // Only then is it consumed: with nothing open it reaches the window and stops the running turn.
   function handleEscape(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "Escape" || !(menu || modelOpen || permissionOpen)) return;
+    if (event.key !== "Escape" || !(menu || modelOpen)) return;
     event.preventDefault();
     setDismissed(true);
-    setPlusOpen(false);
     setModelOpen(false);
-    setPermissionOpen(false);
     setQuery("");
     inputRef.current?.focus();
   }
@@ -924,7 +821,7 @@ export function PromptComposer({
               transformOrigin: "bottom center",
             }}
           >
-            <ScrollArea className="relative max-h-64" aria-label={menu === "slash" ? "Commands and skills" : plusOpen ? "Sources" : "Project files and Chats"}>
+            <ScrollArea className="relative max-h-64" aria-label={menu === "slash" ? "Commands and skills" : "Project files and Chats"}>
               <span
                 aria-hidden
                 className="pointer-events-none absolute inset-x-0 rounded-inline bg-hover-2"
@@ -936,7 +833,6 @@ export function PromptComposer({
                 }}
               />
               {rows.map((row, index) => {
-                const source = menu === "at" ? SOURCES.find((item) => item.key === row.key) : undefined;
                 // A search lists its matches best first across the groups, so it carries no group headings.
                 const showGroup = (menu === "at" || !tokenQuery) && row.group && row.group !== rows[index - 1]?.group;
                 return (
@@ -960,11 +856,6 @@ export function PromptComposer({
                       title={row.path ?? row.desc}
                       className="relative z-10 flex h-8 w-full items-center gap-2 rounded-inline px-2 text-left focus-visible:-outline-offset-2"
                     >
-                      {source && (
-                        <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
-                          <Icon icon={source.icon} size={15} />
-                        </span>
-                      )}
                       <span className="max-w-[45%] shrink-0 truncate text-13 font-medium text-ink">{row.name}</span>
                       <span className="min-w-0 flex-1 truncate text-12 text-ink-3">{row.desc}</span>
                       {row.source && <span className="shrink-0 text-11 text-ink-3">{row.source}</span>}
@@ -972,7 +863,7 @@ export function PromptComposer({
                   </Fragment>
                 );
               })}
-              {menu === "at" && !plusOpen && fileSearch.error && (
+              {menu === "at" && fileSearch.error && (
                 <div role="status" className="px-2 text-12 text-red-ink">
                   {fileSearch.error}
                 </div>
@@ -1060,6 +951,11 @@ export function PromptComposer({
             onEffortChange={onEffortChange}
             fastMode={fastMode}
             onFastModeChange={onFastModeChange}
+            permissionMode={permissionMode}
+            onPermissionModeChange={(mode) => {
+              onPermissionModeChange(mode);
+              inputRef.current?.focus();
+            }}
             ultracode={ultracode}
             onUltracodeChange={(on) => {
               onUltracodeChange(on);
@@ -1069,40 +965,9 @@ export function PromptComposer({
         )}
         {fatality > 0 && <UltracodeFatality key={fatality} onDone={() => setFatality(0)} />}
 
-        {permissionOpen && (
-          <PickerPanel title="Agent permissions" className="absolute w-[240px]" style={anchorStyle}>
-            {PERMISSION_MODES.map((mode) => (
-              <PickerRow
-                key={mode.id}
-                icon={
-                  <span className={`flex shrink-0 ${mode.id === "full" ? "text-orange-ink" : "text-ink-2"}`}>
-                    <Icon
-                      icon={
-                        {
-                          shield: Shield01Icon,
-                          "security-check": SecurityCheckIcon,
-                          "shield-alert": ShieldAlertIcon,
-                        }[permissionPresentation(mode.id).icon]
-                      }
-                      size={16}
-                    />
-                  </span>
-                }
-                label={mode.name}
-                selected={permissionMode === mode.id}
-                onClick={() => {
-                  onPermissionModeChange(mode.id);
-                  setPermissionOpen(false);
-                  inputRef.current?.focus();
-                }}
-              />
-            ))}
-          </PickerPanel>
-        )}
-
         <div
           data-ultracode={ultracodeOn || undefined}
-          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast ${expanded ? "gap-2 rounded-window p-3" : "gap-1.5 rounded-window p-1.5"}`}
+          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast gap-2 rounded-window p-3`}
         >
           <input
             ref={fileInputRef}
@@ -1157,12 +1022,9 @@ export function PromptComposer({
             </span>
           ) : null}
 
-          <div
-            className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"} ${compactButton.visible ? "@max-[520px]:grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : ""}`}
-          >
-            <div
-              className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-span-full @max-[520px]:col-start-1 @max-[520px]:row-start-1" : ""}`}
-            >
+          {/* The prompt has its own row at every width, with the controls on the row below it. */}
+          <div className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,max-content)_auto] items-end gap-x-1 gap-y-1.5">
+            <div className="relative col-span-full row-start-1 w-full min-w-0">
               <PromptEditor
                 ref={inputRef}
                 resetKey={imageDraft.scope}
@@ -1184,7 +1046,6 @@ export function PromptComposer({
                   setCaret(position);
                   onDraftChange(dropUnmentionedImages(draftLatest.current, value));
                   setDismissed(false);
-                  setPlusOpen(false);
                 }}
                 onKeyDown={handleKeyDown}
                 disabled={false}
@@ -1196,89 +1057,57 @@ export function PromptComposer({
                     : (running ? (queuesFollowUp ? "Queue a message for the next turn…" : "Steer the agent…") : (placeholder ?? PROMPT_PLACEHOLDER)) +
                       (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                 }
-                className={inputTextClass}
-                placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}
+                className="min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
               />
             </div>
-            <button
-              type="button"
-              aria-label="Add attachments and sources"
-              aria-expanded={plusOpen}
-              onClick={() => {
-                setModelOpen(false);
-                setPlusOpen((current) => !current);
-                inputRef.current?.focus();
-              }}
-              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} ${compactButton.visible ? "@max-[520px]:row-start-2" : ""} flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
-            >
-              <Icon icon={Add01Icon} size={16} />
-            </button>
-            <div
-              className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"} ${compactButton.visible ? "@max-[520px]:contents" : ""}`}
-            >
+            <Tooltip label="Attach files" asChild>
               <button
                 type="button"
-                aria-expanded={modelOpen}
-                title={[selectedModel.name, effortLabel, canUseFastMode && fastMode ? "Fast mode" : ""].filter(Boolean).join(" · ")}
-                onClick={(event) => {
-                  anchorTo(event.currentTarget, capability.efforts.length > 0 || capability.fastMode || capability.ultracode ? 580 : 300);
-                  setPlusOpen(false);
-                  setPermissionOpen(false);
-                  setModelOpen((current) => !current);
+                aria-label="Attach files"
+                onClick={() => {
+                  setModelOpen(false);
+                  fileInputRef.current?.click();
                 }}
-                className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${compactButton.visible ? "@max-[520px]:col-start-2 @max-[520px]:row-start-2" : ""}`}
+                className="col-start-1 row-start-2 flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink"
               >
-                <ProviderLogo provider={selectedModel.provider} size={14} optical />
-                <span data-model-name className={`max-w-28 truncate ${compactButton.visible ? "@max-[520px]:max-w-20" : ""}`}>
-                  {selectedModel.name}
-                </span>
-                {effortLabel && (
-                  <span
-                    data-effort-label
-                    className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""} ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}
-                  >
-                    <span className="text-ink-3">·</span>
-                    <span className="hidden min-[900px]:inline">{effortLabel}</span>
-                    <span className="min-[900px]:hidden">
-                      <EffortMeter level={effortIndex} total={effortLevels.length} />
-                    </span>
-                  </span>
-                )}
-                {canUseFastMode && fastMode && (
-                  <span data-fast-mode className="text-orange-ink">
-                    <Icon icon={FlashIcon} size={13} />
-                  </span>
-                )}
-                <Icon icon={ArrowDown01Icon} size={12} />
+                <Icon icon={Attachment01Icon} size={16} />
               </button>
-            </div>
+            </Tooltip>
             <button
               type="button"
-              aria-label="Agent permissions"
-              aria-expanded={permissionOpen}
+              aria-expanded={modelOpen}
+              data-permission-mode={permissionMode}
+              title={[selectedModel.name, effortLabel, canUseFastMode && fastMode ? "Fast mode" : "", PERMISSION_MODE_LABEL[permissionMode]]
+                .filter(Boolean)
+                .join(" · ")}
               onClick={(event) => {
-                anchorTo(event.currentTarget, 340);
-                setPlusOpen(false);
-                setModelOpen(false);
-                setPermissionOpen((current) => !current);
+                anchorTo(event.currentTarget, capability.efforts.length > 0 || capability.fastMode || capability.ultracode ? 580 : 300);
+                setModelOpen((current) => !current);
               }}
-              className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-orange-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-start-3 @max-[520px]:row-start-2 @max-[520px]:justify-self-start" : ""}`}
+              className="col-start-3 row-start-2 flex h-7 min-w-0 items-center gap-1 justify-self-end rounded-control px-1.5 text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
             >
-              <Icon
-                icon={
-                  {
-                    shield: Shield01Icon,
-                    "security-check": SecurityCheckIcon,
-                    "shield-alert": ShieldAlertIcon,
-                  }[permissionPresentation(permissionMode).icon]
-                }
-                size={16}
-              />
-              <span className={`hidden min-[900px]:inline ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}>{PERMISSION_MODE_LABEL[permissionMode]}</span>
+              {permissionMode === "full" && (
+                <span data-permission-full aria-label="Full access" className="flex shrink-0 text-orange-ink">
+                  <Icon icon={ShieldAlertIcon} size={14} />
+                </span>
+              )}
+              <ProviderLogo provider={selectedModel.provider} size={14} optical />
+              <span data-model-name className="min-w-0 max-w-28 truncate">
+                {selectedModel.name}
+              </span>
+              {effortLabel && (
+                <span data-effort-label className={`flex shrink-0 items-center gap-1 ${orchestrating ? "text-purple-ink" : ""}`}>
+                  <span className="text-ink-3">·</span>
+                  {effortLabel}
+                </span>
+              )}
+              {canUseFastMode && fastMode && (
+                <span data-fast-mode className="text-orange-ink">
+                  <Icon icon={FlashIcon} size={13} />
+                </span>
+              )}
             </button>
-            <div
-              className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"} ${compactButton.visible ? "@max-[520px]:row-start-2" : ""}`}
-            >
+            <div className="col-start-4 row-start-2 flex shrink-0 items-center gap-1.5">
               {!quiet && compactionFeedback ? (
                 <span role="status" className="flex h-7 items-center gap-1 rounded-control bg-green/10 px-2 text-12 text-green-ink">
                   ✓ {compactionFeedback.percent}%<span className="@max-[700px]:hidden"> · {compactionFeedback.freed} freed</span>

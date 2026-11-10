@@ -2061,7 +2061,6 @@ export function ChatComposer({
                 onFastModeChange={onFastModeChange}
                 permissionMode={permissionMode}
                 onPermissionModeChange={onPermissionModeChange}
-                alwaysExpanded={isNewChat}
                 contextUsage={contextUsage}
                 placeholder={chatsDraft && isNewChat ? newChatLook("chats").placeholder : undefined}
               />
