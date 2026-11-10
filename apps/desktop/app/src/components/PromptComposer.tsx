@@ -203,23 +203,6 @@ const POPOVER_BOTTOM_INSET = 16;
 const POPOVER_MIN_BELOW = 220;
 
 /** Rising bars, one per level the model offers; the filled ones show how hard the agent will think. */
-function EffortMeter({ level, total }: { level: number; total: number }) {
-  return (
-    <span aria-hidden className="flex h-3 items-end gap-0.5">
-      {Array.from({ length: total }, (_, index) => (
-        <span
-          key={index}
-          className="w-[2.5px] rounded-full transition-[background-color,height] duration-base ease-enter motion-reduce:transition-none"
-          style={{
-            height: `${4 + (index * 8) / Math.max(1, total - 1)}px`,
-            background: index <= level ? "currentColor" : "var(--line-strong)",
-          }}
-        />
-      ))}
-    </span>
-  );
-}
-
 export function PromptComposer({
   offlineName,
   reconnectingName,
@@ -282,8 +265,6 @@ export function PromptComposer({
   const compactLabel = compacting ? "Compacting…" : compactQueued ? "Queued for after turn" : running ? "Compact after turn" : "Compact";
   const compactBlocked = compacting ? "Compacting context." : sendBlocked ? "Not available right now." : null;
   const chatSize = appearance.chatSize;
-  const effortLevels = capability.efforts;
-  const effortIndex = Math.max(0, effortLevels.indexOf(effort ?? ""));
   const effortName = effort ? effortCopy(effort).name : "";
   // Ultracode (Claude) and Codex's ultra level both hand work to parallel agents: they share Ultracode's purple.
   // With Ultracode on, the composer itself turns purple. It only counts for a model that has it.
@@ -1157,8 +1138,8 @@ export function PromptComposer({
             </span>
           ) : null}
 
-          {/* Sized by the composer, not the window, which is never under 980px wide: under 600px the effort shows as
-              a meter and the permission as its icon, and under 560px the prompt takes its own row above the controls. */}
+          {/* Sized by the composer, not the window, which is never under 980px wide: under 600px the effort hides and
+              the permission shows only its icon, and under 560px the prompt takes its own row above the controls. */}
           <div
             className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"} @max-[560px]:grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]`}
           >
@@ -1235,12 +1216,9 @@ export function PromptComposer({
                   {selectedModel.name}
                 </span>
                 {effortLabel && (
-                  <span data-effort-label className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""}`}>
+                  <span data-effort-label className={`hidden items-center gap-1 @min-[600px]:flex ${orchestrating ? "text-purple-ink" : ""}`}>
                     <span className="text-ink-3">·</span>
-                    <span className="hidden @min-[600px]:inline">{effortLabel}</span>
-                    <span className="@min-[600px]:hidden">
-                      <EffortMeter level={effortIndex} total={effortLevels.length} />
-                    </span>
+                    {effortLabel}
                   </span>
                 )}
                 {canUseFastMode && fastMode && (
