@@ -262,10 +262,12 @@ export function ModelPicker({
           </div>
         )}
       </div>
-      <div data-permission-footer className="flex shrink-0 items-center justify-end border-t border-line px-2 py-1.5">
+      {/* The 28px trigger sits 4px inside the picker's bottom-right corner, so its 6px corner nests in the 10px one. */}
+      <div data-permission-footer className="flex shrink-0 items-center justify-end border-t border-line py-1 pr-2.5 pl-2">
         <Select
           label="Agent permissions"
           variant="text"
+          compact
           align="end"
           side="above"
           width={220}
