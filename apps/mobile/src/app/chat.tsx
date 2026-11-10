@@ -515,6 +515,8 @@ function ChatPane({
   }, []);
   const contentHeight = useRef(0);
   const scrollOffset = useRef(0);
+  // Between a drag's start and the end of its fling: only then are scroll events the reader's own.
+  const dragging = useRef(false);
   const historyRead = useRef<object | null>(null);
   const pickingNow = useRef(false);
   const historyAnchor = useRef<{ id: number; y: number; offset: number; key: string } | null>(null);
@@ -799,6 +801,12 @@ function ChatPane({
   }, [messages.length, visible, scrollKey, trimHistory]);
   // Quiet heartbeats fold into one line and their replies drop out.
   const groupedMessages = useMemo(() => groupQuietRuns(messages), [messages]);
+  // The transcript renders its last `visible` rows, so new ones at the end push old ones out at the top. The native
+  // view then moves the offset to keep what is on screen (maintainVisibleContentPosition) and reports that as a scroll,
+  // with the new rows' height left to the end. When as much leaves as arrives, the content size doesn't change and
+  // onContentSizeChange never jumps to the end (#972). The first row a scroll event last saw tells onScroll so.
+  const firstRowId = groupedMessages[Math.max(0, groupedMessages.length - visible)]?.message.id;
+  const scrolledFirstRow = useRef(firstRowId);
   async function showEarlier() {
     if (historyRead.current || historyAnchor.current || messages.length + remote <= visible) return;
     const request = {};
@@ -2355,7 +2363,17 @@ function ChatPane({
                   ]}
                   scrollEventThrottle={32}
                   onScrollBeginDrag={() => {
+                    dragging.current = true;
                     scrollingToBottom.current = false;
+                  }}
+                  onScrollEndDrag={() => {
+                    dragging.current = false;
+                  }}
+                  onMomentumScrollBegin={() => {
+                    if (!scrollingToBottom.current) dragging.current = true;
+                  }}
+                  onMomentumScrollEnd={() => {
+                    dragging.current = false;
                   }}
                   onScroll={({ nativeEvent: e }) => {
                     const previous = scrollOffset.current;
@@ -2367,6 +2385,13 @@ function ChatPane({
                     // Native scroll events can arrive before the jump catches up with image layout.
                     if (scrollingToBottom.current) {
                       if (distance <= 1) scrollingToBottom.current = false;
+                      return;
+                    }
+                    // The native view keeping the screen in place as rows left the top: still following, so on to the end.
+                    const rowsLeftTop = scrolledFirstRow.current !== firstRowId;
+                    scrolledFirstRow.current = firstRowId;
+                    if (rowsLeftTop && !dragging.current && following.current && distance > 1) {
+                      scrollToBottom(false);
                       return;
                     }
                     following.current = distance < 120;
