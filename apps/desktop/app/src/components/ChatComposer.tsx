@@ -1956,7 +1956,7 @@ export function ChatComposer({
           className={`chat-gutter relative mx-auto w-full max-w-[var(--chat-width)] shrink-0 p-1.5 ${isNewChat ? "" : "z-20 -mt-1.5"}`}
         >
           {/* The update pill floats centred on the chip row's line, outside its flow. */}
-          <UpdatePillSlot className="bottom-full mb-2" />
+          <UpdatePillSlot className={`bottom-full ${isNewChat ? "mb-2" : "mb-1.5"}`} />
           {isNewChat && starters && starters.length > 0 && <FirstChatStarters starters={starters} />}
           {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
