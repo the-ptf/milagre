@@ -511,12 +511,151 @@ export function whisperModelFor(platform, id) {
 // Whisper's stand-ins for silence and noise, and the lines it invents on a silent clip.
 const NON_SPEECH = /\[(?:BLANK_AUDIO|MUSIC|NOISE|SILENCE|INAUDIBLE)[^\]]*\]|\((?:music|silence|noise|inaudible)[^)]*\)/gi;
 
-/** Whisper's text without its non-speech markers, "" when nothing else was said. */
-export function whisperText(text) {
-  return String(text ?? "")
+// Lines Whisper learned from video captions and writes for sound it hears no words in (a click, a breath, the room), each as
+// a segment of its own, in the language it was told to listen for. Nobody dictates these to a coding agent, so they go
+// wherever they appear. Matched by their letters alone: "E aí!", "e ai" and "E aí..." are the same line.
+const CAPTION_LINES = [
+  "E aí",
+  "Eaí",
+  "E aí galera",
+  "E aí pessoal",
+  "Obrigado por assistir",
+  "Obrigada por assistir",
+  "Até a próxima",
+  "Até o próximo vídeo",
+  "Inscreva-se no canal",
+  "Legendas pela comunidade Amara.org",
+  "Thanks for watching",
+  "Thank you for watching",
+  "Thank you so much for watching",
+  "Please subscribe",
+  "Don't forget to subscribe",
+  "Like and subscribe",
+  "See you next time",
+  "See you in the next video",
+  "Bye bye",
+  "Subtitles by the Amara.org community",
+  "Gracias por ver",
+  "Gracias por ver el video",
+  "Suscríbete",
+  "Suscríbete al canal",
+  "Hasta la próxima",
+  "Subtítulos realizados por la comunidad de Amara.org",
+  "Merci d'avoir regardé",
+  "Merci d'avoir regardé cette vidéo",
+  "Abonnez-vous",
+  "À bientôt",
+  "Sous-titres réalisés par la communauté d'Amara.org",
+  "Danke fürs Zuschauen",
+  "Vielen Dank fürs Zuschauen",
+  "Bis zum nächsten Mal",
+  "Untertitel im Auftrag des ZDF",
+  "Untertitelung des ZDF",
+  "Untertitel von Stephanie Geiges",
+  "Grazie per aver guardato",
+  "Alla prossima",
+  "Iscriviti al canale",
+  "Sottotitoli creati dalla comunità Amara.org",
+  "Bedankt voor het kijken",
+  "Tot de volgende keer",
+  "Ondertitels ingediend door de Amara.org gemeenschap",
+  "Ondertiteld door de Amara.org gemeenschap",
+  "Tack för att du tittade",
+  "Tak for at se med",
+  "Takk for at du så på",
+  "Kiitos katsomisesta",
+  "Dziękuję za oglądanie",
+  "Děkuji za zhlédnutí",
+  "Mulțumesc pentru vizionare",
+  "Köszönöm a figyelmet",
+  "Ευχαριστώ για την παρακολούθηση",
+  "İzlediğiniz için teşekkürler",
+  "İzlediğiniz için teşekkür ederim",
+  "Спасибо за просмотр",
+  "Продолжение следует",
+  "Субтитры сделал DimaTorzok",
+  "Субтитры добавил DimaTorzok",
+  "Дякую за перегляд",
+  "شكرا على المشاهدة",
+  "شكرا للمشاهدة",
+  "תודה שצפיתם",
+  "देखने के लिए धन्यवाद",
+  "Terima kasih telah menonton",
+  "Terima kasih kerana menonton",
+  "ขอบคุณที่รับชม",
+  "Cảm ơn các bạn đã theo dõi",
+  "ご視聴ありがとうございました",
+  "시청해주셔서 감사합니다",
+  "谢谢观看",
+  "請訂閱",
+  "字幕由Amara.org社区提供",
+];
+// Thanks and goodbyes Whisper also invents on such sound, which someone may really say at the end of a message. Dropped
+// only when they are all it heard: a clip of nothing but a breath says "Obrigado", a message never ends up as only that.
+const FAREWELL_LINES = [
+  "Obrigado",
+  "Obrigada",
+  "Tchau",
+  "Tchau tchau",
+  "Thank you",
+  "Thanks",
+  "Thank you very much",
+  "Bye",
+  "Goodbye",
+  "Gracias",
+  "Muchas gracias",
+  "Adiós",
+  "Merci",
+  "Merci beaucoup",
+  "Au revoir",
+  "Danke",
+  "Vielen Dank",
+  "Tschüss",
+  "Grazie",
+  "Grazie mille",
+  "Ciao",
+  "Bedankt",
+  "ありがとうございました",
+  "감사합니다",
+  "谢谢",
+  "谢谢大家",
+  "Спасибо",
+];
+
+/** A line by its letters and digits alone, lowercase and without accents: how two spellings of a caption line meet. */
+const lineKey = (text) =>
+  String(text)
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+const CAPTION_KEYS = new Set(CAPTION_LINES.map(lineKey));
+const FAREWELL_KEYS = new Set(FAREWELL_LINES.map(lineKey));
+const isCaption = (line) => CAPTION_KEYS.has(lineKey(line)) || /(?:^| )amara org(?: |$)/.test(lineKey(line));
+// A caption line glued to real words as their last sentence: "Corrija o bug. E aí".
+const LAST_SENTENCE = /^(.*[.!?…])\s+([^.!?…]+?)[.!?…]*$/su;
+
+/** A segment's words without Whisper's non-speech markers, nor a caption line it ends on. */
+function speechOf(text) {
+  const line = String(text ?? "")
     .replace(NON_SPEECH, " ")
     .replace(/\s+/g, " ")
     .trim();
+  if (!line || isCaption(line)) return "";
+  const split = LAST_SENTENCE.exec(line);
+  return split && isCaption(split[2]) ? split[1].trim() : line;
+}
+
+/**
+ * What Whisper heard, without its non-speech markers and the caption lines it invents for sound that holds no words. Given
+ * its `segments`, each is judged on its own, so a hallucinated trailer after the last words goes and the words stay; the
+ * joined `text` alone is judged as one line. "" when nothing else was said, including when every segment is a farewell.
+ */
+export function whisperText(text, segments) {
+  const lines = (Array.isArray(segments) && segments.length ? segments.map((segment) => speechOf(segment?.text)) : [speechOf(text)]).filter(Boolean);
+  if (lines.every((line) => FAREWELL_KEYS.has(lineKey(line)))) return "";
+  return lines.join(" ");
 }
 
 // On a silent clip Whisper writes a line it learned from video captions ("Thank you."), so silence never reaches it.
