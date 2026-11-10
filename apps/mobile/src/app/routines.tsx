@@ -149,7 +149,7 @@ export default function RoutinesScreen() {
             </View>
           ) : null}
           {groups.map((group) => (
-            <Group key={group.title} title={group.title}>
+            <Group key={group.title} title={group.title} inset="full">
               {group.rows.map((routine) => (
                 <RoutineRow
                   key={routine.id}
