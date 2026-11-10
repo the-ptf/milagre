@@ -49,7 +49,8 @@ async function browserChecks() {
     }
     throw Error("Timed out: " + source);
   };
-  const chip = () => evaluate(`document.querySelector('[aria-label="Agent permissions"]').textContent.trim()`);
+  const chip = () =>
+    evaluate(`({ ask: "Ask", auto: "Auto", full: "Full" })[document.querySelector('[data-promptbar] [data-permission-mode]').dataset.permissionMode]`);
   const emit = (event) => evaluate(`window.emitAgent(${JSON.stringify(event)})`);
   const screenshot = async (name) => {
     if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
@@ -81,20 +82,23 @@ async function browserChecks() {
       allowForChat: true,
     });
     await waitFor(String.raw`document.body.textContent.includes("Fetch PR review comments and body")`);
-    await waitFor(String.raw`document.querySelector('[aria-label="Agent permissions"]').textContent.trim() === "Ask"`);
+    await waitFor(String.raw`document.querySelector('[data-promptbar] [data-permission-mode]').dataset.permissionMode === "ask"`);
     await screenshot("running-in-ask");
 
     // Once the turn ends, the chip is the mode the next message sends: the default again.
     await emit({ type: "turn-completed", turnId: "t-1" });
-    await waitFor(String.raw`document.querySelector('[aria-label="Agent permissions"]').textContent.trim() === "Full"`);
+    await waitFor(String.raw`document.querySelector('[data-promptbar] [data-permission-mode]').dataset.permissionMode === "full"`);
 
     // A mode picked for the Chat wins over the run's.
     await emit({ type: "message-sent", model: "claude-opus-5-5", permissionMode: "ask" });
-    await waitFor(String.raw`document.querySelector('[aria-label="Agent permissions"]').textContent.trim() === "Ask"`);
-    await evaluate(`document.querySelector('[aria-label="Agent permissions"]').click()`);
+    await waitFor(String.raw`document.querySelector('[data-promptbar] [data-permission-mode]').dataset.permissionMode === "ask"`);
+    // The permission lives in the model picker's footer.
+    await evaluate(`document.querySelector('[data-promptbar] [data-permission-mode]').click()`);
+    await waitFor(String.raw`!!document.querySelector('[data-permission-footer] button[aria-label="Agent permissions"]')`);
+    await evaluate(`document.querySelector('[data-permission-footer] button[aria-label="Agent permissions"]').click()`);
     await waitFor(String.raw`[...document.querySelectorAll("button")].some((b) => b.textContent.includes("Auto mode"))`);
     await evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Auto mode")).click()`);
-    await waitFor(String.raw`document.querySelector('[aria-label="Agent permissions"]').textContent.trim() === "Auto"`);
+    await waitFor(String.raw`document.querySelector('[data-promptbar] [data-permission-mode]').dataset.permissionMode === "auto"`);
     assert.deepEqual(await evaluate("window.modeSet"), { chatId: "/fixture#3", mode: "auto" });
     await screenshot("picked-auto");
 

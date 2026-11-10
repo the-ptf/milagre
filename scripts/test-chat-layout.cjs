@@ -132,7 +132,7 @@ async function browserChecks() {
       const element = document.activeElement;
       return element.getAttribute('aria-label') || (element.querySelector('[data-model-name]') ? 'Model' : element.textContent.trim());
     })()`;
-    const expectedFocus = ["New Worktree", "main", "Linear issue", "Prompt", "Add attachments and sources", "Model", "Agent permissions", "Dictate", "Send"];
+    const expectedFocus = ["New Worktree", "main", "Linear issue", "Prompt", "Attach files", "Model", "Dictate", "Send"];
     const tab = async (backwards = false) => {
       const modifiers = backwards ? ["shift"] : [];
       window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab", modifiers });
@@ -143,18 +143,18 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-new-chat-pickers] button").focus()');
     const forward = [await evaluate(focusLabel)];
     for (let i = 1; i < expectedFocus.length; i++) forward.push(await tab());
-    assert.deepEqual(forward, expectedFocus, "New Chat tabs through setup, prompt, add, model, permissions, dictate and send in order");
+    assert.deepEqual(forward, expectedFocus, "New Chat tabs through setup, prompt, attach, model, dictate and send in order");
     const backward = [await evaluate(focusLabel)];
     for (let i = 1; i < expectedFocus.length; i++) backward.push(await tab(true));
     assert.deepEqual(backward, expectedFocus.toReversed(), "Shift+Tab reverses the New Chat focus order");
     assert.ok(
       await evaluate(`(() => {
         const prompt = document.querySelector('[data-prompt-editor]').getBoundingClientRect();
-        const add = document.querySelector('[aria-label="Add attachments and sources"]').getBoundingClientRect();
+        const add = document.querySelector('[aria-label="Attach files"]').getBoundingClientRect();
         const model = document.querySelector('[data-model-name]').getBoundingClientRect();
         return prompt.bottom <= add.top && add.right <= model.left;
       })()`),
-      "The New Chat prompt stays above the toolbar with Add to the left of Model",
+      "The New Chat prompt stays above the toolbar with Attach files to the left of Model",
     );
     if (process.env.MILAGRE_SCREENSHOT_DIR)
       await window.webContents

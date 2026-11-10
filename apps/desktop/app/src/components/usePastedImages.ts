@@ -130,27 +130,6 @@ export function usePastedImages(scope: string, owner?: string, deferUploads = fa
     return addFiles(files);
   }
 
-  async function pasteImage(): Promise<number[]> {
-    const current = generation.current;
-    try {
-      const items = await navigator.clipboard.read();
-      const files: File[] = [];
-      for (const item of items) {
-        const type = item.types.find((type) => TYPES.has(type));
-        if (type) files.push(new File([await item.getType(type)], `Pasted image.${type.split("/")[1]}`, { type }));
-      }
-      if (current !== generation.current) return [];
-      if (!files.length) {
-        setError("Copy an image first, then try Paste image again.");
-        return [];
-      }
-      return await addFiles(files);
-    } catch {
-      if (current === generation.current) setError("Could not read the clipboard. Allow clipboard access or paste with the keyboard shortcut.");
-      return [];
-    }
-  }
-
   async function attachFiles(selected: File[]): Promise<number[]> {
     if (reading.current) {
       setError("Wait for the current attachment to finish loading, then try again.");
@@ -186,7 +165,7 @@ export function usePastedImages(scope: string, owner?: string, deferUploads = fa
           const dataUrl = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.addEventListener("load", () => resolve(String(reader.result)));
-            reader.addEventListener("error", () => reject(new Error(`Could not read ${file.name}. Choose it again with Add files.`)));
+            reader.addEventListener("error", () => reject(new Error(`Could not read ${file.name}. Choose it again with Attach files.`)));
             reader.readAsDataURL(file);
           });
           if (current !== generation.current) return [];
@@ -202,7 +181,7 @@ export function usePastedImages(scope: string, owner?: string, deferUploads = fa
         }
         if (current !== generation.current) return [];
         if (!path) {
-          failed = "Could not get a local path for one or more files. Choose them again with Add files.";
+          failed = "Could not get a local path for one or more files. Choose them again with Attach files.";
           continue;
         }
         paths.push(path);
@@ -277,7 +256,6 @@ export function usePastedImages(scope: string, owner?: string, deferUploads = fa
     },
     error,
     onPaste,
-    pasteImage,
     addFiles,
     attachFiles,
     attachPath,

@@ -116,8 +116,10 @@ async function browserChecks() {
     await click("Opus 5.5");
     await modelIs("Opus 5.5");
     assert.equal(await evaluate(`JSON.parse(localStorage.getItem('milagre-settings')).defaultModelId`), "claude-opus-5-5");
-    await evaluate(`document.querySelector('[aria-label="Agent permissions"]').click()`);
-    await click("Full");
+    // The model picker is still open; its footer holds the permission.
+    await click("Agent permissions");
+    await click("Full permissions");
+    await evaluate(`document.querySelector('[data-promptbar] [data-permission-mode]').click()`);
     assert.equal(await evaluate(`JSON.parse(localStorage.getItem('milagre-settings')).defaultPermissionMode`), "full");
     await click("main");
     await waitFor(`!!document.querySelector('input[placeholder="Search Worktrees"]')`);
@@ -172,7 +174,7 @@ async function browserChecks() {
     await waitFor(
       `document.querySelector('[data-new-chat-pickers]').textContent.includes('New Worktree') && document.querySelector('[data-new-chat-pickers]').textContent.includes('develop')`,
     );
-    await waitFor(`document.querySelector('[aria-label="Agent permissions"]').textContent === "Full"`);
+    await waitFor(`document.querySelector('[data-promptbar] [data-permission-mode]')?.dataset.permissionMode === "full"`);
     await evaluate(`(() => {
       const input = document.querySelector('[data-prompt-editor]');
       input.value = 'First prompt';

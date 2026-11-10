@@ -286,9 +286,8 @@ async function browserChecks() {
     await evaluate("window.fileReads = []");
 
     await evaluate(`document.querySelector('input[type=file]').addEventListener('click', e => { window.pickerOpened=true; e.preventDefault(); });`);
-    await click('[aria-label="Add attachments and sources"]');
-    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Add files')).click()`);
-    assert.equal(await evaluate("window.pickerOpened"), true, "Add files invokes native file input");
+    await click('[aria-label="Attach files"]');
+    assert.equal(await evaluate("window.pickerOpened"), true, "The paperclip opens the native file chooser");
     await chooseFiles([
       ["note.txt", "text/plain"],
       ["clip.mp4", "video/mp4"],
@@ -516,10 +515,8 @@ async function browserChecks() {
     await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('data:image/png')`);
     assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] ", "Pasting an image inserts [Image #1]");
     await evaluate(
-      `Object.defineProperty(navigator.clipboard, 'read', { configurable: true, value: async () => [{ types: ['image/png'], getType: async () => new Blob([Uint8Array.from(atob(window.imageBytes), c => c.charCodeAt(0))], { type: 'image/png' }) }] })`,
+      `(() => { const dt = new DataTransfer(); dt.items.add(new File([Uint8Array.from(atob(window.imageBytes), c=>c.charCodeAt(0))], 'Pasted image.png', {type:'image/png'})); document.querySelector('[data-prompt-editor]').dispatchEvent(new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData:dt })); })()`,
     );
-    await click('[aria-label="Add attachments and sources"]');
-    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Paste image')).click()`);
     await waitFor(`!!document.querySelector('[data-promptbar] [aria-label="Preview Pasted image.png"]')`);
     assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] [Image #2] ", "Pasting a second image inserts [Image #2]");
     await click('[data-promptbar] [aria-label="Remove pasted.png"]');

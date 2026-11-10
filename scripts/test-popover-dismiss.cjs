@@ -115,7 +115,6 @@ async function browserChecks() {
   };
   const panels = () => evaluate(`document.querySelectorAll('[data-picker-panel]').length`);
   const model = "[data-promptbar] button[aria-expanded]:not([aria-label])";
-  const permissions = '[data-promptbar] button[aria-label="Agent permissions"]';
   try {
     await window.loadURL(process.argv[2]);
     await waitFor(`!!document.querySelector('[data-prompt-editor]')`);
@@ -194,7 +193,7 @@ async function browserChecks() {
     await click(model);
     assert.equal(await panels(), 0, "The trigger still toggles the picker closed");
 
-    await click(permissions);
+    await click(model);
     assert.equal(await panels(), 1);
     await click('[data-testid="stopper"]');
     assert.equal(await panels(), 0, "A surface that stops propagation still closes the picker");
