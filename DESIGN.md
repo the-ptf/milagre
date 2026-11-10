@@ -605,6 +605,16 @@ over a view.
 
 ## The site
 
-milagre.cloud (`apps/site`) is dark Milagre Blue with its own type: Geist for text and Instrument Serif italic for the
-headline's accent words. It follows the colour roles, radii and motion above. Its Lighthouse scores never drop below
-`apps/site/lighthouse-budget.json`.
+milagre.cloud (`apps/site`) lives in the day the desktop app's first-launch intro, Dawn, ends on: a cream page, warm
+ink and a gold-brown accent, with Geist for text and Instrument Serif italic for the headline's accent words. Live copies
+of the app on it (the Designs panel, the canvas, a terminal, the recordings) keep dark Milagre Blue. It follows the
+colour roles, radii and motion above, except where it borrows from Dawn: the download button is a dark pill in warm
+light, like the intro's Begin, and the hero plays the intro.
+
+- The landing hero is Dawn's sky. Every load plays the intro (night, the falling star landing on the logo, dawn into
+  day); reduced motion opens on its last frame. The headline, the apps and the download button are
+  there from the first frame.
+- Below the hero, the star winds down the page with the scroll, behind the app windows, with warm light round it and a
+  trail of star dust, and lands on the footer's logo as its legs rise (a scroll timeline, off with reduced motion).
+- Clouds and light stay in the hero. Sections below it sit on the plain page.
+- Its Lighthouse scores never drop below `apps/site/lighthouse-budget.json`.

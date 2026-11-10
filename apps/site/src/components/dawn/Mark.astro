@@ -1,0 +1,12 @@
+---
+// The logo above the headline: the falling star lands where its sparkle sits and becomes it, then the legs rise under
+// it with the app's loading-mark motion.
+import { MARK_LEFT, MARK_RIGHT, MARK_STAR } from "../../dawn";
+---
+<div class="dawn-mark" aria-hidden="true">
+  <svg class="dawn-legs" viewBox="-4 -4 154 154">
+    <path class="dawn-leg" d={MARK_LEFT} />
+    <path class="dawn-leg dawn-leg-right" d={MARK_RIGHT} />
+  </svg>
+  <span class="dawn-comet"><span class="dawn-tail"></span><svg viewBox="26 -1 94 94"><path d={MARK_STAR} /></svg></span>
+</div>
