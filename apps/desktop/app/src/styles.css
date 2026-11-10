@@ -1927,7 +1927,10 @@ code.step-running.step-sweep {
 
 /* ── welcome sky ──────────────────────────────────────── */
 /* A new Chat's backdrop: a faint wash of light from above and the logo's sparkle glinting on the page, one or two at a
- * time. Neutral ink, no colour: it should be noticed on the second look, not the first. */
+ * time. Neutral ink, no colour: it should be noticed on the second look, not the first.
+ * It plays for the first half minute or so and then rests. The sparkles are SVG, which the compositor can't animate, so a
+ * loop that never ended repainted the whole window every frame: a window left on a new Chat used a quarter of a core
+ * (GPU plus renderer) while nothing happened (scripts/perf: `idle --visible --new-chat`). */
 .welcome-sky {
   --sky-light: color-mix(in srgb, var(--accent) 11%, transparent);
   --sky-sparkle: var(--ink-4);
@@ -1941,7 +1944,8 @@ code.step-running.step-sweep {
   position: absolute;
   inset: 0;
   background: radial-gradient(70% 55% at 50% 0%, var(--sky-light), transparent);
-  animation: welcome-sky-wash 10s ease-in-out infinite alternate;
+  /* An odd count ends on the full wash, so it rests without a jump. */
+  animation: welcome-sky-wash 10s ease-in-out 3 alternate;
 }
 .welcome-sky-sparkle {
   position: absolute;
@@ -1950,7 +1954,8 @@ code.step-running.step-sweep {
   scale: 0;
   animation-name: welcome-sky-glint;
   animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
-  animation-iteration-count: infinite;
+  /* Each sparkle glints twice; the last one is done within about 36 s (longest delay plus two of its cycles). */
+  animation-iteration-count: 2;
   animation-fill-mode: both;
 }
 /* The sky spans the window, so the sidebar card lets it through while a new Chat shows; no blur, so the glints under
