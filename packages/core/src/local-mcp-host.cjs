@@ -13,6 +13,7 @@ const { inspectProject } = require("./project-identity.cjs");
 const { ancestorChats } = require("@milagre/shared/subchat-escalation");
 const { attentionContext } = require("@milagre/shared/attention");
 const { isSecretRequest } = require("./chat-secrets.cjs");
+const { isBugReportRequest } = require("./bug-reports.cjs");
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 
 /** The answers as the Chat shows them in the user's message, as the question card writes them. */
@@ -483,6 +484,9 @@ function createLocalMcpHost({
       const approval = approvals.find((item) => item.requestId === requestId);
       const question = questions.find((item) => item.requestId === requestId);
       if (!approval && !question) throw Error("Nothing with that requestId is waiting in this Chat. chat_read lists what is.");
+      // A bug report goes to a public tracker: only the person who reads its exact text approves it, in any mode or family.
+      if (question && isBugReportRequest(requestId))
+        throw Error("Only the user can approve or cancel a Milagre bug report, after reading its exact text. Tell them it is waiting.");
       const kin = kinOf(state, caller, chatId);
       if (suggest && !kin) throw Error("suggest is for a question in this Chat's own family of Subchats.");
       if (kin) return familyResponse({ chatId, requestId, state, approval, question, answers, suggest }, caller);

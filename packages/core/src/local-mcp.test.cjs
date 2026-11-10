@@ -633,6 +633,32 @@ test("no agent in the family answers an approval or a secret, or dismisses a que
   }
 });
 
+test("no other Chat's agent approves or cancels a Milagre bug report, in any mode or family", async (t) => {
+  const report = {
+    requestId: "milagre-bug-report-1",
+    bugReport: { repo: "the-ptf/milagre-ade", title: "T", body: "B" },
+    questions: [{ id: "report", header: "Bug report", question: "Report a Milagre bug", options: [], multiSelect: false, allowOther: true }],
+  };
+  for (const mode of ["ask", "auto", "full"])
+    for (const session of [{ parent: 2 }, {}]) {
+      const { host, projectPath, chatId, caller, calls } = steeringHost(t, {
+        run: { approvals: [], questions: [report] },
+        session,
+        modes: (root) => ({ [`${root}#2`]: mode }),
+      });
+      for (const answers of [{ title: ["T"], body: ["B"] }, null])
+        await assert.rejects(
+          host.respond({ projectPath, chatId, requestId: report.requestId, answers }, caller),
+          /Only the user can approve or cancel a Milagre bug report/,
+        );
+      await assert.rejects(
+        host.respond({ projectPath, chatId, requestId: report.requestId, answers: { title: ["T"], body: ["B"] }, suggest: true }, caller),
+        /Only the user/,
+      );
+      assert.deepEqual(calls, [], `${mode} ${JSON.stringify(session)}`);
+    }
+});
+
 test("a sibling in the family goes by the same rules as a parent", async (t) => {
   const { host, projectPath, chatId, caller } = steeringHost(t, {
     run: FAMILY_RUN,

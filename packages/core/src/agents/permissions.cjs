@@ -200,6 +200,8 @@ function codexMcpRequest(id, params) {
 // Computer use asks once per app per Chat itself (computer-use.cjs), so its acting tools skip the mode's per-call card.
 const SELF_GATED_TOOLS = [
   "request_secret",
+  // Its own card shows the exact report and posts nothing without the user's yes (bug-reports.cjs).
+  "report_milagre_bug",
   "project_add",
   "worktree_link",
   "worktree_remove",

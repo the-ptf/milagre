@@ -1034,6 +1034,11 @@ export interface QuestionRequest {
   requestId: string;
   /** Host-owned request: values go to a private file, never a provider question response. */
   secretRequest?: { description: string; expiresAt?: number };
+  /**
+   * Host-owned Milagre bug report (bug-reports.cjs): the exact redacted text to approve. The answer is `{ title, body }`
+   * (edited or not), or null to cancel; text that needs more redacted comes back as a new request with `recheck`.
+   */
+  bugReport?: { repo: string; title: string; body: string; expiresAt?: number; redactions?: number; recheck?: boolean };
   questions: AgentQuestion[];
 }
 
