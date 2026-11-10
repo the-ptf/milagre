@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
-import { Add01Icon, RepeatIcon } from "@hugeicons/core-free-icons";
+import { Add01Icon, ArrowRight01Icon, RepeatIcon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { canEditRoutine, canRunNow, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { useSession } from "../session";
@@ -170,7 +170,7 @@ export default function RoutinesScreen() {
 }
 
 /**
- * One Routine: a tap on its icon, name and meta opens its page, a long press its actions (Pause or Resume first, as
+ * One Routine: a tap on its icon, name and meta opens its page (the chevron at the end says so), a long press its actions (Pause or Resume first, as
  * desktop's ⋯ menu). A dot by the name says one of its hidden Run Chats is unread.
  */
 function RoutineRow({
@@ -238,6 +238,8 @@ function RoutineRow({
               {meta}
             </Text>
           </View>
+          {/* A tap opens the Routine's page, as a Settings row opens its screen. */}
+          <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
         </View>
       </PullDown>
     </View>
