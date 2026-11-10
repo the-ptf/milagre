@@ -72,3 +72,32 @@ test("a switch counts from the ask until a moment after its transcript commits, 
     now.mock.restore();
   }
 });
+
+test("a Chat that comes on screen without an ask (a Project switch) counts as a switch, and keeps one already under way", async () => {
+  const { chatSwitching, markChatSwitch } = await import("./chat-switch-timing.ts");
+  const now = mock.method(performance, "now", () => 80_000);
+  try {
+    commitChatSwitch("/p#6");
+    now.mock.mockImplementation(() => 81_000);
+    assert.equal(chatSwitching(), false);
+    // The Chat on screen is no switch.
+    markChatSwitch("/p#6");
+    assert.equal(chatSwitching(), false);
+    markChatSwitch("/q#1");
+    assert.equal(chatSwitching(), true);
+    // Asked for first (a Chat row of another Project), then marked as its Project opens: the ask's start stands.
+    beginChatSwitch("/q#2");
+    now.mock.mockImplementation(() => 82_500);
+    markChatSwitch("/q#2");
+    now.mock.mockImplementation(() => 83_100);
+    assert.equal(chatSwitching(), false);
+    // Its transcript commits like any switch's.
+    markChatSwitch("/q#3");
+    commitChatSwitch("/q#3");
+    assert.equal(chatSwitching(), true);
+    now.mock.mockImplementation(() => 83_500);
+    assert.equal(chatSwitching(), false);
+  } finally {
+    now.mock.restore();
+  }
+});

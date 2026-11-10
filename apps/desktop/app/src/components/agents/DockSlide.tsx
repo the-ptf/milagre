@@ -1,5 +1,5 @@
-import { forwardRef, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { motion, useMotionValue, useMotionValueEvent, usePresence, animate } from "motion/react";
+import { forwardRef, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { PresenceContext, motion, useMotionValue, useMotionValueEvent, usePresence, animate } from "motion/react";
 import { chatSwitching } from "../../lib/chat-switch-timing";
 import { DURATION, EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 import { ResizeHandle } from "../primitives/ResizeHandle";
@@ -36,7 +36,9 @@ function setRoom(reserve: string, slide: symbol, room: number | null) {
  * zero, the chat making room as it grows (through `reserve`, the CSS variable the chat panes read), and its content
  * slides in from the right as it fades in. Closing (under AnimatePresence) runs it backwards, from wherever it is. A panel
  * that opens or closes because another Chat came on screen (its Chat had it open, or the new one doesn't) does it at once:
- * a spring would change the chat's width on every frame of the switch (chatSwitching). `width` null lays it out
+ * a spring would change the chat's width on every frame of the switch. It knows by its presence (already in an
+ * `AnimatePresence initial={false}` as that mounts, as the Browser panel's, made anew for each Chat) or by the switch
+ * under way (chatSwitching). `width` null lays it out
  * by its own `style` instead (a panel filling the workspace), which only fades. While `resizing`, its width follows the
  * drag without the spring; `handle`, the ResizeHandle on its left edge, sits outside the card so the card's clip keeps
  * it whole.
@@ -59,8 +61,9 @@ export const DockSlide = forwardRef<
 >(function DockSlide({ width, reserve, style, className, panelClassName, children, onEntered, resizing = false, handle, ...rest }, ref) {
   const scale = useMotionScale();
   const reduced = scale === 0;
-  // Mounted by a Chat switch, it was already open: it lands at its width.
-  const [landed] = useState(() => reduced || (width !== null && chatSwitching()));
+  // There as its presence mounts, or mounted by a Chat switch: it was open before, so it lands at its width.
+  const presence = useContext(PresenceContext);
+  const [landed] = useState(() => reduced || presence?.initial === false || (width !== null && chatSwitching()));
   const shown = useMotionValue(landed || width === null ? (width ?? 0) : 0);
   const [sliding, setSliding] = useState(!landed && width !== null);
   const [slide] = useState(() => Symbol(reserve));

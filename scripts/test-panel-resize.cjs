@@ -1,6 +1,7 @@
 // Browser check: the side panels' left edges drag their width like the sidebar's right edge: the git changes panel
 // (ChangesPanelSlot) and a docked panel (DockSlide, as the simulator and the designs use it). Clamps, keeps the chat
-// usable, persists, resets, keyboard.
+// usable, persists, resets, keyboard. And a panel that opens or closes because another Chat came on screen does it at
+// once, where one opened or closed by hand springs.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -9,6 +10,8 @@ const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const fixture = `
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { AnimatePresence } from "motion/react";
+import { beginChatSwitch, commitChatSwitch, markChatSwitch } from "/src/lib/chat-switch-timing";
 import { ChangesPanelSlot } from "/src/components/changes/ChangesPanelSlot";
 import { ResizableDockSlide } from "/src/components/agents/DockSlide";
 import { usePanelWidth } from "/src/components/agents/panel-width";
@@ -20,7 +23,7 @@ function Content() {
   window.contentRenders++;
   return <div data-dock-card className="h-full" />;
 }
-function Dock() {
+function Dock({ slot = "dock" }) {
   const width = usePanelWidth("simulator").width;
   return (
     <ResizableDockSlide
@@ -28,7 +31,7 @@ function Dock() {
       label="Resize simulator"
       width={width}
       reserve="--simulator-dock"
-      data-slot="dock"
+      data-slot={slot}
       style={{ top: 60, right: 344, bottom: 12 }}
       className="fixed z-[42]"
       panelClassName="rounded-[10px] border border-line bg-surface"
@@ -37,16 +40,41 @@ function Dock() {
     </ResizableDockSlide>
   );
 }
+// As the Browser panel: made anew for each Chat, its presence starting with the dock already in it when the Chat had it open.
+function ChatDock({ open }) {
+  return <AnimatePresence initial={false}>{open && <Dock key="dock" slot="chat-dock" />}</AnimatePresence>;
+}
+// A selector's width on every frame for a while after \`run\`: -1 while it isn't in the document.
+window.framesOf = (selector, run, ms = 700) =>
+  new Promise((done) => {
+    const seen = [];
+    const start = performance.now();
+    run();
+    const tick = () => {
+      const element = document.querySelector(selector);
+      seen.push(element ? Math.round(element.getBoundingClientRect().width) : -1);
+      if (performance.now() - start < ms) requestAnimationFrame(tick);
+      else done(seen);
+    };
+    requestAnimationFrame(tick);
+  });
+window.chatSwitch = { begin: beginChatSwitch, commit: commitChatSwitch, mark: markChatSwitch };
 function App() {
   const [dock, setDock] = React.useState(false);
+  const [changes, setChanges] = React.useState(true);
+  const [chat, setChat] = React.useState({ id: 0, dock: false });
   window.openDock = () => setDock(true);
+  window.setDock = setDock;
+  window.setChanges = setChanges;
+  window.showChat = (id, open) => setChat({ id, dock: open });
   return (
     <div style={{ display: "flex", gap: 12, height: "100vh" }}>
       <main data-workspace-main style={{ flex: 1, minWidth: 0 }} className="bg-surface" />
-      <ChangesPanelSlot open>
+      <ChangesPanelSlot open={changes}>
         <aside data-changes-panel className="w-[var(--changes-panel-width,320px)] shrink-0 rounded-window bg-surface" />
       </ChangesPanelSlot>
-      {dock && <Dock />}
+      <AnimatePresence>{dock && <Dock key="dock" />}</AnimatePresence>
+      {chat.id > 0 && <ChatDock key={chat.id} open={chat.dock} />}
     </div>
   );
 }
@@ -167,8 +195,57 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[data-changes-panel]")');
     await settled("[data-changes-slot]");
     assert.equal(await width("[data-changes-panel]"), 336, "the changes panel's width survives a reload");
+
+    // A panel that opens or closes because another Chat came on screen is there (or gone) at once: springing, it would
+    // change the chat's width on every frame of the switch. By hand it springs.
+    const frames = (selector, run) => evaluate(`window.framesOf(${JSON.stringify(selector)}, () => { ${run} })`);
+    const shown = (seen) => seen.filter((value) => value > 0);
+    const lands = (seen, full, message) => assert.ok(shown(seen).length > 0 && shown(seen).every((value) => value === full), `${message}: ${seen.join(" ")}`);
+    const springs = (seen, full, message) =>
+      assert.ok(
+        seen.some((value) => value > 0 && value < full - 8),
+        `${message}: ${seen.join(" ")}`,
+      );
+    const leaves = (seen, full, message) => assert.ok(seen.at(-1) <= 0 && seen.every((value) => value <= 0 || value === full), `${message}: ${seen.join(" ")}`);
+    const dockWidth = Number(await evaluate('localStorage.getItem("milagre.panelWidth.simulator")'));
+    // The Browser panel's way: made anew for its Chat with the dock already in its presence, however the Chat came.
+    lands(await frames("[data-slot=chat-dock]", "window.showChat(1, true)"), dockWidth, "a dock open as its Chat comes on screen lands at its width");
+    assert.equal(
+      await evaluate('(document.querySelector("[data-dock-layer]") ?? document.body).style.getPropertyValue("--simulator-dock")'),
+      `${dockWidth + 12}px`,
+      "and the chat has made its room",
+    );
+    await frames("[data-slot=chat-dock]", "window.showChat(1, false)");
+    springs(await frames("[data-slot=chat-dock]", "window.showChat(1, true)"), dockWidth, "opened by hand in the same Chat, it springs");
+    lands(await frames("[data-slot=chat-dock]", "window.showChat(2, true)"), dockWidth, "the next Chat's dock lands too");
+    await evaluate("window.showChat(0, false)");
+    // The Designs' and the Changes panel's way: they outlive the Chat, so the switch under way tells them.
+    lands(await frames("[data-slot=dock]", 'window.chatSwitch.begin("/p#2"); window.openDock()'), dockWidth, "a dock opened by a Chat switch lands");
+    leaves(await frames("[data-slot=dock]", 'window.chatSwitch.begin("/p#2"); window.setDock(false)'), dockWidth, "and one closed by it goes at once");
+    const changesWidth = await width("[data-changes-slot]");
+    leaves(
+      await frames("[data-changes-slot]", 'window.chatSwitch.begin("/p#2"); window.setChanges(false)'),
+      changesWidth,
+      "the changes panel closes at once in a switch",
+    );
+    lands(await frames("[data-changes-slot]", 'window.chatSwitch.begin("/p#2"); window.setChanges(true)'), changesWidth, "and opens at once in one");
+    // The switch ends a moment after its transcript is on screen; a Project switch (no ask) starts one all the same.
+    await evaluate('window.chatSwitch.commit("/p#2")');
+    await delay(500);
+    springs(await frames("[data-changes-slot]", "window.setChanges(false)"), changesWidth, "closed by hand, the changes panel springs");
+    springs(await frames("[data-changes-slot]", "window.setChanges(true)"), changesWidth, "and springs open");
+    springs(await frames("[data-slot=dock]", "window.openDock()"), dockWidth, "a dock opened by hand springs");
+    await settled("[data-slot=dock]");
+    springs(await frames("[data-slot=dock]", "window.setDock(false)"), dockWidth, "and springs closed");
+    leaves(
+      await frames("[data-changes-slot]", 'window.chatSwitch.mark("/q#1"); window.setChanges(false)'),
+      changesWidth,
+      "a Project switch closes the changes panel at once",
+    );
     console.log("Screenshots: changes-wide, dock-wide, dock-max in the temp directory");
-    console.log("PASS: changes panel and docked panel drag from their left edge, clamp, keep the chat's room, persist, reset, keyboard");
+    console.log(
+      "PASS: changes panel and docked panel drag from their left edge, clamp, keep the chat's room, persist, reset, keyboard; land at once in a Chat switch",
+    );
     app.exit(0);
   } catch (error) {
     console.error(error);

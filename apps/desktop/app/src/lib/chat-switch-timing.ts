@@ -1,9 +1,11 @@
 import { preferenceStorage as localStorage } from "./preference-storage.ts";
 import { afterPaint } from "@milagre/shared/after-paint";
-// Opt-in timing of a Chat switch, from the click to the frame its transcript is on screen. Nothing about the Chat is
-// recorded. Turn it on with `localStorage.setItem("milagre.measureNavigation", "1")`, then read
-// `performance.getEntriesByName("milagre:chat-switch")`: each entry's duration is the switch, and its detail's
-// `commitMs` the part React spent before the first frame.
+// A Chat switch, from the ask to the frame its transcript is on screen. Two things read it:
+// - the side panels, which open or close at once while one is under way (chatSwitching), always on;
+// - opt-in timing. Nothing about the Chat is recorded. Turn it on with
+//   `localStorage.setItem("milagre.measureNavigation", "1")`, then read
+//   `performance.getEntriesByName("milagre:chat-switch")`: each entry's duration is the switch, and its detail's
+//   `commitMs` the part React spent before the first frame.
 
 const NAME = "milagre:chat-switch";
 // A switch whose transcript never commits (its Chat failed to load, or another one was picked) is dropped after this.
@@ -15,10 +17,11 @@ let cancelPaint: (() => void) | undefined;
 // The Chat whose transcript committed last: asking for it again is no switch, and no commit would end the measure.
 let shown: string | null = null;
 
-// A switch's side panels (Browser, Changes, Designs) that open or close because another Chat came on screen land at once
+// A switch's side panels (Changes, Designs) that open or close because another Chat came on screen land at once
 // (chatSwitching). Their spring changes the chat's width on every frame, and each frame lays out and paints the whole
 // transcript again: on a 6K display the window went blank for a few frames after a switch. A switch counts from the ask
 // until its transcript commits (at most SWITCH_PENDING_MS), then SWITCH_SETTLE_MS more for panels that mount just after.
+// The Browser panel needs no clock: it is made anew for each Chat, so one that is open as it mounts was open before.
 const SWITCH_PENDING_MS = 2_000;
 const SWITCH_SETTLE_MS = 300;
 let switching: { key: string; start: number } | undefined;
@@ -36,6 +39,16 @@ export function beginChatSwitch(key: string) {
   if (!enabled()) return;
   pending = { key, start: switching.start };
   cancelPaint?.();
+}
+
+/**
+ * Chat `key` is coming on screen by a way that asks for no measure (a Project opening on the Chat it remembered, a Run
+ * pane giving the window back): a switch all the same for the panels. One already under way for it keeps its start.
+ */
+export function markChatSwitch(key: string) {
+  const now = performance.now();
+  if (key === shown || (switching?.key === key && now - switching.start < SWITCH_PENDING_MS)) return;
+  switching = { key, start: now };
 }
 
 /** The transcript on screen changed: a Chat's key, or null while none is (a new Chat, one still loading, none mounted). */

@@ -135,7 +135,9 @@ export function BrowserPanel({
   useSentPageComments(chatKey);
   const active = own;
   return createPortal(
-    <AnimatePresence>
+    // This panel is made anew for each Chat: open as its Chat comes on screen, it was open before and is there at once
+    // (DockSlide), on every way of switching. Opened after that, it springs.
+    <AnimatePresence initial={false}>
       {chat.open && active && (
         <ResizableDockSlide
           key="browser-dock"
