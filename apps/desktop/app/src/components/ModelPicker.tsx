@@ -157,9 +157,11 @@ export function ModelPicker({
         </div>
         {scope && <ModelAccountPicker key={scope} scope={scope} provider={provider} />}
         {/* PickerPanel's search field. */}
-        {/* Ends with the model rows (which keep 10px for the scrollbar); its icon starts on their text line. */}
+        {/* Bare like the Settings search: its icon starts on the model names' line, and it ends with the rows (which keep 10px
+            for the scrollbar). */}
         <div className="mr-4.5 mb-1 shrink-0">
           <FieldGroup
+            fill="bare"
             className="pl-[7px]"
             leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
             value={query}

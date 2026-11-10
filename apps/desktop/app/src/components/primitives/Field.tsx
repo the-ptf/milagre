@@ -14,10 +14,10 @@ export type FieldSize = keyof typeof SIZES;
  * aria-invalid while not focused; put an InlineError size 12 under an invalid one.
  */
 /**
- * The field's fill and edge: `field`, or `page` for a bare field on a page-coloured pane (the Settings nav search): no fill
- * or visible edge of its own, so it isn't read as a selected row. The edge stays transparent to keep the field's geometry.
+ * The field's fill and edge: `field`, or `bare` for a search that sits on its pane (the Settings nav, the model picker):
+ * no fill or visible edge of its own, so it isn't read as a selected row. The edge stays transparent to keep the geometry.
  */
-const FILLS = { field: "border-line-strong bg-field", page: "border-transparent bg-page" } as const;
+const FILLS = { field: "border-line-strong bg-field", bare: "border-transparent bg-transparent" } as const;
 export type FieldFill = keyof typeof FILLS;
 
 export function fieldClass({ size = 36, fill = "field" }: { size?: FieldSize; fill?: FieldFill } = {}) {

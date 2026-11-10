@@ -46,7 +46,7 @@ export function SettingsSearchField({
     <div className="mr-4.5 mb-1 ml-2 shrink-0">
       <FieldGroup
         size={32}
-        fill="page"
+        fill="bare"
         className="pl-[7px]"
         leading={
           <span className="flex w-[18px] shrink-0">
