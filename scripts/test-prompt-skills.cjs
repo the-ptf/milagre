@@ -33,12 +33,10 @@ function Fixture() {
   // A named Link's Chat reads skills through its own scope while its folder stays the Project path.
   const [skillScope, setSkillScope] = useState(undefined);
   window.setSkillScope = setSkillScope;
-  const [expanded, setExpanded] = useState(false);
   const [suggestOptions, setSuggestOptions] = useState({});
   window.setSuggestOptions = setSuggestOptions;
   window.setDraft = setDraft;
   window.setProject = setRoot;
-  window.setExpanded = setExpanded;
   const model = suggestOptions.provider ? MODEL_CATALOG.find(item => item.provider === suggestOptions.provider) : MODEL_CATALOG[0];
   const chats = root === '/other' ? [] : [{id: 12, title: 'Plan review', branch: 'feature', at: 12, available: true}, {id: 13, title: 'Current review', branch: 'main', at: 13, available: true}, {id: 14, title: 'Chat', branch: 'old', at: 14, available: false}];
   return <ChatMentionsContext value={{chats, project: '/fixture', currentId: 13, onOpen: key => window.opened = key}}><div style={{ width: '100%', maxWidth: 720, margin: '260px auto' }}>
@@ -48,7 +46,7 @@ function Fixture() {
       suggestion={suggestOptions.text} running={!!suggestOptions.running} offlineName={suggestOptions.offline} reconnectingName={suggestOptions.reconnecting}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
-      fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop} alwaysExpanded={expanded} />
+      fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop} />
     <div id='sent-mentions'><PromptText text='See @chat:12 @chat:14 @chat:999' skills={new Map()} files={() => false} /></div>
   </div></ChatMentionsContext>;
 }
@@ -126,14 +124,14 @@ async function browserChecks() {
       );
       assert.notEqual(colors.skill, colors.text, "Skill differs from ordinary text in each theme");
       assert.equal(colors.caret, colors.text, "Caret remains visible");
-      await screenshot(dark ? "compact-dark" : "compact-light");
+      await screenshot(dark ? "chip-colors-dark" : "chip-colors-light");
     }
-    // A chip fits its line: the compact composer stays one line tall.
-    assert.equal(await evaluate(`${editor}.getBoundingClientRect().height`), 28, "A chip doesn't grow the line");
+    // A chip fits its line: the prompt keeps its one-line height.
+    assert.equal(await evaluate(`${editor}.getBoundingClientRect().height`), 68, "A chip doesn't grow the line");
     await type("/tl /unknown https://example.com/tldr /tldr/file");
     assert.deepEqual(await highlighted(), []);
     // Restored/pasted drafts must discover skills even when the caret menu stays dismissed.
-    await evaluate(`window.setDraft('Use /tldr, then /plugin:review-code please.'); window.setExpanded(true)`);
+    await evaluate(`window.setDraft('Use /tldr, then /plugin:review-code please.')`);
     await waitFor(`${editor}.querySelectorAll('[data-chip="skill"]').length === 2`);
     assert.deepEqual(await highlighted(), ["/tldr", "/plugin:review-code"]);
     assert.equal(

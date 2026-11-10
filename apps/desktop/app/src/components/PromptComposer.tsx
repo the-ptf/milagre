@@ -30,7 +30,6 @@ import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { ModelPicker } from "./ModelPicker";
 import { UltracodeFatality } from "./UltracodeFatality";
 import { useDismiss } from "../lib/use-dismiss";
-import { composerLayout, type CompactOverflow } from "../lib/composer-layout";
 import { useSettings } from "../lib/settings";
 import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
@@ -162,8 +161,6 @@ interface PromptComposerProps {
   onFastModeChange: (on: boolean) => void;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
-  /** Keep the tall layout (input above the controls) even while the draft is empty. */
-  alwaysExpanded?: boolean;
   /** How full the agent's context window is, shown as a ring beside Send. */
   contextUsage?: ContextUsage;
   /** The Chat is saved: `/undo` is offered, and sending it opens Undo changes instead of reaching the agent. */
@@ -182,7 +179,6 @@ const DICTATION_LABELS = {
   transcribing: "Transcribing",
 } as const;
 
-const POPOVER_GAP = 12;
 // Clear space between a popover and the edge of the area that clips it.
 const POPOVER_EDGE = 8;
 
@@ -242,7 +238,6 @@ export function PromptComposer({
   onFastModeChange,
   permissionMode,
   onPermissionModeChange,
-  alwaysExpanded = false,
   contextUsage,
   canUndo = false,
   placeholder,
@@ -255,7 +250,7 @@ export function PromptComposer({
   const [permissionOpen, setPermissionOpen] = useState(false);
   // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Church).
   const [fatality, setFatality] = useState(0);
-  const { ultracodeFatality, appearance, dictationAction, dictationShortcutMode, showContextSize, compactButtonDisplay } = useSettings();
+  const { ultracodeFatality, dictationAction, dictationShortcutMode, showContextSize, compactButtonDisplay } = useSettings();
   const { settings: contextSettings } = useContextSettings();
   // Settings › Chat decides whether a follow-up steers or queues; a provider that can't steer always queues.
   const delivery = followUpDelivery(contextSettings.followUps);
@@ -264,7 +259,6 @@ export function PromptComposer({
   const compactButton = compactButtonState(compactButtonDisplay, contextUsage, Boolean(onCompact), contextSettings.buttonThreshold, quiet);
   const compactLabel = compacting ? "Compacting…" : compactQueued ? "Queued for after turn" : running ? "Compact after turn" : "Compact";
   const compactBlocked = compacting ? "Compacting context." : sendBlocked ? "Not available right now." : null;
-  const chatSize = appearance.chatSize;
   const effortName = effort ? effortCopy(effort).name : "";
   // Ultracode (Claude) and Codex's ultra level both hand work to parallel agents: they share Ultracode's purple.
   // With Ultracode on, the composer itself turns purple. It only counts for a model that has it.
@@ -287,11 +281,7 @@ export function PromptComposer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [active, setActive] = useState(0);
   const [engaged, setEngaged] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const inputRef = useRef<PromptEditorHandle>(null);
-  const compactWidthRef = useRef(0);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const overflowRef = useRef<CompactOverflow>(null);
   const popoverRootRef = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<{
     left: number;
@@ -400,9 +390,6 @@ export function PromptComposer({
   }, [chipPaths, imageDraft.files, imageDraft.scope, imageDraft.remote]);
   const onSendLatest = useRef(onSend);
   onSendLatest.current = onSend;
-  const inputTextClass = expanded
-    ? "min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
-    : "min-h-7 px-1 py-[5px] text-[length:var(--chat-size)] leading-[18px]";
   const chatMatches = menu === "at" && !plusOpen ? matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId) : [];
   // Only with another computer to name: This Mac alone is no choice.
   const computerMatches = menu === "at" && !plusOpen && mentionComputers.length > 1 ? matchingMentionComputers(mentionComputers, tokenQuery) : [];
@@ -468,30 +455,6 @@ export function PromptComposer({
     if (target) setRowBox({ top: target.offsetTop, height: target.offsetHeight });
   }, [active, engaged, menu, tokenQuery, rows.length]);
 
-  useLayoutEffect(() => {
-    const input = inputRef.current?.root;
-    if (!input) return;
-    const contentHeight = input.scrollHeight;
-    if (!expanded) compactWidthRef.current = input.clientWidth;
-    const next = composerLayout({
-      draft,
-      expanded,
-      // Quote rows read as a message being written: the prompt goes under them, the controls below.
-      alwaysExpanded: alwaysExpanded || quotes.length > 0,
-      contentHeight,
-      compactWidth: compactWidthRef.current,
-      overflow: overflowRef.current,
-      measure: (text) => {
-        const context = (canvasRef.current ??= document.createElement("canvas")).getContext("2d");
-        if (!context) return null;
-        context.font = `${getComputedStyle(document.documentElement).getPropertyValue("--chat-size").trim() || "13px"} ${getComputedStyle(input).fontFamily}`;
-        return context.measureText(text).width;
-      },
-    });
-    overflowRef.current = next.overflow;
-    if (next.expanded !== expanded) setExpanded(next.expanded);
-  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, quotes.length, chatSize, showContextSize, compactButton.visible]);
-
   // Any press outside the open picker closes it, including the prompt field and the rest of the composer.
   useDismiss(
     modelOpen || plusOpen || permissionOpen,
@@ -526,8 +489,8 @@ export function PromptComposer({
     const highest = fits ? root.width - width : Math.max(max, root.width - width);
     const left = Math.max(lowest, Math.min((alignRight ? button.right - width : button.left) - root.left, highest));
     const roomBelow = window.innerHeight - button.bottom - POPOVER_BUTTON_GAP - POPOVER_BOTTOM_INSET;
-    const below = expanded && roomBelow >= POPOVER_MIN_BELOW;
-    const edge = expanded ? button.top - POPOVER_BUTTON_GAP : root.top - POPOVER_GAP;
+    const below = roomBelow >= POPOVER_MIN_BELOW;
+    const edge = button.top - POPOVER_BUTTON_GAP;
     setAnchor(
       below
         ? {
@@ -1083,7 +1046,7 @@ export function PromptComposer({
 
         <div
           data-ultracode={ultracodeOn || undefined}
-          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast ${expanded ? "gap-2 rounded-window p-3" : "gap-1.5 rounded-window p-1.5"}`}
+          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast gap-2 rounded-window p-3`}
         >
           <input
             ref={fileInputRef}
@@ -1138,14 +1101,9 @@ export function PromptComposer({
             </span>
           ) : null}
 
-          {/* Sized by the composer, not the window, which is never under 980px wide: under 600px the effort hides and
-              the permission shows only its icon, and under 560px the prompt takes its own row above the controls. */}
-          <div
-            className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"} @max-[560px]:grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]`}
-          >
-            <div
-              className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"} @max-[560px]:col-span-full @max-[560px]:col-start-1 @max-[560px]:row-start-1`}
-            >
+          {/* The prompt has its own row at every width, with the controls on the row below it. */}
+          <div className="grid grid-cols-[28px_minmax(0,max-content)_minmax(0,1fr)_auto] items-end gap-x-1 gap-y-1.5">
+            <div className="relative col-span-full row-start-1 w-full min-w-0">
               <PromptEditor
                 ref={inputRef}
                 resetKey={imageDraft.scope}
@@ -1179,8 +1137,7 @@ export function PromptComposer({
                     : (running ? (queuesFollowUp ? "Queue a message for the next turn…" : "Steer the agent…") : (placeholder ?? PROMPT_PLACEHOLDER)) +
                       (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                 }
-                className={inputTextClass}
-                placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}
+                className="min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
               />
             </div>
             <button
@@ -1192,13 +1149,11 @@ export function PromptComposer({
                 setPlusOpen((current) => !current);
                 inputRef.current?.focus();
               }}
-              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} @max-[560px]:row-start-2 flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
+              className={`col-start-1 row-start-2 flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
             >
               <Icon icon={Add01Icon} size={16} />
             </button>
-            <div
-              className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"} @max-[560px]:contents`}
-            >
+            <div className="col-start-2 row-start-2 flex min-w-0 items-center gap-0.5 justify-self-start">
               <button
                 type="button"
                 aria-expanded={modelOpen}
@@ -1209,14 +1164,14 @@ export function PromptComposer({
                   setPermissionOpen(false);
                   setModelOpen((current) => !current);
                 }}
-                className="flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink @max-[560px]:col-start-2 @max-[560px]:row-start-2"
+                className="flex h-7 min-w-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
               >
                 <ProviderLogo provider={selectedModel.provider} size={14} optical />
-                <span data-model-name className="max-w-28 truncate @max-[560px]:max-w-20">
+                <span data-model-name className="min-w-0 max-w-28 truncate">
                   {selectedModel.name}
                 </span>
                 {effortLabel && (
-                  <span data-effort-label className={`hidden items-center gap-1 @min-[600px]:flex ${orchestrating ? "text-purple-ink" : ""}`}>
+                  <span data-effort-label className={`flex shrink-0 items-center gap-1 ${orchestrating ? "text-purple-ink" : ""}`}>
                     <span className="text-ink-3">·</span>
                     {effortLabel}
                   </span>
@@ -1239,7 +1194,7 @@ export function PromptComposer({
                 setModelOpen(false);
                 setPermissionOpen((current) => !current);
               }}
-              className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-orange-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"} @max-[560px]:col-start-3 @max-[560px]:row-start-2 @max-[560px]:justify-self-start`}
+              className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-orange-ink" : "text-ink-2"} col-start-3 row-start-2 justify-self-start`}
             >
               <Icon
                 icon={
@@ -1251,9 +1206,9 @@ export function PromptComposer({
                 }
                 size={16}
               />
-              <span className="hidden @min-[600px]:inline">{PERMISSION_MODE_LABEL[permissionMode]}</span>
+              <span>{PERMISSION_MODE_LABEL[permissionMode]}</span>
             </button>
-            <div className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"} @max-[560px]:row-start-2`}>
+            <div className="col-start-4 row-start-2 flex shrink-0 items-center gap-1.5">
               {!quiet && compactionFeedback ? (
                 <span role="status" className="flex h-7 items-center gap-1 rounded-control bg-green/10 px-2 text-12 text-green-ink">
                   ✓ {compactionFeedback.percent}%<span className="@max-[700px]:hidden"> · {compactionFeedback.freed} freed</span>
