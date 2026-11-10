@@ -59,6 +59,10 @@ function collectRanges(root: Element, query: string): Range[] {
   return ranges;
 }
 
+function sameStart(a: Range, b: Range): boolean {
+  return a.startContainer === b.startContainer && a.startOffset === b.startOffset;
+}
+
 function paint(ranges: Range[], active: number) {
   // The highlight registry paints without touching the DOM, so the find bar's own input is never matched.
   CSS.highlights.set(MATCH, new Highlight(...ranges));
@@ -96,8 +100,12 @@ export function FindBar({
   // Re-run after the chat DOM changes (streaming replies, expanded rows); the active match is kept in range.
   function search(jump: boolean) {
     const column = rootRef.current?.querySelector(".chat-column");
+    const previous = ranges.current[activeRef.current];
     ranges.current = column && query ? collectRanges(column, query) : [];
-    const next = jump ? 0 : clampMatch(activeRef.current, ranges.current.length);
+    // Matches that arrive above the active one (earlier messages rendering after the tail) shift every index: keep
+    // the same match active, so the highlight doesn't move to one off screen.
+    const kept = previous ? ranges.current.findIndex((range) => sameStart(range, previous)) : -1;
+    const next = jump ? 0 : kept >= 0 ? kept : clampMatch(activeRef.current, ranges.current.length);
     activeRef.current = next;
     reveal.current = jump;
     setTotal(ranges.current.length);

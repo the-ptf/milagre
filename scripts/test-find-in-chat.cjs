@@ -216,6 +216,9 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-prompt-editor]")');
+    // The Chat renders its last messages first and the earlier ones a moment later; on a slow runner the search
+    // below would start with only the tail and count 4 matches.
+    await waitFor('document.querySelector(".chat-column")?.textContent.includes("Needle one")');
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     assert.equal(await evaluate('!!document.querySelector("[data-find-bar]")'), false);
 
