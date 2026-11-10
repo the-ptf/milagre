@@ -278,7 +278,9 @@ async function browserChecks() {
       })()`);
       assert.ok(distance <= 1, `Chat ${id} must open at the bottom before paint; distance: ${distance}`);
       assert.equal(await evaluate(`!!(${jumpButton})`), false, "A newly opened Chat does not inherit the jump button");
-      // Messages measure themselves after the first paint; the opened Chat must not visibly scroll while they do.
+      // Messages measure themselves after the first paint; the opened Chat must not visibly scroll while they do. The
+      // earlier messages of a long page go in above after the first paint (tail-first), which raises scrollTop by their
+      // height: what must not move is the end, on every frame.
       const positions = await evaluate(`new Promise(resolve => {
         const viewport = document.querySelector('[aria-label="Conversation"]');
         const seen = [];
@@ -289,10 +291,9 @@ async function browserChecks() {
         };
         requestAnimationFrame(sample);
       })`);
-      const tops = positions.map(([top]) => top);
       assert.ok(
-        Math.max(...tops) - Math.min(...tops) <= 1 && positions.at(-1)[1] <= 1,
-        `Chat ${id} must stay at the bottom without scrolling after it opens; positions: ${JSON.stringify(positions.filter((item, index) => !index || item[0] !== positions[index - 1][0]))}`,
+        positions.every(([, distance]) => distance <= 1),
+        `Chat ${id} must stay at the bottom without scrolling after it opens; positions: ${JSON.stringify(positions.filter((item, index) => !index || item[0] !== positions[index - 1][0] || item[1] !== positions[index - 1][1]))}`,
       );
     }
     await waitFor('document.querySelectorAll("[data-slot=preview-rail-item]").length === 15');

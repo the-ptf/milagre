@@ -25,6 +25,8 @@ const MANIFEST = {
   "test-chat-attachments.cjs": { seconds: 24 },
   // #234: about 50 s locally on Ubuntu 24.04 amd64 through OrbStack; refresh from CI when available.
   "test-chat-layout.cjs": { seconds: 50 },
+  // #972: about 37 s on a Mac (three parked returns, twenty first opens); provisional until a green CI timing.
+  "test-chat-scroll-return.cjs": { seconds: 40 },
   "test-site.cjs": { seconds: 23 },
   "test-task-track.cjs": { seconds: 20 },
   // #526 removed the canvas behind #240; the replacement Subagents check runs on Linux too.
