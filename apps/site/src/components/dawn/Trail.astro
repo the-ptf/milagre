@@ -41,21 +41,23 @@ import { MARK_STAR } from "../../dawn";
       trail.style.top = `${TOP}px`;
       trail.style.height = `${height}px`;
       // Swings out to the right and back to the left about once a screen, starting the way the sketch did: right
-      // behind the Designs panel, left behind the canvas.
+      // behind the Designs panel, left behind the canvas. One smooth curve runs through the swings (a Catmull-Rom
+      // spline drawn as cubic Béziers), so it never turns a corner.
       const swings = Math.max(2, Math.round((endY - 260) / 900));
       const step = (endY - 260) / swings;
-      const p = (x: number, y: number) => `${x.toFixed(1)},${y.toFixed(1)}`;
-      let x = -0.02 * width;
-      let y = 0.02 * height;
-      let d = `M${p(x, y)}`;
-      for (let index = 1; index <= swings; index++) {
-        const nx = (index % 2 ? 0.94 : 0.06) * width;
-        const ny = index * step;
-        d += ` C${p(x + (nx - x) * 0.55, y)} ${p(nx + (index % 2 ? 0.08 : -0.08) * width, ny - step * 0.55)} ${p(nx, ny)}`;
-        x = nx;
-        y = ny;
+      const points: [number, number][] = [[-0.02 * width, 0.02 * height]];
+      for (let index = 1; index <= swings; index++) points.push([(index % 2 ? 0.93 : 0.07) * width, index * step]);
+      points.push([endX, endY]);
+      const p = ([x, y]: [number, number]) => `${x.toFixed(1)},${y.toFixed(1)}`;
+      // Above 1 the curve swings wider round each turn.
+      const SWIRL = 1.5;
+      let d = `M${p(points[0]!)}`;
+      for (let index = 0; index < points.length - 1; index++) {
+        const [a, b, c, e] = [points[index - 1] ?? points[index]!, points[index]!, points[index + 1]!, points[index + 2] ?? points[index + 1]!];
+        const c1: [number, number] = [b[0] + ((c[0] - a[0]) / 6) * SWIRL, b[1] + ((c[1] - a[1]) / 6) * SWIRL];
+        const c2: [number, number] = [c[0] - ((e[0] - b[0]) / 6) * SWIRL, c[1] - ((e[1] - b[1]) / 6) * SWIRL];
+        d += ` C${p(c1)} ${p(c2)} ${p(c)}`;
       }
-      d += ` C${p(x, y + 140)} ${p(endX + (x > endX ? 160 : -160), endY - 60)} ${p(endX, endY)}`;
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
       for (const path of svg.querySelectorAll("path")) path.setAttribute("d", d);
       const length = svg.querySelector<SVGPathElement>(".dawn-trail-core")?.getTotalLength() ?? 0;
