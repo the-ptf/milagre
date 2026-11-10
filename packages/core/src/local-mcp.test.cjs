@@ -408,7 +408,6 @@ function steeringHost(t, overrides = {}) {
       calls.push(["approve", chatId, request.title]);
       return overrides.approve ? overrides.approve(request) : (overrides.decision ?? "allow");
     },
-    ...(overrides.botOf ? { botOf: overrides.botOf } : {}),
   });
   return { host, projectPath, otherPath, calls, modes, chatId: `${projectPath}#1`, caller: `${projectPath}#2`, links: () => links };
 }
@@ -599,7 +598,7 @@ test("chat_respond suggest leaves a card in the caller's Chat, at once and in an
 });
 
 test("a parent not in Full can only suggest on a family member's question", async (t) => {
-  for (const mode of ["ask", "auto", "bot"]) {
+  for (const mode of ["ask", "auto"]) {
     const { host, projectPath, chatId, caller, calls } = familyHost(t, mode);
     await assert.rejects(host.respond({ projectPath, chatId, requestId: "q1", answers: { a: ["One"] } }, caller), /Use suggest: true/);
     assert.deepEqual(calls, []);
@@ -894,58 +893,6 @@ test("chat_start into a busy Chat whose agent can't steer says the message waits
   assert.equal("note" in (await steering.host.startChat({ projectPath: steering.projectPath, chatId: steering.chatId, prompt: "Go" }, "a", () => {})), false);
 });
 
-test("a bot's Chat can't be started, stopped, switched, answered for or renamed through Milagre's MCP", async (t) => {
-  const run = { approvals: [{ requestId: "r1", kind: "command", tool: "Bash", title: "Run?", command: "ls" }], questions: [] };
-  const { host, projectPath, chatId, caller, calls } = steeringHost(t, { run, botOf: (id) => (id.endsWith("#1") ? "Ops" : null) });
-  const refused = { message: "Ops runs this Chat; open it in Milagre to take it over." };
-  await assert.rejects(
-    host.startChat({ projectPath, chatId, prompt: "Go" }, "a", () => {}, caller),
-    refused,
-  );
-  await assert.rejects(
-    host.startChat({ projectPath, chatId, prompt: "Go" }, "b", () => {}),
-    refused,
-  );
-  await assert.rejects(host.stopChat({ projectPath, chatId }), refused);
-  await assert.rejects(host.setMode({ projectPath, chatId, permissionMode: "ask" }, caller), refused);
-  await assert.rejects(host.respond({ projectPath, chatId, requestId: "r1", decision: "allow" }, caller), refused);
-  await assert.rejects(host.updateChat({ projectPath, chatId, title: "Mine now" }), refused);
-  assert.deepEqual(calls, []);
-  // Its other Chats are steered as ever.
-  await host.updateChat({ projectPath, chatId: caller, title: "Fine" });
-  assert.equal(calls.at(-1)[0], "patch");
-});
-
-test("a caller in Bot rules counts as Ask: it raises nothing and links nothing without the user", async (t) => {
-  const { host, projectPath, otherPath, chatId, caller, calls } = steeringHost(t, { modes: (root) => ({ [`${root}#2`]: "bot" }) });
-  // A Chat with no live agent takes Ask from it, never Bot rules.
-  await host.startChat({ projectPath, chatId, prompt: "Go" }, "a", () => {}, caller);
-  assert.equal(calls.findLast(([kind]) => kind === "send")[1].permissionMode, "ask");
-  assert.equal(calls.filter(([kind]) => kind === "approve").length, 0);
-  await host.startChat({ projectPath, chatId, prompt: "Go", permissionMode: "auto" }, "b", () => {}, caller);
-  assert.deepEqual(
-    calls.findLast(([kind]) => kind === "approve"),
-    ["approve", caller, 'Run "Target" in Auto mode?'],
-  );
-  await host.linkWorktrees({ projectPath, worktreeId: 1, targetProjectPath: otherPath, targetWorktreeId: 1 }, caller, () => true);
-  assert.deepEqual(
-    calls.findLast(([kind]) => kind === "approve"),
-    ["approve", caller, "Link this Worktree to another?"],
-  );
-});
-
-test("a Chat running in Bot rules counts as more than Full: a prompt sent there always asks first", async (t) => {
-  const { host, projectPath, chatId, caller, calls } = steeringHost(t, {
-    modes: (root) => ({ [`${root}#1`]: "bot", [`${root}#2`]: "full" }),
-    run: { approvals: [], questions: [] },
-  });
-  await host.startChat({ projectPath, chatId, prompt: "Go" }, "a", () => {}, caller);
-  assert.deepEqual(
-    calls.find(([kind]) => kind === "approve"),
-    ["approve", caller, 'Run a prompt in "Target" in Bot rules?'],
-  );
-});
-
 test("worktree_link defaults targetWorktreeId to the target Project's main checkout Worktree when omitted", async (t) => {
   const { host, projectPath, otherPath, caller, links } = steeringHost(t);
   const made = await host.linkWorktrees({ projectPath, worktreeId: 1, targetProjectPath: otherPath }, caller, () => false);
@@ -1128,7 +1075,7 @@ test("project_add validates a Git repo, asks on a card below Full mode, register
   assert.equal(approvals.length, 1, "Full mode needs no card");
 });
 
-test("Bot rules hide unrelated Projects from project_list, Full mode does not persist grants across a return to Ask, forgetProjectGrants prunes grants, and worktree_link requires a main Worktree when targetWorktreeId is omitted", async (t) => {
+test("Full mode does not persist grants across a return to Ask, forgetProjectGrants prunes grants, and worktree_link requires a main Worktree when targetWorktreeId is omitted", async (t) => {
   const { execFileSync } = require("node:child_process");
   const { createLocalMcpHost } = require("./local-mcp-host.cjs");
   const { createLocalMcp } = require("./local-mcp.cjs");
@@ -1139,7 +1086,6 @@ test("Bot rules hide unrelated Projects from project_list, Full mode does not pe
   execFileSync("git", ["init", "-qb", "main", internalRepo]);
 
   let mode = "full";
-  let botActive = false;
   const approvals = [];
   const caller = `${projectPath}#7`;
   const host = createLocalMcpHost({
@@ -1159,7 +1105,6 @@ test("Bot rules hide unrelated Projects from project_list, Full mode does not pe
     }),
     scopeStates: { chatMessages: async () => [] },
     permissionMode: () => mode,
-    botOf: () => (botActive ? "Triager" : null),
     chats: { runs: {}, turnSettings: () => ({}), send: async () => ({ sessionId: 7 }) },
     links: { list: async () => [], add: async () => {}, remove: async () => {} },
     activeWorktrees: async (root) => [root === otherPath ? path.join(otherPath, "feature") : root],
@@ -1169,14 +1114,13 @@ test("Bot rules hide unrelated Projects from project_list, Full mode does not pe
     dataDir,
     host,
     agentScope: () => ({
-      projects: { projectPaths: [projectPath], capabilities: botActive ? ["read"] : ["read", "create"] },
-      worktrees: { projectPaths: [projectPath], capabilities: botActive ? ["read"] : ["read", "create"] },
+      projects: { projectPaths: [projectPath], capabilities: ["read", "create"] },
+      worktrees: { projectPaths: [projectPath], capabilities: ["read", "create"] },
     }),
   });
   t.after(() => mcp.close());
 
   const cachedTools = mcp.agentTools(caller);
-  const projectList = cachedTools.find((tool) => tool.name === "project_list");
   const worktreeList = cachedTools.find((tool) => tool.name === "worktree_list");
   const worktreeLink = cachedTools.find((tool) => tool.name === "worktree_link");
   const projectAdd = cachedTools.find((tool) => tool.name === "project_add");
@@ -1198,20 +1142,6 @@ test("Bot rules hide unrelated Projects from project_list, Full mode does not pe
   await worktreeList.run({ projectPath: otherPath });
   assert.deepEqual(mcp.grantedProjects(caller), [otherPath]);
 
-  // Entering Bot rules hides out-of-scope Projects on both cached and fresh tool definitions and blocks out-of-scope calls.
-  botActive = true;
-  assert.deepEqual(JSON.parse(await projectList.run({})), [{ id: "p-main", path: projectPath, name: "Main" }]);
-  assert.deepEqual(
-    JSON.parse(
-      await mcp
-        .agentTools(caller)
-        .find((tool) => tool.name === "project_list")
-        .run({}),
-    ),
-    [{ id: "p-main", path: projectPath, name: "Main" }],
-  );
-
-  botActive = false;
   mcp.forgetProjectGrants(otherPath);
   assert.deepEqual(mcp.grantedProjects(caller), []);
 });

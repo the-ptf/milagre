@@ -53,8 +53,6 @@ const MANIFEST = {
   "test-permission-chip.cjs": { seconds: 10 },
   "test-chat-drafts.cjs": { seconds: 10 },
   "test-chat-timer.cjs": { seconds: 10 },
-  "test-bots-sidebar.cjs": { seconds: 10 },
-  "test-bots-thread.cjs": { seconds: 10 },
   "test-windows-cli.cjs": { platforms: ["win32"] },
   "test-terminal-clipboard.cjs": { platforms: ["win32"] },
   "test-ports.cjs": { needs: ["zsh", "ps", "lsof"] },

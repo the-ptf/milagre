@@ -6,8 +6,8 @@ export const PERMISSION_MODES: Array<{ id: PermissionMode; name: string; descrip
   { id: "full", name: "Full permissions", description: "Remove filesystem and network limits" },
 ];
 
-/** The composer chip's word for each mode. Bot rules is only ever set by a bot, so the picker above never offers it. */
-export const PERMISSION_MODE_LABEL: Record<PermissionMode, string> = { ask: "Ask", auto: "Auto", full: "Full", bot: "Bot rules" };
+/** The composer chip's word for each mode. */
+export const PERMISSION_MODE_LABEL: Record<PermissionMode, string> = { ask: "Ask", auto: "Auto", full: "Full" };
 /**
  * How a permission mode looks on both apps. `icon`: shield (Shield01Icon), security-check (SecurityCheckIcon) or
  * shield-alert (ShieldAlertIcon). `tone` colors the icon, `ink` the label, as palette keys. Full is the only orange

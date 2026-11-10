@@ -37,8 +37,6 @@ export interface RuntimeOptions {
    * turn isn't busy is unloaded by a sweep every `sweepMs` (a minute; 0 for none). false keeps every message in memory.
    */
   lazyMessages?: false | { idleMs?: number; sweepMs?: number };
-  /** The name of the person the bots work for, as their instructions and copy name them. Without it they say "the user". */
-  botOwner?: string;
   /** The Linear connection; tests point it at a fake Linear and a fake browser. */
   linear?: {
     clientId?: string;
@@ -58,8 +56,6 @@ export interface Runtime {
   /** `takeNotice` (default true): a desktop window's open, which takes the restored-chats notice. */
   openProject(projectPath: string, options?: { takeNotice?: boolean }): Promise<OpenProject>;
   resumeRecentProjects(): Promise<void>;
-  /** A bot's thread, or a Chat a bot opened and still runs: no completion notification or push. */
-  isQuietChat(chatKey: string): boolean;
   environmentReady: Promise<unknown>;
   /** A window regains focus over `view`: its Chat is read and its Project's diff stats are read again (throttled). */
   focused(view?: { projectPath: string | null; chatId: string | null }): Promise<void>;

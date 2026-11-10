@@ -75,7 +75,7 @@ Each project-less Chat is a Chat in the Chats home on a new Milagre-made Worktre
 so its folder is `~/.milagre/worktrees/chats/<slug>`, empty except for the empty commit. This reuses Worktree
 creation, setup, Terminals' cwd and the archive flow with no new folder lifecycle.
 
-Considered and rejected: a hidden Project per Chat in the data directory, like bot homes (ADR-0010). The registry,
+Considered and rejected: a hidden Project per Chat in the data directory. The registry,
 the recent list, `project:read`, `project:switch`, the daemon snapshot and the phone's Project list all skip hidden
 homes, so the phone would never see these Chats and every one of those paths would need an exception. A plain-folder
 (`git:false`) Project can't hold more than one Worktree, so it can't be the shared home.

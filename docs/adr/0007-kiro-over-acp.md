@@ -17,7 +17,7 @@ Kiro's `mode` option names its agents (Default, Spec, Plan…), not its approval
 
 - Ask: every request Kiro makes gets a card.
 - Auto: edits inside the Chat's folders run. Commands go through a risk filter (`command-risk.cjs`). A command that stays inside the worktree runs without a card. A risky one gets a card whose reason says why: it writes or deletes outside the worktree, discards uncommitted work (`git reset --hard`, `git clean`), writes to GitHub (push, `gh pr create`…), runs as an administrator, installs software for the whole computer, runs a script from the internet, sends data over the network, connects to another machine, touches saved credentials, stops processes, or changes containers, a cloud service or the computer's settings. The filter reads the command's words with the babysit guard's shell parser, chained and nested commands included. It can't see what a script does, so it trusts a script inside the worktree as it trusts the worktree's own files.
-- Full: nothing asks. Bot rules: the bot answers, as for the other providers.
+- Full: nothing asks.
 
 There is one Account, the one kiro-cli is signed in to. An Identity Center sign-in needs the organization's start URL and region (`kiro-cli login --license pro --identity-provider <url> --region <region>`), so it happens in a terminal. Milagre reads who is signed in with `kiro-cli whoami` (the method and email, never raw output), adds no Kiro Accounts and starts no Kiro sign-in. The `addAccounts` capability is false for Kiro, which hides Add account on both platforms.
 

@@ -672,12 +672,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   },
   {
     page: "experimental",
-    title: "Bots",
-    group: "Beta",
-    description: "Named bots that work for you and ask before anything irreversible.",
-  },
-  {
-    page: "experimental",
     title: "Delegate to other computers",
     group: "Beta",
     description:

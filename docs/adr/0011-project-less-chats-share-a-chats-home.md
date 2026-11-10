@@ -8,7 +8,7 @@ A Chat started with No project (spec `docs/superpowers/specs/2026-10-28-project-
 - **Named "No project".** `projectName` returns "No project" for the home, so the inbox, notices and notifications say so instead of "chats".
 - **Gates accept it explicitly.** The home is not in the registry, so `project:read` and `project:switch` accept it by name, and so do the MCP tools and Routines, each through an explicit home entry. A window that opens a project-less Chat shows the home but never remembers it as the last Project.
 - **One account selection.** All project-less Chats on a computer share the home's account selection, a "Chats without a Project" row in Settings › Accounts.
-- **Considered and rejected:** a hidden Project per Chat in the data directory, like bot homes (ADR-0010): the registry, the recent list, `project:read`, `project:switch` and the phone's lists all skip hidden homes, so the phone would never see these Chats. A plain-folder (`git:false`) Project: it can't hold more than one Worktree, so it can't be shared. List entries flagged `kind: "chats"` for clients to filter: a phone on the previous OTA would show a Project named "chats".
+- **Considered and rejected:** a hidden Project per Chat in the data directory: the registry, the recent list, `project:read`, `project:switch` and the phone's lists all skip hidden homes, so the phone would never see these Chats. A plain-folder (`git:false`) Project: it can't hold more than one Worktree, so it can't be shared. List entries flagged `kind: "chats"` for clients to filter: a phone on the previous OTA would show a Project named "chats".
 
 ## Computers without Git
 

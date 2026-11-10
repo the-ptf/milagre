@@ -32,7 +32,6 @@ import type {
 import type { Result } from "@milagre/shared/result";
 import type { ChatsHome } from "@milagre/shared/chats-home";
 import type { ComputerResources } from "@milagre/shared/computer-resources";
-import type { BotRecord, BotsSnapshot, GateRecord } from "@milagre/shared/bots";
 import type { StatePatch } from "@milagre/shared/state-patch";
 export type FloatingDragOverlay = {
   targets: Array<{ edge: "left" | "right" | "bottom"; x: number; y: number; width: number; height: number; active: boolean }>;
@@ -47,23 +46,6 @@ type StateNumbering = { patch?: StatePatch; base?: number; version?: number; epo
 export type StateStamp = { version?: number; epoch?: string };
 /** A Project read with `{ state: false }`: its path, name and number without the state, which a host from before the option still sends. */
 export type ProjectRead = Omit<OpenProject, "state"> & { state?: CoordinatorState } & StateStamp;
-/** A starter bot and the setup card it asks for. */
-export type BotTemplate = {
-  id: string;
-  name: string;
-  role: string;
-  color: string;
-  body: BotRecord["body"];
-  fields: Array<{ id: string; label: string; kind: "projects" | "text"; required: boolean; options?: Array<{ value: string; label: string }> }>;
-};
-export type BotCreateInput = {
-  templateId: string;
-  name: string;
-  answers: { projects: string[]; ci?: string; linearTeam?: string };
-  provider: string;
-  model: string;
-};
-export type BotPatch = { name?: string; role?: string; brief?: string; paused?: boolean; projects?: string[] };
 /** To a client that reads messages by Chat: the messages a change added, changed (each after the one before it in its Chat) or removed. */
 export type MessageChanges = { changed: Array<{ message: ChatMessage; after: number | null }>; removed: number[] };
 /** Where a search match is and what matched. */
@@ -400,25 +382,6 @@ export type MilagreBridge = {
   /** Whether the host has Designs. Always on now; a paired computer on an older Milagre may still report it off. */
   readDesignsEnabled: () => Promise<{ enabled: boolean }>;
   onDesignsEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
-  /** This Mac's default-off Experimental Bots switch. Bots stay on this Mac: a paired computer's bridge refuses them. */
-  readBotsEnabled: () => Promise<{ enabled: boolean }>;
-  saveBotsEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
-  onBotsEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
-  listBots: () => Promise<BotsSnapshot>;
-  onBotsChanged: (callback: (snapshot: BotsSnapshot) => void) => () => void;
-  botTemplates: () => Promise<BotTemplate[]>;
-  createBot: (input: BotCreateInput) => Promise<BotRecord>;
-  updateBot: (id: string, patch: BotPatch) => Promise<BotRecord>;
-  /** The bot's Chats stay in Milagre as the user's; its pending sign-offs are denied. */
-  removeBot: (id: string) => Promise<void>;
-  sendToBot: (id: string, text: string) => Promise<void>;
-  /** A sign-off is the card `requestId` in Chat `chatKey`: request ids repeat across Chats. */
-  answerBotGate: (chatKey: string, requestId: string, choice: "once" | "always" | "deny") => Promise<GateRecord>;
-  revokeBotGrant: (id: string) => Promise<void>;
-  readBotBrief: (id: string) => Promise<{ text: string }>;
-  readBotMemory: (id: string) => Promise<{ text: string; lines: number; bytes: number }>;
-  /** `base`: the text read when the profile opened MEMORY.md; the save is refused when the file changed since. */
-  saveBotMemory: (id: string, text: string, base?: string) => Promise<unknown>;
   readLinearStatus: () => Promise<LinearStatus>;
   /** Opens Linear in the browser and resolves once the Mac is connected. A second call replaces a waiting one. */
   /** `window`: sign in from a window of its own with an empty session (Add workspace), not the browser. */

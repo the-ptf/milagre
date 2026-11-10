@@ -22,8 +22,7 @@ const ACTIVE_TTL_MS = 3000;
  *   leave out unloaded Chats' messages: see message-store.cjs); messages(path, chatIds) -> those Chats' messages, whole,
  *   or every message without chatIds; bodies(path, chatIds) -> their ids, roles and bodies
  *   chats -> the ChatHost; agents -> the SessionManager; emit(channel, payload) -> the windows
- *   chatTools(chatId, tools) -> the tools a Chat keeps of all it would get (Bot rules withhold most of Milagre's)
- *   botOf(chatId) -> the name of the bot that runs a Chat (its thread, or a Chat it opened the user hasn't taken over)
+ *   chatTools(chatId, tools) -> the tools a Chat keeps of all it would get, as it runs them
  *   remote -> the paired computers a Chat can delegate to (see Delegations' `remote` port), or null
  */
 function createLinkedWorktrees({
@@ -43,7 +42,6 @@ function createLinkedWorktrees({
   pendingAdvisorResults = async () => false,
   extraTools = () => [],
   chatTools = (_chatId, tools) => tools,
-  botOf = () => null,
   remote = null,
   // (projectPath, prompt) -> { path, branch }: a new Worktree of a Project, from its main branch.
   createWorktree = async () => {
@@ -114,12 +112,10 @@ function createLinkedWorktrees({
     const base = isLinkScopeKey(scope)
       ? await linkProjects(scopeFromKey(scope).linkId)
       : [projects.find((item) => item.path === scope) ?? { path: scope, name: path.basename(scope) }];
-    const extra = botOf(chatId)
-      ? []
-      : (await grantedProjects(chatId))
-          .filter((projectPath) => !base.some((item) => item.path === projectPath))
-          .map((projectPath) => projects.find((item) => item.path === projectPath))
-          .filter(Boolean);
+    const extra = (await grantedProjects(chatId))
+      .filter((projectPath) => !base.some((item) => item.path === projectPath))
+      .map((projectPath) => projects.find((item) => item.path === projectPath))
+      .filter(Boolean);
     for (const candidate of [...base, ...extra]) {
       const state = await project(candidate.path);
       const worktree = Object.values(state.worktrees).find((item) => item.path === worktreePath);
@@ -138,7 +134,7 @@ function createLinkedWorktrees({
 
   /**
    * An active Worktree of any Project on this computer, as a Delegation from another computer's target, or null. Only
-   * Projects in the registry are looked at (never a bot's home, ADR-0010), and only the one whose Worktree it is loads.
+   * Projects in the registry are looked at, and only the one whose Worktree it is loads.
    */
   async function hostTarget(worktreePath) {
     if (typeof worktreePath !== "string" || !path.isAbsolute(worktreePath)) return null;
@@ -254,7 +250,7 @@ function createLinkedWorktrees({
   }
 
   // The mode a delivered message runs in: the latest turn's (turnOptions), or the live agent's when a steer reaches it
-  // after a switch, whichever allows more (Bot rules most: see modeRank); a Chat with neither takes the requesting Chat's.
+  // after a switch, whichever allows more (see modeRank); a Chat with neither takes the requesting Chat's.
   function deliveryMode(key, requester) {
     const modes = [agents.permissionMode(key, null), chats.turnSettings(key)?.permissionMode].filter(Boolean);
     return modes.length ? modes.reduce((most, mode) => (modeRank(mode) > modeRank(most) ? mode : most)) : callerMode(agents.permissionMode(requester));
@@ -267,8 +263,6 @@ function createLinkedWorktrees({
     let state = await project(projectPath);
     const session = state.sessions[sessionIdFromKey(key)];
     if (!session) throw new Error("that Chat is no longer in its Project");
-    const bot = botOf(key);
-    if (bot) throw new Error(`${bot} runs that Chat, and only ${bot} steers it`);
     // The Project's last used model is read across every Chat, unloaded ones too, when the Chat has no turn this run.
     if (!chats.turnSettings(key)) state = { ...state, messages: await messages(projectPath) };
     const { started, queued } = await chats.send({
@@ -338,7 +332,6 @@ function createLinkedWorktrees({
       note: (key, note) => chats.addNote(key, note),
       reply: async (key, delegationId) => delegationReply(await messages(projectOfKey(key), [sessionIdFromKey(key)]), sessionIdFromKey(key), delegationId),
       permissionMode: (key) => agents.permissionMode(key),
-      botOf: (key) => botOf(key),
       deliveryMode: (key, requester) => deliveryMode(key, requester),
       approve: (key, request) => agents.askApproval(key, request),
       changed: () => emit("linked:changed", snapshot()),

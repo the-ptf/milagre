@@ -6,7 +6,6 @@ import { FOLLOW_UP_OPTIONS, type FollowUps } from "@milagre/shared/queued-messag
 import { outbox, useOutbox } from "../lib/outbox";
 import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
-import { useBots } from "../lib/bots-store";
 import { useRemoteDelegationEnabled } from "../lib/remote-delegation";
 import { useDeviceNotesEnabled } from "../lib/device-notes";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL, DEVICE_NOTES_WARNING } from "@milagre/shared/device-notes";
@@ -761,22 +760,6 @@ function DeviceNotesSettings() {
   );
 }
 
-function BotsSettings() {
-  const bots = useBots();
-  return (
-    <div data-slot="bots-setting">
-      <Row label="Bots" description="Named bots that work for you and ask before anything irreversible.">
-        <SettingCheckbox label="Bots" checked={bots.enabled} disabled={!bots.ready || bots.saving} onChange={(enabled) => void bots.setEnabled(enabled)} />
-      </Row>
-      {bots.error && (
-        <p role="alert" className="px-4 pb-3 text-12 text-red-ink">
-          {bots.error}
-        </p>
-      )}
-    </div>
-  );
-}
-
 /** How long a Chat waits in the sidebar's Done list before this Mac archives it. */
 function DoneRetentionSetting() {
   const { settings, save } = useDoneSettings();
@@ -1029,7 +1012,6 @@ function ExperimentalSettings({ title }: { title?: string }) {
             onChange={(ultracodeFatality) => updateSettings({ ultracodeFatality })}
           />
         </Row>
-        <BotsSettings />
         <RemoteDelegationSettings />
         <DeviceNotesSettings />
       </Group>

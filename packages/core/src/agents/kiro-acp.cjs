@@ -13,7 +13,7 @@ const ACP_ARGS = ["acp", "--agent-engine", "v3"];
 // consider read-only; off (supervised), it also asks for every command and asks again to review each edit after it
 // is made, a second card for what Ask already approved. Its `mode` option is something else (its agents: Default,
 // Spec, Plan…), so Milagre never sets it. Milagre's own modes decide the cards (see AcpSession.askPermission).
-const MODES = { ask: "on", auto: "on", full: "on", bot: "on" };
+const MODES = { ask: "on", auto: "on", full: "on" };
 
 // The app the Homebrew cask (and Kiro's installer) puts in /Applications holds the agent beside the `kiro-cli` launcher.
 const APP_AGENT = "/Applications/Kiro CLI.app/Contents/MacOS/kiro-cli-chat";

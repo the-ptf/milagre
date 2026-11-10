@@ -1,4 +1,3 @@
-import type { GateMeta } from "./bots.mjs";
 import type { ProjectKind } from "./chats-home.mjs";
 import type {
   SubchatAnsweredByContext,
@@ -11,7 +10,7 @@ import type {
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro";
-export type PermissionMode = "ask" | "auto" | "full" | "bot";
+export type PermissionMode = "ask" | "auto" | "full";
 /** Where a new chat runs: the selected checkout, or a fresh git worktree. */
 export type Isolation = "local" | "worktree";
 
@@ -465,16 +464,6 @@ export type WorktreeLinkedContext = {
 export type ChatReloadContext = { kind: "reload" };
 
 /**
- * What Milagre writes into a bot's thread (packages/core/src/bots): a sign-off that expired, a Chat the bot opened that
- * finished a turn or that the user took over. `bot-message` marks a prompt a bot sent into a Chat it opened.
- */
-export type BotContext =
-  | { kind: "bot-gate-expired"; requestId: string; chatKey: string }
-  | { kind: "bot-chat-finished"; chatKey: string; status: "done" | "failed" }
-  | { kind: "bot-chat-taken-over"; chatKey: string }
-  | { kind: "bot-message"; botId: string; botName: string };
-
-/**
  * What starts a Routine: the clock, a change in a Linear workspace, or a POST to its webhook URL. A webhook's `hookId` is
  * the hex sha256 of the secret in the URL, so the Routine never holds the secret itself; `signed` says an HMAC is checked.
  */
@@ -849,7 +838,6 @@ export type ChatContext =
   | AccountSwitchContext
   | { kind: "limit-reset" }
   | ChatReloadContext
-  | BotContext
   | RoutineRunContext
   | BabysitStoppedContext
   | CheckpointRestoreContext
@@ -998,8 +986,6 @@ export interface PermissionRequest {
   setup?: { projectPath: string; source: string; computer: string };
   /** Short name of the tool, e.g. "Bash", "Shell" or "Edit files". */
   tool: string;
-  /** The agent's own name for the tool, when `tool` shows another (Claude's MCP tools: "Send Message"). */
-  toolName?: string;
   title: string;
   description?: string;
   command?: string;
@@ -1017,8 +1003,6 @@ export interface PermissionRequest {
   /** On a Delegation's card: where it goes ("Project / branch / Chat"), what it says, and whether it opens a Negotiation. */
   /** `computer`: the paired computer it goes to, for a Delegation to another computer (Always allow covers that computer). */
   delegation?: { target: string; message: string; negotiation: boolean; computer?: string };
-  /** On a bot's sign-off card: the gated action and the bot that wants it. */
-  gate?: GateMeta;
 }
 
 export type PermissionDecision = "allow" | "allow-for-chat" | "deny";

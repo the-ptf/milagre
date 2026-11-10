@@ -1,4 +1,4 @@
-// Settings sections in Electron, inside the Settings modal: Church lists only Floating inbox, Ultracode Fatality, Bots, Delegate
+// Settings sections in Electron, inside the Settings modal: Church lists only Floating inbox, Ultracode Fatality, Delegate
 // and Device notes; Integrations holds the Babysit PRs row, which opens its own page; Phone & sharing holds Published pages
 // (Designs are always on); This Mac holds Drive other computers, which tells main each time it flips; Notifications holds the chime picker
 // (picking one saves and plays it; the replay button plays it again). The legacy sidebar switch is gone everywhere. Search settings (⌘F) finds sections and rows
@@ -24,7 +24,6 @@ window.played = [];
 HTMLMediaElement.prototype.play = function () { window.played.push(this.src.split('/').pop().split('?')[0]); return Promise.resolve(); };
 window.savedShare = { id: "orphan", url: "https://share.milagre.cloud/s/orphan", title: "Deleted Chat page", createdAt: 1780000000000, designCount: 2 };
 window.shareCalls = [];
-window.botsSaves = [];
 window.deviceNotes = { enabled: false };
 window.deviceNotesSaves = [];
 // Babysit PRs as the host keeps it: saves merge shallowly, like babysit-settings.cjs.
@@ -72,11 +71,6 @@ window.milagre = {
   onRemoteDelegationEnabledChanged: () => () => {},
   readRoutinesEnabled: async () => ({ enabled: true }),
   listRoutines: async () => ({ routines: [] }),
-  readBotsEnabled: async () => ({ enabled: false }),
-  saveBotsEnabled: async (enabled) => { window.botsSaves.push(enabled); return { enabled }; },
-  onBotsEnabledChanged: () => () => {},
-  listBots: async () => ({ enabled: false, bots: [], gates: [], grants: [], chats: [] }),
-  onBotsChanged: () => () => {},
   artifacts: {
     allPageShares: async () => { window.shareCalls.push(["all"]); return [window.savedShare]; },
     revokeSavedPageShare: async ({ id }) => { window.shareCalls.push(["revoke", id]); window.savedShare = { ...window.savedShare, revoked: true }; },
@@ -279,12 +273,12 @@ async function browserChecks() {
     await pick("Expanded");
     await waitFor(`${region("usage")}.dataset.previewUsage === "expanded"`);
     await openSection("Church");
-    await waitFor(`!!document.querySelector('main [role="checkbox"][aria-label="Bots"]')`);
+    await waitFor(`!!document.querySelector('main [role="checkbox"][aria-label="Device notes"]')`);
     // Routines have no switch: every computer runs them.
     await delay(300);
     assert.deepEqual(
       [...(await switches())].sort(),
-      ["Bots", "Delegate to other computers", "Device notes", "Floating inbox", "Ultracode Fatality"],
+      ["Delegate to other computers", "Device notes", "Floating inbox", "Ultracode Fatality"],
       "Church keeps Device notes alongside the other betas",
     );
     const deviceNotes = `document.querySelector('main [role="checkbox"][aria-label="Device notes"]')`;
@@ -456,19 +450,6 @@ async function browserChecks() {
     await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
     await waitFor(`!${shareDialog}`);
     await openSection("Church");
-    const botsSwitch = 'document.querySelector("[data-slot=bots-setting] [role=checkbox][aria-label=Bots]")';
-    await waitFor(`${botsSwitch} && !${botsSwitch}.disabled`);
-    assert.equal(await evaluate(`${botsSwitch}.getAttribute("aria-checked")`), "false", "Bots is off by default");
-    assert.equal(
-      await evaluate(
-        'document.querySelector("[data-slot=bots-setting]").textContent.includes("Named bots that work for you and ask before anything irreversible.")',
-      ),
-      true,
-    );
-    await evaluate(`${botsSwitch}.click()`);
-    await waitFor(`${botsSwitch}.getAttribute("aria-checked") === "true"`);
-    assert.deepEqual(await evaluate("window.botsSaves"), [true]);
-    await screenshot("bots-on");
     assert.equal(await evaluate(`!!document.querySelector('[aria-label="Murilo mode"]')`), false, "Murilo mode moved to Settings › Chat");
     for (const label of ["Appearance", "Notifications", "Phone & sharing"]) {
       await openSection(label);
@@ -628,7 +609,7 @@ async function browserChecks() {
     console.log("PASS: Worktrees cleanup contains idle and busy Escape; Stop prevents the next removal; Settings still closes on its own Escape");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Church lists only Floating inbox, Ultracode Fatality, Bots, Delegate and Device notes; Integrations' Babysit PRs row opens a page that saves each change and goes Back; Phone & sharing holds Published pages (no Designs switch); with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; This Mac holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
+      "PASS: Church lists only Floating inbox, Ultracode Fatality, Delegate and Device notes; Integrations' Babysit PRs row opens a page that saves each change and goes Back; Phone & sharing holds Published pages (no Designs switch); with no legacy sidebar switch or Murilo mode; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; This Mac holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
     );
     app.exit(0);
   } catch (error) {

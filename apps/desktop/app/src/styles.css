@@ -1187,8 +1187,7 @@ a {
 }
 
 /* Hidden labels must not take space away from the centered icon. */
-[data-sidebar-collapsed="true"] .sidebar-row > .sidebar-copy,
-[data-sidebar-collapsed="true"] .sidebar-rail-button > .sidebar-copy {
+[data-sidebar-collapsed="true"] .sidebar-row > .sidebar-copy {
   display: none;
 }
 

@@ -1074,45 +1074,6 @@ test("over a Link, a raise asks on its own card even where Always allow covers t
   assert.equal(fake.delivered.length, 0);
 });
 
-test("Bot rules weigh as Ask for the caller and above Full for the receiving Chat", async () => {
-  const fake = desk();
-  const modes = { "/api#1": "bot", "/web#2": "ask" };
-  fake.ports.permissionMode = (key) => modes[key] ?? "ask";
-  const cards = [];
-  fake.ports.approve = async (key, request) => {
-    cards.push(request);
-    return "deny";
-  };
-  await fake.delegations.ready;
-  // Over a Link a caller in Bot rules asks as an Ask caller does: Bot rules never answer Milagre's own card (askApproval).
-  await assert.rejects(fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" }), /denied/);
-  assert.equal(cards.at(-1).title, "Send a Delegation to /web#2?");
-  // Anything above Ask in the receiving Chat is a raise for it.
-  modes["/web#2"] = "auto";
-  await assert.rejects(fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" }), /denied/);
-  assert.equal(cards.at(-1).title, "Send a Delegation to /web#2 in Auto mode?");
-  // A Chat in Bot rules is more than any caller has.
-  modes["/api#1"] = "full";
-  modes["/web#2"] = "bot";
-  await assert.rejects(fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" }), /denied/);
-  assert.equal(cards.at(-1).title, "Send a Delegation to /web#2 in Bot rules?");
-  assert.equal(fake.delivered.length, 0);
-});
-
-test("a bot's Chat takes no Delegation: only its bot steers it", async () => {
-  const fake = desk();
-  fake.ports.botOf = (key) => (key === "/web#2" ? "Ops" : null);
-  await fake.delegations.ready;
-  await assert.rejects(
-    fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" }),
-    /^Error: Ops runs that Chat; only the user can take it over, in Milagre\. Pick another one, or "new"\.$/,
-  );
-  assert.equal(fake.delivered.length, 0);
-  // A new Chat in its Worktree is an ordinary Chat.
-  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "new", message: "Add it" });
-  assert.equal(fake.delivered.at(-1).key, "/web#9");
-});
-
 // A receiving Chat on a provider that can't steer queues the message (chat-host.cjs), and the queue outlives a restart.
 function queuingDesk(data) {
   const fake = desk(data ? { data } : {});

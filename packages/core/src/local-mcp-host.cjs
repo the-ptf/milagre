@@ -69,10 +69,9 @@ function attachmentPrompt(body, files) {
  * models(projectPath) -> { [provider]: [{ id, efforts, defaultEffort }] }, the pickers' catalog,
  * worktreeStatus(path, base) -> { uncommitted, unpushed, branch, removable } (worktree-cleanup.cjs),
  * removeWorktree(projectPath, worktreePath) -> { removed, branch, branchDeleted }, the safe removal only,
- * approve(callerChat, request) -> "allow" | "allow-for-chat" | "deny" | "cancelled",
- * botOf(chatId) -> the name of the bot that runs a Chat (its thread, or a Chat it opened the user hasn't taken over).
+ * approve(callerChat, request) -> "allow" | "allow-for-chat" | "deny" | "cancelled".
  * `caller` is the Chat whose agent called the tool; an outside client has none and counts as an Ask caller with nowhere
- * to show an approval card. A caller in Bot rules counts as an Ask caller too.
+ * to show an approval card.
  */
 function createLocalMcpHost({
   projects,
@@ -103,7 +102,6 @@ function createLocalMcpHost({
     throw Error("Adding Projects is unavailable");
   },
   assertRegistrableProject = async () => {},
-  botOf = () => null,
 }) {
   const validateProject = async (projectPath) => {
     if (!(await projects()).some((project) => project.path === projectPath) || realpathSync(projectPath) !== projectPath)
@@ -162,12 +160,6 @@ function createLocalMcpHost({
   };
   const callerModeWith = (caller, saved) => (caller ? asCaller(permissionMode(caller, null) ?? chats.turnSettings?.(caller)?.permissionMode ?? saved) : "ask");
   const callerMode = async (caller) => callerModeWith(caller, caller ? await savedMode(caller) : "ask");
-  // A bot's Chat runs under its gates and only the bot steers it, until the user takes it over in Milagre: no other Chat
-  // or outside client starts, stops, switches, answers for or renames it.
-  const notBots = (chatId) => {
-    const bot = botOf(chatId);
-    if (bot) throw Error(`${bot} runs this Chat; open it in Milagre to take it over.`);
-  };
   // Past what the caller may do alone: the user decides on a card in the caller's Chat. An outside client has no Chat.
   // A caller with no live agent has nowhere to show the card: that is no one's refusal, so it says so (#973).
   const confirm = async (caller, request) => {
@@ -188,7 +180,7 @@ function createLocalMcpHost({
     if (!raisesMode(mode, fromCaller ?? (await callerMode(caller)))) return false;
     const name = session?.title || session?.generatedTitle;
     const chatName = name ? `"${name}"` : "another Chat";
-    const modeName = mode === "full" ? "Full permission" : mode === "auto" ? "Auto mode" : "Bot rules";
+    const modeName = mode === "full" ? "Full permission" : "Auto mode";
     await confirm(caller, {
       ...(asked
         ? { title: `Run ${chatName} in ${modeName}?`, description: "This Chat's agent asks to give it more permission than it has itself." }
@@ -280,7 +272,6 @@ function createLocalMcpHost({
   const scopeRequests = new Map();
   const requestProjectScope = async (caller, projectPath, onGrant) => {
     if (!caller) throw Error("Project is outside this connection's scope. Grant access to it (or select All Projects) in Milagre Settings > Milagre.");
-    notBots(caller);
     await validateProject(projectPath);
     if ((await callerMode(caller)) === "full") return;
     const key = `${caller}\0${projectPath}`;
@@ -329,7 +320,6 @@ function createLocalMcpHost({
     requestProjectScope,
     validateChat: validateDesignChat,
     async addProject({ projectPath }, caller, inScope = () => false, onGrant) {
-      if (caller) notBots(caller);
       const { identity } = await inspectProject(projectPath).catch((error) => {
         if (error?.code === "ENOENT") throw Error(`No such folder: ${projectPath}`);
         throw error;
@@ -403,7 +393,6 @@ function createLocalMcpHost({
       client,
     ) {
       const { state, session } = await chat(projectPath, chatId);
-      notBots(chatId);
       assertNotWaiting(state, caller, chatId, "send");
       if (session.archived) throw Error("This Chat is archived");
       const latest = chats.turnSettings(chatId) ?? {};
@@ -471,7 +460,6 @@ function createLocalMcpHost({
     },
     async stopChat({ projectPath, chatId }, caller) {
       const { state } = await chat(projectPath, chatId);
-      notBots(chatId);
       assertNotWaiting(state, caller, chatId, "stop");
       const running = Boolean(runOf(chatId));
       await stopChat(chatId);
@@ -479,7 +467,6 @@ function createLocalMcpHost({
     },
     async setMode({ projectPath, chatId, permissionMode: mode }, caller) {
       const { state, session } = await chat(projectPath, chatId);
-      notBots(chatId);
       assertNotWaiting(state, caller, chatId, "change the mode of");
       if (!runOf(chatId) && permissionMode(chatId, null) === null)
         throw Error("This Chat has no running agent. Pass permissionMode to chat_start to start it in that mode.");
@@ -491,7 +478,6 @@ function createLocalMcpHost({
     // Inside a family the user decides more: see `familyResponse`.
     async respond({ projectPath, chatId, requestId, decision, answers, suggest = false }, caller) {
       const { state, session } = await chat(projectPath, chatId);
-      notBots(chatId);
       if (caller === chatId) throw Error("A Chat can't answer its own approvals or questions.");
       const { approvals, questions } = pending(chatId);
       const approval = approvals.find((item) => item.requestId === requestId);
@@ -528,7 +514,6 @@ function createLocalMcpHost({
     },
     async updateChat({ projectPath, chatId, title, archived }) {
       const { session } = await chat(projectPath, chatId);
-      notBots(chatId);
       if (title === undefined && archived === undefined) throw Error("Give a title, archived, or both.");
       if (archived && runOf(chatId)) throw Error("Stop the Chat before archiving it.");
       await patchChat(projectPath, session.id, { ...(title !== undefined ? { title: title.trim() } : {}), ...(archived !== undefined ? { archived } : {}) });

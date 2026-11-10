@@ -1,6 +1,6 @@
 const { active: activeSubagent } = require("./subagents.cjs");
 const { isTerminal } = require("./events.cjs");
-const { PERMISSION_MODES, USER_DECISIONS, WorkspaceAccess } = require("./permissions.cjs");
+const { PERMISSION_MODES, USER_DECISIONS, WorkspaceAccess, turnMode } = require("./permissions.cjs");
 const { validAnswers } = require("./questions.cjs");
 const { capOutput } = require("./steps.cjs");
 const { recordAntigravityModels } = require("./models.cjs");
@@ -35,7 +35,6 @@ class SessionManager {
     createSession,
     send,
     linkedFor = () => null,
-    permissionPolicy = () => undefined,
     onSessionClosed = () => {},
     onTurnStarted = () => {},
     // What a new session is told about this machine's network (events.cjs hostNetworkInstructions). Read as each session
@@ -44,7 +43,7 @@ class SessionManager {
     idleMs = IDLE_MS,
     batchMs = BATCH_MS,
   }) {
-    Object.assign(this, { createSession, send, linkedFor, permissionPolicy, onSessionClosed, onTurnStarted, hostInstructions, idleMs, batchMs });
+    Object.assign(this, { createSession, send, linkedFor, onSessionClosed, onTurnStarted, hostInstructions, idleMs, batchMs });
     this.sessions = new Map();
     this.buffers = new Map();
     this.queues = new Map();
@@ -63,7 +62,9 @@ class SessionManager {
         prompt: request.prompt,
         images: request.images,
         model: request.model,
-        permissionMode: request.permissionMode,
+        // A turn saved in a mode Milagre no longer knows runs in Ask: no provider maps it, and one that maps nothing keeps
+        // the mode it had (an ACP agent left in Full's would run it without asking).
+        permissionMode: turnMode(request.permissionMode),
         effort: request.effort,
         ultracode: request.ultracode,
         fastMode: request.fastMode,
@@ -151,8 +152,6 @@ class SessionManager {
       ...(request.harness ? { harness: request.harness } : {}),
       ...(request.args ? { args: request.args } : {}),
       linked: this.linkedFor(chatId),
-      // A bot's thread or a Chat a bot opened gets the bot's answers for Bot rules mode.
-      permissionPolicy: this.permissionPolicy(chatId),
       emit: (event) => this.forward(chatId, entry, event),
     });
     this.sessions.set(chatId, entry);
@@ -267,11 +266,10 @@ class SessionManager {
   }
 
   // Milagre's own tools (a Delegation) ask through the chat's approval cards, which follow its permission
-  // mode (Full answers at once). In Bot rules the user answers them: they are Milagre's, not the bot's to allow. A chat
-  // without a session has nobody to ask.
+  // mode (Full answers at once). A chat without a session has nobody to ask.
   askApproval(chatId, request) {
     const permissions = this.sessions.get(chatId)?.session.permissions;
-    return permissions ? new Promise((resolve) => permissions.add(request, resolve, { fromMilagre: true })) : Promise.resolve("cancelled");
+    return permissions ? new Promise((resolve) => permissions.add(request, resolve)) : Promise.resolve("cancelled");
   }
 
   /** Why a wake's turn refuses this tool call (EscalationTurn), or null: every Milagre tool asks here before it runs. */
@@ -288,10 +286,6 @@ class SessionManager {
     const entry = this.sessions.get(chatId);
     if (!entry || (provider && entry.provider !== provider) || entry.session.closed || (!entry.session.turnActive && !busyWithoutTurn(entry))) return null;
     return { accountId: entry.accountId, command: entry.command, env: entry.env, harness: entry.harness, args: entry.args };
-  }
-
-  hasSession(chatId) {
-    return this.sessions.has(chatId);
   }
 
   /** How much background work (subagents and tasks) still runs in the chat's agent process; closing it would stop it. */

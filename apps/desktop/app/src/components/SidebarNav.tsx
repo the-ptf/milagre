@@ -76,12 +76,6 @@ import { pinChat, useChatPins } from "../lib/chat-pins";
 import { keepsOnPin } from "@milagre/shared/chat-pins";
 import { UpdateSettingsBadge } from "./UpdateNotice";
 import { RECENT_PROJECTS_CHANGED } from "../lib/project-list";
-import { MODEL_CATALOG, type ModelOption } from "../model";
-import { useBots } from "../lib/bots-store";
-import { BotMarksContext, botMarks as botMarksOf, useBotMarks } from "../lib/bot-marks";
-import { SidebarModeSwitch, type SidebarMode } from "./bots/SidebarModeSwitch";
-import { BotList, NewBotButton } from "./bots/BotList";
-import { NewBotSheet } from "./bots/NewBotSheet";
 import { useRoutines } from "../lib/routines";
 import {
   cachedProjectCopy,
@@ -176,14 +170,6 @@ type SidebarNavProps = {
   /** Opens the Routines page; its button sits between Search and Filters. */
   onOpenRoutines?: () => void;
   routinesActive?: boolean;
-  /** Projects or Bots; the switch shows only while Bots is on (Settings › Church) and this is given. */
-  sidebarMode?: SidebarMode;
-  onSidebarMode?: (mode: SidebarMode) => void;
-  selectedBotId?: string | null;
-  onPickBot?: (id: string) => void;
-  /** The models New bot offers, and the one it starts on. */
-  models?: ModelOption[];
-  defaultModel?: ModelOption;
   /** A hidden Run Chat is unread: the Routines button shows a dot. */
   routinesUnread?: boolean;
   onOpenCommands?: () => void;
@@ -562,12 +548,6 @@ export default memo(function SidebarNav({
   canvasActive = false,
   onOpenRoutines,
   routinesActive = false,
-  sidebarMode = "projects",
-  onSidebarMode,
-  selectedBotId = null,
-  onPickBot,
-  models = MODEL_CATALOG,
-  defaultModel,
   routinesUnread = false,
   onOpenCommands,
   hintsEnabled = true,
@@ -627,7 +607,7 @@ export default memo(function SidebarNav({
     return made;
   };
   const scrollRef = useRef<HTMLElement>(null);
-  const scrollKey = `${chatList}:${sidebarMode}`;
+  const scrollKey = chatList;
   const restoreScroll = useRef<number | null>(null);
   useLayoutEffect(() => {
     restoreScroll.current = scrollPositions.get(scrollKey) ?? 0;
@@ -671,11 +651,6 @@ export default memo(function SidebarNav({
   // The Projects' group order, saved across restarts and windows; see stableOrder.
   const scopeOrder = useRef<string[]>(lastLists.order ?? readScopeOrder());
   const showHints = useShortcutHints() && hintsEnabled;
-  const bots = useBots();
-  const botsOn = bots.enabled && onSidebarMode !== undefined;
-  const botsMode = botsOn && sidebarMode === "bots";
-  const botMarks = useMemo(() => botMarksOf(bots.snapshot), [bots.snapshot]);
-  const [newBotOpen, setNewBotOpen] = useState(false);
 
   const selectedTitle = activeTitle === undefined ? demoActiveTitle : activeTitle;
   // One identity for every row, so memo(ChatRow) skips when the sidebar re-renders.
@@ -1511,7 +1486,7 @@ export default memo(function SidebarNav({
   };
 
   const chrome = useWindowChrome();
-  // The bar's controls end where they end; a diff's Back and a bot's header start after them.
+  // The bar's controls end where they end; a diff's Back starts after them.
   const bar = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const node = bar.current;
@@ -1547,51 +1522,43 @@ export default memo(function SidebarNav({
             />
           </Tooltip>
         </div>
-        {!botsMode && (
-          <div data-sidebar-tools className="no-drag flex items-center gap-1">
-            {onOpenCanvas && (
-              <Tooltip label="Canvas" side="bottom" shortcut={keys.canvas}>
-                <IconButton size={32} label="Canvas" icon={FlowConnectionIcon} aria-pressed={canvasActive} onClick={onOpenCanvas} />
-              </Tooltip>
-            )}
-            {onOpenRoutines && (
-              <Tooltip label="Routines" side="bottom">
-                <IconButton
-                  size={32}
-                  // The dot is drawn only; the label says it, as the phone's dock button does.
-                  label={routinesUnread ? "Routines, unread Runs" : "Routines"}
-                  aria-pressed={routinesActive}
-                  data-sidebar-routines
-                  onClick={onOpenRoutines}
-                >
-                  {/* The dot sits on the icon's top-right corner, cut out of it by its ring. */}
-                  <span className="relative flex">
-                    <Icon icon={TimeScheduleIcon} size={16} />
-                    {routinesUnread && (
-                      <span aria-hidden data-routines-unread className="absolute -top-1 -right-1 size-2 rounded-full bg-accent ring-2 ring-canvas" />
-                    )}
-                  </span>
-                </IconButton>
-              </Tooltip>
-            )}
-            {onLinkProject && (
-              <Tooltip label="Link Projects" side="bottom">
-                <IconButton size={32} label="Link Projects" icon={Link04Icon} data-link-projects onClick={onLinkProject} />
-              </Tooltip>
-            )}
-            {onOpenCommands && (
-              <Tooltip label="Search commands, Chats and Projects" side="bottom" shortcut={keys.search}>
-                <IconButton
-                  size={32}
-                  label="Command palette"
-                  icon={Search01Icon}
-                  aria-keyshortcuts={IS_MAC ? "Meta+K" : "Control+K"}
-                  onClick={onOpenCommands}
-                />
-              </Tooltip>
-            )}
-          </div>
-        )}
+        <div data-sidebar-tools className="no-drag flex items-center gap-1">
+          {onOpenCanvas && (
+            <Tooltip label="Canvas" side="bottom" shortcut={keys.canvas}>
+              <IconButton size={32} label="Canvas" icon={FlowConnectionIcon} aria-pressed={canvasActive} onClick={onOpenCanvas} />
+            </Tooltip>
+          )}
+          {onOpenRoutines && (
+            <Tooltip label="Routines" side="bottom">
+              <IconButton
+                size={32}
+                // The dot is drawn only; the label says it, as the phone's dock button does.
+                label={routinesUnread ? "Routines, unread Runs" : "Routines"}
+                aria-pressed={routinesActive}
+                data-sidebar-routines
+                onClick={onOpenRoutines}
+              >
+                {/* The dot sits on the icon's top-right corner, cut out of it by its ring. */}
+                <span className="relative flex">
+                  <Icon icon={TimeScheduleIcon} size={16} />
+                  {routinesUnread && (
+                    <span aria-hidden data-routines-unread className="absolute -top-1 -right-1 size-2 rounded-full bg-accent ring-2 ring-canvas" />
+                  )}
+                </span>
+              </IconButton>
+            </Tooltip>
+          )}
+          {onLinkProject && (
+            <Tooltip label="Link Projects" side="bottom">
+              <IconButton size={32} label="Link Projects" icon={Link04Icon} data-link-projects onClick={onLinkProject} />
+            </Tooltip>
+          )}
+          {onOpenCommands && (
+            <Tooltip label="Search commands, Chats and Projects" side="bottom" shortcut={keys.search}>
+              <IconButton size={32} label="Command palette" icon={Search01Icon} aria-keyshortcuts={IS_MAC ? "Meta+K" : "Control+K"} onClick={onOpenCommands} />
+            </Tooltip>
+          )}
+        </div>
       </div>
       <aside
         data-sidebar-collapsed={collapsed}
@@ -1611,208 +1578,180 @@ export default memo(function SidebarNav({
         }
       >
         <div className="flex min-h-0 w-full shrink-0 flex-col">
-          {botsOn && (
-            <div className="shrink-0 pt-2">
-              <SidebarModeSwitch mode={botsMode ? "bots" : "projects"} onMode={(mode) => onSidebarMode?.(mode)} collapsed={collapsed} />
-            </div>
-          )}
           <ScrollArea
             ref={scrollRef}
             onScroll={(event) => {
               if (event.currentTarget.isConnected && restoreScroll.current === null) scrollPositions.set(scrollKey, event.currentTarget.scrollTop);
             }}
-            className={`sidebar-scroll flex-1 overflow-x-hidden ${botsOn ? "" : "pt-2"}`}
+            className="sidebar-scroll flex-1 overflow-x-hidden pt-2"
           >
-            {botsMode ? (
-              <BotList snapshot={bots.snapshot} selectedBotId={selectedBotId} onPickBot={(id) => onPickBot?.(id)} collapsed={collapsed} />
-            ) : (
-              <BotMarksContext.Provider value={botMarks}>
-                <SidebarLinksProvider scopes={linkScopes} projects={registeredProjects} onAskChat={onAskChat}>
-                  {showAll ? (
-                    <>
-                      {/* Pinned chats of every Project and Link sit on top, like the single-project sidebar. Each group's list
+            <SidebarLinksProvider scopes={linkScopes} projects={registeredProjects} onAskChat={onAskChat}>
+              {showAll ? (
+                <>
+                  {/* Pinned chats of every Project and Link sit on top, like the single-project sidebar. Each group's list
                     renders its pinned rows into its slot here, so a drag moves a chat between Pinned and its group. */}
-                      <div data-all-pinned={anyPinned || undefined} className={anyPinned ? "mb-2" : ""}>
-                        {anyPinned && (
-                          <p className="sidebar-copy mx-2 mb-1 flex h-8 items-center pl-2 text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">
-                            Pinned
-                          </p>
-                        )}
-                        {homeGroups.map(({ key }) => (
-                          <div key={key} ref={pinSlotRef(key)} data-pinned-scope={key} />
-                        ))}
-                        {groups.map((group) => (
-                          <div key={group.scope.key} ref={pinSlotRef(group.scope.key)} data-pinned-scope={group.scope.key} />
-                        ))}
-                      </div>
-                      {chatsPinned}
-                      {!oneList && chatsGroup}
-                      {oneList
-                        ? flatBody
-                        : sections.map((section, index) => {
-                            if (section.copies.length > 1) return mergedSection(section);
-                            const { scope, current, state, rest, pinned, list, dimmed } = section;
-                            const open = !closedScopes.includes(scope.key);
-                            return (
-                              <section
-                                key={scope.key}
-                                data-sidebar-scope={scope.key}
-                                data-current={current || undefined}
-                                aria-label={scope.name}
-                                data-offline={dimmed || undefined}
-                                className={`mb-2 ${dimmed ? "opacity-60" : ""}`}
-                              >
-                                {scope.link && !sections[index - 1]?.scope.link && (
-                                  <p className="mx-2 mt-1 mb-1 flex h-6 items-center pl-2 text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">
-                                    Links
+                  <div data-all-pinned={anyPinned || undefined} className={anyPinned ? "mb-2" : ""}>
+                    {anyPinned && (
+                      <p className="sidebar-copy mx-2 mb-1 flex h-8 items-center pl-2 text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">
+                        Pinned
+                      </p>
+                    )}
+                    {homeGroups.map(({ key }) => (
+                      <div key={key} ref={pinSlotRef(key)} data-pinned-scope={key} />
+                    ))}
+                    {groups.map((group) => (
+                      <div key={group.scope.key} ref={pinSlotRef(group.scope.key)} data-pinned-scope={group.scope.key} />
+                    ))}
+                  </div>
+                  {chatsPinned}
+                  {!oneList && chatsGroup}
+                  {oneList
+                    ? flatBody
+                    : sections.map((section, index) => {
+                        if (section.copies.length > 1) return mergedSection(section);
+                        const { scope, current, state, rest, pinned, list, dimmed } = section;
+                        const open = !closedScopes.includes(scope.key);
+                        return (
+                          <section
+                            key={scope.key}
+                            data-sidebar-scope={scope.key}
+                            data-current={current || undefined}
+                            aria-label={scope.name}
+                            data-offline={dimmed || undefined}
+                            className={`mb-2 ${dimmed ? "opacity-60" : ""}`}
+                          >
+                            {scope.link && !sections[index - 1]?.scope.link && (
+                              <p className="mx-2 mt-1 mb-1 flex h-6 items-center pl-2 text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">
+                                Links
+                              </p>
+                            )}
+                            <ScopeHeader
+                              name={scope.name}
+                              icon={
+                                scope.link ? (
+                                  <ProjectAvatarStack
+                                    projects={scope.link.projectIds.map(
+                                      (id) => registeredProjects.find((project) => project.id === id) ?? { path: "", name: "Project" },
+                                    )}
+                                  />
+                                ) : (
+                                  <ProjectAvatar
+                                    name={scope.name}
+                                    src={current && !selectedLink ? workspace.image : scopeImage(scope.key)}
+                                    initial={scope.initial}
+                                  />
+                                )
+                              }
+                              open={open}
+                              current={current}
+                              attention={!current && attentionPaths.includes(scope.key)}
+                              computer={list.show.computer ? list.computer : undefined}
+                              onToggle={() => toggleScope(scope.key)}
+                              onDragStart={canDragScope(scope.key) ? (event) => startScopeDrag(event, scope.key) : undefined}
+                              dragging={draggingScope === scope.key}
+                              onNewChat={
+                                current
+                                  ? () => {
+                                      if (activeTitle === undefined) setDemoActiveTitle(null);
+                                      (onNewCurrentScopeChat ?? onNewChat)?.();
+                                    }
+                                  : () => onNewChatInScope?.(scope.key)
+                              }
+                              menu={scopeMenu(scope)}
+                            />
+                            {/* Rows grow open and shut instead of appearing at once; closed ones leave the tab order. */}
+                            <div
+                              inert={!open}
+                              data-scope-body
+                              className="grid transition-[grid-template-rows,opacity] duration-base ease-enter motion-reduce:transition-none"
+                              style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
+                            >
+                              <div className="min-w-0 overflow-hidden">
+                                {rest.length > 0 || pinned.length > 0 ? (
+                                  <ChatList
+                                    {...scopeBadge(scope, current)}
+                                    recents={pinned.length ? [...pinned, ...rest] : rest}
+                                    scopeKey={scope.key}
+                                    {...list}
+                                    header={null}
+                                    pinnedTarget={pinSlots[scope.key] ?? null}
+                                    anyPinned={anyPinned}
+                                  />
+                                ) : !state && !current && failedScopes.has(scope.key) ? (
+                                  <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
+                                    Couldn't load Chats.
+                                    <button type="button" onClick={() => retryScope(scope.key)} className={RETRY}>
+                                      Retry
+                                    </button>
+                                  </p>
+                                ) : (
+                                  <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
+                                    {state || current ? "No Chats yet" : "Loading Chats…"}
                                   </p>
                                 )}
-                                <ScopeHeader
-                                  name={scope.name}
-                                  icon={
-                                    scope.link ? (
-                                      <ProjectAvatarStack
-                                        projects={scope.link.projectIds.map(
-                                          (id) => registeredProjects.find((project) => project.id === id) ?? { path: "", name: "Project" },
-                                        )}
-                                      />
-                                    ) : (
-                                      <ProjectAvatar
-                                        name={scope.name}
-                                        src={current && !selectedLink ? workspace.image : scopeImage(scope.key)}
-                                        initial={scope.initial}
-                                      />
-                                    )
-                                  }
-                                  open={open}
-                                  current={current}
-                                  attention={!current && attentionPaths.includes(scope.key)}
-                                  computer={list.show.computer ? list.computer : undefined}
-                                  onToggle={() => toggleScope(scope.key)}
-                                  onDragStart={canDragScope(scope.key) ? (event) => startScopeDrag(event, scope.key) : undefined}
-                                  dragging={draggingScope === scope.key}
-                                  onNewChat={
-                                    current
-                                      ? () => {
-                                          if (activeTitle === undefined) setDemoActiveTitle(null);
-                                          (onNewCurrentScopeChat ?? onNewChat)?.();
-                                        }
-                                      : () => onNewChatInScope?.(scope.key)
-                                  }
-                                  menu={scopeMenu(scope)}
-                                />
-                                {/* Rows grow open and shut instead of appearing at once; closed ones leave the tab order. */}
-                                <div
-                                  inert={!open}
-                                  data-scope-body
-                                  className="grid transition-[grid-template-rows,opacity] duration-base ease-enter motion-reduce:transition-none"
-                                  style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
-                                >
-                                  <div className="min-w-0 overflow-hidden">
-                                    {rest.length > 0 || pinned.length > 0 ? (
-                                      <ChatList
-                                        {...scopeBadge(scope, current)}
-                                        recents={pinned.length ? [...pinned, ...rest] : rest}
-                                        scopeKey={scope.key}
-                                        {...list}
-                                        header={null}
-                                        pinnedTarget={pinSlots[scope.key] ?? null}
-                                        anyPinned={anyPinned}
-                                      />
-                                    ) : !state && !current && failedScopes.has(scope.key) ? (
-                                      <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
-                                        Couldn't load Chats.
-                                        <button type="button" onClick={() => retryScope(scope.key)} className={RETRY}>
-                                          Retry
-                                        </button>
-                                      </p>
-                                    ) : (
-                                      <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
-                                        {state || current ? "No Chats yet" : "Loading Chats…"}
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              </section>
-                            );
-                          })}
-                    </>
-                  ) : railItems ? (
-                    <>
-                      <ScopeRail scopes={railItems} onOpenScope={openRailScope} onOpenChat={openRailChat} />
-                      {oneList && (
-                        <div className="mx-auto mt-1 flex size-8 items-center justify-center">
-                          <Tooltip label="New chat" shortcut={keys.newChat} align="end">
-                            <button
-                              type="button"
-                              aria-label="New chat"
-                              onClick={() => {
-                                if (activeTitle === undefined) setDemoActiveTitle(null);
-                                onNewChat?.();
-                              }}
-                              className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-                            >
-                              <Icon icon={Add01Icon} size={16} />
-                            </button>
-                          </Tooltip>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <ChatList
-                      recents={recents}
-                      projectImage={workspace.image}
-                      projectInitial={workspace.name}
-                      scopeKey={currentKey}
-                      isActive={(item) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle)}
-                      collapsed={collapsed}
-                      actions={chatActions}
-                      showHints={showHints}
-                      onPick={pickChat}
-                      onHover={hoverFor(currentKey)}
-                      show={chatRowShow}
-                      linkProjectId={selectedLink ? null : linkProjectIdOf(projectPath)}
-                      header={
-                        <div className={`sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2 ${collapsed ? "hidden" : ""}`}>
-                          <span className="text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
-                          <Tooltip label="New chat" shortcut={keys.newChat} align="end">
-                            <IconButton
-                              size={32}
-                              label="New chat"
-                              icon={Add01Icon}
-                              onClick={() => {
-                                if (activeTitle === undefined) setDemoActiveTitle(null);
-                                onNewChat?.();
-                              }}
-                            />
-                          </Tooltip>
-                        </div>
-                      }
-                    />
+                              </div>
+                            </div>
+                          </section>
+                        );
+                      })}
+                </>
+              ) : railItems ? (
+                <>
+                  <ScopeRail scopes={railItems} onOpenScope={openRailScope} onOpenChat={openRailChat} />
+                  {oneList && (
+                    <div className="mx-auto mt-1 flex size-8 items-center justify-center">
+                      <Tooltip label="New chat" shortcut={keys.newChat} align="end">
+                        <button
+                          type="button"
+                          aria-label="New chat"
+                          onClick={() => {
+                            if (activeTitle === undefined) setDemoActiveTitle(null);
+                            onNewChat?.();
+                          }}
+                          className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+                        >
+                          <Icon icon={Add01Icon} size={16} />
+                        </button>
+                      </Tooltip>
+                    </div>
                   )}
-                </SidebarLinksProvider>
-              </BotMarksContext.Provider>
-            )}
+                </>
+              ) : (
+                <ChatList
+                  recents={recents}
+                  projectImage={workspace.image}
+                  projectInitial={workspace.name}
+                  scopeKey={currentKey}
+                  isActive={(item) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle)}
+                  collapsed={collapsed}
+                  actions={chatActions}
+                  showHints={showHints}
+                  onPick={pickChat}
+                  onHover={hoverFor(currentKey)}
+                  show={chatRowShow}
+                  linkProjectId={selectedLink ? null : linkProjectIdOf(projectPath)}
+                  header={
+                    <div className={`sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2 ${collapsed ? "hidden" : ""}`}>
+                      <span className="text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
+                      <Tooltip label="New chat" shortcut={keys.newChat} align="end">
+                        <IconButton
+                          size={32}
+                          label="New chat"
+                          icon={Add01Icon}
+                          onClick={() => {
+                            if (activeTitle === undefined) setDemoActiveTitle(null);
+                            onNewChat?.();
+                          }}
+                        />
+                      </Tooltip>
+                    </div>
+                  }
+                />
+              )}
+            </SidebarLinksProvider>
           </ScrollArea>
 
-          {botsMode && (
-            <div className="mt-2 shrink-0">
-              <NewBotButton collapsed={collapsed} onClick={() => setNewBotOpen(true)} />
-            </div>
-          )}
-          {newBotOpen && (
-            <NewBotSheet
-              models={models}
-              defaultModel={defaultModel}
-              onClose={() => setNewBotOpen(false)}
-              onCreated={(bot) => {
-                setNewBotOpen(false);
-                onPickBot?.(bot.id);
-              }}
-            />
-          )}
-
-          {!botsMode && <DoneSection entries={doneEntries} retentionHours={doneSettings.retentionHours} collapsed={collapsed} />}
+          <DoneSection entries={doneEntries} retentionHours={doneSettings.retentionHours} collapsed={collapsed} />
 
           <SidebarToast collapsed={collapsed} />
 
@@ -2206,7 +2145,6 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
     dragRowToGrid(event, key, setDragging);
   };
   const sidebarLinks = useSidebarLinks();
-  const botMarks = useBotMarks();
   // Reads the latest render's scopes and Links when an action runs, so one set of actions serves every render.
   const readScope = useEvent((scopeKey: string): RowActionsNow => {
     const scope = scopes.get(scopeKey);
@@ -2274,7 +2212,6 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
               show={list.show}
               dimOffline
               linked={list.linkProjectId ? sidebarLinks.endsFor(scopeKey, row) : undefined}
-              bot={botMarks.get(key)}
               chatKey={key}
               subchat={subchat}
               depth={depth}
@@ -2359,7 +2296,6 @@ function ChatList({
   };
   const rowElement = (id: string) => rowIn(containers(), id);
   const sidebarLinks = useSidebarLinks();
-  const botMarks = useBotMarks();
   const links = sidebarLinks.links;
   const [drag, setDrag] = useState<ChatDrag | null>(null);
   const dragRef = useRef<ChatDrag | null>(null);
@@ -2730,7 +2666,6 @@ function ChatList({
       dimOffline={dimOffline || (Boolean(pinnedTarget) && Boolean(item.pinned))}
       dragging={drag?.id === item.id}
       linked={linkProjectId ? sidebarLinks.endsFor(scopeKey, item) : undefined}
-      bot={botMarks.get(`${scopeKey}#${item.id}`)}
       chatKey={`${scopeKey}#${item.id}`}
       project={projectName}
       projectImage={projectImage}
