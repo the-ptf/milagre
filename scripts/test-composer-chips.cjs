@@ -344,6 +344,41 @@ async function browserChecks() {
     await draftIs("go ");
     console.log("PASS: typing before a chip and Backspace into one keep the text exact");
 
+    // A pasted image's chip stays the same element, in the field, while typing after and before it. Taken out and put
+    // back on every key, it lost :hover, so the chip under a resting pointer flashed its hover border with each key.
+    await evaluate(`${editor}.value = ''`);
+    await draftIs("");
+    await evaluate(`(async () => {
+      const blob = await new Promise(resolve => Object.assign(document.createElement('canvas'), { width: 8, height: 8 }).toBlob(resolve, 'image/png'));
+      const data = new DataTransfer();
+      data.items.add(new File([blob], 'shot.png', { type: 'image/png' }));
+      ${editor}.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+    })()`);
+    await draftIs("[Image #1] ");
+    await waitFor(`${editor}.querySelectorAll('[data-chip="image"]').length === 1`, "the pasted image's chip");
+    await evaluate(`(() => {
+      window.imageChip = ${editor}.querySelector('[data-chip="image"]');
+      window.imageChipRemovals = 0;
+      window.imageChipWatch = new MutationObserver(list => { for (const m of list) for (const n of m.removedNodes) if (n.contains(window.imageChip)) window.imageChipRemovals++; });
+      window.imageChipWatch.observe(${editor}, { childList: true, subtree: true });
+    })()`);
+    await typeText("ajsd");
+    await draftIs("[Image #1] ajsd");
+    await caretTo("start");
+    await typeText("x ");
+    await draftIs("x [Image #1] ajsd");
+    assert.equal(await evaluate("window.imageChipRemovals"), 0, "typing never takes the image chip out of the field");
+    assert.equal(
+      await evaluate(`${editor}.querySelector('[data-chip="image"]') === window.imageChip && window.imageChip.isConnected`),
+      true,
+      "the same chip element",
+    );
+    await evaluate("window.imageChipWatch.disconnect()");
+    await evaluate(`${editor}.value = ''`);
+    await draftIs("");
+    await waitFor(`!${tile("shot.png")}`, "the image leaves with its chip");
+    console.log("PASS: typing around an image chip keeps its element in place (no hover flash)");
+
     // Deleting a chip detaches its file: the message goes without it.
     await evaluate(`${editor}.value = 'see @src/model.ts'`);
     await waitFor(`${editor}.querySelectorAll('[data-chip="file"]').length === 1`, "the model.ts chip");
