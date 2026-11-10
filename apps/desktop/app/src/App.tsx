@@ -132,6 +132,7 @@ import { EditorLinks, Notice } from "./components/editor-links";
 import { clearNoticeOnNavigate, showNotice } from "./lib/notice";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { UI_COPY } from "@milagre/shared/model-copy";
+import { withReportPrompt } from "@milagre/shared/bug-report";
 import { Notice as NoticeCard } from "./components/Notice";
 import { Button } from "./components/primitives/Button";
 import { Dialog } from "./components/primitives/Dialog";
@@ -1431,6 +1432,7 @@ function App() {
     unlinkChatIssue,
     detachChat,
     reloadChat,
+    reportMilagreBug,
   });
   latest.current = {
     patchChat,
@@ -1445,6 +1447,7 @@ function App() {
     unlinkChatIssue,
     detachChat,
     reloadChat,
+    reportMilagreBug,
   };
   // The main process applies chat row actions to the latest state, so a turn that finished since the last render isn't lost.
   function patchChat(sessionId: number, patch: SessionPatch, path = projectRef.current?.path) {
@@ -2561,6 +2564,14 @@ function App() {
     await reportChatAction(reloaded(), "Could not reload chat", setNotice);
   }
 
+  // "Report a Milagre bug": the Chat's composer asks its agent, which writes it up with milagre report_milagre_bug; Milagre
+  // redacts it and shows the user the exact text before anything is posted (issue #938).
+  function reportMilagreBug(sessionId: number) {
+    if (selectedSessionRef.current !== sessionId) openChat(sessionId);
+    setDraft(withReportPrompt(draftStore.get()));
+    window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
+  }
+
   // "Detach from parent": the subchat lists on its own, and its open Delegations stop reporting back.
   async function detachChat(sessionId: number, path = projectRef.current?.path) {
     if (!path) return;
@@ -2850,6 +2861,7 @@ function App() {
       onRename: (id, title) => latest.current.patchChat(Number(id), { title }),
       onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }),
       onReload: (id) => void latest.current.reloadChat(Number(id)),
+      onReportBug: (id) => latest.current.reportMilagreBug(Number(id)),
       onPin: (id, order) => latest.current.pinChatHere(Number(id), order ?? null),
       onDone: (id) => latest.current.markChatDone(Number(id)),
       onReopen: (id) => latest.current.patchChat(Number(id), { done: false }),
@@ -3739,6 +3751,14 @@ function App() {
           hint: RELOAD_HINT,
           keywords: "restart agent mcp skills login refresh",
           run: () => void reloadChat(sessionId),
+        },
+        {
+          id: "report-bug",
+          label: UI_COPY.reportMilagreBug,
+          group: UI_COPY.currentChat,
+          icon: "triage",
+          keywords: "bug report issue github problem broken feedback",
+          run: () => reportMilagreBug(sessionId),
         },
       );
       if (selectedWorktree && showGit)
