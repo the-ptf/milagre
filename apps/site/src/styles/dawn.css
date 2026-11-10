@@ -2,9 +2,8 @@
  * that lands where the logo's sparkle sits, the legs rising under it, a halo and light rays, then dawn breaking into a
  * soft day sky with clouds rising under the apps.
  *
- * Every element's own style is the last frame, the day: that is what returning visitors and reduced motion see.
- * html[data-dawn] (a first visit, set before first paint in Base.astro) plays the keyframes, which all start from the
- * night. The headline, the apps and the download button are on screen from the first frame; only colours move. */
+ * Every element's own style is the last frame, the day: that is what reduced motion sees. html[data-dawn] (set before
+ * first paint in Base.astro) plays the keyframes, which all start from the night. The headline, the apps and the download button are on screen from the first frame; only colours move. */
 
 .dawn-hero {
   --mark: 44px;
@@ -298,7 +297,7 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   }
 }
 
-/* ── the first visit: night to day ────────────────────────────────────── */
+/* ── night to day ────────────────────────────────────── */
 @media (prefers-reduced-motion: no-preference) {
   html[data-dawn] .dawn-dawn {
     animation: dawn-fade-in 1500ms 500ms ease-in-out both;

@@ -72,14 +72,9 @@ const ogImageAlt = "Milagre on a Mac and an iPhone showing the same Chat, with a
         poster.fetchPriority = "high";
         poster.href = matchMedia("(max-width: 700px)").matches ? (document.documentElement.dataset.platform === "android" ? "/demo/android.webp" : "/demo/phone.webp") : "/demo/desktop.webp";
         document.head.append(poster);
-        // Dawn, the app's first-launch intro, plays in the hero on a first visit only; later visits, and anyone who asks
-        // for less motion, open on its last frame (the page's own styles).
-        try {
-          if (!matchMedia("(prefers-reduced-motion: reduce)").matches && !localStorage.getItem("milagre:dawn")) {
-            document.documentElement.dataset.dawn = "";
-            localStorage.setItem("milagre:dawn", "1");
-          }
-        } catch {}
+        // Dawn, the app's first-launch intro, plays in the hero on every load; anyone who asks for less motion opens on its
+        // last frame (the page's own styles).
+        if (!matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.dataset.dawn = "";
       }
     </script>
   </head>
