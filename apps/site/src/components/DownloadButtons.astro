@@ -60,6 +60,8 @@ const LINUX: { id: string; href: string; others: [string, string][] }[] = [
 
 <style>
   .downloads { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  /* Dawn's Begin button: a dark pill in warm light. */
+  .button-primary { height: 46px; padding: 0 24px; border-radius: 999px; box-shadow: 0 10px 34px rgb(196 146 52 / 0.38), inset 0 1px 0 rgb(255 255 255 / 0.12); }
   /* Centred on the text's cap height rather than its line box, which sits a pixel low. */
   .button svg { flex: none; transform: translateY(-1px); }
   /* Quiet links under the main button for every other desktop build; phones get only their own beta. */

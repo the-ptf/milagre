@@ -44,6 +44,10 @@ function FileLink({ text, title, sweep, onOpen }: { text: string; title: string;
 }
 
 /** One tool call in a reply: what it did and how it went. A row with output, a diff or thinking opens to show it. */
+/** The row hover fill, drawn behind the content so it can reach --row-bleed past the column edges. */
+export const HOVER_FILL =
+  "relative isolate before:absolute before:inset-y-0 before:-inset-x-[var(--row-bleed,13px)] before:-z-10 before:rounded-control before:transition-colors hover:before:bg-hover";
+
 export const StepRow = memo(function StepRow({
   step,
   waiting = false,
@@ -74,11 +78,11 @@ export const StepRow = memo(function StepRow({
   const sweep = useStepTitleSweep(running && !waiting);
   // A finished tool just stops shimmering; screen readers hear only what isn't obvious.
   const state = waiting ? "Waiting for approval" : step.status === "running" ? "Running" : step.status === "failed" ? "Failed" : "";
-  // Every tool row's glyph sits on one line, 13px in from the column (a block's 1px border + 12px padding); its time
-  // ends 13px in from the right. A bordered block sets --row-inset to 12px for the rows inside it.
-  const rowClass = "flex h-6 w-full min-w-0 items-center gap-2 rounded-control px-[var(--row-inset,13px)] text-left text-12 text-ink-2";
+  // Every tool row's glyph starts on the reply text's edge and its time ends on the column's right edge; the hover fill
+  // reaches 13px past both (--row-bleed). A bordered block sets --row-inset to 12px and --row-bleed to 0 for its rows.
+  const rowClass = "flex h-6 w-full min-w-0 items-center gap-2 rounded-control px-[var(--row-inset,0px)] text-left text-12 text-ink-2";
   const outputStatus = (loading || failed) && (
-    <div role="status" className="flex items-center gap-2 py-1 pl-[calc(var(--row-inset,13px)+22px)] text-12 text-ink-3">
+    <div role="status" className="flex items-center gap-2 py-1 pl-[calc(var(--row-inset,0px)+22px)] text-12 text-ink-3">
       {loading ? "Loading output…" : "Could not load tool output."}
       {failed && (
         <Button variant="ghost" size={24} onClick={retry}>
@@ -140,7 +144,7 @@ export const StepRow = memo(function StepRow({
           aria-controls={detailId}
           aria-label={`${step.title.replace(/`/g, "")}${state ? `, ${state}` : ""}`}
           onClick={toggle}
-          className="absolute inset-0 rounded-control transition-colors hover:bg-hover"
+          className="absolute inset-y-0 -inset-x-[var(--row-bleed,13px)] rounded-control transition-colors hover:bg-hover"
         />
         <div className={`${rowClass} pointer-events-none relative`}>{content}</div>
       </div>
@@ -150,7 +154,7 @@ export const StepRow = memo(function StepRow({
         aria-expanded={open}
         aria-controls={detailId}
         onClick={toggle}
-        className={`${rowClass} transition-colors hover:bg-hover hover:text-ink`}
+        className={`${rowClass} ${HOVER_FILL} transition-colors hover:text-ink`}
       >
         {content}
       </button>
@@ -167,13 +171,13 @@ export const StepRow = memo(function StepRow({
         row
       )}
       {step.error && (
-        <div className="mb-1 ml-[calc(var(--row-inset,13px)+22px)] border-l-2 border-red pl-2 font-mono text-11 leading-relaxed text-ink-2">{step.error}</div>
+        <div className="mb-1 ml-[calc(var(--row-inset,0px)+22px)] border-l-2 border-red pl-2 font-mono text-11 leading-relaxed text-ink-2">{step.error}</div>
       )}
       {open && (detail || step.input) ? (
         // Output frames (a diff, a code block) sit on the column's edges, like the transcript's other blocks.
         <ScrollArea id={detailId} chainScroll className="max-h-96">
           {step.kind === "thinking" ? (
-            <div className="px-[var(--row-inset,13px)] py-1 text-12 leading-[1.55] text-ink-2">
+            <div className="px-[var(--row-inset,0px)] py-1 text-12 leading-[1.55] text-ink-2">
               <Markdown text={detail ?? ""} />
             </div>
           ) : (

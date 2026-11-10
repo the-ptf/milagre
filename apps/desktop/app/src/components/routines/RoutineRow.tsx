@@ -7,6 +7,7 @@ import {
   MoreHorizontalIcon,
   PauseCircleIcon,
   PencilEdit02Icon,
+  PlayCircleIcon,
   PlayIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
@@ -16,13 +17,14 @@ import { needsAnswer } from "@milagre/shared/routine-flows";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { MenuRow, Popover } from "../primitives/Popover";
-import { SettingCheckbox } from "../primitives/Checkbox";
 import Tooltip from "../primitives/Tooltip";
 import { isHeartbeat, routineDeleteQuestion, type RoutineWithRuns } from "../../lib/routines";
 import { routineIcon } from "./routine-icon";
 
 type HugeIconData = typeof PlayIcon;
 const MENU_WIDTH = 200;
+// The status column: 72px holds "Next 09:45", "Fri 16:00" and "Paused", so every row's meta line ends at the same x.
+const STATUS = "min-w-[72px] shrink-0 text-right text-12 tabular-nums";
 
 /** What is wrong with the Routine, in red under its meta: why it paused itself while off, else its latest error. */
 export function routineProblem(routine: Routine): string | undefined {
@@ -36,10 +38,13 @@ function routineChat(routine: RoutineWithRuns): string | undefined {
 
 type MenuEntry = { key: string; label: string; icon: HugeIconData; danger?: boolean; onSelect: () => void };
 
-/** A Routine's icon tile, dimmed while it is switched off. `large` is the Routine page's header. */
+/**
+ * A Routine's glyph, dimmed while it is switched off. In a row it is bare in a 32px slot (the phone's rows draw it bare
+ * too); `large`, the Routine page's header, keeps its field tile.
+ */
 function RoutineTile({ routine, large = false }: { routine: Routine; large?: boolean }) {
   return (
-    <span className={`flex shrink-0 items-center justify-center bg-field ${large ? "size-10 rounded-card" : "size-8 rounded-control"}`}>
+    <span className={`flex shrink-0 items-center justify-center ${large ? "size-10 rounded-card bg-field" : "size-8"}`}>
       <Icon icon={routineIcon(routine)} size={large ? 18 : 16} className={routine.enabled ? "text-ink-2" : "text-ink-3"} />
     </span>
   );
@@ -97,8 +102,8 @@ function DeleteQuestion({ routine, onCancel, onDelete, className = "" }: { routi
 }
 
 /**
- * One Routine: tile, name (with a dot while a hidden Run Chat of it is unread) and meta, then its status, its switch and a
- * ⋯ menu (Edit, Run now, Open Chat, Mark as read while unread, Delete). Clicking the row opens the Routine's page.
+ * One Routine: glyph, name (with a dot while a hidden Run Chat of it is unread) and meta, then its status and a ⋯ menu
+ * (Pause or Resume, Edit, Run now, Open Chat, Mark as read while unread, Delete). Clicking the row opens the Routine's page.
  */
 export function RoutineRow({
   routine,
@@ -138,6 +143,10 @@ export function RoutineRow({
   // A flow's Runs waiting on an approval: the row says so where its status goes.
   const waiting = routine.flow ? routine.runs.filter((run) => needsAnswer(run)).length : 0;
   const entries: MenuEntry[] = [
+    // On and off live here and on the Routine's page; the status column already says Paused or when it runs next.
+    routine.enabled
+      ? { key: "pause", label: "Pause", icon: PauseCircleIcon, onSelect: () => onToggle(false) }
+      : { key: "resume", label: "Resume", icon: PlayCircleIcon, onSelect: () => onToggle(true) },
     ...(canEditRoutine(routine) ? [{ key: "edit", label: "Edit", icon: PencilEdit02Icon, onSelect: onEdit }] : []),
     ...(canRunNow(routine) ? [{ key: "run", label: "Run now", icon: PlayIcon, onSelect: onRunNow }] : []),
     ...(chat ? [{ key: "chat", label: heartbeat ? "Open Chat" : "Open last Chat", icon: BubbleChatIcon, onSelect: () => onOpenChat(chat) }] : []),
@@ -147,23 +156,20 @@ export function RoutineRow({
 
   return (
     <div data-routine-row={routine.id} data-paused={!routine.enabled || undefined}>
-      {/* The tile, name, meta and status open the page; the switch and the ⋯ menu beside them do only their own thing. */}
-      <div className="flex min-h-16 items-stretch gap-3 pr-4 transition-colors duration-fast has-[[data-routine-open]:hover]:bg-hover">
+      {/* The glyph, name, meta and status open the page; the ⋯ menu beside them does only its own thing. */}
+      <div className="flex min-h-14 items-stretch gap-3 pr-4 transition-colors duration-fast has-[[data-routine-open]:hover]:bg-hover">
         <button
           type="button"
           data-routine-open
           onClick={onOpen}
-          className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left focus-visible:bg-hover focus-visible:-outline-offset-2"
+          className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-4 text-left focus-visible:bg-hover focus-visible:-outline-offset-2"
         >
           <RoutineTile routine={routine} />
           <span className="grid min-w-0 flex-1 gap-0.5">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className={`truncate text-13 font-medium ${routine.enabled ? "text-ink" : "text-ink-2"}`}>{routine.name}</span>
               {routine.flow && (
-                <span
-                  data-routine-flow-chip
-                  className="inline-flex h-5 shrink-0 items-center rounded-chip bg-accent-tint px-1.5 text-11 font-medium text-accent-ink"
-                >
+                <span data-routine-flow-chip className="shrink-0 rounded-chip bg-field px-1.5 py-0.5 text-10 font-medium text-ink-2">
                   Flow
                 </span>
               )}
@@ -188,18 +194,17 @@ export function RoutineRow({
             )}
           </span>
           {waiting > 0 ? (
-            <span data-routine-status data-routine-waiting className="flex shrink-0 items-center gap-1 text-right text-12 font-medium text-orange-ink">
+            <span data-routine-status data-routine-waiting className={`${STATUS} flex items-center justify-end gap-1 font-medium text-orange-ink`}>
               <HugeiconsIcon icon={PauseCircleIcon} size={14} strokeWidth={1.8} color="currentColor" />
               {waiting === 1 ? "Waiting for you" : `${waiting} waiting for you`}
             </span>
           ) : (
-            <span data-routine-status className={`shrink-0 text-right text-12 ${routine.enabled ? "text-ink-2" : "text-ink-3"}`}>
+            <span data-routine-status className={`${STATUS} ${routine.enabled ? "text-ink-2" : "text-ink-3"}`}>
               {routine.flow?.revision === 0 ? "Not published" : status}
             </span>
           )}
         </button>
-        <span className="flex shrink-0 items-center gap-3">
-          <SettingCheckbox label={`${routine.name} on`} checked={routine.enabled} onChange={onToggle} />
+        <span className="flex shrink-0 items-center">
           <RoutineMenu routine={routine} entries={entries} />
         </span>
       </div>

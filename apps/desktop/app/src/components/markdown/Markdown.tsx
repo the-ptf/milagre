@@ -1,5 +1,5 @@
 import { Children, createContext, isValidElement, memo, useContext, useState, useEffect, useRef } from "react";
-import type { ReactElement, ReactNode } from "react";
+import type { CSSProperties, ReactElement, ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import type { Components } from "react-markdown";
 import type { ImageAttachment } from "@milagre/shared/model";
@@ -15,6 +15,7 @@ import { lazyView } from "../../lib/lazy-view";
 import { closeOpenMarkdown } from "../../lib/streaming-markdown";
 import { isMermaidFence } from "@milagre/shared/diagram";
 import { isMarkdownFence } from "@milagre/shared/markdown-fence";
+import { orderedListDigits } from "@milagre/shared/ordered-list";
 import { CodeBlock } from "./CodeBlock";
 import { MermaidBlock } from "./MermaidBlock";
 import { GenerativeUI, MarkdownStreamingContext } from "../genui/GenerativeUI";
@@ -246,6 +247,16 @@ const components: Components = {
   // Remote images in a reply would load without asking; show them as links instead, unless an image loader reads them.
   img({ src, alt, width }) {
     return <MarkdownImage src={typeof src === "string" ? src : undefined} alt={alt} width={width} />;
+  },
+  // The marker gutter widens with the list's widest number (styles.css), so "10." shows whole.
+  ol({ node, children, ...props }) {
+    const items = node?.children.filter((child) => child.type === "element" && child.tagName === "li").length ?? 0;
+    const digits = orderedListDigits(props.start, items, Boolean(props.reversed));
+    return (
+      <ol {...props} style={digits > 1 ? ({ ...props.style, "--marker-digits": digits } as CSSProperties) : props.style}>
+        {children}
+      </ol>
+    );
   },
   table({ children }) {
     return (

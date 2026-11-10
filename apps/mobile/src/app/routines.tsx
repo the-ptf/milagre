@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
-import { Add01Icon, RepeatIcon } from "@hugeicons/core-free-icons";
+import { Add01Icon, ArrowRight01Icon, RepeatIcon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { canEditRoutine, canRunNow, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { useSession } from "../session";
@@ -12,7 +12,7 @@ import { isHeartbeat, routineDeleteMessage, routineIcon, routineMeta } from "../
 import { ChatMarkIcon } from "../status-indicators";
 import { confirm } from "../confirm-store";
 import { Icon } from "../icons";
-import { Chip, EmptyState, ErrorNotice, Group, HeaderButton, PageScroll, PullDown, RowCheckbox, useStyles } from "../ui";
+import { Chip, EmptyState, ErrorNotice, Group, HeaderButton, PageScroll, PullDown, useStyles } from "../ui";
 import { lineHeight, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
@@ -78,7 +78,8 @@ export default function RoutinesScreen() {
   }
   function select(routine: RoutineWithRuns, id: string) {
     if (!client) return;
-    if (id === "edit") router.push({ pathname: "/routine-form", params: { id: routine.id } });
+    if (id === "flip") flip(routine);
+    else if (id === "edit") router.push({ pathname: "/routine-form", params: { id: routine.id } });
     else if (id === "run")
       void act(async () => {
         await client.call("routines:run-now", [routine.id]);
@@ -148,7 +149,7 @@ export default function RoutinesScreen() {
             </View>
           ) : null}
           {groups.map((group) => (
-            <Group key={group.title} title={group.title}>
+            <Group key={group.title} title={group.title} inset="full">
               {group.rows.map((routine) => (
                 <RoutineRow
                   key={routine.id}
@@ -158,12 +159,10 @@ export default function RoutinesScreen() {
                   unread={unread.has(routine.id)}
                   onOpen={() => openRoutine(routine)}
                   onSelect={(id) => select(routine, id)}
-                  onFlip={() => flip(routine)}
                 />
               ))}
             </Group>
           ))}
-          {client && !routines.unavailable ? <Text style={[styles.footnote, { paddingHorizontal: 16 }]}>{LID_HELP}</Text> : null}
         </PageScroll>
       )}
     </>
@@ -171,9 +170,8 @@ export default function RoutinesScreen() {
 }
 
 /**
- * One Routine: a tap on its icon, name and meta opens its page, a long press its actions; the switch at the end turns it on
- * or off. The switch sits beside the menu, not inside it, since a menu's trigger takes every touch in its frame. A dot by the
- * name says one of its hidden Run Chats is unread.
+ * One Routine: a tap on its icon, name and meta opens its page (the chevron at the end says so), a long press its actions (Pause or Resume first, as
+ * desktop's ⋯ menu). A dot by the name says one of its hidden Run Chats is unread.
  */
 function RoutineRow({
   routine,
@@ -182,7 +180,6 @@ function RoutineRow({
   unread,
   onOpen,
   onSelect,
-  onFlip,
 }: {
   routine: RoutineWithRuns;
   now: number;
@@ -190,7 +187,6 @@ function RoutineRow({
   unread: boolean;
   onOpen: () => void;
   onSelect: (id: string) => void;
-  onFlip: () => void;
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -208,6 +204,8 @@ function RoutineRow({
         sections={[
           {
             items: [
+              // On and off live here and on the Routine's page, as on desktop; the meta line already says Off.
+              { id: "flip", title: routine.enabled ? "Pause" : "Resume", systemImage: routine.enabled ? "pause.circle" : "play.circle" },
               // A babysit Heartbeat follows the Babysit PRs settings: no form edits it.
               ...(canEditRoutine(routine) ? [{ id: "edit", title: "Edit", systemImage: "pencil" }] : []),
               // Linear and webhook Routines run only on their event (a babysit Heartbeat on its PR's); the scheduler refuses Run now for them.
@@ -240,9 +238,10 @@ function RoutineRow({
               {meta}
             </Text>
           </View>
+          {/* A tap opens the Routine's page, as a Settings row opens its screen. */}
+          <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
         </View>
       </PullDown>
-      <RowCheckbox label={routine.name} selected={routine.enabled} onPress={onFlip} />
     </View>
   );
 }

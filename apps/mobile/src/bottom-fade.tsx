@@ -27,4 +27,3 @@ export function EdgeFade({ edge, height, width }: { edge: "top" | "bottom"; heig
     </View>
   );
 }
-export const BottomFade = ({ height, width }: { height: number; width?: number }) => <EdgeFade edge="bottom" height={height} width={width} />;

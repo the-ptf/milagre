@@ -135,7 +135,7 @@ import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/c
 import { accountSwitchText, isAccountSwitch, isLimitReset, limitResetText } from "@milagre/shared/usage-limit";
 import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-link";
 import { BackgroundIndicator, ThinkingIndicator } from "../running-logo";
-import { BottomFade, EdgeFade } from "../bottom-fade";
+import { EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
 import { Approval, ActivityQuestions, answersWithImages } from "../questions";
 import { QueuedMessages } from "../queued-messages";
@@ -2726,8 +2726,7 @@ function ChatPane({
                   offset={{ closed: 0, opened: lift }}
                   style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
                 >
-                  {/* The transcript blurs and fades under the composer like desktop's, while the Chat's end is below it. */}
-                  {showJumpToBottom && <BottomFade height={dockHeight + 48} width={window.width} />}
+                  {/* No fade under the composer, as on desktop: the transcript runs crisp to it and the glass dock floats over it. */}
                   <View
                     ref={attachPanelRooms}
                     collapsable={false}

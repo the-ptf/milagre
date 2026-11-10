@@ -52,6 +52,11 @@ export function foldRuns(runs: readonly RoutineRun[]): RunEntry[];
  * for another year than `now`'s.
  */
 export function runWhen(at: number, now: number): string;
+/**
+ * When a Routine's next Run is, on the computer's clock: "16:00" today (`today` true), "Fri 16:00" within the next six
+ * days, else "Nov 18 10:00".
+ */
+export function nextRunWhen(at: number, now: number): { today: boolean; text: string };
 export type RunFold = Extract<RunEntry, { kind: "fold" }>;
 /**
  * A fold as one line: "4 quiet · <latest quiet summary>", or with other kinds in it "4 quiet · 1 skipped, its Chat was busy"

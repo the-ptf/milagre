@@ -2258,6 +2258,7 @@ function markdownHost({
       "./icons": { Icon: "Icon" },
       "expo-haptics": { selectionAsync: async () => haptic() },
       "./markdown-table": require("../apps/mobile/src/markdown-table.ts"),
+      "./markdown-list": require("../apps/mobile/src/markdown-list.ts"),
       "./theme": { useTheme: () => ({ ...themeHooks.useTheme(), textPx, codeSize }) },
       "./viewer-store": viewer,
       "./chat-presentation": require("../apps/mobile/src/chat-presentation.ts"),
@@ -2390,6 +2391,45 @@ test("Markdown code ignores stale clipboard completion, failure and resolution a
   requests[3].resolve();
   await Promise.resolve();
   assert.equal(taps, 1);
+});
+
+test("ordered list markers share a column sized for the list's widest number, so 10 shows whole and every item's text lines up", () => {
+  const screen = markdownHost();
+  const numbered = (from, to) => Array.from({ length: to - from + 1 }, (_, index) => `${from + index}. Item ${from + index}`).join("\n");
+  const markers = (tree) => {
+    const cells = [];
+    const collect = (node) => {
+      if (Array.isArray(node)) return node.forEach(collect);
+      if (!node || typeof node !== "object") return;
+      const children = [node.props?.children].flat();
+      if (node.type === "View" && children.length === 2 && children.every((child) => child?.type === "Text" && child.props.style?.[2]))
+        cells.push(children.map((child) => [child.props.children].flat().join("")));
+      collect(node.props?.children);
+    };
+    collect(tree);
+    return cells;
+  };
+  const long = markers(screen.render(numbered(1, 12)));
+  assert.equal(long.length, 12);
+  assert.deepEqual(long[9], ["00.", "10."], "the hidden widest label sizes the column and 10 shows whole");
+  assert.ok(
+    long.every(([widest]) => widest === "00."),
+    "every row shares the two-digit column",
+  );
+  assert.deepEqual(
+    markers(screen.render(numbered(1, 3))).map(([widest]) => widest),
+    ["0.", "0.", "0."],
+    "a short list keeps one digit",
+  );
+  assert.deepEqual(
+    markers(screen.render(numbered(9, 10))),
+    [
+      ["00.", "9."],
+      ["00.", "10."],
+    ],
+    "a list continued past 9 sizes for its own numbers",
+  );
+  screen.unmount();
 });
 
 test("Markdown tables align header/body columns, fill short tables and preserve rich nested cells", async () => {
@@ -3581,7 +3621,7 @@ function chatHost({
     "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
     "../indicators": require("../apps/mobile/src/indicators.ts"),
     "../icons": { Icon: "Icon" },
-    "../bottom-fade": { BottomFade: "BottomFade", EdgeFade: "EdgeFade" },
+    "../bottom-fade": { EdgeFade: "EdgeFade" },
     "../side-panels": { useSidePanels: () => panels, PanelSwipe: "PanelSwipe" },
     "../read-open-chat": { useReadOpenChat() {} },
     "../loading-logo": { LoadingLogo: "LoadingLogo" },
@@ -17347,6 +17387,48 @@ function routinesHost({
   return { render, settle, calls, routes, rows, groups, sockets, updates };
 }
 
+test("phone scheduled Routine rows name the next date for both targets and preserve history and state", () => {
+  const { routineMeta } = load("routine-rows.ts", {
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
+    "@milagre/shared/routine-form": require("@milagre/shared/routine-form"),
+  });
+  const now = new Date(2026, 10, 10, 10, 0).getTime();
+  for (const target of [
+    { kind: "chat", chatId: "chat" },
+    { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+  ]) {
+    const routine = { ...routineFixtures()[0], target, nextRunAt: new Date(2026, 10, 10, 16, 0).getTime() };
+    for (const [day, expected] of [
+      [10, "next 16:00"],
+      [13, "next Fri 16:00"],
+      [20, "next Nov 20 16:00"],
+    ]) {
+      const scheduled = { ...routine, nextRunAt: new Date(2026, 10, day, 16, 0).getTime() };
+      const meta = routineMeta(scheduled, now);
+      assert.ok(meta.includes(expected), `${target.kind}: ${meta}`);
+      assert.match(meta, target.kind === "chat" ? /3 Runs left/ : /no Runs yet/);
+    }
+    for (const [patch, expected] of [
+      [{ enabled: false }, "Off"],
+      [{ pausedReason: "three failures" }, "Paused: three failures"],
+      [{ flow: { revision: 0 } }, "Flow draft, not published"],
+    ]) {
+      const meta = routineMeta({ ...routine, ...patch }, now);
+      assert.ok(meta.includes(expected));
+      assert.doesNotMatch(meta, /next /);
+    }
+    const ran = routineMeta({ ...routine, runs: [{ startedAt: now - 120_000 }, { startedAt: now - 3600_000 }], lastError: "Run failed" }, now);
+    assert.match(ran, /next 16:00/);
+    assert.match(ran, /Run failed$/);
+    if (target.kind === "new-chat") assert.match(ran, /last Run 2 min ago/);
+    assert.match(routineMeta({ ...routine, flow: { revision: 1 }, runs: [] }, now), /next 16:00/);
+    assert.doesNotMatch(routineMeta({ ...routine, nextRunAt: undefined }, now), /next /);
+  }
+  const webhook = { ...routineFixtures()[1], enabled: true, pausedReason: undefined, trigger: { kind: "webhook" }, nextRunAt: now + 60_000 };
+  assert.doesNotMatch(routineMeta(webhook, now), /next /);
+});
+
 test("the phone Routines screen groups heartbeats and triggers, says why a trigger paused, and opens a row's actions", async () => {
   const host = routinesHost();
   host.render();
@@ -17362,13 +17444,23 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
   assert.match(textOf(heartbeat), /Babysit PR #473/);
   assert.match(textOf(heartbeat), /Every 15 min · next \d\d:\d\d · 3 Runs left/);
   assert.match(textOf(trigger), /Paused: 3 failed runs in a row: no worktree/);
-  assert.equal(find(trigger, (node) => node.type === "RowCheckbox").props.selected, false);
+  assert.equal(
+    find(trigger, (node) => node.type === "RowCheckbox"),
+    undefined,
+    "no tick on the row: Pause and Resume are in its menu",
+  );
   const menu = find(trigger, (node) => node.type === "PullDown");
-  // A Linear trigger only runs on its event, so it has no Run now; the heartbeat (a schedule) does.
+  // Pause or Resume first; a Linear trigger only runs on its event, so it has no Run now; the heartbeat (a schedule) does.
   // Copy VM-owned arrays into this realm for deepStrictEqual.
-  assert.deepEqual(Array.from(menu.props.sections.flatMap((section) => section.items.map((item) => item.title))), ["Edit", "Open last Chat", "Delete"]);
+  assert.deepEqual(Array.from(menu.props.sections.flatMap((section) => section.items.map((item) => item.title))), [
+    "Resume",
+    "Edit",
+    "Open last Chat",
+    "Delete",
+  ]);
   const heartbeatMenu = find(heartbeat, (node) => node.type === "PullDown");
   assert.deepEqual(Array.from(heartbeatMenu.props.sections.flatMap((section) => section.items.map((item) => item.title))), [
+    "Pause",
     "Edit",
     "Run now",
     "Open Chat",
@@ -17381,10 +17473,12 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
     { pathname: "/routine", params: { id: "tr" } },
     { pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "9" } },
   ]);
-  assert.ok(
+  // The lid note is the empty state's, as on desktop: a list of Routines goes without it.
+  assert.equal(
     allNodes(tree, (node) => node.type === "Text").some(
       (node) => textOf(node) === "Routines run while this Mac is awake. Closing the lid on battery pauses them.",
     ),
+    false,
   );
   // The Paused chip keeps only the paused trigger.
   allNodes(tree, (node) => node.props?.accessibilityRole === "radio")[3].props.onPress();
@@ -17427,18 +17521,22 @@ test("deleting a Routine on the phone says a Heartbeat's Chat stays and a trigge
   );
 });
 
-test("flipping a Routine's switch on the phone writes routines:update with the new value and reads the list again", async () => {
+// A phone Routine row's first long-press action: "Pause" while it is on, "Resume" while it is off.
+const flipItem = (row) => find(row, (node) => node.type === "PullDown").props.sections[0].items[0];
+
+test("pausing a Routine from its menu on the phone writes routines:update with the new value and reads the list again", async () => {
   const host = routinesHost();
   host.render();
   await host.settle();
   const [heartbeat] = host.rows(host.render());
+  assert.equal(flipItem(heartbeat).title, "Pause");
   host.calls.length = 0;
-  find(heartbeat, (node) => node.type === "RowCheckbox").props.onPress();
-  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowCheckbox").props.selected, false, "the switch moves at once");
+  find(heartbeat, (node) => node.type === "PullDown").props.onSelect("flip");
+  assert.equal(flipItem(host.rows(host.render())[0]).title, "Resume", "the row turns off at once");
   await host.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(host.calls[0])), ["routines:update", ["hb", { enabled: false }]]);
   assert.ok(host.calls.some(([method]) => method === "routines:list"));
-  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowCheckbox").props.selected, false);
+  assert.equal(flipItem(host.rows(host.render())[0]).title, "Resume");
 });
 
 test("an older Mac that says its Routines are off still lists them, with nothing to allow", async () => {
@@ -17673,7 +17771,7 @@ test("a phone babysit Heartbeat has no Run now or Edit, on its row or its screen
   await list.settle();
   const [row] = list.rows(list.render());
   const menu = find(row, (node) => node.type === "PullDown");
-  assert.deepEqual(Array.from(menu.props.sections.flatMap((section) => section.items.map((item) => item.title))), ["Open Chat", "Delete"]);
+  assert.deepEqual(Array.from(menu.props.sections.flatMap((section) => section.items.map((item) => item.title))), ["Pause", "Open Chat", "Delete"]);
   const screen = routineHost({ id: "pr", routines: [babysitRoutine(heartbeat)] });
   const toolbar = allNodes(screen.render(), (node) => node.type === "ToolbarButton").map((node) => node.props.accessibilityLabel);
   assert.deepEqual(toolbar, []);
@@ -18040,15 +18138,16 @@ test("two quick flips of one Routine on the phone keep the second value until it
   const host = routinesHost({ slowUpdates: true });
   host.render();
   await host.settle();
-  const switchOf = () => find(host.rows(host.render())[0], (node) => node.type === "RowCheckbox");
-  switchOf().props.onPress();
-  assert.equal(switchOf().props.selected, false);
-  switchOf().props.onPress();
-  assert.equal(switchOf().props.selected, true);
+  const row = () => host.rows(host.render())[0];
+  const flip = () => find(row(), (node) => node.type === "PullDown").props.onSelect("flip");
+  flip();
+  assert.equal(flipItem(row()).title, "Resume");
+  flip();
+  assert.equal(flipItem(row()).title, "Pause");
   await host.settle();
   host.updates[0].resolve();
   await host.settle();
-  assert.equal(switchOf().props.selected, true, "the first write's end doesn't drop the second flip");
+  assert.equal(flipItem(row()).title, "Pause", "the first write's end doesn't drop the second flip");
   host.updates[1].resolve();
   await host.settle();
 });

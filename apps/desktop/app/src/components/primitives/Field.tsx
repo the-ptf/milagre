@@ -1,7 +1,6 @@
 import type { InputHTMLAttributes, ReactNode, Ref } from "react";
 
-const BOX =
-  "w-full rounded-control border border-line-strong bg-field text-ink transition-colors placeholder:text-ink-3 aria-invalid:not-focus:border-red disabled:opacity-40";
+const BOX = "w-full rounded-control border text-ink transition-colors placeholder:text-ink-3 aria-invalid:not-focus:border-red disabled:opacity-40";
 const SIZES = {
   28: "h-7 px-2 text-12",
   32: "h-8 px-2.5 text-13",
@@ -14,14 +13,21 @@ export type FieldSize = keyof typeof SIZES;
  * 28 in a compact row (12px text). Field fill, line-strong border, no focus edge (the caret shows focus), red with
  * aria-invalid while not focused; put an InlineError size 12 under an invalid one.
  */
-export function fieldClass({ size = 36 }: { size?: FieldSize } = {}) {
-  return `${BOX} ${SIZES[size]}`;
+/**
+ * The field's fill and edge: `field`, or `bare` for a search that sits on its pane (the Settings nav, the model picker):
+ * no fill or visible edge of its own, so it isn't read as a selected row. The edge stays transparent to keep the geometry.
+ */
+const FILLS = { field: "border-line-strong bg-field", bare: "border-transparent bg-transparent" } as const;
+export type FieldFill = keyof typeof FILLS;
+
+export function fieldClass({ size = 36, fill = "field" }: { size?: FieldSize; fill?: FieldFill } = {}) {
+  return `${BOX} ${FILLS[fill]} ${SIZES[size]}`;
 }
 
 /** A 36px text field's classes. */
 export const FIELD = fieldClass();
 /** The same box for a textarea (set its rows) or a wrapper around an input and its icons, with no focus edge. */
-export const FIELD_AREA = `${BOX} px-2.5 py-2 text-13`;
+export const FIELD_AREA = `${BOX} ${FILLS.field} px-2.5 py-2 text-13`;
 /**
  * The input inside a box that draws the field (FieldGroup, a bordered row or card): no fill, edge or outline of its
  * own, so the wrapper is the only edge.
@@ -49,6 +55,7 @@ export function Input({
  */
 export function FieldGroup({
   size = 36,
+  fill = "field",
   leading,
   trailing,
   className = "",
@@ -57,6 +64,7 @@ export function FieldGroup({
   ...props
 }: Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
   size?: FieldSize;
+  fill?: FieldFill;
   leading?: ReactNode;
   trailing?: ReactNode;
   inputClassName?: string;
@@ -64,7 +72,7 @@ export function FieldGroup({
 }) {
   return (
     <label
-      className={`${fieldClass({ size })} flex items-center gap-2 has-[input[aria-invalid=true]:not(:focus)]:border-red has-[input:disabled]:opacity-40 ${className}`}
+      className={`${fieldClass({ size, fill })} flex items-center gap-2 has-[input[aria-invalid=true]:not(:focus)]:border-red has-[input:disabled]:opacity-40 ${className}`}
     >
       {leading}
       <input ref={ref} {...props} className={`${FIELD_INNER} ${inputClassName}`} />

@@ -1215,7 +1215,7 @@ function NewChatHeader({
 
   return (
     // The entrance animation makes this a stacking context, so lift it above the composer while a popover is open.
-    <div className={`px-1 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
+    <div className={`px-2.5 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
       {!chats && !link && noGit && selected && (
         <p data-no-git-note className="mt-1 mb-2 flex items-center gap-1.5 text-13 text-ink-2">
           <Icon icon={Folder01Icon} size={14} />
@@ -1847,14 +1847,6 @@ export function ChatComposer({
                     )}
                   </div>
                 </MessageScroller>
-                {/* Messages passing under the chip row soften into a progressive blur that reaches the composer. */}
-                <div
-                  aria-hidden
-                  data-busy={isSending || undefined}
-                  className="chat-bottom-blur progressive-blur pointer-events-none absolute inset-x-0 bottom-0 z-10 h-16"
-                >
-                  <ProgressiveBlurLayers />
-                </div>
               </div>
             )
           }
@@ -1862,7 +1854,7 @@ export function ChatComposer({
         <div
           data-chat-width={chatWidth}
           // While a composer popover (model, permissions, + or a menu) is open over it, the row steps aside instead of peeking out.
-          className={`chat-gutter mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 items-center justify-end gap-2 px-3 transition-[opacity,visibility] duration-fast empty:hidden [&:has(+[data-composer-wrap]_[data-picker-panel])]:invisible [&:has(+[data-composer-wrap]_[data-picker-panel])]:opacity-0 ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
+          className={`chat-gutter mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 items-center justify-end gap-2 px-3 transition-[opacity,visibility] duration-fast empty:hidden [&:has(+[data-composer-wrap]_[data-picker-panel])]:invisible [&:has(+[data-composer-wrap]_[data-picker-panel])]:opacity-0 ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
         >
           {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
           Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}
@@ -1964,7 +1956,7 @@ export function ChatComposer({
           className={`chat-gutter relative mx-auto w-full max-w-[var(--chat-width)] shrink-0 p-1.5 ${isNewChat ? "" : "z-20 -mt-1.5"}`}
         >
           {/* The update pill floats centred on the chip row's line, outside its flow. */}
-          <UpdatePillSlot className="bottom-full mb-2" />
+          <UpdatePillSlot className={`bottom-full ${isNewChat ? "mb-2" : "mb-1.5"}`} />
           {isNewChat && starters && starters.length > 0 && <FirstChatStarters starters={starters} />}
           {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}

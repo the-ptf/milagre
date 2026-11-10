@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LaptopIcon, PlusSignIcon, Pulse01Icon, TimeScheduleIcon, ZapIcon } from "@hugeicons/core-free-icons";
+import { LaptopIcon, PlusSignIcon, TimeScheduleIcon } from "@hugeicons/core-free-icons";
 import type { ModelCapabilities, ModelOption } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Button } from "../primitives/Button";
-import { Chip } from "../primitives/Chip";
 import { EmptyState } from "../primitives/EmptyState";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { SectionLabel } from "../primitives/SectionLabel";
-import { radioKeys } from "../primitives/Segmented";
+import { Select } from "../primitives/Select";
 import { RoutineRow } from "./RoutineRow";
 import { RoutineEditor } from "./RoutineEditor";
 import { RoutinePage } from "./RoutinePage";
@@ -191,9 +190,11 @@ export function RoutinesPage({
       again();
     });
   };
-  // Another computer's row leads with its laptop mark and name, as a Chat row does; this Mac's needs none.
+  // Another computer's row leads with its laptop mark and name, as a Chat row does; this Mac's needs none, and neither
+  // does any row while the Computer filter already names the one computer listed.
   const rowComputer = (routine: RoutineWithRuns) => {
     const id = computerOfRoutine(routine);
+    if (pickedComputer !== "all") return null;
     const view = id === LOCAL_COMPUTER ? undefined : computers.find((computer) => computer.id === id);
     return id === LOCAL_COMPUTER ? null : { name: view?.name ?? "Computer", offline: view ? isDimmed(view) : false };
   };
@@ -217,12 +218,14 @@ export function RoutinesPage({
       onDelete={() => act(routine, () => bridgeForKey(routine.id).deleteRoutine(routine.id))}
     />
   );
-  const chips: Array<{ id: Filter; label: string; count: number }> = [
-    { id: "all", label: "All", count: listed.length },
-    { id: "heartbeats", label: "Heartbeats", count: groups.heartbeats.length },
-    { id: "triggers", label: "Triggers", count: groups.triggers.length },
-    { id: "paused", label: "Paused", count: groups.paused.length },
+  // The two filters, each a dropdown with its counts in the menu: what kind of Routine, and (with paired computers) whose.
+  const kinds: Array<{ value: Filter; label: string; count: number }> = [
+    { value: "all", label: "All Routines", count: listed.length },
+    { value: "heartbeats", label: "Heartbeats", count: groups.heartbeats.length },
+    { value: "triggers", label: "Triggers", count: groups.triggers.length },
+    { value: "paused", label: "Paused", count: groups.paused.length },
   ];
+  const onEach = (id: string) => (id === "all" ? routines.length : routines.filter((routine) => computerOfRoutine(routine) === id).length);
 
   const editor = (initial?: RoutineWithRuns) => (
     <RoutineEditor
@@ -310,10 +313,8 @@ export function RoutinesPage({
     <ScrollArea className="flex h-full flex-col">
       <div data-routines-page className="mx-auto flex w-full max-w-[720px] flex-1 flex-col px-6 pt-14 pb-10">
         <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-22 font-semibold tracking-[-0.02em] text-ink">Routines</h1>
-            <p className="mt-1 text-13 text-ink-2">Agents that run on a schedule or when something happens elsewhere.</p>
-          </div>
+          {/* The title alone, as on the phone: the lid note shows in the empty state, where nothing has run yet. */}
+          <h1 className="min-w-0 text-22 font-semibold tracking-[-0.02em] text-ink">Routines</h1>
           {enabled && (
             <Button data-routine-new onClick={() => setEditing("new")}>
               <Icon icon={PlusSignIcon} size={16} />
@@ -330,55 +331,44 @@ export function RoutinesPage({
         {enabled ? (
           <>
             {routines.length > 0 && (
-              <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
-                <div role="radiogroup" aria-label="Show" onKeyDown={radioKeys({ axis: "horizontal" })} className="flex gap-1.5">
-                  {chips.map((chip) => (
-                    <Chip
-                      key={chip.id}
-                      variant="filter"
-                      checked={filter === chip.id}
-                      tabIndex={filter === chip.id ? 0 : -1}
-                      data-routine-filter={chip.id}
-                      onClick={() => setFilter(chip.id)}
-                    >
-                      {chip.label} {chip.count}
-                    </Chip>
-                  ))}
-                </div>
+              <div data-routine-filters className="mt-5 flex flex-wrap items-center gap-2">
+                <Select<Filter>
+                  label="Show"
+                  variant="chip"
+                  align="start"
+                  width={200}
+                  value={filter}
+                  options={kinds.map((kind) => ({ value: kind.value, label: kind.label, trailing: String(kind.count) }))}
+                  onChange={setFilter}
+                />
                 {computerChoices.length > 0 && (
-                  <div role="radiogroup" aria-label="Computer" onKeyDown={radioKeys({ axis: "horizontal" })} className="flex flex-wrap gap-1.5">
-                    {["all", ...computerChoices].map((id) => (
-                      <Chip
-                        key={id}
-                        variant="filter"
-                        checked={pickedComputer === id}
-                        tabIndex={pickedComputer === id ? 0 : -1}
-                        icon={id === "all" ? undefined : LaptopIcon}
-                        data-routine-computer-filter={id}
-                        onClick={() => setOnComputer(id)}
-                      >
-                        {id === "all" ? "Every computer" : computerName(id)}{" "}
-                        {id === "all" ? routines.length : routines.filter((routine) => computerOfRoutine(routine) === id).length}
-                      </Chip>
-                    ))}
-                  </div>
+                  <Select
+                    label="Computer"
+                    variant="chip"
+                    align="start"
+                    width={220}
+                    value={pickedComputer}
+                    leading={<Icon icon={LaptopIcon} size={14} className="shrink-0" />}
+                    options={["all", ...computerChoices].map((id) => ({
+                      value: id,
+                      label: id === "all" ? "Every computer" : computerName(id),
+                      trailing: String(onEach(id)),
+                    }))}
+                    onChange={setOnComputer}
+                  />
                 )}
               </div>
             )}
             <div className={empty ? "flex min-h-[200px] flex-1 flex-col items-center justify-center gap-3 py-10 text-center" : "mt-5 space-y-5"}>
               {heartbeats.length > 0 && (
                 <section data-routine-group="heartbeats" className="space-y-2">
-                  <SectionLabel icon={Pulse01Icon} className="px-1">
-                    Heartbeats
-                  </SectionLabel>
+                  <SectionLabel>Heartbeats</SectionLabel>
                   <div className={card}>{heartbeats.map(row)}</div>
                 </section>
               )}
               {triggers.length > 0 && (
                 <section data-routine-group="triggers" className="space-y-2">
-                  <SectionLabel icon={ZapIcon} className="px-1">
-                    Triggers
-                  </SectionLabel>
+                  <SectionLabel>Triggers</SectionLabel>
                   <div className={card}>{triggers.map(row)}</div>
                 </section>
               )}
@@ -388,16 +378,11 @@ export function RoutinesPage({
                 </EmptyState>
               )}
               {routines.length > 0 && heartbeats.length === 0 && triggers.length === 0 && (
-                <p data-routines-empty className="px-1 text-13 text-ink-3">
+                <p data-routines-empty className="text-13 text-ink-3">
                   None here.
                 </p>
               )}
             </div>
-            {!empty && (
-              <p data-routines-help className="mt-5 px-1 text-12 text-ink-3">
-                {HELP}
-              </p>
-            )}
           </>
         ) : null}
       </div>

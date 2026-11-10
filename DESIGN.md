@@ -482,7 +482,8 @@ Hugeicons everywhere (`@hugeicons/core-free-icons`), drawn in the text colour.
   `user-select: none`. The transcript, markdown, code, diffs, errors and paths stay selectable.
 - Window drag strips use `.title-drag`; a control inside one takes `.no-drag`, not an inline `app-region`.
 - The window background is faint diagonal stripes (`--stripe` over `--stripe-bg`). Bordered transcript blocks sit on
-  the column edges, and tool glyphs line up 13px in.
+  the column edges, and tool glyphs start on the reply text's edge (their hover fill reaches 13px past it). The
+  transcript has no fade above the composer: text runs crisp to it, under the glass pills.
 
 ### Phone and iPad
 
@@ -527,6 +528,16 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
 - Files / Commits and PR Summary / Files are segmented controls.
 - The question card's "Other…" is the last option row, with the mic and image buttons inside it.
 - Unread stays a blue accent dot, the one accent status. Settings stays an in-window dialog. Done is a product noun.
+
+### Routines page (2026-11-10)
+
+- The header is the title and New Routine only, on both platforms; the lid note shows in the empty state.
+- Filters are two chip dropdowns, Show and Computer, with counts in their menus; no chip rows.
+- Rows have no on/off tick: Pause and Resume are the first action in the ⋯ menu (phone: the long press), and each
+  Routine's own page keeps its checkbox. A row's glyph is bare (no tile), rows are 56 high, and the status sits in a
+  72px column ("Next 16:00" today, "Fri 16:00", "Nov 18 10:00", "Paused").
+- Group labels have no glyph and sit on the column edge. The Flow badge is a neutral badge. Schedules read in words
+  ("Fridays 16:00", "every 30 min from :15"); only other shapes show their cron.
 
 ### Phone pass verdict (2026-11-10)
 
@@ -594,6 +605,16 @@ over a view.
 
 ## The site
 
-milagre.cloud (`apps/site`) is dark Milagre Blue with its own type: Geist for text and Instrument Serif italic for the
-headline's accent words. It follows the colour roles, radii and motion above. Its Lighthouse scores never drop below
-`apps/site/lighthouse-budget.json`.
+milagre.cloud (`apps/site`) lives in the day the desktop app's first-launch intro, Dawn, ends on: a cream page, warm
+ink and a gold-brown accent, with Geist for text and Instrument Serif italic for the headline's accent words. Live copies
+of the app on it (the Designs panel, the canvas, a terminal, the recordings) keep dark Milagre Blue. It follows the
+colour roles, radii and motion above, except where it borrows from Dawn: the download button is a dark pill in warm
+light, like the intro's Begin, and the hero plays the intro.
+
+- The landing hero is Dawn's sky. Every load plays the intro (night, the falling star landing on the logo, dawn into
+  day); reduced motion opens on its last frame. The headline, the apps and the download button are
+  there from the first frame.
+- Below the hero, the star winds down the page with the scroll, behind the app windows, with warm light round it and a
+  trail of star dust, and lands on the footer's logo as its legs rise (a scroll timeline, off with reduced motion).
+- Clouds and light stay in the hero. Sections below it sit on the plain page.
+- Its Lighthouse scores never drop below `apps/site/lighthouse-budget.json`.

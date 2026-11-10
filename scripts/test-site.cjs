@@ -72,9 +72,9 @@ async function assertHeroScreen(evaluate, window) {
     `(() => { const r = document.querySelector(".demo").getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; })()`,
   );
   assert.ok(demo.left >= 0 && demo.right <= size.w + 1, `devices wider than the screen: ${JSON.stringify(demo)}`);
-  // They run down into the fade, so they read as running off the edge.
-  const fade = await evaluate(window, `document.querySelector(".fade").getBoundingClientRect().height`);
-  assert.ok(demo.top < size.h * 0.6 && demo.bottom >= size.h - fade, `devices don't reach the bottom fade: ${JSON.stringify({ demo, fade })}`);
+  // They run down into Dawn's clouds, so they read as standing in them.
+  const fade = await evaluate(window, `document.querySelector(".dawn-clouds").getBoundingClientRect().height`);
+  assert.ok(demo.top < size.h * 0.6 && demo.bottom >= size.h - fade, `devices don't reach the clouds: ${JSON.stringify({ demo, fade })}`);
   const button = await evaluate(
     window,
     `(() => { const a = [...document.querySelectorAll(".cta .button")].find((el) => el.offsetParent); const r = a.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, onTop: a.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)) }; })()`,
@@ -430,7 +430,8 @@ const checks = [
           window,
           `(() => { const r = document.querySelector(".phone-video").getBoundingClientRect(); return { w: r.width, h: r.height }; })()`,
         );
-        assert.ok(frame.w > 100 && frame.h > 200, `phone frame ${JSON.stringify(frame)}`);
+        // The Dawn logo above the headline takes a little of the hero's height, so the devices draw a little smaller.
+        assert.ok(frame.w > 80 && frame.h > 175, `phone frame ${JSON.stringify(frame)}`);
         window.destroy();
       }
     },

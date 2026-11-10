@@ -25,6 +25,7 @@
     "src/streaming-markdown.ts",
     "src/streaming-blocks.ts",
     "src/markdown-fence.ts",
+    "src/ordered-list.ts",
     "src/github-markdown.ts",
     "src/pr-blockers.ts",
     "src/diff-parse.ts",
@@ -334,6 +335,7 @@
     "./streaming-markdown": "./src/streaming-markdown.ts",
     "./streaming-blocks": "./src/streaming-blocks.ts",
     "./markdown-fence": "./src/markdown-fence.ts",
+    "./ordered-list": "./src/ordered-list.ts",
     "./github-markdown": "./src/github-markdown.ts",
     "./github-image": {
       "types": "./src/github-image.d.mts",

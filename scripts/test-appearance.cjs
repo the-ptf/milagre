@@ -267,14 +267,6 @@ async function browserChecks() {
       await delay(100);
       return window.webContents.capturePage(rect);
     };
-    // The mean of a region's channels (whatever the bitmap's channel order, the same order for both samples being compared).
-    const meanOf = (image) => {
-      const { width, height } = image.getSize();
-      const bitmap = image.toBitmap();
-      const sum = [0, 0, 0];
-      for (let pixel = 0; pixel < width * height; pixel++) for (let channel = 0; channel < 3; channel++) sum[channel] += bitmap[pixel * 4 + channel];
-      return sum.map((total) => total / (width * height));
-    };
     // The fade's tint as { rgb, alpha }: the first color stop of its gradient, read back through a canvas.
     const tintOf = (selector) =>
       evaluate(`(() => {
@@ -291,7 +283,7 @@ async function browserChecks() {
     const shootFade = async (name) => {
       if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
       fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
-      // The last lines pass under the bottom fade.
+      // The last lines run up to the composer, under the chip row.
       await evaluate(`(() => { const v = document.querySelector('[aria-label="Conversation"]'); v.scrollTop = v.scrollHeight - v.clientHeight - 70; })()`);
       await delay(200);
       const composer = await rectOf("[data-composer-wrap]");
@@ -304,34 +296,23 @@ async function browserChecks() {
     const fades = async (label, background) => {
       for (const busy of [false, true]) {
         await evaluate(`window.__setBusy(${busy})`);
-        await waitFor(`!!document.querySelector('.chat-bottom-blur')?.hasAttribute('data-busy') === ${busy}`);
+        await waitFor(`!!document.querySelector('.chat-top-blur')?.hasAttribute('data-busy') === ${busy}`);
         await delay(100);
         const where = label + (busy ? ", turn running" : ", idle");
-        const bottom = await tintOf(".chat-bottom-blur");
+        const top = await tintOf(".chat-top-blur");
         const wanted = rgbOf(background);
         for (const channel of [0, 1, 2])
           assert.ok(
-            Math.abs(bottom.rgb[channel] - wanted[channel]) <= 2,
-            where + ": the bottom fade tints toward the transcript background " + background + " (got " + JSON.stringify(bottom) + ")",
+            Math.abs(top.rgb[channel] - wanted[channel]) <= 2,
+            where + ": the top fade tints toward the transcript background " + background + " (got " + JSON.stringify(top) + ")",
           );
-        assert.equal(bottom.alpha, 1, where + ": the bottom fade starts at the transcript background itself (got " + JSON.stringify(bottom) + ")");
+        assert.equal(top.alpha, 1, where + ": the top fade starts at the transcript background itself (got " + JSON.stringify(top) + ")");
         assert.equal(
-          await evaluate(
-            `[...document.querySelectorAll('.chat-top-blur > :not(:last-child), .chat-bottom-blur > :not(:last-child)')].every((layer) => getComputedStyle(layer).display === 'none')`,
-          ),
+          await evaluate(`[...document.querySelectorAll('.chat-top-blur > :not(:last-child)')].every((layer) => getComputedStyle(layer).display === 'none')`),
           true,
-          where + ": the edges fade without blurring the transcript",
+          where + ": the top edge fades without blurring the transcript",
         );
-        assert.deepEqual(await tintOf(".chat-top-blur"), bottom, where + ": the top fade mirrors the bottom's tint");
-        assert.equal((await rectOf(".chat-bottom-blur")).height, 64, where + ": the bottom fade is 64px tall");
-        // Over empty space the middle of the fade is the background itself: same pixels as just above the fade.
-        const overlay = await rectOf(".chat-bottom-blur");
-        // Clear of the terminal the size checks left at the window's bottom-left corner.
-        const x = overlay.x + 330;
-        const middle = meanOf(await capture({ x, y: overlay.y + Math.round(overlay.height / 2) - 4, width: 24, height: 8 }));
-        const above = meanOf(await capture({ x, y: overlay.y - 60, width: 24, height: 8 }));
-        for (const channel of [0, 1, 2])
-          assert.ok(Math.abs(middle[channel] - above[channel]) <= 3, where + ": no band over an empty transcript " + JSON.stringify([middle, above]));
+        assert.equal(await evaluate(`document.querySelector('.chat-bottom-blur')`), null, where + ": no fade over the transcript above the composer");
       }
     };
     const backgroundOf = (selector) => style(selector, "backgroundColor");
@@ -353,7 +334,7 @@ async function browserChecks() {
     await waitFor(`document.documentElement.classList.contains('dark')`);
     await evaluate(`window.__setTile(true)`);
     await fades("custom tile", await backgroundOf("[data-chat-tile]"));
-    // With text scrolled under the bottom edge, as it reads while a turn runs (screenshots when MILAGRE_SCREENSHOT_DIR is set).
+    // With text scrolled to the composer, as it reads while a turn runs (screenshots when MILAGRE_SCREENSHOT_DIR is set).
     await evaluate(`window.__setLong(true)`);
     await waitFor(`document.querySelectorAll('[data-slot="message"]').length > 20`);
     await evaluate(`window.__settings({ colorTheme: 'default' })`);

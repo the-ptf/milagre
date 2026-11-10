@@ -361,7 +361,7 @@ export function ChangesTabs({
     // A PR tab coming or going changes what is clipped.
   }, [prs.length]);
   return (
-    <div className="flex shrink-0 items-center gap-1 border-b border-line p-2">
+    <div className="flex shrink-0 items-center gap-1 border-b border-line px-3 py-2">
       <div
         ref={row}
         role="tablist"

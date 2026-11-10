@@ -37,6 +37,7 @@ import {
   chatBranchLabel,
   runWhen,
   triggerText,
+  nextRunWhen,
   unreadRunChats,
   unreadRunChatsOf,
   unreadRunRoutines,
@@ -298,9 +299,11 @@ test("triggerText leaves any other schedule as its cron expression", () => {
     "15 */2 * * *",
     "0,30 8 * * *",
     "0 9-17 * * 1-5",
-    "30 8 * * 1",
-    "30 8 * * 0,6",
     "30 8 * 6 *",
+    "0,20 * * * *",
+    "0 2,8 * * *",
+    "0 9 * * 1-3",
+    "0 9 31 13 *",
     "* * * * *",
     "0 * * * *",
     "61 8 * * *",
@@ -313,6 +316,29 @@ test("triggerText leaves any other schedule as its cron expression", () => {
   ]) {
     assert.equal(triggerText(schedule(cron)), `cron "${cron}"`, cron);
   }
+});
+
+test("triggerText words the shapes people write by hand", () => {
+  assert.equal(triggerText(schedule("0 16 * * 5")), "Fridays 16:00");
+  assert.equal(triggerText(schedule("0 12 * * 0")), "Sundays 12:00");
+  assert.equal(triggerText(schedule("0 12 * * 7")), "Sundays 12:00");
+  assert.equal(triggerText(schedule("30 8 * * 1")), "Mondays 08:30");
+  assert.equal(triggerText(schedule("30 8 * * 0,6")), "weekends 08:30");
+  assert.equal(triggerText(schedule("0 9 * * 3,1")), "Mon, Wed 09:00");
+  assert.equal(triggerText(schedule("0,30 * * * *")), "every 30 min");
+  assert.equal(triggerText(schedule("15,45 * * * *")), "every 30 min from :15");
+  assert.equal(triggerText(schedule("0 2,8,14,20 * * *")), "every 6 h from 02:00");
+  assert.equal(triggerText(schedule("0 10 11 11 *")), "Nov 11 10:00");
+});
+
+test("nextRunWhen says the day only when the Run isn't today", () => {
+  const now = new Date(2026, 10, 9, 11, 0).getTime(); // a Monday
+  assert.deepEqual(nextRunWhen(new Date(2026, 10, 9, 16, 0).getTime(), now), { today: true, text: "16:00" });
+  assert.deepEqual(nextRunWhen(new Date(2026, 10, 10, 12, 0).getTime(), now), { today: false, text: "Tue 12:00" });
+  assert.deepEqual(nextRunWhen(new Date(2026, 10, 15, 9, 30).getTime(), now), { today: false, text: "Sun 09:30" });
+  assert.deepEqual(nextRunWhen(new Date(2026, 10, 16, 10, 0).getTime(), now), { today: false, text: "Nov 16 10:00" });
+  // Already due (the scheduler hasn't moved it yet) still reads as today.
+  assert.deepEqual(nextRunWhen(new Date(2026, 10, 9, 9, 45).getTime(), now), { today: true, text: "09:45" });
 });
 
 const linear = (event, over = {}) => ({ kind: "linear", workspace: "milagre", event, ...over });
