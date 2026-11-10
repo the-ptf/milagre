@@ -1,6 +1,6 @@
 # UI rules
 
-Type, ink levels, radius, sizes, spacing, depth and states follow [the interface system](../../.interface-design/system.md). Values outside it are drift.
+Colour, type, spacing, radius, sizes, elevation, motion, icons, states and components follow [DESIGN.md](../../DESIGN.md), the design system (published at milagre.cloud/design). Values outside it are drift.
 
 ## Scrolling
 

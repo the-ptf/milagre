@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import test from "node:test";
 
-// Font sizes and corner radii come from the scale in .interface-design/system.md: text-10…text-26 and the radius
+// Font sizes and corner radii come from the scale in DESIGN.md: text-10…text-26 and the radius
 // tokens (inline, chip, control, card, window, full). Code from before the scale is counted per file in
 // design-tokens.baseline.json; a file may only go down. After moving a file onto the scale, lower its count with
 // UPDATE_DESIGN_TOKENS=1 node --test app/src/components/primitives/design-tokens.test.ts (from apps/desktop).
@@ -47,7 +47,7 @@ test("no file adds an off-scale font size or corner radius", () => {
   const grown = (Object.keys(RULES) as Rule[]).flatMap((rule) =>
     Object.entries(counts[rule]).flatMap(([file, n]) => (n > (baseline[rule][file] ?? 0) ? [`${file}: ${rule} ${baseline[rule][file] ?? 0} → ${n}`] : [])),
   );
-  assert.deepEqual(grown, [], "Use text-10…text-26 and the rounded-inline/chip/control/card/window/full tokens (.interface-design/system.md)");
+  assert.deepEqual(grown, [], "Use text-10…text-26 and the rounded-inline/chip/control/card/window/full tokens (DESIGN.md)");
 });
 
 test("the baseline shrinks as files move onto the scale", () => {

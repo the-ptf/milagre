@@ -2,7 +2,7 @@ import { useReducedMotion } from "motion/react";
 import { MOTION_SPEEDS } from "@milagre/shared/appearance";
 import { useSettings } from "./settings";
 
-// Motion tokens for motion/react, the JS side of styles.css's --duration-* and --ease-* (.interface-design/system.md).
+// Motion tokens for motion/react, the JS side of styles.css's --duration-* and --ease-* (DESIGN.md).
 /** The enter curve, --ease-enter: everything that appears or settles. */
 export const EASE_OUT = [0.23, 1, 0.32, 1] as const;
 /** --duration-fast / base / slow in seconds: hover and press, enter, panels and sheets. */
