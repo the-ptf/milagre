@@ -226,7 +226,7 @@ class ClaudeSession {
 
   async beginTurn({ prompt, images = [], model, permissionMode, effort, ultracode = false, fastMode = false, replies, canStart }) {
     const turnId = randomUUID();
-    Object.assign(this.state, { turnId, hasText: false, suggestionTurnId: null });
+    Object.assign(this.state, { turnId, hasText: false, suggestionTurnId: null, localCommandError: null });
     this.permissions.setMode(permissionMode);
     try {
       if (!this.query) await this.start(model, this.nativeMode(permissionMode), effort, ultracode, fastMode);
@@ -326,7 +326,7 @@ class ClaudeSession {
     this.turnActive = true;
     this.announcedId = false;
     this.cancelRequested = false;
-    Object.assign(this.state, { turnId, hasText: false });
+    Object.assign(this.state, { turnId, hasText: false, localCommandError: null });
     this.turnReady = Promise.resolve();
     this.turnEnded = new Promise((resolve) => {
       this.markEnded = resolve;

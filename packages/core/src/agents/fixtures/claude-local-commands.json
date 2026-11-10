@@ -1,0 +1,324 @@
+{
+  "_comment": "Claude Code 2.1.x through @anthropic-ai/claude-agent-sdk 0.3.288, recorded 2026-11-10 for issue #955. A local slash command answers with a synthetic assistant message that carries the transcript's local_command row in local_command_source, then a result with num_turns 0. Only top-level messages are kept, and the /context tables are cut after the first one. compactFailedRow is a recorded transcript row; compactFailed is the message Claude Code builds from such a row (its history replay does the same), since a compaction stopped by the usage limit can't be recorded on demand.",
+  "codeReview": [
+    {
+      "type": "assistant",
+      "message": {
+        "diagnostics": null,
+        "id": "f0ff61bf-7918-4199-b6b7-17aca08373c9",
+        "container": null,
+        "model": "<synthetic>",
+        "role": "assistant",
+        "stop_details": null,
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "output_tokens_details": null,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": null,
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": null,
+          "iterations": null,
+          "speed": null,
+          "fallback_credit": null
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "math.py:2 — Function named `add` subtracts instead of adds; `add(5, 3)` returns 2 instead of 8"
+          }
+        ],
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "local_command_source": "<local-command-stdout>math.py:2 — Function named `add` subtracts instead of adds; `add(5, 3)` returns 2 instead of 8</local-command-stdout>",
+      "session_id": "d5c237fd-eb73-4f0b-9715-31f3bc97392e",
+      "uuid": "78f23c23-53f4-4af2-965f-dbd5218b7516",
+      "timestamp": "2026-11-10T12:52:53.694Z"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 0,
+      "result": "math.py:2 — Function named `add` subtracts instead of adds; `add(5, 3)` returns 2 instead of 8",
+      "session_id": "d5c237fd-eb73-4f0b-9715-31f3bc97392e",
+      "uuid": "4f977ea4-df23-4a90-8b81-2fa95167b347"
+    }
+  ],
+  "codeReviewClean": [
+    {
+      "type": "assistant",
+      "message": {
+        "diagnostics": null,
+        "id": "df192973-c0ec-4d55-85fd-dea2748122fa",
+        "container": null,
+        "model": "<synthetic>",
+        "role": "assistant",
+        "stop_details": null,
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "output_tokens_details": null,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": null,
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": null,
+          "iterations": null,
+          "speed": null,
+          "fallback_credit": null
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "(none)"
+          }
+        ],
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "local_command_source": "<local-command-stdout>(none)</local-command-stdout>",
+      "session_id": "f3568498-28e6-40be-b802-6cb2736c6942",
+      "uuid": "4ffbe5d4-aa2b-40e2-aa1a-256e6b852cf4",
+      "timestamp": "2026-11-10T12:56:41.677Z"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 0,
+      "result": "(none)",
+      "session_id": "f3568498-28e6-40be-b802-6cb2736c6942",
+      "uuid": "12baf6d2-5e6c-4f69-bd89-c774bd7c2ed4"
+    }
+  ],
+  "context": [
+    {
+      "type": "assistant",
+      "message": {
+        "diagnostics": null,
+        "id": "8593968f-6c53-4250-8f3f-6cc9b9bca1f4",
+        "container": null,
+        "model": "<synthetic>",
+        "role": "assistant",
+        "stop_details": null,
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "output_tokens_details": null,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": null,
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": null,
+          "iterations": null,
+          "speed": null,
+          "fallback_credit": null
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "## Context Usage\n\n**Model:** claude-sonnet-4-5  \n**Tokens:** 15.7k / 200k (8%)\n\n### Estimated usage by category\n\n| Category | Tokens | Percentage |\n|----------|--------|------------|\n| System prompt | 108 | 0.1% |\n| System tools | 10k | 5.0% |\n| System tools (deferred) | 14.9k | 7.4% |\n| Custom agents | 2.9k | 1.4% |\n| Memory files | 630 | 0.3% |\n| Skills | 2k | 1.0% |\n| Messages | 8 | 0.0% |\n| Free space | 184.3k | 92.2% |\n"
+          }
+        ],
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "local_command_source": "<local-command-stdout>## Context Usage\n\n**Model:** claude-sonnet-4-5  \n**Tokens:** 15.7k / 200k (8%)\n\n### Estimated usage by category\n\n| Category | Tokens | Percentage |\n|----------|--------|------------|\n| System prompt | 108 | 0.1% |\n| System tools | 10k | 5.0% |\n| System tools (deferred) | 14.9k | 7.4% |\n| Custom agents | 2.9k | 1.4% |\n| Memory files | 630 | 0.3% |\n| Skills | 2k | 1.0% |\n| Messages | 8 | 0.0% |\n| Free space | 184.3k | 92.2% |\n</local-command-stdout>",
+      "session_id": "a0d0508d-a7f0-4060-8ace-146747e75803",
+      "uuid": "0a6f8a55-9b1e-4162-a083-f986eef7728a",
+      "timestamp": "2026-11-10T12:52:24.428Z",
+      "local_command_run": {
+        "command": "context",
+        "args": ""
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 0,
+      "result": "## Context Usage\n\n**Model:** claude-sonnet-4-5  \n**Tokens:** 15.7k / 200k (8%)\n\n### Estimated usage by category\n\n| Category | Tokens | Percentage |\n|----------|--------|------------|\n| System prompt | 108 | 0.1% |\n| System tools | 10k | 5.0% |\n| System tools (deferred) | 14.9k | 7.4% |\n| Custom agents | 2.9k | 1.4% |\n| Memory files | 630 | 0.3% |\n| Skills | 2k | 1.0% |\n| Messages | 8 | 0.0% |\n| Free space | 184.3k | 92.2% |\n",
+      "session_id": "a0d0508d-a7f0-4060-8ace-146747e75803",
+      "uuid": "3a6e4c78-bbea-4001-81b6-c188541355a9"
+    }
+  ],
+  "compactNotEnough": [
+    {
+      "type": "assistant",
+      "message": {
+        "diagnostics": null,
+        "id": "6422c99a-7ea4-4252-abbf-ce7653ea975a",
+        "container": null,
+        "model": "<synthetic>",
+        "role": "assistant",
+        "stop_details": null,
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "output_tokens_details": null,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": null,
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": null,
+          "iterations": null,
+          "speed": null,
+          "fallback_credit": null
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Not enough messages to compact."
+          }
+        ],
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "local_command_source": "<local-command-stdout>Not enough messages to compact.</local-command-stdout>",
+      "session_id": "5abb2ef3-5dd4-4557-b99e-ef4f61cceed9",
+      "uuid": "346a656f-4940-4412-ae4d-9b10cc492a38",
+      "timestamp": "2026-11-10T12:53:20.478Z",
+      "local_command_run": {
+        "command": "compact",
+        "args": ""
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 0,
+      "result": "Not enough messages to compact.",
+      "session_id": "5abb2ef3-5dd4-4557-b99e-ef4f61cceed9",
+      "uuid": "fdf78eec-8e1d-47de-95a5-43e3d2fe9f1a"
+    }
+  ],
+  "compactFailedRow": {
+    "parentUuid": "e7a375ed-ddbe-4aef-b996-8c86e3e3a32f",
+    "isSidechain": false,
+    "type": "system",
+    "subtype": "local_command",
+    "content": "<local-command-stderr>Error during compaction: You've hit your weekly limit · resets Nov 2 at 4pm (America/New_York)</local-command-stderr>",
+    "level": "info",
+    "timestamp": "2026-11-01T17:08:24.911Z",
+    "uuid": "2e488962-3042-484e-a369-b53242b9b336",
+    "isMeta": false,
+    "commandRun": {
+      "command": "compact",
+      "args": ""
+    },
+    "commandOutcome": {
+      "kind": "failed"
+    },
+    "userType": "external",
+    "entrypoint": "sdk-ts",
+    "version": "2.1.316"
+  },
+  "compactFailed": [
+    {
+      "type": "assistant",
+      "message": {
+        "diagnostics": null,
+        "id": "2e488962-3042-484e-a369-b53242b9b336",
+        "container": null,
+        "model": "<synthetic>",
+        "role": "assistant",
+        "stop_details": null,
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "output_tokens_details": null,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": null,
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": null,
+          "iterations": null,
+          "speed": null,
+          "fallback_credit": null
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Error during compaction: You've hit your weekly limit · resets Nov 2 at 4pm (America/New_York)"
+          }
+        ],
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "local_command_source": "<local-command-stderr>Error during compaction: You've hit your weekly limit · resets Nov 2 at 4pm (America/New_York)</local-command-stderr>",
+      "session_id": "0af5758c-62af-4a4e-b965-08df1075d014",
+      "uuid": "2e488962-3042-484e-a369-b53242b9b336",
+      "timestamp": "2026-11-01T17:08:24.911Z",
+      "local_command_run": {
+        "command": "compact",
+        "args": ""
+      },
+      "local_command_outcome": {
+        "kind": "failed"
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 0,
+      "result": "Error during compaction: You've hit your weekly limit · resets Nov 2 at 4pm (America/New_York)",
+      "session_id": "0af5758c-62af-4a4e-b965-08df1075d014",
+      "uuid": "5d0c4f73-1c0e-4b8e-9f43-2b1e0d6f6a10"
+    }
+  ]
+}
