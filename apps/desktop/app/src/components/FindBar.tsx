@@ -133,7 +133,24 @@ export function FindBar({
   useLayoutEffect(() => {
     paint(ranges.current, active);
     if (!reveal.current) return;
-    ranges.current[active]?.startContainer.parentElement?.scrollIntoView({ block: "center" });
+    const range = ranges.current[active];
+    const target = range?.startContainer.parentElement;
+    if (!range || !target) return;
+    target.scrollIntoView({ block: "center" });
+    // Messages off screen stand at a placeholder height until they're laid out (content-visibility). Scrolling past
+    // them measures them, which can push the match back out of view: look again for a few frames and scroll back.
+    const viewport = target.closest<HTMLElement>('[aria-label="Conversation"]');
+    if (!viewport) return;
+    let frame = 0;
+    let checks = 0;
+    const check = () => {
+      const box = viewport.getBoundingClientRect();
+      const rect = range.getBoundingClientRect();
+      if (rect.top < box.top || rect.bottom > box.bottom) target.scrollIntoView({ block: "center" });
+      if (++checks < 4) frame = requestAnimationFrame(check);
+    };
+    frame = requestAnimationFrame(check);
+    return () => cancelAnimationFrame(frame);
   }, [active, version]);
 
   // Closing returns focus to where it was, usually the composer.
