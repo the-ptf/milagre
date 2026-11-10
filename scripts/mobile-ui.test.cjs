@@ -3621,7 +3621,7 @@ function chatHost({
     "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
     "../indicators": require("../apps/mobile/src/indicators.ts"),
     "../icons": { Icon: "Icon" },
-    "../bottom-fade": { BottomFade: "BottomFade", EdgeFade: "EdgeFade" },
+    "../bottom-fade": { EdgeFade: "EdgeFade" },
     "../side-panels": { useSidePanels: () => panels, PanelSwipe: "PanelSwipe" },
     "../read-open-chat": { useReadOpenChat() {} },
     "../loading-logo": { LoadingLogo: "LoadingLogo" },

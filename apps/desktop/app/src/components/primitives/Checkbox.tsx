@@ -90,7 +90,8 @@ export function SettingCheckbox({
       onCheckedChange={(value) => onChange(value === true)}
       disabled={disabled}
       tone={tone}
-      className="size-6"
+      // The box ends on the row's trailing edge with the selects and values; the 24px hit area reaches left of it.
+      className="size-6 justify-items-end"
     />
   );
 }

@@ -267,7 +267,7 @@ async function browserChecks() {
       await evaluate(
         `(() => { const button = (${jumpButton}); const rect = button.getBoundingClientRect(); return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)); })()`,
       ),
-      "The jump button receives clicks through the bottom fade",
+      "The jump button receives clicks over the transcript",
     );
     await delay(250);
     if (process.env.MILAGRE_SCREENSHOT_DIR)

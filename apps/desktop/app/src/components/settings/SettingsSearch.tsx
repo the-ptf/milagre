@@ -40,10 +40,19 @@ export function SettingsSearchField({
     return () => window.removeEventListener("keydown", focus, true);
   }, []);
   return (
-    <div className="mx-2 mb-1 shrink-0">
+    // Ends with the nav rows, which keep 10px for the list's scrollbar; icon and text sit on the rows' icon and label lines
+    // (an 8px inset counting the clear border, a 16px icon in an 18px slot, then the 8px gap). Bare, on the nav's own
+    // fill, so it doesn't read as the selected row.
+    <div className="mr-4.5 mb-1 ml-2 shrink-0">
       <FieldGroup
         size={32}
-        leading={<HugeiconsIcon icon={Search01Icon} size={14} strokeWidth={1.8} className="shrink-0 text-ink-3" />}
+        fill="bare"
+        className="pl-[7px]"
+        leading={
+          <span className="flex w-[18px] shrink-0">
+            <HugeiconsIcon icon={Search01Icon} size={16} strokeWidth={1.8} className="text-ink-3" />
+          </span>
+        }
         trailing={
           query ? (
             <IconButton
@@ -133,7 +142,7 @@ export function SettingsSearchResults({
   }, [active]);
   if (!hits.length) return <p className="mx-4 mt-3 text-13 text-ink-3">No settings match.</p>;
   return (
-    <ScrollArea as="ul" ref={list} aria-label="Settings search results" className="min-h-0 flex-1 pb-2">
+    <ScrollArea as="ul" ref={list} aria-label="Settings search results" className="min-h-0 flex-1 pb-2 [scrollbar-gutter:stable]">
       {hits.map(({ entry, ranges }, index) => {
         const item = entry as SettingsSearchItem;
         const trail = searchTrail(entry, pageTitle(entry.page));

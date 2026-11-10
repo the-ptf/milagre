@@ -482,7 +482,8 @@ Hugeicons everywhere (`@hugeicons/core-free-icons`), drawn in the text colour.
   `user-select: none`. The transcript, markdown, code, diffs, errors and paths stay selectable.
 - Window drag strips use `.title-drag`; a control inside one takes `.no-drag`, not an inline `app-region`.
 - The window background is faint diagonal stripes (`--stripe` over `--stripe-bg`). Bordered transcript blocks sit on
-  the column edges, and tool glyphs line up 13px in.
+  the column edges, and tool glyphs start on the reply text's edge (their hover fill reaches 13px past it). The
+  transcript has no fade above the composer: text runs crisp to it, under the glass pills.
 
 ### Phone and iPad
 

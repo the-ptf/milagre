@@ -199,23 +199,23 @@ function Header({
     primary = (
       <span data-pr-auto-merge className="inline-flex h-7 shrink-0 items-center gap-1.5 px-1 text-12 text-ink-2">
         {icon(GitMergeIcon, 13)}
-        <span className="@max-[308px]:hidden">Merges when ready</span>
-        <span className="hidden @max-[308px]:inline">Auto-merge on</span>
+        <span className="@max-[316px]:hidden">Merges when ready</span>
+        <span className="hidden @max-[316px]:inline">Auto-merge on</span>
       </span>
     );
   } else if (open && !conflicts) {
     primary = (
       <button type="button" data-pr-auto disabled={busy} onClick={() => auto(true)} className={secondary}>
         {icon(GitMergeIcon, 13)}
-        <span className="@max-[308px]:hidden">Merge when ready</span>
-        <span className="hidden @max-[308px]:inline">Auto-merge</span>
+        <span className="@max-[316px]:hidden">Merge when ready</span>
+        <span className="hidden @max-[316px]:inline">Auto-merge</span>
       </button>
     );
   }
 
-  // Container widths are the header's content box: 308px is a 340px panel, where the merge button shortens its label.
+  // Container widths are the header's content box: 316px is a 340px panel, where the merge button shortens its label.
   return (
-    <div data-pr-identity data-pr-state={pr.state} className="@container flex flex-col gap-2 px-4 pt-3 pb-3">
+    <div data-pr-identity data-pr-state={pr.state} className="@container flex flex-col gap-2 px-3 pt-3 pb-3">
       <div className="flex min-w-0 items-center gap-2">
         {project && (
           <span data-pr-project={project.name} className="flex shrink-0">
@@ -230,7 +230,7 @@ function Header({
           className="flex min-w-0 items-center gap-1 text-12 text-ink-2 no-underline transition-colors hover:text-ink"
         >
           {/* The first thing to go when the row is narrow; the number always shows. */}
-          <span className="truncate @max-[264px]:hidden">{repoOf(pr.url) ?? project?.name}</span>
+          <span className="truncate @max-[272px]:hidden">{repoOf(pr.url) ?? project?.name}</span>
           <span className="shrink-0 text-accent-ink">#{pr.number}</span>
           <span className="flex shrink-0 text-accent-ink">{icon(LinkSquare02Icon, 11)}</span>
         </a>
@@ -385,7 +385,7 @@ const SEGMENTS = [
 function Tabs({ pr, tab, onTab }: { pr: PullRequestDetail; tab: "summary" | "files"; onTab: (tab: "summary" | "files") => void }) {
   const progress = checksProgress(pr.checks);
   return (
-    <div className="flex flex-col gap-2 px-4 pt-3 pb-1">
+    <div className="flex flex-col gap-2 px-3 pt-3 pb-1">
       {/* The Changes tab's Files/Commits control: one segmented look for every view switch in the panel. */}
       <Segmented
         label="Pull request view"
@@ -447,7 +447,7 @@ function Summary({
   const loadImage = useMemo(() => (source ? prImageLoader(source.bridge, source.cwd) : undefined), [source]);
   return (
     <>
-      <div className="flex flex-col px-4 py-2">
+      <div className="flex flex-col px-3 py-2">
         <ReviewersRow pr={pr} review={review} source={source} />
         <LabelsRow pr={pr} review={review} source={source} />
       </div>
@@ -534,7 +534,7 @@ function Section({
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div {...rest}>
-      <div className="flex h-8 items-center gap-2 px-1.5">
+      <div className="flex h-8 items-center gap-2 px-1">
         <button
           type="button"
           aria-expanded={open}
@@ -547,7 +547,7 @@ function Section({
         </button>
         {open && action}
       </div>
-      {open && <div className="px-1.5 pb-3">{children}</div>}
+      {open && <div className="px-1 pb-3">{children}</div>}
     </div>
   );
 }

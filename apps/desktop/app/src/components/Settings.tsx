@@ -302,7 +302,7 @@ export function SettingsNav({
         <SettingsSearchResults hits={search.hits} active={search.active} pageTitle={pageTitle} onHover={search.setActive} />
       ) : (
         <>
-          <ScrollArea className="min-h-0 flex-1 pb-2">
+          <ScrollArea className="min-h-0 flex-1 pb-2 [scrollbar-gutter:stable]">
             {([null, "Agents", "Code"] as const).map((group) => (
               <div key={group ?? "top"}>
                 {group && <NavHeading>{group}</NavHeading>}
