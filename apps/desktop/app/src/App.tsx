@@ -153,7 +153,7 @@ import { findSetting } from "./lib/settings-find";
 import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
 import { noteScopeOpening, prefetchChatMessages, useChatMessages } from "./lib/chat-messages";
-import { beginChatSwitch } from "./lib/chat-switch-timing";
+import { beginChatSwitch, markChatSwitch } from "./lib/chat-switch-timing";
 import { newChatProject, PROJECT_REMOVED, RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
 import { useHiddenProjects } from "./lib/hidden-projects";
 import { useProjectImages } from "./lib/project-images";
@@ -1937,6 +1937,8 @@ function App() {
       const remembered = scopeDrafts.read({ kind: "project", projectPath: nextProject.path });
       const target = sessionId !== undefined && nextProject.state.sessions[sessionId] ? sessionId : remembered.sessionId;
       if (target !== null && nextProject.state.sessions[target]) setSelectedSessionId(target);
+      // A Project's heading, a notification, a Run pane's return: no openChat on the way, and a Chat switch all the same.
+      if (selectedSessionRef.current !== null) markChatSwitch(chatKey(nextProject.path, selectedSessionRef.current));
       setGitDialog(null);
       if (!keepView) setView("chat");
     });
@@ -3175,7 +3177,10 @@ function App() {
     if (!back) return;
     if (back.kind === "link") void selectLink(back.linkId, back.sessionId ?? undefined, { keepView: true });
     else if (back.kind === "same") {
-      if (back.sessionId !== selectedSessionRef.current) advanceChatView();
+      if (back.sessionId !== selectedSessionRef.current) {
+        if (back.sessionId !== null && projectRef.current) markChatSwitch(chatKey(projectRef.current.path, back.sessionId));
+        advanceChatView();
+      }
       setSelectedSessionId(back.sessionId);
       setSelectedWorktreeId(back.worktreeId);
     } else if (back.sessionId !== null) void openCanvasChat(back.projectPath, back.sessionId, { keepView: true, forgetChat: true });
