@@ -84,7 +84,9 @@ createRoot(document.getElementById("root")).render(<App />);
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   await app.whenReady();
-  const window = new BrowserWindow({ width: 1600, height: 600, show: false, webPreferences: { backgroundThrottling: false } });
+  // The switch checks below read a panel's width on every frame. A window never shown keeps drawing on macOS only: under
+  // Xvfb its compositor is starved, a spring's first frame comes after its end and it reads as landing at once.
+  const window = new BrowserWindow({ width: 1600, height: 600, show: process.platform !== "darwin", webPreferences: { backgroundThrottling: false } });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
   const mouse = (type, x, y, clickCount = 1) =>
     window.webContents.sendInputEvent({ type, x, y, button: "left", clickCount, modifiers: type === "mouseMove" ? ["leftButtonDown"] : [] });
