@@ -4,7 +4,7 @@ import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL } from "@milagre/shared/device-notes";
 import { LINEAR_HINT, LINEAR_MOVE_TO_STARTED_HINT, LINEAR_MOVE_TO_STARTED_TITLE, LINEAR_TITLE } from "@milagre/shared/linear";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
-import { NEW_CHAT_STATS_GROUP, NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
+import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { searchSettings, type SettingsSearchEntry, type SettingsSearchHit } from "@milagre/shared/settings-search";
 
 /**
@@ -198,13 +198,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "compact full detail",
   },
   {
-    page: "chat-display",
-    title: NEW_CHAT_STATS_LABEL,
-    group: NEW_CHAT_STATS_GROUP,
-    description: NEW_CHAT_STATS_HINT,
-    keywords: "glance cards pull requests usage tokens hide",
-  },
-  {
     page: "voice",
     title: "Keyboard shortcut",
     keywords: "dictate voice keyboard alt space ipad",
@@ -249,6 +242,12 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     title: "Ultracode Fatality",
     description: "Turning Ultracode on darkens the screen, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.",
     keywords: "mortal kombat announcer",
+  },
+  {
+    page: "experimental",
+    title: NEW_CHAT_STATS_LABEL,
+    description: NEW_CHAT_STATS_HINT,
+    keywords: "glance cards pull requests usage tokens",
   },
   {
     page: "experimental",

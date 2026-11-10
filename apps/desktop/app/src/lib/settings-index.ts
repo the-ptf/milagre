@@ -11,7 +11,7 @@ import {
   LINEAR_TITLE,
 } from "@milagre/shared/linear";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
-import { NEW_CHAT_STATS_GROUP, NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
+import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import type { SettingsSearchEntry } from "@milagre/shared/settings-search";
 import type { SettingsSection } from "../components/Settings";
 import { computerNoun } from "./shortcut-hints.ts";
@@ -251,14 +251,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Tool calls",
     description,
   })),
-  { page: "chat", title: NEW_CHAT_STATS_GROUP, keywords: "new chat glance" },
-  {
-    page: "chat",
-    title: NEW_CHAT_STATS_LABEL,
-    group: NEW_CHAT_STATS_GROUP,
-    description: NEW_CHAT_STATS_HINT,
-    keywords: "glance cards pull requests usage tokens hide",
-  },
 
   // Voice
   {
@@ -669,6 +661,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Beta",
     description: "Turning Ultracode on darkens the window, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.",
     keywords: "mortal kombat sound",
+  },
+  {
+    page: "experimental",
+    title: NEW_CHAT_STATS_LABEL,
+    group: "Beta",
+    description: NEW_CHAT_STATS_HINT,
+    keywords: "glance cards pull requests usage tokens",
   },
   {
     page: "experimental",

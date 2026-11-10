@@ -4,8 +4,7 @@ import { FOLLOW_UP_OPTIONS, type FollowUps } from "@milagre/shared/queued-messag
 import { Text, View } from "react-native";
 import { CHAT_LIST_TITLE, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
 import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
-import { useChatList, useExpandReasoning, useNewChatStats, useToolCallDisplay } from "./chat-display-setting";
-import { NEW_CHAT_STATS_GROUP, NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
+import { useChatList, useExpandReasoning, useToolCallDisplay } from "./chat-display-setting";
 import { saveChatRowShow, useChatRowShow } from "./chat-row-store";
 import {
   ByProjectPreview,
@@ -29,7 +28,6 @@ export function ChatDisplaySection() {
   const [expandReasoning, setExpandReasoning] = useExpandReasoning();
   const [toolCallDisplay, setToolCallDisplay] = useToolCallDisplay();
   const [chatList, setChatList] = useChatList();
-  const [newChatStats, setNewChatStats] = useNewChatStats();
   const rowShow = useChatRowShow();
   return (
     <View style={{ gap: 10 }}>
@@ -77,11 +75,6 @@ export function ChatDisplaySection() {
           { value: "full", title: "Full detail", description: "Each call on its own row.", preview: <FullToolsPreview /> },
         ]}
       />
-      <Text style={[styles.section, { marginTop: 14 }]}>{NEW_CHAT_STATS_GROUP}</Text>
-      <View style={styles.card}>
-        <Toggle title={NEW_CHAT_STATS_LABEL} selected={newChatStats} onPress={() => setNewChatStats(!newChatStats)} />
-      </View>
-      <Text style={styles.muted}>{NEW_CHAT_STATS_HINT}</Text>
       <DoneRetention />
     </View>
   );

@@ -3,9 +3,8 @@
 import type { PullRequest } from "./model.ts";
 import { tokenTotal, type TokenUsageReport } from "./token-usage.ts";
 
-/** Settings › Chat: the switch that hides the glance, with the same words on desktop and phone. */
-export const NEW_CHAT_STATS_GROUP = "New Chat";
-export const NEW_CHAT_STATS_LABEL = "Show stats";
+/** Settings › Church: the switch that shows the glance (off by default), with the same words on desktop and phone. */
+export const NEW_CHAT_STATS_LABEL = "New Chat stats";
 export const NEW_CHAT_STATS_HINT = "Open pull requests, plan usage and today's tokens on a new Chat.";
 
 /** At most this many PRs on the card; the rest are left out, not summarised (there is no list to open). */

@@ -459,6 +459,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         };
       // A new Chat's glance cards (PRs, plan usage, today) read the host on their own; Chat tests render none.
       if (base === "new-chat-glance" && !(id in modules)) return { NewChatGlance: () => null };
+      // Church's New Chat stats switch: the shared label and hint, and off unless a test sets it.
+      if (id === "@milagre/shared/new-chat-glance" && !(id in modules)) return require("../packages/shared/src/new-chat-glance.ts");
+      if (file === "experimental-section.tsx" && base === "chat-display-setting" && !(id in modules)) return { useNewChatStats: () => [false, () => {}] };
       // The Chat reads its open PR's detail for the Review pill; a test stubs the store with no threads unless it sets one.
       if (base === "pr-store" && !(id in modules)) return { usePrDetail: () => ({ pr: globalThis.prDetail ?? null, error: "", loading: false, refresh() {} }) };
       // Settings search: a found row renders bare, and a Settings page's scroll is the PageScroll it wraps.
