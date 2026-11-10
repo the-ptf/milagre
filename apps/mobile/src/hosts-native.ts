@@ -200,13 +200,14 @@ export async function saveExpandReasoning(on: boolean) {
     /* best effort */
   }
 }
-const newChatStatsKey = "milagre.new-chat-stats.v1";
-/** Settings › Chat › Show stats: a new Chat's glance cards; on unless turned off. */
+// v2: the glance moved to Church and starts off; v1 held the old on-by-default choice.
+const newChatStatsKey = "milagre.new-chat-stats.v2";
+/** Settings › Church › New Chat stats: a new Chat's glance cards; off unless turned on. */
 export async function readNewChatStats(): Promise<boolean> {
   try {
-    return (await SecureStore.getItemAsync(newChatStatsKey)) !== "off";
+    return (await SecureStore.getItemAsync(newChatStatsKey)) === "on";
   } catch {
-    return true;
+    return false;
   }
 }
 export async function saveNewChatStats(on: boolean) {

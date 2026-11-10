@@ -1466,7 +1466,7 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const loopbackPorts = useMemo(() => loopbackOnlyPorts(ports), [ports]);
   const subchatReports = useMemo(() => (subchats ? latestReports(messages) : NO_REPORTS), [subchats, messages]);
-  const { appearance, newChatStats } = useSettings();
+  const { appearance, newChatGlance } = useSettings();
   const chatWidth = appearance.chatWidth;
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
@@ -2087,8 +2087,8 @@ export function ChatComposer({
         {/* The cards take the room under the composer (two thirds of what's free) and scroll in it when the window is short.
         The scrollbar's gutter is kept on both sides, just outside the column, so the cards keep the composer's edges. */}
         {projectNewChat && !offScreen && (
-          <ScrollArea className={`-mx-2.5 w-[calc(100%+20px)] basis-0 [scrollbar-gutter:stable_both-edges] ${newChatStats ? "flex-[2]" : "flex-1"}`}>
-            {newChatStats && <NewChatGlance projectKey={chatsDraft ? null : newChatProjectKey} scopeKey={messageScope ?? projectPath} chatWidth={chatWidth} />}
+          <ScrollArea className={`-mx-2.5 w-[calc(100%+20px)] basis-0 [scrollbar-gutter:stable_both-edges] ${newChatGlance ? "flex-[2]" : "flex-1"}`}>
+            {newChatGlance && <NewChatGlance projectKey={chatsDraft ? null : newChatProjectKey} scopeKey={messageScope ?? projectPath} chatWidth={chatWidth} />}
           </ScrollArea>
         )}
       </div>

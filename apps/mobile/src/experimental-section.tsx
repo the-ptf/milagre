@@ -8,6 +8,8 @@ import type { Client } from "./client";
 import { useUltracodeFatality } from "./ultracode-fatality-setting";
 import { Toggle, useStyles } from "./ui";
 import { useTheme } from "./theme";
+import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
+import { useNewChatStats } from "./chat-display-setting";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL, DEVICE_NOTES_WARNING } from "@milagre/shared/device-notes";
 
 /** Settings › Church: features still taking shape, like desktop's Church section. Babysit PRs, Simlock and Computer use graduated. */
@@ -17,6 +19,7 @@ export function ExperimentalSection() {
   const [floatingInbox, setFloatingInbox] = useFloatingInbox();
   const [inboxActivity, setInboxActivity] = useFloatingInboxActivity();
   const [fatality, setFatality] = useUltracodeFatality();
+  const [newChatStats, setNewChatStats] = useNewChatStats();
   const session = useSession();
   // Device notes, also kept by the Mac (its agents get the notes); null on a Mac without them.
   const [deviceNotes, setDeviceNotes] = useState<boolean | null>(null);
@@ -76,6 +79,10 @@ export function ExperimentalSection() {
         <Text style={styles.caption}>
           Turning Ultracode on darkens the screen, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.
         </Text>
+      </View>
+      <View style={[styles.card, { gap: space.xs }]}>
+        <Toggle title={NEW_CHAT_STATS_LABEL} selected={newChatStats} onPress={() => setNewChatStats(!newChatStats)} />
+        <Text style={styles.caption}>{NEW_CHAT_STATS_HINT}</Text>
       </View>
       {session.client && deviceNotesClient === session.client && deviceNotes !== null && (
         <View style={[styles.card, { gap: 4 }]}>

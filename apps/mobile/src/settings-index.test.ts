@@ -20,7 +20,6 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
     "mac-settings-sections.tsx",
     shared("chat-row.ts"),
     shared("chat-display.ts"),
-    shared("new-chat-glance.ts"),
   ],
   voice: ["app/(settings)/voice.tsx", "voice-section.tsx"],
   "dictation-language": ["app/(settings)/dictation-language.tsx"],
@@ -41,7 +40,7 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
   simlock: ["app/(settings)/simlock.tsx", "simlock-section.tsx"],
   "this-mac": ["app/(settings)/this-mac.tsx", "mac-settings-sections.tsx", shared("auto-update.ts")],
   "computer-use": ["app/(settings)/computer-use.tsx", "computer-use-section.tsx"],
-  experimental: ["app/(settings)/experimental.tsx", "experimental-section.tsx", shared("device-notes.mjs")],
+  experimental: ["app/(settings)/experimental.tsx", "experimental-section.tsx", shared("device-notes.mjs"), shared("new-chat-glance.ts")],
   keybindings: ["app/(settings)/keybindings.tsx", "keybindings-section.tsx"],
 };
 
