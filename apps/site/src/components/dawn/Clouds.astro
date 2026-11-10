@@ -1,0 +1,43 @@
+---
+// The soft clouds the apps stand in, under the download button: Dawn's clouds, in place of a blurred fade. One drawing
+// for wide windows and one for phones; the noise filters turn their ellipses into clouds.
+import { CLOUDS, type CloudBank } from "../../dawn";
+const views = [
+  ["wide", CLOUDS.wide],
+  ["narrow", CLOUDS.narrow],
+] as const;
+const banks = (view: (typeof CLOUDS)["wide"]): [CloudBank, string, string][] => [
+  [view.soft, "#ebe3f1", "dawn-cloudy-soft"],
+  [view.near, "#f3e9e2", "dawn-cloudy"],
+];
+---
+<div class="dawn-clouds" aria-hidden="true">
+  <svg class="dawn-filters" width="0" height="0">
+    <filter id="dawn-cloudy" x="-50%" y="-80%" width="200%" height="260%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.011" numOctaves="4" seed="7" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="70" xChannelSelector="R" yChannelSelector="G" />
+      <feGaussianBlur stdDeviation="5" />
+    </filter>
+    <filter id="dawn-cloudy-soft" x="-50%" y="-80%" width="200%" height="260%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.008" numOctaves="3" seed="3" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="90" xChannelSelector="R" yChannelSelector="G" />
+      <feGaussianBlur stdDeviation="14" />
+    </filter>
+  </svg>
+  {
+    views.map(([name, view]) => (
+      <svg class={`dawn-bank dawn-bank-${name}`} viewBox={`0 0 ${view.width} ${view.height}`} preserveAspectRatio="none">
+        {banks(view).map(([bank, shade, filter]) => (
+          <g filter={`url(#${filter})`}>
+            <g fill={shade}>{bank.shade.map((e) => <ellipse cx={e.cx} cy={e.cy} rx={e.rx} ry={e.ry} />)}</g>
+            <g class="dawn-cloud-face">
+              {bank.face.map((e) => <ellipse cx={e.cx} cy={e.cy} rx={e.rx} ry={e.ry} />)}
+              <rect x="-50" y={bank.floor} width={view.width + 100} height={view.height * 2} />
+            </g>
+          </g>
+        ))}
+      </svg>
+    ))
+  }
+  <div class="dawn-floor"></div>
+</div>

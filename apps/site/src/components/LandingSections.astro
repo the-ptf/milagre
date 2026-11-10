@@ -14,7 +14,7 @@ const SHOW_PARALLEL_WORK = false;
     <div class="linked-copy">
       <h2 id="designs-title">Design in the app. <em>Comment right on the screen.</em></h2>
     </div>
-    <div class="canvas-live designs-live"><DesignsDemo /></div>
+    <div class="canvas-live designs-live app-scope"><DesignsDemo /></div>
   </section>
 
   {
@@ -23,7 +23,7 @@ const SHOW_PARALLEL_WORK = false;
         <div class="feature-copy">
           <h2 id="parallel-title">Several changes at once. <em>Each in its own Worktree.</em></h2>
         </div>
-        <div class="sidebar-demo"><SidebarDemo /></div>
+        <div class="sidebar-demo app-scope"><SidebarDemo /></div>
       </section>
     )
   }
@@ -32,7 +32,7 @@ const SHOW_PARALLEL_WORK = false;
     <div class="linked-copy">
       <h2 id="linked-title">Link your Projects. <em>Let their agents talk.</em></h2>
     </div>
-    <div class="canvas-live" data-canvas-host></div>
+    <div class="canvas-live app-scope" data-canvas-host></div>
   </section>
 
   <section class="feature browser container" aria-labelledby="browser-title" id="browser">
@@ -56,7 +56,7 @@ const SHOW_PARALLEL_WORK = false;
       <!-- macOS draws the traffic lights outside the page, so the capture has an empty corner; the frame adds them. -->
       <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
       <img src="/demo/computers.webp" width="1650" height="1080" loading="lazy" decoding="async" alt="The Milagre sidebar listing Chats from two computers, MacBook Pro and Build server, with a Chat that ran on the Build server open." />
-      <pre class="terminal" aria-label="Terminal on the Build server"><code><span class="prompt">$</span> npx milagre serve --project ~/code/api
+      <pre class="terminal app-scope" aria-label="Terminal on the Build server"><code><span class="prompt">$</span> npx milagre serve --project ~/code/api
 Milagre is running.
 
 Pairing link for another desktop:
@@ -164,7 +164,7 @@ milagre://pair?relay=…&amp;name=Build%20server
   .story { --gap: clamp(40px, 6vw, 88px); }
   h2 { font-size: clamp(30px, 3.4vw, 44px); font-weight: 600; letter-spacing: -0.035em; line-height: 1.1; text-wrap: balance; }
   /* Every title reads like the hero's: the claim in Geist, the payoff in the italic serif on its own line. */
-  h2 em { display: block; font-family: var(--font-serif); font-size: 1.12em; font-weight: 400; letter-spacing: -0.01em; color: oklch(0.86 0.06 255); }
+  h2 em { display: block; font-family: var(--font-serif); font-size: 1.12em; font-weight: 400; letter-spacing: -0.01em; color: var(--accent-ink); }
   figure { margin: 0; min-width: 0; }
 
 
@@ -182,7 +182,7 @@ milagre://pair?relay=…&amp;name=Build%20server
   .docs-link:hover { text-decoration: underline; text-underline-offset: 4px; }
   .browser, .computers { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); }
   /* App captures sit in the same window chrome as the hero's desktop. */
-  .window-shot video, .computers-shot img { display: block; width: 100%; height: auto; border-radius: var(--radius-window); background: var(--canvas); box-shadow: var(--shadow-raised), 0 30px 70px oklch(0 0 0 / 0.45); }
+  .window-shot video, .computers-shot img { display: block; width: 100%; height: auto; border-radius: var(--radius-window); background: oklch(0.22 0.032 258); box-shadow: var(--shadow-window); }
   .computers-shot { position: relative; padding-bottom: 48px; }
   .terminal { position: absolute; right: -12px; bottom: 0; width: min(380px, 78%); margin: 0; padding: 14px 16px; border-radius: 12px; background: oklch(0.15 0.02 258); box-shadow: var(--shadow-overlay); color: var(--ink); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
   .terminal .prompt { color: var(--green); }
@@ -197,7 +197,7 @@ milagre://pair?relay=…&amp;name=Build%20server
   .phone-downloads svg { flex: none; transform: translateY(-1px); }
   .phone-shot { order: 1; justify-self: center; }
   /* The hero's phone frame, standing alone. */
-  .device { position: relative; width: 260px; aspect-ratio: 1206 / 2622; padding: 10px; box-sizing: content-box; border-radius: 48px; background: #0b0b0c; box-shadow: inset 0 0 0 1.5px oklch(1 0 0 / 0.16), 0 0 0 1px oklch(0 0 0 / 0.6), 0 30px 70px oklch(0 0 0 / 0.6); }
+  .device { position: relative; width: 260px; aspect-ratio: 1206 / 2622; padding: 10px; box-sizing: content-box; border-radius: 48px; background: #0b0b0c; box-shadow: inset 0 0 0 1.5px oklch(1 0 0 / 0.16), 0 0 0 1px oklch(0 0 0 / 0.5), 0 30px 70px rgb(40 30 70 / 0.35); }
   .device-video { display: block; width: 100%; height: 100%; border-radius: 38px; object-fit: cover; }
   .device.android { aspect-ratio: 1080 / 2424; border-radius: 28px; }
   .device.android .device-video { border-radius: 17px; }

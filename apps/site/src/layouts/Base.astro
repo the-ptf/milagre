@@ -10,8 +10,10 @@ interface Props {
   /** JSON-LD objects for this page. */
   schema?: object[];
   noindex?: boolean;
+  /** The browser bar's colour: the page's own unless the top of the page is something else (the landing's sky). */
+  themeColor?: string;
 }
-const { title, description, socialTitle = title, socialDescription = description, schema = [], noindex = false } = Astro.props;
+const { title, description, socialTitle = title, socialDescription = description, schema = [], noindex = false, themeColor = "#fffaf0" } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const ogImage = new URL("/og.png", Astro.site);
 const ogImageAlt = "Milagre on a Mac and an iPhone showing the same Chat, with an agent waiting for approval to run the mobile checks.";
@@ -27,8 +29,8 @@ const ogImageAlt = "Milagre on a Mac and an iPhone showing the same Chat, with a
     <link rel="canonical" href={canonical} />
     <link rel="icon" href="/app-icon.png" type="image/png" />
     <link rel="apple-touch-icon" href="/app-icon-512.png" />
-    <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#121b27" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content={themeColor} />
     {noindex && <meta name="robots" content="noindex" />}
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Milagre" />
@@ -70,6 +72,14 @@ const ogImageAlt = "Milagre on a Mac and an iPhone showing the same Chat, with a
         poster.fetchPriority = "high";
         poster.href = matchMedia("(max-width: 700px)").matches ? (document.documentElement.dataset.platform === "android" ? "/demo/android.webp" : "/demo/phone.webp") : "/demo/desktop.webp";
         document.head.append(poster);
+        // Dawn, the app's first-launch intro, plays in the hero on a first visit only; later visits, and anyone who asks
+        // for less motion, open on its last frame (the page's own styles).
+        try {
+          if (!matchMedia("(prefers-reduced-motion: reduce)").matches && !localStorage.getItem("milagre:dawn")) {
+            document.documentElement.dataset.dawn = "";
+            localStorage.setItem("milagre:dawn", "1");
+          }
+        } catch {}
       }
     </script>
   </head>
