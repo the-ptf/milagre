@@ -54,7 +54,7 @@ function ChoiceCards<T extends string>({
             data-choice-card={choice.id}
             // The selected card's 2px ink frame is drawn inside its box (an ink border plus a 1px inset ring), so every card keeps
             // the same outer bounds and lines up with the cards above and below.
-            className={`flex flex-col gap-2 rounded-card border bg-surface p-3 text-left transition-[box-shadow,background-color] duration-fast hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 ${selected ? "border-ink ring-1 ring-ink ring-inset" : "border-line"}`}
+            className={`flex flex-col gap-2 rounded-card border bg-surface px-4 py-3 text-left transition-[box-shadow,background-color] duration-fast hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 ${selected ? "border-ink ring-1 ring-ink ring-inset" : "border-line"}`}
           >
             <span aria-hidden className={`flex w-full flex-col overflow-hidden rounded-control bg-inset ${compact ? "h-16 gap-1 p-2" : "h-[112px] gap-2 p-3"}`}>
               {choice.preview}

@@ -371,13 +371,13 @@ function InboxMark({ item, lastAt, now }: { item: SidebarRecent; lastAt?: number
   const label = mark === "idle" || mark === "unread" ? "" : markLabel(mark, item.background);
   if (mark === "running" || mark === "background")
     return (
-      <span data-slot="chat-mark" data-mark={mark} role="img" aria-label={label} title={label} className="flex">
+      <span data-slot="chat-mark" data-mark={mark} role="img" aria-label={label} title={label} className="flex w-4 justify-center">
         <SpinnerRing size={12} />
       </span>
     );
   if (mark in MARK_ICON)
     return (
-      <span data-slot="chat-mark" data-mark={mark} role="img" aria-label={label} title={label} className="flex">
+      <span data-slot="chat-mark" data-mark={mark} role="img" aria-label={label} title={label} className="flex w-4 justify-center">
         <MarkIcon mark={mark as keyof typeof MARK_ICON} />
       </span>
     );
@@ -392,9 +392,11 @@ function InboxMark({ item, lastAt, now }: { item: SidebarRecent; lastAt?: number
           {activityAgo(lastAt, now)}
         </span>
       )}
-      {item.unread && <span data-slot="chat-mark" data-mark="unread" role="img" aria-label="Unread" title="Unread" className="size-2 rounded-full bg-accent" />}
+      {item.unread && (
+        <span data-slot="chat-mark" data-mark="unread" role="img" aria-label="Unread" title="Unread" className="mx-1 size-2 rounded-full bg-accent" />
+      )}
       {!item.unread && item.details?.failed && (
-        <span data-slot="chat-mark" data-mark="failed" role="img" aria-label="Failed" className="size-2 rounded-full bg-red" />
+        <span data-slot="chat-mark" data-mark="failed" role="img" aria-label="Failed" className="mx-1 size-2 rounded-full bg-red" />
       )}
     </>
   );

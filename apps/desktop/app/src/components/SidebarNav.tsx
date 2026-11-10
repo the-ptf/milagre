@@ -1532,7 +1532,7 @@ export default memo(function SidebarNav({
       <div
         ref={bar}
         data-sidebar-bar
-        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-1"
+        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-2"
         style={{ left: chrome.sidebarLeft - 12 }}
       >
         <div data-sidebar-toggle>
@@ -1547,8 +1547,9 @@ export default memo(function SidebarNav({
             />
           </Tooltip>
         </div>
+        {/* 8px apart, the panel toggles' pitch (CORNER_PITCH), so both ends of the bar keep one rhythm. */}
         {!botsMode && (
-          <div data-sidebar-tools className="no-drag flex items-center gap-1">
+          <div data-sidebar-tools className="no-drag flex items-center gap-2">
             {onOpenCanvas && (
               <Tooltip label="Canvas" side="bottom" shortcut={keys.canvas}>
                 <IconButton size={32} label="Canvas" icon={FlowConnectionIcon} aria-pressed={canvasActive} onClick={onOpenCanvas} />
