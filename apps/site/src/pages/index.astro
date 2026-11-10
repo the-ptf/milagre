@@ -8,6 +8,7 @@ import BringYourSubscription from "../components/BringYourSubscription.astro";
 import DawnSky from "../components/dawn/Sky.astro";
 import DawnMark from "../components/dawn/Mark.astro";
 import DawnClouds from "../components/dawn/Clouds.astro";
+import DawnWanderer from "../components/dawn/Wanderer.astro";
 import "../styles/dawn.css";
 
 import { DOWNLOAD_ARM64, IPHONE_BETA_URL, REPO_URL } from "../links";
@@ -86,6 +87,7 @@ const schema = [
     <DawnClouds />
     <div class="cta" data-cta><DownloadButtons /></div>
   </div>
+  <DawnWanderer />
   <BringYourSubscription />
   <LandingSections />
 </Base>

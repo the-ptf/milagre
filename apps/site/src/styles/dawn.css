@@ -38,6 +38,15 @@
   position: absolute;
   inset: 0;
 }
+/* The sky's foot turns into the page, so the night never meets the cream below the hero in a hard line while the clouds
+   are still rising. On the day frame the sky already ends on the page's colour. */
+.dawn-sky::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 160px;
+  background: linear-gradient(transparent, var(--page));
+}
 .dawn-night {
   background: linear-gradient(#070b1f, #141c45 55%, #252a5c);
 }
@@ -156,10 +165,11 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   fill: var(--page);
   background: var(--page);
 }
-/* Below the drawing on tall windows, where the page is plain. A pixel of overlap hides the seam. */
+/* Fills the gaps the noise tears near the bottom of the drawing, then the plain page below it on tall windows. */
 .dawn-floor {
   position: absolute;
-  inset: calc(var(--fade-h) - 1px) 0 0;
+  inset: calc(var(--fade-h) - 48px) 0 0;
+  background: linear-gradient(transparent, var(--page) 48px);
 }
 .dawn-bank-narrow {
   display: none;
@@ -171,6 +181,54 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   .dawn-bank-narrow {
     display: block;
   }
+}
+
+/* ── the star that travels with the page ─────────────────────────────── */
+/* Below the hero, the star crosses the window as the page scrolls: left at the hero's end, right at the page's end,
+   turning as it goes. Gold, so it reads on the cream. Only where scroll timelines exist, and never with reduced motion. */
+.dawn-wanderer {
+  display: none;
+}
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .dawn-wanderer {
+      /* Through a variable: the minifier would fold a plain value into the animation shorthand, which browsers reject. */
+      --dawn-scroll: scroll(root);
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 5;
+      display: block;
+      width: 18px;
+      height: 18px;
+      margin: -9px 0 0 -9px;
+      pointer-events: none;
+      animation: dawn-wander linear both;
+      animation-timeline: var(--dawn-scroll);
+      animation-range: 60vh 100%;
+    }
+    .dawn-wanderer svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      fill: #fff6dc;
+      filter: drop-shadow(0 0 1.5px rgb(170 110 30 / 0.9)) drop-shadow(0 0 10px rgb(240 170 60 / 0.9));
+      animation: dawn-wander-turn linear both;
+      animation-timeline: var(--dawn-scroll);
+      animation-range: 60vh 100%;
+    }
+  }
+}
+.dawn-wanderer-tail {
+  position: absolute;
+  top: 50%;
+  right: 50%;
+  width: 72px;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, rgb(236 180 90 / 0.8));
 }
 
 /* ── the first visit: night to day ────────────────────────────────────── */
@@ -224,12 +282,38 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   html[data-dawn] .dawn-hero .count {
     animation: dawn-count 1700ms 1900ms ease-in-out both;
   }
-  /* The links under the download button sit on the clouds once they have risen. */
-  html[data-dawn] .dawn-hero .notes :is(a, span) {
-    animation: dawn-ink-2 800ms 600ms ease-out both;
-  }
 }
 
+@keyframes dawn-wander {
+  0% {
+    opacity: 0;
+    translate: -4vw 22vh;
+  }
+  6% {
+    opacity: 1;
+  }
+  25% {
+    translate: 24vw 15vh;
+  }
+  50% {
+    translate: 50vw 12vh;
+  }
+  75% {
+    translate: 76vw 15vh;
+  }
+  94% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    translate: 104vw 22vh;
+  }
+}
+@keyframes dawn-wander-turn {
+  to {
+    rotate: 720deg;
+  }
+}
 @keyframes dawn-fade-in {
   from {
     opacity: 0;
