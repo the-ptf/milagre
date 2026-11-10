@@ -1,5 +1,5 @@
 import { Clock01Icon, Comment01Icon, Exchange01Icon, Pulse01Icon, Tag01Icon, UserCheck01Icon, WebhookIcon } from "@hugeicons/core-free-icons";
-import { clock, triggerText } from "@milagre/shared/routines";
+import { clock, nextRunWhen, triggerText } from "@milagre/shared/routines";
 import { deleteWarning } from "@milagre/shared/routine-form";
 import { needsAnswer } from "@milagre/shared/routine-flows";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
@@ -70,7 +70,8 @@ export function routineMeta(routine: RoutineLike, now: number) {
   else if (routine.flow && routine.flow.revision === 0) parts.push("Flow draft, not published");
   else if (!routine.enabled) parts.push("Off");
   else if (isHeartbeat(routine)) {
-    if (typeof routine.nextRunAt === "number") parts.push(`next ${clock(routine.nextRunAt)}`);
+    // "next 10:45" today, else with its day ("next Wed 10:00"), as desktop's status column says it.
+    if (typeof routine.nextRunAt === "number") parts.push(`next ${nextRunWhen(routine.nextRunAt, now).text}`);
     const end = heartbeatEnd(routine, now);
     if (end) parts.push(end);
   } else {
