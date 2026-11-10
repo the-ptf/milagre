@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { motion, useMotionValue, useMotionValueEvent, usePresence, animate } from "motion/react";
+import { chatSwitching } from "../../lib/chat-switch-timing";
 import { DURATION, EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 import { ResizeHandle } from "../primitives/ResizeHandle";
 import { dockLayer } from "./dock-area";
@@ -33,7 +34,9 @@ function setRoom(reserve: string, slide: symbol, room: number | null) {
 /**
  * A panel docked at the window's right, entering the way the git changes panel does: its width springs open from
  * zero, the chat making room as it grows (through `reserve`, the CSS variable the chat panes read), and its content
- * slides in from the right as it fades in. Closing (under AnimatePresence) runs it backwards, from wherever it is. `width` null lays it out
+ * slides in from the right as it fades in. Closing (under AnimatePresence) runs it backwards, from wherever it is. A panel
+ * that opens or closes because another Chat came on screen (its Chat had it open, or the new one doesn't) does it at once:
+ * a spring would change the chat's width on every frame of the switch (chatSwitching). `width` null lays it out
  * by its own `style` instead (a panel filling the workspace), which only fades. While `resizing`, its width follows the
  * drag without the spring; `handle`, the ResizeHandle on its left edge, sits outside the card so the card's clip keeps
  * it whole.
@@ -56,11 +59,13 @@ export const DockSlide = forwardRef<
 >(function DockSlide({ width, reserve, style, className, panelClassName, children, onEntered, resizing = false, handle, ...rest }, ref) {
   const scale = useMotionScale();
   const reduced = scale === 0;
-  const shown = useMotionValue(reduced || width === null ? (width ?? 0) : 0);
-  const [sliding, setSliding] = useState(!reduced && width !== null);
+  // Mounted by a Chat switch, it was already open: it lands at its width.
+  const [landed] = useState(() => reduced || (width !== null && chatSwitching()));
+  const shown = useMotionValue(landed || width === null ? (width ?? 0) : 0);
+  const [sliding, setSliding] = useState(!landed && width !== null);
   const [slide] = useState(() => Symbol(reserve));
   // Whether the open or close spring is running; read in the effect, which a state value would re-run.
-  const springing = useRef(!reduced && width !== null);
+  const springing = useRef(!landed && width !== null);
   // The chat's room follows the panel's width as it springs, as it follows the changes panel's.
   useMotionValueEvent(shown, "change", (value) => {
     if (width !== null) setRoom(reserve, slide, value > 0.5 ? value + 12 : 0);
@@ -85,11 +90,13 @@ export const DockSlide = forwardRef<
     // other change lands at once: a drag, its end, a key, the window narrowing. A spring there would trail the pointer
     // and start from the drag's velocity; on a busy renderer a short drag's move and release even arrive in one render,
     // so the drag's end can't be told from any other width change.
-    if (reduced || (isPresent && (resizing || (!springing.current && shown.get() > 0.5)))) {
+    // Leaving with its Chat, it gives the chat its room at once; its content's fade runs clipped to nothing.
+    const leavingWithChat = !isPresent && chatSwitching();
+    if (reduced || leavingWithChat || (isPresent && (resizing || (!springing.current && shown.get() > 0.5)))) {
       springing.current = false;
       shown.set(isPresent ? width : 0);
       if (isPresent) setRoom(reserve, slide, width + 12);
-      setSliding(false);
+      setSliding(leavingWithChat);
       done();
       return;
     }
@@ -113,6 +120,11 @@ export const DockSlide = forwardRef<
     },
     [reserve, slide],
   );
+  // Landed open by a switch, its content plays no entrance whose end would say so.
+  useEffect(() => {
+    if (landed && !reduced) onEntered?.();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- once, when it mounts already open
+  }, []);
   return (
     <motion.div
       ref={ref}
@@ -127,7 +139,7 @@ export const DockSlide = forwardRef<
       <motion.div
         className={`flex min-h-0 flex-1 flex-col ${panelClassName}`}
         style={width === null ? undefined : { width, minWidth: width }}
-        initial={reduced ? false : { opacity: 0, x: 24 }}
+        initial={landed ? false : { opacity: 0, x: 24 }}
         animate={{ opacity: 1, x: 0 }}
         exit={reduced ? undefined : { opacity: 0, x: 24 }}
         transition={{ duration: scaled(DURATION.slow, scale), ease: EASE_OUT }}

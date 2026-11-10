@@ -15,10 +15,26 @@ let cancelPaint: (() => void) | undefined;
 // The Chat whose transcript committed last: asking for it again is no switch, and no commit would end the measure.
 let shown: string | null = null;
 
+// A switch's side panels (Browser, Changes, Designs) that open or close because another Chat came on screen land at once
+// (chatSwitching). Their spring changes the chat's width on every frame, and each frame lays out and paints the whole
+// transcript again: on a 6K display the window went blank for a few frames after a switch. A switch counts from the ask
+// until its transcript commits (at most SWITCH_PENDING_MS), then SWITCH_SETTLE_MS more for panels that mount just after.
+const SWITCH_PENDING_MS = 2_000;
+const SWITCH_SETTLE_MS = 300;
+let switching: { key: string; start: number } | undefined;
+let settleUntil = -Infinity;
+
+/** Whether a Chat switch is under way: a panel opening or closing now does it at once instead of springing. */
+export function chatSwitching(now = performance.now()) {
+  return (switching !== undefined && now - switching.start < SWITCH_PENDING_MS) || now < settleUntil;
+}
+
 /** The user asked for Chat `key`; the next commit of its transcript ends the measure. The Chat already on screen starts none. */
 export function beginChatSwitch(key: string) {
-  if (!enabled() || key === shown) return;
-  pending = { key, start: performance.now() };
+  if (key === shown) return;
+  switching = { key, start: performance.now() };
+  if (!enabled()) return;
+  pending = { key, start: switching.start };
   cancelPaint?.();
 }
 
@@ -30,6 +46,10 @@ export function transcriptShown(key: string | null) {
 /** Chat `key`'s transcript committed; the measure ends two frames later, an upper bound on when it was presented. */
 export function commitChatSwitch(key: string) {
   shown = key;
+  if (switching?.key === key) {
+    switching = undefined;
+    settleUntil = performance.now() + SWITCH_SETTLE_MS;
+  }
   if (!enabled() || pending?.key !== key) return;
   const sample = pending;
   const commit = performance.now();

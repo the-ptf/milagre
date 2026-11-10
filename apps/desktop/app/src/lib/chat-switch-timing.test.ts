@@ -45,3 +45,30 @@ test("a switch whose transcript never commits in time is dropped, not measured l
     now.mock.restore();
   }
 });
+
+test("a switch counts from the ask until a moment after its transcript commits, so its panels land at once", async () => {
+  const { chatSwitching } = await import("./chat-switch-timing.ts");
+  const now = mock.method(performance, "now", () => 50_000);
+  try {
+    transcriptShown(null);
+    assert.equal(chatSwitching(), false);
+    beginChatSwitch("/p#4");
+    assert.equal(chatSwitching(), true);
+    // A slow page: still switching until its transcript commits.
+    now.mock.mockImplementation(() => 51_500);
+    assert.equal(chatSwitching(), true);
+    commitChatSwitch("/p#4");
+    assert.equal(chatSwitching(), true);
+    now.mock.mockImplementation(() => 51_900);
+    assert.equal(chatSwitching(), false);
+    // Asking for the Chat on screen is no switch: a panel toggled then still springs.
+    beginChatSwitch("/p#4");
+    assert.equal(chatSwitching(), false);
+    // One that never commits stops counting after two seconds.
+    beginChatSwitch("/p#5");
+    now.mock.mockImplementation(() => 53_950);
+    assert.equal(chatSwitching(), false);
+  } finally {
+    now.mock.restore();
+  }
+});
