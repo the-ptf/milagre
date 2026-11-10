@@ -368,6 +368,9 @@ async function startDaemon({
   requireAuthentication = process.platform === "win32",
   authTimeoutMs = 5000,
   onError = (error) => console.error(error),
+  // Called once a stop has finished (asked over the socket or by close()). The CLI exits the process from it: a stopped
+  // host has nothing left to do, and one stray handle used to keep it alive for days, still ticking its timers.
+  onStopped = () => {},
 }) {
   if (process.platform === "win32") preparePrivateDirectory(dataDir);
   const authenticationToken = requireAuthentication ? prepareToken(dataDir) : null;
@@ -1037,6 +1040,7 @@ async function startDaemon({
       }, 1000);
       await stopped;
       clearTimeout(timeout);
+      onStopped();
     })().catch((error) => {
       stopping = undefined;
       throw error;
