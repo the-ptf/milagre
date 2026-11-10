@@ -191,6 +191,8 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   inset: 0 0 auto;
   z-index: 0;
   display: none;
+  /* The star's light stops at the page's edges instead of widening the page. */
+  overflow-x: clip;
   pointer-events: none;
 }
 @supports (animation-timeline: scroll()) {

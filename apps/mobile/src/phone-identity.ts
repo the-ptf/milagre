@@ -19,6 +19,11 @@ function parse(value: string | null): KeyPair | null {
   }
 }
 
+/** Whether this phone has a pairing key, which it makes the first time it pairs; reading it never makes one. */
+export async function hasPhoneKey() {
+  return parse(await SecureStore.getItemAsync(KEY)) !== null;
+}
+
 let cached: Promise<KeyPair> | null = null;
 
 async function load(): Promise<KeyPair> {
