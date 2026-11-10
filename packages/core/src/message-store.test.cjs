@@ -667,3 +667,33 @@ test("a fresh run reads every Chat back: nothing is lost across unloads, loads a
   assert.ok(JSON.parse(await fs.readFile(stateFile(projectPath), "utf8")).messages.storedIn, "coordination.json still points at chats.db");
   await fs.access(dbFile(projectPath));
 });
+
+test("a fresh read leaves out the Chats whose last message is older than the idle time, and loads them when named", async (t) => {
+  const projectPath = await tempProject(t);
+  const messages = [user(1, 1), user(2, 2), reply(3, 1), user(4, 3), reply(5, 2), reply(6, 3), user(7, 1), reply(8, 1)];
+  // Summaries stamp lastAt as a change is saved; a state saved whole keeps the one it has.
+  const spoke = Date.now();
+  const sessions = Object.fromEntries([1, 2, 3].map((id) => [id, { id, worktree_id: 1, summary: { lastAt: spoke } }]));
+  await saveProjectState(projectPath, { next_id: 100, worktrees: { 1: { id: 1, path: projectPath } }, sessions, messages, tasks: {} });
+  const read = (now, active = () => false) =>
+    new ProjectStates({
+      read: (key) => readProjectState(key),
+      save: (key, state) => saveProjectState(key, state),
+      compact: compactProjectState,
+      debounceMs: 0,
+      messages: { directory: (key) => key, idleMs: 60_000, sweepMs: 0, active, now: () => now },
+    });
+
+  const recent = read(spoke);
+  t.after(() => recent.close());
+  assert.deepEqual([...unloadedChats(await recent.get(projectPath))], [], "every Chat spoke within the idle time");
+
+  const later = read(spoke + 120_000, (_key, chat) => chat === 3);
+  t.after(() => later.close());
+  const state = await later.get(projectPath);
+  assert.deepEqual([...unloadedChats(state)].sort(), [1, 2], "the busy Chat stays");
+  assert.deepEqual(ids(state.messages), [4, 6]);
+  assert.equal(state.sessions[1].summary.count, 4, "a Chat left out keeps its summary");
+  assert.deepEqual(ids((await later.load(projectPath, [1])).messages.filter((message) => message.session_id === 1)), [1, 3, 7, 8]);
+  assert.deepEqual(ids(await readMessages(projectPath)), ids(messages), "nothing on disk changes");
+});

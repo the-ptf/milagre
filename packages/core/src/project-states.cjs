@@ -133,6 +133,8 @@ class ProjectStates {
       let state = this.states.get(projectPath);
       if (state === undefined) {
         state = await this.slim(projectPath, await this.read(projectPath), null);
+        // A change that names no Chats loads every one back, so only a read that names them sheds the old ones here.
+        if (this.messages && chats !== undefined) state = this.shedOld(projectPath, state);
         this.states.set(projectPath, state);
         if (this.messages) {
           this.readAt.set(projectPath, this.messages.now());
@@ -187,6 +189,22 @@ class ProjectStates {
     const wanted = chats === undefined ? [...unloaded] : [...chats].map(Number).filter((chat) => unloaded.has(chat));
     if (chats === undefined) this.touch(projectPath, wanted);
     return wanted.length ? messageStore.loadChats(this.messages.directory(projectPath), state, wanted) : state;
+  }
+
+  /**
+   * A state just read, without the messages of the Chats whose last message is older than `idleMs` (and that aren't
+   * busy): what the first sweep would unload anyway, ten minutes later. A long-lived Project read whole held every
+   * Chat in memory until then (milagre-ade: 931 Chats, about 45,000 steps, 60 MB of strings) for the few on screen.
+   */
+  shedOld(projectPath, state) {
+    const now = this.messages.now();
+    const old = new Set();
+    for (const [id, session] of Object.entries(state?.sessions ?? {})) {
+      const lastAt = Number(session?.summary?.lastAt);
+      if (Number.isFinite(lastAt) && now - lastAt >= this.messages.idleMs && !this.messages.active(projectPath, Number(id))) old.add(Number(id));
+    }
+    if (!old.size || !Array.isArray(state.messages)) return state;
+    return messageStore.unloadChats(this.messages.directory(projectPath), state, old);
   }
 
   touch(projectPath, chats) {
