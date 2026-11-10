@@ -126,9 +126,9 @@ export function InlineApproval({
       aria-busy={answering !== null && answering !== "deny"}
       data-slot="step-approval"
       // Flat, like the transcript's other tool blocks: a hairline, no shadow. Allow once (ink) carries the emphasis.
-      // Its border sits on the column's edges and its content 12px in, so the row inside (--row-inset 12px) keeps its
-      // glyph and time on the same lines as a tool row outside a block.
-      className={`flex min-w-0 flex-col rounded-card border border-line-strong bg-surface pt-1.5 pb-3 [--row-inset:12px] ${className}`}
+      // Its border sits on the column's edges and its content 12px in (--row-inset 12px); the row's hover fill stays
+      // inside it (--row-bleed 0).
+      className={`flex min-w-0 flex-col rounded-card border border-line-strong bg-surface pt-1.5 pb-3 [--row-bleed:0px] [--row-inset:12px] ${className}`}
     >
       {children}
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 px-3 pt-1">

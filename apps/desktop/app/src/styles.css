@@ -990,19 +990,9 @@ a {
   background: linear-gradient(to bottom, var(--chat-bg, var(--page)) calc(100% - 24px), transparent);
 }
 
-/* The bottom mirrors the top: solid behind the composer's chip row (its pills, the jump button), then the text fades
- * toward it, so nothing reads through a pill. */
-.chat-bottom-blur {
-  --blur-dir: to bottom;
-  --blur-start: 0%;
-  --blur-end: 100%;
-}
-.chat-bottom-blur > :last-child {
-  background: linear-gradient(to top, var(--chat-bg, var(--page)) 38px, transparent);
-}
-/* The chat's edges fade into the background without blurring the text: only the tint layer draws. */
-.chat-top-blur > :not(:last-child),
-.chat-bottom-blur > :not(:last-child) {
+/* The bottom has no fade: the transcript runs crisp to the composer and the chip row's glass pills float over it. */
+/* The chat's top edge fades into the background without blurring the text: only the tint layer draws. */
+.chat-top-blur > :not(:last-child) {
   display: none;
 }
 
