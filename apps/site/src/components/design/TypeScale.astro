@@ -1,0 +1,48 @@
+---
+// A type table from DESIGN.md as specimens, set in the system font the apps use, at each step's size and line height.
+import type { Table } from "../../design-system";
+
+interface Props {
+  table: Table;
+  platform: "desktop" | "phone";
+}
+const { table, platform } = Astro.props;
+const at = (name: string) => table.header.indexOf(name);
+const [token, size, line, role] = [at(platform === "desktop" ? "Token" : "Style"), at("Size"), at("Line height"), at("Role")];
+
+// Titles take 600, the phone's large title 700, running text 400.
+const weight = (px: number) => (platform === "phone" && px === 34 ? 700 : px >= 15 && platform === "desktop" ? 600 : px >= 20 ? 600 : 400);
+const SAMPLE = "Allow the agent to run the mobile checks";
+---
+<ol class="type" role="list">
+  {
+    table.rows.map((row) => (
+      <li>
+        <p class="meta">
+          <code>{row[token]}</code>
+          <span>{row[size]} / {row[line]}</span>
+        </p>
+        <p class="sample" style={`font-size:${row[size]}px;line-height:${row[line]}px;font-weight:${weight(Number(row[size]))};${row[size] === "22" && platform === "desktop" ? "letter-spacing:-0.02em" : ""}`}>
+          {SAMPLE}
+        </p>
+        <p class="role">{row[role]}</p>
+      </li>
+    ))
+  }
+</ol>
+
+<style>
+  .type { display: flex; flex-direction: column; margin: 20px 0 0; padding: 4px 18px; border-radius: 12px; background: var(--canvas); box-shadow: var(--shadow-card); list-style: none; }
+  li { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 2px 20px; align-items: baseline; padding: 14px 0; }
+  li + li { border-top: 1px solid var(--line); }
+  .meta { display: flex; flex-direction: column; gap: 2px; grid-row: span 2; }
+  .meta code { color: var(--ink); font-size: 13px; }
+  .meta span { color: var(--ink-3); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .sample { overflow: hidden; color: var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
+  .role { color: var(--ink-2); font-size: 13px; }
+  @media (max-width: 560px) {
+    li { grid-template-columns: minmax(0, 1fr); }
+    .meta { flex-direction: row; gap: 10px; grid-row: auto; }
+    .sample { white-space: normal; }
+  }
+</style>

@@ -1,0 +1,64 @@
+---
+// One colour table from DESIGN.md as swatches: each token's light and dark value, shown over its own page colour so a
+// translucent token (hover, a dark tint) looks the way it does in the app. Values come from the theme builder.
+import { over } from "@milagre/shared/themes";
+import { palette, paletteKey, SCHEMES, type Table } from "../../design-system";
+
+interface Props {
+  table: Table;
+}
+const { table } = Astro.props;
+const use = table.header.indexOf("Use");
+
+// Tokens meant to be read as text get an "Aa" sample; an on- label sits on its own fill.
+const TEXT = /^(ink|ink-2|ink-3|[a-z]+-ink)$/;
+const sample = (token: string, scheme: (typeof SCHEMES)[number]) => {
+  const colors = palette[scheme];
+  const value = colors[paletteKey(token)];
+  const onFill = /^on-(\w+)$/.exec(token);
+  if (onFill) return { background: colors[`${onFill[1]}Ink`] ?? colors[onFill[1]], text: value };
+  if (TEXT.test(token)) return { background: colors.page, text: value };
+  return { background: over(value, colors.page) };
+};
+---
+<ul class="swatches" role="list">
+  {
+    table.rows.map((row) => {
+      const token = row[0];
+      return (
+        <li class="swatch">
+          <div class="chips">
+            {SCHEMES.map((scheme) => {
+              const look = sample(token, scheme);
+              return (
+                <span class="chip" style={`background:${look.background}${look.text ? `;color:${look.text}` : ""}`}>
+                  {look.text ? <span class="aa">Aa</span> : null}
+                  <span class="visually-hidden">{scheme}</span>
+                </span>
+              );
+            })}
+          </div>
+          <code class="token">{token}</code>
+          {use >= 0 && <p class="use">{row[use]}</p>}
+          <p class="values">
+            {SCHEMES.map((scheme) => (
+              <span>{palette[scheme][paletteKey(token)]}</span>
+            ))}
+          </p>
+        </li>
+      );
+    })
+  }
+</ul>
+
+<style>
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin: 20px 0 0; padding: 0; list-style: none; }
+  .swatch { display: flex; flex-direction: column; gap: 6px; padding: 8px 8px 12px; border-radius: 12px; background: var(--canvas); box-shadow: var(--shadow-card); }
+  .chips { display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; height: 56px; margin-bottom: 4px; border-radius: 8px; box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.08); }
+  .chip { display: grid; place-items: center; }
+  .aa { font: 600 20px/1 ui-sans-serif, system-ui, -apple-system, sans-serif; letter-spacing: 0; }
+  .token { padding: 0 4px; color: var(--ink); font-size: 13px; }
+  .use { padding: 0 4px; color: var(--ink-2); font-size: 13px; line-height: 1.45; }
+  .values { display: flex; gap: 8px; margin-top: auto; padding: 4px 4px 0; color: var(--ink-3); font: 12px var(--font-mono); }
+  .values span { flex: 1; }
+</style>

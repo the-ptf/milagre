@@ -25,7 +25,7 @@ This is a single-context repo. See `docs/agents/domain.md`.
 
 ### UI rules
 
-Scroll containers, scrollbars and choice menus go through shared primitives. See `docs/agents/ui.md`.
+`DESIGN.md` is the design system: read it before changing UI on desktop or phone, and keep its token tables in step with the code (`apps/site/src/design-system.test.ts` fails when they differ). Scroll containers, scrollbars and choice menus go through shared primitives. See `docs/agents/ui.md`.
 
 ### Desktop and mobile stay in sync
 

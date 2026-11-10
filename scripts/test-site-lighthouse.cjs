@@ -1,4 +1,4 @@
-// Lighthouse budget for the landing page and the docs pages: builds the site, serves it compressed the way Cloudflare does,
+// Lighthouse budget for the landing page, the docs pages and the design system page: builds the site, serves it compressed the way Cloudflare does,
 // and fails when any category's score (median of its runs) drops below apps/site/lighthouse-budget.json, on mobile or on desktop.
 // npm test -- --only lighthouse
 const assert = require("node:assert/strict");
@@ -11,11 +11,12 @@ const { spawnSync } = require("node:child_process");
 const root = path.resolve(__dirname, "..");
 const dist = path.join(root, "apps/site/dist");
 const budget = require("../apps/site/lighthouse-budget.json");
-// The landing page takes the median of three runs; the docs pages are static text and score the same every run, so one each.
+// The landing page takes the median of three runs; the docs and design pages are static and score the same every run, so one each.
 const PAGES = [
   ["/", 3],
   ["/docs/", 1],
   ["/docs/cli/", 1],
+  ["/design/", 1],
 ];
 const types = {
   ".html": "text/html; charset=utf-8",

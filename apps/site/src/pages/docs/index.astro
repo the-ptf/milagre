@@ -1,11 +1,11 @@
 ---
-import { ArrowRight02Icon, CommandLineIcon, LaptopPhoneSyncIcon } from "@hugeicons/core-free-icons";
+import { ArrowRight02Icon, CommandLineIcon, LaptopPhoneSyncIcon, PaintBoardIcon } from "@hugeicons/core-free-icons";
 import Base from "../../layouts/Base.astro";
 import Nav from "../../components/Nav.astro";
 import { icon } from "../../hugeicon";
 import { CLI_VERSION } from "../../cli-reference";
 
-const description = "Milagre documentation: the desktop and phone app, and the milagre CLI for running agents on a computer without the desktop.";
+const description = "Milagre documentation: the desktop and phone app, the milagre CLI for running agents on a computer without the desktop, and the design system.";
 ---
 <Base title="Docs | Milagre" description={description}>
   <Nav />
@@ -28,6 +28,14 @@ const description = "Milagre documentation: the desktop and phone app, and the m
         <p>Run agents on a server without the desktop, pair devices from a terminal, script every Chat and connect MCP clients.</p>
         <code>npx milagre serve</code>
         <span class="go">Read the CLI docs <span set:html={icon(ArrowRight02Icon, 16)} /></span>
+      </a>
+
+      <a class="choice" href="/design">
+        <span class="choice-icon" set:html={icon(PaintBoardIcon, 22)} />
+        <h2 id="design-title">Design system</h2>
+        <p>The colour, type, spacing, motion and component rules the desktop and phone apps follow, with live specimens.</p>
+        <code>DESIGN.md</code>
+        <span class="go">Read the design system <span set:html={icon(ArrowRight02Icon, 16)} /></span>
       </a>
     </div>
   </main>

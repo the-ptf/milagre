@@ -1,0 +1,35 @@
+---
+// The specimen DESIGN.md marks with <!-- specimen: id -->. A table that follows the marker comes in as `table`.
+import type { SpecimenId, Table } from "../../design-system";
+import Components from "./Components.astro";
+import Contrast from "./Contrast.astro";
+import Dos from "./Dos.astro";
+import Scales from "./Scales.astro";
+import Swatches from "./Swatches.astro";
+import TypeScale from "./TypeScale.astro";
+
+interface Props {
+  id: SpecimenId;
+  table?: Table;
+}
+const { id, table } = Astro.props;
+const needsTable = (found: Table | undefined): Table => {
+  if (!found) throw new Error(`DESIGN.md: the "${id}" specimen needs a table right after its marker`);
+  return found;
+};
+---
+{id.startsWith("color-") && <Swatches table={needsTable(table)} />}
+{id === "contrast" && <Contrast />}
+{id === "type-desktop" && <TypeScale table={needsTable(table)} platform="desktop" />}
+{id === "type-phone" && <TypeScale table={needsTable(table)} platform="phone" />}
+{
+  (id === "space-phone" || id === "radius-desktop" || id === "radius-phone" || id === "elevation" || id === "blur" || id === "motion" || id === "icons") && (
+    <Scales kind={id} table={needsTable(table)} />
+  )
+}
+{
+  (id === "buttons" || id === "chips" || id === "rows" || id === "approval" || id === "question" || id === "toast" || id === "picker" || id === "activity") && (
+    <Components kind={id} />
+  )
+}
+{id === "dos" && <Dos table={needsTable(table)} />}

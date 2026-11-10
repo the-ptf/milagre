@@ -341,9 +341,9 @@ html[data-floating-inbox] #root {
   --red: #e3474c;
   --red-tint: #f5ecef;
   /* status text: 4.5:1 on page, surface and their own tint */
-  --green-ink: #007e33;
-  --orange-ink: #bf4600;
-  --red-ink: #cb2f39;
+  --green-ink: #00792e;
+  --orange-ink: #ba4100;
+  --red-ink: #c62935;
 
   /* labels on filled controls: themes write --on-accent and --on-green/orange/red (lib/theme-sheet.ts), for the
    * accent or -ink fills (bg-red-ink text-on-red); on-ink is the surface (@theme below) */
@@ -418,7 +418,7 @@ html[data-floating-inbox] #root {
   --red-tint: #ee5c6124;
   --green-ink: var(--green);
   --orange-ink: var(--orange);
-  --red-ink: #f66468;
+  --red-ink: #fd696d;
 
   /* the light accent and status fills take a dark label in dark mode (onColor in packages/shared/src/themes/color.ts) */
   --on-accent: var(--page);
@@ -513,7 +513,7 @@ html[data-floating-inbox] #root {
   --font-sans: var(--ui-font, ui-sans-serif, system-ui, sans-serif);
   --font-mono: var(--mono-font, ui-monospace, "SF Mono", monospace);
 
-  /* radii — inline 4, chips 6, controls 8, cards 10, windows 14, pills 999 (.interface-design/system.md) */
+  /* radii — inline 4, chips 6, controls 8, cards 10, windows 14, pills 999 (DESIGN.md) */
   --radius-inline: 4px;
   --radius-chip: 6px;
   --radius-control: 8px;
@@ -527,7 +527,7 @@ html[data-floating-inbox] #root {
   --blur-edge: 4px;
 }
 
-/* Type, motion: the scale in .interface-design/system.md. Each text size brings its line height, so a control's height
+/* Type, motion: the scale in DESIGN.md. Each text size brings its line height, so a control's height
    never depends on which size utility it uses. design-tokens.test.ts keeps new code on these. */
 @theme {
   --text-10: 10px;

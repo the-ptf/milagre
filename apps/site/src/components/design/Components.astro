@@ -1,0 +1,321 @@
+---
+// The shared components as the apps draw them, in HTML from the app's tokens (the .scheme blocks and the ds- classes in
+// styles/design.css copy the desktop primitives). Each specimen shows the light and dark schemes side by side.
+import {
+  ArrowDown01Icon,
+  BubbleChatQuestionIcon,
+  CommandLineIcon,
+  File01Icon,
+  FlashIcon,
+  Image01Icon,
+  Mic01Icon,
+  Add01Icon,
+  PencilEdit02Icon,
+  Search01Icon,
+  SecurityCheckIcon,
+  Settings01Icon,
+  SidebarLeftIcon,
+  UserMultipleIcon,
+} from "@hugeicons/core-free-icons";
+import { prLabelColors, SCHEMES } from "../../design-system";
+import { icon } from "../../hugeicon";
+
+interface Props {
+  kind: "buttons" | "chips" | "rows" | "approval" | "question" | "toast" | "picker" | "activity";
+}
+const { kind } = Astro.props;
+const glyph = (data: unknown, size: 12 | 14 | 16 | 18) => icon(data, size, { 12: 1.6, 14: 1.8, 16: 1.8, 18: 2 }[size]);
+
+// GitHub's default label colours.
+const LABELS: [string, string][] = [
+  ["bug", "#d73a4a"],
+  ["enhancement", "#a2eeef"],
+  ["documentation", "#0075ca"],
+  ["good first issue", "#7057ff"],
+  ["design", "#fbca04"],
+];
+const EFFORT = ["Low", "Medium", "High", "Max"];
+const effort = 2;
+const at = (index: number) => `${8 + (index / (EFFORT.length - 1)) * 84}%`;
+---
+<div class="pair">
+  {
+    SCHEMES.map((scheme) => (
+      <div class={`scheme scheme-${scheme}`}>
+        <p class="scheme-name">{scheme === "light" ? "Light" : "Dark"}</p>
+
+        {kind === "buttons" && (
+          <div class="stack">
+            <div class="line">
+              <span class="ds-btn ds-primary">Allow once</span>
+              <span class="ds-btn ds-secondary">Always allow</span>
+              <span class="ds-btn ds-ghost">Cancel</span>
+              <span class="ds-btn ds-quiet">Details</span>
+            </div>
+            <div class="line">
+              <span class="ds-btn ds-link">Fix in Chat</span>
+              <span class="ds-btn ds-danger-ghost">Deny</span>
+              <span class="ds-btn ds-danger">Delete Worktree</span>
+            </div>
+            <div class="line">
+              <span class="ds-btn ds-primary">32</span>
+              <span class="ds-btn ds-primary s28">28</span>
+              <span class="ds-btn ds-primary s24">24</span>
+              <button type="button" class="ds-btn ds-primary s28" disabled>
+                Disabled
+              </button>
+              <span class="ds-btn ds-primary s28 ds-focus">Focused</span>
+            </div>
+            <div class="line">
+              <span class="ds-btn ds-icon s24" set:html={glyph(Add01Icon, 14)} />
+              <span class="ds-btn ds-icon" set:html={glyph(Search01Icon, 16)} />
+              <span class="ds-btn ds-icon" data-pressed set:html={glyph(SidebarLeftIcon, 16)} />
+              <span class="ds-btn ds-icon s32" set:html={glyph(Settings01Icon, 16)} />
+            </div>
+          </div>
+        )}
+
+        {kind === "chips" && (
+          <div class="stack">
+            <div class="line">
+              <span class="ds-chip">
+                Worktree <span class="ds-chevron" set:html={glyph(ArrowDown01Icon, 12)} />
+              </span>
+              <span class="ds-chip" data-open>
+                Opus 5.5 <span class="ds-chevron" set:html={glyph(ArrowDown01Icon, 12)} />
+              </span>
+              <span class="ds-chip ds-chip-field">Every day</span>
+            </div>
+            <div class="line">
+              <span class="ds-chip ds-chip-filter" data-checked>
+                All
+              </span>
+              <span class="ds-chip ds-chip-filter">Running</span>
+              <span class="ds-chip ds-chip-filter">Paused</span>
+            </div>
+            <div class="line">
+              {LABELS.map(([name, hex]) => {
+                const label = prLabelColors(hex, scheme);
+                return (
+                  <span class="ds-label" style={`color:${label.color};background:${label.background}`}>
+                    {name}
+                  </span>
+                );
+              })}
+            </div>
+            <div class="line">
+              <span class="ds-pill" style="background:var(--purple-tint);color:var(--purple-ink)">
+                Merged
+              </span>
+              <span class="ds-pill" style="background:var(--red-tint);color:var(--red-ink)">
+                Closed
+              </span>
+              <span class="ds-pill" style="background:var(--hover);color:var(--ink-2)">
+                Draft
+              </span>
+              <span class="ds-badge">Recommended</span>
+            </div>
+          </div>
+        )}
+
+        {kind === "rows" && (
+          <div class="ds-list">
+            <div class="ds-row" data-open>
+              <span class="ds-mark" />
+              <span class="ds-row-title">Design system page</span>
+              <span class="ds-row-meta">now</span>
+            </div>
+            <div class="ds-row" data-hover>
+              <span class="ds-mark">
+                <span class="ds-dot" />
+              </span>
+              <span class="ds-row-title">Fix the login redirect</span>
+              <span class="ds-row-meta">4m</span>
+            </div>
+            <div class="ds-row">
+              <span class="ds-mark" style="color:var(--orange)" set:html={glyph(SecurityCheckIcon, 14)} />
+              <span class="ds-row-title">Run the mobile checks</span>
+              <span class="ds-row-meta">12m</span>
+            </div>
+            <div class="ds-row">
+              <span class="ds-mark">
+                <span class="ds-ring" />
+              </span>
+              <span class="ds-row-title">Refactor the PR panel</span>
+              <span class="ds-row-meta">1h</span>
+            </div>
+            <div class="ds-row" data-disabled aria-disabled="true">
+              <span class="ds-mark" />
+              <span class="ds-row-title">Offline Project</span>
+              <span class="ds-row-meta">2d</span>
+            </div>
+            <p class="caption">Open, hovered with unread, needs you, running, disabled</p>
+          </div>
+        )}
+
+        {kind === "approval" && (
+          <div class="ds-card approval">
+            <div class="approval-head">
+              <div class="approval-text">
+                <p class="ds-waiting">Waiting for approval</p>
+                <p class="approval-title">Run the desktop smoke check</p>
+                <p class="approval-command">npm test -- --only test-desktop</p>
+              </div>
+              <div class="line approval-actions">
+                <span class="ds-btn ds-danger-ghost s28">Deny</span>
+                <span class="ds-btn ds-secondary s28">Always allow</span>
+                <span class="ds-btn ds-primary s28">Allow once</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {kind === "question" && (
+          <div class="ds-card question">
+            <div class="question-body">
+              <p class="ds-waiting">Waiting for answer</p>
+              <p class="question-title">Where should the page live?</p>
+              <div class="options">
+                <div class="ds-option" data-picked>
+                  <span class="ds-radio" />
+                  <span>
+                    <span class="option-label">/design</span>
+                    <span class="option-detail">Short to share, a Design link in the nav</span>
+                  </span>
+                </div>
+                <div class="ds-option">
+                  <span class="ds-radio" />
+                  <span>
+                    <span class="option-label">/docs/design</span>
+                    <span class="option-detail">Under Docs, beside the CLI reference</span>
+                  </span>
+                </div>
+                <div class="ds-option other">
+                  <span class="ds-radio" />
+                  <span class="other-field">Other…</span>
+                  <span class="other-tools">
+                    <span set:html={glyph(Mic01Icon, 14)} />
+                    <span set:html={glyph(Image01Icon, 14)} />
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="line question-actions">
+              <span class="ds-btn ds-ghost s28">Dismiss</span>
+              <span class="ds-btn ds-primary s28">Send answer</span>
+            </div>
+          </div>
+        )}
+
+        {kind === "toast" && (
+          <div class="stack">
+            <span class="ds-toast">
+              Chat archived <span class="ds-toast-action">Undo</span>
+            </span>
+            <span class="ds-toast">Copied the branch name</span>
+          </div>
+        )}
+
+        {kind === "picker" && (
+          <div class="stack picker">
+            <p class="picker-label">
+              Effort <span>{EFFORT[effort]}</span>
+            </p>
+            <div class="ds-slider" aria-hidden="true">
+              <span class="ds-slider-fill" style={`width:${at(effort)}`} />
+              {EFFORT.map((_, index) => (
+                <span class="ds-slider-tick" style={`left:${at(index)}`} />
+              ))}
+              <span class="ds-slider-handle" style={`left:${at(effort)}`} />
+            </div>
+            <div class="ds-tile">
+              <span class="ds-tile-icon" set:html={glyph(FlashIcon, 16)} />
+              <span>
+                <strong>Fast</strong>
+                <small>Quicker replies, higher usage</small>
+              </span>
+            </div>
+            <div class="ds-tile" data-on="fast">
+              <span class="ds-tile-icon" set:html={glyph(FlashIcon, 16)} />
+              <span>
+                <strong>Fast</strong>
+                <small>Quicker replies, higher usage</small>
+              </span>
+            </div>
+            <div class="ds-tile" data-on="ultracode">
+              <span class="ds-tile-icon" set:html={glyph(UserMultipleIcon, 16)} />
+              <span>
+                <strong>Ultracode</strong>
+                <small>Parallel agents for big work</small>
+              </span>
+            </div>
+          </div>
+        )}
+
+        {kind === "activity" && (
+          <div class="stack">
+            <div class="line activity">
+              <span class="ds-marks">
+                <span set:html={glyph(File01Icon, 12)} />
+                <span set:html={glyph(Search01Icon, 12)} />
+                <span set:html={glyph(PencilEdit02Icon, 12)} />
+                <span set:html={glyph(CommandLineIcon, 12)} />
+              </span>
+              <span class="activity-text">Read 6 files, searched 2 times, edited 3 files, ran 2 commands</span>
+            </div>
+            <div class="line activity">
+              <span class="ds-logo" aria-hidden="true">
+                <svg class="ds-logo-leg" viewBox="-4 -4 154 154" width="16" height="16">
+                  <path d="M49.6983 66.5562L21.6836 116.174C19.802 119.507 22.2098 123.632 26.0372 123.632H39.9727L54.9727 100.132L66.9727 119.632L51.9727 144.132H26.0372C6.24066 144.132 -6.29344 122.89 3.27837 105.561L30.9405 55.4819L49.6983 66.5562Z" />
+                </svg>
+                <svg class="ds-logo-leg ds-logo-leg-right" viewBox="-4 -4 154 154" width="16" height="16">
+                  <path d="M142.666 105.561C152.238 122.89 139.704 144.132 119.907 144.132H93.9728L78.9728 119.632L90.9728 100.132L105.973 123.632H119.907C123.735 123.632 126.143 119.507 124.261 116.174L96.2462 66.5562L115.004 55.4819L142.666 105.561Z" />
+                </svg>
+                <svg class="ds-logo-star" viewBox="-4 -4 154 154" width="16" height="16">
+                  <path d="M69.528 1.96636C71.0759 -0.655453 74.869 -0.655453 76.4169 1.96636L91.0103 26.6837C91.3538 27.2656 91.8392 27.751 92.4211 28.0945L117.138 42.6879C119.76 44.2358 119.76 48.0289 117.138 49.5768L92.4211 64.1702C91.8392 64.5137 91.3538 64.9991 91.0103 65.581L76.4169 90.2983C74.869 92.9201 71.0759 92.9201 69.528 90.2983L54.9347 65.581C54.5911 64.9991 54.1057 64.5137 53.5238 64.1702L28.8065 49.5768C26.1847 48.0289 26.1847 44.2358 28.8065 42.6879L53.5238 28.0945C54.1057 27.751 54.5911 27.2656 54.9347 26.6837L69.528 1.96636Z" />
+                </svg>
+              </span>
+              <span class="timer">0:42</span>
+            </div>
+            <div class="line activity">
+              <span class="ds-mark" style="color:var(--orange)" set:html={glyph(BubbleChatQuestionIcon, 14)} />
+              <span class="activity-text">Needs you: an orange mark, never accent</span>
+            </div>
+          </div>
+        )}
+      </div>
+    ))
+  }
+</div>
+
+<style>
+  .caption { margin-top: 10px; color: var(--ink-3); font-size: 12px; line-height: 16px; }
+
+  .approval { padding: 10px 12px 12px; }
+  .approval-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 16px; }
+  .approval-text { display: grid; gap: 2px; min-width: 0; flex: 1 1 200px; font-size: 12px; line-height: 16px; }
+  .approval-title { margin-top: 2px; color: var(--ink); font-weight: 500; }
+  .approval-command { color: var(--ink-2); font-family: ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
+  .approval-actions { flex-wrap: nowrap; }
+
+  .question { display: grid; gap: 12px; padding-bottom: 12px; }
+  .question-body { display: grid; gap: 6px; padding: 12px 12px 0; }
+  .question-title { margin: 2px 0 6px; color: var(--ink); font-size: 15px; font-weight: 600; line-height: 20px; }
+  .options { display: grid; gap: 6px; }
+  .option-label { display: block; color: var(--ink); font-size: 13px; font-weight: 500; line-height: 18px; }
+  .option-detail { display: block; color: var(--ink-2); font-size: 12px; line-height: 16px; }
+  .other { align-items: center; min-height: 52px; }
+  .other .ds-radio { margin-top: 0; }
+  .other-field { flex: 1; color: var(--ink-3); font-size: 13px; font-weight: 500; }
+  .other-tools { display: flex; gap: 2px; color: var(--ink-2); }
+  .other-tools span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 999px; }
+  .question-actions { justify-content: flex-end; padding: 0 12px; }
+
+  .picker { width: 100%; max-width: 320px; gap: 8px; }
+  .picker-label { display: flex; justify-content: space-between; width: 100%; color: var(--ink); font-size: 12px; font-weight: 500; line-height: 16px; }
+  .picker-label span { color: var(--ink-2); font-weight: 400; }
+
+  .activity { flex-wrap: nowrap; gap: 10px; }
+  .activity-text { color: var(--ink-2); font-size: 12px; line-height: 16px; }
+  .timer { color: var(--ink-3); font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; }
+</style>

@@ -1,4 +1,4 @@
-/** The phone's type and corner scale (.interface-design/system.md): iOS Dynamic Type default sizes and five radii.
+/** The phone's type and corner scale (DESIGN.md): iOS Dynamic Type default sizes and five radii.
  * New styles take their numbers from here; design-tokens.test.ts keeps literals on the scale. */
 export const type = {
   caption2: 11,

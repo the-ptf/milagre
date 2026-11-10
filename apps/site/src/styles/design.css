@@ -1,0 +1,547 @@
+/* /design: the app's looks, drawn in HTML from its tokens. A .scheme block takes the app palette for one scheme (the
+ * variables come from design-system.ts at build time); the ds- classes copy the desktop primitives' values. */
+
+.scheme {
+  padding: 20px;
+  border-radius: var(--radius-window);
+  background: var(--page);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: calc(18 / 13);
+  letter-spacing: 0;
+}
+.scheme-light {
+  color-scheme: light;
+}
+.scheme-dark {
+  color-scheme: dark;
+}
+.scheme-name {
+  margin-bottom: 14px;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+.pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Buttons: Button and IconButton */
+.ds-btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    background-color 120ms cubic-bezier(0.23, 1, 0.32, 1),
+    color 120ms cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 120ms cubic-bezier(0.23, 1, 0.32, 1),
+    scale 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.ds-btn.s28 {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 16px;
+}
+.ds-btn.s24 {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 16px;
+}
+.ds-primary {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+.ds-primary:hover,
+.ds-danger:hover {
+  opacity: 0.9;
+}
+.ds-primary:active,
+.ds-danger:active,
+.ds-icon:active {
+  scale: 0.97;
+}
+.ds-secondary {
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+}
+.ds-secondary:hover,
+.ds-ghost:hover {
+  background: var(--hover);
+}
+.ds-quiet {
+  color: var(--ink-2);
+}
+.ds-quiet:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.ds-link {
+  color: var(--accent-ink);
+}
+.ds-link:hover {
+  background: var(--hover);
+}
+.ds-danger {
+  background: var(--red-ink);
+  color: var(--on-red);
+}
+.ds-danger-ghost {
+  color: var(--red-ink);
+}
+.ds-danger-ghost:hover {
+  background: var(--red-tint);
+}
+.ds-btn:disabled {
+  opacity: 0.4;
+}
+.ds-icon {
+  width: 28px;
+  padding: 0;
+  color: var(--ink-3);
+}
+.ds-icon.s24 {
+  width: 24px;
+  height: 24px;
+}
+.ds-icon.s32 {
+  width: 32px;
+  height: 32px;
+}
+.ds-icon:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.ds-icon[data-pressed] {
+  background: var(--hover-2);
+  color: var(--ink);
+}
+.ds-focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Chips, labels and badges */
+.ds-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  transition:
+    background-color 120ms cubic-bezier(0.23, 1, 0.32, 1),
+    color 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.ds-chip:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.ds-chip[data-open] {
+  background: var(--hover-2);
+  color: var(--ink);
+}
+.ds-chip-field {
+  background: var(--field);
+}
+.ds-chip-filter {
+  background: var(--surface);
+  box-shadow: var(--shadow-btn);
+}
+.ds-chip-filter[data-checked] {
+  background: var(--ink);
+  box-shadow: none;
+  color: var(--on-ink);
+  font-weight: 600;
+}
+.ds-chip svg {
+  flex-shrink: 0;
+}
+.ds-chevron {
+  display: inline-flex;
+  color: var(--ink-3);
+}
+.ds-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.ds-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+.ds-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--field);
+  color: var(--ink-2);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+}
+
+/* Rows */
+.ds-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+}
+.ds-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  transition: background-color 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.ds-row:hover,
+.ds-row[data-hover] {
+  background: var(--hover);
+}
+.ds-row[data-open] {
+  background: var(--hover-2);
+}
+.ds-row[data-disabled] {
+  opacity: 0.6;
+}
+.ds-row-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ds-row-meta {
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.ds-mark {
+  display: inline-grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+}
+.ds-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.ds-ring {
+  width: 12px;
+  height: 12px;
+  border: 1.6px solid var(--line-strong);
+  border-top-color: var(--ink-3);
+  border-radius: 999px;
+  animation: ds-spin 800ms linear infinite;
+}
+@keyframes ds-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+/* Cards: the approval row, the question card */
+.ds-card {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.ds-waiting {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--orange-ink);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+.ds-waiting::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--orange);
+}
+.ds-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.ds-option[data-picked] {
+  border-color: var(--line-strong);
+  background: var(--inset);
+}
+.ds-radio {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border: 1px solid var(--ink-3);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.ds-option[data-picked] .ds-radio {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+.ds-option[data-picked] .ds-radio::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--on-ink);
+}
+.ds-checkbox {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+/* Toast */
+.ds-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 8px 8px 14px;
+  border-radius: 10px;
+  background: var(--ink);
+  box-shadow: var(--shadow-raised);
+  color: var(--on-ink);
+  font-size: 13px;
+  line-height: 18px;
+}
+.ds-toast-action {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+/* Model picker */
+.ds-tile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.ds-tile-icon {
+  display: inline-flex;
+  color: var(--ink-2);
+}
+.ds-tile strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+.ds-tile small {
+  display: block;
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 16px;
+}
+.ds-tile[data-on="fast"] {
+  border-color: transparent;
+  background: var(--orange-tint);
+}
+.ds-tile[data-on="fast"] .ds-tile-icon {
+  color: var(--orange);
+}
+.ds-tile[data-on="fast"] strong {
+  color: var(--orange-ink);
+}
+.ds-tile[data-on="ultracode"] {
+  border-color: transparent;
+  background: var(--purple-tint);
+}
+.ds-tile[data-on="ultracode"] .ds-tile-icon {
+  color: var(--purple);
+}
+.ds-tile[data-on="ultracode"] strong {
+  color: var(--purple-ink);
+}
+.ds-slider {
+  position: relative;
+  width: 100%;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--field);
+  overflow: hidden;
+}
+.ds-slider-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 15%, transparent);
+}
+.ds-slider-tick {
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 25%, transparent);
+  translate: -50% -50%;
+}
+.ds-slider-handle {
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--ink);
+  translate: -50% -50%;
+}
+
+/* Activity: stacked circular marks and the running logo */
+.ds-marks {
+  display: flex;
+  align-items: center;
+  padding-left: 6px;
+  isolation: isolate;
+}
+.ds-marks > span {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-left: -6px;
+  border-radius: 999px;
+  background: var(--field);
+  box-shadow: 0 0 0 2px var(--page);
+  color: var(--ink-2);
+}
+.ds-logo {
+  position: relative;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.ds-logo > svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  fill: var(--ink);
+}
+.ds-logo-leg {
+  opacity: 0.15;
+  animation: ds-stride 1200ms steps(1, end) infinite;
+}
+.ds-logo-leg-right {
+  animation-delay: 600ms;
+}
+.ds-logo-star {
+  opacity: 0.45;
+  transform-origin: 50% 32.3%;
+  animation: ds-twinkle 600ms cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+@keyframes ds-stride {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+@keyframes ds-twinkle {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: rotate(45deg) scale(0.86);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-btn,
+  .ds-chip,
+  .ds-row {
+    transition: none;
+  }
+  .ds-ring,
+  .ds-logo-leg,
+  .ds-logo-star {
+    animation: ds-fade 1200ms steps(3, end) infinite alternate;
+  }
+  @keyframes ds-fade {
+    to {
+      opacity: 0.35;
+    }
+  }
+}
