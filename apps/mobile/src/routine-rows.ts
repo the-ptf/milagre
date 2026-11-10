@@ -1,5 +1,5 @@
 import { Clock01Icon, Comment01Icon, Exchange01Icon, Pulse01Icon, Tag01Icon, UserCheck01Icon, WebhookIcon } from "@hugeicons/core-free-icons";
-import { clock, triggerText } from "@milagre/shared/routines";
+import { clock, nextRunWhen, triggerText } from "@milagre/shared/routines";
 import { deleteWarning } from "@milagre/shared/routine-form";
 import { needsAnswer } from "@milagre/shared/routine-flows";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
@@ -60,8 +60,8 @@ function lastRun(runs: RoutineRun[] | undefined) {
 }
 
 /**
- * The line under a Routine's name. A heartbeat: "Every 15 min · next 10:45 · 3 Runs left". A trigger: what starts it and
- * its last Run ("Linear · label agent added · MIL-142, 2 h ago"). Off, paused or failing says so, with the reason.
+ * The line under a Routine's name. Schedules name their next Run; Heartbeats add their end and other targets keep
+ * their last Run. Event triggers name what starts them and their last Run. Off, paused or failing says why.
  */
 export function routineMeta(routine: RoutineLike, now: number) {
   const parts = [capital(triggerText(routine.trigger))];
@@ -69,15 +69,20 @@ export function routineMeta(routine: RoutineLike, now: number) {
   // A flow saved before its first publish has nothing to run yet.
   else if (routine.flow && routine.flow.revision === 0) parts.push("Flow draft, not published");
   else if (!routine.enabled) parts.push("Off");
-  else if (isHeartbeat(routine)) {
-    if (typeof routine.nextRunAt === "number") parts.push(`next ${clock(routine.nextRunAt)}`);
-    const end = heartbeatEnd(routine, now);
-    if (end) parts.push(end);
-  } else {
-    const last = lastRun(routine.runs);
-    const event = last?.event;
-    if (!last) parts.push("no Runs yet");
-    else parts.push(event?.kind === "linear" ? `${event.issue.key}, ${ago(last.startedAt, now)}` : `last Run ${ago(last.startedAt, now)}`);
+  else {
+    // Every scheduled target names its next Run, as desktop's status column does.
+    if (routine.trigger.kind === "schedule" && typeof routine.nextRunAt === "number") {
+      parts.push(`next ${nextRunWhen(routine.nextRunAt, now).text}`);
+    }
+    if (isHeartbeat(routine)) {
+      const end = heartbeatEnd(routine, now);
+      if (end) parts.push(end);
+    } else {
+      const last = lastRun(routine.runs);
+      const event = last?.event;
+      if (!last) parts.push("no Runs yet");
+      else parts.push(event?.kind === "linear" ? `${event.issue.key}, ${ago(last.startedAt, now)}` : `last Run ${ago(last.startedAt, now)}`);
+    }
   }
   if (routine.flow && (routine.runs ?? []).some((run) => needsAnswer(run))) parts.push("a Run waits for you");
   if (routine.lastError) parts.push(routine.lastError);

@@ -148,7 +148,51 @@ function scheduleText(cron) {
     if (time && dayOfWeek === "1-5") return `weekdays ${time}`;
     if (time && dayOfWeek === "*") return `daily ${time}`;
   }
-  return `cron "${expression}"`;
+  const words = rest.length === 0 && dayOfWeek !== undefined ? cronWords(minute, hour, dayOfMonth, month, dayOfWeek) : null;
+  return words ?? `cron "${expression}"`;
+}
+
+const DAYS = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"];
+const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const LIST = /^\d{1,2}(,\d{1,2})+$/;
+
+/** A list of numbers ("0,30", "2,8,14,20") as its step when evenly spaced around `cycle` (60 minutes, 24 hours), else null. */
+function evenStep(list, cycle) {
+  const values = list.split(",").map(Number);
+  const step = values[1] - values[0];
+  if (step <= 0 || cycle % step !== 0 || values.length !== cycle / step) return null;
+  return values.every((value, index) => value === values[0] + index * step && value < cycle) ? { step, first: values[0] } : null;
+}
+
+/**
+ * The other shapes people write by hand, in words: "every 30 min" ("0,30 * * * *"), "every 30 min from :15", "every 6 h
+ * from 02:00", "Fridays 16:00", "weekends 08:30", "Mon, Wed 09:00", "Nov 11 10:00". Null for anything else, which stays a
+ * cron expression.
+ */
+function cronWords(minute, hour, dayOfMonth, month, dayOfWeek) {
+  const everyDay = dayOfMonth === "*" && month === "*" && dayOfWeek === "*";
+  if (everyDay && hour === "*" && LIST.test(minute)) {
+    const even = evenStep(minute, 60);
+    if (even) return even.first === 0 ? `every ${even.step} min` : `every ${even.step} min from :${String(even.first).padStart(2, "0")}`;
+  }
+  if (everyDay && NUMBER.test(minute) && LIST.test(hour)) {
+    const even = evenStep(hour, 24);
+    const first = cronTime(minute, String(even?.first ?? 0));
+    if (even && first) return `every ${even.step} h from ${first}`;
+  }
+  const time = cronTime(minute, hour);
+  if (!time) return null;
+  if (dayOfMonth === "*" && month === "*" && /^[0-7](,[0-7])*$/.test(dayOfWeek)) {
+    // Monday first, as the Routine form's day picker; 7 is Sunday too.
+    const days = [...new Set(dayOfWeek.split(",").map((day) => Number(day) % 7))].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7));
+    if (days.length === 1) return `${DAYS[days[0]]} ${time}`;
+    if (days.length === 2 && days[0] === 6 && days[1] === 0) return `weekends ${time}`;
+    return `${days.map((day) => DAYS_SHORT[day]).join(", ")} ${time}`;
+  }
+  if (NUMBER.test(dayOfMonth) && NUMBER.test(month) && dayOfWeek === "*" && Number(month) >= 1 && Number(month) <= 12)
+    return `${MONTHS_SHORT[Number(month) - 1]} ${Number(dayOfMonth)} ${time}`;
+  return null;
 }
 
 function linearText({ event, team, label, state }) {
@@ -250,6 +294,19 @@ export function runWhen(at, now) {
   const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
   const date = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) }).format(at);
   return `${date} ${time}`;
+}
+
+/**
+ * When a Routine's next Run is, on the computer's clock: "16:00" today (`today` true), "Fri 16:00" within the next six
+ * days, else "Nov 18 10:00". Desktop's status reads "Next 16:00" or "Fri 16:00"; the phone's meta "next Fri 16:00".
+ */
+export function nextRunWhen(at, now) {
+  const time = clock(at);
+  const days = Math.round((midnight(at) - midnight(now)) / DAY);
+  if (days <= 0) return { today: true, text: time };
+  const date = new Date(at);
+  if (days < 7) return { today: false, text: `${DAYS_SHORT[date.getDay()]} ${time}` };
+  return { today: false, text: `${MONTHS_SHORT[date.getMonth()]} ${date.getDate()} ${time}` };
 }
 
 const count = (n, word) => `${n} ${word}`;

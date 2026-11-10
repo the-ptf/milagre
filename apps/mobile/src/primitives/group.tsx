@@ -9,7 +9,7 @@ import { SectionLabel } from "./section-label";
 /**
  * A grouped list: its SectionLabel, the rows in one flat card (hairline edge, radius 14, padding 0/16) with separators,
  * and an ink3 note under it. Separators start past a row's 20pt icon (`inset` 32), or at the text for icon-less rows
- * (`inset` 0). `role="radiogroup"` with an `accessibilityLabel` holds CheckRow radios. Children may be any nodes;
+ * (`inset` 0), or edge to edge across the card (`inset` "full", the Routines list, as desktop's cards). `role="radiogroup"` with an `accessibilityLabel` holds CheckRow radios. Children may be any nodes;
  * empty ones drop out and each keeps its key.
  */
 export function Group({
@@ -22,7 +22,7 @@ export function Group({
 }: {
   title?: string;
   footer?: string;
-  inset?: 0 | 32;
+  inset?: 0 | 32 | "full";
   role?: "radiogroup";
   accessibilityLabel?: string;
   children: ReactNode;
@@ -44,7 +44,7 @@ export function Group({
       >
         {rows.map((row, index) => (
           <View key={isValidElement(row) && row.key != null ? row.key : index}>
-            {index > 0 && <View style={[styles.separator, { marginLeft: inset }]} />}
+            {index > 0 && <View style={[styles.separator, inset === "full" ? { marginHorizontal: -16 } : { marginLeft: inset }]} />}
             {row}
           </View>
         ))}

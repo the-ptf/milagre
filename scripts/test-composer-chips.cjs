@@ -491,6 +491,13 @@ async function browserChecks() {
   } catch (error) {
     console.error(error);
     console.error(errors);
+    // What the sidebar and window held when a step timed out: rows missing from the sidebar show up here.
+    console.error(
+      "sidebar:",
+      await evaluate(
+        `JSON.stringify({ width: innerWidth, rows: [...document.querySelectorAll('[data-row]')].map((row) => row.textContent.trim()).slice(0, 12), aside: document.querySelector('aside')?.innerText.slice(0, 600) ?? null, body: document.body.innerText.slice(0, 600) })`,
+      ).catch((failure) => String(failure)),
+    );
     console.error(await evaluate(`({ value: ${editor}?.value, html: ${editor}?.innerHTML })`).catch(() => null));
     app.exit(1);
   }

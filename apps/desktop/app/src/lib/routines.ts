@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
-import { PERMISSION_MODES } from "@milagre/shared/model-copy";
-import { clock, routineEnd as sharedRoutineEnd, triggerText } from "@milagre/shared/routines";
+import { PERMISSION_MODE_LABEL } from "@milagre/shared/model-copy";
+import { clock, nextRunWhen, routineEnd as sharedRoutineEnd, triggerText } from "@milagre/shared/routines";
 import { deleteWarning } from "@milagre/shared/routine-form";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
@@ -67,7 +67,8 @@ export const routineEnd = (routine: Routine, now: number): string | null => shar
 /** The model and mode a Routine's Runs use, "Opus 5.5 · Full permissions", or null when it uses the Mac's defaults. */
 function routineModel(routine: Routine, modelName?: (provider: Routine["provider"], model: string) => string): string | null {
   const model = routine.model ? (modelName?.(routine.provider, routine.model) ?? routine.model) : null;
-  const mode = routine.permissionMode ? (PERMISSION_MODES.find((entry) => entry.id === routine.permissionMode)?.name ?? routine.permissionMode) : null;
+  // The composer chip's word ("Full", "Auto", "Ask"): the full name is what the meta line used to lose to its ellipsis.
+  const mode = routine.permissionMode ? (PERMISSION_MODE_LABEL[routine.permissionMode as keyof typeof PERMISSION_MODE_LABEL] ?? routine.permissionMode) : null;
   const parts = [model, mode].filter(Boolean);
   return parts.length ? parts.join(" · ") : null;
 }
@@ -89,10 +90,16 @@ export function routineMeta(
   return [capitalized(triggerText(routine.trigger)), where, last].filter(Boolean).join(" · ");
 }
 
-/** The row's right-hand text: "Paused", "Next 10:45" for a schedule, else its last Run ("MIL-142 · 2 h ago"). */
+/**
+ * The row's right-hand text: "Paused", for a schedule its next Run ("Next 10:45" today, "Fri 16:00" or "Nov 18 10:00"
+ * later), else its last Run ("MIL-142 · 2 h ago").
+ */
 export function routineStatus(routine: RoutineWithRuns, now: number): string {
   if (!routine.enabled) return "Paused";
-  if (routine.trigger.kind === "schedule" && typeof routine.nextRunAt === "number") return `Next ${clock(routine.nextRunAt)}`;
+  if (routine.trigger.kind === "schedule" && typeof routine.nextRunAt === "number") {
+    const next = nextRunWhen(routine.nextRunAt, now);
+    return next.today ? `Next ${next.text}` : next.text;
+  }
   const run = routine.runs[0];
   if (!run) return "No Runs yet";
   const key = run.event?.kind === "linear" ? run.event.issue.key : null;
