@@ -88,6 +88,12 @@ export const MessageFollowContext = createContext<{ readonly current: boolean } 
 
 /** Dispatched on the viewport of a parked transcript that is back in the document and needs measuring again. */
 export const TRANSCRIPT_SHOWN_EVENT = "milagre:transcript-shown";
+/**
+ * Dispatched on the viewport to show a transcript at its latest message and follow it from there. Code outside the
+ * scroller never writes `scrollTop` to reach the end: the browser fires the scroll event for that write a frame later,
+ * after messages that were still measuring have grown, and the scroller would read it as the reader scrolling away.
+ */
+export const TRANSCRIPT_END_EVENT = "milagre:transcript-end";
 
 export function MessageScroller({
   followOutput = true,
@@ -364,6 +370,20 @@ export function MessageScroller({
     shownBefore.current = true;
     return () => viewport.removeEventListener(TRANSCRIPT_SHOWN_EVENT, remeasure);
   }, []);
+  // The end through scrollToEnd: its scroll events don't count as the reader's, so following survives the growth of
+  // messages that measure right after, and the ResizeObserver keeps the end in view as they do. Listening from the
+  // layout phase, the end is reached before paint.
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || !followOutput) return;
+    const showEnd = () => {
+      setFollowing(true);
+      scrollToEnd("instant");
+      updateJumpToBottom();
+    };
+    viewport.addEventListener(TRANSCRIPT_END_EVENT, showEnd);
+    return () => viewport.removeEventListener(TRANSCRIPT_END_EVENT, showEnd);
+  }, [followOutput, scrollToEnd, setFollowing, updateJumpToBottom]);
   useEffect(() => {
     let settle = 0;
     const first = requestAnimationFrame(() => {
