@@ -13,9 +13,10 @@ const CHIP =
   "relative -top-[0.04em] inline-flex max-w-full items-center gap-1 rounded-chip border px-1.5 align-baseline text-[0.875em] leading-[1.35] font-[inherit] whitespace-nowrap";
 const LABEL = "truncate self-baseline";
 const ICON_SIZE = "0.95em";
-// A chip that opens something: a stronger border on hover; focus is the base accent outline. File and image chips keep
-// a native title: it reveals the full path or name the chip truncates.
-const OPENABLE = "cursor-pointer transition-colors duration-fast hover:border-ink-3";
+// A chip that opens something: the pointer cursor, its border unchanged on hover (a chip is part of the text, not a
+// button that lights up); focus is the base accent outline. File and image chips keep a native title: it reveals the full
+// path or name the chip truncates.
+const OPENABLE = "cursor-pointer";
 
 /** A file's type: letters for common languages, an icon for the rest, in the type's color (tinted so it reads in light and dark). */
 export function FileKindIcon({ path }: { path: string }) {
