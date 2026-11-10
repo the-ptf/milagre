@@ -579,6 +579,13 @@ async function browserChecks() {
     await evaluate('window.setDraft("x")');
     await evaluate('window.setDraft("")');
     await delay(500);
+    // A narrow composer gives the prompt its own row above the model and permission controls, Compact button or not.
+    assert.ok(
+      await evaluate(
+        `document.querySelector("[data-prompt-editor]").getBoundingClientRect().bottom <= document.querySelector('${trigger}').getBoundingClientRect().top`,
+      ),
+      "A narrow composer puts the prompt above its controls",
+    );
     window.webContents.setZoomFactor(1);
     await delay(250);
     assert.ok(!consoleErrors.some((message) => message.includes("Maximum update depth")), "A narrow composer with an empty draft settles");

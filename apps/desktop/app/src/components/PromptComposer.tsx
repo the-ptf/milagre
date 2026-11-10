@@ -1157,11 +1157,13 @@ export function PromptComposer({
             </span>
           ) : null}
 
+          {/* Sized by the composer, not the window, which is never under 980px wide: under 600px the effort shows as
+              a meter and the permission as its icon, and under 560px the prompt takes its own row above the controls. */}
           <div
-            className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"} ${compactButton.visible ? "@max-[520px]:grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : ""}`}
+            className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"} @max-[560px]:grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]`}
           >
             <div
-              className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-span-full @max-[520px]:col-start-1 @max-[520px]:row-start-1" : ""}`}
+              className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"} @max-[560px]:col-span-full @max-[560px]:col-start-1 @max-[560px]:row-start-1`}
             >
               <PromptEditor
                 ref={inputRef}
@@ -1209,12 +1211,12 @@ export function PromptComposer({
                 setPlusOpen((current) => !current);
                 inputRef.current?.focus();
               }}
-              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} ${compactButton.visible ? "@max-[520px]:row-start-2" : ""} flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
+              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} @max-[560px]:row-start-2 flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
             >
               <Icon icon={Add01Icon} size={16} />
             </button>
             <div
-              className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"} ${compactButton.visible ? "@max-[520px]:contents" : ""}`}
+              className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"} @max-[560px]:contents`}
             >
               <button
                 type="button"
@@ -1226,20 +1228,17 @@ export function PromptComposer({
                   setPermissionOpen(false);
                   setModelOpen((current) => !current);
                 }}
-                className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${compactButton.visible ? "@max-[520px]:col-start-2 @max-[520px]:row-start-2" : ""}`}
+                className="flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink @max-[560px]:col-start-2 @max-[560px]:row-start-2"
               >
                 <ProviderLogo provider={selectedModel.provider} size={14} optical />
-                <span data-model-name className={`max-w-28 truncate ${compactButton.visible ? "@max-[520px]:max-w-20" : ""}`}>
+                <span data-model-name className="max-w-28 truncate @max-[560px]:max-w-20">
                   {selectedModel.name}
                 </span>
                 {effortLabel && (
-                  <span
-                    data-effort-label
-                    className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""} ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}
-                  >
+                  <span data-effort-label className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""}`}>
                     <span className="text-ink-3">·</span>
-                    <span className="hidden min-[900px]:inline">{effortLabel}</span>
-                    <span className="min-[900px]:hidden">
+                    <span className="hidden @min-[600px]:inline">{effortLabel}</span>
+                    <span className="@min-[600px]:hidden">
                       <EffortMeter level={effortIndex} total={effortLevels.length} />
                     </span>
                   </span>
@@ -1262,7 +1261,7 @@ export function PromptComposer({
                 setModelOpen(false);
                 setPermissionOpen((current) => !current);
               }}
-              className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-orange-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-start-3 @max-[520px]:row-start-2 @max-[520px]:justify-self-start" : ""}`}
+              className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-orange-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"} @max-[560px]:col-start-3 @max-[560px]:row-start-2 @max-[560px]:justify-self-start`}
             >
               <Icon
                 icon={
@@ -1274,11 +1273,9 @@ export function PromptComposer({
                 }
                 size={16}
               />
-              <span className={`hidden min-[900px]:inline ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}>{PERMISSION_MODE_LABEL[permissionMode]}</span>
+              <span className="hidden @min-[600px]:inline">{PERMISSION_MODE_LABEL[permissionMode]}</span>
             </button>
-            <div
-              className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"} ${compactButton.visible ? "@max-[520px]:row-start-2" : ""}`}
-            >
+            <div className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"} @max-[560px]:row-start-2`}>
               {!quiet && compactionFeedback ? (
                 <span role="status" className="flex h-7 items-center gap-1 rounded-control bg-green/10 px-2 text-12 text-green-ink">
                   ✓ {compactionFeedback.percent}%<span className="@max-[700px]:hidden"> · {compactionFeedback.freed} freed</span>
