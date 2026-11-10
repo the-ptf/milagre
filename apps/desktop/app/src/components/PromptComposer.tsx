@@ -7,7 +7,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import type { ComponentProps, KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CleanIcon, Cancel01Icon, ArrowDown01Icon, ArrowUp02Icon, Attachment01Icon, FlashIcon, Mic01Icon, ShieldAlertIcon } from "@hugeicons/core-free-icons";
+import { CleanIcon, Cancel01Icon, ArrowUp02Icon, Attachment01Icon, FlashIcon, Mic01Icon, ShieldAlertIcon } from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
 import { effortCopy, PERMISSION_MODE_LABEL } from "../model";
 import { cliNotice, messageParts } from "../lib/cli-status";
@@ -1106,7 +1106,6 @@ export function PromptComposer({
                   <Icon icon={FlashIcon} size={13} />
                 </span>
               )}
-              <Icon icon={ArrowDown01Icon} size={12} />
             </button>
             <div className="col-start-4 row-start-2 flex shrink-0 items-center gap-1.5">
               {!quiet && compactionFeedback ? (

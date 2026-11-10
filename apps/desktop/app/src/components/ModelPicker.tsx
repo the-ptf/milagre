@@ -262,7 +262,9 @@ export function ModelPicker({
         <Select
           label="Agent permissions"
           variant="text"
-          width={240}
+          align="end"
+          side="above"
+          width={220}
           value={permissionMode}
           triggerClassName={permissionMode === "full" ? "text-orange-ink" : undefined}
           options={PERMISSION_MODES.map((mode) => ({

@@ -61,6 +61,8 @@ export function Select<T extends string>({
   compact = false,
   leading,
   onOpenChange,
+  align,
+  side = "below",
 }: {
   label: string;
   value: T;
@@ -84,6 +86,12 @@ export function Select<T extends string>({
   leading?: ReactNode;
   /** Told each time the menu opens or closes: a hover surface the trigger sits in (the usage card) stays open while the panel is in use, and the Appearance preview highlights the row's area. */
   onOpenChange?: (open: boolean) => void;
+  /** Which trigger edge the panel lines up with; `text` opens from the start by default, the others from the end. A
+   * trigger at the right edge of its surface (a popover footer) passes `end` so the panel stays over that surface. */
+  align?: "start" | "end";
+  /** Where the panel opens when it fits on both sides: a trigger at the bottom of a popover opens it `above`, over
+   * the popover, rather than over whatever sits below it. */
+  side?: "above" | "below";
 }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number }>({ left: 0, maxHeight: 0 });
@@ -101,13 +109,15 @@ export function Select<T extends string>({
     setHost(triggerRef.current?.closest("dialog[open], [data-popover-host]") ?? null);
     const trigger = triggerRef.current?.getBoundingClientRect();
     if (!trigger) return;
-    const left = Math.max(INSET, Math.min(variant === "text" ? trigger.left : trigger.right - width, window.innerWidth - width - INSET));
+    const start = (align ?? (variant === "text" ? "start" : "end")) === "start";
+    const left = Math.max(INSET, Math.min(start ? trigger.left : trigger.right - width, window.innerWidth - width - INSET));
     const roomBelow = window.innerHeight - trigger.bottom - GAP - INSET;
     const roomAbove = trigger.top - GAP - INSET;
     // Open upward when the panel would not fit below and there is more room above, so a trigger near the bottom shows its rows.
     const fitsBelow = roomBelow >= naturalHeight(options, searchable);
+    const fitsAbove = roomAbove >= naturalHeight(options, searchable);
     setPosition(
-      fitsBelow || roomBelow >= roomAbove
+      !(side === "above" && fitsAbove) && (fitsBelow || roomBelow >= roomAbove)
         ? { left, top: trigger.bottom + GAP, maxHeight: roomBelow }
         : { left, bottom: window.innerHeight - trigger.top + GAP, maxHeight: roomAbove },
     );
