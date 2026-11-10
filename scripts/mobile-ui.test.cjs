@@ -2258,6 +2258,7 @@ function markdownHost({
       "./icons": { Icon: "Icon" },
       "expo-haptics": { selectionAsync: async () => haptic() },
       "./markdown-table": require("../apps/mobile/src/markdown-table.ts"),
+      "./markdown-list": require("../apps/mobile/src/markdown-list.ts"),
       "./theme": { useTheme: () => ({ ...themeHooks.useTheme(), textPx, codeSize }) },
       "./viewer-store": viewer,
       "./chat-presentation": require("../apps/mobile/src/chat-presentation.ts"),
@@ -2390,6 +2391,45 @@ test("Markdown code ignores stale clipboard completion, failure and resolution a
   requests[3].resolve();
   await Promise.resolve();
   assert.equal(taps, 1);
+});
+
+test("ordered list markers share a column sized for the list's widest number, so 10 shows whole and every item's text lines up", () => {
+  const screen = markdownHost();
+  const numbered = (from, to) => Array.from({ length: to - from + 1 }, (_, index) => `${from + index}. Item ${from + index}`).join("\n");
+  const markers = (tree) => {
+    const cells = [];
+    const collect = (node) => {
+      if (Array.isArray(node)) return node.forEach(collect);
+      if (!node || typeof node !== "object") return;
+      const children = [node.props?.children].flat();
+      if (node.type === "View" && children.length === 2 && children.every((child) => child?.type === "Text" && child.props.style?.[2]))
+        cells.push(children.map((child) => [child.props.children].flat().join("")));
+      collect(node.props?.children);
+    };
+    collect(tree);
+    return cells;
+  };
+  const long = markers(screen.render(numbered(1, 12)));
+  assert.equal(long.length, 12);
+  assert.deepEqual(long[9], ["00.", "10."], "the hidden widest label sizes the column and 10 shows whole");
+  assert.ok(
+    long.every(([widest]) => widest === "00."),
+    "every row shares the two-digit column",
+  );
+  assert.deepEqual(
+    markers(screen.render(numbered(1, 3))).map(([widest]) => widest),
+    ["0.", "0.", "0."],
+    "a short list keeps one digit",
+  );
+  assert.deepEqual(
+    markers(screen.render(numbered(9, 10))),
+    [
+      ["00.", "9."],
+      ["00.", "10."],
+    ],
+    "a list continued past 9 sizes for its own numbers",
+  );
+  screen.unmount();
 });
 
 test("Markdown tables align header/body columns, fill short tables and preserve rich nested cells", async () => {
