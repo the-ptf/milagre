@@ -1,0 +1,193 @@
+---
+// The spacing, radius, elevation, blur, motion and icon tables from DESIGN.md as specimens. Shadows, blurs and
+// curves use the values the apps ship (design-system.ts); the tables only add each token's use.
+import { CommandLineIcon, File01Icon, Mic01Icon, PencilEdit02Icon, Search01Icon, Settings01Icon } from "@hugeicons/core-free-icons";
+import { desktop, phone, SCHEMES, type Table } from "../../design-system";
+import { icon } from "../../hugeicon";
+
+interface Props {
+  kind: "space-phone" | "radius-desktop" | "radius-phone" | "elevation" | "blur" | "motion" | "icons";
+  table: Table;
+}
+const { kind, table } = Astro.props;
+const at = (name: string) => table.header.indexOf(name);
+const value = at("Value");
+const use = at("Use");
+
+// A cubic-bezier as an SVG path in a 100 x 100 box, y up.
+const curve = (bezier: string) => {
+  const [x1, y1, x2, y2] = (bezier.match(/[\d.]+/g) ?? []).map(Number);
+  return `M0 100 C${x1 * 100} ${100 - y1 * 100} ${x2 * 100} ${100 - y2 * 100} 100 0`;
+};
+const GLYPHS = [File01Icon, Search01Icon, PencilEdit02Icon, CommandLineIcon, Mic01Icon, Settings01Icon];
+---
+{
+  kind === "space-phone" && (
+    <ul class="bars" role="list">
+      {table.rows.map((row) => (
+        <li>
+          <code>{row[0]}</code>
+          <span class="num">{row[value]}</span>
+          <span class="bar" style={`width:${Number(row[value]) * 4}px`} />
+          <span class="use">{row[use]}</span>
+        </li>
+      ))}
+      <li class="note">Bars are drawn at 4x.</li>
+    </ul>
+  )
+}
+{
+  (kind === "radius-desktop" || kind === "radius-phone") && (
+    <ul class="radii" role="list">
+      {table.rows.map((row) => (
+        <li>
+          <span class="corner" style={`border-radius:${row[value] === "full" ? 999 : Number(row[value])}px`} />
+          <code>{row[0]}</code>
+          <span class="num">{row[value] === "full" || row[value] === "999" ? "full" : `${row[value]}px`}</span>
+          <span class="use">{row[use]}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+{
+  kind === "elevation" && (
+    <div class="pair">
+      {SCHEMES.map((scheme) => (
+        <div class={`scheme scheme-${scheme}`}>
+          <p class="scheme-name">{scheme === "light" ? "Light" : "Dark"}</p>
+          <ul class="shadows" role="list">
+            {table.rows.map((row) => (
+              <li style={`box-shadow:var(--${row[0]})`}>
+                <code>{row[0].replace("shadow-", "")}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  )
+}
+{
+  kind === "blur" && (
+    <div class="pair">
+      {SCHEMES.map((scheme) => (
+        <div class={`scheme scheme-${scheme} blur-ground`}>
+          <p class="scheme-name">{scheme === "light" ? "Light" : "Dark"}</p>
+          <ul class="blurs" role="list">
+            {table.rows.map((row) => (
+              <li style={`backdrop-filter:blur(${row[value]}px);-webkit-backdrop-filter:blur(${row[value]}px)`}>
+                <code>{row[0].replace("backdrop-blur-", "")}</code>
+                <span>{row[value]}px</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  )
+}
+{
+  kind === "motion" && (
+    <div class="motion">
+      <ul class="durations" role="list">
+        {Object.entries(desktop.duration).map(([name, ms]) => (
+          <li style={`--ms:${ms}ms`}>
+            <code>{name}</code>
+            <span class="num">{ms}ms</span>
+            <span class="track">
+              <span class="ball" />
+            </span>
+          </li>
+        ))}
+        <li class="note">Hover or tap a row to play it on the enter curve.</li>
+      </ul>
+      <ul class="curves" role="list">
+        {Object.entries(desktop.easing).map(([name, bezier]) => (
+          <li>
+            <svg viewBox="-6 -6 112 112" width="112" height="112" aria-hidden="true">
+              <path d="M0 0V100H100" class="axis" />
+              <path d={curve(bezier)} class="path" />
+            </svg>
+            <code>{name}</code>
+            <span class="bezier">{bezier.replace("cubic-bezier", "")}</span>
+          </li>
+        ))}
+        <li>
+          <span class="press">
+            <span>Press</span>
+          </span>
+          <code>press</code>
+          <span class="bezier">scale {desktop.pressScale}, phone {phone.pressScale}</span>
+        </li>
+      </ul>
+    </div>
+  )
+}
+{
+  kind === "icons" && (
+    <ul class="icons" role="list">
+      {table.rows.map((row) => (
+        <li>
+          <span class="num">
+            {row[0]}px · {row[1]}
+          </span>
+          <span class="glyphs" set:html={GLYPHS.map((glyph) => icon(glyph, Number(row[0]), Number(row[1]))).join("")} />
+          <span class="use">{row[at("Desktop use")]}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+<style>
+  ul { margin: 20px 0 0; padding: 0; list-style: none; }
+  code { color: var(--ink); font-size: 13px; }
+  .num { color: var(--ink-3); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .use { color: var(--ink-2); font-size: 13px; line-height: 1.45; }
+  .note { color: var(--ink-3); font-size: 13px; }
+
+  .bars { display: grid; gap: 10px; padding: 16px 18px; border-radius: 12px; background: var(--canvas); box-shadow: var(--shadow-card); }
+  .bars li { display: grid; grid-template-columns: 120px 32px 136px minmax(0, 1fr); gap: 12px; align-items: center; }
+  .bars .note { display: block; }
+  .bar { height: 10px; border-radius: 3px; background: var(--accent); }
+  @media (max-width: 560px) { .bars li { grid-template-columns: 110px 28px minmax(0, 1fr); } .bars .use { grid-column: 1 / -1; } }
+
+  .radii { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .radii li { display: flex; flex-direction: column; gap: 4px; padding: 14px; border-radius: 12px; background: var(--canvas); box-shadow: var(--shadow-card); }
+  .corner { width: 72px; height: 72px; margin-bottom: 8px; border: 1.5px solid var(--ink-3); border-right: 0; border-bottom: 0; background: linear-gradient(135deg, var(--accent-tint), transparent 70%); }
+
+  .shadows { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 18px; margin: 0; }
+  .shadows li { display: grid; place-items: center; height: 64px; border-radius: 10px; background: var(--surface); }
+  .shadows code { color: var(--ink-2); font-size: 12px; }
+
+  .blur-ground { background-image: repeating-linear-gradient(-45deg, var(--accent) 0 2px, transparent 2px 10px), radial-gradient(circle at 30% 40%, var(--orange) 0 18%, transparent 19%), radial-gradient(circle at 75% 70%, var(--green) 0 16%, transparent 17%); }
+  .blurs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
+  .blurs li { display: flex; flex-direction: column; justify-content: flex-end; height: 92px; padding: 10px; border-radius: 10px; background: color-mix(in srgb, var(--surface) 70%, transparent); box-shadow: 0 0 0 1px var(--line); }
+  .blurs span { color: var(--ink-2); font-size: 12px; }
+
+  .motion { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 20px; }
+  .motion ul { margin: 0; padding: 16px 18px; border-radius: 12px; background: var(--canvas); box-shadow: var(--shadow-card); }
+  .durations { display: grid; gap: 12px; align-content: start; }
+  .durations li { display: grid; grid-template-columns: 48px 56px minmax(0, 1fr); gap: 12px; align-items: center; }
+  .durations .note { display: block; }
+  .track { position: relative; height: 16px; border-radius: 999px; background: var(--surface); }
+  .ball { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 999px; background: var(--accent); transition: left var(--ms) cubic-bezier(0.23, 1, 0.32, 1); }
+  .durations li:hover .ball, .durations li:active .ball { left: calc(100% - 14px); }
+  .curves { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 16px; }
+  .curves li { display: flex; flex-direction: column; gap: 4px; }
+  .curves svg { width: 100%; max-width: 112px; height: auto; }
+  .axis { fill: none; stroke: var(--line-strong); stroke-width: 1.5; }
+  .path { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; }
+  .bezier { color: var(--ink-3); font: 12px var(--font-mono); }
+  .press { display: grid; place-items: center; width: 100%; max-width: 112px; aspect-ratio: 1; }
+  .press span { padding: 8px 14px; border-radius: 8px; background: var(--ink); color: var(--page); font-size: 13px; font-weight: 500; transition: scale 120ms cubic-bezier(0.23, 1, 0.32, 1); user-select: none; }
+  .press:active span, .press:hover span { scale: 0.97; }
+
+  .icons { display: grid; gap: 4px; padding: 8px 18px; border-radius: 12px; background: var(--canvas); box-shadow: var(--shadow-card); }
+  .icons li { display: grid; grid-template-columns: 96px auto minmax(0, 1fr); gap: 20px; align-items: center; padding: 10px 0; }
+  .icons li + li { border-top: 1px solid var(--line); }
+  .glyphs { display: flex; gap: 14px; color: var(--ink-2); }
+  @media (max-width: 560px) { .icons li { grid-template-columns: 84px minmax(0, 1fr); } .icons .use { grid-column: 1 / -1; } }
+  @media (prefers-reduced-motion: reduce) { .ball, .press span { transition: none; } }
+</style>
