@@ -256,7 +256,7 @@ export function CommandPalette({
         }
       }}
     >
-      <div className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3">
+      <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-3">
         <Icon icon={Search01Icon} size={18} className="shrink-0 text-ink-3" />
         <input
           ref={input}
@@ -277,11 +277,12 @@ export function CommandPalette({
         {showHints && <ShortcutKeys shortcut="esc" />}
       </div>
       {/* A 16px edge fade: the 28px default washed out the last whole row, which then read as disabled. */}
-      <ScrollArea id={listId} role="listbox" aria-label="Commands" className="px-1.5 pt-1.5 pb-2 [--scroll-fade-size:16px]">
+      <ScrollArea id={listId} role="listbox" aria-label="Commands" className="pt-1.5 pr-0 pb-2 pl-1.5 [--scroll-fade-size:16px]">
         {Array.from(new Set(results.map((command) => command.group))).map((group) => (
           <div key={group} role="group" aria-label={group} className="pb-1.5 last:pb-0">
             <div aria-hidden="true">
-              <MenuLabel>{group}</MenuLabel>
+              {/* On the commands' icon line: their 16px glyphs sit centred in 20px slots. */}
+              <MenuLabel className="pl-2.5">{group}</MenuLabel>
             </div>
             {results
               .filter((command) => command.group === group)

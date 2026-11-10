@@ -40,7 +40,7 @@ export function FlatList({ files, onSelectFile, activePath, commentCounts }: { f
               // Two lines when narrow: the glyph, counts and badge sit on the name's 18px line, the folder runs alone below.
               className={`col-span-full grid h-10 grid-cols-subgrid items-start py-[3px] text-left text-13 transition-colors hover:bg-hover @[440px]:h-7 @[440px]:items-center @[440px]:py-0 ${activePath === file.path ? "bg-hover" : ""}`}
             >
-              <span className="col-start-2 flex h-[18px] w-4 items-center justify-center text-ink-3">
+              <span className="col-start-2 flex h-[18px] w-4 items-center text-ink-3">
                 <HugeiconsIcon icon={File01Icon} size={14} strokeWidth={1.6} color="currentColor" />
               </span>
               <span className="flex min-w-0 flex-col @[440px]:col-span-2 @[440px]:grid @[440px]:grid-cols-subgrid @[440px]:items-center">

@@ -116,7 +116,7 @@ export function ModelPicker({
       className={`absolute z-20 flex h-[340px] overflow-hidden rounded-card bg-surface shadow-raised ${hasSettings ? "w-[580px]" : "w-[300px]"}`}
       style={{ animation: "pop-in var(--duration-base) var(--ease-enter) backwards", ...style }}
     >
-      <ScrollArea data-provider-tabs aria-label="Providers" className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-line bg-inset py-2">
+      <ScrollArea data-provider-tabs aria-label="Providers" className="flex w-[45px] shrink-0 flex-col items-center gap-1 border-r border-line bg-inset py-2">
         {providers.map((item) => {
           const warning = cliTabLabel(cliStatus?.[item]);
           const on = item === provider;
@@ -149,7 +149,7 @@ export function ModelPicker({
       </ScrollArea>
 
       <div onKeyDown={handleKeyDown} className={`flex min-w-0 flex-col pt-2 pl-2 ${hasSettings ? "w-[240px] shrink-0 border-r border-line" : "flex-1"}`}>
-        <div className="flex items-baseline justify-between px-1.5 pr-3 pb-1.5">
+        <div className="flex items-baseline justify-between px-2 pr-3 pb-1.5">
           <strong className="text-13 font-semibold text-ink">{providerName(provider)}</strong>
           <span className="text-11 text-ink-3">
             {totalModels} {totalModels === 1 ? "model" : "models"}
@@ -157,8 +157,10 @@ export function ModelPicker({
         </div>
         {scope && <ModelAccountPicker key={scope} scope={scope} provider={provider} />}
         {/* PickerPanel's search field. */}
-        <div className="mr-2 mb-1 shrink-0">
+        {/* Ends with the model rows (which keep 10px for the scrollbar); its icon starts on their text line. */}
+        <div className="mr-4.5 mb-1 shrink-0">
           <FieldGroup
+            className="pl-[7px]"
             leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
@@ -167,7 +169,7 @@ export function ModelPicker({
           />
         </div>
         {notice}
-        <ScrollArea className="grid flex-1 grid-cols-1 content-start gap-0.5 pr-2 pb-2">
+        <ScrollArea className="grid flex-1 grid-cols-1 content-start gap-0.5 pr-2 pb-2 [scrollbar-gutter:stable]">
           {models.map((model) => (
             <ModelTip
               key={model.id}
@@ -189,7 +191,7 @@ export function ModelPicker({
       </div>
 
       {hasSettings && (
-        <div data-model-settings className="flex min-w-0 flex-1 flex-col gap-3 p-3">
+        <div data-model-settings className="flex min-w-0 flex-1 flex-col gap-3 px-3 pt-2.5 pb-3">
           {levels.length > 0 && current && (
             <div className="flex flex-col">
               <SectionLabel as="span" variant="menu" className="pb-2">
