@@ -32,7 +32,7 @@ export type WhisperPlatform = "desktop" | "phone";
 export function whisperLanguage(language: string, model?: Pick<WhisperModel, "english"> | null): string;
 export const WHISPER_MODELS: Record<WhisperPlatform, readonly WhisperModel[]>;
 export function whisperModelFor(platform: WhisperPlatform, id: unknown): WhisperModel;
-export function whisperText(text: unknown): string;
+export function whisperText(text: unknown, segments?: readonly { text: unknown }[] | null): string;
 export function silentPcm(samples: Int16Array): boolean;
 export type DictationShortcutMode = "hold" | "toggle";
 export const DICTATION_SHORTCUT_MODES: readonly { value: DictationShortcutMode; label: string; description: string }[];

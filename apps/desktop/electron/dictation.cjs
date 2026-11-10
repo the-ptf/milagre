@@ -154,8 +154,8 @@ function createDictation({
         temperature: 0,
         maxThreads: Math.max(1, Math.min(8, os.availableParallelism() - 1)),
       });
-      const { result } = await promise;
-      return { text: whisperText(result) };
+      const { result, segments } = await promise;
+      return { text: whisperText(result, segments) };
     } finally {
       keepWarm();
     }

@@ -19,7 +19,7 @@ type WhisperContext = {
       translate: boolean;
     },
   ): {
-    promise: Promise<{ result: string }>;
+    promise: Promise<{ result: string; segments?: { text: string }[] }>;
   };
   release(): Promise<void>;
 };
@@ -169,7 +169,8 @@ export function getTranscriber(): Transcriber {
           temperature: 0,
           translate: false,
         });
-        return whisperText((await promise).result);
+        const { result, segments } = await promise;
+        return whisperText(result, segments);
       }),
   };
 }

@@ -59,6 +59,38 @@ test("Whisper's non-speech markers are dropped", async () => {
   assert.equal(whisperText("open Milagre (music) now"), "open Milagre now");
 });
 
+test("the caption lines Whisper invents for a click or a breath go, and the words around them stay", async () => {
+  const { whisperText } = await import("./dictation.mjs");
+  // The trailer Whisper adds to the last take when the mic hears the Stop click: its own segment after the words.
+  const segments = [{ text: " Corrija o bug no composer." }, { text: " E aí" }];
+  assert.equal(whisperText(" Corrija o bug no composer. E aí", segments), "Corrija o bug no composer.");
+  // Spelling and punctuation vary; the letters decide.
+  for (const line of ["E aí!", "e ai", "E aí...", "E aí, galera.", "Legendas pela comunidade Amara.org", "Thanks for watching!"]) {
+    assert.equal(whisperText(line, [{ text: ` ${line}` }]), "", line);
+    assert.equal(whisperText(line), "", `${line} as the whole text`);
+  }
+  // Glued to the last sentence, without a segment break of its own.
+  assert.equal(whisperText("Roda os testes. E aí"), "Roda os testes.");
+  assert.equal(whisperText("Roda os testes. E aí", [{ text: " Roda os testes. E aí" }]), "Roda os testes.");
+  // A greeting someone really dictated is longer than the caption line, and stays.
+  assert.equal(whisperText("E aí, terminou os testes?"), "E aí, terminou os testes?");
+  assert.equal(whisperText("Roda os testes, e aí?"), "Roda os testes, e aí?");
+});
+
+test("a thanks or goodbye is dropped only when Whisper heard nothing else", async () => {
+  const { whisperText } = await import("./dictation.mjs");
+  // A clip of nothing but a breath between phrases, decoded on its own.
+  assert.equal(whisperText(" Obrigado.", [{ text: " Obrigado." }]), "");
+  assert.equal(whisperText("Thank you."), "");
+  assert.equal(whisperText(" Obrigado. Tchau.", [{ text: " Obrigado." }, { text: " Tchau." }]), "");
+  // Said at the end of a message, it stays.
+  assert.equal(whisperText(" Faz isso aí. Obrigado.", [{ text: " Faz isso aí." }, { text: " Obrigado." }]), "Faz isso aí. Obrigado.");
+  assert.equal(whisperText("Faz isso aí. Obrigado."), "Faz isso aí. Obrigado.");
+  // No segments, or an empty list: the joined text is judged as one line.
+  assert.equal(whisperText("Corrija o bug.", []), "Corrija o bug.");
+  assert.equal(whisperText("Corrija o bug.", null), "Corrija o bug.");
+});
+
 test("a clip is silent until some 100 ms of it is louder than a quiet room", async () => {
   const { silentPcm } = await import("./dictation.mjs");
   const clip = new Int16Array(16000);
