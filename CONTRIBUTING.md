@@ -26,6 +26,8 @@ Use `npm run dev` for visual work. Keep the renderer and Electron process bounda
 - `apps/desktop/electron/` owns native windows, dialogs, media, notifications and updates.
 - `packages/core/` owns provider processes, Chat state, filesystem and git operations; `apps/daemon/` exposes that runtime over a private local socket.
 - `packages/shared/` owns the model and pure Chat/state operations used by both sides. Import through `@milagre/shared` package exports.
+- `apps/mobile/` is the Expo app for iPhone and Android; `apps/relay/` the Cloudflare relay for phones and computers.
+- `apps/site/` is milagre.dev with its /docs; `apps/design-share/` serves shared Designs and Artifacts.
 - `scripts/` contains root development, integration-test and release helpers.
 
 Install dependencies from the repository root with `npm ci`. Add package dependencies to their workspace. Root commands still work; `npm run build --workspace milagre` and `npm run test --workspace @milagre/shared` target individual packages. Electron packaging runs at root, with installers in `release/`.

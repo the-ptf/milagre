@@ -59,12 +59,8 @@ Release installers require a Developer ID Application certificate and Apple nota
 
 For a local build without an Apple certificate, use `npm run package:mac:local`. This explicitly uses an ad-hoc signature and skips notarization; downloaded copies still require a manual security exception.
 
-## README image
+## README images
 
-`node scripts/capture-readme.cjs /tmp/milagre-readme` captures the real desktop renderer with mock Chats and starts a read-only mobile fixture on `127.0.0.1:8798`. Open its printed demo pairing link in a simulator, capture the Project sidebar, then compose both captures:
+The README hero is a frame from the landing recordings in `apps/site/public/demo/` (`scripts/site-demo/record.cjs`): the desktop and iPhone takes at the same moment, framed like the site's hero, with the Browser and Computers stills below. After re-recording the site, take matching frames with `ffmpeg -ss <seconds> -i desktop.mp4 -frames:v 1`, compose them, put them on the orphan `screenshots` branch under `readme/` and link the README to that commit's SHA, as described in [AGENTS.md](../AGENTS.md).
 
-```sh
-node scripts/capture-readme.cjs /tmp/milagre-readme --compose /absolute/path/to/mobile.png
-```
-
-The output is `/tmp/milagre-readme/desktop-and-mobile.png`. Stop the fixture with Ctrl+C. Use `--host-only` to restart it without recapturing desktop. Keep images on the orphan `screenshots` branch and link the README to the image commit's SHA, as described in [AGENTS.md](../AGENTS.md). The fixture opens no real Project and calls no provider.
+`node scripts/capture-readme.cjs /tmp/milagre-readme` still captures the desktop renderer with mock Chats and a read-only mobile fixture, for a light-theme or New chat shot.
