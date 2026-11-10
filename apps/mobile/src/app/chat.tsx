@@ -2358,6 +2358,9 @@ function ChatPane({
                   keyboardLiftBehavior="whenAtEnd"
                   onEndVisible={onEndVisible}
                   contentInsetAdjustmentBehavior="never"
+                  // iOS reads a tap on a React Native button near the top edge (the PR button, the Chat's title) as a tap on
+                  // the status bar too and scrolls this transcript to its first message. Only native header buttons stop it.
+                  scrollsToTop={false}
                   // Images above the screen load after the Chat is placed. The native view keeps the first visible message
                   // where it was in the same frame; a JS jump from onContentSizeChange arrives frames later and flickers.
                   maintainVisibleContentPosition={KEEP_VISIBLE_POSITION}
