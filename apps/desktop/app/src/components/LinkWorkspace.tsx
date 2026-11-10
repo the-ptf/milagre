@@ -48,7 +48,7 @@ import SidebarNav from "./SidebarNav";
 import { runKeys, scopeChats, useScopeStates } from "../lib/sidebar-scopes";
 import { DraftChatComposer } from "./DraftChatComposer";
 import { useComposerPreferences } from "../lib/use-composer-preferences";
-import { effortFor, type ChatMessage, type CoordinatorState, type ModelOption, type ModelProvider } from "../model";
+import { effortFor, type ChatMessage, type CoordinatorState, type ImageAttachment, type ModelOption, type ModelProvider } from "../model";
 import { createDraftStore, draftKey } from "../lib/draft-store";
 import { createScopeDrafts, memberWorktreeForAction } from "../lib/link-scope";
 import { usePastedImages } from "./usePastedImages";
@@ -463,11 +463,18 @@ export function LinkWorkspace({
   }, [owner, chatId, state.sessions, hiddenProjects]);
   // `attach` false sends the body alone, as design feedback does: the composer's images and files stay for later.
   // `issue`: a new Chat started from a Linear issue, whose first message is the issue and then what the user typed.
-  async function send(body = draftStore.get().trim(), preserve = false, attach = true, delivery?: MessageDelivery, issue?: LinearIssue) {
+  async function send(
+    body = draftStore.get().trim(),
+    preserve = false,
+    attach = true,
+    delivery?: MessageDelivery,
+    issue?: LinearIssue,
+    additionalImages: ImageAttachment[] = [],
+  ) {
     const typed = draftStore.get().trim();
-    const images = attach ? imageDraft.images : [];
+    const images = [...(attach ? imageDraft.images : []), ...additionalImages];
     const files = attach ? imageDraft.files : [];
-    if (preparing || sendsInFlight.current.has(sendKey) || imageDraft.loading || (!body && !images.length && !files.length)) return false;
+    if (preparing || sendsInFlight.current.has(sendKey) || (attach && imageDraft.loading) || (!body && !images.length && !files.length)) return false;
     const selection = latest.current.selection;
     const operation = drafts.beginSend(scope, sessionId, JSON.stringify({ body, images, files }));
     sendsInFlight.current.add(sendKey);
@@ -828,6 +835,7 @@ export function LinkWorkspace({
                         imageDraft={imageDraft}
                         onSend={(delivery) => void send(draftStore.get().trim(), false, true, delivery)}
                         onSendDesignMessage={(text) => send(text, true, false)}
+                        onSendPageComments={(text, images) => send(text, true, false, undefined, undefined, images)}
                         onStop={chatId && run ? () => void agents.interrupt(chatId) : undefined}
                         isSending={Boolean(run && !approval && !question) || (pendingHere && !run)}
                         sendBlocked={preparing}
