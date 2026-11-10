@@ -270,6 +270,32 @@ const callerMode = (mode) => (Object.hasOwn(MODE_RANK, mode ?? "") ? mode : "ask
 const modeRank = (mode) => (Object.hasOwn(MODE_RANK, mode ?? "") ? MODE_RANK[mode] : Infinity);
 /** Whether running in `mode` is more than a caller in `caller` may give a Chat without the user's say. */
 const raisesMode = (mode, caller) => modeRank(mode) > MODE_RANK[callerMode(caller)];
+/** A turn's mode as a provider gets it: one Milagre doesn't know runs in Ask; none leaves the session's as it is. */
+const turnMode = (mode) => (mode == null || PERMISSION_MODES.has(mode) ? mode : "ask");
+
+/**
+ * A saved Chat in a mode Milagre no longer knows (the bots' Bot rules, removed) asks from now on: its own mode, and
+ * every turn it starts again (a resume, a continue after a usage limit, the messages queued behind its turn). The same
+ * state comes back when no Chat has one.
+ */
+function askForUnknownModes(state) {
+  const unknown = (turn) => turn?.permissionMode != null && !PERMISSION_MODES.has(turn.permissionMode);
+  const asked = (turn) => (unknown(turn) ? { ...turn, permissionMode: "ask" } : turn);
+  let sessions = null;
+  for (const [id, session] of Object.entries(state?.sessions ?? {})) {
+    const queued = session.queued?.some((entry) => unknown(entry.turn));
+    if (!unknown(session) && !unknown(session.resumeTurn) && !unknown(session.limitTurn?.turn) && !unknown(session.limitResume?.turn) && !queued) continue;
+    sessions ??= { ...state.sessions };
+    sessions[id] = {
+      ...asked(session),
+      ...(session.resumeTurn ? { resumeTurn: asked(session.resumeTurn) } : {}),
+      ...(session.limitTurn ? { limitTurn: { ...session.limitTurn, turn: asked(session.limitTurn.turn) } } : {}),
+      ...(session.limitResume ? { limitResume: { ...session.limitResume, turn: asked(session.limitResume.turn) } } : {}),
+      ...(queued ? { queued: session.queued.map((entry) => (entry.turn ? { ...entry, turn: asked(entry.turn) } : entry)) } : {}),
+    };
+  }
+  return sessions ? { ...state, sessions } : state;
+}
 
 // True when every path is inside root.
 function insideRoot(root, files) {
@@ -432,6 +458,8 @@ module.exports = {
   isUngatedMilagreTool,
   modeRank,
   raisesMode,
+  turnMode,
+  askForUnknownModes,
   WorkspaceAccess,
   claudeAccessRequest,
   claudeRequest,

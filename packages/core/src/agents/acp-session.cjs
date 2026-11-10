@@ -448,7 +448,9 @@ class AcpSession {
   // doesn't allow, and PendingPermissions allows the rest without a card.
   // A wake's turn runs in Ask's, the strictest there is, whatever the Chat's; `permissions` keeps the Chat's own.
   async applyMode() {
-    const target = this.config.modes[this.escalation ? "ask" : this.guard && this.permissions.mode === "full" ? "auto" : this.permissions.mode];
+    const mode = this.escalation ? "ask" : this.guard && this.permissions.mode === "full" ? "auto" : this.permissions.mode;
+    // A mode the agent has no mapping for asks: leaving the agent as it was could keep Full's mode.
+    const target = this.config.modes[mode] ?? this.config.modes.ask;
     // Kiro's permission mode is its `autopilot` option; its `mode` names its agents (see kiro-acp.cjs).
     const option = this.config.modeOption ?? "mode";
     if (!target || target === this.state[option] || !this.rpc || this.closed) return;

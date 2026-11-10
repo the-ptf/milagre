@@ -21,6 +21,8 @@ const {
   isUngatedMilagreTool,
   MODE_RANK,
   raisesMode,
+  turnMode,
+  askForUnknownModes,
   unwrapShell,
 } = require("./permissions.cjs");
 const { PLAN_TOOL_NAMES } = require("../chat-plan-tools.cjs");
@@ -36,6 +38,37 @@ test("a mode Milagre doesn't know weighs as Ask for a caller and above Full for 
   for (const caller of ["ask", "auto", "full"]) assert.equal(raisesMode("unknown", caller), true, caller);
   assert.equal(raisesMode("auto", "full"), false);
   assert.equal(raisesMode("full", "auto"), true);
+});
+
+test("a saved Chat in a mode Milagre no longer knows asks: its mode, its stopped turn, its limit turns and its queue", () => {
+  assert.equal(turnMode("bot"), "ask");
+  assert.equal(turnMode("auto"), "auto");
+  assert.equal(turnMode(undefined), undefined);
+  const state = {
+    sessions: {
+      7: {
+        id: 7,
+        permissionMode: "bot",
+        resumeTurn: { provider: "antigravity", permissionMode: "bot" },
+        limitTurn: { sourceMessageId: 3, turn: { permissionMode: "bot" } },
+        limitResume: { at: 1, turn: { permissionMode: "bot" } },
+        queued: [{ id: "q1", turn: { permissionMode: "bot" } }, { id: "q2", turn: { permissionMode: "full" } }, { id: "q3" }],
+      },
+      8: { id: 8, permissionMode: "full", queued: [{ id: "q4", turn: { permissionMode: "auto" } }] },
+    },
+  };
+  const next = askForUnknownModes(state);
+  assert.deepEqual(next.sessions[7], {
+    id: 7,
+    permissionMode: "ask",
+    resumeTurn: { provider: "antigravity", permissionMode: "ask" },
+    limitTurn: { sourceMessageId: 3, turn: { permissionMode: "ask" } },
+    limitResume: { at: 1, turn: { permissionMode: "ask" } },
+    queued: [{ id: "q1", turn: { permissionMode: "ask" } }, { id: "q2", turn: { permissionMode: "full" } }, { id: "q3" }],
+  });
+  assert.equal(next.sessions[8], state.sessions[8], "a Chat in a known mode is left as it is");
+  const known = { sessions: { 8: state.sessions[8] } };
+  assert.equal(askForUnknownModes(known), known, "nothing to change hands the same state back");
 });
 
 test("Codex: MCP approvals show the exact call without offering permanent grants", () => {

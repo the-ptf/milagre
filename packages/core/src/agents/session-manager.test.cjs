@@ -609,6 +609,20 @@ test("Milagre's own tools ask through the chat's approval cards and read its per
   assert.equal(await decision, "deny");
 });
 
+test("a turn saved in a mode Milagre no longer knows starts in Ask; a turn with no mode keeps the session's", async () => {
+  const started = [];
+  const session = {
+    turnActive: false,
+    closed: false,
+    permissions: { mode: "ask" },
+    startTurn: async (request) => (started.push(request.permissionMode), { turnId: "t", steered: false }),
+    close: async () => {},
+  };
+  const manager = new SessionManager({ createSession: () => session, send: () => {} });
+  for (const permissionMode of ["bot", "full", undefined]) await manager.startTurn({ chatId: "p#1", provider: "claude", cwd: "/p", permissionMode });
+  assert.deepEqual(started, ["ask", "full", undefined]);
+});
+
 test("an Antigravity session's models are recorded for its account once the turn has started", async () => {
   const { listAntigravityModels, forgetAntigravityModels } = require("./models.cjs");
   forgetAntigravityModels();

@@ -1,6 +1,6 @@
 const { active: activeSubagent } = require("./subagents.cjs");
 const { isTerminal } = require("./events.cjs");
-const { PERMISSION_MODES, USER_DECISIONS, WorkspaceAccess } = require("./permissions.cjs");
+const { PERMISSION_MODES, USER_DECISIONS, WorkspaceAccess, turnMode } = require("./permissions.cjs");
 const { validAnswers } = require("./questions.cjs");
 const { capOutput } = require("./steps.cjs");
 const { recordAntigravityModels } = require("./models.cjs");
@@ -62,7 +62,9 @@ class SessionManager {
         prompt: request.prompt,
         images: request.images,
         model: request.model,
-        permissionMode: request.permissionMode,
+        // A turn saved in a mode Milagre no longer knows runs in Ask: no provider maps it, and one that maps nothing keeps
+        // the mode it had (an ACP agent left in Full's would run it without asking).
+        permissionMode: turnMode(request.permissionMode),
         effort: request.effort,
         ultracode: request.ultracode,
         fastMode: request.fastMode,

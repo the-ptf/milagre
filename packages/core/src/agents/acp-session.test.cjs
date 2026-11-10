@@ -483,6 +483,16 @@ test("switches the model and the mode only when they change", async (t) => {
   ]);
 });
 
+test("a turn in a mode Antigravity has no mapping for runs in Ask's mode, never the one the agent was left in", async (t) => {
+  const { session, events } = antigravity(t);
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(events);
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events, 2);
+  const modes = (await sent(session, "session/set_config_option")).filter((params) => params.configId === "mode").map((params) => params.value);
+  assert.deepEqual(modes, ["yolo", "default"]);
+});
+
 test("a family and effort resolve to the agent's id from the session's own options; a raw agent id is used as it is", async (t) => {
   const { session, events } = antigravity(t);
   await session.startTurn({ ...TURN, model: "gemini-3.8-flash", effort: "low" });

@@ -114,7 +114,7 @@ const ROUTINE_TARGET_CHATS = 50;
 
 const { createFileSearch } = require("./project-files.cjs");
 const { dictationContext, polishDictation, createDictationModels } = require("./dictation.cjs");
-const { PERMISSION_MODES } = require("./agents/permissions.cjs");
+const { PERMISSION_MODES, askForUnknownModes } = require("./agents/permissions.cjs");
 const { createChatsHome } = require("./chats-home.cjs");
 const { isFolderChatsHome, createFolderChat } = require("./chats-home-folders.cjs");
 const git = createGit().read;
@@ -729,7 +729,8 @@ function createRuntime(options) {
         )
           throw new Error(`${projectName(projectPath)} is no longer a Git repository, so its Worktree Chats can't open. Restore its .git folder.`);
         const next = reconcileState(current, projectName(projectPath), discovered, owned);
-        return migrateImages(projectPath, markDisconnectedSubagents(next, new Set(Object.keys(next.sessions).map(Number).filter(live))));
+        // A Chat saved in a mode Milagre no longer knows (Bot rules) asks from now on, before any of its turns starts again.
+        return migrateImages(projectPath, askForUnknownModes(markDisconnectedSubagents(next, new Set(Object.keys(next.sessions).map(Number).filter(live)))));
       },
       { chats: [] },
     );
