@@ -8869,6 +8869,9 @@ test("refreshing saved hosts during startup cannot cancel the claimed auto-open"
   };
   const { default: Screen } = load("app/index.tsx", {
     "../update-sheet": { UpdateSettingsBadge: "UpdateSettingsBadge", useAppUpdates: () => ({ state: { status: "idle" } }) },
+    "../onboarding-intro": { OnboardingIntro: "OnboardingIntro" },
+    "../onboarding-intro-seen": { useFirstLaunchIntro: () => ({ show: false, done() {} }) },
+    "../pair-walkthrough": { PairWalkthrough: "PairWalkthrough" },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": {
@@ -19656,7 +19659,7 @@ test("Add computer can remove the public fallback before pairing a pasted invita
     react: host,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { View: "View", Text: "Text", Pressable: "Pressable", StyleSheet: { absoluteFill: {} }, Linking: {} },
-    "expo-router": { Stack: { Screen: "Screen" }, router: { dismissAll() {}, replace() {}, back() {} } },
+    "expo-router": { Stack: { Screen: "Screen" }, router: { dismissAll() {}, replace() {}, back() {} }, useLocalSearchParams: () => ({}) },
     "expo-camera": { CameraView: "CameraView", useCameraPermissions: () => [{ granted: false }, () => {}] },
     "expo-clipboard": { getStringAsync: async () => invitation },
     "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),

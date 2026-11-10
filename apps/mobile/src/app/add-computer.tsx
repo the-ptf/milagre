@@ -1,7 +1,7 @@
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/site-links";
 import { useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
-import { Stack, router } from "expo-router";
+import { Stack, router, useLocalSearchParams } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Clipboard from "expo-clipboard";
 import { ArrowLeft01Icon, Cancel01Icon, ClipboardPasteIcon, KeyboardIcon, QrCodeIcon, Tick02Icon } from "@hugeicons/core-free-icons";
@@ -19,7 +19,9 @@ export default function AddComputer() {
   const styles = useStyles();
   const session = useSession();
   const [permission, requestPermission] = useCameraPermissions();
-  const [manual, setManual] = useState(false);
+  // The walkthrough's "Enter address instead" opens straight on the manual form.
+  const params = useLocalSearchParams<{ manual?: string }>();
+  const [manual, setManual] = useState(params.manual === "1");
   const [address, setAddress] = useState("https://");
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
