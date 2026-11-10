@@ -528,6 +528,16 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
 - The question card's "Other…" is the last option row, with the mic and image buttons inside it.
 - Unread stays a blue accent dot, the one accent status. Settings stays an in-window dialog. Done is a product noun.
 
+### Routines page (2026-11-10)
+
+- The header is the title and New Routine only, on both platforms; the lid note shows in the empty state.
+- Filters are two chip dropdowns, Show and Computer, with counts in their menus; no chip rows.
+- Rows have no on/off tick: Pause and Resume are the first action in the ⋯ menu (phone: the long press), and each
+  Routine's own page keeps its checkbox. A row's glyph is bare (no tile), rows are 56 high, and the status sits in a
+  72px column ("Next 16:00" today, "Fri 16:00", "Nov 18 10:00", "Paused").
+- Group labels have no glyph and sit on the column edge. The Flow badge is a neutral badge. Schedules read in words
+  ("Fridays 16:00", "every 30 min from :15"); only other shapes show their cron.
+
 ### Phone pass verdict (2026-11-10)
 
 - Kept: the phone Chat list rows (56pt, a trailing status slot, no state words, no Project tile in a one-Project list,
