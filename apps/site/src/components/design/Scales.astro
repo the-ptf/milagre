@@ -150,7 +150,7 @@ const GLYPHS = [File01Icon, Search01Icon, PencilEdit02Icon, CommandLineIcon, Mic
   .bars { display: grid; gap: 10px; padding: 16px 18px; border-radius: 12px; background: var(--canvas); box-shadow: var(--shadow-card); }
   .bars li { display: grid; grid-template-columns: 120px 32px 136px minmax(0, 1fr); gap: 12px; align-items: center; }
   .bars .note { display: block; }
-  .bar { height: 10px; border-radius: 3px; background: var(--accent); }
+  .bar { max-width: 100%; height: 10px; border-radius: 3px; background: var(--accent); }
   @media (max-width: 560px) { .bars li { grid-template-columns: 110px 28px minmax(0, 1fr); } .bars .use { grid-column: 1 / -1; } }
 
   .radii { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
@@ -166,7 +166,7 @@ const GLYPHS = [File01Icon, Search01Icon, PencilEdit02Icon, CommandLineIcon, Mic
   .blurs li { display: flex; flex-direction: column; justify-content: flex-end; height: 92px; padding: 10px; border-radius: 10px; background: color-mix(in srgb, var(--surface) 70%, transparent); box-shadow: 0 0 0 1px var(--line); }
   .blurs span { color: var(--ink-2); font-size: 12px; }
 
-  .motion { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 20px; }
+  .motion { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; margin-top: 20px; }
   .motion ul { margin: 0; padding: 16px 18px; border-radius: 12px; background: var(--canvas); box-shadow: var(--shadow-card); }
   .durations { display: grid; gap: 12px; align-content: start; }
   .durations li { display: grid; grid-template-columns: 48px 56px minmax(0, 1fr); gap: 12px; align-items: center; }

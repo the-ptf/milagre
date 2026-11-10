@@ -94,7 +94,7 @@ const tick = icon(Tick02Icon, 14, 1.8);
 
 <style>
   .dos { display: grid; gap: 16px; margin: 20px 0 0; padding: 0; list-style: none; }
-  .pair-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .pair-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
   .card { display: flex; flex-direction: column; gap: 10px; margin: 0; }
   .stage { display: grid; place-items: center; min-height: 120px; padding: 16px; }
   figcaption { display: flex; gap: 8px; color: var(--ink-2); font-size: 14px; line-height: 1.5; }
