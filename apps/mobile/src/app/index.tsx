@@ -15,6 +15,9 @@ import { useTheme } from "../theme";
 import { radius } from "../design-tokens";
 import { presenceTone } from "@milagre/shared/chat-scopes";
 import { UpdateSettingsBadge, useAppUpdates } from "../update-sheet";
+import { OnboardingIntro } from "../onboarding-intro";
+import { useFirstLaunchIntro } from "../onboarding-intro-seen";
+import { PairWalkthrough } from "../pair-walkthrough";
 
 const DEMO = process.env.EXPO_PUBLIC_DEMO === "1";
 
@@ -100,112 +103,122 @@ export default function ComputersScreen() {
   // The shared presence palette (desktop's too): offline is neutral, not an error.
   const dot = (state?: Reachability) => colors[presenceTone(state)];
   const label = (state?: Reachability) => (state === "online" ? "Online" : state === "offline" ? "Offline" : "Checking…");
+  // No computer yet: the walkthrough, after the Dawn intro on a first launch (desktop's onboarding, phone half).
+  const unpaired = session.booted && session.hosts.length === 0 && !DEMO;
+  const intro = useFirstLaunchIntro(unpaired);
   return (
     <View style={styles.screen}>
-      <Stack.Screen options={{ title: "Computers" }} />
-      <Stack.Toolbar placement="right">
-        {Platform.OS === "ios" ? (
-          <Stack.Toolbar.Button
-            icon="gearshape"
-            accessibilityLabel={updateAvailable ? "Settings, update available" : "Settings"}
-            onPress={() => router.push("/settings")}
-          >
-            {updateAvailable && <Stack.Toolbar.Badge style={{ backgroundColor: colors.green }} />}
-          </Stack.Toolbar.Button>
-        ) : (
-          <Stack.Toolbar.View>
-            <View>
-              <HeaderButton label="Settings" icon={Settings01Icon} onPress={() => router.push("/settings")} />
-              <UpdateSettingsBadge />
-            </View>
-          </Stack.Toolbar.View>
-        )}
-      </Stack.Toolbar>
-      {Platform.OS === "ios" && (
+      <Stack.Screen options={{ title: unpaired ? "" : "Computers", headerShown: !intro.show, headerTransparent: unpaired }} />
+      {!intro.show && (
+        <Stack.Toolbar placement="right">
+          {Platform.OS === "ios" ? (
+            <Stack.Toolbar.Button
+              icon="gearshape"
+              accessibilityLabel={updateAvailable ? "Settings, update available" : "Settings"}
+              onPress={() => router.push("/settings")}
+            >
+              {updateAvailable && <Stack.Toolbar.Badge style={{ backgroundColor: colors.green }} />}
+            </Stack.Toolbar.Button>
+          ) : (
+            <Stack.Toolbar.View>
+              <View>
+                <HeaderButton label="Settings" icon={Settings01Icon} onPress={() => router.push("/settings")} />
+                <UpdateSettingsBadge />
+              </View>
+            </Stack.Toolbar.View>
+          )}
+        </Stack.Toolbar>
+      )}
+      {Platform.OS === "ios" && !unpaired && (
         <Stack.Toolbar placement="bottom">
           <Stack.Toolbar.Spacer />
           <Stack.Toolbar.Button icon="plus" accessibilityLabel="Add computer" onPress={() => router.push("/add-computer")} />
         </Stack.Toolbar>
       )}
-      <PageScroll
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              void load().finally(() => setRefreshing(false));
-            }}
-          />
-        }
-      >
-        {session.hosts.length > 0 ? (
-          <Group inset={0}>
-            {session.hosts.map((host) => (
-              <ListRow
-                key={host.id}
-                onLongPress={() =>
-                  showActions({
-                    title: host.name,
-                    actions: [
-                      { id: "rename", title: "Rename" },
-                      { id: "forget", title: "Forget", destructive: true },
-                    ],
-                    onSelect: (action) => manage(host, action),
-                  })
-                }
-                title={host.name}
-                subtitle={`${label(status[host.id])} · ${
-                  status[host.id] === "online" && lanRoutes.kind(host.id) === "lan"
-                    ? "Local network"
-                    : host.relay
-                      ? host.relay.url.replace(/^wss:\/\//, "")
-                      : host.address.replace(/^https?:\/\//, "")
-                }${waitingFor(host.id) ? ` · ${waitingFor(host.id)} waiting` : ""}`}
-                disabled={!!busy}
-                onPress={() => void open(host)}
-                leading={
-                  <View
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: radius.control,
-                      borderCurve: "continuous",
-                      backgroundColor: colors.field,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Icon icon={isDesktopComputer(host.name) ? ComputerIcon : LaptopIcon} tone="ink" size={20} />
+      {unpaired ? (
+        <PairWalkthrough topInset={insets.top + 44}>{error ? <ErrorNotice message={error} /> : null}</PairWalkthrough>
+      ) : (
+        <PageScroll
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                void load().finally(() => setRefreshing(false));
+              }}
+            />
+          }
+        >
+          {session.hosts.length > 0 ? (
+            <Group inset={0}>
+              {session.hosts.map((host) => (
+                <ListRow
+                  key={host.id}
+                  onLongPress={() =>
+                    showActions({
+                      title: host.name,
+                      actions: [
+                        { id: "rename", title: "Rename" },
+                        { id: "forget", title: "Forget", destructive: true },
+                      ],
+                      onSelect: (action) => manage(host, action),
+                    })
+                  }
+                  title={host.name}
+                  subtitle={`${label(status[host.id])} · ${
+                    status[host.id] === "online" && lanRoutes.kind(host.id) === "lan"
+                      ? "Local network"
+                      : host.relay
+                        ? host.relay.url.replace(/^wss:\/\//, "")
+                        : host.address.replace(/^https?:\/\//, "")
+                  }${waitingFor(host.id) ? ` · ${waitingFor(host.id)} waiting` : ""}`}
+                  disabled={!!busy}
+                  onPress={() => void open(host)}
+                  leading={
                     <View
                       style={{
-                        position: "absolute",
-                        right: -2,
-                        bottom: -2,
-                        width: 12,
-                        height: 12,
-                        borderRadius: radius.full,
-                        backgroundColor: dot(status[host.id]),
-                        borderWidth: 2,
-                        borderColor: colors.surface,
+                        width: 40,
+                        height: 40,
+                        borderRadius: radius.control,
+                        borderCurve: "continuous",
+                        backgroundColor: colors.field,
+                        alignItems: "center",
+                        justifyContent: "center",
                       }}
-                    />
-                  </View>
-                }
-              />
-            ))}
-          </Group>
-        ) : (
-          <EmptyState icon={LaptopIcon} title="Pair your computer">
-            Open Settings → Devices in Milagre on your Mac, then scan its pairing code. Your Projects and Chats will appear here.
-          </EmptyState>
-        )}
-        {error ? <ErrorNotice message={error} /> : null}
-      </PageScroll>
-      {Platform.OS !== "ios" && (
+                    >
+                      <Icon icon={isDesktopComputer(host.name) ? ComputerIcon : LaptopIcon} tone="ink" size={20} />
+                      <View
+                        style={{
+                          position: "absolute",
+                          right: -2,
+                          bottom: -2,
+                          width: 12,
+                          height: 12,
+                          borderRadius: radius.full,
+                          backgroundColor: dot(status[host.id]),
+                          borderWidth: 2,
+                          borderColor: colors.surface,
+                        }}
+                      />
+                    </View>
+                  }
+                />
+              ))}
+            </Group>
+          ) : (
+            <EmptyState icon={LaptopIcon} title="Pair your computer">
+              Open Settings › Devices in Milagre on your computer, then scan its pairing code. Your Projects and Chats will appear here.
+            </EmptyState>
+          )}
+          {error ? <ErrorNotice message={error} /> : null}
+        </PageScroll>
+      )}
+      {Platform.OS !== "ios" && !unpaired && (
         <View style={{ alignItems: "flex-end", paddingHorizontal: 16, paddingTop: 12, paddingBottom: Math.max(insets.bottom, 16) }}>
           <IconButton label="Add computer" icon={Add01Icon} filled size={48} onPress={() => router.push("/add-computer")} />
         </View>
       )}
+      {intro.show && <OnboardingIntro onDone={intro.done} />}
     </View>
   );
 }
