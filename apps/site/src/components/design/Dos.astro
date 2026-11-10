@@ -1,0 +1,118 @@
+---
+// DESIGN.md's "Do and don't" table, each row drawn as a pair on the light scheme. A don't that breaks contrast is
+// drawn with text-shaped bars instead of text, so the page itself stays readable.
+import { Cancel01Icon, SecurityCheckIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import type { Table } from "../../design-system";
+import { icon } from "../../hugeicon";
+
+interface Props {
+  table: Table;
+}
+const { table } = Astro.props;
+// One drawing per row of the table, in its order.
+const DRAWINGS = ["primary", "selection", "switch", "status", "case", "elevation", "focus", "unread"] as const;
+if (table.rows.length !== DRAWINGS.length) throw new Error(`Dos.astro draws ${DRAWINGS.length} pairs; DESIGN.md's table has ${table.rows.length}`);
+const pairs = table.rows.map(([doText, dontText], index) => ({ doText, dontText, drawing: DRAWINGS[index] }));
+const tick = icon(Tick02Icon, 14, 1.8);
+---
+<ul class="dos" role="list">
+  {
+    pairs.map(({ doText, dontText, drawing }) => (
+      <li class="pair-row">
+        {(["do", "dont"] as const).map((side) => (
+          <figure class={`card ${side}`}>
+            <div class="scheme scheme-light stage">
+              {drawing === "primary" &&
+                (side === "do" ? (
+                  <span class="ds-btn ds-primary">Allow once</span>
+                ) : (
+                  <span class="line">
+                    <span class="ds-btn" style="background:var(--green-ink);color:var(--on-green)">
+                      Allow once
+                    </span>
+                    <span class="ds-btn" style="background:var(--accent-ink);color:var(--on-accent)">
+                      Allow once
+                    </span>
+                  </span>
+                ))}
+              {drawing === "selection" && (
+                <span class="menu">
+                  <span class="menu-row" style={side === "dont" ? "background:var(--accent-tint);color:var(--accent-ink)" : ""}>
+                    Opus 5.5 {side === "do" && <span class="menu-tick" set:html={tick} />}
+                  </span>
+                  <span class="menu-row">Sonnet 5.5</span>
+                </span>
+              )}
+              {drawing === "switch" &&
+                (side === "do" ? (
+                  <span class="setting">
+                    <span class="ds-checkbox" set:html={icon(Tick02Icon, 12, 2)} />
+                    Show stats
+                  </span>
+                ) : (
+                  <span class="setting">
+                    <span class="switch" />
+                    Show stats
+                  </span>
+                ))}
+              {drawing === "status" &&
+                (side === "do" ? (
+                  <span class="ds-waiting">Waiting for approval</span>
+                ) : (
+                  <span class="bars">
+                    <span class="bar" style="width:132px;background:var(--orange)" />
+                    <span class="bar" style="width:96px;background:var(--ink-4)" />
+                  </span>
+                ))}
+              {drawing === "case" && (side === "do" ? <span class="label">Archive Done Chats after</span> : <span class="label upper">Archive Done Chats after</span>)}
+              {drawing === "elevation" && <span class="ds-elevated" style={side === "dont" ? "border:1px solid var(--line-strong)" : ""} />}
+              {drawing === "focus" && (
+                <span class="ds-btn ds-secondary" style={side === "do" ? "outline:2px solid var(--accent);outline-offset:2px" : "outline:2px solid var(--green);outline-offset:2px"}>
+                  Always allow
+                </span>
+              )}
+              {drawing === "unread" && (
+                <span class="ds-row status-row">
+                  <span class="ds-mark">{side === "do" ? <span class="ds-dot" /> : <span class="ds-ring" style="border-top-color:var(--accent)" />}</span>
+                  <span class="ds-row-title">Fix the login redirect</span>
+                  {side === "dont" && <span class="ds-mark" style="color:var(--accent)" set:html={icon(SecurityCheckIcon, 14, 1.8)} />}
+                </span>
+              )}
+            </div>
+            <figcaption>
+              <span class="verdict" set:html={side === "do" ? icon(Tick02Icon, 16, 2) : icon(Cancel01Icon, 16, 2)} />
+              <span>
+                <strong>{side === "do" ? "Do" : "Don't"}</strong> {side === "do" ? doText : dontText}
+              </span>
+            </figcaption>
+          </figure>
+        ))}
+      </li>
+    ))
+  }
+</ul>
+
+<style>
+  .dos { display: grid; gap: 16px; margin: 20px 0 0; padding: 0; list-style: none; }
+  .pair-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
+  .card { display: flex; flex-direction: column; gap: 10px; margin: 0; }
+  .stage { display: grid; place-items: center; min-height: 120px; padding: 16px; }
+  figcaption { display: flex; gap: 8px; color: var(--ink-2); font-size: 14px; line-height: 1.5; }
+  figcaption strong { color: var(--ink); }
+  .verdict { display: inline-flex; flex-shrink: 0; margin-top: 2px; }
+  .do .verdict { color: var(--green); }
+  .dont .verdict { color: oklch(0.52 0.19 27); }
+
+  .menu { display: grid; gap: 2px; width: 180px; padding: 4px; border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-raised); }
+  .menu-row { display: flex; align-items: center; justify-content: space-between; height: 28px; padding: 0 8px; border-radius: 4px; color: var(--ink); }
+  .menu-tick { display: inline-flex; }
+  .setting { display: inline-flex; align-items: center; gap: 8px; }
+  .switch { position: relative; width: 30px; height: 18px; border-radius: 999px; background: var(--green); }
+  .switch::after { content: ""; position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; border-radius: 999px; background: #fff; }
+  .bars { display: grid; gap: 8px; }
+  .bar { height: 8px; border-radius: 999px; }
+  .label { color: var(--ink-3); font-size: 12px; font-weight: 500; line-height: 16px; }
+  .upper { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .ds-elevated { width: 140px; height: 72px; border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-card); }
+  .status-row { width: 220px; }
+</style>

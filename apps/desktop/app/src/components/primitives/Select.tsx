@@ -60,9 +60,9 @@ export function Select<T extends string>({
   variant = "field",
   compact = false,
   leading,
-  onOpenChange,
   align,
   side = "below",
+  onOpenChange,
 }: {
   label: string;
   value: T;
@@ -86,13 +86,16 @@ export function Select<T extends string>({
   leading?: ReactNode;
   /** Told each time the menu opens or closes: a hover surface the trigger sits in (the usage card) stays open while the panel is in use, and the Appearance preview highlights the row's area. */
   onOpenChange?: (open: boolean) => void;
-  /** Which trigger edge the panel lines up with; `text` opens from the start by default, the others from the end. A
-   * trigger at the right edge of its surface (a popover footer) passes `end` so the panel stays over that surface. */
+  /**
+   * Which trigger edge the panel lines up with: `end` (the default) for a trigger at the end of a row, `start` (the
+   * default for `text`) for one that starts a row, such as the Routines page's filters.
+   */
   align?: "start" | "end";
   /** Where the panel opens when it fits on both sides: a trigger at the bottom of a popover opens it `above`, over
    * the popover, rather than over whatever sits below it. */
   side?: "above" | "below";
 }) {
+  const fromStart = (align ?? (variant === "text" ? "start" : "end")) === "start";
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number }>({ left: 0, maxHeight: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -109,8 +112,7 @@ export function Select<T extends string>({
     setHost(triggerRef.current?.closest("dialog[open], [data-popover-host]") ?? null);
     const trigger = triggerRef.current?.getBoundingClientRect();
     if (!trigger) return;
-    const start = (align ?? (variant === "text" ? "start" : "end")) === "start";
-    const left = Math.max(INSET, Math.min(start ? trigger.left : trigger.right - width, window.innerWidth - width - INSET));
+    const left = Math.max(INSET, Math.min(fromStart ? trigger.left : trigger.right - width, window.innerWidth - width - INSET));
     const roomBelow = window.innerHeight - trigger.bottom - GAP - INSET;
     const roomAbove = trigger.top - GAP - INSET;
     // Open upward when the panel would not fit below and there is more room above, so a trigger near the bottom shows its rows.
@@ -219,7 +221,7 @@ export function Select<T extends string>({
             <PickerPanel
               style={{
                 maxHeight: position.maxHeight,
-                transformOrigin: `${position.top === undefined ? "bottom" : "top"} ${variant === "text" ? "left" : "right"}`,
+                transformOrigin: `${position.top === undefined ? "bottom" : "top"} ${fromStart ? "left" : "right"}`,
               }}
               {...(searchable ? { query, onQueryChange: setQuery, placeholder: "Search", isEmpty: shown.length === 0, emptyLabel: "No matches" } : {})}
             >

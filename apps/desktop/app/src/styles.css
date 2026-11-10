@@ -341,9 +341,9 @@ html[data-floating-inbox] #root {
   --red: #e3474c;
   --red-tint: #f5ecef;
   /* status text: 4.5:1 on page, surface and their own tint */
-  --green-ink: #007e33;
-  --orange-ink: #bf4600;
-  --red-ink: #cb2f39;
+  --green-ink: #00792e;
+  --orange-ink: #ba4100;
+  --red-ink: #c62935;
 
   /* labels on filled controls: themes write --on-accent and --on-green/orange/red (lib/theme-sheet.ts), for the
    * accent or -ink fills (bg-red-ink text-on-red); on-ink is the surface (@theme below) */
@@ -418,7 +418,7 @@ html[data-floating-inbox] #root {
   --red-tint: #ee5c6124;
   --green-ink: var(--green);
   --orange-ink: var(--orange);
-  --red-ink: #f66468;
+  --red-ink: #fd696d;
 
   /* the light accent and status fills take a dark label in dark mode (onColor in packages/shared/src/themes/color.ts) */
   --on-accent: var(--page);
@@ -513,7 +513,7 @@ html[data-floating-inbox] #root {
   --font-sans: var(--ui-font, ui-sans-serif, system-ui, sans-serif);
   --font-mono: var(--mono-font, ui-monospace, "SF Mono", monospace);
 
-  /* radii — inline 4, chips 6, controls 8, cards 10, windows 14, pills 999 (.interface-design/system.md) */
+  /* radii — inline 4, chips 6, controls 8, cards 10, windows 14, pills 999 (DESIGN.md) */
   --radius-inline: 4px;
   --radius-chip: 6px;
   --radius-control: 8px;
@@ -527,7 +527,7 @@ html[data-floating-inbox] #root {
   --blur-edge: 4px;
 }
 
-/* Type, motion: the scale in .interface-design/system.md. Each text size brings its line height, so a control's height
+/* Type, motion: the scale in DESIGN.md. Each text size brings its line height, so a control's height
    never depends on which size utility it uses. design-tokens.test.ts keeps new code on these. */
 @theme {
   --text-10: 10px;
@@ -990,19 +990,9 @@ a {
   background: linear-gradient(to bottom, var(--chat-bg, var(--page)) calc(100% - 24px), transparent);
 }
 
-/* The bottom mirrors the top: solid behind the composer's chip row (its pills, the jump button), then the text fades
- * toward it, so nothing reads through a pill. */
-.chat-bottom-blur {
-  --blur-dir: to bottom;
-  --blur-start: 0%;
-  --blur-end: 100%;
-}
-.chat-bottom-blur > :last-child {
-  background: linear-gradient(to top, var(--chat-bg, var(--page)) 38px, transparent);
-}
-/* The chat's edges fade into the background without blurring the text: only the tint layer draws. */
-.chat-top-blur > :not(:last-child),
-.chat-bottom-blur > :not(:last-child) {
+/* The bottom has no fade: the transcript runs crisp to the composer and the chip row's glass pills float over it. */
+/* The chat's top edge fades into the background without blurring the text: only the tint layer draws. */
+.chat-top-blur > :not(:last-child) {
   display: none;
 }
 
@@ -1074,13 +1064,18 @@ a {
 .markdown :where(h4, h5, h6) {
   font-size: 1em;
 }
+/* The gutter holds a one-digit marker ("9."). An ordered list widens it by one digit for each extra digit of its
+ * highest number (--marker-digits, from Markdown.tsx), so "10." shows whole: a finished message's content-visibility
+ * clips paint to its box, and a marker wider than the gutter lost its first digit. */
 .markdown :where(ul, ol) {
-  padding-left: 1.35em;
+  --list-gutter: 1.35em;
+  padding-left: var(--list-gutter);
 }
 .markdown ul {
   list-style: disc;
 }
 .markdown ol {
+  --list-gutter: calc(1.35em + (var(--marker-digits, 1) - 1) * 1ch);
   list-style: decimal;
 }
 .markdown li {
@@ -1089,12 +1084,16 @@ a {
 .markdown li::marker {
   color: var(--ink-3);
 }
+/* Every digit one width (1ch), so the gutter fits any number with as many digits. */
+.markdown ol > li::marker {
+  font-variant-numeric: tabular-nums;
+}
 .markdown li > :where(ul, ol) {
   margin-block: 0.2em;
 }
 .markdown li:has(> input[type="checkbox"]) {
   list-style: none;
-  margin-left: -1.35em;
+  margin-left: calc(-1 * var(--list-gutter));
 }
 .markdown input[type="checkbox"] {
   margin-right: 0.45em;
@@ -1927,7 +1926,10 @@ code.step-running.step-sweep {
 
 /* ── welcome sky ──────────────────────────────────────── */
 /* A new Chat's backdrop: a faint wash of light from above and the logo's sparkle glinting on the page, one or two at a
- * time. Neutral ink, no colour: it should be noticed on the second look, not the first. */
+ * time. Neutral ink, no colour: it should be noticed on the second look, not the first.
+ * It plays for the first half minute or so and then rests. The sparkles are SVG, which the compositor can't animate, so a
+ * loop that never ended repainted the whole window every frame: a window left on a new Chat used a quarter of a core
+ * (GPU plus renderer) while nothing happened (scripts/perf: `idle --visible --new-chat`). */
 .welcome-sky {
   --sky-light: color-mix(in srgb, var(--accent) 11%, transparent);
   --sky-sparkle: var(--ink-4);
@@ -1941,7 +1943,8 @@ code.step-running.step-sweep {
   position: absolute;
   inset: 0;
   background: radial-gradient(70% 55% at 50% 0%, var(--sky-light), transparent);
-  animation: welcome-sky-wash 10s ease-in-out infinite alternate;
+  /* An odd count ends on the full wash, so it rests without a jump. */
+  animation: welcome-sky-wash 10s ease-in-out 3 alternate;
 }
 .welcome-sky-sparkle {
   position: absolute;
@@ -1950,7 +1953,8 @@ code.step-running.step-sweep {
   scale: 0;
   animation-name: welcome-sky-glint;
   animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
-  animation-iteration-count: infinite;
+  /* Each sparkle glints twice; the last one is done within about 36 s (longest delay plus two of its cycles). */
+  animation-iteration-count: 2;
   animation-fill-mode: both;
 }
 /* The sky spans the window, so the sidebar card lets it through while a new Chat shows; no blur, so the glints under

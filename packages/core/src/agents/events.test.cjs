@@ -152,6 +152,88 @@ test("Claude: usage fills the context gauge once a result names the window, and 
   ]);
 });
 
+// Recorded from a real Claude Code run, see the fixture's _comment.
+const LOCAL_COMMANDS = require("./fixtures/claude-local-commands.json");
+const playClaude = (messages, state = claudeState()) => messages.map((message) => mapClaudeMessage(message, state));
+
+test("Claude: a local command's output is the reply, without its wrapper tags (#955)", () => {
+  // /code-review runs as a local command: no stream events, just a synthetic message with what it printed.
+  const [review, reviewEnd] = playClaude(LOCAL_COMMANDS.codeReview);
+  assert.deepEqual(review, [
+    { type: "text-delta", messageId: "turn-a", text: "math.py:2 — Function named `add` subtracts instead of adds; `add(5, 3)` returns 2 instead of 8" },
+  ]);
+  assert.deepEqual(reviewEnd, [{ type: "turn-completed" }]);
+  // A review that finds nothing says so, so it reads differently from a reply that was lost.
+  assert.deepEqual(playClaude(LOCAL_COMMANDS.codeReviewClean), [[{ type: "text-delta", messageId: "turn-a", text: "(none)" }], [{ type: "turn-completed" }]]);
+  // /context prints Markdown, and its zero usage leaves the context gauge alone.
+  const state = { ...claudeState(), contextWindow: 200_000 };
+  const [context, contextEnd] = playClaude(LOCAL_COMMANDS.context, state);
+  assert.equal(context.length, 1);
+  assert.match(context[0].text, /^## Context Usage\n\n\*\*Model:\*\* claude-sonnet-4-5 {2}\n/);
+  assert.match(context[0].text, /\| Category \| Tokens \| Percentage \|/);
+  assert.doesNotMatch(context[0].text, /local-command/);
+  assert.deepEqual(contextEnd, [{ type: "turn-completed" }]);
+  // A /compact that can't run prints why on stdout.
+  assert.deepEqual(playClaude(LOCAL_COMMANDS.compactNotEnough)[0], [{ type: "text-delta", messageId: "turn-a", text: "Not enough messages to compact." }]);
+});
+
+test("Claude: what a local command prints to stderr fails the turn with it (#955)", () => {
+  assert.equal(LOCAL_COMMANDS.compactFailed[0].local_command_source, LOCAL_COMMANDS.compactFailedRow.content);
+  const state = claudeState();
+  assert.deepEqual(playClaude(LOCAL_COMMANDS.compactFailed, state), [
+    [],
+    [{ type: "turn-failed", message: "Error during compaction: You've hit your weekly limit · resets Nov 2 at 4pm (America/New_York)" }],
+  ]);
+  // The next turn starts clean.
+  assert.deepEqual(mapClaudeMessage({ type: "result", subtype: "success", is_error: false, result: "ok" }, state), [{ type: "turn-completed" }]);
+
+  // stdout stays the reply when the command also printed an error, and escaped text reads as printed.
+  const both = {
+    ...LOCAL_COMMANDS.codeReview[0],
+    local_command_source:
+      "<local-command-stdout>Checked a &lt;b&gt; &amp; c</local-command-stdout><local-command-stderr>\x1b[31mboom\x1b[0m</local-command-stderr>",
+    message: { ...LOCAL_COMMANDS.codeReview[0].message, content: [{ type: "text", text: "Checked a <b> & c\x1b[31mboom\x1b[0m" }] },
+  };
+  assert.deepEqual(playClaude([both, LOCAL_COMMANDS.codeReview[1]]), [
+    [{ type: "text-delta", messageId: "turn-a", text: "Checked a <b> & c" }],
+    [{ type: "turn-failed", message: "boom" }],
+  ]);
+  // A command marked failed without a stderr row fails with all it printed.
+  const failed = { ...LOCAL_COMMANDS.compactNotEnough[0], local_command_outcome: { kind: "failed" } };
+  assert.deepEqual(playClaude([failed, LOCAL_COMMANDS.compactNotEnough[1]]), [[], [{ type: "turn-failed", message: "Not enough messages to compact." }]]);
+});
+
+test("Claude: a local command's lines stay lines in Markdown, and its code blocks and tables stay as printed", () => {
+  // Two findings as /code-review printed them in a real run, one per line.
+  const printed =
+    "math.py:2 — `add` returns `a - b` instead of `a + b`, so `add(2, 3)` gives -1.\nmath.py:7 — `range(len(items) - 1)` is off by one and skips the last item, so `total([1, 2, 3])` returns 3 instead of 6.";
+  const [template] = LOCAL_COMMANDS.codeReview;
+  const command = (text) => ({
+    ...template,
+    local_command_source: `<local-command-stdout>${text}</local-command-stdout>`,
+    message: { ...template.message, content: [{ type: "text", text }] },
+  });
+  assert.deepEqual(mapClaudeMessage(command(printed), claudeState()), [{ type: "text-delta", messageId: "turn-a", text: printed.replace("\n", "  \n") }]);
+  const markdown = "Usage\n=====\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n```\nline 1\nline 2\n```\n**Model:** x  \nnext";
+  assert.equal(mapClaudeMessage(command(markdown), claudeState())[0].text, markdown);
+  // /context's own Markdown comes through unchanged.
+  const [[context]] = playClaude(LOCAL_COMMANDS.context);
+  assert.equal(context.text, LOCAL_COMMANDS.context[0].message.content[0].text.trim());
+});
+
+test("Claude: a local command's output after text in the same turn starts its own paragraph", () => {
+  const state = claudeState();
+  mapClaudeMessage(delta("Reviewing."), state);
+  assert.deepEqual(mapClaudeMessage(LOCAL_COMMANDS.codeReview[0], state), [
+    { type: "text-delta", messageId: "turn-a", text: "\n\n", startsMessage: true },
+    { type: "text-delta", messageId: "turn-a", text: "math.py:2 — Function named `add` subtracts instead of adds; `add(5, 3)` returns 2 instead of 8" },
+  ]);
+  // The CLI's other synthetic notices (no local_command_source) stay out of the reply, as before.
+  const notice = { ...LOCAL_COMMANDS.codeReview[0], message: { ...LOCAL_COMMANDS.codeReview[0].message, content: [{ type: "text", text: "API Error" }] } };
+  delete notice.local_command_source;
+  assert.deepEqual(mapClaudeMessage(notice, state), []);
+});
+
 test("Claude child compaction never adds a divider to the parent Chat", () => {
   const state = claudeState();
   assert.deepEqual(mapClaudeMessage({ type: "system", subtype: "status", status: "compacting", parent_tool_use_id: "child" }, state), []);

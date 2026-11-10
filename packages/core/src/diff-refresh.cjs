@@ -67,8 +67,9 @@ class DiffRefresher {
   }
 
   /**
-   * Refresh only the Worktree of a Chat a window opens, throttled per Worktree as focus is per Project (a focus read of
-   * its Project within the throttle covers it too). A switch between Chats never reads the Project's other Worktrees.
+   * Refresh only the Worktree of a Chat a window opens, throttled per Worktree as focus is per Project (a focus read that
+   * included this Worktree within the throttle covers it too; one that left it out, an archived or Run Chat's, doesn't).
+   * A switch between Chats never reads the Project's other Worktrees.
    */
   focusedChat(chatId) {
     const projectPath = typeof chatId === "string" ? projectOfKey(chatId) : null;
@@ -82,7 +83,7 @@ class DiffRefresher {
     const key = `${projectPath}\0${worktreeId}`;
     const now = this.now();
     const recent = (read) => now - (this.lastFocus.get(read) ?? -Infinity) < this.throttleMs;
-    if (recent(projectPath) || recent(key)) return;
+    if (recent(key)) return;
     this.lastFocus.set(key, now);
     await this.refresh(projectPath, [worktreeId]);
   }
@@ -122,6 +123,8 @@ class DiffRefresher {
     if (this.closed) return;
     const state = await this.states.get(projectPath);
     const ids = worktreeIds ?? worktreesWithChats(state);
+    // A whole-Project read covers each Worktree it read for an opened Chat's throttle (refreshOpened).
+    if (!worktreeIds) for (const id of ids) this.lastFocus.set(`${projectPath}\0${id}`, this.now());
     const stats = await Promise.all(
       ids.map(async (id) => {
         const worktree = state.worktrees[id];
@@ -134,9 +137,15 @@ class DiffRefresher {
   }
 }
 
-/** The Worktrees that have a Chat with a message: from Chat summaries, or the messages of a state without them. */
+/**
+ * The Worktrees that have a Chat with a message: from Chat summaries, or the messages of a state without them. Left
+ * out: archived Chats and the hidden Chats of Routine Runs. No list shows their stat, and agent steps already refresh a
+ * Run's own Worktree (observe); this read is for edits made outside Milagre. In a long-lived Project they are almost
+ * every Worktree (milagre-ade: 158 of 161), each read costing three to eleven git processes, on every window focus:
+ * about 25 s of CPU per focus there, 0.5 s without them.
+ */
 function worktreesWithChats(state) {
-  const sessions = Object.values(state.sessions ?? {});
+  const sessions = Object.values(state.sessions ?? {}).filter((session) => !session.archived && session.routine?.hidden !== true);
   if (sessions.every((session) => session.summary))
     return [
       ...new Set(
@@ -146,6 +155,14 @@ function worktreesWithChats(state) {
           .filter((id) => id !== undefined),
       ),
     ];
-  return [...new Set(state.messages.map((message) => state.sessions[message.session_id]?.worktree_id).filter((id) => id !== undefined))];
+  const open = new Set(sessions.map((session) => String(session.id)));
+  return [
+    ...new Set(
+      state.messages
+        .filter((message) => open.has(String(message.session_id)))
+        .map((message) => state.sessions[message.session_id]?.worktree_id)
+        .filter((id) => id !== undefined),
+    ),
+  ];
 }
 module.exports = { DiffRefresher };

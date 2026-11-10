@@ -11,7 +11,7 @@ import { Icon } from "../primitives/Icon";
 
 const SEND_KEYS = /Mac/.test(navigator.userAgent) ? "⌘Enter" : "Ctrl+Enter";
 
-/** A pin's size, in screen pixels: a round bubble whose top-left corner is its point (system.md Depth: 20). */
+/** A pin's size, in screen pixels: a round bubble whose top-left corner is its point (DESIGN.md, Sizes: 20). */
 const PIN = 20;
 const PIN_RADIUS = `0 ${PIN / 2}px ${PIN / 2}px ${PIN / 2}px`;
 const BUBBLE_RADIUS = "3px 10px 10px 10px";

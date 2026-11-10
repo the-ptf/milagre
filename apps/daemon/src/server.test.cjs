@@ -189,6 +189,17 @@ test("independent clients reconnect to a running Chat and its pending approval",
   await assert.rejects(fs.stat(daemon.socketPath), { code: "ENOENT" });
 });
 
+test("a finished stop tells the host process, so a handle left open can't keep a stopped host alive", async (t) => {
+  let stopped = 0;
+  const { client } = await fixture(t, { onStopped: () => stopped++ });
+  const first = await client();
+  const closing = once(first, "close");
+  await first.call("daemon:stop");
+  await closing;
+  await waitFor(() => stopped === 1);
+  assert.equal(stopped, 1);
+});
+
 test("socket is private and rejects incompatible, malformed and oversized requests", async (t) => {
   const { daemon, dataDir } = await fixture(t);
   assert.equal((await fs.stat(daemon.socketPath)).mode & 0o777, 0o600);

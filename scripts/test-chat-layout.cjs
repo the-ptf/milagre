@@ -193,6 +193,37 @@ async function browserChecks() {
         path.join(process.env.MILAGRE_SCREENSHOT_DIR, "rendered-markdown.png"),
         (await window.webContents.capturePage()).toPNG(),
       );
+    // A finished message's content-visibility clips paint to its box, so a marker wider than the list's gutter lost
+    // its first digit ("10." showed "0."). The gutter grows by a digit per extra digit of the list's highest number,
+    // including a list that starts past 9, and a short list keeps the one-digit gutter.
+    const numbered = (from, to) => Array.from({ length: to - from + 1 }, (_, index) => `${from + index}. Item ${from + index}`).join("\n");
+    await evaluate(`window.setMarkdownExample(${JSON.stringify(`${numbered(1, 12)}\n\nBetween\n\n${numbered(1, 2)}\n\nAfter\n\n${numbered(9, 10)}`)})`);
+    await waitFor(`document.querySelectorAll('[data-markdown-example] ol').length === 6`);
+    const lists = await evaluate(`[...document.querySelectorAll('[data-markdown-example] ol')].map((ol) => {
+      const items = [...ol.children];
+      const probe = document.createElement('span');
+      probe.style.cssText = 'position: absolute; white-space: pre; font-variant-numeric: tabular-nums';
+      items[0].append(probe);
+      const widest = Math.max(...items.map((_, index) => { probe.textContent = (ol.start + index) + '. '; return probe.getBoundingClientRect().width; }));
+      probe.remove();
+      const style = getComputedStyle(ol);
+      return { gutter: parseFloat(style.paddingLeft), em: parseFloat(style.fontSize), widest, marker: getComputedStyle(items[0], '::marker').fontVariantNumeric };
+    })`);
+    for (const [index, list] of lists.entries()) {
+      assert.ok(list.widest <= list.gutter + 0.5, `List ${index} marker ${list.widest}px fits its ${list.gutter}px gutter`);
+      assert.equal(list.marker, "tabular-nums", "Ordered list markers use tabular digits");
+    }
+    for (const [long, short, continued] of [lists.slice(0, 3), lists.slice(3, 6)]) {
+      assert.ok(Math.abs(short.gutter - short.em * 1.35) < 0.5, `A one-digit list keeps its 1.35em gutter (${short.gutter}px)`);
+      assert.ok(long.gutter > short.gutter, "A twelve-item list has a wider gutter than a two-item list");
+      assert.ok(Math.abs(continued.gutter - long.gutter) < 0.5, "A list numbered 9-10 has the same two-digit gutter as items 1-12");
+    }
+    console.log("PASS: Ordered lists of ten or more items show whole markers in a gutter that grows with the digits");
+    if (process.env.MILAGRE_SCREENSHOT_DIR)
+      require("node:fs").writeFileSync(
+        path.join(process.env.MILAGRE_SCREENSHOT_DIR, "markdown-long-ordered-list.png"),
+        (await window.webContents.capturePage()).toPNG(),
+      );
     await evaluate(`window.setMarkdownExample("\x60\x60\x60markdown\\nA **live answer")`);
     await waitFor(`document.querySelector('[data-markdown-example] strong')?.textContent === 'live answer'`);
     await evaluate(`window.setMarkdownExample(null)`);
@@ -236,7 +267,7 @@ async function browserChecks() {
       await evaluate(
         `(() => { const button = (${jumpButton}); const rect = button.getBoundingClientRect(); return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)); })()`,
       ),
-      "The jump button receives clicks through the bottom fade",
+      "The jump button receives clicks over the transcript",
     );
     await delay(250);
     if (process.env.MILAGRE_SCREENSHOT_DIR)
@@ -278,7 +309,9 @@ async function browserChecks() {
       })()`);
       assert.ok(distance <= 1, `Chat ${id} must open at the bottom before paint; distance: ${distance}`);
       assert.equal(await evaluate(`!!(${jumpButton})`), false, "A newly opened Chat does not inherit the jump button");
-      // Messages measure themselves after the first paint; the opened Chat must not visibly scroll while they do.
+      // Messages measure themselves after the first paint; the opened Chat must not visibly scroll while they do. The
+      // earlier messages of a long page go in above after the first paint (tail-first), which raises scrollTop by their
+      // height: what must not move is the end, on every frame.
       const positions = await evaluate(`new Promise(resolve => {
         const viewport = document.querySelector('[aria-label="Conversation"]');
         const seen = [];
@@ -289,10 +322,9 @@ async function browserChecks() {
         };
         requestAnimationFrame(sample);
       })`);
-      const tops = positions.map(([top]) => top);
       assert.ok(
-        Math.max(...tops) - Math.min(...tops) <= 1 && positions.at(-1)[1] <= 1,
-        `Chat ${id} must stay at the bottom without scrolling after it opens; positions: ${JSON.stringify(positions.filter((item, index) => !index || item[0] !== positions[index - 1][0]))}`,
+        positions.every(([, distance]) => distance <= 1),
+        `Chat ${id} must stay at the bottom without scrolling after it opens; positions: ${JSON.stringify(positions.filter((item, index) => !index || item[0] !== positions[index - 1][0] || item[1] !== positions[index - 1][1]))}`,
       );
     }
     await waitFor('document.querySelectorAll("[data-slot=preview-rail-item]").length === 15');

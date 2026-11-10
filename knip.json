@@ -34,7 +34,7 @@
       "project": ["src/**"]
     },
     "apps/site": {
-      "entry": ["worker/worker.ts", "worker/*.test.mjs"],
+      "entry": ["worker/worker.ts", "worker/*.test.mjs", "src/*.test.ts"],
       "project": ["src/**", "worker/**"],
       "ignore": ["worker/handler.d.mts"],
       "ignoreDependencies": ["cookie"]

@@ -9,7 +9,7 @@
   background: var(--page);
   box-shadow:
     var(--shadow-overlay),
-    0 30px 80px oklch(0.1 0.02 258 / 0.45);
+    0 30px 80px rgb(40 30 70 / 0.3);
   text-align: left;
 }
 /* The Mac window's traffic lights, where macOS puts them beside the bar. */

@@ -10,7 +10,7 @@ import { activityBoundary, earlierStepsLabel } from "../../lib/activity-window";
 import { useSettings } from "../../lib/settings";
 import { useStepTitleSweep } from "../../lib/step-sweep";
 import { CODE_CHIP, Markdown } from "../markdown/Markdown";
-import { StepRow } from "./StepRow";
+import { HOVER_FILL, StepRow } from "./StepRow";
 import { InlineApproval, useStepApproval, useStepApprovalId, WaitingForApproval } from "./step-approval";
 import { Icon } from "../primitives/Icon";
 import { Button } from "../primitives/Button";
@@ -103,7 +103,7 @@ export function ActivityBlock({
         setOpen((value) => !value);
       }}
       // The whole line is the toggle: hovering anywhere fills it and lights the chevron and time at its right end too.
-      className="group/fold flex h-6 w-full min-w-0 items-center gap-2 rounded-control px-[var(--row-inset,13px)] text-left text-12 text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+      className={`group/fold flex h-6 w-full min-w-0 items-center gap-2 rounded-control px-[var(--row-inset,0px)] text-left text-12 text-ink-2 transition-colors hover:text-ink ${HOVER_FILL}`}
     >
       {/* A waiting line is about one call: its glyph alone, not the reply's mix. */}
       {waiting && current ? (
@@ -177,7 +177,7 @@ export function ActivityBlock({
                 variant="secondary"
                 size={24}
                 data-earlier-steps
-                className="ml-[var(--row-inset,13px)] self-start"
+                className="ml-[var(--row-inset,0px)] self-start"
                 onClick={() => {
                   setBoundary(0);
                   body.current?.focus({ preventScroll: true });
@@ -191,7 +191,7 @@ export function ActivityBlock({
                 entry.type === "step" ? (
                   <StepRow key={entry.step.id} step={entry.step} waiting={waitingStepIds.includes(entry.step.id)} hostsApproval={!approval} />
                 ) : (
-                  <div key={`text-${hidden + index}`} className="px-[var(--row-inset,13px)] py-1 text-12 leading-[1.55] text-ink-2">
+                  <div key={`text-${hidden + index}`} className="px-[var(--row-inset,0px)] py-1 text-12 leading-[1.55] text-ink-2">
                     <Markdown text={entry.text} />
                   </div>
                 ),

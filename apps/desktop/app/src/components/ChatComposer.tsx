@@ -146,7 +146,7 @@ import { linkedHeading } from "@milagre/shared/linked-message";
 import { isHandoff } from "@milagre/shared/handoff";
 import { isCompaction } from "@milagre/shared/compaction";
 import { isWorktreeLinked } from "@milagre/shared/worktree-link";
-import { MessageFollowContext, MessageScroller, TRANSCRIPT_SHOWN_EVENT } from "./agents/message-scroller";
+import { MessageFollowContext, MessageScroller, TRANSCRIPT_END_EVENT, TRANSCRIPT_SHOWN_EVENT } from "./agents/message-scroller";
 import { RecommendationCard } from "./agents/recommendation-card";
 import { parseRecommendation } from "../lib/recommendation";
 import { StepRow } from "./agents/StepRow";
@@ -832,14 +832,15 @@ const MessageTranscript = memo(function MessageTranscript({
     expanding.current = null;
     if (!pending) return;
     const { viewport, anchor, top, short } = pending;
-    if (short) viewport.scrollTop = viewport.scrollHeight;
+    // The earlier messages went in above at the placeholder size and measure now.
+    viewport.dispatchEvent(new Event(TRANSCRIPT_SHOWN_EVENT));
+    // A reader still at the end stays there through the scroller (TRANSCRIPT_END_EVENT), however much they grow.
+    if (short || following?.current !== false) viewport.dispatchEvent(new Event(TRANSCRIPT_END_EVENT));
     else if (anchor?.isConnected) {
-      // The earlier messages went in above: move by their height, so the bottom (or a spot the reader scrolled
-      // to meanwhile) stays where it was on screen.
+      // One who scrolled away meanwhile keeps that spot on screen: move by the height that went in above.
       viewport.scrollTop += anchor.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop - top;
     }
-    viewport.dispatchEvent(new Event(TRANSCRIPT_SHOWN_EVENT));
-  }, [cut, chatId]);
+  }, [cut, chatId, following]);
   const shown = cut ? transcript.slice(-TAIL_FIRST) : transcript;
 
   const openingIds = openingMessages.current.ids;
@@ -1214,7 +1215,7 @@ function NewChatHeader({
 
   return (
     // The entrance animation makes this a stacking context, so lift it above the composer while a popover is open.
-    <div className={`px-1 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
+    <div className={`px-2.5 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
       {!chats && !link && noGit && selected && (
         <p data-no-git-note className="mt-1 mb-2 flex items-center gap-1.5 text-13 text-ink-2">
           <Icon icon={Folder01Icon} size={14} />
@@ -1505,7 +1506,7 @@ export function ChatComposer({
   const [jumpToBottom, setJumpToBottom] = useState<{ key: string | null | undefined; jump: () => void } | null>(null);
   // The runtime knows a Chat by its Project's path, not the Worktree's `projectPath` it runs in.
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;
-  // The transcript slot on screen (TranscriptSlots); a parked one comes back at the scroll position it left at.
+  // The transcript slot on screen (TranscriptSlots); a parked one comes back at its latest message.
   // A draft's transcript takes its view's key until the Chat is saved; its slot then becomes the Chat's.
   const draftKey = scrollKey === undefined ? null : `view:${scrollKey}`;
   const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
@@ -1846,14 +1847,6 @@ export function ChatComposer({
                     )}
                   </div>
                 </MessageScroller>
-                {/* Messages passing under the chip row soften into a progressive blur that reaches the composer. */}
-                <div
-                  aria-hidden
-                  data-busy={isSending || undefined}
-                  className="chat-bottom-blur progressive-blur pointer-events-none absolute inset-x-0 bottom-0 z-10 h-16"
-                >
-                  <ProgressiveBlurLayers />
-                </div>
               </div>
             )
           }
@@ -1861,7 +1854,7 @@ export function ChatComposer({
         <div
           data-chat-width={chatWidth}
           // While a composer popover (model, permissions, + or a menu) is open over it, the row steps aside instead of peeking out.
-          className={`chat-gutter mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 items-center justify-end gap-2 px-3 transition-[opacity,visibility] duration-fast empty:hidden [&:has(+[data-composer-wrap]_[data-picker-panel])]:invisible [&:has(+[data-composer-wrap]_[data-picker-panel])]:opacity-0 ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
+          className={`chat-gutter mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 items-center justify-end gap-2 px-3 transition-[opacity,visibility] duration-fast empty:hidden [&:has(+[data-composer-wrap]_[data-picker-panel])]:invisible [&:has(+[data-composer-wrap]_[data-picker-panel])]:opacity-0 ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
         >
           {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
           Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}
@@ -1963,7 +1956,7 @@ export function ChatComposer({
           className={`chat-gutter relative mx-auto w-full max-w-[var(--chat-width)] shrink-0 p-1.5 ${isNewChat ? "" : "z-20 -mt-1.5"}`}
         >
           {/* The update pill floats centred on the chip row's line, outside its flow. */}
-          <UpdatePillSlot className="bottom-full mb-2" />
+          <UpdatePillSlot className={`bottom-full ${isNewChat ? "mb-2" : "mb-1.5"}`} />
           {isNewChat && starters && starters.length > 0 && <FirstChatStarters starters={starters} />}
           {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
@@ -2254,7 +2247,8 @@ function TranscriptSlots({
 }) {
   const [slots, setSlots] = useState<TranscriptSlot<ReactElement>[]>([]);
   const [nodes] = useState(() => new Map<number, HTMLDivElement>());
-  const [scrollTops] = useState(() => new Map<number, number>());
+  // Slots that have left the window once: back in it, they go to their latest message.
+  const [parked] = useState(() => new Set<number>());
   const [unmeasured] = useState(() => new Set<number>());
   const [last, setLast] = useState<{ view: typeof view; key: string | null }>({ view, key: activeKey });
   const alias = last.view !== undefined && last.view === view && last.key && last.key !== activeKey ? last.key : undefined;
@@ -2273,18 +2267,17 @@ function TranscriptSlots({
   };
   const activeId = activeKey ? next.find((slot) => slot.key === activeKey)?.id : undefined;
   // The host takes the shown slot's node as a ref, in the layout phase before the portals' own layout effects: a
-  // transcript that opens measures itself inside the document. The node it replaces leaves with its scroll position.
+  // transcript that opens measures itself inside the document. The node it replaces is parked.
   const [hosts] = useState<{ current: HTMLDivElement | null }>(() => ({ current: null }));
   const host = useCallback(
     (hostNode: HTMLDivElement | null) => {
       const node = activeId === undefined ? null : nodeFor(activeId);
-      // Whatever other slot the host holds is parked: it leaves with its scroll position. The host leaving (a new
-      // Chat takes the window) parks its slot the same way. Only slot nodes leave: React may reuse this div for the
-      // in-place transcript of a Chat without a key, whose children it has already placed when the ref lets go.
+      // Whatever other slot the host holds is parked. The host leaving (a new Chat takes the window) parks its slot
+      // the same way. Only slot nodes leave: React may reuse this div for the in-place transcript of a Chat without a
+      // key, whose children it has already placed when the ref lets go.
       for (const child of Array.from((hostNode ?? hosts.current)?.querySelectorAll<HTMLElement>(":scope > [data-transcript-slot]") ?? [])) {
         if (hostNode && child === node) continue;
-        const viewport = child.querySelector<HTMLElement>('[aria-label="Conversation"]');
-        if (viewport) scrollTops.set(Number(child.dataset.transcriptSlot), viewport.scrollTop);
+        if (child.querySelector('[aria-label="Conversation"]')) parked.add(Number(child.dataset.transcriptSlot));
         // Out of the document, content-visibility forgets the size of every skipped message. Each keeps its own, so
         // the transcript comes back at the same height and opens where it should without measuring again. A message
         // never laid out stands at the placeholder size (styles.css), which says nothing: the transcript measures again.
@@ -2303,12 +2296,12 @@ function TranscriptSlots({
       if (!hostNode || !node || activeId === undefined) return;
       if (node.parentElement !== hostNode) {
         hostNode.appendChild(node);
-        // A Chat opens at its latest turn, parked or not; the scroller hears the move and follows again.
+        // A Chat opens at its latest turn, parked or not, and follows it. The scroller takes it there itself
+        // (TRANSCRIPT_END_EVENT): messages that measure now must not read as the reader scrolling away.
         const viewport = node.querySelector<HTMLElement>('[aria-label="Conversation"]');
-        if (viewport && scrollTops.has(activeId)) {
+        if (viewport && parked.has(activeId)) {
           if (unmeasured.delete(activeId)) viewport.dispatchEvent(new Event(TRANSCRIPT_SHOWN_EVENT));
-          viewport.scrollTop = viewport.scrollHeight;
-          viewport.dispatchEvent(new Event("scroll"));
+          viewport.dispatchEvent(new Event(TRANSCRIPT_END_EVENT));
         }
       }
     },
@@ -2326,10 +2319,10 @@ function TranscriptSlots({
       if (!next.some((slot) => slot.id === id)) {
         nodes.get(id)?.remove();
         nodes.delete(id);
-        scrollTops.delete(id);
+        parked.delete(id);
         unmeasured.delete(id);
       }
-  }, [next, nodes, scrollTops, unmeasured]);
+  }, [next, nodes, parked, unmeasured]);
   // The switch is measured once the Chat's messages are on screen (lib/chat-switch-timing.ts).
   useLayoutEffect(() => {
     if (activeKey && messageCount > 0) commitChatSwitch(activeKey);

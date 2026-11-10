@@ -1,0 +1,13 @@
+---
+// Dawn's sky behind the landing hero: night, dawn and day stacked, the stars, and the halo and light rays around the
+// logo. Styles and motion live in styles/dawn.css.
+import { STARS } from "../../dawn";
+---
+<div class="dawn-sky" aria-hidden="true">
+  <div class="dawn-night"></div>
+  <div class="dawn-dawn"></div>
+  <div class="dawn-day"></div>
+  <svg class="dawn-stars">{STARS.map((star) => <circle cx={`${star.x}%`} cy={`${star.y}%`} r={star.r} opacity={star.opacity} />)}</svg>
+  <div class="dawn-rays"></div>
+  <div class="dawn-halo"></div>
+</div>

@@ -5,6 +5,11 @@ import HeroDemo from "../components/HeroDemo.astro";
 import DownloadButtons from "../components/DownloadButtons.astro";
 import LandingSections from "../components/LandingSections.astro";
 import BringYourSubscription from "../components/BringYourSubscription.astro";
+import DawnSky from "../components/dawn/Sky.astro";
+import DawnMark from "../components/dawn/Mark.astro";
+import DawnClouds from "../components/dawn/Clouds.astro";
+import DawnTrail from "../components/dawn/Trail.astro";
+import "../styles/dawn.css";
 
 import { DOWNLOAD_ARM64, IPHONE_BETA_URL, REPO_URL } from "../links";
 
@@ -63,46 +68,54 @@ const schema = [
   },
 ];
 ---
-<Base title={title} description={description} socialTitle={socialTitle} schema={schema}>
-  <div class="page" id="top">
-    <Nav />
+<Base title={title} description={description} socialTitle={socialTitle} schema={schema} themeColor="#c3dbf3">
+  <div class="page dawn-hero" id="top">
+    <DawnSky />
+    <Nav brand={false} />
     <main class="hero container">
-      <h1>Your agents keep working. <em>Answer them from anywhere.</em></h1>
+      <div class="headline">
+        <DawnMark />
+        <h1>Your agents keep working. <em>Answer them from anywhere.</em></h1>
+      </div>
       <p class="summary">
         Milagre is a free, open-source (MIT) app for macOS and Linux that runs Claude Code, Codex, Antigravity and Kiro coding agents on your
         computer, each Chat in its own Git worktree. When an agent needs an approval or an answer, it shows up on your desktop and on the
         Milagre app for iPhone and Android, so you can reply from anywhere. <a href={REPO_URL}>Source on GitHub</a>.
       </p>
-      <div class="stage"><HeroDemo /></div>
+      <div class="stage dawn-rise"><HeroDemo /></div>
     </main>
-    <div class="fade" aria-hidden="true"></div>
+    <DawnClouds />
     <div class="cta" data-cta><DownloadButtons /></div>
   </div>
-  <BringYourSubscription />
-  <LandingSections />
+  <!-- The sections below the hero, with the star's trail behind them (outside their paint containment, which would clip it). -->
+  <div class="journey">
+    <DawnTrail />
+    <BringYourSubscription />
+    <LandingSections />
+  </div>
 </Base>
 
 <style>
-  /* The hero takes three quarters of the window, so the first section already shows below it. */
-  .page { position: relative; display: flex; flex-direction: column; height: 75vh; height: 75dvh; overflow: hidden; }
-  .hero { display: flex; flex: 1; flex-direction: column; align-items: center; gap: clamp(22px, 3.6vh, 36px); min-height: 0; padding-top: calc(clamp(20px, 4.5vh, 52px) + var(--lift, 0px)); text-align: center; }
+  /* The hero takes three quarters of the window, so the first section already shows below it. Dawn's sky
+     (styles/dawn.css) fills it; its clouds hold the apps under the download button. */
+  .page { --fade-h: 240px; position: relative; display: flex; flex-direction: column; height: 75vh; height: 75dvh; overflow: hidden; }
+  .hero { display: flex; flex: 1; flex-direction: column; align-items: center; gap: clamp(22px, 3.6vh, 36px); min-height: 0; padding-top: calc(var(--hero-pad) + var(--lift, 0px)); text-align: center; }
+  .headline { display: flex; flex-direction: column; align-items: center; gap: 12px; }
   h1 { max-width: 22ch; font-size: clamp(32px, min(4.6vw, 5.8vh), 60px); font-weight: 600; letter-spacing: -0.035em; line-height: 1.05; }
   /* The payoff line in an italic serif, a touch larger so it reads at the same size as the grotesk. */
   /* The one-screen design shows the headline and the apps; this paragraph says what Milagre is for search engines,
      AI search and screen readers. */
   .summary { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  h1 em { display: block; font-family: var(--font-serif); font-size: 1.12em; font-weight: 400; letter-spacing: -0.01em; color: oklch(0.86 0.06 255); }
+  h1 em { display: block; font-family: var(--font-serif); font-size: 1.12em; font-weight: 400; letter-spacing: -0.01em; color: var(--accent-ink); }
   /* Wider than the text column, so the Mac window can grow on big screens. */
   .stage { position: relative; flex: 1; width: min(100vw - 48px, 1680px); min-height: 0; margin-top: clamp(8px, 2.5vh, 28px); }
-  /* Blurs the devices more the lower they go, then fades them into the page, under the download button. */
-  .fade { --fade-h: var(--fade, 240px); position: absolute; inset: auto 0 0; height: calc(var(--fade-h) + var(--drop, 0px)); pointer-events: none; }
   .cta { position: absolute; inset: auto 0 var(--drop, 0px); z-index: 2; display: flex; justify-content: center; padding: 0 20px clamp(40px, calc(4vh + 20px), 56px); }
-  .fade::before, .fade::after { content: ""; position: absolute; inset: 0; }
-  /* The fade runs over var(--fade); below it (the spare height on tall windows) the page is solid. */
-  .fade::before { backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); mask-image: linear-gradient(to bottom, transparent, black calc(var(--fade-h) * 0.7)); -webkit-mask-image: linear-gradient(to bottom, transparent, black calc(var(--fade-h) * 0.7)); }
-  .fade::after { background: linear-gradient(to bottom, transparent, color-mix(in oklch, var(--page) 75%, transparent) calc(var(--fade-h) * 0.6), var(--page) var(--fade-h)); }
+  /* The sections sit above the star's trail, so it passes behind the app windows. */
+  .journey { position: relative; }
+  .journey > :global(:not(.dawn-trail)) { position: relative; z-index: 1; }
   @media (max-width: 700px) {
-    .hero { gap: 20px; padding-top: calc(16px + var(--lift, 0px)); }
-    .page { --fade: 180px; }
+    .page { --fade-h: 180px; }
+    .hero { gap: 20px; }
+    .headline { gap: 10px; }
   }
 </style>

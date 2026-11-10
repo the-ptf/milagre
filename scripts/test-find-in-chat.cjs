@@ -142,9 +142,13 @@ async function browserChecks() {
     evaluate(
       '(() => { const range = [...CSS.highlights.get("find-active")][0]; return range.startContainer.data.slice(0, range.startOffset).length + range.startContainer.data.length * 1000; })()',
     );
+  const inViewSource =
+    '(() => { const v = document.querySelector("section"); const vr = v.getBoundingClientRect(); const r = [...CSS.highlights.get("find-active")][0].getBoundingClientRect(); return r.top >= vr.top && r.bottom <= vr.bottom; })()';
+  // The bar scrolls again over a few frames when laying out the messages it passed moves the match: wait for it.
   const inView = () =>
-    evaluate(
-      '(() => { const v = document.querySelector("section"); const vr = v.getBoundingClientRect(); const r = [...CSS.highlights.get("find-active")][0].getBoundingClientRect(); return r.top >= vr.top && r.bottom <= vr.bottom; })()',
+    waitFor(inViewSource).then(
+      () => true,
+      () => false,
     );
   const setTheme = (dark) => evaluate(`document.documentElement.classList.toggle("dark", ${dark})`);
   // The same keys and shortcuts through the real App: its state, shortcut handlers and command palette.
@@ -216,6 +220,9 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-prompt-editor]")');
+    // The Chat renders its last messages first and the earlier ones a moment later; on a slow runner the search
+    // below would start with only the tail and count 4 matches.
+    await waitFor('document.querySelector(".chat-column")?.textContent.includes("Needle one")');
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     assert.equal(await evaluate('!!document.querySelector("[data-find-bar]")'), false);
 

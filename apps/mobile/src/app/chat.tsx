@@ -1,3 +1,5 @@
+import { UI_COPY } from "@milagre/shared/model-copy";
+import { withReportPrompt } from "@milagre/shared/bug-report";
 import type { BranchPolicySettings } from "@milagre/shared/branch-policy";
 import { chrome, radius } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
@@ -133,7 +135,7 @@ import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/c
 import { accountSwitchText, isAccountSwitch, isLimitReset, limitResetText } from "@milagre/shared/usage-limit";
 import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-link";
 import { BackgroundIndicator, ThinkingIndicator } from "../running-logo";
-import { BottomFade, EdgeFade } from "../bottom-fade";
+import { EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
 import { Approval, ActivityQuestions, answersWithImages } from "../questions";
 import { QueuedMessages } from "../queued-messages";
@@ -515,6 +517,8 @@ function ChatPane({
   }, []);
   const contentHeight = useRef(0);
   const scrollOffset = useRef(0);
+  // Between a drag's start and the end of its fling: only then are scroll events the reader's own.
+  const dragging = useRef(false);
   const historyRead = useRef<object | null>(null);
   const pickingNow = useRef(false);
   const historyAnchor = useRef<{ id: number; y: number; offset: number; key: string } | null>(null);
@@ -799,6 +803,12 @@ function ChatPane({
   }, [messages.length, visible, scrollKey, trimHistory]);
   // Quiet heartbeats fold into one line and their replies drop out.
   const groupedMessages = useMemo(() => groupQuietRuns(messages), [messages]);
+  // The transcript renders its last `visible` rows, so new ones at the end push old ones out at the top. The native
+  // view then moves the offset to keep what is on screen (maintainVisibleContentPosition) and reports that as a scroll,
+  // with the new rows' height left to the end. When as much leaves as arrives, the content size doesn't change and
+  // onContentSizeChange never jumps to the end (#972). The first row a scroll event last saw tells onScroll so.
+  const firstRowId = groupedMessages[Math.max(0, groupedMessages.length - visible)]?.message.id;
+  const scrolledFirstRow = useRef(firstRowId);
   async function showEarlier() {
     if (historyRead.current || historyAnchor.current || messages.length + remote <= visible) return;
     const request = {};
@@ -1946,7 +1956,11 @@ function ChatPane({
       );
     else if (id === "reload" && chat)
       void action(() => client.call("chat:reload", [chatId]), true).then((done) => done && showToast("Chat reloaded. Your next message starts a fresh agent."));
-    else if (id === "done" && chat) void markDone(chat);
+    // As desktop's: the composer asks this Chat's agent, which files it with report_milagre_bug after the user approves.
+    else if (id === "report-bug" && chat) {
+      composer.setDrafts((current) => ({ ...current, [chatId]: withReportPrompt(current[chatId] ?? "") }));
+      setComposerFocusRequest((count) => count + 1);
+    } else if (id === "done" && chat) void markDone(chat);
     else if (id === "reopen" && chat) void action(() => client.call("chat:patch", [project.path, chat.id, { done: false }]));
     else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
@@ -2179,6 +2193,7 @@ function ChatPane({
             items: [
               { id: "rename", title: "Rename", systemImage: "pencil" },
               { id: "reload", title: "Reload chat", systemImage: "arrow.clockwise", disabled: busy },
+              { id: "report-bug", title: UI_COPY.reportMilagreBug, systemImage: "ladybug" },
               ...(canLink
                 ? [
                     {
@@ -2355,7 +2370,17 @@ function ChatPane({
                   ]}
                   scrollEventThrottle={32}
                   onScrollBeginDrag={() => {
+                    dragging.current = true;
                     scrollingToBottom.current = false;
+                  }}
+                  onScrollEndDrag={() => {
+                    dragging.current = false;
+                  }}
+                  onMomentumScrollBegin={() => {
+                    if (!scrollingToBottom.current) dragging.current = true;
+                  }}
+                  onMomentumScrollEnd={() => {
+                    dragging.current = false;
                   }}
                   onScroll={({ nativeEvent: e }) => {
                     const previous = scrollOffset.current;
@@ -2367,6 +2392,13 @@ function ChatPane({
                     // Native scroll events can arrive before the jump catches up with image layout.
                     if (scrollingToBottom.current) {
                       if (distance <= 1) scrollingToBottom.current = false;
+                      return;
+                    }
+                    // The native view keeping the screen in place as rows left the top: still following, so on to the end.
+                    const rowsLeftTop = scrolledFirstRow.current !== firstRowId;
+                    scrolledFirstRow.current = firstRowId;
+                    if (rowsLeftTop && !dragging.current && following.current && distance > 1) {
+                      scrollToBottom(false);
                       return;
                     }
                     following.current = distance < 120;
@@ -2694,8 +2726,7 @@ function ChatPane({
                   offset={{ closed: 0, opened: lift }}
                   style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
                 >
-                  {/* The transcript blurs and fades under the composer like desktop's, while the Chat's end is below it. */}
-                  {showJumpToBottom && <BottomFade height={dockHeight + 48} width={window.width} />}
+                  {/* No fade under the composer, as on desktop: the transcript runs crisp to it and the glass dock floats over it. */}
                   <View
                     ref={attachPanelRooms}
                     collapsable={false}

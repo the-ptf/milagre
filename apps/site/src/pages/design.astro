@@ -1,0 +1,87 @@
+---
+// milagre.cloud/design: DESIGN.md as a page. The prose is DESIGN.md's; each <!-- specimen: id --> marker becomes a
+// specimen drawn from the tokens the apps ship (design-system.ts), in place of the table that follows it.
+import Base from "../layouts/Base.astro";
+import Nav from "../components/Nav.astro";
+import Specimen from "../components/design/Specimen.astro";
+import { DESIGN_MD, designChunks, isSpecimen, schemeVariables } from "../design-system";
+import { createRenderer } from "../design-markdown";
+import { REPO_URL } from "../links";
+import "../styles/design.css";
+
+const [, title = "Milagre design system"] = /^# (.+)$/m.exec(DESIGN_MD) ?? [];
+const renderer = createRenderer();
+const chunks = designChunks(DESIGN_MD.replace(/^# .+\n/, "")).map((chunk) => {
+  if (chunk.kind === "markdown") return { kind: "markdown" as const, html: renderer.render(chunk.text) };
+  if (!isSpecimen(chunk.id)) throw new Error(`DESIGN.md: no specimen named "${chunk.id}" (add it to SPECIMENS in design-system.ts)`);
+  return { kind: "specimen" as const, id: chunk.id, table: chunk.table };
+});
+const sections = renderer.headings.filter((heading) => heading.depth === 2);
+const schemes = `<style>.scheme-light{${schemeVariables("light")}}.scheme-dark{${schemeVariables("dark")}}</style>`;
+
+const description =
+  "Milagre's design system: the colour, type, spacing, radius, motion and component rules the desktop and phone apps follow, with specimens drawn from the apps' own tokens.";
+const schema = [{ "@context": "https://schema.org", "@type": "TechArticle", headline: title, description }];
+---
+<Base title={`Design system | Milagre`} description={description} schema={schema}>
+  <Fragment set:html={schemes} />
+  <Nav />
+  <div class="container design">
+    <aside class="toc" aria-label="Sections">
+      <ul>{sections.map((section) => <li><a href={`#${section.id}`}>{section.text}</a></li>)}</ul>
+    </aside>
+
+    <main class="content">
+      <header class="intro">
+        <h1>{title}</h1>
+        <p class="lede">The rules behind every Milagre screen on the Mac, the iPhone and the iPad. Each value on this page is read from the apps' own code when the site builds.</p>
+        <p class="actions">
+          <a class="button button-primary" href={`${REPO_URL}/blob/main/DESIGN.md`}>DESIGN.md on GitHub</a>
+          <a class="button" href="/docs">Docs</a>
+        </p>
+        <details class="toc-mobile">
+          <summary>Sections</summary>
+          <ul>{sections.map((section) => <li><a href={`#${section.id}`}>{section.text}</a></li>)}</ul>
+        </details>
+      </header>
+
+      {chunks.map((chunk) => (chunk.kind === "markdown" ? <div class="prose" set:html={chunk.html} /> : <Specimen id={chunk.id} table={chunk.table} />))}
+    </main>
+  </div>
+</Base>
+
+<style>
+  .design { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px; padding-top: 24px; padding-bottom: 96px; }
+  .toc { position: sticky; top: 24px; align-self: start; max-height: calc(100dvh - 48px); overflow-y: auto; font-size: 14px; }
+  .toc ul, .toc-mobile ul { margin: 0; padding: 0; list-style: none; }
+  .toc a, .toc-mobile a { display: block; padding: 4px 0; color: var(--ink-2); text-decoration: none; }
+  .toc a:hover, .toc-mobile a:hover { color: var(--ink); }
+  .toc-mobile { display: none; }
+
+  .content { min-width: 0; max-width: 880px; }
+  h1 { font-size: clamp(34px, 6vw, 48px); }
+  .lede { max-width: 640px; margin-top: 16px; color: var(--ink-2); font-size: 18px; line-height: 1.6; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+
+  .prose :global(h2) { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--line); font-size: 28px; scroll-margin-top: 24px; }
+  .prose :global(h3) { margin-top: 36px; font-size: 18px; letter-spacing: -0.01em; scroll-margin-top: 24px; }
+  .prose :global(h2 + p), .prose :global(h2 + ul), .prose :global(h2 + ol), .prose :global(h3 + p), .prose :global(h3 + ul) { margin-top: 14px; }
+  .prose :global(p), .prose :global(ul), .prose :global(ol) { color: var(--ink-2); line-height: 1.7; }
+  .prose :global(p + p), .prose :global(p + ul), .prose :global(ul + p), .prose :global(p + ol), .prose :global(ol + p), .prose :global(ul + ul) { margin-top: 14px; }
+  .prose :global(ul), .prose :global(ol) { margin-bottom: 0; padding-left: 22px; }
+  .prose :global(li + li) { margin-top: 8px; }
+  .prose :global(li::marker) { color: var(--ink-3); }
+  .prose :global(strong) { color: var(--ink); font-weight: 600; }
+  .prose :global(a) { color: var(--accent-ink); text-underline-offset: 4px; }
+  .prose :global(code) { padding: 1px 5px; border-radius: 5px; background: var(--surface); color: var(--ink); font-size: 0.86em; overflow-wrap: anywhere; }
+  .content > .prose:first-of-type { margin-top: 40px; }
+  .content > .prose + :global(*:not(.prose)), .content > :global(*:not(.prose)) + .prose { margin-top: 20px; }
+
+  @media (max-width: 900px) {
+    .design { grid-template-columns: minmax(0, 1fr); padding-top: 8px; }
+    .toc { display: none; }
+    .toc-mobile { display: block; margin-top: 24px; padding: 0 14px; border-radius: var(--radius-control); background: var(--canvas); box-shadow: var(--shadow-card); font-size: 14px; }
+    .toc-mobile summary { padding: 10px 0; color: var(--ink); font-weight: 600; cursor: pointer; }
+    .toc-mobile[open] { padding-bottom: 12px; }
+  }
+</style>

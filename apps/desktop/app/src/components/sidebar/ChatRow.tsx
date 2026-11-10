@@ -43,6 +43,7 @@ import {
   PinOffIcon,
   Pulse01Icon,
   Refresh01Icon,
+  Bug01Icon,
   ShieldAlertIcon,
   SourceCodeIcon,
   Tick02Icon,
@@ -161,6 +162,8 @@ export type ChatRowActions = {
   onMarkUnread?: (id: string, unread: boolean) => void;
   /** Restarts the chat's agent so it picks up new MCP servers, skills or a sign-in (stopping a running turn). */
   onReload?: (id: string) => void;
+  /** Opens the chat with "Report a Milagre bug: " in its composer, for its agent to file (report_milagre_bug). */
+  onReportBug?: (id: string) => void;
   /** Pins the chat at `order` among the pinned chats (the end when left out), or unpins it (null). */
   onPin?: (id: string, order?: number | null) => void;
   /** Marks the chat Done: the hover "Done" button and E on a hovered or focused row. */
@@ -369,13 +372,13 @@ function InboxMark({ item, lastAt, now }: { item: SidebarRecent; lastAt?: number
   const label = mark === "idle" || mark === "unread" ? "" : markLabel(mark, item.background);
   if (mark === "running" || mark === "background")
     return (
-      <span data-slot="chat-mark" data-mark={mark} role="img" aria-label={label} title={label} className="flex">
+      <span data-slot="chat-mark" data-mark={mark} role="img" aria-label={label} title={label} className="flex w-4 justify-center">
         <SpinnerRing size={12} />
       </span>
     );
   if (mark in MARK_ICON)
     return (
-      <span data-slot="chat-mark" data-mark={mark} role="img" aria-label={label} title={label} className="flex">
+      <span data-slot="chat-mark" data-mark={mark} role="img" aria-label={label} title={label} className="flex w-4 justify-center">
         <MarkIcon mark={mark as keyof typeof MARK_ICON} />
       </span>
     );
@@ -390,9 +393,11 @@ function InboxMark({ item, lastAt, now }: { item: SidebarRecent; lastAt?: number
           {activityAgo(lastAt, now)}
         </span>
       )}
-      {item.unread && <span data-slot="chat-mark" data-mark="unread" role="img" aria-label="Unread" title="Unread" className="size-2 rounded-full bg-accent" />}
+      {item.unread && (
+        <span data-slot="chat-mark" data-mark="unread" role="img" aria-label="Unread" title="Unread" className="mx-1 size-2 rounded-full bg-accent" />
+      )}
       {!item.unread && item.details?.failed && (
-        <span data-slot="chat-mark" data-mark="failed" role="img" aria-label="Failed" className="size-2 rounded-full bg-red" />
+        <span data-slot="chat-mark" data-mark="failed" role="img" aria-label="Failed" className="mx-1 size-2 rounded-full bg-red" />
       )}
     </>
   );
@@ -1647,6 +1652,16 @@ function ChatMenu({
       onSelect: run(() => actions.onReload?.(item.id)),
       disabled: !actions.onReload,
     },
+    ...(actions.onReportBug
+      ? [
+          {
+            key: "report-bug",
+            label: UI_COPY.reportMilagreBug,
+            icon: Bug01Icon,
+            onSelect: run(() => actions.onReportBug?.(item.id)),
+          },
+        ]
+      : []),
     // Unlink and Link are offered on the same Worktrees (own, not shared, not the main checkout), as on the phone.
     ...(details.linkable
       ? details.linearKey

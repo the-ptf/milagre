@@ -15,4 +15,5 @@
 - [Source code on GitHub](https://github.com/the-ptf/milagre-ade): MIT license, issues and discussions
 - [Releases and changelog](https://github.com/the-ptf/milagre-ade/releases)
 - [CLI docs](https://milagre.cloud/docs/cli): install `npx milagre serve`, pair devices, script Chats and Projects, connect MCP clients
+- [Design system](https://milagre.cloud/design): the colour, type, spacing, radius, motion and component rules the apps follow ([DESIGN.md](https://github.com/the-ptf/milagre-ade/blob/main/DESIGN.md))
 - [Documentation](https://github.com/the-ptf/milagre-ade/tree/main/docs)

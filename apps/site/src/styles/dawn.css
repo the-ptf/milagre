@@ -1,0 +1,435 @@
+/* Dawn: the landing hero as the desktop app's first-launch intro (OnboardingIntro) draws it. A night sky, a falling star
+ * that lands where the logo's sparkle sits, the legs rising under it, a halo and light rays, then dawn breaking into a
+ * soft day sky with clouds rising under the apps.
+ *
+ * Every element's own style is the last frame, the day: that is what reduced motion sees. html[data-dawn] (set before
+ * first paint in Base.astro) plays the keyframes, which all start from the night. The headline, the apps and the download button are on screen from the first frame; only colours move. */
+
+.dawn-hero {
+  --mark: 44px;
+  --halo: 520px;
+  --hero-pad: clamp(12px, 2.5vh, 32px);
+  /* The logo's centre, from the top of the hero: the nav, the hero's top padding, half the logo. */
+  --mark-y: calc(72px + var(--hero-pad) + var(--lift, 0px) + var(--mark) / 2);
+  /* Where the falling star starts, from where it lands: above the window, to the right. */
+  --fall-x: min(36vw, 480px);
+  --fall-y: calc(-1 * (var(--mark-y) + 32px));
+  isolation: isolate;
+}
+@media (max-width: 700px) {
+  .dawn-hero {
+    --mark: 36px;
+    --halo: 380px;
+    --hero-pad: 12px;
+    --fall-x: 45vw;
+  }
+}
+
+/* ── the sky ──────────────────────────────────────────────────────────── */
+.dawn-sky {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.dawn-sky > * {
+  position: absolute;
+  inset: 0;
+}
+/* The sky's foot turns into the page, so the night never meets the cream below the hero in a hard line while the clouds
+   are still rising. On the day frame the sky already ends on the page's colour. */
+.dawn-sky::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 160px;
+  background: linear-gradient(transparent, var(--page));
+}
+.dawn-night {
+  background: linear-gradient(#070b1f, #141c45 55%, #252a5c);
+}
+.dawn-dawn {
+  background: linear-gradient(#262c66 0%, #7b62a3 36%, #e29a9a 64%, #f8cf98 100%);
+}
+.dawn-day {
+  background: linear-gradient(#c3dbf3 0%, #e9f0f8 36%, #fff2dd 72%, #fffaf0 100%);
+}
+.dawn-stars {
+  width: 100%;
+  height: 100%;
+  fill: #fff;
+  opacity: 0;
+}
+/* Covered by the day on its last frame: not painted at all unless it plays. */
+html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
+  display: none;
+}
+.dawn-sky > .dawn-halo,
+.dawn-sky > .dawn-rays {
+  inset: auto;
+  left: 50%;
+  top: var(--mark-y);
+  translate: -50% -50%;
+  border-radius: 50%;
+}
+.dawn-sky > .dawn-halo {
+  width: var(--halo);
+  height: var(--halo);
+  background: radial-gradient(circle, rgb(255 244 212 / 0.95) 0, rgb(255 226 160 / 0.55) 22%, rgb(255 214 140 / 0.18) 45%, transparent 68%);
+}
+.dawn-sky > .dawn-rays {
+  width: min(160vw, 2400px);
+  height: min(160vw, 2400px);
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgb(255 236 190 / 0) 0deg,
+    rgb(255 236 190 / 0.34) 4deg,
+    rgb(255 236 190 / 0) 9deg,
+    rgb(255 236 190 / 0) 17deg
+  );
+  mask: radial-gradient(circle, #000 0, rgb(0 0 0 / 0.6) 18%, transparent 52%);
+}
+
+/* ── the logo ─────────────────────────────────────────────────────────── */
+.dawn-mark {
+  position: relative;
+  flex-shrink: 0;
+  width: var(--mark);
+  height: var(--mark);
+}
+.dawn-legs {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: #fff;
+  filter: drop-shadow(0 1px 1.5px rgb(140 90 20 / 0.55)) drop-shadow(0 2px 12px rgb(214 160 60 / 0.7));
+}
+.dawn-leg {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+/* The star sits 32.5% down a mark 61% of the logo's size, where the logo draws its sparkle. */
+.dawn-comet {
+  position: absolute;
+  left: 50%;
+  top: 32.5%;
+  width: 61%;
+  height: 61%;
+  translate: -50% -50%;
+}
+.dawn-comet svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: #fff;
+  filter: drop-shadow(0 0 6px #fff3cf) drop-shadow(0 0 16px rgb(255 200 110 / 0.95));
+}
+.dawn-tail {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 320px;
+  height: 3px;
+  margin-top: -1.5px;
+  transform-origin: 0 50%;
+  rotate: atan2(var(--fall-y), var(--fall-x));
+  border-radius: 9px;
+  background: linear-gradient(90deg, rgb(255 244 214 / 0.95), rgb(255 214 150 / 0.35) 40%, transparent);
+  opacity: 0;
+}
+
+/* ── the clouds ───────────────────────────────────────────────────────── */
+.dawn-clouds {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  height: calc(var(--fade-h) + var(--drop, 0px));
+  pointer-events: none;
+}
+.dawn-filters {
+  position: absolute;
+}
+.dawn-bank {
+  position: absolute;
+  inset: 0 0 auto;
+  width: 100%;
+  height: var(--fade-h);
+  overflow: visible;
+}
+.dawn-cloud-face,
+.dawn-floor {
+  fill: var(--page);
+  background: var(--page);
+}
+/* Fills the gaps the noise tears near the bottom of the drawing, then the plain page below it on tall windows. */
+.dawn-floor {
+  position: absolute;
+  inset: calc(var(--fade-h) - 48px) 0 0;
+  background: linear-gradient(transparent, var(--page) 48px);
+}
+.dawn-bank-narrow {
+  display: none;
+}
+@media (max-width: 700px) {
+  .dawn-bank-wide {
+    display: none;
+  }
+  .dawn-bank-narrow {
+    display: block;
+  }
+}
+
+/* ── the star that travels down the page ──────────────────────────────── */
+/* Trail.astro draws the path and moves the star along it with the page's scroll, from the trail's top at mid-window to
+   the end of the page, where it lands on the footer logo. Timelines in CSS go through variables: the minifier would fold
+   a plain value into the animation shorthand, which browsers reject. */
+.dawn-trail {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 0;
+  display: none;
+  pointer-events: none;
+}
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .dawn-trail {
+      display: block;
+    }
+    /* The footer logo waits for the star: its own sparkle is the travelling star, and the legs rise as it lands, over
+       the last stretch of the page. */
+    .footer-mark {
+      --dawn-end-tl: scroll(root);
+    }
+    .footer-star {
+      visibility: hidden;
+    }
+    .footer-leg {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: dawn-leg linear both;
+      animation-timeline: var(--dawn-end-tl);
+      animation-range: calc(100% - 140px) calc(100% - 40px);
+    }
+    .footer-leg-right {
+      animation-range: calc(100% - 120px) calc(100% - 20px);
+    }
+  }
+}
+.dawn-trail-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.dawn-trail-path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-dasharray: var(--tail) var(--len);
+  stroke-dashoffset: var(--tail);
+}
+/* A soft glow along the last stretch, a brighter core close behind the star, and dust that only shows where the glow
+   is. */
+.dawn-trail-glow {
+  --tail: 520px;
+  stroke: rgb(240 180 80 / 0.22);
+  stroke-width: 14;
+  filter: blur(6px);
+}
+.dawn-trail-core {
+  --tail: 180px;
+  stroke: rgb(236 176 76 / 0.75);
+  stroke-width: 2;
+}
+.dawn-trail-window {
+  --tail: 620px;
+  stroke: #fff;
+  stroke-width: 44;
+}
+.dawn-trail-dust {
+  stroke: #d9a24a;
+  stroke-width: 3;
+  stroke-dasharray: 0.1 13;
+  stroke-dashoffset: 0;
+  opacity: 0.85;
+}
+.dawn-traveller {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 22px;
+  height: 22px;
+  offset-rotate: 0deg;
+  opacity: 0;
+}
+/* Warm light spilling round the windows the star passes behind. */
+.dawn-traveller-light {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 440px;
+  height: 440px;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 205 110 / 0.5), rgb(255 205 110 / 0.16) 45%, transparent);
+}
+.dawn-traveller-body {
+  width: 100%;
+  height: 100%;
+}
+.dawn-traveller svg {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: #fff6dc;
+  filter: drop-shadow(0 0 1.5px rgb(170 110 30 / 0.9)) drop-shadow(0 0 10px rgb(240 170 60 / 0.95));
+  animation: dawn-twinkle 2400ms cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@media (max-width: 700px) {
+  .dawn-traveller-light {
+    width: 280px;
+    height: 280px;
+  }
+}
+
+/* ── night to day ────────────────────────────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-dawn] .dawn-dawn {
+    animation: dawn-fade-in 1500ms 500ms ease-in-out both;
+  }
+  html[data-dawn] .dawn-day {
+    animation: dawn-fade-in 1700ms 1900ms ease-in-out both;
+  }
+  html[data-dawn] .dawn-stars {
+    animation: dawn-shown 1400ms 1300ms ease-in both;
+  }
+  html[data-dawn] .dawn-comet {
+    animation: dawn-fall 1250ms 500ms cubic-bezier(0.45, 0, 0.15, 1) both;
+  }
+  html[data-dawn] .dawn-tail {
+    animation: dawn-shown 500ms 1600ms both;
+  }
+  html[data-dawn] .dawn-leg {
+    animation: dawn-leg 240ms cubic-bezier(0.22, 1, 0.36, 1) 1750ms both;
+  }
+  html[data-dawn] .dawn-leg-right {
+    animation-delay: 1790ms;
+  }
+  html[data-dawn] .dawn-halo {
+    animation: dawn-halo-in 1200ms 1750ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  html[data-dawn] .dawn-rays {
+    animation: dawn-fade-in 1600ms 2100ms ease-out both;
+  }
+  html[data-dawn] .dawn-clouds {
+    animation: dawn-cloud-rise 2600ms 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  html[data-dawn] .dawn-rise {
+    animation: dawn-rise 2600ms 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  /* The words are there from the first frame, in the night's colours, and take the day's as it comes. */
+  html[data-dawn] .dawn-hero :is(h1, .stars) {
+    animation: dawn-ink 1700ms 1900ms ease-in-out both;
+  }
+  html[data-dawn] .dawn-hero h1 em {
+    animation: dawn-serif 1700ms 1900ms ease-in-out both;
+  }
+  html[data-dawn] .dawn-hero .help a {
+    animation: dawn-ink-2 1700ms 1900ms ease-in-out both;
+  }
+  html[data-dawn] .dawn-hero .stars {
+    animation-name: dawn-pill;
+  }
+  html[data-dawn] .dawn-hero .count {
+    animation: dawn-count 1700ms 1900ms ease-in-out both;
+  }
+}
+
+/* The loading mark's twinkle (StartupSplash). */
+@keyframes dawn-twinkle {
+  0%,
+  55% {
+    transform: scale(1) rotate(0);
+  }
+  75% {
+    transform: scale(0.82) rotate(45deg);
+  }
+  100% {
+    transform: scale(1) rotate(90deg);
+  }
+}
+@keyframes dawn-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes dawn-shown {
+  from {
+    opacity: 1;
+  }
+}
+@keyframes dawn-fall {
+  from {
+    opacity: 0;
+    transform: translate(var(--fall-x), var(--fall-y)) scale(0.35);
+  }
+  12% {
+    opacity: 1;
+  }
+}
+/* The loading mark's own motion (StartupSplash): 240 ms, an 18% rise. */
+@keyframes dawn-leg {
+  from {
+    opacity: 0;
+    transform: translateY(18%);
+  }
+}
+@keyframes dawn-halo-in {
+  from {
+    opacity: 0;
+    scale: 0.4;
+  }
+}
+@keyframes dawn-cloud-rise {
+  from {
+    transform: translateY(38%);
+  }
+}
+@keyframes dawn-rise {
+  from {
+    translate: 0 18px;
+  }
+}
+@keyframes dawn-ink {
+  from {
+    color: #f6f1e7;
+  }
+}
+@keyframes dawn-ink-2 {
+  from {
+    color: rgb(246 241 231 / 0.74);
+  }
+}
+@keyframes dawn-serif {
+  from {
+    color: #f2d7a2;
+  }
+}
+@keyframes dawn-pill {
+  from {
+    color: #f6f1e7;
+    background-color: rgb(255 255 255 / 0.08);
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.16);
+  }
+}
+@keyframes dawn-count {
+  from {
+    color: rgb(246 241 231 / 0.74);
+    border-color: rgb(255 255 255 / 0.2);
+  }
+}

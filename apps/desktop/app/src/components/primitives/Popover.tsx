@@ -208,9 +208,9 @@ export function MenuSeparator() {
 }
 
 /** A group label inside a menu or picker: SectionLabel's menu size, inset to the rows' text. */
-export function MenuLabel({ children }: { children: ReactNode }) {
+export function MenuLabel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <SectionLabel variant="menu" as="div" className="shrink-0 px-2 pt-2 pb-1">
+    <SectionLabel variant="menu" as="div" className={`shrink-0 px-2 pt-2 pb-1 ${className}`}>
       {children}
     </SectionLabel>
   );

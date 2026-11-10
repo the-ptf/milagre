@@ -148,6 +148,27 @@ async function browserChecks() {
   const click = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
   const clickText = (selector, text) =>
     evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})].find((node) => node.textContent.trim() === ${JSON.stringify(text)}).click()`);
+  // The Routines page's two filter dropdowns (Show, Computer): their rows as [label, count], and picking one.
+  const filterRows = async (label) => {
+    await click(`[data-routine-filters] button[aria-label=${JSON.stringify(label)}]`);
+    await waitFor(`!!document.querySelector('[role="listbox"][aria-label=${JSON.stringify(label)}]')`);
+    const rows = JSON.parse(
+      await evaluate(
+        `JSON.stringify([...document.querySelectorAll('[role="listbox"][aria-label=${JSON.stringify(label)}] [data-picker-row]')].map((row) => { const name = row.querySelector('strong').textContent; return [name, row.textContent.replace(name, '').trim()]; }))`,
+      ),
+    );
+    await click(`[data-routine-filters] button[aria-label=${JSON.stringify(label)}]`);
+    await waitFor(`!document.querySelector('[role="listbox"][aria-label=${JSON.stringify(label)}]')`);
+    return rows;
+  };
+  const pickFilter = async (label, option) => {
+    await click(`[data-routine-filters] button[aria-label=${JSON.stringify(label)}]`);
+    await waitFor(`!!document.querySelector('[role="listbox"][aria-label=${JSON.stringify(label)}]')`);
+    await evaluate(
+      `[...document.querySelectorAll('[role="listbox"][aria-label=${JSON.stringify(label)}] [data-picker-row]')].find((row) => row.querySelector('strong').textContent === ${JSON.stringify(option)}).click()`,
+    );
+    await waitFor(`!document.querySelector('[role="listbox"][aria-label=${JSON.stringify(label)}]')`);
+  };
   const type = (selector, value) =>
     evaluate(`(() => {
       const input = document.querySelector(${JSON.stringify(selector)});
@@ -170,7 +191,7 @@ async function browserChecks() {
     const stopped = "Stopped babysitting PR #473: the same problem failed 3 times.";
     assert.equal(await evaluate(`document.querySelector('[data-babysit-stopped-divider]').textContent`), stopped);
     assert.equal(await evaluate(`document.querySelector('[data-babysit-stopped-divider]').getAttribute('aria-label')`), stopped);
-    // Groups and the chips' counts (paused ones count in their group too).
+    // Groups and the Show filter's counts (paused ones count in their group too).
     assert.deepEqual(
       JSON.parse(
         await evaluate(
@@ -182,10 +203,12 @@ async function browserChecks() {
         ["triggers", 3],
       ],
     );
-    assert.deepEqual(
-      JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('[data-routine-filter]')].map((chip) => chip.textContent.trim()))`)),
-      ["All 5", "Heartbeats 2", "Triggers 3", "Paused 1"],
-    );
+    assert.deepEqual(await filterRows("Show"), [
+      ["All Routines", "5"],
+      ["Heartbeats", "2"],
+      ["Triggers", "3"],
+      ["Paused", "1"],
+    ]);
     // The paused trigger says why and shows Paused; a heartbeat names its Chat.
     assert.equal(
       await evaluate(`document.querySelector('[data-routine-row="t3"] [data-routine-problem]').textContent`),
@@ -196,20 +219,31 @@ async function browserChecks() {
       `document.querySelector('[data-routine-row="h2"] [data-routine-meta]').textContent === 'Every 10 min · in Notification chimes · 3 of 20 Runs left'`,
     );
     assert.equal(await evaluate(`document.querySelector('[data-routine-row="t1"] [data-routine-status]').textContent`), "MIL-142 · 2 h ago");
-    assert.match(await evaluate("document.body.textContent"), /Closing the lid on battery pauses them\./);
+    // The header is the title and New Routine only; the lid note lives in the empty state.
+    assert.doesNotMatch(await evaluate("document.querySelector('[data-routines-page]').textContent"), /Closing the lid|Agents that run/);
+    assert.equal(
+      await evaluate(`!!document.querySelector('[data-routine-row] [role="checkbox"], [data-routine-row] input[type=checkbox]')`),
+      false,
+      "no tick on the rows",
+    );
     // Paused filter keeps only the paused row.
-    await click('[data-routine-filter="paused"]');
+    await pickFilter("Show", "Paused");
     await waitFor(`document.querySelectorAll('[data-routine-row]').length === 1 && !!document.querySelector('[data-routine-row="t3"]')`);
-    await click('[data-routine-filter="all"]');
+    await pickFilter("Show", "All Routines");
     await waitFor(`document.querySelectorAll('[data-routine-row]').length === 5`);
-    // The ⋯ menu: Run now only for schedules; a webhook trigger has none.
+    // The ⋯ menu: Pause (or Resume) first, Run now only for schedules; a webhook trigger has none.
     await click('[data-routine-row="t2"] [data-routine-more]');
     await waitFor(`!!document.querySelector('[data-routine-menu]')`);
     assert.deepEqual(
       JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('[data-routine-action]')].map((row) => row.dataset.routineAction))`)),
-      ["edit", "delete"],
+      ["pause", "edit", "delete"],
     );
-    await click('[data-routine-row="t2"] [data-routine-more]');
+    await click('[data-routine-action="pause"]');
+    await waitFor(`JSON.stringify(window.updated) === JSON.stringify(["t2", { enabled: false }])`);
+    await click('[data-routine-row="t3"] [data-routine-more]');
+    await waitFor(`!!document.querySelector('[data-routine-action="resume"]')`);
+    await click('[data-routine-action="resume"]');
+    await waitFor(`JSON.stringify(window.updated) === JSON.stringify(["t3", { enabled: true }])`);
     await waitFor(`!document.querySelector('[data-routine-menu]')`);
     await click('[data-routine-row="h1"] [data-routine-more]');
     await waitFor(`!!document.querySelector('[data-routine-action="chat"]')`);
@@ -579,18 +613,24 @@ async function browserChecks() {
       ),
     );
     for (const [id, marked] of marks) assert.equal(marked, id === remote, id);
-    const computerChips = JSON.parse(
-      await evaluate(`JSON.stringify([...document.querySelectorAll('[data-routine-computer-filter]')].map((node) => node.textContent.trim()))`),
-    );
     const total = marks.length;
-    assert.deepEqual(computerChips, [`Every computer ${total}`, `Here ${total - 1}`, "studio 1"]);
+    assert.deepEqual(await filterRows("Computer"), [
+      ["Every computer", String(total)],
+      ["Here", String(total - 1)],
+      ["studio", "1"],
+    ]);
     await shot("routines-two-computers");
-    await click('[data-routine-computer-filter="6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"]');
+    await pickFilter("Computer", "studio");
     await waitFor(`document.querySelectorAll('[data-routine-row]').length === 1`);
     assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(row(remote))})`), true);
-    assert.equal(await evaluate(`document.querySelector('[data-routine-filter="all"]').textContent.trim()`), "All 1", "the kind counts follow the computer");
+    assert.equal(
+      await evaluate(`!!document.querySelector(${JSON.stringify(row(remote) + " [data-routine-computer]")})`),
+      false,
+      "the filter names the computer",
+    );
+    assert.deepEqual((await filterRows("Show"))[0], ["All Routines", "1"], "the kind counts follow the computer");
     await shot("routines-one-computer");
-    await click('[data-routine-computer-filter="all"]');
+    await pickFilter("Computer", "Every computer");
     await waitFor(`document.querySelectorAll('[data-routine-row]').length === ${total}`);
     await click(`${row(remote)} [data-routine-more]`);
     await waitFor(`!!document.querySelector('[data-routine-action="run"]')`);

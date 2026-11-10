@@ -93,9 +93,20 @@ test("a heartbeat's meta says its cadence, its Chat and how many runs are left",
   assert.equal(routineStatus(heartbeat, NOW), `Next ${clock(heartbeat.nextRunAt!)}`);
 });
 
+test("a schedule's status names the day of its next Run when it isn't today", () => {
+  const at = (days: number, hour: number) => {
+    const date = new Date(NOW);
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days, hour, 0).getTime();
+  };
+  const weekday = (days: number) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(at(days, 12)).getDay()];
+  assert.equal(routineStatus({ ...heartbeat, nextRunAt: at(2, 16) }, NOW), `${weekday(2)} 16:00`);
+  assert.equal(routineStatus({ ...heartbeat, nextRunAt: at(1, 9) }, NOW), `${weekday(1)} 09:00`);
+  assert.match(routineStatus({ ...heartbeat, nextRunAt: at(9, 10) }, NOW), /^[A-Z][a-z]{2} \d{1,2} 10:00$/);
+});
+
 test("a Linear trigger's meta names the trigger, where Runs go, and its model and mode", () => {
   const meta = routineMeta(linear, { modelName: () => "Opus 5.5", now: NOW });
-  assert.equal(meta, "Linear · label agent added · team MIL · new Worktree in milagre-ade · Opus 5.5 · Full permissions");
+  assert.equal(meta, "Linear · label agent added · team MIL · new Worktree in milagre-ade · Opus 5.5 · Full");
   assert.equal(routineStatus(linear, NOW), "MIL-142 · 2 h ago");
 });
 

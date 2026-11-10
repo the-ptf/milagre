@@ -2141,3 +2141,58 @@ test("Project Git settings govern default bases, names, rules and explicit per-C
   await runtime.invoke("project-git:save", [project, { baseBranch: "missing-release" }]);
   await assert.rejects(runtime.invoke("worktree:create", [{ projectPath: project, prompt: "missing base" }]), /missing from this project/);
 });
+
+test("a Milagre bug report reaches the user redacted, and the approved text is what is posted", async (t) => {
+  const { project, make, events } = await fixture(t);
+  execFileSync("git", ["-C", project, "remote", "add", "origin", "git@github.com:northwind-health/claims-ledger.git"]);
+  execFileSync("git", ["-C", project, "config", "user.name", "Marisol Reyes"]);
+  const fake = reloadAgents();
+  fake.running();
+  const posted = [];
+  const runtime = make({
+    titleModels: {},
+    agentCli: async () => ({ command: "/fake" }),
+    createSession: fake.createSession,
+    postBugReport: async (report) => {
+      posted.push(report);
+      return { posted: true, url: "https://github.com/the-ptf/milagre-ade/issues/1" };
+    },
+  });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  await runtime.invoke("chat:send", [
+    { projectPath: project, sessionId: chat.id, body: "Report a Milagre bug: Delegation hangs", provider: "claude", model: "claude-opus-5-5" },
+  ]);
+  for (let i = 0; i < 200 && !fake.sessions.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  const session = fake.sessions[0];
+  session.answerQuestion = () => {
+    throw new Error("A bug report reached provider answers");
+  };
+  const tool = session.options.linked.tools.find((item) => item.name === "report_milagre_bug");
+  assert.ok(tool);
+  const result = tool.run({
+    title: "Delegation from claims-ledger hangs",
+    feature: "delegation",
+    what_happened: `The Delegation from ${project} (northwind-health/claims-ledger) never reported back to Marisol Reyes.`,
+  });
+  let question;
+  for (let i = 0; i < 200 && !question; i++) {
+    question = events.find((item) => item.payload?.event?.bugReport)?.payload.event;
+    if (!question) await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(question);
+  const { title, body } = question.bugReport;
+  // The Project's Git origin names the org and the repository; neither goes out, nor does its folder.
+  for (const value of ["claims-ledger", "northwind-health", "Marisol", "Reyes", project]) assert.ok(!`${title}\n${body}`.includes(value), `${value} leaked`);
+  assert.equal(title, "Delegation from <repo> hangs");
+  assert.match(body, /- Milagre: /);
+  const args = { chatId, requestId: question.requestId, answers: { title: [title], body: [body] } };
+  assert.equal(posted.length, 0);
+  assert.equal(await runtime.invoke("agent:answer-question", [args]), true);
+  assert.equal(JSON.parse(await result).url, "https://github.com/the-ptf/milagre-ade/issues/1");
+  assert.deepEqual(posted, [{ repo: "the-ptf/milagre", title, body }]);
+  assert.equal(await runtime.invoke("agent:answer-question", [args]), false);
+  await runtime.invoke("agent:interrupt", [chatId]);
+  await runtime.close();
+});

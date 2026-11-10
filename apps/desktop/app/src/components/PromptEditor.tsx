@@ -267,7 +267,7 @@ export function PromptEditor({
       return host;
     });
     hosts.current = nextHosts;
-    root.replaceChildren(...nodes);
+    placeChildren(root, nodes);
     setChips((current) => (current.length === nextChips.length && current.every((chip, index) => chip.host === nextChips[index]?.host) ? current : nextChips));
     placeSelection(restore);
     // An unfocused restored draft also opens on its last line, ready for the next click.
@@ -555,6 +555,24 @@ export function PromptEditor({
       )}
     </div>
   );
+}
+
+/**
+ * Makes `nodes` the children of `root`, in order, without taking out a node that is already there. A chip taken out and
+ * put back loses `:hover` until the pointer moves, so `replaceChildren` made the chip under a resting pointer flash its
+ * hover border on every keystroke.
+ */
+function placeChildren(root: Node, nodes: readonly Node[]) {
+  const keep = new Set(nodes);
+  for (let child = root.firstChild, next: ChildNode | null; child; child = next) {
+    next = child.nextSibling;
+    if (!keep.has(child)) child.remove();
+  }
+  let at = root.firstChild;
+  for (const node of nodes) {
+    if (node === at) at = at.nextSibling;
+    else root.insertBefore(node, at);
+  }
 }
 
 // Programmatic selection doesn't scroll a capped field; keep the caret in view.

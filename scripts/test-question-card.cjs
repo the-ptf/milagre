@@ -19,7 +19,8 @@ let request = { requestId: "q-1", questions: [
 function Fixture() {
   const [sent, setSent] = useState(undefined);
   window.sent = () => sent;
-  const answered = sent ? answeredQuestions(request, sent) : null;
+  // A bug report's approval is no answer to show: the agent's reply carries the issue link.
+  const answered = sent && !request.bugReport ? answeredQuestions(request, sent) : null;
   // Once sent, the chat shows the answers as a card, as the user's message.
   return <div style={{ width: 620, padding: 12 }}>
     {answered ? <div style={{ display: "flex", justifyContent: "flex-end", paddingLeft: 48 }}><AnswerCard answered={answered} /></div>
@@ -30,6 +31,11 @@ document.documentElement.classList.add("dark");
 document.body.style.cssText = "margin:0;background:#202123";
 const root = createRoot(document.getElementById("root"));
 root.render(<Fixture />);
+window.bugReport = (recheck = false) => {
+  const body = "A Delegation from <worktree> to <org>/<repo> stayed open after the other Chat finished.\\n\\n### Steps to reproduce\\n\\n1. Delegate from a Chat on branch <branch>\\n2. Wait for the report\\n\\n### Environment\\n\\n- Milagre: 0.232.0\\n- OS: macOS 27.0 (arm64)\\n- Agent: Claude · claude-opus-5-5 · effort high\\n- Feature: Delegation and Links\\n\\n---\\n\\nFiled from a Milagre Chat. Milagre replaced the reporter's private details with placeholders before posting.";
+  request = { requestId: "milagre-bug-report-test", bugReport: { repo: "the-ptf/milagre", title: "Delegation to <repo> never reports back", body, redactions: 4, ...(recheck ? { recheck: true } : {}) }, questions: [{ id: "report", header: "Bug report", question: "Report a Milagre bug", options: [], multiSelect: false, allowOther: true }] };
+  root.render(<Fixture key={Math.random()} />);
+};
 window.secret = (remaining = 300000) => {
   request = { requestId: "milagre-secret-test", secretRequest: { description: "A test token for deployment.", expiresAt: Date.now() + remaining }, questions: [{ id: "secret", header: "Secret", question: "Service token", options: [], multiSelect: false, allowOther: true, secret: true }] };
   root.render(<Fixture key={Math.random()} />);
@@ -188,6 +194,34 @@ async function browserChecks() {
     assert.equal(await evaluate("document.querySelector('button[type=submit]').disabled"), true);
     assert.equal(await evaluate("window.sent()"), undefined);
     await shot("7-secret-expired");
+    // A Milagre bug report: the exact text with what Milagre replaced marked, editable before Post.
+    await evaluate("window.bugReport()");
+    await waitFor("!!document.querySelector(\"form[aria-label='Milagre bug report']\")");
+    assert.deepEqual(await evaluate('[...document.querySelectorAll("mark")].map((m) => m.textContent)'), ["<worktree>", "<org>", "<repo>", "<branch>"]);
+    assert.match(await evaluate("document.body.textContent"), /4 private details were replaced with placeholders/);
+    assert.match(await evaluate("document.body.textContent"), /the-ptf\/milagre/);
+    await shot("8-bug-report");
+    await evaluate('[...document.querySelectorAll("button")].find((b) => b.textContent === "Edit").click()');
+    await waitFor('!!document.querySelector("textarea")');
+    assert.match(await evaluate('document.querySelector("textarea").value'), /^A Delegation from <worktree> to <org>\/<repo> stayed open/);
+    await evaluate(`(() => {
+      const area = document.querySelector('textarea');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(area, 'Edited report.');
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await shot("9-bug-report-editing");
+    await evaluate('document.querySelector("button[type=submit]").click()');
+    await waitFor("window.sent() !== undefined");
+    assert.deepEqual(await evaluate("window.sent()"), { title: ["Delegation to <repo> never reports back"], body: ["Edited report."] });
+    await evaluate("window.bugReport()");
+    await waitFor("!!document.querySelector(\"form[aria-label='Milagre bug report']\")");
+    await evaluate('[...document.querySelectorAll("button")].find((b) => b.textContent === "Cancel").click()');
+    await waitFor("window.sent() === null");
+    await evaluate("window.bugReport(true)");
+    await waitFor(
+      '[...document.querySelectorAll("p")].some((p) => p.textContent.includes("Your edit had more private details") && p.className.includes("text-orange-ink"))',
+    );
+    await shot("10-bug-report-recheck");
     console.log("Question card checks passed.");
     app.exit(0);
   } catch (error) {

@@ -19,8 +19,11 @@ async function diffBase(cwd, base) {
 }
 
 // chatBase is up to eight git processes and its answer rarely changes, while every agent step
-// re-reads the stat; remember it per (cwd, base) for a short while.
-const BASE_TTL = 30_000;
+// re-reads the stat and every window focus re-reads each open Chat's Worktree; remember it per
+// (cwd, base) for a few minutes. A recorded base is part of the key, so choosing another one reads
+// it at once; what can lag is only the local-or-remote pick after a pull. With 30 s, a focus after
+// any pause paid it again for every Worktree: about 60% of each read's time.
+const BASE_TTL = 5 * 60_000;
 const baseCache = new Map();
 async function cachedDiffBase(cwd, base, now = Date.now) {
   const key = `${cwd}\0${base ?? ""}`;

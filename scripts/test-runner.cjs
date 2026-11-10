@@ -14,8 +14,8 @@ const SKIP_DIRS = new Set(["node_modules", "dist", "release", ".expo", "ios", "a
 const MANIFEST = {
   // 62 s with 250 ms before each of its 35 screenshots; it was 85 s at 900 ms.
   "test-artifacts.cjs": { seconds: 62 },
-  // Ten Lighthouse runs on a site build: three mobile and three desktop on /, one each on /docs and /docs/cli.
-  "test-site-lighthouse.cjs": { seconds: 120 },
+  // Twelve Lighthouse runs on a site build: three mobile and three desktop on /, one each on /docs, /docs/cli and /design.
+  "test-site-lighthouse.cjs": { seconds: 135 },
   "test-theming-gallery.cjs": { seconds: 38 },
   "test-design-editor.cjs": { seconds: 35 },
   "test-design-live.cjs": { seconds: 32 },
@@ -25,6 +25,8 @@ const MANIFEST = {
   "test-chat-attachments.cjs": { seconds: 24 },
   // #234: about 50 s locally on Ubuntu 24.04 amd64 through OrbStack; refresh from CI when available.
   "test-chat-layout.cjs": { seconds: 50 },
+  // #972: about 37 s on a Mac (three parked returns, twenty first opens); provisional until a green CI timing.
+  "test-chat-scroll-return.cjs": { seconds: 40 },
   "test-site.cjs": { seconds: 23 },
   "test-task-track.cjs": { seconds: 20 },
   // #526 removed the canvas behind #240; the replacement Subagents check runs on Linux too.

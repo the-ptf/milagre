@@ -4,7 +4,7 @@ import { join, relative } from "node:path";
 import test from "node:test";
 import { radius, type } from "./design-tokens.ts";
 
-// Literal font sizes, corner radii and icon sizes stay on the scale in design-tokens.ts (.interface-design/system.md),
+// Literal font sizes, corner radii and icon sizes stay on the scale in design-tokens.ts (DESIGN.md),
 // and type takes no computed sizes, fixed SwiftUI fonts, uppercase, tracking or 700 (the large title aside); motion
 // takes `duration` tokens. Styles from before a rule are counted per file in design-tokens.baseline.json; a file may
 // only go down. After moving a file onto the scale, lower its count with UPDATE_DESIGN_TOKENS=1 node --test
@@ -64,7 +64,7 @@ test("no file adds an off-scale font size, corner radius, icon size or type and 
   const grown = (Object.keys(RULES) as Rule[]).flatMap((rule) =>
     Object.entries(counts[rule]).flatMap(([file, n]) => (n > (baseline[rule]?.[file] ?? 0) ? [`${file}: ${rule} ${baseline[rule]?.[file] ?? 0} → ${n}`] : [])),
   );
-  assert.deepEqual(grown, [], "Use the sizes, radii and durations in design-tokens.ts (.interface-design/system.md)");
+  assert.deepEqual(grown, [], "Use the sizes, radii and durations in design-tokens.ts (DESIGN.md)");
 });
 
 test("the baseline shrinks as files move onto the scale", () => {
