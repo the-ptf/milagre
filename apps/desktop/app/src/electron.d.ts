@@ -596,6 +596,8 @@ export type MilagreBridge = {
   openInEditor: (request: { root: string; path?: string; line?: number; editor?: string }) => Promise<Result<null>>;
   getCurrentProject: () => Promise<(OpenProject & StateStamp) | null>;
   openProject: () => Promise<(OpenProject & StateStamp) | null>;
+  /** This Mac's folder dialog without opening a Project: where a clone goes. A path, or null when cancelled. */
+  chooseFolder: () => Promise<string | null>;
   /** Opens a folder of this computer as a Project, without the dialog. */
   openProjectAt: (folder: string) => Promise<OpenProject>;
   listDirs: (request: { path?: string }) => Promise<DirListing>;
@@ -609,7 +611,7 @@ export type MilagreBridge = {
   /** Onboarding: a new folder in ~/Code with Git, opened as a Project. */
   createProject: (name: string) => Promise<OpenProject>;
   /** Onboarding: clones a repository into ~/Code and opens it. */
-  cloneProject: (url: string) => Promise<OpenProject>;
+  cloneProject: (url: string, parent?: string) => Promise<OpenProject>;
   /** Sets up Git in a Project folder that has none (git init, first commit when Git knows who you are), then opens it. */
   setUpGit: (folder: string) => Promise<OpenProject>;
   /** Keeps a recent project out of the all-Projects sidebar and the phone's list, or shows it again; resolves to the list. */

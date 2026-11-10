@@ -677,6 +677,10 @@ async function startDesktop() {
     const result = await dialog.showOpenDialog({ title: "Open project", properties: ["openDirectory", "createDirectory"] });
     return result.canceled || !result.filePaths[0] ? null : runtime.openProject(result.filePaths[0]);
   });
+  ipcMain.handle("project:choose-folder", async () => {
+    const result = await dialog.showOpenDialog({ title: "Clone into", properties: ["openDirectory", "createDirectory"] });
+    return result.canceled || !result.filePaths[0] ? null : result.filePaths[0];
+  });
   // This Mac's side of openProjectAt; a paired computer's goes through computers:invoke as project:open.
   ipcMain.handle("project:open-at", (_event, folder) => runtime.openProject(String(folder)));
   function createWindow() {

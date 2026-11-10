@@ -5,6 +5,7 @@ const { qualifyKey } = require("@milagre/shared/chat-scopes");
 // preload.cjs keeps the same two lists and refuses them before any IPC; computer-routing.test.cjs compares them.
 const LOCAL_ONLY = Object.freeze([
   "project:open",
+  "project:choose-folder",
   "project:reveal",
   "project:set-hidden",
   "skills:open",
@@ -141,6 +142,7 @@ const RESULTS = {
   "accounts:scope": (id, result) => field(id, result, "scopeKey", key),
   "accounts:assign": (id, result) => field(id, result, "scopeKey", key),
   "project:open": OPEN_PROJECT,
+  "onboarding:clone": OPEN_PROJECT,
   "project:current": OPEN_PROJECT,
   "project:switch": OPEN_PROJECT,
   "project:read": OPEN_PROJECT,

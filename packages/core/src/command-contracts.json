@@ -2137,6 +2137,9 @@
     "project:open": {
       "parameters": []
     },
+    "project:choose-folder": {
+      "parameters": []
+    },
     "project:open-at": {
       "parameters": [
         {
@@ -2205,6 +2208,13 @@
         {
           "name": "url",
           "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "parent",
+          "optional": true,
           "schema": {
             "type": "string"
           }
@@ -4062,6 +4072,7 @@
     "image:save",
     "notification:completed",
     "notification:state",
+    "project:choose-folder",
     "project:open",
     "project:open-at",
     "project:reveal",

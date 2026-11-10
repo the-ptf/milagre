@@ -28,9 +28,12 @@ const listings = {
 window.listed = [];
 window.opened = [];
 window.localDialogs = 0;
-const atlas = { listDirs: async ({ path } = {}) => (window.listed.push(path ?? null), listings[path ?? HOME]), openProjectAt: async (folder) => (window.opened.push(folder), { path: "c-atlas|" + folder, name: folder.split("/").pop(), state: {} }) };
+window.cloned = [];
+const atlas = { cloneProject: async (url, parent) => (window.cloned.push(["atlas", url, parent]), { path: "c-atlas|" + parent + "/repository", name: "repository", state: {} }), listDirs: async ({ path } = {}) => (window.listed.push(path ?? null), listings[path ?? HOME]), openProjectAt: async (folder) => (window.opened.push(folder), { path: "c-atlas|" + folder, name: folder.split("/").pop(), state: {} }) };
 window.milagre = {
   openProject: async () => (window.localDialogs++, null),
+  chooseFolder: async () => "/Users/a/work",
+  cloneProject: async (url, parent) => (window.cloned.push(["this-mac", url, parent]), { path: (parent ?? "/Users/a/Code") + "/repository", name: "repository", state: {} }),
   on: (id) => (id === "c-atlas" ? atlas : {}),
   onComputersChanged: (callback) => ((window.pushComputers = (computers) => callback({ thisMac: "victor-mbp", computers })), () => {}),
   computers: { list: async () => ({ thisMac: "victor-mbp", computers: [
@@ -126,6 +129,42 @@ async function browserChecks() {
     await evaluate(`${button("Open atlas-web")}.click()`);
     await waitFor(`window.added === 'c-atlas|/Users/a/Code/atlas-web' && !!document.querySelector('[data-closed]')`);
 
+    // Clone a repository: This Mac asks its folder dialog where, another computer clones into the folder picked in its list.
+    const typeUrl = (value) =>
+      evaluate(
+        `(() => { const input = document.querySelector('[data-add-project-url]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+      );
+    const mode = (id) => `document.querySelector('[data-add-project-mode="${id}"]')`;
+    const URL = "https://github.com/owner/repository";
+    await evaluate(`document.querySelector('[data-reopen]').click()`);
+    await waitFor(`document.querySelector('dialog[data-add-project]')?.open`);
+    await evaluate(`${mode("clone")}.click()`);
+    await waitFor(`!!document.querySelector('[data-add-project-url]')`);
+    assert.equal(await text("[data-clone-folder]"), "~/Code", "a clone starts in ~/Code");
+    assert.equal(await evaluate(`${button("Clone")}.disabled`), true, "Clone waits for an address");
+    await typeUrl(URL);
+    await waitFor(`!${button("Clone")}.disabled`);
+    await evaluate(`${button("Choose folder…")}.click()`);
+    await waitFor(`document.querySelector('[data-clone-folder]')?.textContent.trim() === '/Users/a/work'`);
+    await screenshot("add-project-clone-this-mac");
+    await evaluate(`${button("Clone")}.click()`);
+    await waitFor(`window.added === '/Users/a/work/repository' && !!document.querySelector('[data-closed]')`);
+    assert.deepEqual(await evaluate(`window.cloned`), [["this-mac", URL, "/Users/a/work"]]);
+    await evaluate(`document.querySelector('[data-reopen]').click()`);
+    await waitFor(`document.querySelector('dialog[data-add-project]')?.open`);
+    await evaluate(`${mode("clone")}.click()`);
+    await typeUrl(URL);
+    await evaluate(`${on("c-atlas")}.click()`);
+    await waitFor(`!!document.querySelector('[data-folder="Code"]')`);
+    await evaluate(`document.querySelector('[data-folder="Code"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
+    await waitFor(`!!document.querySelector('[data-folder="scratch"]')`);
+    assert.match(await text("dialog[data-add-project]"), /Clones on atlas\./);
+    await screenshot("add-project-clone-remote");
+    await evaluate(`${button("Clone")}.click()`);
+    await waitFor(`window.added === 'c-atlas|/Users/a/Code/repository' && !!document.querySelector('[data-closed]')`);
+    assert.deepEqual(await evaluate(`window.cloned.slice(1)`), [["atlas", URL, "/Users/a/Code"]]);
+    console.log("PASS: a repository is cloned into the folder chosen on this Mac or on another computer");
+
     // The chosen computer going offline stops the browser and disables Add; removing it falls back to This Mac.
     const computerList = (state) =>
       `[{ id: "c-atlas", name: "atlas", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: ${JSON.stringify(state)}, route: null, lastSeen: Date.now(), addedAt: 1, message: null, lan: false, lanRoutes: [] }]`;
@@ -144,6 +183,8 @@ async function browserChecks() {
     await evaluate(`window.pushComputers([])`);
     await waitFor(`!!${button("Choose folder…")} && !document.querySelector('[data-add-project-away]')`);
     assert.equal(await evaluate(`window.listed.length`), reads, "nothing is read from an offline computer");
+    assert.equal(await evaluate(`!!document.querySelector('[data-add-project-on]')`), false, "with this Mac alone there is no computer to choose");
+    assert.equal(await evaluate(`!!${mode("clone")}`), true, "this Mac alone still offers to clone");
     console.log("PASS: an Added folder opens, and an offline or removed computer stops the browser");
 
     // A press on the scrim closes the dialog.
