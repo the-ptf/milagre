@@ -29,6 +29,31 @@ export { DiffToolbar, useDiffPreferences, useDiffPresence } from "./DiffPrefs";
 
 const NO_COMMENTS: CommentView[] = [];
 
+const fileNodes = (root: HTMLElement | null) => [...(root?.querySelectorAll<HTMLElement>("[data-diff-file]") ?? [])];
+
+/**
+ * Scrolls `node` to the top. A file near the end can't get there (the view stops at its bottom), which can leave a sliver
+ * of a row under the pinned header above it; the view then moves up by that sliver, so the row under the header shows whole.
+ */
+function scrollToFile(root: HTMLElement, node: HTMLElement) {
+  node.scrollIntoView({ block: "start" });
+  const top = root.getBoundingClientRect().top;
+  if (node.getBoundingClientRect().top <= top + 1) return;
+  const pinned = fileNodes(root).findLast((file) => file.getBoundingClientRect().top <= top + 1);
+  const header = pinned?.querySelector("header");
+  if (!pinned || !header) return;
+  const edge = header.getBoundingClientRect().bottom;
+  const row = [...pinned.querySelectorAll<HTMLElement>("[data-diff-row]")].find((element) => element.getBoundingClientRect().bottom > edge);
+  const hidden = row ? edge - row.getBoundingClientRect().top : 0;
+  if (hidden > 0) root.scrollTop -= hidden;
+}
+
+/** Scrolls to the file and notes where that left the view, so a scroll that isn't ours can tell. */
+function holdFile(root: HTMLElement, node: HTMLElement, own: { current: number }) {
+  scrollToFile(root, node);
+  own.current = root.scrollTop;
+}
+
 export function DiffView({
   changes,
   prefs,
@@ -47,14 +72,68 @@ export function DiffView({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const files = list.state === "ready" && list.isRepo ? list.files : [];
 
+  // Until the reader scrolls, the picked file stays at the top while the files around it load and change height.
+  const holding = useRef<string | null>(null);
+  const ownTop = useRef(0);
   useEffect(() => {
     if (!scrollTarget || scrolledTarget.current === scrollTarget) return;
-    const node = [...(scroller.current?.querySelectorAll<HTMLElement>("[data-diff-file]") ?? [])].find((el) => el.dataset.diffFile === scrollTarget.path);
-    if (node) {
-      node.scrollIntoView({ block: "start" });
+    const node = fileNodes(scroller.current).find((el) => el.dataset.diffFile === scrollTarget.path);
+    if (node && scroller.current) {
+      holdFile(scroller.current, node, ownTop);
       scrolledTarget.current = scrollTarget;
+      holding.current = scrollTarget.path;
     }
   }, [scrollTarget, files]);
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const release = () => (holding.current = null);
+    const observer = new ResizeObserver(() => {
+      const node = holding.current && fileNodes(scroller.current).find((el) => el.dataset.diffFile === holding.current);
+      if (node) holdFile(element, node, ownTop);
+    });
+    // Any scroll that isn't the hold's own (the reader's, or code setting scrollTop) lets go of the picked file.
+    const moved = () => {
+      if (holding.current && Math.abs(element.scrollTop - ownTop.current) > 1) holding.current = null;
+    };
+    element.addEventListener("scroll", moved, { passive: true });
+    for (const child of element.querySelectorAll("[data-diff-file]")) observer.observe(child);
+    element.addEventListener("wheel", release, { passive: true });
+    element.addEventListener("pointerdown", release);
+    element.addEventListener("keydown", release);
+    return () => {
+      observer.disconnect();
+      element.removeEventListener("scroll", moved);
+      element.removeEventListener("wheel", release);
+      element.removeEventListener("pointerdown", release);
+      element.removeEventListener("keydown", release);
+    };
+  }, [files]);
+  // The tree marks the file whose header is pinned at the top (the last one that starts at or above the view's top), or
+  // the picked one while the view holds it.
+  const { setVisiblePath } = changes;
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element || !setVisiblePath) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      // A picked file stays marked while the view holds it, even when it sits too near the end to reach the top.
+      if (holding.current) return setVisiblePath(holding.current);
+      const top = element.getBoundingClientRect().top + 8;
+      const nodes = fileNodes(scroller.current);
+      const pinned = nodes.findLast((node) => node.getBoundingClientRect().top <= top) ?? nodes[0];
+      if (pinned?.dataset.diffFile) setVisiblePath(pinned.dataset.diffFile);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    element.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      element.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(frame);
+    };
+  }, [setVisiblePath, files]);
 
   // Stable, so a file only re-renders when its own props change.
   const toggle = useCallback(

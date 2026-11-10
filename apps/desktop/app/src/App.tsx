@@ -9,7 +9,6 @@ import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
 import { ComputerAllowPrompt } from "./components/ComputerAllowPrompt";
-import { KeepAwakePrompt } from "./components/KeepAwakePrompt";
 import { LinkWorkspace } from "./components/LinkWorkspace";
 import { AddComputerDialog } from "./components/AddComputerDialog";
 import { AddProjectDialog } from "./components/AddProjectDialog";
@@ -31,6 +30,7 @@ import { confirmHeldState, isLean, numberedState, seedHeldState, stateEvents } f
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { cliName } from "@milagre/shared/providers";
+import { requiredCliVersion } from "./lib/cli-status";
 import { Activity, useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type SetStateAction } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
@@ -87,7 +87,7 @@ import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
 import { chatJumpIndex, setKeyContext, shortcutCommand } from "./lib/keybindings";
 import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
 import { ChangesPanelSlot } from "./components/changes/ChangesPanelSlot";
-import { AttentionButton, DiffBar, LayoutToggle, SubchatsButton } from "./components/changes/ChangesChrome";
+import { ATTENTION_CHIP_WIDTH, AttentionButton, DiffBar, LayoutToggle, SubchatsButton } from "./components/changes/ChangesChrome";
 import { AnimatePresence } from "motion/react";
 import { useDiffComments } from "./components/changes/useDiffComments";
 import { formatCommentsMessage } from "./lib/diff-comments";
@@ -131,6 +131,7 @@ import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
 import { clearNoticeOnNavigate, showNotice } from "./lib/notice";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
+import { UI_COPY } from "@milagre/shared/model-copy";
 import { Notice as NoticeCard } from "./components/Notice";
 import { Button } from "./components/primitives/Button";
 import { Dialog } from "./components/primitives/Dialog";
@@ -146,8 +147,7 @@ import { noteComputer, startOfflineCache } from "./lib/offline-cache";
 import { useDisplayNow } from "./lib/display-clock";
 import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers, useHiddenComputers } from "./lib/computers";
 import { OfflineEmpty } from "./components/OfflineEmpty";
-import { keepAwakeCommands, settingsCommands, settingsPageCommands } from "./lib/settings-commands";
-import { useKeepAwakeSettings } from "./lib/keep-awake";
+import { settingsCommands, settingsPageCommands } from "./lib/settings-commands";
 import { findSetting } from "./lib/settings-find";
 import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
@@ -165,8 +165,11 @@ import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { chatFamily } from "./lib/subchat-rows";
 import { besideParent, familySplit, swapTile } from "./lib/subchat-split";
 import { chatBookmark } from "@milagre/shared/subchats";
+import { ChatIdentity } from "./components/agents/ChatIdentity";
 import { SubchatBookmark } from "./components/agents/SubchatBookmark";
 import { provideSubchatActions, SubchatWaitingNote, type SubchatActions } from "./components/agents/SubchatMessages";
+import { useStepApprovalScope } from "./components/agents/step-approval";
+import { pendingWaitingNote } from "./lib/subchat-transcript";
 import type { TileMenuControls } from "./components/agents/TileFamilyMenu";
 import type { SubchatSource } from "./lib/subchat-track";
 import { deeperSubchats, directSubchats } from "@milagre/shared/subchat-states";
@@ -269,8 +272,6 @@ function App() {
   // The latest state of every project the main process has sent this window; it's their only writer
   // (see ADR-0001). The ref leads, so callbacks read a state that arrived since the last render.
   const [selectedLink, setSelectedLink] = useState<OpenLink | null>(null);
-  // The Chat on screen in the Link workspace, which keeps its own selection (KeepAwakePrompt asks about its computer).
-  const [linkChatKey, setLinkChatKey] = useState<string | null>(null);
   // The Link shown last stays mounted behind the Project (an <Activity>), so going back to it is a style change.
   const [lastLink, setLastLink] = useState<OpenLink | null>(null);
   // Counts the requests to show a Link's Chat, so asking for the same Chat again shows it again.
@@ -519,7 +520,9 @@ function App() {
   const updateCli = async (provider: ModelProvider) => {
     setUpdatingCli(provider);
     try {
-      const result = await window.milagre.updateCli(provider);
+      // The picker status says which release this Milagre needs. Keep it through IPC so a Codex update that leaves
+      // an older executable first on PATH cannot be reported as successful.
+      const result = await window.milagre.updateCli(provider, requiredCliVersion(cliStatus?.[provider]));
       // Updating the CLI is global; read authentication and models for the scope open now, and for the others when shown.
       staleProviders();
       refreshCliStatusRef.current();
@@ -873,10 +876,10 @@ function App() {
   const agentPorts = useAgentPorts();
   const isSending = preparingHere || Boolean(run);
   const usage = useUsage(accountScope);
-  const keepAwake = useKeepAwakeSettings();
   const {
     chatOrder,
     showUsageInSidebar,
+    keepAwake,
     defaultModelId,
     defaultPermissionMode,
     notifyOnCompletion,
@@ -948,6 +951,14 @@ function App() {
   const pendingQuestion = pendingApproval ? undefined : run?.questions[0];
   // Its answers were sent: the card goes at once, as on the phone, instead of waiting for the agent's word back.
   const questionSent = Boolean(pendingQuestion && sentReply(run, pendingQuestion.requestId));
+  // The approval shows on its tool row in the transcript; its card waits above the composer only while no row takes it.
+  const stepApproval = useStepApprovalScope(
+    pendingApproval,
+    (run?.approvals.length ?? 1) - 1,
+    pendingApproval ? sentDecision(run, pendingApproval.requestId) : null,
+    answerApproval,
+  );
+  const approvalCard = stepApproval.inline ? undefined : pendingApproval;
 
   // A running turn takes the new mode at once instead of at its next message.
   function changePermissionMode(mode: PermissionMode) {
@@ -1238,6 +1249,7 @@ function App() {
     sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) +
     (view === "chat" ? 1 : 0) +
     (view === "chat" && focusedFamily && focusedFamily.children.length > 0 ? 1 : 0);
+  const attentionChipShown = Boolean(showAttentionButton && !floatingInbox && attentionTitles[0]);
   const endSplit = useEvent(() => {
     setSplitKeys(NO_KEYS);
     setLayout("single");
@@ -1710,6 +1722,11 @@ function App() {
     const worktree = latest?.worktrees[latest.sessions[sessionId]?.worktree_id ?? -1];
     if (worktree) void openInEditor(worktree.path);
   }
+
+  // The daemon keeps the Mac awake while Milagre runs, if the setting says so.
+  useEffect(() => {
+    void window.milagre.setKeepAwake(keepAwake).catch(() => {});
+  }, [keepAwake]);
 
   const unreadChatIds = useMemo(
     () =>
@@ -3441,7 +3458,6 @@ function App() {
       archivingChats={archivingChats}
       onArchiving={trackLinkArchive}
       scopeChatActions={scopeChatActions}
-      onChatOnScreen={setLinkChatKey}
     />
   );
   const linkDialogs = (
@@ -3452,12 +3468,6 @@ function App() {
       {addProjectDialog}
     </>
   );
-  // Opening a paired computer's Chat, of a Project or a Link, asks about keeping that computer awake.
-  const keepAwakePrompt = (
-    <KeepAwakePrompt
-      chatKey={selectedLink ? linkChatKey : view === "chat" && project && selectedSessionId !== null ? chatKey(project.path, selectedSessionId) : null}
-    />
-  );
   // A Link with no Project to stand behind it (none open yet) is the whole window.
   if (selectedLink && (loading || !project || !state || splash === "intro"))
     return (
@@ -3466,7 +3476,6 @@ function App() {
         {linkWorkspace}
         {linkDialogs}
         {settingsModal}
-        {keepAwakePrompt}
       </>
     );
 
@@ -3525,7 +3534,7 @@ function App() {
     const commands: Command[] = [
       {
         id: "new-chat",
-        label: "New chat",
+        label: UI_COPY.newChat,
         group: "Actions",
         icon: "add",
         keybinding: "chat.new" as const,
@@ -3538,7 +3547,7 @@ function App() {
               id: "new-terminal",
               label: "New Terminal",
               group: "Actions",
-              icon: "add" as const,
+              icon: "terminal" as const,
               keybinding: "terminal.new" as const,
               keywords: "shell console command line",
               run: () => newTerminal(terminalChatId, undefined, setNotice),
@@ -3547,9 +3556,9 @@ function App() {
         : []),
       {
         id: "open-project",
-        label: "Add project…",
+        label: UI_COPY.addProject,
         group: "Actions",
-        icon: "folder",
+        icon: "folderAdd",
         keybinding: "project.add" as const,
         keywords: "add repository workspace folder",
         run: () => openProject(),
@@ -3558,7 +3567,7 @@ function App() {
         id: "canvas",
         label: "Projects and Links",
         group: "Actions",
-        icon: "git",
+        icon: "canvas",
         keybinding: "canvas.open" as const,
         keywords: "canvas linked worktrees",
         run: openCanvas,
@@ -3645,7 +3654,7 @@ function App() {
     if (view === "routines" || settingsOpen)
       commands.push({
         id: "back-to-chat",
-        label: "Back to chat",
+        label: UI_COPY.backToChat,
         group: "Actions",
         icon: "chat",
         run: () => {
@@ -3666,7 +3675,6 @@ function App() {
       },
     });
     commands.push(...settingsCommands(getSettings(), updateSettings));
-    commands.push(...keepAwakeCommands(keepAwake.settings.enabled, (enabled) => void keepAwake.save({ enabled }).catch(() => {})));
     if (selectedSession && view === "chat" && !settingsOpen) {
       const sessionId = selectedSession.id;
       commands.unshift(
@@ -3675,8 +3683,8 @@ function App() {
               {
                 id: "git",
                 label: "Commit and open PR…",
-                group: "Current chat",
-                icon: "git" as const,
+                group: UI_COPY.currentChat,
+                icon: "pullRequest" as const,
                 keywords: "git changes pull request push",
                 run: () => openGitDialog(sessionId),
               },
@@ -3689,7 +3697,7 @@ function App() {
               {
                 id: "editor",
                 label: "Open in editor",
-                group: "Current chat",
+                group: UI_COPY.currentChat,
                 icon: "editor" as const,
                 keywords: "code vscode cursor",
                 run: () => openChatInEditor(sessionId),
@@ -3697,7 +3705,7 @@ function App() {
               {
                 id: "reveal",
                 label: "Reveal folder",
-                group: "Current chat",
+                group: UI_COPY.currentChat,
                 icon: "folder" as const,
                 keywords: "finder explorer worktree",
                 run: () => revealChat(sessionId),
@@ -3707,8 +3715,8 @@ function App() {
           ? [
               {
                 id: "find",
-                label: "Find in chat",
-                group: "Current chat",
+                label: UI_COPY.findInChat,
+                group: UI_COPY.currentChat,
                 icon: "search" as const,
                 keybinding: "chat.find" as const,
                 keywords: "search text messages",
@@ -3719,16 +3727,16 @@ function App() {
         {
           id: "unread",
           label: selectedSession.unread ? "Mark as read" : "Mark as unread",
-          group: "Current chat",
+          group: UI_COPY.currentChat,
           icon: "unread",
           run: () => patchChat(sessionId, { unread: !selectedSession.unread }),
         },
         {
           id: "reload",
-          label: "Reload chat",
-          group: "Current chat",
+          label: UI_COPY.reloadChat,
+          group: UI_COPY.currentChat,
           icon: "reload",
-          detail: RELOAD_HINT,
+          hint: RELOAD_HINT,
           keywords: "restart agent mcp skills login refresh",
           run: () => void reloadChat(sessionId),
         },
@@ -3736,8 +3744,8 @@ function App() {
       if (selectedWorktree && showGit)
         commands.splice(3, 0, {
           id: "copy-path",
-          label: "Copy worktree path",
-          group: "Current chat",
+          label: UI_COPY.copyWorktreePath,
+          group: UI_COPY.currentChat,
           icon: "copy",
           run: () => navigator.clipboard.writeText(selectedWorktree.path),
         });
@@ -3878,7 +3886,7 @@ function App() {
               onToggle={toggleFamily}
             />
           )}
-          {showAttentionButton && !floatingInbox && attentionTitles[0] && (
+          {attentionChipShown && (
             <AttentionButton
               label={attentionLabel(attentionTitles.map((item) => item.title || "Chat"))}
               items={attentionTitles.map((item) => ({
@@ -3959,6 +3967,7 @@ function App() {
               <DiffBar
                 open={changes.diffOpen}
                 onBack={changes.closeDiff}
+                label={selectedSession ? (chats.find((row) => row.id === String(selectedSession.id))?.label ?? chatTitle(selectedSession)) : undefined}
                 send={{ count: diffComments.sendable.length, onSend: () => void sendDiffComments() }}
                 trailing={<DiffToolbar changes={changes} prefs={diffPrefs} />}
                 corner={cornerButtons * CORNER_PITCH}
@@ -3969,6 +3978,13 @@ function App() {
               {/* The open Chat's Routine (a Run Chat's, or a Heartbeat's), over the Chat; a grid's tiles show theirs in their headers. */}
               {view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && focusedChatKey && (
                 <RoutineChip chatKey={focusedChatKey} run={selectedSession?.routine} place="strip" onOpen={openRoutine} />
+              )}
+              {bookmarkShown && !bookmarkedParent && selectedSession && focusedChatKey && (
+                <ChatIdentity
+                  title={chats.find((row) => row.id === String(selectedSession.id))?.label ?? chatTitle(selectedSession)}
+                  project={surfaces.settings ? surfaces.name : undefined}
+                  corner={cornerButtons * CORNER_PITCH + (attentionChipShown ? ATTENTION_CHIP_WIDTH + 8 : 0)}
+                />
               )}
               {bookmarkedParent && focusedChatKey && (
                 <SubchatBookmark
@@ -4061,6 +4077,7 @@ function App() {
                       {/* One composer across Projects: its parked transcripts (TranscriptSlots) outlive a Project switch. */}
                       <DraftChatComposer
                         store={draftStore}
+                        stepApproval={stepApproval.value}
                         offScreen={!(view === "chat" || runPaneOpen)}
                         mentionContext={mentionContext}
                         messages={displayedMessages}
@@ -4249,18 +4266,23 @@ function App() {
                         onDismissNotice={() => setNotice(null)}
                         approvalHidden={questionSent && !pendingApproval && !remoteDelegations.length}
                         approval={
-                          pendingApproval || pendingQuestion || remoteDelegations.length ? (
+                          approvalCard ||
+                          pendingQuestion ||
+                          remoteDelegations.length ||
+                          (pendingApproval && pendingWaitingNote(displayedMessages)?.ask === "approval") ? (
                             <div className="flex w-full flex-col gap-2">
                               {/* How long the Subchat has waited and who was told: right above the card it belongs to. */}
                               <SubchatWaitingNote messages={displayedMessages} ask={pendingApproval ? "approval" : "question"} />
                               {pendingApproval ? (
-                                <PermissionCard
-                                  key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingApproval.requestId}`}
-                                  request={pendingApproval}
-                                  waiting={(run?.approvals.length ?? 1) - 1}
-                                  answering={sentDecision(run, pendingApproval.requestId)}
-                                  onAnswer={answerApproval}
-                                />
+                                approvalCard && (
+                                  <PermissionCard
+                                    key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${approvalCard.requestId}`}
+                                    request={approvalCard}
+                                    waiting={(run?.approvals.length ?? 1) - 1}
+                                    answering={sentDecision(run, approvalCard.requestId)}
+                                    onAnswer={answerApproval}
+                                  />
+                                )
                               ) : pendingQuestion ? (
                                 // Hidden, not unmounted, while the answers travel: if they don't arrive, the card comes back as it was.
                                 <div className={questionSent ? "hidden" : "contents"}>
@@ -4270,6 +4292,7 @@ function App() {
                                     waiting={(run?.questions.length ?? 1) - 1}
                                     answering={sentReply(run, pendingQuestion.requestId)}
                                     onAnswer={answerQuestion}
+                                    startedAt={run?.startedAt}
                                     dictationChat={{
                                       cwd: selectedWorktree?.path ?? project.path,
                                       scope: project.path,
@@ -4422,7 +4445,6 @@ function App() {
       {/* The Project's copy of these sits in the hidden tree while a Link is on screen. */}
       {selectedLink && linkDialogs}
       {settingsModal}
-      {keepAwakePrompt}
     </>
   );
 }

@@ -1,5 +1,5 @@
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
-import { FlashIcon, Search01Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
+import { ChatGptIcon, FlashIcon, Search01Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { providerName } from "@milagre/shared/providers";
 import { formatCredits } from "@milagre/shared/kiro-models";
 import type { AgentCliStatus, EffortLevel, ModelCapability, ModelOption, ModelProvider } from "../model";
@@ -83,6 +83,8 @@ export function ModelPicker({
   const hasSettings = levels.length > 0 || capability.fastMode || capability.ultracode;
   const index = Math.max(0, levels.indexOf(effort ?? ""));
   const current = levels[index];
+  // The rail and the header already name the provider; a row repeats its logo only in a list that mixes providers.
+  const mixed = new Set(models.map((model) => model.provider)).size > 1;
 
   // Arrow keys move through the model rows, Enter picks; the search field keeps typing.
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -126,13 +128,19 @@ export function ModelPicker({
                 aria-label={providerName(item)}
                 aria-pressed={on}
                 onClick={() => onProviderChange(item)}
-                className={`relative flex size-8 shrink-0 items-center justify-center rounded-control transition-colors ${on ? "bg-surface shadow-card" : "hover:bg-hover"}`}
+                // The picked provider is a hover-2 tile with an ink mark, like a pressed icon button; the others' marks rest in
+                // ink-3. Flat one-colour marks at 18px, a solid one drawn smaller (ProviderLogo optical) so all three read at one weight.
+                className={`group/tile relative flex size-8 shrink-0 items-center justify-center rounded-control transition-colors ${on ? "bg-hover-2" : "hover:bg-hover"}`}
               >
-                {/* Selection is ink, like every other picked state. */}
-                {on && <span aria-hidden className="absolute top-2 bottom-2 -left-1.5 w-[3px] rounded-r-full bg-ink" />}
-                <span className={on ? "" : "opacity-60 grayscale-[0.4]"}>
-                  <ProviderLogo provider={item} size={16} />
-                </span>
+                {item === "codex" ? (
+                  // Codex's mark is solid and reads as a blob beside the others' line marks: the rail alone draws OpenAI's
+                  // line mark (the composer chip keeps the brand mark).
+                  <span className={`flex ${on ? "text-ink" : "text-ink-3 transition-colors group-hover/tile:text-ink-2"}`}>
+                    <Icon icon={ChatGptIcon} size={18} />
+                  </span>
+                ) : (
+                  <ProviderLogo provider={item} size={18} mono className={on ? "text-ink" : "text-ink-3 transition-colors group-hover/tile:text-ink-2"} />
+                )}
                 {warning && <span aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full bg-orange" />}
               </button>
             </Tooltip>
@@ -168,7 +176,7 @@ export function ModelPicker({
                 .join(". ")}
             >
               <PickerRow
-                icon={<ProviderLogo provider={model.provider} size={16} />}
+                icon={mixed ? <ProviderLogo provider={model.provider} size={16} /> : undefined}
                 label={model.name}
                 meta={metaLabel(model)}
                 selected={model.id === selectedModel.id && model.provider === selectedModel.provider}
@@ -301,7 +309,7 @@ function SettingRow({
       onClick={() => onChange(!on)}
       className={`flex w-full items-center gap-2 rounded-control border px-2.5 py-2 text-left transition-colors ${on ? `border-transparent ${tone === "purple" ? "bg-purple-tint" : "bg-orange-tint"}` : "border-line hover:bg-hover"}`}
     >
-      <span className={on ? fill : "text-ink-2"}>
+      <span className={`flex shrink-0 ${on ? fill : "text-ink-2"}`}>
         <Icon icon={icon} size={16} />
       </span>
       <span className="flex min-w-0 flex-1 flex-col">

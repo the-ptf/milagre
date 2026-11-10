@@ -1,6 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
-import type { IconSvgElement } from "@hugeicons/react";
-import { PlusSignIcon, Tag01Icon, UserAdd01Icon, UserGroupIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { Cancel01Icon, Clock01Icon, Comment01Icon, PlusSignIcon, Tag01Icon, Tick02Icon, UserAdd01Icon, UserGroupIcon } from "@hugeicons/core-free-icons";
 import type { PullRequestDetail, PullRequestReviewer, RepoLabel } from "@milagre/shared/pull-request-review";
 import type { MilagreBridge } from "../../../electron";
 import { PickerPanel, PickerRow } from "../../primitives/Picker";
@@ -21,12 +21,32 @@ const icon = (glyph: IconSvgElement, size: IconSize = 14) => <Icon icon={glyph} 
 const addButton =
   "flex size-6 shrink-0 items-center justify-center rounded-control text-ink-3 transition-[color,background-color,scale] hover:bg-hover hover:text-ink active:scale-press aria-expanded:bg-hover-2 aria-expanded:text-ink";
 
-export function Avatar({ login, size = 18, className = "", team = false }: { login: string; size?: number; className?: string; team?: boolean }) {
+/** A login's initials: the first letters of its first two words ("reviewer-one" → RO), so two reviewers named alike
+ * still differ; a one-word login takes its first letter. */
+function initials(login: string) {
+  const words = login.split(/[-_.\s]+/).filter(Boolean);
+  return (words.length > 1 ? `${words[0]![0]}${words[1]![0]}` : login.slice(0, 1)).toUpperCase();
+}
+
+/** A person's GitHub picture; offline or without one, their initials on a hover-2 disc, which shows on the page and on
+ * cards in both themes (one fallback across the panel). */
+export function Avatar({ login, size = 20, className = "", team = false }: { login: string; size?: number; className?: string; team?: boolean }) {
+  const [failed, setFailed] = useState(false);
   // A team has no picture; it shows as a group.
   if (team)
     return (
-      <span style={{ width: size, height: size }} className={`flex shrink-0 items-center justify-center rounded-full bg-hover text-ink-2 ${className}`}>
+      <span style={{ width: size, height: size }} className={`flex shrink-0 items-center justify-center rounded-full bg-field text-ink-2 ${className}`}>
         {icon(UserGroupIcon, size >= 20 ? 14 : 12)}
+      </span>
+    );
+  if (failed)
+    return (
+      <span
+        aria-hidden
+        style={{ width: size, height: size }}
+        className={`flex shrink-0 items-center justify-center rounded-full bg-hover-2 text-10 leading-none font-semibold text-ink-2 ${className}`}
+      >
+        {initials(login)}
       </span>
     );
   return (
@@ -36,10 +56,8 @@ export function Avatar({ login, size = 18, className = "", team = false }: { log
       width={size}
       height={size}
       loading="lazy"
-      onError={(event) => {
-        event.currentTarget.style.visibility = "hidden";
-      }}
-      className={`shrink-0 rounded-full bg-hover ${className}`}
+      onError={() => setFailed(true)}
+      className={`shrink-0 rounded-full bg-field ${className}`}
     />
   );
 }
@@ -78,13 +96,36 @@ function Property({
   );
 }
 
-const REVIEW_STATE: Record<PullRequestReviewer["state"], { label: string; ring: string }> = {
-  APPROVED: { label: "Approved", ring: "ring-2 ring-green ring-offset-1 ring-offset-surface" },
-  CHANGES_REQUESTED: { label: "Changes requested", ring: "ring-2 ring-red ring-offset-1 ring-offset-surface" },
-  COMMENTED: { label: "Commented", ring: "ring-2 ring-ink-3" },
-  REQUESTED: { label: "Requested", ring: "ring-2 ring-surface" },
-  DISMISSED: { label: "Dismissed", ring: "ring-2 ring-surface" },
+/** A review's state as a badge on the reviewer's avatar: a glyph on a filled disc, not only a colour, so it reads for
+ * everyone. Approved and changes requested take their -ink fill; commented and pending stay neutral. */
+const REVIEW_STATE: Record<PullRequestReviewer["state"], { label: string; badge?: { glyph: IconSvgElement; fill: string } }> = {
+  APPROVED: { label: "Approved", badge: { glyph: Tick02Icon, fill: "bg-green-ink text-on-green" } },
+  CHANGES_REQUESTED: { label: "Changes requested", badge: { glyph: Cancel01Icon, fill: "bg-red-ink text-on-red" } },
+  COMMENTED: { label: "Commented", badge: { glyph: Comment01Icon, fill: "bg-field text-ink-2" } },
+  REQUESTED: { label: "Review pending", badge: { glyph: Clock01Icon, fill: "bg-field text-ink-2" } },
+  DISMISSED: { label: "Dismissed" },
 };
+
+function ReviewerAvatar({ reviewer }: { reviewer: PullRequestReviewer }) {
+  const { badge } = REVIEW_STATE[reviewer.state];
+  return (
+    <span className="relative flex">
+      <Avatar login={reviewer.login} team={reviewer.team} size={20} />
+      {badge && (
+        // A 14px disc in a 2px surface ring, over the avatar's bottom-right corner.
+        <span
+          aria-hidden
+          data-pr-reviewer-badge
+          className={`absolute -right-2 -bottom-2 flex size-3.5 items-center justify-center rounded-full ring-2 ring-surface ${badge.fill}`}
+        >
+          {/* Hugeicons pad their 24-unit box, so a 12px glyph draws about 10px of mark: the tick and the bubble then
+              carry the same weight inside the 14px disc. */}
+          <HugeiconsIcon icon={badge.glyph} size={12} strokeWidth={2} color="currentColor" />
+        </span>
+      )}
+    </span>
+  );
+}
 
 export function ReviewersRow({ pr, review, source }: { pr: PullRequestDetail; review: PullRequestReview; source?: PrSource }) {
   const candidates = useLazyList(
@@ -159,11 +200,11 @@ export function ReviewersRow({ pr, review, source }: { pr: PullRequestDetail; re
       }
     >
       {pr.reviewers.length > 0 ? (
-        <span className="flex items-center pl-0.5">
-          {pr.reviewers.map((reviewer, index) => (
+        <span className="flex items-center gap-3 pl-0.5">
+          {pr.reviewers.map((reviewer) => (
             <Tooltip key={reviewer.login} label={`${reviewer.login} · ${REVIEW_STATE[reviewer.state].label}`} side="bottom">
-              <span data-pr-reviewer={reviewer.state} className={`flex ${index ? "-ml-0.5" : ""} ${reviewer.stale ? "opacity-60" : ""}`}>
-                <Avatar login={reviewer.login} team={reviewer.team} size={22} className={REVIEW_STATE[reviewer.state].ring} />
+              <span data-pr-reviewer={reviewer.state} className={`flex ${reviewer.stale ? "opacity-60" : ""}`}>
+                <ReviewerAvatar reviewer={reviewer} />
               </span>
             </Tooltip>
           ))}

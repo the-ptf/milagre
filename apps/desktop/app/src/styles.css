@@ -12,9 +12,9 @@
 
   /* Settings > Appearance; applyAppearance (lib/appearance.ts) overrides these inline. Defaults are today's values. */
   --sidebar-delta: 0px;
-  --chat-size: 13px;
+  --chat-size: 14px;
   --code-size: 12px;
-  --chat-width: 768px;
+  --chat-width: 704px;
   --motion-scale: 1;
 }
 
@@ -320,7 +320,7 @@ html[data-floating-inbox] #root {
   /* borders — solid and crisp, not alpha */
   --line: #edeeee;
   --line-strong: #e0e1e3;
-  --field: #f5f5f5;
+  --field: #e8edf2;
   --stripe: oklch(0.405 0 0 / 0.075);
   --stripe-bg: var(--page);
 
@@ -465,8 +465,9 @@ html[data-floating-inbox] #root {
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-accent-tint: var(--accent-tint);
-  --color-diff-add: var(--diff-add-color, var(--green));
-  --color-diff-remove: var(--diff-remove-color, var(--red));
+  /* +/- counts and diff markers are text: the -ink shades clear 4.5:1 (the green/red fills don't in light) */
+  --color-diff-add: var(--diff-add-color, var(--green-ink));
+  --color-diff-remove: var(--diff-remove-color, var(--red-ink));
   --color-green: var(--green);
   --color-green-tint: var(--green-tint);
   --color-green-ink: var(--green-ink);
@@ -649,7 +650,9 @@ a {
   transition: none !important;
 }
 
-/* One scrollbar everywhere: a thin rounded thumb on no track, quiet until hovered. */
+/* One scrollbar everywhere, macOS overlay style: a thin rounded thumb on no track, invisible at rest. It shows while
+ * the pointer is over its scroller or while it scrolls (data-scrolling, set for 800ms after each scroll event by
+ * primitives/ScrollArea's listener), and darkens under the pointer. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -662,8 +665,12 @@ a {
 ::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 999px;
-  background-color: color-mix(in oklab, var(--ink-3) 40%, transparent);
+  background-color: transparent;
   background-clip: padding-box;
+}
+:hover::-webkit-scrollbar-thumb,
+[data-scrolling]::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--ink-3) 40%, transparent);
 }
 ::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in oklab, var(--ink-3) 65%, transparent);
@@ -686,11 +693,12 @@ a {
     --fade-top 180ms ease-out,
     --fade-bottom 180ms ease-out;
 }
+/* --scroll-fade-size shortens the fade for a list whose rows sit close to its edge (the command palette). */
 .scroll-fade[data-fade-top] {
-  --fade-top: 28px;
+  --fade-top: var(--scroll-fade-size, 28px);
 }
 .scroll-fade[data-fade-bottom] {
-  --fade-bottom: 28px;
+  --fade-bottom: var(--scroll-fade-size, 28px);
 }
 @media (prefers-reduced-motion: reduce) {
   .scroll-fade {
@@ -716,7 +724,7 @@ a {
  * edges line up with the transcript's text edges at every width setting. */
 .chat-column,
 .chat-gutter {
-  --column: 768px;
+  --column: 704px;
   padding-left: clamp(12px, calc(36px - (100% - var(--column)) / 2), 36px);
 }
 /* The composer wrap is p-1.5; its sides take the transcript's 12px (the column's px-3). */
@@ -971,24 +979,26 @@ a {
   --chat-bg: var(--surface);
 }
 
-/* The top of a scrolled chat, under the window-drag strip: the text fades into the background toward the window edge. */
+/* The top of the chat, under the window-drag strip and the Chat's title: solid under the bar and an 8px band below
+ * it, then a 24px fade down to nothing, so a line scrolling under the title fades out instead of being sliced. */
 .chat-top-blur {
   --blur-dir: to top;
   --blur-start: 0%;
   --blur-end: 100%;
 }
 .chat-top-blur > :last-child {
-  background: linear-gradient(to bottom, var(--chat-bg, var(--page)), transparent);
+  background: linear-gradient(to bottom, var(--chat-bg, var(--page)) calc(100% - 24px), transparent);
 }
 
-/* The bottom mirrors the top: the text fades toward the composer. */
+/* The bottom mirrors the top: solid behind the composer's chip row (its pills, the jump button), then the text fades
+ * toward it, so nothing reads through a pill. */
 .chat-bottom-blur {
   --blur-dir: to bottom;
   --blur-start: 0%;
   --blur-end: 100%;
 }
 .chat-bottom-blur > :last-child {
-  background: linear-gradient(to top, var(--chat-bg, var(--page)), transparent);
+  background: linear-gradient(to top, var(--chat-bg, var(--page)) 38px, transparent);
 }
 /* The chat's edges fade into the background without blurring the text: only the tint layer draws. */
 .chat-top-blur > :not(:last-child),
@@ -1012,6 +1022,29 @@ a {
   --fade-top: 0px;
 }
 
+/* A reply's text starts 16px under its tool activity, folded or open (the activity's own 4px margin + 12). */
+:is([data-slot="activity"], [data-slot="activity-inline"]) + [data-slot="message-content"] {
+  margin-top: 12px;
+}
+[data-slot="step"] + [data-slot="message-content"] {
+  margin-top: 16px;
+}
+/* A call the text led into ("I'll run the checks next") sits 16px under it, the transcript's block gap. */
+[data-slot="message-content"] + :is([data-slot="activity"], [data-slot="activity-inline"]) {
+  margin-top: 12px;
+}
+[data-slot="message-content"] + [data-slot="step"] {
+  margin-top: 16px;
+}
+/* A question card right after the reply that asks it: the same 16px block gap (the column's 12 + 4), so the reply's
+ * copy row, which waits for the question anyway, leaves no hole above the card. */
+[data-slot="message"]:has(+ [data-slot="transcript-card"]) [data-message-copy-footer] {
+  display: none;
+}
+[data-slot="message"] + [data-slot="transcript-card"] {
+  margin-top: 4px;
+}
+
 /* Agent replies rendered from Markdown: compact chat spacing, no document-sized headings. */
 .markdown > :first-child {
   margin-top: 0;
@@ -1023,22 +1056,23 @@ a {
   margin-block: 0.5em;
 }
 .markdown :where(h1, h2, h3, h4, h5, h6) {
-  margin-block: 0.9em 0.35em;
+  margin-block: 1.25em 0.4em;
   font-weight: 600;
   line-height: 1.35;
   color: var(--ink);
 }
+/* em-relative to the chat text (--chat-size): 18 / 16 / 15 / 14 at the default 14px. */
 .markdown h1 {
-  font-size: 16px;
+  font-size: 1.2857em;
 }
 .markdown h2 {
-  font-size: 15px;
+  font-size: 1.1429em;
 }
 .markdown h3 {
-  font-size: 14px;
+  font-size: 1.0714em;
 }
 .markdown :where(h4, h5, h6) {
-  font-size: 13px;
+  font-size: 1em;
 }
 .markdown :where(ul, ol) {
   padding-left: 1.35em;

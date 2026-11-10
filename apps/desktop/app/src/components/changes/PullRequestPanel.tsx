@@ -37,11 +37,13 @@ import { buildDiffTree, type DiffTreeNode } from "../../lib/diff-tree";
 import { age, MERGE_METHODS, readMergeMethod, repoOf, saveMergeMethod } from "../../lib/pull-request-view";
 import { prImageLoader } from "../../lib/pr-images";
 import { Markdown, type MarkdownImageLoader } from "../markdown/Markdown";
+import { buttonClass } from "../primitives/Button";
 import { PickerPanel, PickerRow } from "../primitives/Picker";
+import { Segmented } from "../primitives/Segmented";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ProjectAvatarStack } from "../ProjectAvatarStack";
-import { Counts, moveTab } from "./ChangesPanel";
+import { Counts } from "./ChangesPanel";
 import { PopoverButton } from "./pr/Popover";
 import { Avatar, LabelsRow, ReviewersRow, type PrSource } from "./pr/Properties";
 import type { PullRequestReview } from "./usePullRequest";
@@ -186,14 +188,10 @@ function Header({
         data-pr-merge
         disabled={busy}
         onClick={() => merge()}
-        // GitHub lets an UNSTABLE PR merge past failing optional checks; only a ready PR gets the green button.
-        className={
-          status.tone === "ready"
-            ? "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-control bg-green px-3 text-12 font-semibold text-page transition-opacity hover:opacity-90 disabled:opacity-50"
-            : secondary
-        }
+        // GitHub lets an UNSTABLE PR merge past failing optional checks; only a ready PR gets the primary button.
+        className={status.tone === "ready" ? buttonClass({ variant: "primary", size: 28 }) : secondary}
       >
-        {icon(GitMergeIcon, 13)}
+        {icon(GitMergeIcon)}
         {review.busy === "merge" ? "Merging…" : confirming === "merge" ? "Confirm merge" : "Merge"}
       </button>
     );
@@ -318,7 +316,10 @@ function Header({
           {icon(MoreHorizontalIcon, 16)}
         </PopoverButton>
       </div>
-      <h2 className="text-15 font-semibold text-ink">{pr.title}</h2>
+      {/* Not balanced like other headings (styles.css): the title fills the row's width before it wraps. */}
+      <h2 className="text-15 font-semibold text-ink" style={{ textWrap: "pretty" }}>
+        {pr.title}
+      </h2>
       <div className="flex min-w-0 items-center gap-1.5 text-12">
         {pill && (
           <span
@@ -329,7 +330,7 @@ function Header({
             {pill.label}
           </span>
         )}
-        <Avatar login={pr.author} size={18} />
+        <Avatar login={pr.author} />
         <span className="shrink-0 text-12 font-semibold text-ink">{pr.author}</span>
         <span className="min-w-0 truncate text-ink-3">· updated {ago(pr.updatedAt)}</span>
       </div>
@@ -357,11 +358,12 @@ function Header({
           type="button"
           data-pr-local={notInPr}
           onClick={local?.onOpen}
-          className="relative -mx-1 flex min-w-0 items-center gap-1.5 self-start rounded-chip px-1 text-left text-12 text-orange-ink transition-colors before:absolute before:inset-x-0 before:-inset-y-1 hover:bg-hover"
+          // Ink-2 words, an ink-3 glyph: orange is only for what waits on you.
+          className="relative -mx-1 flex min-w-0 items-center gap-1.5 self-start rounded-chip px-1 text-left text-12 text-ink-2 transition-colors before:absolute before:inset-x-0 before:-inset-y-1 hover:bg-hover hover:text-ink"
         >
-          <span className="flex shrink-0">{icon(CloudUploadIcon, 13)}</span>
+          <span className="flex shrink-0 text-ink-3">{icon(CloudUploadIcon, 13)}</span>
           <span className="truncate">{notInPr.replace(" · ", " and ")} not in the PR yet</span>
-          <span className="flex shrink-0">{icon(ArrowRight01Icon, 12)}</span>
+          <span className="flex shrink-0 text-ink-3">{icon(ArrowRight01Icon, 12)}</span>
         </button>
       )}
       {review.writeError && (
@@ -380,53 +382,35 @@ const SEGMENTS = [
   { key: "running", className: "bg-orange/40 motion-safe:animate-pulse" },
 ] as const;
 
-const tabClass = (on: boolean) =>
-  `flex h-6 items-center gap-1.5 rounded-chip px-3 text-12 transition-colors ${on ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:text-ink"}`;
-
 function Tabs({ pr, tab, onTab }: { pr: PullRequestDetail; tab: "summary" | "files"; onTab: (tab: "summary" | "files") => void }) {
   const progress = checksProgress(pr.checks);
   return (
     <div className="flex flex-col gap-2 px-4 pt-3 pb-1">
-      {/* The checks status wraps under the tabs when they don't fit side by side. */}
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
-        <div role="tablist" aria-label="Pull request" onKeyDown={moveTab} className="flex shrink-0 items-center gap-0.5 rounded-control bg-inset p-[3px]">
-          <button
-            type="button"
-            role="tab"
-            data-pr-tab="summary"
-            aria-selected={tab === "summary"}
-            tabIndex={tab === "summary" ? 0 : -1}
-            onClick={() => onTab("summary")}
-            className={tabClass(tab === "summary")}
-          >
-            Summary
-          </button>
-          <button
-            type="button"
-            role="tab"
-            data-pr-tab="files"
-            aria-selected={tab === "files"}
-            tabIndex={tab === "files" ? 0 : -1}
-            onClick={() => onTab("files")}
-            className={tabClass(tab === "files")}
-          >
-            Files <span className="text-11 font-normal text-ink-3 tabular-nums">{pr.changedFiles}</span>
-          </button>
-        </div>
-        {progress.label && (
-          <span
-            data-pr-checks-status={progress.tone}
-            className={`ml-auto flex items-center gap-1.5 text-12 whitespace-nowrap ${progress.tone === "fail" ? "text-red-ink" : progress.tone === "pass" ? "text-green-ink" : "text-ink-2"}`}
-          >
-            {progress.tone === "running" ? (
-              <SpinnerRing size={13} color="var(--orange)" />
-            ) : (
-              icon(progress.tone === "fail" ? CancelCircleIcon : CheckmarkCircle02Icon, 13)
-            )}
-            <span className="tabular-nums">{progress.label}</span>
-          </span>
-        )}
-      </div>
+      {/* The Changes tab's Files/Commits control: one segmented look for every view switch in the panel. */}
+      <Segmented
+        label="Pull request view"
+        value={tab}
+        onChange={onTab}
+        dataKey="pr-tab"
+        className="w-full"
+        options={[
+          { value: "summary", label: "Summary" },
+          { value: "files", label: "Files", count: pr.changedFiles },
+        ]}
+      />
+      {progress.label && (
+        <span
+          data-pr-checks-status={progress.tone}
+          className={`flex items-center gap-1.5 pt-1 text-12 whitespace-nowrap ${progress.tone === "fail" ? "text-red-ink" : progress.tone === "pass" ? "text-green-ink" : "text-ink-2"}`}
+        >
+          {progress.tone === "running" ? (
+            <SpinnerRing size={13} color="var(--orange)" />
+          ) : (
+            icon(progress.tone === "fail" ? CancelCircleIcon : CheckmarkCircle02Icon, 13)
+          )}
+          <span className="tabular-nums">{progress.label}</span>
+        </span>
+      )}
       {progress.total > 0 && (
         <div data-pr-checks-bar className="flex h-1 gap-0.5" aria-hidden>
           {SEGMENTS.map(({ key, className }) =>
@@ -589,7 +573,7 @@ function CommentCard({
       {comments.map((comment, index) => (
         <div key={comment.id} className={`flex flex-col gap-1.5 ${index ? "border-t border-line pt-2" : ""}`}>
           <div className="flex min-w-0 items-center gap-1.5">
-            <Avatar login={comment.author} size={18} />
+            <Avatar login={comment.author} />
             <span className="min-w-0 truncate text-12 font-semibold text-ink">{comment.author}</span>
             <span className="shrink-0 text-12 text-ink-3">{ago(comment.createdAt)}</span>
           </div>

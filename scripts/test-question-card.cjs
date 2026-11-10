@@ -87,6 +87,35 @@ async function browserChecks() {
     assert.equal((await evaluate(activeTab)).trim(), "Placement");
     assert.equal(await evaluate("window.sent()"), undefined);
     assert.equal(await evaluate(`${primary}.textContent.trim()`), "Send answers");
+    // "Other" is the options' third row: typing chooses its radio, and picking an option again moves the choice but
+    // keeps the text.
+    const other = 'document.querySelector("[data-question-other]")';
+    const otherRadio = `${other}.querySelector("[role=radio]")`;
+    assert.equal(await evaluate(`${otherRadio}.getAttribute("aria-checked")`), "false");
+    assert.equal(
+      await evaluate(
+        `${other}.contains(document.querySelector('[aria-label="Dictate"]')) && ${other}.contains(document.querySelector('[aria-label="Attach images"]'))`,
+      ),
+      true,
+      "the mic and image buttons sit inside the Other row",
+    );
+    assert.equal(
+      await evaluate(
+        `Math.abs(${otherRadio}.getBoundingClientRect().left - ${option("Top of the picker")}.querySelector("span").getBoundingClientRect().left) < 1`,
+      ),
+      true,
+      "Other's radio lines up with the options' radios",
+    );
+    await evaluate(`(() => {
+      const input = ${other}.querySelector("input");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "Beside the composer");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    await waitFor(`${otherRadio}.getAttribute("aria-checked") === "true"`);
+    assert.equal(await evaluate(`${option("Top of the picker")}.getAttribute("aria-checked")`), "false", "typing moves the choice to Other");
+    await evaluate(`${option("Top of the picker")}.click()`);
+    await waitFor(`${otherRadio}.getAttribute("aria-checked") === "false"`);
+    assert.equal(await evaluate(`${other}.querySelector("input").value`), "Beside the composer", "picking an option keeps the typed text");
     await shot("3-last-question-waits-for-send");
     // Going back and changing an earlier pick moves on again.
     await evaluate('document.querySelector("[role=tab]").click()');

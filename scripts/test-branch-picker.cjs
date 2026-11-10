@@ -80,7 +80,7 @@ async function checks() {
     assert.equal(await evaluate(`document.querySelector('[data-new-chat-pickers]').textContent.includes('ending-two')`), true);
     await click("New Worktree");
     await waitFor(`document.querySelectorAll('[data-picker-row]').length === 2`);
-    await evaluate(`[...document.querySelectorAll('[data-picker-row]')].find(row => row.textContent.includes('Local')).click()`);
+    await evaluate(`[...document.querySelectorAll('[data-picker-row]')].find(row => row.textContent.includes('This checkout')).click()`);
     await click("main");
     await waitFor(`!!document.querySelector('input[placeholder="Search Worktrees"]')`);
     await type("ending-one");

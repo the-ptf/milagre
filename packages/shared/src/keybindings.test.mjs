@@ -52,9 +52,10 @@ test("keyFromEvent reads punctuation and ⌥ letters from the physical key", () 
   assert.equal(keyFromEvent(press("Meta", { metaKey: true }), true), null);
 });
 
-test("keyLabelFor draws Mac glyphs in ⌘⌃⌥⇧ order and words elsewhere", () => {
-  assert.equal(keyLabelFor("mod+shift+d", true), "⌘⇧D");
-  assert.equal(keyLabelFor("mod+alt+arrowleft", true), "⌘⌥←");
+test("keyLabelFor draws Mac glyphs in macOS menu order (⌃⌥⇧⌘) and words elsewhere", () => {
+  assert.equal(keyLabelFor("mod+shift+d", true), "⇧⌘D");
+  assert.equal(keyLabelFor("mod+alt+arrowleft", true), "⌥⌘←");
+  assert.equal(keyLabelFor("ctrl+alt+shift+mod+k", true), "⌃⌥⇧⌘K");
   assert.equal(keyLabelFor("mod+shift+d", false), "Ctrl+Shift+D");
   assert.equal(keyLabelFor("bad", true), null);
 });

@@ -340,7 +340,9 @@ const checks = [
       const pixel = "Mozilla/5.0 (Linux; Android 16; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36";
       const window = await open({ width: 412, height: 915, mobile: true, userAgent: pixel });
       const visible = `[...document.querySelectorAll(".cta a")].filter((a) => a.offsetParent).map((a) => a.getAttribute("href"))`;
-      assert.deepEqual(await evaluate(window, visible), ["/download/android"]);
+      assert.deepEqual(await evaluate(window, visible), [
+        "https://github.com/the-ptf/milagre/releases/download/v0.232.0-beta.27/Milagre-0.232.0-beta.27-android-beta.apk",
+      ]);
       assert.equal(
         await evaluate(window, `[...document.querySelectorAll(".cta .button")].find((a) => a.offsetParent).textContent.trim()`),
         "Download Android beta",

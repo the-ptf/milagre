@@ -7,8 +7,8 @@ const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const mac = process.platform === "darwin";
 const modifierKey = mac ? "Meta" : "Control";
 const modifier = mac ? { metaKey: true } : { ctrlKey: true };
-const changesHint = mac ? "Command + Shift + D" : "Shift + D";
-const changesShortcut = mac ? "Command + Shift + D" : "Control + Shift + D";
+const changesHint = mac ? "Shift + Command + D" : "Shift + D";
+const changesShortcut = mac ? "Shift + Command + D" : "Control + Shift + D";
 
 const fixture = `
 import React from 'react';
@@ -186,9 +186,15 @@ async function browserChecks() {
     await evaluate('document.querySelector("[aria-label=\\\"Command palette\\\"]").focus()');
     await open();
     assert.equal(await evaluate('document.activeElement.getAttribute("role")'), "combobox");
-    assert.equal(await evaluate('document.querySelectorAll("dialog kbd").length'), 0, "Palette keycaps are hidden until the native modifier is held");
+    // At rest a row's shortcut shows as plain ink-3 keys on the right; keycaps come only while the modifier is held.
+    assert.ok(await evaluate('document.querySelectorAll("dialog [role=option] kbd").length > 0'), "Rows with a binding show their shortcut at rest");
+    assert.equal(
+      await evaluate('document.querySelectorAll("dialog kbd.shadow-btn").length'),
+      0,
+      "Palette keycaps are hidden until the native modifier is held",
+    );
     await key(modifierKey, modifier);
-    await waitFor('document.querySelectorAll("dialog kbd").length > 0');
+    await waitFor('document.querySelectorAll("dialog kbd.shadow-btn").length > 0');
     await screenshot("palette-hints-dark.png");
     await evaluate('document.documentElement.classList.remove("dark")');
     await screenshot("palette-hints-light.png");
@@ -199,7 +205,7 @@ async function browserChecks() {
       "Hints stay scoped to the open palette",
     );
     await evaluate(`window.dispatchEvent(new KeyboardEvent("keyup", { key: ${JSON.stringify(modifierKey)}, bubbles: true }))`);
-    await waitFor('document.querySelectorAll("dialog kbd").length === 0');
+    await waitFor('document.querySelectorAll("dialog kbd.shadow-btn").length === 0');
     await waitFor('document.querySelector("dialog").textContent.includes("Website")');
     await key("ArrowUp");
     assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Website")'), "Arrow navigation wraps");
@@ -244,6 +250,7 @@ async function browserChecks() {
       ["notify finished off", "notifyOnCompletion", false],
       ["notify waiting off", "notifyWhenWaiting", false],
       ["dock badge off", "showDockBadge", false],
+      ["keep awake off", "keepAwake", false],
     ]) {
       await open();
       await search(query);

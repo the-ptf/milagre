@@ -1,7 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { KeybindingCommandId } from "@milagre/shared/keybindings";
 import { shortcutCommand, shortcutLabel, useKeybindings } from "../../lib/keybindings";
-import { File01Icon, ComputerTerminal01Icon, Globe02Icon, PaintBoardIcon, SmartphoneIcon, GitPullRequestIcon, GitBranchIcon } from "@hugeicons/core-free-icons";
+import { File01Icon, ComputerTerminal01Icon, Globe02Icon, PaintBoardIcon, SmartphoneIcon, GitPullRequestIcon, FileDiffIcon } from "@hugeicons/core-free-icons";
 import { IconButton } from "../primitives/Button";
 import Tooltip from "../primitives/Tooltip";
 import { isModalOpen } from "../../lib/modal";
@@ -93,11 +93,7 @@ export function PanelToggles({ right, changes, pullRequest }: { right: number; c
   const { rules } = useKeybindings();
   if (!buttons.length && !changes && !pullRequest) return null;
   return (
-    <div
-      data-slot="panel-toggles"
-      className="no-drag fixed top-[var(--window-chrome-top)] z-[60] flex gap-2 rounded-card bg-page"
-      style={{ right: right + chrome.rightInset }}
-    >
+    <div data-slot="panel-toggles" className="no-drag fixed top-[var(--window-chrome-top)] z-[60] flex gap-2" style={{ right: right + chrome.rightInset }}>
       {buttons.map(({ name, label, title = label, icon, command }) => {
         const panel = shown[name]!;
         return (
@@ -126,11 +122,11 @@ export function PanelToggles({ right, changes, pullRequest }: { right: number; c
         </Tooltip>
       )}
       {changes && (
-        <Tooltip label={changes.open ? "Hide changes" : "Show changes"} shortcut={shortcutLabel(rules, "changes.toggle")} compactHint side="bottom" align="end">
+        <Tooltip label={changes.open ? "Hide Changes" : "Show Changes"} shortcut={shortcutLabel(rules, "changes.toggle")} compactHint side="bottom" align="end">
           <IconButton
             size={32}
             label="Toggle changes panel"
-            icon={GitBranchIcon}
+            icon={FileDiffIcon}
             aria-pressed={changes.open}
             data-panel-toggle="changes"
             data-changes-toggle=""

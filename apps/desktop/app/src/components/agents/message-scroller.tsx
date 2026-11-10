@@ -75,6 +75,12 @@ export interface MessageScrollerProps extends ComponentPropsWithRef<"div"> {
   contentProps?: Omit<ComponentPropsWithRef<"div">, "children" | "className" | "ref">;
   /** Compatibility with the previous local API. */
   autoScrollKey?: string | number;
+  /**
+   * Hands the "Go to bottom" action to the parent while the transcript is scrolled up, null once at the bottom. With it,
+   * the parent draws the button (the Chat puts it on the composer's chip row, clear of the text); without it, it floats
+   * over the transcript.
+   */
+  onJumpToBottomChange?: (jump: (() => void) | null) => void;
 }
 
 /** Whether the scroller around a transcript follows its bottom now: read when it matters, so following renders nothing. */
@@ -101,6 +107,7 @@ export function MessageScroller({
   className = "",
   children,
   autoScrollKey,
+  onJumpToBottomChange,
   ...props
 }: MessageScrollerProps) {
   const reduce = useReducedMotion() ?? false;
@@ -496,6 +503,20 @@ export function MessageScroller({
     [railItems, reduce, scrollToEnd, setFollowing, smooth],
   );
 
+  const jumpToBottom = useCallback(() => {
+    setFollowing(true);
+    scrollToEnd(reduce || !smooth ? "auto" : "smooth");
+  }, [reduce, scrollToEnd, setFollowing, smooth]);
+  const jumpChangeRef = useRef(onJumpToBottomChange);
+  useLayoutEffect(() => {
+    jumpChangeRef.current = onJumpToBottomChange;
+  });
+  const ownsJump = onJumpToBottomChange !== undefined;
+  useEffect(() => {
+    jumpChangeRef.current?.(showJumpToBottom ? jumpToBottom : null);
+  }, [showJumpToBottom, jumpToBottom]);
+  useEffect(() => () => jumpChangeRef.current?.(null), []);
+
   const viewport = (
     <section
       ref={setViewportRef}
@@ -535,7 +556,7 @@ export function MessageScroller({
   );
 
   return (
-    <div data-slot="message-scroller" className={`relative min-h-0 ${className}`} {...props}>
+    <div data-slot="message-scroller" className={`group/scroller relative min-h-0 ${className}`} {...props}>
       {navigation === "rail" ? (
         <PreviewRail
           items={railOverflowing ? railItems : []}
@@ -548,22 +569,20 @@ export function MessageScroller({
           className="h-full min-h-0 overflow-hidden"
           previewContainerClassName="right-3 left-16"
           previewClassName="mr-1 w-64 max-w-full"
-          railClassName={`${railOverflowing ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"} ${railClassName}`}
+          // The ticks stay out of the gutter at rest and come in while the pointer is over the transcript (or a tick has focus).
+          railClassName={`transition-opacity duration-base ${railOverflowing ? "pointer-events-auto opacity-0 group-hover/scroller:opacity-100 focus-within:opacity-100" : "pointer-events-none opacity-0"} ${railClassName}`}
         >
           {viewport}
         </PreviewRail>
       ) : (
         viewport
       )}
-      {showJumpToBottom && (
+      {showJumpToBottom && !ownsJump && (
         <div className="pointer-events-none absolute inset-x-0 bottom-12 z-20 flex justify-center">
           <button
             type="button"
             aria-label="Go to bottom"
-            onClick={() => {
-              setFollowing(true);
-              scrollToEnd(reduce || !smooth ? "auto" : "smooth");
-            }}
+            onClick={jumpToBottom}
             className="pointer-events-auto inline-flex size-10 items-center justify-center rounded-full bg-surface/60 text-ink shadow-overlay backdrop-blur-chip transition-[background-color,scale] duration-fast hover:bg-surface/80 active:scale-press"
           >
             <Icon icon={ArrowDown01Icon} size={18} />

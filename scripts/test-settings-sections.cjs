@@ -194,12 +194,12 @@ async function browserChecks() {
     assert.equal(await evaluate(`${region("width")}.hasAttribute("data-highlighted")`), true, "a change holds the highlight");
     await screenshot("preview-width");
     await openMenu("Chat size");
-    await pick("15 px");
+    await pick("16 px");
     await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.chatSize === "large"`);
-    await waitFor(`getComputedStyle(document.querySelector('[data-preview-text]')).fontSize === "15px"`);
+    await waitFor(`getComputedStyle(document.querySelector('[data-preview-text]')).fontSize === "16px"`);
     assert.equal(
       await evaluate(`getComputedStyle(document.querySelector('[data-preview-composer]')).fontSize`),
-      "15px",
+      "16px",
       "the preview composer follows Chat size",
     );
     const diffStyle = (property) => evaluate(`getComputedStyle(document.querySelector('[data-preview-diff]')).${property}`);

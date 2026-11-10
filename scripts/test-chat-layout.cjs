@@ -223,8 +223,9 @@ async function browserChecks() {
     await waitFor(`!!(${jumpButton})`);
     assert.ok(
       await evaluate(
-        `(() => { const button = (${jumpButton}); const rect = button.getBoundingClientRect(); return button.textContent.trim() === '' && rect.width === rect.height && getComputedStyle(button).backdropFilter !== 'none'; })()`,
+        `(() => { const button = (${jumpButton}); const rect = button.getBoundingClientRect(); return button.textContent.trim() === '' && Math.abs(rect.width - rect.height) < 0.5 && getComputedStyle(button).backdropFilter !== 'none'; })()`,
       ),
+      // It scales in on the chip row, so its sides are compared mid-entrance too.
       "The jump button is a circular glass icon with an accessible label",
     );
     assert.ok(

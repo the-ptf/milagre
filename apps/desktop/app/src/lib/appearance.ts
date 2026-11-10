@@ -26,7 +26,7 @@ const tint = (color: string, percent: number) => `color-mix(in srgb, ${color} ${
 export function appearanceVars(a: Appearance, dark: boolean, installed: (family: string) => boolean): Record<string, string> {
   const vars: Record<string, string> = {
     "--sidebar-delta": `${SIDEBAR_SIZES.find((s) => s.id === a.sidebarSize)?.delta ?? 0}px`,
-    "--chat-size": `${CHAT_SIZES.find((s) => s.id === a.chatSize)?.px ?? 13}px`,
+    "--chat-size": `${CHAT_SIZES.find((s) => s.id === a.chatSize)?.px ?? 14}px`,
     "--code-size": `${CODE_SIZES.find((s) => s.id === a.codeSize)?.px ?? 12}px`,
     "--chat-width":
       a.chatWidth === "custom"

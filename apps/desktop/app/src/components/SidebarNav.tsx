@@ -33,12 +33,12 @@ import {
   Delete02Icon,
   FolderAddIcon,
   FolderOpenIcon,
-  FrameIcon,
+  FlowConnectionIcon,
   LaptopIcon,
   Link04Icon,
   MoreVerticalIcon,
   PencilEdit02Icon,
-  RepeatIcon,
+  TimeScheduleIcon,
   Search01Icon,
   Settings01Icon,
   SidebarLeft01Icon,
@@ -275,6 +275,7 @@ function useSidebarKeys() {
     newChat: shortcutLabel(rules, "chat.new"),
     sidebar: shortcutLabel(rules, "sidebar.toggle"),
     search: shortcutLabel(rules, "commandPalette.toggle"),
+    canvas: shortcutLabel(rules, "canvas.open"),
     addProject: shortcutLabel(rules, "project.add"),
     settings: shortcutLabel(rules, "settings.open"),
     jump: (index: number) => shortcutLabel(rules, chatJumpCommand(index)),
@@ -1502,11 +1503,11 @@ export default memo(function SidebarNav({
   return (
     <div className={`relative flex min-h-0 shrink-0 flex-col ${fill ? "h-full" : "h-[600px]"} ${className}`}>
       {/* The window's top bar, beside its controls: the sidebar toggle, then Canvas, Routines, Link projects and Search.
-          A scrolled chat runs under it, so the group sits on a solid pill. */}
+          No capsule behind it: the chat's top band (.chat-top-blur) keeps scrolled text out from under the bar. */}
       <div
         ref={bar}
         data-sidebar-bar
-        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-1 rounded-card bg-page"
+        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-1"
         style={{ left: chrome.sidebarLeft - 12 }}
       >
         <div data-sidebar-toggle>
@@ -1523,8 +1524,8 @@ export default memo(function SidebarNav({
         </div>
         <div data-sidebar-tools className="no-drag flex items-center gap-1">
           {onOpenCanvas && (
-            <Tooltip label="Canvas" side="bottom">
-              <IconButton size={32} label="Canvas" icon={FrameIcon} aria-pressed={canvasActive} onClick={onOpenCanvas} />
+            <Tooltip label="Canvas" side="bottom" shortcut={keys.canvas}>
+              <IconButton size={32} label="Canvas" icon={FlowConnectionIcon} aria-pressed={canvasActive} onClick={onOpenCanvas} />
             </Tooltip>
           )}
           {onOpenRoutines && (
@@ -1539,7 +1540,7 @@ export default memo(function SidebarNav({
               >
                 {/* The dot sits on the icon's top-right corner, cut out of it by its ring. */}
                 <span className="relative flex">
-                  <Icon icon={RepeatIcon} size={16} />
+                  <Icon icon={TimeScheduleIcon} size={16} />
                   {routinesUnread && (
                     <span aria-hidden data-routines-unread className="absolute -top-1 -right-1 size-2 rounded-full bg-accent ring-2 ring-canvas" />
                   )}

@@ -10,12 +10,12 @@ import {
   ComputerTerminal01Icon,
   FilterHorizontalIcon,
   FolderAddIcon,
-  FrameIcon,
+  FlowConnectionIcon,
   GitBranchIcon,
   GitPullRequestIcon,
   Globe02Icon,
   Link04Icon,
-  RepeatIcon,
+  TimeScheduleIcon,
   Search01Icon,
   SecurityCheckIcon,
   Settings01Icon,
@@ -203,7 +203,7 @@ function Sidebar({ compactUsage }: { compactUsage: boolean }) {
     <Part area="sidebar" outline={["sidebar"]} className="flex w-[272px] shrink-0 flex-col rounded-window bg-surface pt-2 shadow-card">
       <Part keep={["sidebar", "ui"]} className="mx-2 mb-3 flex items-center gap-1 text-13 text-ink-3">
         <span className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-control px-2">
-          <Icon icon={FrameIcon} />
+          <Icon icon={FlowConnectionIcon} />
           Canvas
         </span>
         <span className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-control px-2">
@@ -211,7 +211,7 @@ function Sidebar({ compactUsage }: { compactUsage: boolean }) {
           Search
         </span>
         <span className="flex size-8 items-center justify-center">
-          <Icon icon={RepeatIcon} />
+          <Icon icon={TimeScheduleIcon} />
         </span>
         <span className="flex size-8 items-center justify-center">
           <Icon icon={FilterHorizontalIcon} />
@@ -388,13 +388,13 @@ function ChatColumn({ widthPx }: { widthPx: number | null }) {
       <Part area="chat" className="flex flex-col gap-3 rounded-card">
         <div className="flex w-full flex-col items-end pl-12">
           <Part keep={chatText} className="rounded-card bg-field px-3 py-1.5">
-            <p data-preview-text className="text-[length:var(--chat-size)] leading-[1.55] text-ink">
+            <p data-preview-text className="text-[length:var(--chat-size)] leading-[1.6] text-ink">
               Use <SkillChip name="frontend-design" /> to give Appearance a live preview. Start from{" "}
               <FileChip path="apps/desktop/app/src/components/Settings.tsx" /> and drop <FileChip path="src/styles.css" /> overrides.
             </p>
           </Part>
         </div>
-        <Part keep={chatText} className="text-[length:var(--chat-size)] leading-[1.55] text-ink">
+        <Part keep={chatText} className="text-[length:var(--chat-size)] leading-[1.6] text-ink">
           <p>The preview sits above Typography and follows every setting as you change it.</p>
           <ul className="mt-1.5 list-disc pl-5 marker:text-ink-3">
             <li>Hovering a row outlines the part of the window it changes.</li>
@@ -403,7 +403,7 @@ function ChatColumn({ widthPx }: { widthPx: number | null }) {
         </Part>
       </Part>
       <CodeBlock />
-      <Part keep={chatText} className="text-[length:var(--chat-size)] leading-[1.55] text-ink">
+      <Part keep={chatText} className="text-[length:var(--chat-size)] leading-[1.6] text-ink">
         <p>Typecheck and the Electron check pass.</p>
       </Part>
       <div className="flex-1" />
