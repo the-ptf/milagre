@@ -276,6 +276,9 @@ function settled(title, body, known, names) {
 function createBugReports({ send, active, facts, known, readLog = async () => [], post = postWithGh, repo = MILAGRE_REPO, now = Date.now }) {
   /** @type {Map<string, { chatId: string; resolve: (result: string) => void; timer: NodeJS.Timeout; expiresAt: number; known: { kind: string; value: string }[] }>} */
   const pending = new Map();
+  // A reservation belongs to this invocation, not merely to an active Chat. A stop followed by a new turn
+  // invalidates the old collection even when that Chat is active again before its facts arrive.
+  const preparing = new Map();
   let closed = false;
 
   function show(requestId, chatId, { title, body, expiresAt, recheck = false }) {
@@ -299,21 +302,41 @@ function createBugReports({ send, active, facts, known, readLog = async () => []
 
   async function request(chatId, input) {
     if (closed || !active(chatId)) throw new Error("A bug report can only be started by a running Chat.");
-    if ([...pending.values()].some((entry) => entry.chatId === chatId)) throw new Error("This Chat already has a bug report waiting for the user.");
-    const [about, values, log] = await Promise.all([facts(chatId), known(chatId), readLog().catch(() => [])]);
-    const { fields, names } = redactFields(reportFields(input, about, log), values, { keepCode: ["error", "environment", "log"] });
-    const report = settled(fields.title, assemble(fields), values, names);
-    if (!report) throw new Error("Milagre couldn't make this report safe to share. Describe the bug in plainer words and try again.");
-    const requestId = PREFIX + randomUUID();
-    const expiresAt = now() + REQUEST_TTL;
+    if (preparing.has(chatId) || [...pending.values()].some((entry) => entry.chatId === chatId))
+      throw new Error("This Chat already has a bug report waiting for the user.");
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => settle(requestId, "cancelled", "The bug report expired before the user approved it. Nothing was posted."), REQUEST_TTL);
-      timer.unref?.();
-      pending.set(requestId, { chatId, resolve, timer, expiresAt, known: values, names: report.names, shown: { title: report.title, body: report.body } });
-      Promise.resolve(show(requestId, chatId, { title: report.title, body: report.body, expiresAt })).catch(() => {
-        pending.delete(requestId);
-        clearTimeout(timer);
-        reject(new Error("Could not show the bug report. Try again."));
+      const reservation = { resolve };
+      preparing.set(chatId, reservation);
+      const collect = async () => {
+        const [about, values, log] = await Promise.all([facts(chatId), known(chatId), readLog().catch(() => [])]);
+        if (preparing.get(chatId) !== reservation) return;
+        if (closed || !active(chatId)) {
+          cancel(chatId);
+          return;
+        }
+        const { fields, names } = redactFields(reportFields(input, about, log), values, { keepCode: ["error", "environment", "log"] });
+        const report = settled(fields.title, assemble(fields), values, names);
+        if (!report) throw new Error("Milagre couldn't make this report safe to share. Describe the bug in plainer words and try again.");
+        const requestId = PREFIX + randomUUID();
+        const expiresAt = now() + REQUEST_TTL;
+        const timer = setTimeout(() => settle(requestId, "cancelled", "The bug report expired before the user approved it. Nothing was posted."), REQUEST_TTL);
+        timer.unref?.();
+        preparing.delete(chatId);
+        const entry = { chatId, resolve, timer, expiresAt, known: values, names: report.names, shown: { title: report.title, body: report.body } };
+        pending.set(requestId, entry);
+        try {
+          await show(requestId, chatId, { title: report.title, body: report.body, expiresAt });
+        } catch {
+          if (pending.get(requestId) !== entry) return;
+          pending.delete(requestId);
+          clearTimeout(timer);
+          reject(new Error("Could not show the bug report. Try again."));
+        }
+      };
+      void collect().catch((error) => {
+        if (preparing.get(chatId) !== reservation) return;
+        preparing.delete(chatId);
+        reject(error);
       });
     });
   }
@@ -325,6 +348,10 @@ function createBugReports({ send, active, facts, known, readLog = async () => []
   function answer(chatId, id, answers) {
     const entry = pending.get(id);
     if (!entry || entry.chatId !== chatId || closed) return false;
+    if (!active(chatId)) {
+      cancel(chatId);
+      return false;
+    }
     if (now() >= entry.expiresAt) {
       settle(id, "cancelled", "The bug report expired before the user approved it. Nothing was posted.");
       return false;
@@ -383,6 +410,11 @@ function createBugReports({ send, active, facts, known, readLog = async () => []
   }
 
   function cancel(chatId) {
+    const reservation = preparing.get(chatId);
+    if (reservation) {
+      preparing.delete(chatId);
+      reservation.resolve("The bug report was cancelled. Nothing was posted.");
+    }
     for (const [id, entry] of pending) if (entry.chatId === chatId) settle(id, "cancelled", "The bug report was cancelled. Nothing was posted.");
   }
 
@@ -401,6 +433,7 @@ function createBugReports({ send, active, facts, known, readLog = async () => []
     ],
     close() {
       closed = true;
+      for (const chatId of preparing.keys()) cancel(chatId);
       for (const entry of pending.values()) cancel(entry.chatId);
     },
   };

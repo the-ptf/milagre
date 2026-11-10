@@ -23,6 +23,16 @@ const INPUT = {
 const LEAKS = ["claims-ledger", "northwind", "mreyes", "adjudication", "chat-7k2p"];
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
+
 function fixture(t, options = {}) {
   const events = [];
   const posted = [];
@@ -48,6 +58,89 @@ function fixture(t, options = {}) {
   };
   return { events, posted, reports, start, shown };
 }
+
+for (const action of ["stop", "restart", "close"]) {
+  test(`${action} during preparation cannot show or post a late report`, async (t) => {
+    const collection = deferred();
+    let running = true;
+    let calls = 0;
+    const { reports, start, events, posted, shown } = fixture(t, {
+      active: () => running,
+      known: () => (++calls === 1 ? collection.promise : Promise.resolve(KNOWN)),
+    });
+    const first = await start();
+    assert.equal(shown(), undefined);
+    running = false;
+    if (action === "close") reports.close();
+    else reports.cancel("chat");
+    let cancelled;
+    first.result.then((value) => {
+      cancelled = value;
+    });
+    await tick();
+    assert.match(cancelled ?? "", /cancelled/);
+    let replacement;
+    if (action === "restart") {
+      running = true;
+      replacement = await start();
+      assert.ok(replacement.request);
+    }
+    collection.resolve(KNOWN);
+    await tick();
+    const questions = events.filter(({ event }) => event.type === "question-request");
+    assert.equal(questions.length, action === "restart" ? 1 : 0);
+    assert.equal(posted.length, 0);
+    if (replacement) {
+      const { request, result } = replacement;
+      const { title, body } = request.bugReport;
+      assert.equal(reports.answer("chat", request.requestId, { title: [title], body: [body] }), true);
+      assert.equal(JSON.parse(await result).posted, true);
+      assert.equal(posted.length, 1);
+    }
+  });
+}
+
+test("preparation reserves the Chat against duplicate requests", async (t) => {
+  const collection = deferred();
+  const { reports, start } = fixture(t, { known: () => collection.promise });
+  await start();
+  let failure;
+  reports
+    .definitions("chat")[0]
+    .run(INPUT)
+    .catch((error) => {
+      failure = error.message;
+    });
+  await tick();
+  reports.cancel("chat");
+  collection.resolve(KNOWN);
+  await tick();
+  assert.match(failure ?? "", /already has a bug report/);
+});
+
+test("a failed preparation releases its reservation for another request", async (t) => {
+  let calls = 0;
+  const { reports, start } = fixture(t, {
+    known: async () => {
+      if (++calls === 1) throw new Error("collection failed");
+      return KNOWN;
+    },
+  });
+  await assert.rejects(reports.definitions("chat")[0].run(INPUT), /collection failed/);
+  const next = await start();
+  assert.ok(next.request);
+});
+
+test("a card cannot post after its Chat becomes inactive", async (t) => {
+  let running = true;
+  const { start, reports, posted } = fixture(t, { active: () => running });
+  const { request, result } = await start();
+  running = false;
+  const { title, body } = request.bugReport;
+  assert.equal(reports.answer("chat", request.requestId, { title: [title], body: [body] }), false);
+  assert.match(await result, /cancelled/);
+  assert.equal(posted.length, 0);
+});
 
 test("the user is shown the redacted report, with Milagre's facts, before anything is posted", async (t) => {
   const { start, posted } = fixture(t);
@@ -115,6 +208,28 @@ test("removing text posts the shorter report without another look", async (t) =>
   assert.equal(response.editedByUser, true);
   assert.match(response.instructions, /The user edited the report/);
   assert.deepEqual(posted, [{ repo: "the-ptf/milagre", title: "Delegation never reports back", body }]);
+});
+
+test("trusted-host URLs are redacted before preview and edits require a fresh approval before posting", async (t) => {
+  const privateUrl = "https://relay.milagre.cloud/pair?token=FAKE_PRIVATE_TOKEN_1234567890&project=claims-ledger";
+  const { start, posted, reports, shown } = fixture(t, { readLog: async () => [privateUrl] });
+  const { result, request } = await start("chat", { ...INPUT, what_happened: `Pairing failed at ${privateUrl}` });
+  assert.equal(posted.length, 0);
+  assert.match(request.bugReport.body, /Pairing failed at <url>/);
+  assert.ok(!request.bugReport.body.includes("FAKE_PRIVATE_TOKEN"));
+  const edited = `${request.bugReport.body}\nhttps://github.com/the-ptf/milagre/issues/new?body=%63laims-ledger&api_key=FAKE_EDIT_TOKEN`;
+  reports.answer("chat", request.requestId, { title: [request.bugReport.title], body: [edited] });
+  await tick();
+  assert.equal(posted.length, 0);
+  const again = shown();
+  assert.notEqual(again.requestId, request.requestId);
+  assert.equal(again.bugReport.recheck, true);
+  assert.ok(!again.bugReport.body.includes("FAKE_EDIT_TOKEN"));
+  assert.ok(!again.bugReport.body.includes("laims-ledger"));
+  assert.equal(reports.answer("chat", request.requestId, { title: ["Old approval"], body: [edited] }), false);
+  reports.answer("chat", again.requestId, { title: [again.bugReport.title], body: [again.bugReport.body] });
+  assert.equal(JSON.parse(await result).posted, true);
+  assert.deepEqual(posted, [{ repo: "the-ptf/milagre", title: again.bugReport.title, body: again.bugReport.body }]);
 });
 
 test("when gh can't post, the agent gets the prefilled page to hand over as a short link", async (t) => {

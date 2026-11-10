@@ -5,9 +5,21 @@
 // word too few can break a confidentiality agreement, and GitHub keeps every version of an issue.
 const { BUG_REPORT_KINDS, CODE_REMOVED } = require("@milagre/shared/bug-report");
 
-// Milagre's own places stay readable.
-const ALLOWED_HOSTS = /^(?:[\w-]+\.)*milagre\.(?:cloud|dev)$/i;
-const MILAGRE_REPO_PATH = /^\/the-ptf\/milagre(?:-ade)?(?:[/?#]|$)/i;
+// A trusted domain can still carry pairing tokens, private share IDs or report bodies. Only fixed public routes
+// without userinfo, query, fragment, port or encoded/normalized content may bypass the content patterns below.
+const PUBLIC_HOSTS = /^(?:(?:www|relay)\.)?milagre\.(?:cloud|dev)$/i;
+const PUBLIC_SITE_PATH = /^\/(?:docs(?:\/cli)?|privacy|terms|download\/(?:mac-arm64|mac-x64|android|linux-appimage|linux-deb|linux-rpm))?\/?$/;
+const PUBLIC_REPO_PATH = /^\/the-ptf\/milagre(?:-ade)?(?:\/(?:issues(?:\/(?:\d+|new))?|pull\/\d+|pulls|releases))?\/?$/;
+
+function isPublicUrl(parsed, url) {
+  if (!/^https?:$/.test(parsed.protocol) || parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash) return false;
+  // Never preserve raw spellings which URL normalized away, including dot segments, backslashes and encoded hosts.
+  if (url.includes("%") || (parsed.href !== url && parsed.href !== `${url}/`)) return false;
+  if (/^(?:www\.)?milagre\.(?:cloud|dev)$/.test(parsed.hostname)) return PUBLIC_SITE_PATH.test(parsed.pathname);
+  if (/^relay\.milagre\.(?:cloud|dev)$/.test(parsed.hostname)) return parsed.pathname === "/health";
+  if (parsed.hostname === "github.com" || parsed.hostname === "www.github.com") return PUBLIC_REPO_PATH.test(parsed.pathname);
+  return false;
+}
 // Names too common to identify anyone, so a Project called "app" doesn't eat every "app" in the text.
 const COMMON = new Set(
   [
@@ -98,7 +110,7 @@ const LINKS = [
     pattern: /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>"'`)\]}]+/gi,
     replace: (match) => linkKind(match),
   },
-  { pattern: /\bwww\.[^\s<>"'`)\]}]+/gi, replace: (match) => linkKind(`https://${match}`) },
+  { pattern: /\bwww\.[^\s<>"'`)\]}]+/gi, replace: (match) => linkKind(match) },
   // scp-style Git remotes, before emails: git@github.com:owner/repo.git
   { pattern: /\b[\w.-]+@[\w.-]+\.[a-z]{2,}:[\w./~-]+/gi, kind: "repo" },
 ];
@@ -138,7 +150,7 @@ const PATTERNS = [
   },
   {
     pattern: new RegExp(`\\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:${HOST_TLDS})\\b(?::\\d+)?`, "gi"),
-    replace: (match) => (ALLOWED_HOSTS.test(match.replace(/:\d+$/, "")) || /^milagre\.app$/i.test(match) ? match : "host"),
+    replace: (match) => (PUBLIC_HOSTS.test(match.replace(/:\d+$/, "")) || /^milagre\.app$/i.test(match) ? match : "host"),
   },
   // References to pull requests and issues, here or in another tracker.
   { pattern: /\b[\w.-]+\/[\w.-]+#\d+\b/g, kind: "pr" },
@@ -159,15 +171,15 @@ function linkKind(raw) {
   const url = raw.replace(/[.,;:!?]+$/, "");
   const tail = raw.slice(url.length);
   let parsed;
+  const absolute = url.startsWith("www.") ? `https://${url}` : url;
   try {
-    parsed = new URL(url);
+    parsed = new URL(absolute);
   } catch {
     return { kind: "url", tail };
   }
   const host = parsed.hostname.toLowerCase();
-  if (ALLOWED_HOSTS.test(host)) return raw;
+  if (isPublicUrl(parsed, absolute)) return raw;
   if (host === "github.com" || host === "www.github.com" || host === "raw.githubusercontent.com") {
-    if (MILAGRE_REPO_PATH.test(parsed.pathname)) return raw;
     if (/^\/[^/]+\/[^/]+\/pull\/\d+/.test(parsed.pathname)) return { kind: "pr", tail };
     if (/^\/[^/]+\/[^/]+\/issues\/\d+/.test(parsed.pathname)) return { kind: "issue", tail };
     if (/^\/[^/]+\/[^/]+\/?$/.test(parsed.pathname)) return { kind: "repo", tail };
@@ -209,7 +221,13 @@ function createRedactor(known, { seed = new Map() } = {}) {
       out = out.replace(pattern, (match, ...groups) => {
         if (guarded(match)) return match;
         const result = replace ? replace(match, ...groups.slice(0, -2)) : kind;
-        if (typeof result === "string") return result === match || isPlaceholder(match) ? (keepMatches ? keep(match) : match) : mark(result, match);
+        if (typeof result === "string") {
+          // No public URL, hostname or other exception may shield a known private name. Host labels and URL path
+          // separators do not follow prose's word boundaries, so use conservative substring matching here.
+          const privateEntry = result === match && entries.find(({ value }) => match.toLowerCase().includes(value.toLowerCase()));
+          if (privateEntry) return mark(keepMatches ? "url" : privateEntry.kind, match);
+          return result === match || isPlaceholder(match) ? (keepMatches ? keep(match) : match) : mark(result, match);
+        }
         const value = match.slice(result.keep?.length ?? 0, match.length - (result.tail?.length ?? 0));
         // A value already replaced, as in text the user edited ("API_KEY=<token>"), stays.
         if (isPlaceholder(value)) return match;

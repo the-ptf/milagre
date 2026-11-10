@@ -116,6 +116,72 @@ test("Milagre's own words, links and version strings stay readable", () => {
   assert.equal(redact(text), text);
 });
 
+test("only public URL structure is exempt from redaction, never data on a trusted host", () => {
+  const privateUrls = [
+    "https://relay.milagre.cloud/pair?token=FAKE_PRIVATE_TOKEN_1234567890&project=claims-ledger",
+    "https://github.com/the-ptf/milagre/issues/new?body=claims-ledger&api_key=FAKE_PRIVATE_TOKEN_1234567890",
+    "https://claims-ledger:password@relay.milagre.cloud/health",
+    "https://relay.milagre.cloud/health#claims-ledger",
+    "https://relay.milagre.cloud/claims-ledger",
+    "https://claims-ledger.milagre.cloud/health",
+    "https://unknown-client.milagre.dev/",
+    "https://share.milagre.cloud/s/private-share-id",
+    "https://github.com/the-ptf/milagre/blob/private-branch/README.md",
+    "https://raw.githubusercontent.com/the-ptf/milagre/private-branch/README.md",
+    "https://milagre.cloud/docs/claims-ledger",
+    "https://milagre.cloud/docs/%63laims-ledger",
+    "https://milagre.cloud/docs/%2563laims-ledger",
+    "https://%63laims-ledger.milagre.cloud/",
+    "https://relay.milagre.cloud/health?%74oken=abc",
+    "https://relay.milagre.cloud/health#%2574oken%253Dabc",
+    "https://relay.milagre.cloud/health?x=%2FUsers%2Fmreyes",
+    "https://relay.milagre.cloud/health?x=Orion+Billing",
+    "https://relay.milagre.cloud:12345/health",
+    "https://relay.milagre.cloud/private/../health",
+    "https://relay.milagre.cloud\\private\\..\\health",
+    "ftp://relay.milagre.cloud/health",
+    "www.milagre.cloud/docs/cli?password=abc",
+    "https://milagre.cloud.evil.example/docs",
+  ];
+  for (const url of privateUrls) {
+    assert.equal(isClean(url, KNOWN), false, url);
+    const out = redact(`${url}.`);
+    assert.match(out, /^<(?:url|repo|pr|issue)>\.$/, url);
+    assert.ok(isClean(out, KNOWN), out);
+    assert.equal(redact(out), out);
+  }
+});
+
+test("public health, docs and issue links stay useful, unless they contain a known private value", () => {
+  for (const url of [
+    "https://relay.milagre.cloud/health",
+    "https://milagre.cloud/docs",
+    "https://milagre.cloud/docs/cli",
+    "https://www.milagre.dev/docs/cli",
+    "https://github.com/the-ptf/milagre",
+    "https://github.com/the-ptf/milagre/issues/938",
+    "https://github.com/the-ptf/milagre-ade/pull/999",
+    "https://github.com/the-ptf/milagre/issues/new",
+  ]) {
+    assert.equal(redact(url), url);
+    assert.ok(isClean(url, KNOWN));
+  }
+  const known = [{ kind: "project", value: "relay" }];
+  assert.equal(isClean("https://relay.milagre.cloud/health", known), false);
+  assert.equal(redactFields({ text: "https://relay.milagre.cloud/health" }, known).fields.text, "<url>");
+});
+
+test("bare private hostnames cannot use the public Milagre host exception", () => {
+  for (const host of ["claims-ledger.milagre.cloud", "unknown-client.milagre.dev", "private.relay.milagre.cloud"]) {
+    assert.equal(redact(host), "<host>", host);
+    assert.equal(isClean(host, KNOWN), false, host);
+  }
+  for (const host of ["milagre.cloud", "www.milagre.dev", "relay.milagre.cloud"]) assert.equal(redact(host), host);
+  const known = [{ kind: "project", value: "relay" }];
+  assert.equal(isClean("relay.milagre.cloud", known), false);
+  assert.equal(redactFields({ text: "relay.milagre.cloud" }, known).fields.text, "<project>");
+});
+
 test("redacted text is clean, and stays the same when checked again", () => {
   const text = "Worktree /Users/mreyes/.milagre/worktrees/claims-ledger/chat-7k2p, token=abcdef123456, https://github.com/acme-payers/x/pull/3";
   const once = redact(text);
