@@ -9,7 +9,7 @@ const here = (path: string) => (current === path || current.startsWith(`${path}/
     <img src="/app-icon-64.webp" alt="" width="30" height="30" />
     <span>Milagre</span>
   </a>
-  <nav aria-label="Help" class="help"><a href="/docs" aria-current={here("/docs")}>Docs</a><a href="/design" aria-current={here("/design")}>Design</a><a href="/privacy" aria-current={here("/privacy")}>Privacy</a><a href="/support" aria-current={here("/support")}>Support</a></nav>
+  <nav aria-label="Help" class="help"><a href="/docs" aria-current={here("/docs")}>Docs</a><a href="/privacy" aria-current={here("/privacy")}>Privacy</a><a href="/support" aria-current={here("/support")}>Support</a></nav>
   <a class="stars" href={REPO_URL}>
     <svg aria-hidden="true" width="16" height="16"><use href="/icons.svg#github" /></svg>
     <span>Star<span class="visually-hidden"> Milagre on GitHub</span></span>
@@ -37,8 +37,6 @@ const here = (path: string) => (current === path || current.startsWith(`${path}/
   .help a:hover { color: var(--ink); text-decoration: underline; }
   .help a[aria-current="page"] { color: var(--ink); }
   @media (max-width: 420px) { .help { gap: 12px; margin-right: 12px; } .brand span { display: none; } }
-  /* The smallest phones: the links take their own row under the icon and the star pill. */
-  @media (max-width: 359px) { .nav { flex-wrap: wrap; height: auto; padding: 16px 0 8px; row-gap: 12px; } .help { order: 3; flex-basis: 100%; margin: 0; gap: 16px; } .stars { margin-left: auto; } }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 18px; text-decoration: none; }
   .brand img { border-radius: 7px; }
   .stars { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: var(--radius-control); background: var(--surface); box-shadow: var(--shadow-btn); color: var(--ink); font-size: 14px; font-weight: 600; text-decoration: none; transition: background-color 120ms var(--ease-out-strong); }
