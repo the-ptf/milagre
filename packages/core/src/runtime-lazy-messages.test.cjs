@@ -214,8 +214,9 @@ test("archiving and restoring a Chat that left memory keeps every message, and a
   await runtime.unloadIdle();
   await runtime.close();
   const again = make();
-  const reopened = await again.openProject(project);
-  assert.deepEqual(shape(reopened.state.messages.filter((message) => message.session_id === chat.id)), [
+  await again.openProject(project);
+  // A fresh read leaves an idle Chat out of memory (idleMs is 0 here); its messages are all still there to read.
+  assert.deepEqual(shape((await again.invoke("chat:messages", [project, chat.id, { turns: 5 }])).messages), [
     ["user", "Keep me"],
     ["assistant", "Reply 1 from claude"],
   ]);

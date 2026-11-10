@@ -10,6 +10,9 @@ const { startMobileBridge } = require("./mobile-bridge.cjs");
 const { KeepAwake } = require("@milagre/core/keep-awake");
 const { createPowerBlocker } = require("./power.cjs");
 
+// How long a stopped host waits for its event loop to empty on its own before it exits anyway.
+const STOPPED_EXIT_MS = 3000;
+
 async function main() {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -69,6 +72,8 @@ async function main() {
         chatsHome: values["chats-home"],
         keepAwake: new KeepAwake({ powerSaveBlocker: createPowerBlocker() }),
       },
+      // A stopped host exits even when a handle (a listener, a child's pipe) would keep the event loop alive.
+      onStopped: () => setTimeout(() => process.exit(), STOPPED_EXIT_MS).unref(),
     });
     console.log(JSON.stringify({ status: "ready", pid: process.pid, dataDir, socketPath: daemon.socketPath }));
     const stop = () => {

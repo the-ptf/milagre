@@ -141,6 +141,13 @@ const cpuByKind = (rows) => {
   return totals;
 };
 
+/** Resident memory per process kind, in MB. */
+const rssByKind = (rows) => {
+  const totals = {};
+  for (const row of rows) totals[row.kind] = (totals[row.kind] ?? 0) + row.rss;
+  return Object.fromEntries(Object.entries(totals).map(([kind, bytes]) => [kind, toMb(bytes)]));
+};
+
 const cpuPercent = (before, after, seconds) =>
   Object.fromEntries(Object.entries(after).map(([kind, used]) => [kind, round(((used - (before[kind] ?? 0)) / seconds) * 100)]));
 
@@ -219,7 +226,8 @@ async function scenario(name, page, work, options) {
   if (name === "idle") {
     const before = cpuByKind(processes(work));
     await delay(seconds * 1000);
-    return { cpuPercent: cpuPercent(before, cpuByKind(processes(work)), seconds), ...(await memory(page, work)) };
+    const after = processes(work);
+    return { cpuPercent: cpuPercent(before, cpuByKind(after), seconds), rssMb: rssByKind(after), ...(await memory(page, work)) };
   }
   const kind = name === "code" ? "code" : "mix";
   await page.evaluate(FRAME_PROBE);
@@ -284,7 +292,7 @@ async function run(name, options) {
       PATH: `${bin(work)}:/usr/bin:/bin:/usr/sbin:/sbin`,
       TMPDIR: path.join(work, "tmp"),
       LANG: "en_US.UTF-8",
-      MILAGRE_BACKGROUND: "1",
+      ...(options.visible ? {} : { MILAGRE_BACKGROUND: "1" }),
       MILAGRE_CHATS_HOME: path.join(work, "chats"),
       MILAGRE_DEV_SERVER_URL: `file://${dist}`,
       PERF_MARK_DIR: path.join(work, "marks"),
@@ -322,6 +330,13 @@ async function run(name, options) {
       "a Chat row",
     );
     await until(() => page.evaluate(`!!document.querySelector('[contenteditable=true][aria-label="Prompt"]')`), "the composer");
+    if (options.newChat) {
+      // A new Chat's page: what a window left open between tasks usually shows.
+      const key = { key: "n", code: "KeyN", windowsVirtualKeyCode: 78, modifiers: process.platform === "darwin" ? 4 : 2 };
+      await page.call("Input.dispatchKeyEvent", { type: "keyDown", ...key });
+      await page.call("Input.dispatchKeyEvent", { type: "keyUp", ...key });
+      await until(() => page.evaluate(`!!document.querySelector('.welcome-sky') || !document.querySelector('[data-message-id]')`), "a new Chat");
+    }
     await delay(options.settle * 1000);
     const measured = await scenario(name, page, work, options);
     page.close();
@@ -333,6 +348,8 @@ async function run(name, options) {
       seconds: options.seconds,
       turns: name === "soak" ? options.turns : undefined,
       state: options.state ? "copied" : "synthetic",
+      visible: options.visible,
+      newChat: options.newChat,
       opened,
       ...measured,
     };
@@ -381,13 +398,23 @@ async function main() {
       state: { type: "string" },
       out: { type: "string" },
       heap: { type: "string" },
+      visible: { type: "boolean", default: false },
+      "new-chat": { type: "boolean", default: false },
     },
   });
   const [name, ...files] = positionals;
   if (name === "compare" && files.length === 2) return compare(...files);
   if (!SCENARIOS.has(name)) throw new Error("Usage: run.cjs idle|stream|code|soak [options], or run.cjs compare before.json after.json");
   const seconds = Number(values.seconds ?? (name === "soak" ? 15 : name === "idle" ? 60 : 45));
-  const result = await run(name, { seconds, turns: Number(values.turns), settle: Number(values.settle), state: values.state, heap: values.heap });
+  const result = await run(name, {
+    seconds,
+    turns: Number(values.turns),
+    settle: Number(values.settle),
+    state: values.state,
+    heap: values.heap,
+    visible: values.visible,
+    newChat: values["new-chat"],
+  });
   const out = values.out ?? path.join(os.tmpdir(), `milagre-perf-${name}-${Date.now()}.json`);
   fs.writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);
   console.log(JSON.stringify({ ...result, samples: undefined }, null, 2));

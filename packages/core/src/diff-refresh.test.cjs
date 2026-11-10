@@ -57,6 +57,61 @@ test("refreshing a project reads every worktree that has a chat", async () => {
   );
 });
 
+test("refreshing a project skips the Worktrees whose only Chats are archived or hidden Routine Runs", async () => {
+  const reads = [];
+  const read = async (projectPath) => ({
+    worktrees: {
+      1: { id: 1, name: "main", path: projectPath },
+      2: { id: 2, name: "old", path: `${projectPath}-old` },
+      3: { id: 3, name: "run", path: `${projectPath}-run` },
+    },
+    sessions: {
+      7: { id: 7, worktree_id: 1, summary: { count: 1 } },
+      9: { id: 9, worktree_id: 2, archived: true, summary: { count: 4 } },
+      10: { id: 10, worktree_id: 3, routine: { routineId: "r", runId: "x", hidden: true }, summary: { count: 2 } },
+    },
+    messages: [],
+  });
+  const states = new ProjectStates({ read, save: async () => {} });
+  const diffs = new DiffRefresher({
+    states,
+    readDiffStat: async (worktreePath) => (reads.push(worktreePath), null),
+    update: (path, change) => states.update(path, change),
+  });
+  await diffs.refresh("/a");
+  assert.deepEqual(reads, ["/a"]);
+  // Named Worktrees are still read, archived Chat or not.
+  await diffs.refresh("/a", [2]);
+  assert.deepEqual(reads, ["/a", "/a-old"]);
+});
+
+test("opening a Chat whose Worktree the last focus left out reads it at once", async () => {
+  const reads = [];
+  const read = async (projectPath) => ({
+    worktrees: { 1: { id: 1, name: "main", path: projectPath }, 3: { id: 3, name: "run", path: `${projectPath}-run` } },
+    sessions: {
+      7: { id: 7, worktree_id: 1, summary: { count: 1 } },
+      10: { id: 10, worktree_id: 3, routine: { routineId: "r", runId: "x", hidden: true }, summary: { count: 2 } },
+    },
+    messages: [],
+  });
+  const states = new ProjectStates({ read, save: async () => {} });
+  const diffs = new DiffRefresher({
+    states,
+    readDiffStat: async (worktreePath) => (reads.push(worktreePath), null),
+    update: (path, change) => states.update(path, change),
+    now: () => 0,
+  });
+  await states.get("/a");
+  diffs.focused("/a");
+  await waitUntil(() => reads.length === 1);
+  // A Run waiting on an approval shows in the list; opening it right after the focus reads its Worktree.
+  await diffs.refreshOpened("/a", 10);
+  // The main Worktree was just read by the focus, so opening its Chat waits for the throttle.
+  await diffs.refreshOpened("/a", 7);
+  assert.deepEqual(reads, ["/a", "/a-run"]);
+});
+
 test("focus refreshes only the visible Project, throttled per Project", async () => {
   let clock = 0;
   const { diffs, states, reads } = harness({ now: () => clock });
