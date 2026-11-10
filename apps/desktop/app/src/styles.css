@@ -1074,13 +1074,18 @@ a {
 .markdown :where(h4, h5, h6) {
   font-size: 1em;
 }
+/* The gutter holds a one-digit marker ("9."). An ordered list widens it by one digit for each extra digit of its
+ * highest number (--marker-digits, from Markdown.tsx), so "10." shows whole: a finished message's content-visibility
+ * clips paint to its box, and a marker wider than the gutter lost its first digit. */
 .markdown :where(ul, ol) {
-  padding-left: 1.35em;
+  --list-gutter: 1.35em;
+  padding-left: var(--list-gutter);
 }
 .markdown ul {
   list-style: disc;
 }
 .markdown ol {
+  --list-gutter: calc(1.35em + (var(--marker-digits, 1) - 1) * 1ch);
   list-style: decimal;
 }
 .markdown li {
@@ -1089,12 +1094,16 @@ a {
 .markdown li::marker {
   color: var(--ink-3);
 }
+/* Every digit one width (1ch), so the gutter fits any number with as many digits. */
+.markdown ol > li::marker {
+  font-variant-numeric: tabular-nums;
+}
 .markdown li > :where(ul, ol) {
   margin-block: 0.2em;
 }
 .markdown li:has(> input[type="checkbox"]) {
   list-style: none;
-  margin-left: -1.35em;
+  margin-left: calc(-1 * var(--list-gutter));
 }
 .markdown input[type="checkbox"] {
   margin-right: 0.45em;

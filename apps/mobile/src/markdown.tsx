@@ -36,6 +36,7 @@ import { messageActionProps } from "./message-actions";
 import { Icon } from "./icons";
 import { tap } from "./primitives/tap";
 import { markdownCellText, markdownColumnWidths, markdownTableRows, type MarkdownNode as Node } from "./markdown-table";
+import { orderedListLabels } from "./markdown-list";
 
 /** `remote` reads a web image the phone can't load itself (a private repository's), or returns null to load it directly. */
 type ImageOptions = { media?: (path: string) => MediaValue; basePath?: string; remote?: (url: string) => MediaValue | null };
@@ -368,6 +369,13 @@ const MarkdownTable = memo(function MarkdownTable({ nodes, images, t }: { nodes:
   );
 });
 
+// An ordered list's marker column: every digit one width, so the widest label fits any number of its length.
+const listMarker: Record<"digits" | "sizer" | "label", TextStyle> = {
+  digits: { fontVariant: ["tabular-nums"] },
+  sizer: { opacity: 0 },
+  label: { position: "absolute", top: 0, right: 0 },
+};
+
 function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.ReactNode {
   const { colors } = t;
   const body = { ...bodyOf(colors, t.textPx, t.tone), ...(t.tableHeader ? { fontWeight: "600" as const } : {}) };
@@ -405,17 +413,30 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
           )}
         </View>
       );
-    if (token.type === "bullet_list_open" || token.type === "ordered_list_open")
+    if (token.type === "bullet_list_open" || token.type === "ordered_list_open") {
+      const ordered = token.type === "ordered_list_open" ? orderedListLabels(Number(token.attrGet("start") || 1), children.length) : null;
       return (
         <View key={key} style={{ gap: 8 }}>
           {children.map((child, i) => (
             <View key={i} style={{ flexDirection: "row", gap: space.lg }}>
-              <Text style={body}>{token.type === "ordered_list_open" ? `${Number(token.attrGet("start") || 1) + i}.` : "•"}</Text>
+              {ordered ? (
+                // The widest label, invisible, sizes the column; each number sits at its right edge so "9." and "10."
+                // end together and every item's text starts at the same edge.
+                <View>
+                  <Text style={[body, listMarker.digits, listMarker.sizer]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                    {ordered.widest}
+                  </Text>
+                  <Text style={[body, listMarker.digits, listMarker.label]}>{ordered.labels[i]}</Text>
+                </View>
+              ) : (
+                <Text style={body}>•</Text>
+              )}
               <View style={{ flex: 1, gap: 8 }}>{blocks(child.children, images, t)}</View>
             </View>
           ))}
         </View>
       );
+    }
     if (token.type === "blockquote_open")
       return (
         <View key={key} style={{ borderLeftWidth: 3, borderColor: colors.line, paddingLeft: space.lg, gap: space.md }}>
