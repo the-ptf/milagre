@@ -223,6 +223,62 @@ function textDelta(state, text, startsMessage = false) {
   return { type: "text-delta", messageId: state.turnId, text, ...(startsMessage ? { startsMessage: true } : {}) };
 }
 
+const LOCAL_COMMAND_OUTPUT = /<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>/g;
+const XML_ENTITIES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'" };
+
+// What a local command printed, from its transcript row: stdout and stderr without their wrapper tags.
+function localCommandOutput(source) {
+  const output = { stdout: "", stderr: "" };
+  for (const [, stream, text] of source.matchAll(LOCAL_COMMAND_OUTPUT)) {
+    const clean = text
+      .replace(/&(?:amp|lt|gt|quot|apos);/g, (entity) => XML_ENTITIES[entity])
+      // oxlint-disable-next-line no-control-regex -- strips ANSI colour escapes from the command's output
+      .replace(/\x1b\[[0-9;]*m/g, "")
+      .trim();
+    if (clean) output[stream] = output[stream] ? `${output[stream]}\n\n${clean}` : clean;
+  }
+  return output;
+}
+
+// Claude Code prints a command's output line by line, a review's findings one per line. Markdown on desktop would run
+// those lines into one paragraph (the phone already breaks lines), so a line that goes on in the next one ends in a
+// hard break. Code blocks, tables, setext underlines and lines that already break are left alone.
+function keepLineBreaks(text) {
+  const lines = text.split("\n");
+  let fenced = false;
+  return lines
+    .map((line, index) => {
+      if (/^\s*(?:`{3,}|~{3,})/.test(line)) {
+        fenced = !fenced;
+        return line;
+      }
+      const next = lines[index + 1];
+      if (fenced || next === undefined || !line.trim() || !next.trim()) return line;
+      if (/\|\s*$/.test(line) || / {2}$/.test(line) || /^\s*\|/.test(next) || /^\s*(?:=+|-+)\s*$/.test(next)) return line;
+      return `${line}  `;
+    })
+    .join("\n");
+}
+
+// A local slash command (/code-review, /context, /cost, a /compact that can't run) answers without the model: Claude
+// Code sends what it printed as a synthetic assistant message, with no stream events, that carries the transcript's
+// local_command row in local_command_source. Its stdout is the reply; its stderr fails the turn when the result comes.
+function claudeLocalCommand(message, state) {
+  const source = message.local_command_source;
+  const { stdout, stderr } = localCommandOutput(source);
+  const failed = Boolean(stderr) || message.local_command_outcome?.kind === "failed";
+  // The message's own text is the CLI's clean copy of the output; the source is the fallback.
+  const text = (message.message?.content ?? [])
+    .flatMap((block) => (block?.type === "text" && typeof block.text === "string" ? [block.text] : []))
+    .join("\n\n")
+    .trim();
+  // A failed command's output is the error, unless it split its words between stdout and stderr.
+  const reply = !failed ? text || stdout : stderr ? stdout : "";
+  if (failed) state.localCommandError = stderr || text || stdout || "The command failed.";
+  if (!reply) return [];
+  return [...(state.hasText ? [textDelta(state, "\n\n", true)] : []), textDelta(state, keepLineBreaks(reply))];
+}
+
 // Claude Agent SDK message -> events. Partial messages (includePartialMessages) carry the
 // streamed text and thinking: a thinking block is a step from its start to its stop. Each assistant
 // message holds a finished content block: a tool_use block starts a step, and the tool_result in a
@@ -274,7 +330,10 @@ function mapClaudeMessage(message, state) {
     });
     if (typeof after === "number") events.push(...claudeContextUsage(state, after));
   }
-  if (message.type === "assistant" && message.parent_tool_use_id == null && message.message?.usage) {
+  if (message.type === "assistant" && message.parent_tool_use_id == null && typeof message.local_command_source === "string")
+    events.push(...claudeLocalCommand(message, state));
+  // A synthetic message (a local command's output, the CLI's own notices) reports zero usage: it is no reading of the context.
+  if (message.type === "assistant" && message.parent_tool_use_id == null && message.message?.usage && message.message.model !== "<synthetic>") {
     const usage = message.message.usage;
     const used = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.output_tokens ?? 0);
     events.push(...claudeContextUsage(state, used));
@@ -368,15 +427,18 @@ function mapClaudeMessage(message, state) {
       state.contextWindow = Math.max(...windows);
       if (state.contextUsed !== undefined) events.push(...claudeContextUsage(state, state.contextUsed));
     }
-    if (message.subtype === "success" && !message.is_error) events.push({ type: "turn-completed" });
+    // A local command's result is a success even when it printed an error.
+    const commandError = state.localCommandError;
+    if (message.subtype === "success" && !message.is_error && !commandError) events.push({ type: "turn-completed" });
     else if (state.authFailed) events.push(failedWith(loginMessage("claude"), { login: true }));
     else if (state.limitHit || state.limit)
-      events.push(failedWith(message.result || "Claude hit its usage limit.", { limit: usageLimit("claude", state.limit ?? undefined) }));
+      events.push(failedWith(commandError || message.result || "Claude hit its usage limit.", { limit: usageLimit("claude", state.limit ?? undefined) }));
     else
       events.push({
         type: "turn-failed",
-        message: (message.errors?.length ? message.errors.join("\n") : message.result) || "Claude could not finish this turn.",
+        message: commandError || (message.errors?.length ? message.errors.join("\n") : message.result) || "Claude could not finish this turn.",
       });
+    state.localCommandError = null;
     state.authFailed = false;
     state.limitHit = false;
     state.limit = null;

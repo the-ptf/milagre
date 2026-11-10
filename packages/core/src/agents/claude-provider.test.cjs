@@ -523,6 +523,36 @@ test("resumes a saved session without announcing it again", async (t) => {
   );
 });
 
+test("a /code-review turn saves the review as the Chat's reply, not the empty-reply line (#955)", async (t) => {
+  const { applyAgentEvent, chatKey, startRun } = require("@milagre/shared/agent-runs");
+  const [review, result] = require("./fixtures/claude-local-commands.json").codeReview;
+  const { session, events } = claude(t, {
+    script: async function* () {
+      yield init;
+      yield review;
+      yield result;
+    },
+  });
+  await session.startTurn({ ...TURN, prompt: "/code-review low" });
+  await ended(events);
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["turn-started", "session-started", "text-delta", "turn-completed"],
+  );
+
+  // The host and both apps keep the message the shared reducer saves.
+  const chatId = chatKey("/repo", 1);
+  let folded = {
+    state: { next_id: 1, sessions: { 1: { id: 1, provider: "claude" } }, messages: [] },
+    runs: startRun({}, chatId, "claude-opus-5-5"),
+  };
+  for (const event of events) folded = applyAgentEvent(folded.state, folded.runs, "/repo", chatId, event);
+  const reply = folded.state.messages.at(-1);
+  assert.equal(reply.role, "assistant");
+  assert.equal(reply.outcome, "completed");
+  assert.equal(reply.body, "math.py:2 — Function named `add` subtracts instead of adds; `add(5, 3)` returns 2 instead of 8");
+});
+
 test("forgets a session that can't be resumed", async (t) => {
   const { session, events } = claude(t, { script: scripts.missing, resumeId: "gone" });
   await session.startTurn(TURN);
