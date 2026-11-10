@@ -1,5 +1,5 @@
 // Settings sections in Electron, inside the Settings modal: Church lists only Floating inbox, Ultracode Fatality, Delegate
-// and Device notes; Integrations holds the Babysit PRs row, which opens its own page; Phone & sharing holds Published pages
+// Device notes and New Chat stats; Integrations holds the Babysit PRs row, which opens its own page; Phone & sharing holds Published pages
 // (Designs are always on); This Mac holds Drive other computers, which tells main each time it flips; Notifications holds the chime picker
 // (picking one saves and plays it; the replay button plays it again). The legacy sidebar switch is gone everywhere. Search settings (⌘F) finds sections and rows
 // and opens a row lit up.
@@ -131,6 +131,26 @@ async function browserChecks() {
   const switches = () => evaluate(`[...document.querySelectorAll('main [data-setting-checkbox]')].map((s) => s.getAttribute("aria-label"))`);
   try {
     await window.loadURL(process.argv[2]);
+    const stats = `document.querySelector('main [role="checkbox"][aria-label="New Chat stats"]')`;
+    await openSection("Church");
+    assert.equal(await evaluate(`${stats}.getAttribute("aria-checked")`), "false", "New Chat stats default off");
+    await evaluate(`localStorage.setItem("milagre-settings", JSON.stringify({ newChatStats: true }))`);
+    await window.loadURL(process.argv[2]);
+    await openSection("Church");
+    assert.equal(await evaluate(`${stats}.getAttribute("aria-checked")`), "false", "the old enabled preference does not enable the Church beta");
+    await evaluate(`${stats}.click()`);
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).newChatGlance === true`);
+    await window.loadURL(process.argv[2]);
+    await openSection("Church");
+    assert.equal(await evaluate(`${stats}.getAttribute("aria-checked")`), "true", "opting in survives a reload");
+    await evaluate(`${stats}.click()`);
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).newChatGlance === false`);
+    await window.loadURL(process.argv[2]);
+    await openSection("Church");
+    assert.equal(await evaluate(`${stats}.getAttribute("aria-checked")`), "false", "opting out survives a reload");
+    await openSection("Chat");
+    assert.equal(await evaluate(`!!${stats}`), false, "New Chat stats no longer belongs to Chat");
+    await openSection("Appearance");
     // Appearance: every control is a menu; picking a size saves it and the preview follows; fonts draw in their own face.
     // The mini window preview shows where each row applies: hovering a row highlights its region.
     await waitFor(`!!document.querySelector('[data-preview-area="sidebar"]')`);
@@ -278,7 +298,7 @@ async function browserChecks() {
     await delay(300);
     assert.deepEqual(
       [...(await switches())].sort(),
-      ["Delegate to other computers", "Device notes", "Floating inbox", "Ultracode Fatality"],
+      ["Delegate to other computers", "Device notes", "Floating inbox", "New Chat stats", "Ultracode Fatality"],
       "Church keeps Device notes alongside the other betas",
     );
     const deviceNotes = `document.querySelector('main [role="checkbox"][aria-label="Device notes"]')`;
@@ -557,6 +577,12 @@ async function browserChecks() {
     await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Appearance"`);
     await waitFor(`document.querySelector('main [data-settings-found]')?.textContent.includes("Chat width")`);
     await screenshot("search-found-row");
+    await typeSearch("New Chat stats");
+    await waitFor(`document.querySelector('[data-settings-result]')?.textContent.includes("New Chat stats")`);
+    assert.equal((await results())[0], "New Chat stats Church › Beta");
+    await searchKey("Enter");
+    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Church"`);
+    await waitFor(`document.querySelector('main [data-settings-found]')?.textContent.includes("New Chat stats")`);
     await typeSearch("token cost");
     await waitFor(`document.querySelectorAll('[data-settings-result]').length > 0`);
     assert.equal((await results())[0], "Usage", "the Usage section is found by what it holds");
@@ -609,7 +635,7 @@ async function browserChecks() {
     console.log("PASS: Worktrees cleanup contains idle and busy Escape; Stop prevents the next removal; Settings still closes on its own Escape");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Church lists only Floating inbox, Ultracode Fatality, Delegate and Device notes; Integrations' Babysit PRs row opens a page that saves each change and goes Back; Phone & sharing holds Published pages (no Designs switch); with no legacy sidebar switch or Murilo mode; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; This Mac holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
+      "PASS: Church lists Floating inbox, Ultracode Fatality, Delegate, Device notes and New Chat stats; New Chat stats defaults off, ignores the legacy choice, persists opt-in/out and is found in Church; Integrations' Babysit PRs row opens a page that saves each change and goes Back; Phone & sharing holds Published pages (no Designs switch); with no legacy sidebar switch or Murilo mode; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; This Mac holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
     );
     app.exit(0);
   } catch (error) {
