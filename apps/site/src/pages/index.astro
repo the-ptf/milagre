@@ -8,7 +8,7 @@ import BringYourSubscription from "../components/BringYourSubscription.astro";
 import DawnSky from "../components/dawn/Sky.astro";
 import DawnMark from "../components/dawn/Mark.astro";
 import DawnClouds from "../components/dawn/Clouds.astro";
-import DawnWanderer from "../components/dawn/Wanderer.astro";
+import DawnTrail from "../components/dawn/Trail.astro";
 import "../styles/dawn.css";
 
 import { DOWNLOAD_ARM64, IPHONE_BETA_URL, REPO_URL } from "../links";
@@ -87,9 +87,12 @@ const schema = [
     <DawnClouds />
     <div class="cta" data-cta><DownloadButtons /></div>
   </div>
-  <DawnWanderer />
-  <BringYourSubscription />
-  <LandingSections />
+  <!-- The sections below the hero, with the star's trail behind them (outside their paint containment, which would clip it). -->
+  <div class="journey">
+    <DawnTrail />
+    <BringYourSubscription />
+    <LandingSections />
+  </div>
 </Base>
 
 <style>
@@ -107,6 +110,9 @@ const schema = [
   /* Wider than the text column, so the Mac window can grow on big screens. */
   .stage { position: relative; flex: 1; width: min(100vw - 48px, 1680px); min-height: 0; margin-top: clamp(8px, 2.5vh, 28px); }
   .cta { position: absolute; inset: auto 0 var(--drop, 0px); z-index: 2; display: flex; justify-content: center; padding: 0 20px clamp(40px, calc(4vh + 20px), 56px); }
+  /* The sections sit above the star's trail, so it passes behind the app windows. */
+  .journey { position: relative; }
+  .journey > :global(:not(.dawn-trail)) { position: relative; z-index: 1; }
   @media (max-width: 700px) {
     .page { --fade-h: 180px; }
     .hero { gap: 20px; }

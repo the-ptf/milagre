@@ -2,6 +2,7 @@
 import DownloadButtons from "./DownloadButtons.astro";
 import DesignsDemo from "./DesignsDemo.astro";
 import SidebarDemo from "./SidebarDemo.astro";
+import { MARK_LEFT, MARK_RIGHT, MARK_STAR } from "../dawn";
 import { DOWNLOAD_ANDROID, IPHONE_BETA_URL, REPO_URL } from "../links";
 
 // Parallel work (the live sidebar) is off for now, not gone: set this to true to show it again.
@@ -106,7 +107,15 @@ milagre://pair?relay=…&amp;name=Build%20server
   </section>
 
   <footer class="container">
-    <a class="footer-brand" href="#top">Milagre</a>
+    <a class="footer-brand" href="#top">
+      <!-- Where the travelling star comes to rest: it lands on the sparkle and the legs rise under it (styles/dawn.css). -->
+      <svg class="footer-mark" viewBox="-4 -4 154 154" width="22" height="22" aria-hidden="true">
+        <path class="footer-leg" d={MARK_LEFT} />
+        <path class="footer-leg footer-leg-right" d={MARK_RIGHT} />
+        <path class="footer-star" d={MARK_STAR} />
+      </svg>
+      Milagre
+    </a>
     <nav aria-label="Footer"><a href={REPO_URL}>GitHub</a><a href="/docs">Docs</a><a href="/privacy">Privacy</a><a href="/support">Support</a><a href="#top">Back to top</a></nav>
   </footer>
 </div>
@@ -220,7 +229,9 @@ milagre://pair?relay=…&amp;name=Build%20server
   footer { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-block: 20px 28px; border-top: 1px solid var(--line); font-size: 14px; }
   footer a { display: inline-flex; align-items: center; min-height: 44px; text-decoration: none; }
   footer a:hover { text-decoration: underline; text-underline-offset: 4px; }
-  .footer-brand { font-size: 15px; font-weight: 600; }
+  .footer-brand { gap: 8px; font-size: 15px; font-weight: 600; }
+  .footer-mark { flex: none; overflow: visible; fill: var(--ink); }
+  .footer-star { fill: var(--accent); }
   footer nav { display: flex; flex-wrap: wrap; column-gap: 24px; color: var(--ink-2); }
 
   @media (max-width: 860px) {

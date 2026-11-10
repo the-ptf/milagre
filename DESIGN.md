@@ -614,7 +614,7 @@ light, like the intro's Begin, and the hero plays the intro.
 - The landing hero is Dawn's sky. A first visit plays the intro once (night, the falling star landing on the logo, dawn
   into day); later visits and reduced motion open on its last frame. The headline, the apps and the download button are
   there from the first frame.
-- Below the hero, the landed star crosses the window as the page scrolls, tied to the scroll position (a CSS scroll
-  timeline, off with reduced motion).
+- Below the hero, the star winds down the page with the scroll, behind the app windows, with warm light round it and a
+  trail of star dust, and lands on the footer's logo as its legs rise (a scroll timeline, off with reduced motion).
 - Clouds and light stay in the hero. Sections below it sit on the plain page.
 - Its Lighthouse scores never drop below `apps/site/lighthouse-budget.json`.

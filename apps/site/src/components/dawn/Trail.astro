@@ -1,0 +1,94 @@
+---
+// The landed star, travelling with the reader down the page: it winds behind the app windows, lighting their edges,
+// leaves a trail of star dust and lands on the footer's logo, whose legs rise under it. Its position follows the scroll through
+// a scroll timeline (no scroll listener); this script redraws the path and its animations when the page changes size. Styles in styles/dawn.css.
+import { MARK_STAR } from "../../dawn";
+---
+<div class="dawn-trail" aria-hidden="true" data-trail>
+  <svg class="dawn-trail-svg">
+    <mask id="dawn-trail-window" maskUnits="userSpaceOnUse"><path class="dawn-trail-path dawn-trail-window" data-tail="620" /></mask>
+    <path class="dawn-trail-path dawn-trail-glow" data-tail="520" />
+    <path class="dawn-trail-path dawn-trail-dust" mask="url(#dawn-trail-window)" />
+    <path class="dawn-trail-path dawn-trail-core" data-tail="180" />
+  </svg>
+  <div class="dawn-traveller">
+    <div class="dawn-traveller-body">
+      <span class="dawn-traveller-light"></span>
+      <svg viewBox="26 -1 94 94"><path d={MARK_STAR} /></svg>
+    </div>
+  </div>
+</div>
+
+<script>
+  const trail = document.querySelector<HTMLElement>("[data-trail]");
+  const story = trail?.parentElement;
+  const brand = story?.querySelector<SVGSVGElement>(".footer-mark");
+  const svg = trail?.querySelector("svg");
+  const traveller = trail?.querySelector<HTMLElement>(".dawn-traveller");
+  const body = traveller?.firstElementChild;
+  const moving = typeof ScrollTimeline === "function" && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (moving && trail && story && brand && svg && traveller && body) {
+    // From the top of the first section below the hero.
+    const TOP = 40;
+    const draw = () => {
+      const box = story.getBoundingClientRect();
+      const mark = brand.getBoundingClientRect();
+      const width = story.clientWidth;
+      // It comes to rest on the footer logo's sparkle (half across, 32.5% down), at the sparkle's size.
+      const endX = mark.left - box.left + mark.width / 2;
+      const endY = mark.top - box.top + mark.height * 0.325 - TOP;
+      const height = Math.ceil(endY + 40);
+      trail.style.top = `${TOP}px`;
+      trail.style.height = `${height}px`;
+      // Swings out to the right and back to the left about once a screen, starting the way the sketch did: right
+      // behind the Designs panel, left behind the canvas.
+      const swings = Math.max(2, Math.round((endY - 260) / 900));
+      const step = (endY - 260) / swings;
+      const p = (x: number, y: number) => `${x.toFixed(1)},${y.toFixed(1)}`;
+      let x = -0.02 * width;
+      let y = 0.02 * height;
+      let d = `M${p(x, y)}`;
+      for (let index = 1; index <= swings; index++) {
+        const nx = (index % 2 ? 0.94 : 0.06) * width;
+        const ny = index * step;
+        d += ` C${p(x + (nx - x) * 0.55, y)} ${p(nx + (index % 2 ? 0.08 : -0.08) * width, ny - step * 0.55)} ${p(nx, ny)}`;
+        x = nx;
+        y = ny;
+      }
+      d += ` C${p(x, y + 140)} ${p(endX + (x > endX ? 160 : -160), endY - 60)} ${p(endX, endY)}`;
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      for (const path of svg.querySelectorAll("path")) path.setAttribute("d", d);
+      const length = svg.querySelector<SVGPathElement>(".dawn-trail-core")?.getTotalLength() ?? 0;
+      trail.style.setProperty("--len", `${Math.ceil(length)}px`);
+      traveller.style.offsetPath = `path("${d}")`;
+      // The star starts moving when the trail's top reaches the middle of the window and arrives as the page ends.
+      // Animations are made afresh here: CSS keyframes keep the path length they first saw.
+      const start = Math.max(0, Math.round(box.top + scrollY + TOP - innerHeight / 2));
+      const rest = (mark.width * 0.61) / traveller.offsetWidth;
+      const timing = { timeline: new ScrollTimeline({ source: document.documentElement }), rangeStart: `${start}px`, rangeEnd: "100%", fill: "both" } as KeyframeAnimationOptions;
+      for (const animation of running) animation.cancel();
+      running = [
+        // Lands a little before the page ends, so the legs rise under it.
+        traveller.animate(
+          [
+            { offsetDistance: "0px", opacity: 0 },
+            { opacity: 1, offset: 0.04 },
+            { offsetDistance: `${length}px`, opacity: 1, offset: 0.94 },
+            { offsetDistance: `${length}px`, opacity: 1 },
+          ],
+          timing,
+        ),
+        // Shrinks to the logo's sparkle as it lands (on an inner box: Chrome misplaces a scaled element on a path).
+        body.animate([{ scale: 1, offset: 0.9 }, { scale: rest, offset: 0.94 }, { scale: rest }], timing),
+        // Each stroke shows only the stretch of path just behind the star.
+        ...[...svg.querySelectorAll<SVGPathElement>("[data-tail]")].map((path) => {
+          const tail = Number(path.dataset.tail);
+          return path.animate([{ strokeDashoffset: `${tail}px` }, { strokeDashoffset: `${tail - length}px` }], timing);
+        }),
+      ];
+    };
+    let running: Animation[] = [];
+    new ResizeObserver(draw).observe(story);
+    addEventListener("resize", draw);
+  }
+</script>
