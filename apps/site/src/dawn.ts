@@ -28,7 +28,7 @@ export const STARS = (() => {
   }));
 })();
 
-export interface Ellipse {
+interface Ellipse {
   cx: number;
   cy: number;
   rx: number;
