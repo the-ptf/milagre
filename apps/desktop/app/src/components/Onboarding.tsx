@@ -17,8 +17,9 @@ import {
 import { providerName } from "@milagre/shared/providers";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import type { AccountsSnapshot, AgentCliStatus, AgentFolder, ModelProvider, OpenProject } from "@milagre/shared/model";
-import { isWindows, thisComputer } from "../lib/shortcut-hints";
+import { isMac, isWindows, thisComputer } from "../lib/shortcut-hints";
 import { ProviderLogo } from "./ProviderLogo";
+import { OnboardingIntro } from "./OnboardingIntro";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { Button, IconButton } from "./primitives/Button";
 import { Icon } from "./primitives/Icon";
@@ -51,24 +52,45 @@ function lastUsedLabel(iso: string, now = new Date()) {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function Progress({ step }: { step: 1 | 2 }) {
+const STEPS = ["Agent", "Project", "First Chat"] as const;
+
+/** Where the user is: numbered steps, done ones outlined, the current one filled. The third is the app's first Chat. */
+function Steps({ step }: { step: 1 | 2 }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex gap-1" aria-hidden="true">
-        {[1, 2, 3].map((bar) => (
-          <span key={bar} className={`h-1 w-7 rounded-full ${bar <= step ? "bg-ink" : "bg-line-strong"}`} />
-        ))}
-      </div>
-      <span className="text-12 font-medium text-ink-3">Step {step} of 3</span>
-    </div>
+    <ol data-onboarding-steps className="flex items-center gap-2.5 text-13 font-medium text-ink-3" aria-label={`Step ${step} of ${STEPS.length}`}>
+      {STEPS.map((label, index) => {
+        const number = index + 1;
+        const state = number < step ? "done" : number === step ? "current" : "next";
+        return (
+          <li key={label} className="flex items-center gap-2.5" aria-current={state === "current" ? "step" : undefined}>
+            {index > 0 && <span aria-hidden className="h-px w-6 bg-line-strong" />}
+            <span className={`flex items-center gap-1.5 ${state === "current" ? "font-semibold text-ink" : ""}`}>
+              <span
+                aria-hidden
+                className={`flex size-5 items-center justify-center rounded-full border text-11 font-semibold ${
+                  state === "current"
+                    ? "border-ink bg-ink text-on-ink"
+                    : state === "done"
+                      ? "border-ink bg-surface text-ink"
+                      : "border-line-strong bg-surface text-ink-3"
+                }`}
+              >
+                {number}
+              </span>
+              {label}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
 function Header({ step, title, children }: { step: 1 | 2; title: string; children: ReactNode }) {
   return (
     <header className="grid gap-3">
-      <Progress step={step} />
-      <h1 id="onboarding-title" className="text-26 font-semibold text-ink">
+      <Steps step={step} />
+      <h1 id="onboarding-title" className="mt-1 text-26 font-semibold text-ink">
         {title}
       </h1>
       <p className="text-15 text-ink-2">{children}</p>
@@ -105,12 +127,20 @@ function agentRows(status: AgentCliStatus | null, accounts: AccountsSnapshot | n
   });
 }
 
+/** Agents whose CLI people install and update themselves (cli-update.cjs refuses them): their row says how instead of
+ * offering an Install that can only fail. Kiro's macOS installer is Homebrew; elsewhere it is on kiro.dev. */
+const SELF_INSTALLED: Partial<Record<ModelProvider, { install?: string; update: string; site: string }>> = {
+  kiro: { install: isMac ? "brew install --cask kiro-cli" : undefined, update: "kiro-cli update", site: "https://kiro.dev" },
+};
+
 /** Step 1: the agents on this Mac, each ready, waiting for a sign-in, or not installed (design onboarding-agent). */
 function AgentStep({ onNext }: { onNext: () => void }) {
   const [status, setStatus] = useState<AgentCliStatus | null>(null);
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null);
   const [working, setWorking] = useState<ModelProvider | null>(null);
   const [error, setError] = useState("");
+  // The self-installed agent whose command was just copied; the list checks again when the window comes back.
+  const [copied, setCopied] = useState<ModelProvider | null>(null);
   const load = useCallback(async () => {
     const [nextStatus, nextAccounts] = await Promise.all([window.milagre.getCliStatus().catch(() => null), window.milagre.listAccounts().catch(() => null)]);
     if (nextStatus) setStatus(nextStatus);
@@ -120,6 +150,17 @@ function AgentStep({ onNext }: { onNext: () => void }) {
     void load();
     return window.milagre.onAccountsChanged?.(() => void load());
   }, [load]);
+  useEffect(() => {
+    const again = () => void load();
+    window.addEventListener("focus", again);
+    return () => window.removeEventListener("focus", again);
+  }, [load]);
+  const copy = (provider: ModelProvider, command: string) => {
+    void navigator.clipboard.writeText(command).then(
+      () => setCopied(provider),
+      () => setError(`Run ${command} in a terminal.`),
+    );
+  };
   const rows = agentRows(status, accounts);
   const signingIn = rows.some((row) => row.state === "signing-in");
   useEffect(() => {
@@ -154,6 +195,17 @@ function AgentStep({ onNext }: { onNext: () => void }) {
         {rows.map((row) => {
           const muted = row.state === "missing";
           const installing = working === row.provider && (row.state === "missing" || row.state === "outdated");
+          const selfInstalled = SELF_INSTALLED[row.provider];
+          const detail =
+            copied === row.provider
+              ? "Copied. Run it in a terminal, then come back here."
+              : selfInstalled && row.state === "missing"
+                ? selfInstalled.install
+                  ? `Not found on ${thisComputer} · install it with Homebrew`
+                  : `Not found on ${thisComputer} · install it from ${new URL(selfInstalled.site).host}`
+                : selfInstalled && row.state === "outdated"
+                  ? `Installed · update it with ${selfInstalled.update}`
+                  : row.detail;
           return (
             <li key={row.provider} data-agent={row.provider} data-state={row.state} className="flex items-center gap-3 border-line px-4 py-4 not-last:border-b">
               <span className={`flex size-9 shrink-0 items-center justify-center rounded-control border border-line bg-inset ${muted ? "opacity-60" : ""}`}>
@@ -161,8 +213,8 @@ function AgentStep({ onNext }: { onNext: () => void }) {
               </span>
               <span className="min-w-0 flex-1">
                 <span className={`block text-15 font-semibold ${muted ? "text-ink-2" : "text-ink"}`}>{providerName(row.provider)}</span>
-                <span role="status" title={row.detail} className={`block truncate text-13 ${muted ? "text-ink-3" : "text-ink-2"}`}>
-                  {installing ? (row.state === "outdated" ? "Updating…" : "Installing… this can take a minute") : row.detail}
+                <span role="status" title={detail} className={`block truncate text-13 ${muted ? "text-ink-3" : "text-ink-2"}`}>
+                  {installing ? (row.state === "outdated" ? "Updating…" : "Installing… this can take a minute") : detail}
                 </span>
               </span>
               {row.state === "ready" && (
@@ -171,7 +223,16 @@ function AgentStep({ onNext }: { onNext: () => void }) {
                   Ready
                 </span>
               )}
-              {(row.state === "missing" || row.state === "outdated" || row.state === "signed-out" || row.state === "signing-in") && (
+              {selfInstalled && (row.state === "missing" || row.state === "outdated") && (
+                <SelfInstallAction
+                  name={providerName(row.provider)}
+                  command={row.state === "missing" ? selfInstalled.install : selfInstalled.update}
+                  site={selfInstalled.site}
+                  copied={copied === row.provider}
+                  onCopy={(command) => copy(row.provider, command)}
+                />
+              )}
+              {(row.state === "signed-out" || row.state === "signing-in" || (!selfInstalled && (row.state === "missing" || row.state === "outdated"))) && (
                 <Button
                   variant="secondary"
                   className="min-w-[84px]"
@@ -207,6 +268,38 @@ function AgentStep({ onNext }: { onNext: () => void }) {
         </Button>
       </footer>
     </>
+  );
+}
+
+/** A self-installed agent's action: copy its terminal command, or (no command for this platform) open its site. */
+function SelfInstallAction({
+  name,
+  command,
+  site,
+  copied,
+  onCopy,
+}: {
+  name: string;
+  command?: string;
+  site: string;
+  copied: boolean;
+  onCopy: (command: string) => void;
+}) {
+  if (!command)
+    return (
+      <a
+        href={site}
+        target="_blank"
+        rel="noreferrer"
+        className="flex h-8 min-w-[84px] shrink-0 items-center justify-center rounded-control border border-line-strong bg-surface px-3 text-13 font-medium text-ink transition-colors duration-fast hover:bg-hover"
+      >
+        Get {name}
+      </a>
+    );
+  return (
+    <Button variant="secondary" className="min-w-[84px]" title={command} onClick={() => onCopy(command)}>
+      {copied ? "Copied" : "Copy command"}
+    </Button>
   );
 }
 
@@ -394,19 +487,77 @@ function ProjectStep({ onBack, onOpened, onSkip }: { onBack: () => void; onOpene
   );
 }
 
+// Set once the intro has played, been skipped, or found a returning user, so it plays on a first launch only.
+const INTRO_SEEN = "milagre.onboardingIntroSeen";
+
+/** The light behind the steps: a faint wash of the intro's day over the page, thinning as the steps go on (styles.css). */
+function OnboardingSky({ step }: { step: 1 | 2 }) {
+  return (
+    <div className="onboarding-sky" data-step={step} aria-hidden>
+      <div className="onboarding-layer onboarding-sky-wash" />
+      <div className="onboarding-sky-glow" />
+    </div>
+  );
+}
+
 /**
- * First launch with no Project to open (designs in the Onboarding · Desktop group): the agent, then a Project. The
- * third step is the app itself, whose first Chat offers starter tasks (see FirstChatStarters).
+ * First launch with no Project to open (designs in the Onboarding · Desktop group): on the very first launch the Dawn
+ * intro, then the agent, then a Project. The third step is the app itself, whose first Chat offers starter tasks (see
+ * FirstChatStarters).
  */
 export function Onboarding({ onOpened, onSkip, splash }: { onOpened: (project: OpenProject) => void; onSkip: () => void; splash?: ReactNode }) {
+  // The intro is for a new user only. Onboarding also shows to people who have used Milagre and simply have no Project
+  // open now (every one they opened was moved or deleted); they skip it.
+  const [intro, setIntro] = useState<boolean | "checking">(() => (localStorage.getItem(INTRO_SEEN) ? false : "checking"));
+  const [introShown, setIntroShown] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
+  useEffect(() => {
+    if (intro !== "checking") return;
+    let live = true;
+    const check = async () => {
+      // A Project opened before (even one whose folder is gone) or a Project the computer knows now means a returning
+      // user; so does a failed check.
+      const firstLaunch =
+        !window.milagreLaunch?.openedProjectsBefore &&
+        (await window.milagre.listProjects().then(
+          (projects) => projects.length === 0,
+          () => false,
+        ));
+      if (!live) return;
+      if (!firstLaunch) localStorage.setItem(INTRO_SEEN, "1");
+      setIntroShown(firstLaunch);
+      setIntro(firstLaunch);
+    };
+    void check();
+    return () => {
+      live = false;
+    };
+  }, [intro]);
   return (
-    <main data-onboarding data-step={step} aria-labelledby="onboarding-title" className="flex h-screen flex-col text-ink">
-      <ScrollArea className="flex min-h-0 flex-1 justify-center px-8 py-14">
-        <div className={`my-auto grid w-full min-w-0 grid-cols-1 gap-7 ${step === 1 ? "max-w-[520px]" : "max-w-[600px]"}`}>
-          {step === 1 ? <AgentStep onNext={() => setStep(2)} /> : <ProjectStep onBack={() => setStep(1)} onOpened={onOpened} onSkip={onSkip} />}
-        </div>
-      </ScrollArea>
+    <main
+      data-onboarding
+      data-step={intro === true ? "intro" : intro === "checking" ? undefined : step}
+      aria-labelledby={intro === true ? "onboarding-intro-title" : "onboarding-title"}
+      className="relative flex h-screen flex-col bg-page text-ink"
+    >
+      <OnboardingSky step={step} />
+      <div className="title-drag absolute inset-x-0 top-0 h-10" />
+      {intro === false && (
+        <ScrollArea className={`relative flex min-h-0 flex-1 justify-center px-8 py-14 ${introShown ? "onboarding-steps-enter" : ""}`}>
+          <div className={`my-auto grid w-full min-w-0 grid-cols-1 gap-7 ${step === 1 ? "max-w-[520px]" : "max-w-[600px]"}`}>
+            {step === 1 ? <AgentStep onNext={() => setStep(2)} /> : <ProjectStep onBack={() => setStep(1)} onOpened={onOpened} onSkip={onSkip} />}
+          </div>
+        </ScrollArea>
+      )}
+      {introShown && (
+        <OnboardingIntro
+          onBegin={() => {
+            localStorage.setItem(INTRO_SEEN, "1");
+            setIntro(false);
+          }}
+          onDone={() => setIntroShown(false)}
+        />
+      )}
       {splash}
     </main>
   );
@@ -431,24 +582,29 @@ const STARTER_ICONS = { explain: MapsIcon, bug: Bug01Icon, tests: TestTube01Icon
 
 export function FirstChatStarters({ starters }: { starters: Starter[] }) {
   return (
-    <ul data-first-chat-starters className="mb-3 grid gap-2 px-1" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
-      {starters.map((starter) => (
-        <li key={starter.id}>
-          <button
-            type="button"
-            onClick={starter.onPick}
-            className="group flex h-12 w-full items-center gap-3 rounded-card border border-line bg-surface px-3 text-left text-13 text-ink transition-colors duration-fast hover:border-line-strong hover:bg-hover"
-          >
-            <Icon icon={STARTER_ICONS[starter.id as keyof typeof STARTER_ICONS] ?? MapsIcon} size={16} className="text-ink-2" />
-            <span className="min-w-0 flex-1 truncate">{starter.label}</span>
-            <Icon
-              icon={ArrowUpRight01Icon}
-              size={16}
-              className="text-ink-3 opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-visible:opacity-100"
-            />
-          </button>
-        </li>
-      ))}
-    </ul>
+    <section aria-labelledby="first-chat-title" className="mb-3 grid gap-3 px-1" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
+      <h2 id="first-chat-title" className="text-17 font-semibold text-ink">
+        What should we make first?
+      </h2>
+      <ul data-first-chat-starters className="grid gap-2">
+        {starters.map((starter) => (
+          <li key={starter.id}>
+            <button
+              type="button"
+              onClick={starter.onPick}
+              className="group flex h-12 w-full items-center gap-3 rounded-card border border-line bg-surface px-3 text-left text-13 text-ink transition-colors duration-fast hover:border-line-strong hover:bg-hover"
+            >
+              <Icon icon={STARTER_ICONS[starter.id as keyof typeof STARTER_ICONS] ?? MapsIcon} size={16} className="text-ink-2" />
+              <span className="min-w-0 flex-1 truncate">{starter.label}</span>
+              <Icon
+                icon={ArrowUpRight01Icon}
+                size={16}
+                className="text-ink-3 opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-visible:opacity-100"
+              />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

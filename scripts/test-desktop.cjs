@@ -141,10 +141,18 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name), Buffer.from(image.data, "base64"));
       };
       const click = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+      // The first launch opens on the Dawn intro; Begin fades it out over the first step.
       await waitFor(
-        () => evaluate('document.querySelector("[data-onboarding]")?.dataset.step === "1" && !document.querySelector(".startup-splash-screen")'),
+        () => evaluate('document.querySelector("[data-onboarding]")?.dataset.step === "intro" && !document.querySelector(".startup-splash-screen")'),
+        "first-launch intro",
+      );
+      assert.ok(await evaluate('!!document.querySelector("[data-onboarding-intro][data-playing]")'), "the intro plays once the splash has gone");
+      await click("[data-intro-begin]");
+      await waitFor(
+        () => evaluate('document.querySelector("[data-onboarding]")?.dataset.step === "1" && !document.querySelector("[data-onboarding-intro]")'),
         "first-launch onboarding",
       );
+      assert.equal(await evaluate('localStorage.getItem("milagre.onboardingIntroSeen")'), "1", "the intro plays once");
       assert.equal(await evaluate("window.milagre.getCurrentProject()"), null);
       assert.equal(await evaluate('!!document.querySelector("[data-startup-error]")'), false);
       assert.ok(await evaluate('document.body.textContent.includes("Choose your agent")'));

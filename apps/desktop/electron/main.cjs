@@ -18,6 +18,23 @@ const {
   session: electronSession,
 } = require("electron");
 const path = require("node:path");
+const { readFileSync } = require("node:fs");
+
+// Whether this computer had opened a Project before this launch: recent-projects.json lists one, even a folder deleted
+// since. Onboarding plays its first-launch intro only when it hadn't. Read once, the first time a window opens, which is
+// before this launch can add to the list.
+let openedProjectsBefore;
+function hasOpenedProjectsBefore() {
+  if (openedProjectsBefore === undefined) {
+    try {
+      const list = JSON.parse(readFileSync(path.join(app.getPath("userData"), "recent-projects.json"), "utf8"));
+      openedProjectsBefore = Array.isArray(list) && list.length > 0;
+    } catch {
+      openedProjectsBefore = false;
+    }
+  }
+  return openedProjectsBefore;
+}
 const { pathToFileURL } = require("node:url");
 const { connectDesktopRuntime } = require("./daemon-runtime.cjs");
 const { ensureDaemon } = require("@milagre/daemon/bootstrap");
@@ -703,7 +720,7 @@ async function startDesktop() {
         nodeIntegration: false,
         // The Browser panel's pages; browser-guests.cjs locks each one down before it attaches.
         webviewTag: true,
-        additionalArguments: [`--milagre-window-controls=${chrome.controls}`],
+        additionalArguments: [`--milagre-window-controls=${chrome.controls}`, `--milagre-opened-projects-before=${hasOpenedProjectsBefore() ? 1 : 0}`],
       },
     });
     mainWindow = window;

@@ -46,6 +46,15 @@ export function WelcomeSky() {
   const sky = (
     <div aria-hidden className={`welcome-sky pointer-events-none absolute inset-0 overflow-hidden ${layer ? "" : "-z-10"}`}>
       <div className="welcome-sky-wash" />
+      {/* Grain over the wash: a faint gradient spread across the window has too few colour steps and bands, most of all
+          in dark themes. Noise a step or two either way breaks the steps up. Inline, so no image request. */}
+      <svg className="welcome-sky-grain" width="100%" height="100%">
+        <filter id="welcome-sky-grain">
+          <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves={2} stitchTiles="stitch" />
+          <feColorMatrix type="saturate" values="0" />
+        </filter>
+        <rect width="100%" height="100%" filter="url(#welcome-sky-grain)" />
+      </svg>
       {SPARKLES.map((sparkle) => (
         <svg
           key={`${sparkle.x}-${sparkle.y}`}

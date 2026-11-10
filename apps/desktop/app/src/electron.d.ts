@@ -873,6 +873,7 @@ declare global {
   interface Window {
     milagrePreferences?: import("./lib/preference-storage").PreferenceBridge;
     milagreWindowChrome?: { controls: "leading" | "overlay" | "external" };
+    milagreLaunch?: { openedProjectsBefore: boolean };
     /** The Browser panel's pages, which live in this window (electron/browser-guests.cjs). Absent outside Electron. */
     milagreBrowserPanel?: {
       partition: string;
