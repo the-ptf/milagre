@@ -466,6 +466,10 @@
       "types": "./src/project-origin.d.mts",
       "default": "./src/project-origin.mjs"
     },
+    "./bug-report": {
+      "types": "./src/bug-report.d.mts",
+      "default": "./src/bug-report.mjs"
+    },
     "./page-comments": {
       "types": "./src/page-comments.d.mts",
       "default": "./src/page-comments.mjs"

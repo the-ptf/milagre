@@ -1,4 +1,5 @@
 import { SecretQuestion } from "./secret-question";
+import { BugReportQuestion } from "./bug-report-question";
 import { useEffect, useRef, useState } from "react";
 import { Image, Linking, Pressable, Text, TextInput, View } from "react-native";
 import {
@@ -161,6 +162,7 @@ export function Questions({
   const confirmLast = confirmSingle || questions.length > 1;
   const question = questions[Math.max(0, Math.min(page, questions.length - 1))];
   if (request.secretRequest) return <SecretQuestion key={request.requestId} variant={variant} request={request} busy={busy} submit={submit} />;
+  if (request.bugReport) return <BugReportQuestion key={request.requestId} variant={variant} request={request} busy={busy} submit={submit} />;
   if (!question) return null;
   const imagesOf = (q: AgentQuestion) => images[q.id] ?? NO_IMAGES;
   const answerOf = (q: AgentQuestion) => {

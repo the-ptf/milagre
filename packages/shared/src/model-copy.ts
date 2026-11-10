@@ -34,6 +34,8 @@ export const UI_COPY = {
   currentChat: "Current Chat",
   findInChat: "Find in Chat",
   reloadChat: "Reload Chat",
+  /** Puts REPORT_BUG_PROMPT (@milagre/shared/bug-report) in the Chat's composer; its agent files the report. */
+  reportMilagreBug: "Report a Milagre bug",
   backToChat: "Back to Chat",
   addProject: "Add Project…",
   copyWorktreePath: "Copy Worktree path",

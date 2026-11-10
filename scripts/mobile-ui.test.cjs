@@ -220,6 +220,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           "",
           cache,
         );
+      if (relative === "bug-report-question" && !(id in modules))
+        return load("bug-report-question.tsx", { "./design-tokens": require("../apps/mobile/src/design-tokens.ts"), ...modules }, "", cache);
       if (relative?.startsWith("primitives/") || relative === "persistence-notice") {
         const target = [relative, `${relative}.tsx`, `${relative}.ts`].find((candidate) =>
           fs.existsSync(path.join(__dirname, "../apps/mobile/src", candidate)),
@@ -253,6 +255,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           id === "@milagre/shared/streaming-blocks" ||
           id === "@milagre/shared/tool-activity" ||
           id === "@milagre/shared/project-origin" ||
+          id === "@milagre/shared/bug-report" ||
           id === "@milagre/shared/chats-home") &&
         !(id in modules)
       )
@@ -20884,6 +20887,47 @@ test("secret form masks input, preserves bytes, clears drafts and declines witho
   assert.equal(find(tree, (n) => n.type === "TextInput").props.editable, false);
   assert.equal(find(tree, (n) => n.props?.title === "Save securely").props.disabled, true);
   assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "Request expired"));
+});
+
+test("phone bug report shows the exact redacted text with placeholders marked, edits before Post, and cancels without a summary", () => {
+  const react = hookHost({ effects: true });
+  const { BugReportQuestion } = load("bug-report-question.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", TextInput: "TextInput", Pressable: "Pressable" },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "./icons": { Icon: "Icon" },
+    "./ui": { PillButton: "PillButton", PageScroll: "PageScroll" },
+  });
+  const body = "A Delegation from <worktree> to <org>/<repo> stayed open.\n\n### Environment\n\n- Milagre: 0.232.0";
+  const sent = [];
+  const render = (bugReport = { repo: "the-ptf/milagre", title: "Delegation to <repo> hangs", body, redactions: 3 }, busy = false) => {
+    react.begin();
+    return BugReportQuestion({ request: { requestId: "milagre-bug-report-1", questions: [], bugReport }, busy, submit: (...args) => sent.push(args) });
+  };
+  let tree = render();
+  assert.ok(find(tree, (n) => n.type === "Text" && String(n.props.children).includes("3 private details were replaced")));
+  const marked = findAll(tree, (n) => n.type === "Text" && n.props.style?.backgroundColor === fakePalette.hover).map((n) => n.props.children);
+  assert.deepEqual(marked, ["<worktree>", "<org>", "<repo>"]);
+  assert.equal(find(tree, (n) => n.props?.accessibilityLabel === "Report title").props.value, "Delegation to <repo> hangs");
+  // Edit swaps the marked preview for the text itself; what is typed is what goes out.
+  find(tree, (n) => n.type === "Pressable" && n.props.accessibilityState?.selected === false).props.onPress();
+  tree = render();
+  const field = find(tree, (n) => n.props?.accessibilityLabel === "Report text");
+  assert.equal(field.props.value, body);
+  field.props.onChangeText("Shorter.");
+  tree = render();
+  find(tree, (n) => n.props?.title === "Post to GitHub").props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent)), [[{ title: ["Delegation to <repo> hangs"], body: ["Shorter."] }, ""]]);
+  find(render(), (n) => n.props?.accessibilityLabel === "Report title").props.onChangeText("   ");
+  assert.equal(find(render(), (n) => n.props?.title === "Post to GitHub").props.disabled, true);
+  find(render(), (n) => n.props?.title === "Cancel").props.onPress();
+  assert.deepEqual(sent.at(-1), [null, ""]);
+  // A report the host checked again says so in the attention tone.
+  const recheck = render({ repo: "the-ptf/milagre", title: "T", body: "B", redactions: 0, recheck: true });
+  const note = find(recheck, (n) => n.type === "Text" && String(n.props.children).includes("Your edit had more private details"));
+  assert.equal(note.props.style.color, fakePalette.orangeInk);
 });
 
 test("artifact feedback carries the comment and tab through phone and dock navigation", async () => {

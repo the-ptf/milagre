@@ -1364,6 +1364,7 @@ function createRuntime(options) {
   // Opens a Babysit Heartbeat for a PR a Chat creates; set up with the Babysit settings below.
   let babysitWatch = null;
   let chatSecrets = null;
+  let bugReports = null;
   // A Subchat's unanswered requests (subchat-escalation.cjs); set up once the Chats are, below.
   let subchatEscalation = null;
   function publishAgentEvent(chatId, event, state, seq) {
@@ -1380,7 +1381,10 @@ function createRuntime(options) {
     babysitWatch?.observe(chatId, event);
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type))
       void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
-    if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) chatSecrets?.cancel(chatId);
+    if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) {
+      chatSecrets?.cancel(chatId);
+      bugReports?.cancel(chatId);
+    }
     options.observeAgentEvent?.(chatId, event);
     subchatEscalation?.observe(chatId, event);
     // A turn the plan's usage limit stopped marks its account, and may move the Chat to another (auto-switch).
@@ -2564,6 +2568,7 @@ function createRuntime(options) {
 
   async function stopChat(chatId) {
     chatSecrets?.cancel(chatId);
+    bugReports?.cancel(chatId);
     const cancellingResume = chats.cancelLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId));
     void track(() => cancellingResume, background).catch((error) => console.warn("Milagre couldn't save a cancelled continuation:", error.message));
     // Stop the report before advisor cancellation can make an idle parent look complete. Provider teardown can be slow.
@@ -2603,6 +2608,13 @@ function createRuntime(options) {
     // Route even stale secret ids here: a late/replayed value must never reach chat persistence.
     if (require("./chat-secrets.cjs").isSecretRequest(requestId)) {
       const accepted = chatSecrets.answer(chatId, requestId, answers);
+      if (accepted) noteHumanActed(chatId);
+      return accepted;
+    }
+    // A bug report goes out only with a person's approval: never an agent's answer (chat_respond), never saved as one.
+    if (require("./bug-reports.cjs").isBugReportRequest(requestId)) {
+      if (sender) throw new Error("Only the user can approve a Milagre bug report.");
+      const accepted = bugReports.answer(chatId, requestId, answers);
       if (accepted) noteHumanActed(chatId);
       return accepted;
     }
@@ -2735,6 +2747,78 @@ function createRuntime(options) {
     send: (chatId, event) => chats.receive(chatId, event),
     active: (chatId) => Boolean(chats.runs[chatId]) && !closing,
   });
+  bugReports = createBugReportsForRuntime();
+  // Reporting a Milagre bug from a Chat (bug-reports.cjs): the facts are this host's own, and everything it knows is the
+  // user's goes to the redactor. MILAGRE_BUG_REPORT_REPO points a dev copy at a throwaway repository.
+  function createBugReportsForRuntime() {
+    const os = require("node:os");
+    const reports = require("./bug-reports.cjs");
+    const override = process.env.MILAGRE_BUG_REPORT_REPO;
+    const { providerName } = require("@milagre/shared/providers");
+    let osLine;
+    return reports.createBugReports({
+      send: (chatId, event) => chats.receive(chatId, event),
+      active: (chatId) => Boolean(chats.runs[chatId]) && !closing,
+      ...(override && /^[\w.-]+\/[\w.-]+$/.test(override) ? { repo: override } : {}),
+      // Tests file nowhere.
+      ...(options.postBugReport ? { post: options.postBugReport } : {}),
+      readLog: () => reports.readHostLog(path.join(dataDir, "daemon.log")),
+      async facts(chatId) {
+        const turn = chats.turns.get(chatId);
+        osLine ??= reports.osDescription();
+        return {
+          version,
+          os: await osLine,
+          ...(turn?.provider ? { provider: providerName(turn.provider) } : {}),
+          ...(typeof turn?.model === "string" ? { model: turn.model } : {}),
+          ...(turn?.effort ? { effort: turn.effort } : {}),
+          ...(turn?.permissionMode ? { permissionMode: turn.permissionMode } : {}),
+          ...(turn?.guard?.level ? { babysit: turn.guard.level } : {}),
+        };
+      },
+      async known(chatId) {
+        const projectPath = projectOfKey(chatId);
+        // Each read gives up after a few seconds with what it has: a report waits on none of them for long. Account emails
+        // aren't read; the email pattern takes every address.
+        const quiet = (promise, fallback, ms = 3000) =>
+          Promise.race([Promise.resolve(promise).catch(() => fallback), new Promise((resolve) => setTimeout(resolve, ms, fallback).unref?.())]);
+        const [registered, recent, state] = await Promise.all([
+          // The registry file as it is: a list's first read scans the disk for Projects.
+          quiet(
+            projectRegistry()
+              .snapshot()
+              .then((snapshot) => snapshot.projects),
+            [],
+          ),
+          quiet(recentProjects().list(), []),
+          quiet(scopeStates.has(projectPath) ? scopeStates.get(projectPath) : null, null),
+        ]);
+        const projects = [...registered, ...recent, { path: projectPath }]
+          .filter((project) => typeof project?.path === "string" && path.isAbsolute(project.path))
+          .slice(0, 200);
+        const withOrigin = await Promise.all(projects.map(async (project) => ({ ...project, origin: await quiet(projectOrigin(project.path), null) })));
+        // The read-only Git surface refuses `git config`; this reads it as a plain program.
+        const identity = path.isAbsolute(projectPath) ? await quiet(reports.gitIdentity(projectPath), {}) : {};
+        return reports.knownValues({
+          projects: withOrigin,
+          state,
+          computers: [options.hostNetwork?.().name, ...quietList(() => remoteComputers?.list() ?? []).map((computer) => computer?.name)],
+          hostname: os.hostname(),
+          home: os.homedir(),
+          username: quietList(() => [os.userInfo().username])[0],
+          gitName: identity.name,
+          gitEmail: identity.email,
+        });
+      },
+    });
+  }
+  function quietList(read) {
+    try {
+      return read();
+    } catch {
+      return [];
+    }
+  }
   // Delegations to another paired computer's Projects (Settings > Experimental, spec 2026-10-23). The daemon supplies its
   // computers (`remoteComputers`): list() -> [{ id, name, online }], invoke(id, method, args), thisMac(), and
   // onEvent(listener) / onOnline(listener) / onRemoved(listener) for their events, their coming back and their removal.
@@ -2797,6 +2881,7 @@ function createRuntime(options) {
     extraTools: (chatId) => [
       ...planTools.definitions(chatId),
       ...chatSecrets.definitions(chatId),
+      ...bugReports.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),
       ...(simlockSettings.read().enabled
         ? require("./chat-simulators.cjs").simlockToolDefinitions(chatId, {
@@ -3622,6 +3707,7 @@ function createRuntime(options) {
   function close() {
     clearInterval(uploadSweepTimer);
     chatSecrets?.close();
+    bugReports?.close();
     void doneSweep.stop();
     closing = true;
     for (const chatId of chats.limitResumeFlights.keys()) chats.invalidateLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId), "shutdown");

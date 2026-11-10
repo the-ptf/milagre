@@ -1,3 +1,5 @@
+import { UI_COPY } from "@milagre/shared/model-copy";
+import { withReportPrompt } from "@milagre/shared/bug-report";
 import type { BranchPolicySettings } from "@milagre/shared/branch-policy";
 import { chrome, radius } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
@@ -1954,7 +1956,11 @@ function ChatPane({
       );
     else if (id === "reload" && chat)
       void action(() => client.call("chat:reload", [chatId]), true).then((done) => done && showToast("Chat reloaded. Your next message starts a fresh agent."));
-    else if (id === "done" && chat) void markDone(chat);
+    // As desktop's: the composer asks this Chat's agent, which files it with report_milagre_bug after the user approves.
+    else if (id === "report-bug" && chat) {
+      composer.setDrafts((current) => ({ ...current, [chatId]: withReportPrompt(current[chatId] ?? "") }));
+      setComposerFocusRequest((count) => count + 1);
+    } else if (id === "done" && chat) void markDone(chat);
     else if (id === "reopen" && chat) void action(() => client.call("chat:patch", [project.path, chat.id, { done: false }]));
     else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
@@ -2187,6 +2193,7 @@ function ChatPane({
             items: [
               { id: "rename", title: "Rename", systemImage: "pencil" },
               { id: "reload", title: "Reload chat", systemImage: "arrow.clockwise", disabled: busy },
+              { id: "report-bug", title: UI_COPY.reportMilagreBug, systemImage: "ladybug" },
               ...(canLink
                 ? [
                     {
