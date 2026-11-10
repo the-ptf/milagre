@@ -10,7 +10,7 @@ import type { QuestionAnswers, QuestionRequest } from "../../model";
 const TITLE_LIMIT = 160;
 
 /** The report's text with each placeholder Milagre put in marked, so the user sees what was replaced. */
-export function MarkedReport({ text }: { text: string }) {
+function MarkedReport({ text }: { text: string }) {
   return (
     <>
       {reportSegments(text).map((segment, index) =>
