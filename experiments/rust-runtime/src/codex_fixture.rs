@@ -4,7 +4,8 @@ use milagre_owner_store::{
     chat_host::{
         AnswerId, AnswerOutcome, Provider, ProviderError, ProviderErrorKind, ProviderEvent, TurnId,
     },
-    jsjson, Isolation, Policy,
+    jsjson::{self, RawJson},
+    Isolation, Policy,
 };
 use milagre_owner_wire::IsolatedProfile;
 use milagre_providers::codex::{
@@ -43,6 +44,7 @@ pub enum Scenario {
     Question,
     SlowStop,
     LateApproval,
+    QuestionDelayedReceipt,
     Steps,
 }
 impl Scenario {
@@ -59,12 +61,19 @@ impl Scenario {
             Self::Question => "question",
             Self::SlowStop => "slow-stop",
             Self::LateApproval => "late-approval",
+            Self::QuestionDelayedReceipt => "question",
             Self::Steps => "steps",
         }
     }
 }
 fn refused(message: &str) -> ProviderError {
     ProviderError::new(ProviderErrorKind::Refused, message)
+}
+fn unknown() -> ProviderError {
+    ProviderError::new(
+        ProviderErrorKind::Other,
+        "The agent has not confirmed delivery of this answer.",
+    )
 }
 fn failed() -> ProviderError {
     ProviderError::new(
@@ -89,7 +98,7 @@ struct Shared {
 impl Shared {
     fn emit(&self, event: ProviderEvent, terminal: bool) -> bool {
         let bytes = match &event {
-            ProviderEvent::Agent { event, .. } => event.to_string().len() + 1024,
+            ProviderEvent::Agent { event, .. } => event.0.to_string().len() + 1024,
             _ => 1024,
         };
         let mut q = self.queue.lock().unwrap();
@@ -171,6 +180,7 @@ struct ReplyGuard {
     shared: Arc<Shared>,
     chat: String,
     id: Option<AnswerId>,
+    entered: bool,
 }
 impl ReplyGuard {
     fn settle(mut self, outcome: AnswerOutcome) {
@@ -202,7 +212,11 @@ impl Drop for ReplyGuard {
                 ProviderEvent::AnswerSettled {
                     chat: self.chat.clone(),
                     answer,
-                    outcome: AnswerOutcome::Failed(failed()),
+                    outcome: if self.entered {
+                        AnswerOutcome::Uncertain(unknown())
+                    } else {
+                        AnswerOutcome::Failed(failed())
+                    },
                 },
                 true,
             );
@@ -340,6 +354,7 @@ impl CodexFixture {
                 shared: self.shared.clone(),
                 chat: chat.into(),
                 id: Some(answer),
+                entered: false,
             },
         };
         if let Err(error) = slot.answers.try_send(reply) {
@@ -654,14 +669,11 @@ impl Drop for CodexFixture {
 
 impl Worker {
     fn agent(&self, id: TurnId, event: Value, terminal: bool) -> bool {
-        // Provider values hold native Unicode; the owner stores escaped UTF-16 markers.
-        let event =
-            jsjson::parse(&event.to_string()).expect("serialized Unicode JSON is valid owner JSON");
         self.shared.emit(
             ProviderEvent::Agent {
                 chat: self.chat.clone(),
                 turn: id,
-                event,
+                event: RawJson(event),
             },
             terminal,
         )
@@ -790,7 +802,9 @@ impl Worker {
                             ProviderEvent::Started {
                                 chat: self.chat.clone(),
                                 turn: latest,
-                                result: json!({"turnId":outcome.turn_id,"steered":outcome.steered}),
+                                result: RawJson(
+                                    json!({"turnId":outcome.turn_id,"steered":outcome.steered}),
+                                ),
                             },
                             false,
                         ) {
@@ -837,12 +851,18 @@ impl Worker {
                 reply=answers.recv(), if reply_tasks.len()<8=> if let Some(reply)=reply {
                     if reply.turn!=latest {reply.guard.settle(AnswerOutcome::NotWaiting);} else {
                         let session=session.clone();
+                        let delayed_receipt=matches!(self.scenario,Scenario::QuestionDelayedReceipt);
                         reply_tasks.spawn(async move {
+                            let mut guard=reply.guard;
+                            guard.entered=true;
                             let result=match reply.kind {
                                 ReplyKind::Permission(decision)=>session.respond_to_permission(&reply.request_id,decision).await,
                                 ReplyKind::Question(outcome)=>session.answer_question(&reply.request_id,outcome).await,
                             };
-                            reply.guard.settle(match result {Ok(true)=>AnswerOutcome::Accepted,Ok(false)=>AnswerOutcome::NotWaiting,Err(_)=>AnswerOutcome::Failed(failed())});
+                            // Deterministic fixture: the native frame is written before receipt
+                            // publication is delayed. Cancellation here must retain uncertainty.
+                            if delayed_receipt && matches!(result,Ok(true)) {tokio::time::sleep(Duration::from_millis(400)).await;}
+                            guard.settle(match result {Ok(true)=>AnswerOutcome::Accepted,Ok(false)=>AnswerOutcome::NotWaiting,Err(_)=>AnswerOutcome::Uncertain(unknown())});
                         });
                     }
                 },

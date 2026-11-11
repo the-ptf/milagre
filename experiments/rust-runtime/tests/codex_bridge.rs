@@ -1,7 +1,9 @@
+use milagre_owner_store::jsjson::RawJson;
 use milagre_owner_store::{
     agent_runs,
     chat_host::{
-        AnswerId, AnswerOutcome, AnswerTicket, ChatHost, Notice, Provider, ProviderEvent, TurnId,
+        AnswerId, AnswerOutcome, AnswerResult, AnswerTicket, ChatHost, Notice, Provider,
+        ProviderEvent, TurnId,
     },
     states::{ProjectStates, Timing},
 };
@@ -12,7 +14,7 @@ fn request(p: &CodexFixture, chat: &str) -> Value {
     json!({"provider":"codex","cwd":p.project(),"chatId":chat,"prompt":"hello","permissionMode":"ask"})
 }
 fn terminal(e: &ProviderEvent) -> bool {
-    matches!(e,ProviderEvent::Agent{event,..} if matches!(event["type"].as_str(),Some("turn-completed"|"turn-failed"|"turn-cancelled")))
+    matches!(e,ProviderEvent::Agent {event:RawJson(event),..} if matches!(event["type"].as_str(),Some("turn-completed"|"turn-failed"|"turn-cancelled")))
 }
 fn collect(
     p: &mut CodexFixture,
@@ -46,8 +48,10 @@ fn reply_resume_and_sequential_turns_have_exact_generation_and_one_end() {
         events
             .iter()
             .filter_map(|e| match e {
-                ProviderEvent::Agent { event, .. } if event["type"] == "text-delta" =>
-                    event["text"].as_str(),
+                ProviderEvent::Agent {
+                    event: RawJson(event),
+                    ..
+                } if event["type"] == "text-delta" => event["text"].as_str(),
                 _ => None,
             })
             .collect::<String>(),
@@ -134,7 +138,7 @@ fn refusal_precedes_spawn_and_approval_answer_settles_after_native_write() {
     p.start_turn(TurnId(1), &request(&p, "chat")).unwrap();
     collect(&mut p, |e| {
         e.iter().any(
-            |e| matches!(e,ProviderEvent::Agent{event,..} if event["type"]=="permission-request"),
+            |e| matches!(e,ProviderEvent::Agent {event:RawJson(event),..} if event["type"]=="permission-request"),
         )
     });
     assert!(p.start_turn(TurnId(2), &request(&p, "chat")).is_err());
@@ -326,7 +330,7 @@ fn stalled_owner_event_consumer_closes_admission_and_preserves_terminal_reserve(
     assert!(events.len() <= 256 + 16 * 3);
     assert!(events
         .iter()
-        .any(|e| matches!(e,ProviderEvent::Agent{event,..}if event["type"]=="turn-failed")));
+        .any(|e| matches!(e,ProviderEvent::Agent {event:RawJson(event),..}if event["type"]=="turn-failed")));
     assert_eq!(
         events
             .iter()
@@ -462,14 +466,15 @@ fn question_answers_reach_the_node_fake_and_settle_once() {
     p.start_turn(TurnId(1), &request(&p, "chat")).unwrap();
     let events = collect(&mut p, |e| {
         e.iter()
-            .any(|e| matches!(e,ProviderEvent::Agent{event,..}if event["type"]=="question-request"))
+            .any(|e| matches!(e,ProviderEvent::Agent {event:RawJson(event),..}if event["type"]=="question-request"))
     });
     let card = events
         .iter()
         .find_map(|e| match e {
-            ProviderEvent::Agent { event, .. } if event["type"] == "question-request" => {
-                Some(event)
-            }
+            ProviderEvent::Agent {
+                event: RawJson(event),
+                ..
+            } if event["type"] == "question-request" => Some(event),
             _ => None,
         })
         .unwrap();
@@ -479,7 +484,7 @@ fn question_answers_reach_the_node_fake_and_settle_once() {
         TurnId(1),
         AnswerId(1),
         id,
-        &json!({"scope":["small"]}),
+        &json!({"color":["Green"]}),
     )
     .unwrap();
     let events = collect(&mut p, |e| {
@@ -535,7 +540,7 @@ fn owner_question_ticket_waits_for_native_answer_and_preserves_unknown_request_s
         .len();
     let unknown = host
         .answer_question(
-            &json!({"chatId":chat,"requestId":"unknown","answers":{"scope":["small"]}}),
+            &json!({"chatId":chat,"requestId":"unknown","answers":{"color":["Green"]}}),
         )
         .unwrap();
     let AnswerTicket::Pending(unknown) = unknown else {
@@ -562,7 +567,7 @@ fn owner_question_ticket_waits_for_native_answer_and_preserves_unknown_request_s
             std::thread::sleep(Duration::from_millis(5));
         }
     };
-    assert_eq!(wait(&mut host, unknown), Ok(false));
+    assert_eq!(wait(&mut host, unknown), AnswerResult::NotWaiting);
     assert_eq!(
         host.states.whole_state(&project).unwrap()["messages"]
             .as_array()
@@ -572,18 +577,149 @@ fn owner_question_ticket_waits_for_native_answer_and_preserves_unknown_request_s
     );
     let AnswerTicket::Pending(answer) = host
         .answer_question(
-            &json!({"chatId":chat,"requestId":request_id,"answers":{"scope":["small"]}}),
+            &json!({"chatId":chat,"requestId":request_id,"answers":{"color":["Green"]}}),
         )
         .unwrap()
     else {
         panic!("must defer")
     };
-    assert_eq!(wait(&mut host, answer), Ok(true));
+    assert_eq!(wait(&mut host, answer), AnswerResult::Accepted);
     while host.is_busy(&chat) {
         assert!(host.pump().is_empty());
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(5));
     }
+    host.shutdown(false).unwrap();
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+}
+
+#[test]
+fn cancellation_after_native_write_reports_uncertain_not_failed() {
+    let mut p = CodexFixture::create(Scenario::QuestionDelayedReceipt).unwrap();
+    let monitor = p.monitor();
+    p.start_turn(TurnId(1), &request(&p, "chat")).unwrap();
+    collect(&mut p, |e| {
+        e.iter().any(|e|matches!(e,ProviderEvent::Agent{event:RawJson(event),..}if event["type"]=="question-request"))
+    });
+    p.answer_question(
+        "chat",
+        TurnId(1),
+        AnswerId(1),
+        "srv-q",
+        &json!({"color":["Green"]}),
+    )
+    .unwrap();
+    let native = collect(&mut p, |e| {
+        e.iter().any(|e|matches!(e,ProviderEvent::Agent{event:RawJson(event),..}if event["type"]=="text-delta"&&event["text"].as_str().is_some_and(|s|s.contains("Green"))))
+    });
+    assert!(
+        !native
+            .iter()
+            .any(|e| matches!(e, ProviderEvent::AnswerSettled { .. })),
+        "receipt must still be delayed"
+    );
+    p.close_chat("chat", TurnId(1)).unwrap();
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+    let events = p.take_events();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(
+                e,
+                ProviderEvent::AnswerSettled {
+                    answer: AnswerId(1),
+                    outcome: AnswerOutcome::Uncertain(_),
+                    ..
+                }
+            ))
+            .count(),
+        1
+    );
+    assert!(!events.iter().any(|e| matches!(
+        e,
+        ProviderEvent::AnswerSettled {
+            outcome: AnswerOutcome::Failed(_) | AnswerOutcome::Accepted,
+            ..
+        }
+    )));
+}
+#[test]
+fn delayed_receipt_keeps_history_blocks_retry_and_resolves_without_second_rpc_notice() {
+    let p = CodexFixture::create(Scenario::QuestionDelayedReceipt).unwrap();
+    let monitor = p.monitor();
+    let project = p.project().to_path_buf();
+    let mut host = ChatHost::new(ProjectStates::new(p.isolation(), Timing::default(), 1000));
+    host.answer_capacity = 1;
+    host.answer_grace_ms = 10;
+    host.register(Box::new(p));
+    let chat = agent_runs::chat_key(project.to_str().unwrap(), &json!(1));
+    host.send(&json!({"projectPath":project,"sessionId":1,"provider":"codex","body":"question","permissionMode":"ask"})).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(host.pump().is_empty());
+        if host
+            .take_notices()
+            .iter()
+            .any(|n| matches!(n,Notice::Event{event,..}if event["type"]=="question-request"))
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let marker = "literal \u{10fffe}\u{f0000} / \u{10fffe}\u{10fffd}";
+    let request = json!({"chatId":chat,"requestId":"srv-q","summary":milagre_owner_store::jsjson::js_string(marker),"answers":{"color":[milagre_owner_store::jsjson::js_string(marker)]}});
+    let AnswerTicket::Pending(answer) = host.answer_question(&request).unwrap() else {
+        panic!("must wait")
+    };
+    loop {
+        assert!(host.pump().is_empty());
+        if host
+            .take_notices()
+            .iter()
+            .any(|n| matches!(n,Notice::Event{event,..}if event["type"]=="text-delta"))
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(host.tick(1011).is_empty());
+    assert_eq!(host.take_notices().iter().filter(|n|matches!(n,Notice::AnswerSettled{answer:id,result:AnswerResult::Uncertain(_),..}if *id==answer)).count(),1);
+    assert_eq!(host.answers_in_flight(), 1);
+    assert!(matches!(
+        host.answer_question(&request).unwrap_err(),
+        milagre_owner_store::StoreError::AnswerDeliveryUnknown(_)
+    ));
+    let mut other = request.clone();
+    other["requestId"] = json!("other");
+    assert!(matches!(
+        host.answer_question(&other).unwrap_err(),
+        milagre_owner_store::StoreError::AnswersAtCapacity(_)
+    ));
+    // Actual native reply echoes the raw markers. Owner serialization must decode one layer,
+    // without interpreting their adjacent codepoints as a surrogate or doubling them again.
+    let state = host.states.whole_state(&project).unwrap();
+    let raw: Value = serde_json::from_str(&milagre_owner_store::jsjson::to_string(&state)).unwrap();
+    assert!(raw["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|m| m["role"] == "user" && m["body"] == marker));
+    assert!(raw["messages"].as_array().unwrap().iter().any(
+        |m| m["role"] == "assistant" && m["body"].as_str().is_some_and(|s| s.contains(marker))
+    ));
+    loop {
+        assert!(host.pump().is_empty());
+        let notices = host.take_notices();
+        assert!(!notices
+            .iter()
+            .any(|n| matches!(n,Notice::AnswerSettled{answer:id,..}if *id==answer)));
+        if notices.iter().any(|n|matches!(n,Notice::AnswerResolved{answer:id,result:AnswerResult::Accepted,..}if *id==answer)){break}
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(host.answers_in_flight(), 0);
     host.shutdown(false).unwrap();
     assert!(monitor.wait_stopped(Duration::from_secs(3)));
 }

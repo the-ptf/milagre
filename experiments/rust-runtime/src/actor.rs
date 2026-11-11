@@ -2,10 +2,10 @@
 use milagre_owner_store::{
     agent_runs,
     chat_host::{
-        AnswerId, AnswerOutcome, ChatHost, Notice, Provider, ProviderError, ProviderErrorKind,
-        ProviderEvent, TurnId,
+        AnswerId, AnswerOutcome, AnswerResult, ChatHost, Notice, Provider, ProviderError,
+        ProviderErrorKind, ProviderEvent, TurnId,
     },
-    jsjson,
+    jsjson::{self, RawJson},
     states::{Event, ProjectStates, Timing},
     Isolation, Policy,
 };
@@ -195,7 +195,17 @@ fn closed() -> RpcError {
     RpcError::new("OWNER_CLOSING", "The isolated owner is closing")
 }
 fn convert(error: milagre_owner_store::StoreError) -> RpcError {
-    RpcError::new(error.code().unwrap_or("COMMAND_FAILED"), error.to_string())
+    let code = match &error {
+        milagre_owner_store::StoreError::AnswerDeliveryUnknown(_) => "ANSWER_DELIVERY_UNKNOWN",
+        milagre_owner_store::StoreError::AnswersAtCapacity(_) => "ANSWERS_AT_CAPACITY",
+        _ => error.code().unwrap_or("COMMAND_FAILED"),
+    };
+    let message = if code == "ANSWER_DELIVERY_UNKNOWN" {
+        "The agent has not confirmed delivery of this answer.".into()
+    } else {
+        error.to_string()
+    };
+    RpcError::new(code, message)
 }
 
 struct State {
@@ -289,12 +299,6 @@ impl State {
                         "Choose a Chat in the fixture Project",
                     ));
                 }
-                if self.answers.len() >= 32 {
-                    return Err(RpcError::new(
-                        "OWNER_BUSY",
-                        "The owner answer queue is full",
-                    ));
-                }
                 self.host.call(method, args).map_err(convert)
             }
             "agent:interrupt" | "chat:queue-send" | "chat:queue-remove" => {
@@ -374,12 +378,24 @@ impl State {
                     if let Some(reply) = self.answers.remove(&answer) {
                         self.settled_answers.push((
                             reply,
-                            result
-                                .map(Value::Bool)
-                                .map_err(|message| RpcError::new("ANSWER_FAILED", message)),
+                            match result {
+                                AnswerResult::Accepted => Ok(Value::Bool(true)),
+                                AnswerResult::NotWaiting => Ok(Value::Bool(false)),
+                                AnswerResult::Failed(message) => Err(RpcError::new(
+                                    "ANSWER_FAILED",
+                                    String::from_utf16_lossy(&jsjson::to_utf16(&message)),
+                                )),
+                                AnswerResult::Uncertain(_) => Err(RpcError::new(
+                                    "ANSWER_DELIVERY_UNKNOWN",
+                                    "The agent has not confirmed delivery of this answer.",
+                                )),
+                            },
                         ));
                     }
                 }
+                // The original command already settled as unknown. Any rollback/state
+                // changes are published through the owner's ordinary notices, never a second reply.
+                Notice::AnswerResolved { .. } => {}
                 Notice::Failed { error, .. } | Notice::Gap { what: error, .. } => {
                     record_failure(shared, error);
                 }
@@ -581,6 +597,7 @@ pub fn start() -> Result<(Server, Value), RpcError> {
     ));
     host.interrupt_grace_ms = 250;
     host.answer_grace_ms = 250;
+    host.answer_capacity = 32;
     host.register(Box::new(Scripted::default()));
     let shared = Arc::new(Shared {
         snapshot: Mutex::new(
@@ -657,7 +674,9 @@ impl Provider for Scripted {
             ProviderEvent::Agent {
                 chat: chat.clone(),
                 turn,
-                event: json!({"type":"session-started","nativeId":format!("fixture-{chat}")}),
+                event: RawJson(
+                    json!({"type":"session-started","nativeId":format!("fixture-{chat}")}),
+                ),
             },
         ));
         if request["prompt"] == "fixture:ignore-stop" {
@@ -678,7 +697,7 @@ impl Provider for Scripted {
             ProviderEvent::Started {
                 chat: chat.clone(),
                 turn,
-                result: json!({"turnId":format!("fixture-{}",turn.0),"steered":false}),
+                result: RawJson(json!({"turnId":format!("fixture-{}",turn.0),"steered":false})),
             },
         ));
         for (delay, event) in [
@@ -694,7 +713,7 @@ impl Provider for Scripted {
                 ProviderEvent::Agent {
                     chat: chat.clone(),
                     turn,
-                    event,
+                    event: RawJson(event),
                 },
             ));
         }
@@ -704,7 +723,7 @@ impl Provider for Scripted {
                 ProviderEvent::Agent {
                     chat: chat.clone(),
                     turn,
-                    event: json!({"type":"turn-completed"}),
+                    event: RawJson(json!({"type":"turn-completed"})),
                 },
             ));
             self.events.push_back((
@@ -723,7 +742,7 @@ impl Provider for Scripted {
                 ProviderEvent::Agent {
                     chat: chat.clone(),
                     turn,
-                    event: json!({"type":"session-reset"}),
+                    event: RawJson(json!({"type":"session-reset"})),
                 },
             ));
             self.events.push_back((
@@ -731,7 +750,7 @@ impl Provider for Scripted {
                 ProviderEvent::Agent {
                     chat,
                     turn,
-                    event: json!({"type":"text-delta","text":"late text must not appear"}),
+                    event: RawJson(json!({"type":"text-delta","text":"late text must not appear"})),
                 },
             ));
         }
@@ -753,7 +772,7 @@ impl Provider for Scripted {
             ProviderEvent::Agent {
                 chat: chat.into(),
                 turn,
-                event: json!({"type":"turn-cancelled"}),
+                event: RawJson(json!({"type":"turn-cancelled"})),
             },
         ));
         Ok(())
@@ -766,7 +785,7 @@ impl Provider for Scripted {
         request: &str,
         _: &str,
     ) -> Result<(), ProviderError> {
-        if request == "fixture:hang" {
+        if request.starts_with("fixture:hang") {
             return Ok(());
         }
         let outcome = match request {
@@ -815,7 +834,7 @@ impl Provider for Scripted {
                 return true;
             }
             if let ProviderEvent::Agent { chat, turn, event } = event {
-                if agent_runs::is_turn_end(event) && self.active.get(chat) == Some(turn) {
+                if agent_runs::is_turn_end(&event.0) && self.active.get(chat) == Some(turn) {
                     self.active.remove(chat);
                 }
             }

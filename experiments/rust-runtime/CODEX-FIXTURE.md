@@ -41,13 +41,24 @@ The fixture accepts ordinary Ask mode, text prompts, model/effort and resume set
 reply/instruction assembly, enabled fast/TLDR/ultracode modes, roles, arbitrary configuration,
 MCP and unknown fields are refused before spawn. Async permission and question answers enter a
 separate eight-slot per-session lane, with at most eight in-flight tasks per session and 32
-unconsumed settlements globally. Each admitted AnswerId settles exactly once as Accepted,
-NotWaiting or Failed. Accepted means Codex confirmed writing the response. Close cancels and
-settles queued/in-flight answers; stale session generations are refused. The owner actor keeps
-its RPC reply pending until Notice::AnswerSettled and publication succeeds, with at most 32
-pending replies. It never reports admission as success. Timeouts are supplied by the owner. Native Unicode is converted to the owner's escaped string codec;
-real private-use/noncharacter text is preserved. Lone UTF-16 units are explicitly refused
-before spawn because the provider transport currently uses serde_json's Unicode strings.
+unconsumed settlements globally. Each admitted AnswerId settles as Accepted, NotWaiting,
+Failed or Uncertain. Accepted confirms only transport acceptance, not tool execution. A queued
+answer removed before its task enters Codex is proven unwritten and may fail. Once entered,
+errors and cancellation are conservatively Uncertain because dropping a Codex response future
+does not withdraw its queued frame. Killing the process cannot prove earlier non-delivery.
+
+The actor sets `ChatHost::answer_capacity = 32` for pending plus unresolved uncertain answers.
+It waits for Notice::AnswerSettled and successful publication before replying. Unknown delivery
+rejects with static code/message `ANSWER_DELIVERY_UNKNOWN`, preserves the saved answer and
+blocks retries for that request and session generation. Those slots are never evicted while
+unresolved; at capacity new answers return `ANSWERS_AT_CAPACITY` before handing anything over.
+A definitive late settlement emits AnswerResolved and frees the slot without a second RPC reply.
+Closing the generation frees its slots while retaining uncertain messages as history.
+
+Provider Agent events and Started results carry raw serde JSON in `RawJson`. ChatHost performs
+the only owner-codec normalization. The adapter no longer pre-encodes output. Owner input is
+decoded before passing it to Codex; real private-use/noncharacter text is preserved. Lone UTF-16
+units remain explicitly refused because the provider transport uses serde_json Unicode strings.
 
 Step, plan, subagent and other mapped events are forwarded unchanged. The owner now folds these event types, but this integration suite has not verified every event
 through the production UI. Provider policy/instruction/account assembly, live images/tools,
@@ -58,7 +69,7 @@ This checkpoint makes no real-provider compatibility claim.
 
 `cargo test --manifest-path experiments/rust-runtime/Cargo.toml --test codex_bridge`
 executes the actual repository Node fake, with an environment containing only private HOME,
-CODEX_HOME, the fixture scenario and LANG. Thirteen tests cover:
+CODEX_HOME, the fixture scenario and LANG. Fifteen tests cover:
 
 - Explicit resume, ordered text, sequential host generations and exactly one terminal event.
 - Slow/stubborn interrupt, cancelled initialize/thread start, crash and failed resume. Tests
@@ -74,3 +85,11 @@ The production Node client actor suite separately verifies delayed `true`, `fals
 and timed-out answer RPCs, and a concurrent snapshot while an answer waits. Its scripted
 provider delays answers by 80 ms; the fixture owner uses a 250 ms answer deadline. These are
 explicit fixture timings, not production defaults.
+
+`QuestionDelayedReceipt` writes to the actual Node fake first, then delays only settlement
+publication by 400 ms. The tests observe the fake's echoed answer before cancelling or timing
+out. This proves cancellation after delivery must be uncertain; it does not simulate a stalled
+OS pipe. Tests also prove saved answer retention, blocked retry, combined slot exhaustion,
+late confirmation without another RPC reply, and raw Unicode markers through the full owner.
+The production Node client suite fills all 32 uncertain slots, checks capacity refusal, closes
+the generation and proves a new generation can answer again.
