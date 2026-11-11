@@ -8,6 +8,7 @@
 //! entries, and clicking or pressing `Enter` on a result opens its section and highlights the matching row.
 
 pub mod about;
+pub mod accounts;
 pub mod appearance;
 pub mod browser;
 pub mod chat;
@@ -51,6 +52,7 @@ pub fn init(cx: &mut App) {
         cx.set_global(SettingsStore::default());
     }
     appearance::init(cx);
+    accounts::init(cx);
     cx.bind_keys([KeyBinding::new("cmd-,", ToggleSettings, None), KeyBinding::new("cmd-f", FindInSettings, Some("SettingsModal"))]);
 }
 
@@ -70,6 +72,8 @@ pub struct SettingsModal {
     computers: Vec<(String, String, bool)>,
     projects: Vec<(String, String)>,
     appearance: Entity<appearance::AppearanceView>,
+    accounts: Entity<accounts::AccountsView>,
+    usage: Entity<accounts::UsageView>,
 }
 
 impl SettingsModal {
@@ -91,6 +95,7 @@ impl SettingsModal {
             None => (false, SelectedSection::Section(SettingsSectionId::General)),
         };
 
+        let weak = cx.weak_entity();
         let body_scroll = ScrollHandle::new();
         // Snapshot aid: `MILAGRE_GPUI_SETTINGS_SCROLL=<px>` opens with the body scrolled down.
         if let Some(px_down) = std::env::var("MILAGRE_GPUI_SETTINGS_SCROLL").ok().and_then(|v| v.parse::<f32>().ok()) {
@@ -111,6 +116,8 @@ impl SettingsModal {
             computers,
             projects,
             appearance: cx.new(appearance::AppearanceView::new),
+            accounts: cx.new(accounts::AccountsView::new),
+            usage: cx.new(|cx| accounts::UsageView::new(weak, cx)),
         }
     }
 
@@ -370,7 +377,10 @@ impl Render for SettingsModal {
         if selected == SelectedSection::Section(SettingsSectionId::Appearance) {
             appearance_view.update(cx, |v, cx| v.set_found(highlighted.as_deref(), cx));
         }
-        let section_body = render_section_body(&selected, highlighted.as_deref(), &this_mac_name, &computers, &appearance_view, cx);
+        let section_body = match accounts::section_body(&selected, highlighted.as_deref(), &self.accounts, &self.usage, cx) {
+            Some(body) => body,
+            None => render_section_body(&selected, highlighted.as_deref(), &this_mac_name, &computers, &appearance_view, cx),
+        };
 
         let theme = *cx.theme();
         let close_entity = entity.clone();

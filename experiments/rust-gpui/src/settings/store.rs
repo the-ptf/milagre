@@ -453,6 +453,10 @@ pub struct SettingsStore {
     pub release_channel: ReleaseChannel,
     pub auto_update: bool,
     pub update_checks: usize,
+
+    // Accounts › Usage limits (`LimitAutoSwitchSetting`: Mac-owned in the desktop, kept here for the fixture).
+    pub limit_auto_switch: bool,
+    pub limit_resume_at_reset: bool,
 }
 
 impl Global for SettingsStore {}
@@ -512,6 +516,8 @@ impl Default for SettingsStore {
             release_channel: ReleaseChannel::Stable,
             auto_update: false,
             update_checks: 0,
+            limit_auto_switch: false,
+            limit_resume_at_reset: true,
         }
     }
 }

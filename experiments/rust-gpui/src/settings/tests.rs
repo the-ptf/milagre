@@ -115,9 +115,10 @@ fn settings_nav_switches_between_simple_sections_and_placeholders(cx: &mut TestA
     click(cx, "settings-nav-keybindings");
     assert!(cx.debug_bounds("settings-placeholder-WP-41").is_some());
 
-    // Accounts and Usage are WP-42 placeholders.
+    // Accounts and Usage are WP-42 pages.
     click(cx, "settings-nav-accounts");
-    assert!(cx.debug_bounds("settings-placeholder-WP-42").is_some());
+    assert!(cx.debug_bounds("settings-section-accounts").is_some());
+    assert!(cx.debug_bounds("settings-placeholder-WP-42").is_none());
 
     // MCP is a WP-43 placeholder.
     click(cx, "settings-nav-mcp");
