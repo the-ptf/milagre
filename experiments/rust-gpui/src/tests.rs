@@ -18,9 +18,10 @@ fn clicking_a_panel_tab_makes_it_active(cx: &mut TestAppContext) {
     cx.simulate_click(terminal.center(), Modifiers::none());
     assert_eq!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Terminal);
 
-    let pr = cx.debug_bounds("panel-tab-PR").expect("the PR tab is drawn");
-    cx.simulate_click(pr.center(), Modifiers::none());
-    assert_eq!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Pr);
+    // The PR tab is clipped at rest (the tab list scrolls), so click the last tab that is fully visible.
+    let artifact = cx.debug_bounds("panel-tab-Artifact").expect("the Artifact tab is drawn");
+    cx.simulate_click(artifact.center(), Modifiers::none());
+    assert_eq!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Artifact);
 }
 
 #[gpui::test]

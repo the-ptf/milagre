@@ -135,3 +135,15 @@ re-renders only that one.
   selection and call `UniformListScrollHandle::scroll_to_item` (only Top/Center/Bottom exist, no "nearest", so the sidebar
   uses the last built range to pick Top or Bottom). Nothing focuses the sidebar at startup; a click does.
 - Virtualization: each frame builds only the visible rows (about 19 at 900px high) out of 500 (`sidebar_tests.rs`).
+
+## Panel tabs notes
+
+- The panel header (`src/panel.rs`) shows six tabs as icon plus name (Changes with a "4" count, Terminal, Browser, Designs, Artifact, PR)
+  in a list that scrolls horizontally; expand and close (24px buttons, 16px glyphs) are pinned at the right, outside the list.
+- Scrolling is GPUI's own: `overflow_x_scroll()` plus `track_scroll(&ScrollHandle)` on the list. A mouse wheel, a trackpad swipe and
+  shift+wheel move it (the wheel scroll is exercised in `panel_tests.rs`); there is no scrollbar. Clicking a tab calls
+  `ScrollHandle::scroll_to_item(ix)`, which scrolls the minimum needed to show the tab fully on the next frame. Tabs must be direct children
+  of the scroll div for that to work.
+- Icons are Lucide-style strokes on a 24 grid (`src/icons.rs`), painted with `PathBuilder` at 14px / 1.8px stroke (tabs) and 16px / 1.5px (buttons).
+- At 518px the PR tab is mostly clipped at rest, as intended. A clipped tab is not clickable where it is clipped, so `tests.rs` clicks Artifact
+  instead of PR; `panel_tests.rs` scrolls the list with the wheel first, then clicks PR.
