@@ -6,9 +6,11 @@ The installed Electron app and this client share the daemon through its existing
 
 ## Current safety gate (2026-11-11)
 
-Independent review found an open-Project containment regression in0485162c, registry Link/Git identity and pruning gaps, a non-UTF-8 diagnostic regression in Claude7fd81353, and an account creation reservation leak. Registry fixes808c144d pass20 root tests and await re-review; the other fixes are assigned. The recorded streaming benchmark is provisional until root identity is pinned/rechecked and the fixed code is remeasured. These experiments must not adopt live stores.
+Owner root containment/outbound boundary fixes77201a3a/fc188ec6/18203711 pass77 root tests. Claude diagnostics fixff07398a passes132 tests plus8 isolated ContentOwner checks. Runtime review fixes throughb0356590 pass45 tests against them. Independent safety re-review is pending; corrected streaming measurement passes across three alternating samples per revision with matching output digests. No live store adoption is authorized by these tests.
 
-Latest isolated integrations include runtime22893f24 (43 root tests), Claude b04158bc (127 root tests plus8 ContentOwner checks), usage25ebb2e6 (56 root tests), remote ec313600/53c60712 (79 tests plus4 compile-fail checks and5 Node checks), accounts3c431d22 (32 agent tests) and registryf823eac1 (14 agent tests). [MIGRATION-STATUS.md](MIGRATION-STATUS.md) is authoritative for current validation and review gates; historical inventory counts below describe earlier checkpoints. Runtime0998ba6a also passes43 root tests with actual native Design PNG feedback and renderer state checks; automatic PNG-to-transcript persistence remains unsupported. The installed shell and production Node host remain unchanged.
+Registry808c144d closes the prior Link/Git/pruning P2s, but outside-copy seeded paths still wedge operations. Remote re-pairing is refused by an irreversible registry removal set. Both new P2s are assigned. Accounts09710e8f adds pending creation IDs and abandonment; removal/latch follow-up is underway. ACP4075edf1 provides a bounded fake-only session (79 feature tests), not vendor/auth/policy wiring. [MIGRATION-STATUS.md](MIGRATION-STATUS.md) is authoritative for current validation and remaining gates; inventory counts below include historical checkpoints.
+
+Native Design PNG feedback and renderer state pass the fixture runtime route; automatic PNG-to-transcript persistence remains unsupported. The installed shell and production Node host remain unchanged.
 
 ## What has moved
 
