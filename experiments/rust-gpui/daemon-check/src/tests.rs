@@ -495,3 +495,266 @@ fn a_captured_live_project_state_replaces_the_scope() {
     assert_eq!(open.stamp, StateStamp::default(), "the real event carries no version/epoch; none is invented");
     assert_eq!((reducer.counts().state_replacements, reducer.version()), (2, 3));
 }
+
+/// Differential traces: `tests/vectors/run-traces.json` is what the repository's own `applyRunEvent` produced for
+/// `tests/vectors/run-cases.json` (`scripts/run-vectors.mjs`, injected clock, `lastUserModel` fallback). The Rust
+/// fold must produce the same runs after every event. Numbers compare as numbers (5 == 5.0).
+mod vectors {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    use milagre_daemon_client::Notice;
+    use milagre_gpui_spike::data::{AgentRun, ChatStep, PermissionKind, PermissionMode, StepKind, StepStatus};
+    use serde_json::{Map, Value, json};
+
+    use super::body;
+    use crate::Reducer;
+
+    fn read(name: &str) -> Value {
+        let file = format!("{}/tests/vectors/{name}.json", env!("CARGO_MANIFEST_DIR"));
+        serde_json::from_str(&std::fs::read_to_string(&file).expect(&file)).expect("JSON")
+    }
+
+    fn put(map: &mut Map<String, Value>, key: &str, value: Option<Value>) {
+        if let Some(value) = value {
+            map.insert(key.into(), value);
+        }
+    }
+
+    fn step(step: &ChatStep) -> Value {
+        let mut m = Map::new();
+        m.insert("id".into(), json!(step.id.as_ref()));
+        put(&mut m, "kind", step.kind.map(|kind| json!(kind_name(kind))));
+        m.insert("title".into(), json!(step.title.as_ref()));
+        let status = match step.status {
+            StepStatus::Running => "running",
+            StepStatus::Done => "done",
+            StepStatus::Failed => "failed",
+        };
+        m.insert("status".into(), json!(status));
+        put(&mut m, "startedAt", step.started_at.map(|v| json!(v)));
+        put(&mut m, "endedAt", step.ended_at.map(|v| json!(v)));
+        for (key, value) in [
+            ("input", &step.input),
+            ("summary", &step.summary),
+            ("error", &step.error),
+            ("detail", &step.detail),
+            ("file", &step.file),
+            ("note", &step.note),
+            ("tool", &step.tool),
+            ("agent", &step.agent),
+        ] {
+            put(&mut m, key, value.as_ref().map(|v| json!(v.as_ref())));
+        }
+        put(&mut m, "durationMs", step.duration_ms.map(|v| json!(v)));
+        put(&mut m, "offset", step.offset.map(|v| json!(v)));
+        Value::Object(m)
+    }
+
+    fn kind_name(kind: StepKind) -> &'static str {
+        match kind {
+            StepKind::Shell => "shell",
+            StepKind::Edit => "edit",
+            StepKind::Read => "read",
+            StepKind::Search => "search",
+            StepKind::Other => "other",
+            StepKind::Thinking => "thinking",
+            StepKind::Setup => "setup",
+            StepKind::Image => "image",
+            StepKind::Artifact => "artifact",
+        }
+    }
+
+    fn run(run: &AgentRun) -> Value {
+        let mut m = Map::new();
+        m.insert("text".into(), json!(run.text.as_ref()));
+        m.insert("model".into(), json!(run.model.as_ref()));
+        put(&mut m, "startedAt", run.started_at.map(|v| json!(v)));
+        m.insert("steps".into(), Value::Array(run.steps.iter().map(step).collect()));
+        let approvals = run.approvals.iter().map(|r| {
+            let mut a = Map::new();
+            a.insert("requestId".into(), json!(r.request_id.as_ref()));
+            let kind = match r.kind {
+                PermissionKind::Command => "command",
+                PermissionKind::Edit => "edit",
+                PermissionKind::Other => "other",
+                PermissionKind::Delegation => "delegation",
+                PermissionKind::Setup => "setup",
+            };
+            a.insert("kind".into(), json!(kind));
+            a.insert("tool".into(), json!(r.tool.as_ref()));
+            a.insert("title".into(), json!(r.title.as_ref()));
+            for (key, value) in [
+                ("description", &r.description),
+                ("command", &r.command),
+                ("cwd", &r.cwd),
+                ("diff", &r.diff),
+                ("detail", &r.detail),
+                ("reason", &r.reason),
+                ("stepId", &r.step_id),
+            ] {
+                put(&mut a, key, value.as_ref().map(|v| json!(v.as_ref())));
+            }
+            if !r.files.is_empty() {
+                a.insert("files".into(), json!(r.files.iter().map(|f| f.as_ref()).collect::<Vec<_>>()));
+            }
+            a.insert("allowForChat".into(), json!(r.allow_for_chat));
+            Value::Object(a)
+        });
+        m.insert("approvals".into(), Value::Array(approvals.collect()));
+        let questions = run.questions.iter().map(|q| {
+            let questions = q.questions.iter().map(|q| {
+                let options = q.options.iter().map(|o| {
+                    let mut m = Map::new();
+                    m.insert("label".into(), json!(o.label));
+                    put(&mut m, "description", o.description.as_ref().map(|d| json!(d)));
+                    Value::Object(m)
+                });
+                json!({"id": q.id, "header": q.header, "question": q.question, "options": options.collect::<Vec<_>>(),
+                       "multiSelect": q.multi_select, "allowOther": q.allow_other, "secret": q.secret})
+            });
+            json!({"requestId": q.request_id.as_ref(), "questions": questions.collect::<Vec<_>>()})
+        });
+        m.insert("questions".into(), Value::Array(questions.collect()));
+        m.insert("answered".into(), json!({}));
+        put(
+            &mut m,
+            "permissionMode",
+            run.permission_mode.map(|mode| {
+                json!(match mode {
+                    PermissionMode::Ask => "ask",
+                    PermissionMode::Auto => "auto",
+                    PermissionMode::Full => "full",
+                })
+            }),
+        );
+        put(&mut m, "turnId", run.turn_id.as_ref().map(|t| json!(t.as_ref())));
+        if run.split {
+            m.insert("split".into(), json!(true));
+        }
+        if run.waiting_for_subagents {
+            m.insert("waitingForSubagents".into(), json!(true));
+        }
+        put(&mut m, "contextUsage", run.context_usage.map(|c| json!({"used": c.used, "size": c.size})));
+        Value::Object(m)
+    }
+
+    /// Equal as JSON, numbers by value; on a difference, the path.
+    fn same(a: &Value, b: &Value, path: &str) -> Result<(), String> {
+        match (a, b) {
+            (Value::Number(x), Value::Number(y)) if x.as_f64() == y.as_f64() => Ok(()),
+            (Value::Object(x), Value::Object(y)) => {
+                let keys: std::collections::BTreeSet<_> = x.keys().chain(y.keys()).collect();
+                for key in keys {
+                    same(x.get(key).unwrap_or(&Value::Null), y.get(key).unwrap_or(&Value::Null), &format!("{path}.{key}"))?;
+                }
+                Ok(())
+            }
+            (Value::Array(x), Value::Array(y)) if x.len() == y.len() => {
+                x.iter().zip(y).enumerate().try_for_each(|(ix, (x, y))| same(x, y, &format!("{path}[{ix}]")))
+            }
+            _ if a == b => Ok(()),
+            _ => Err(format!("{path}: rust {} vs node {}", short(a), short(b))),
+        }
+    }
+
+    fn short(value: &Value) -> String {
+        let text = value.to_string();
+        if text.chars().count() > 160 { format!("{}…", text.chars().take(160).collect::<String>()) } else { text }
+    }
+
+    #[test]
+    fn the_rust_run_fold_matches_node_applyrunevent_after_every_event() {
+        let cases = read("run-cases");
+        let traces = read("run-traces");
+        let cases = cases.as_array().unwrap();
+        assert_eq!(cases.len(), traces.as_array().unwrap().len());
+        let mut checked = 0;
+        for (case, trace) in cases.iter().zip(traces.as_array().unwrap()) {
+            let name = case["name"].as_str().unwrap();
+            assert_eq!(trace["name"], name);
+            let clock = Arc::new(std::sync::atomic::AtomicI64::new(0));
+            let reading = clock.clone();
+            let mut reducer = Reducer::default().with_clock(Arc::new(move || reading.load(std::sync::atomic::Ordering::SeqCst)));
+            let mut snapshot = body("snapshot");
+            if let Some(model) = case.get("lastModel") {
+                snapshot["projects"][0]["state"]["sessions"]["1"]["summary"]["lastModel"] = model.clone();
+            }
+            reducer.apply_body(&snapshot, 1).unwrap();
+            let chat = case["chatId"].as_str().unwrap();
+            for (ix, (step, expected)) in case["events"].as_array().unwrap().iter().zip(trace["after"].as_array().unwrap()).enumerate() {
+                clock.store(step["at"].as_i64().unwrap(), std::sync::atomic::Ordering::SeqCst);
+                let payload = json!({"chatId": chat, "event": step["event"]});
+                let notice = Notice::Event { wire_seq: 2 + ix as u64, scope: None, channel: "agent:event".into(), payload };
+                reducer.apply_notice(notice).unwrap_or_else(|e| panic!("{name} event {ix}: {e}"));
+                let runs: BTreeMap<_, _> = reducer.state().unwrap().runs.runs.iter().map(|(k, v)| (k.clone(), run(v))).collect();
+                let actual = Value::Object(runs.into_iter().collect());
+                same(&actual, expected, "runs")
+                    .unwrap_or_else(|diff| panic!("{name} after event {ix} ({}): {diff}", step["event"]["type"]));
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, cases.iter().map(|c| c["events"].as_array().unwrap().len()).sum::<usize>());
+    }
+}
+
+/// DERIVED: the captured default snapshot with one run added (shape: `AgentRun`), to check the snapshot's runs against
+/// the live bounds before they are installed.
+mod snapshot_bounds {
+    use serde_json::{Value, json};
+
+    use super::{PATH, body};
+    use crate::{LiveBounds, Reducer, SyncError};
+
+    fn with_run() -> Value {
+        let mut snapshot = body("snapshot");
+        snapshot["runs"]["runs"] = json!({ format!("{PATH}#1"): {
+            "text": "abc", "model": "m", "steps": [{"id": "a", "title": "a", "status": "done"}, {"id": "b", "title": "b", "status": "running"}],
+            "approvals": [{"requestId": "r", "kind": "edit", "tool": "Edit", "title": "t", "allowForChat": false}],
+            "questions": [{"requestId": "q", "questions": []}], "answered": {}
+        }});
+        snapshot["runs"]["seq"] = json!(4);
+        snapshot
+    }
+
+    const EXACT: LiveBounds = LiveBounds { runs: 1, run_text: 3, steps: 2, requests: 1, names: 32 };
+
+    #[test]
+    fn a_snapshot_exactly_at_every_bound_is_installed() {
+        let mut reducer = Reducer::with_live_bounds(EXACT);
+        let applied = reducer.apply_body(&with_run(), 1).unwrap();
+        assert_eq!((applied.runs.runs.len(), applied.runs.seq), (1, 4));
+    }
+
+    #[test]
+    fn a_snapshot_one_over_any_bound_is_refused_and_the_held_state_is_unchanged() {
+        for (bounds, what, limit) in [
+            (LiveBounds { runs: 0, ..EXACT }, "runs", 0),
+            (LiveBounds { run_text: 2, ..EXACT }, "run text bytes", 2),
+            (LiveBounds { steps: 1, ..EXACT }, "steps", 1),
+            (LiveBounds { requests: 0, ..EXACT }, "approvals", 0),
+        ] {
+            let mut reducer = Reducer::with_live_bounds(bounds);
+            reducer.apply_body(&body("snapshot"), 1).unwrap();
+            reducer
+                .apply_notice(milagre_daemon_client::Notice::Event { wire_seq: 2, scope: None, channel: "x".into(), payload: json!({}) })
+                .unwrap();
+            let before =
+                (reducer.state().unwrap().projects.clone(), reducer.state().unwrap().runs.clone(), reducer.state().unwrap().event_seq);
+            let (version, last, released) = (reducer.version(), reducer.last_seq(), reducer.released().count());
+            let error = reducer.apply_body(&with_run(), 1).unwrap_err();
+            assert_eq!(error.downcast_ref::<SyncError>(), Some(&SyncError::Bound { what, limit }), "{what}");
+            let after =
+                (reducer.state().unwrap().projects.clone(), reducer.state().unwrap().runs.clone(), reducer.state().unwrap().event_seq);
+            assert_eq!(after, before, "{what}: the held state is unchanged");
+            assert_eq!((reducer.version(), reducer.last_seq(), reducer.released().count()), (version, last, released));
+        }
+        // Questions too.
+        let mut snapshot = with_run();
+        snapshot["runs"]["runs"][format!("{PATH}#1")]["approvals"] = json!([]);
+        snapshot["runs"]["runs"][format!("{PATH}#1")]["questions"] =
+            json!([{"requestId": "q", "questions": []}, {"requestId": "p", "questions": []}]);
+        let error = Reducer::with_live_bounds(EXACT).apply_body(&snapshot, 1).unwrap_err();
+        assert_eq!(error.downcast_ref::<SyncError>(), Some(&SyncError::Bound { what: "questions", limit: 1 }));
+    }
+}

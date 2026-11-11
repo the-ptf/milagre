@@ -106,6 +106,8 @@ pub(crate) struct Live<'a> {
     pub runs: &'a mut ChatRuns,
     pub counts: &'a mut Counts,
     pub bounds: LiveBounds,
+    /// `Date.now()` for a run's `startedAt` (injected in tests).
+    pub now: &'a dyn Fn() -> i64,
 }
 
 impl Live<'_> {
@@ -183,11 +185,19 @@ impl Live<'_> {
         Ok(effect)
     }
 
+    /// `lastUserModel(state, sessionId)` on the held state: `state.messages` is not held (lean hosts send it empty),
+    /// so the Chat summary's `lastModel`, else "".
+    fn last_user_model(&mut self, chat: &str) -> String {
+        let id = chat.rsplit_once('#').and_then(|(_, id)| id.parse::<u64>().ok());
+        let state = project_of_key(chat).and_then(|path| self.project(path)).and_then(|open| open.state.as_ref());
+        id.and_then(|id| state?.sessions.get(&id)?.summary.as_ref()?.last_model.as_ref().map(|m| m.to_string())).unwrap_or_default()
+    }
+
     fn start(&mut self, chat: &str, model: &str, mode: Option<PermissionMode>) -> Result<(), SyncError> {
         if self.runs.runs.len() >= self.bounds.runs {
             return Err(bound("runs", self.bounds.runs));
         }
-        let run = AgentRun { model: model.to_owned().into(), permission_mode: mode, ..AgentRun::default() };
+        let run = AgentRun { model: model.to_owned().into(), permission_mode: mode, started_at: Some((self.now)()), ..AgentRun::default() };
         self.runs.runs.insert(chat.to_owned(), run);
         Ok(())
     }
@@ -208,7 +218,10 @@ impl Live<'_> {
             "turn-started" => {
                 let started = !self.runs.runs.contains_key(chat);
                 if started {
-                    self.start(chat, "", None)?;
+                    // A turn this window did not start runs on the Chat's last user model (`lastUserModel`): a lean
+                    // state holds no messages, so the summary's `lastModel`, else "".
+                    let model = self.last_user_model(chat);
+                    self.start(chat, &model, None)?;
                 }
                 let run = self.runs.runs.get_mut(chat).expect("started");
                 match event["turnId"].as_str() {
@@ -380,7 +393,7 @@ fn permission_mode(value: &str) -> Option<PermissionMode> {
 /// False when there is nothing to save yet (the run is left as it is).
 fn split(run: &mut AgentRun) -> bool {
     let finished = run.steps.iter().any(|step| step.status != StepStatus::Running);
-    if run.text.trim().is_empty() && !finished {
+    if js_trim_is_empty(&run.text) && !finished {
         return false;
     }
     run.steps.retain(|step| step.status == StepStatus::Running);
@@ -392,19 +405,59 @@ fn split(run: &mut AgentRun) -> bool {
     true
 }
 
-/// `capOutput`: the end of the text, at most [`MAX_OUTPUT`] UTF-16 units, after a truncation line.
+/// Whether JavaScript's `String.prototype.trim` leaves nothing: every char is ECMAScript WhiteSpace or LineTerminator
+/// (TAB, VT, FF, SP, NBSP, ZWNBSP U+FEFF, the Zs space separators, LF, CR, LS, PS). Rust's `trim` differs: it keeps
+/// U+FEFF and removes U+0085.
+pub fn js_trim_is_empty(text: &str) -> bool {
+    text.chars().all(|ch| {
+        matches!(
+            ch,
+            '\t' | '\u{b}' | '\u{c}' | ' ' | '\u{a0}' | '\u{feff}' | '\n' | '\r' | '\u{2028}' | '\u{2029}' | '\u{1680}' | '\u{2000}'
+                ..='\u{200a}' | '\u{202f}' | '\u{205f}' | '\u{3000}'
+        )
+    })
+}
+
+/// `capOutput`: when longer than [`MAX_OUTPUT`] UTF-16 units, `"… truncated\n"` and the last [`MAX_OUTPUT`] units.
+/// Where JavaScript's `slice(-MAX_OUTPUT)` cuts an astral character in half it keeps a lone low surrogate, which a Rust
+/// string cannot hold: that unit becomes U+FFFD, as `String.prototype.toWellFormed` would make it.
 pub fn cap_output(text: &str) -> String {
     if text.encode_utf16().count() <= MAX_OUTPUT {
         return text.to_owned();
     }
     let mut units = 0;
     let mut start = text.len();
+    let mut lone = false;
     for (at, ch) in text.char_indices().rev() {
         if units + ch.len_utf16() > MAX_OUTPUT {
+            lone = units < MAX_OUTPUT;
             break;
         }
         units += ch.len_utf16();
         start = at;
     }
-    format!("… truncated\n{}", &text[start..])
+    format!("… truncated\n{}{}", if lone { "\u{fffd}" } else { "" }, &text[start..])
+}
+
+/// Checks a whole run map against `bounds` (the snapshot's runs before they are installed): runs, each run's text
+/// bytes, steps, approvals and questions. Zero limits admit nothing. `Err` is [`SyncError::Bound`].
+pub fn check_runs(runs: &ChatRuns, bounds: LiveBounds) -> Result<(), SyncError> {
+    if runs.runs.len() > bounds.runs {
+        return Err(bound("runs", bounds.runs));
+    }
+    for run in runs.runs.values() {
+        if run.text.len() > bounds.run_text {
+            return Err(bound("run text bytes", bounds.run_text));
+        }
+        if run.steps.len() > bounds.steps {
+            return Err(bound("steps", bounds.steps));
+        }
+        if run.approvals.len() > bounds.requests {
+            return Err(bound("approvals", bounds.requests));
+        }
+        if run.questions.len() > bounds.requests {
+            return Err(bound("questions", bounds.requests));
+        }
+    }
+    Ok(())
 }

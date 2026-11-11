@@ -551,6 +551,13 @@ removes the stage; the log is `daemon-check/target/check-gpui-adapter.log`.
   (skipped when `seq` is at or below the runs' `seq`). Hydrated events apply their current catch-up state the same
   way. A stamp comes only from the payload. Other channels (`link:state`, ...), foreign scopes and event types the
   run fold leaves alone are counted, never interpreted. Every live collection has a hard bound (`LiveBounds`).
+  A snapshot's runs are checked against the same bounds before it replaces anything. A turn started by the host
+  runs on the Chat summary's `lastModel` (`lastUserModel`), `startedAt` comes from an injectable clock, steering
+  uses JavaScript's `trim`, and step output is capped by UTF-16 units. `scripts/run-vectors.mjs` replays
+  `tests/vectors/run-cases.json` through the repository's own `applyRunEvent`
+  (`node scripts/run-vectors.mjs tests/vectors/run-cases.json > tests/vectors/run-traces.json`); a plain test
+  requires the Rust fold to match after every event. One normalized difference: where `capOutput` cuts an astral
+  character in half, JavaScript keeps a lone surrogate a Rust string cannot hold; both sides compare it as U+FFFD.
 - `src/view.rs`: `open_on_select` (explicit `project:open`, then the Chat's first page) and `transcript_items`.
   The GPUI test swaps the Chat column's public `transcript` entity, because the base crate has no seam to give
   `ChatView` a Chat (title and Project label are private fixture text) and `Workspace` routes a selection only to

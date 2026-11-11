@@ -261,18 +261,43 @@ fn post_snapshot_events() {
             let store = crate::LiveStore::new(std::mem::take(&mut synced.reducer));
             let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
             let mut channels = Vec::new();
+            let mut last_state_payload = None;
             while std::time::Instant::now() < until {
                 match synced.notifications.next().now_or_never() {
                     Some(Some(notice)) => {
                         if let milagre_daemon_client::Notice::Event { channel, payload, .. } = &notice {
                             body(&format!("live_{channel}"), payload);
                             channels.push(channel.clone());
+                            if payload.get("state").is_some() {
+                                last_state_payload = Some(payload.clone());
+                            }
                         }
                         store.apply_notice(notice).expect("applied");
                     }
                     Some(None) => panic!("stream ended"),
                     None => std::thread::sleep(std::time::Duration::from_millis(20)),
                 }
+            }
+            if populated {
+                // The populated preset releases real events here; the state they leave is checked, not just counted.
+                assert!(!channels.is_empty(), "the populated fixture released no event after the snapshot");
+                let last = last_state_payload.as_ref().expect("a state-bearing event");
+                store.read(|reducer| {
+                    let applied = reducer.state().expect("live state");
+                    assert_eq!(reducer.counts().state_replacements as usize, channels.iter().filter(|c| *c == "project:state").count());
+                    let open = &applied.projects[0];
+                    let sessions = &open.state.as_ref().expect("state").sessions;
+                    let summary = |id: u64| sessions[&id].summary.clone().expect("summary");
+                    assert_eq!((summary(1).count, summary(2).count), (4, 2));
+                    assert_eq!(summary(1).title_line.as_deref(), Some(FIRST));
+                    assert_eq!(summary(2).title_line.as_deref(), Some(ANOTHER));
+                    assert!(summary(2).first_at > summary(1).first_at);
+                    // The stamp is exactly what the last state payload carried (none on this wire): never invented.
+                    assert_eq!(open.stamp.version, last["version"].as_u64());
+                    assert_eq!(open.stamp.epoch.as_deref(), last["epoch"].as_str());
+                });
+            } else {
+                assert!(channels.is_empty(), "the default fixture is idle after the snapshot");
             }
             synced.adapter.client().disconnect();
             drop(synced);

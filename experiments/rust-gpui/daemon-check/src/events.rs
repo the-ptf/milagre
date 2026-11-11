@@ -13,6 +13,7 @@ use std::collections::VecDeque;
 
 use serde_json::Value;
 
+pub use crate::live::check_runs;
 use crate::live::{Counts, Effect, Live, LiveBounds};
 use crate::{DaemonAdapter, map};
 
@@ -132,7 +133,13 @@ impl Default for Released {
     }
 }
 
-#[derive(Default)]
+/// `Date.now()` as the run fold reads it.
+pub type Clock = std::sync::Arc<dyn Fn() -> i64 + Send + Sync>;
+
+fn system_clock() -> Clock {
+    std::sync::Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64))
+}
+
 pub struct Reducer {
     applied: Option<Applied>,
     released: Released,
@@ -143,6 +150,22 @@ pub struct Reducer {
     bounds: LiveBounds,
     /// +1 for every change a view would show: a snapshot, an applied event, a close.
     version: u64,
+    clock: Clock,
+}
+
+impl Default for Reducer {
+    fn default() -> Self {
+        Self {
+            applied: None,
+            released: Released::default(),
+            closed: None,
+            last_seq: 0,
+            counts: Counts::default(),
+            bounds: LiveBounds::default(),
+            version: 0,
+            clock: system_clock(),
+        }
+    }
 }
 
 impl Reducer {
@@ -162,6 +185,8 @@ impl Reducer {
         let seq = runs["seq"].as_u64().ok_or_else(|| anyhow::anyhow!("snapshot.runs.seq: expected an unsigned integer"))?;
         let runs = map::chat_runs(&milagre_daemon_client::ChatRuns { runs: runs["runs"].clone(), seq })?;
         let links = body["links"].as_array().ok_or_else(|| anyhow::anyhow!("snapshot.links: expected an array"))?.len();
+        // The snapshot's runs are held under the same hard bounds as live ones; a refused snapshot changes nothing.
+        crate::live::check_runs(&runs, self.bounds)?;
         self.released.clear();
         self.closed = None;
         self.last_seq = event_seq;
@@ -185,8 +210,13 @@ impl Reducer {
                 if wire_seq <= self.last_seq {
                     return Err(SyncError::OutOfOrder { wire_seq, last: self.last_seq });
                 }
-                let mut live =
-                    Live { projects: &mut applied.projects, runs: &mut applied.runs, counts: &mut self.counts, bounds: self.bounds };
+                let mut live = Live {
+                    projects: &mut applied.projects,
+                    runs: &mut applied.runs,
+                    counts: &mut self.counts,
+                    bounds: self.bounds,
+                    now: &*self.clock,
+                };
                 let result = live.apply(&channel, &payload);
                 self.last_seq = wire_seq;
                 self.released.push(ReleasedEvent { wire_seq, scope, channel, payload });
@@ -230,6 +260,12 @@ impl Reducer {
     /// The last applied `wire_seq`.
     pub fn last_seq(&self) -> u64 {
         self.last_seq
+    }
+
+    /// The same reducer reading `clock` for runs' `startedAt` (tests inject one).
+    pub fn with_clock(mut self, clock: Clock) -> Self {
+        self.clock = clock;
+        self
     }
 
     /// A reducer with other live-state bounds (tests).
