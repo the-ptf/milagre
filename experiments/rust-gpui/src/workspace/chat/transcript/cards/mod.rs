@@ -46,6 +46,8 @@ pub enum Card {
     Limit(LimitCard),
     Report(ReportCard),
     Note(NoteLine),
+    /// An HTML reply, as a card that opens it in the Artifact tab (WP-34).
+    Html(crate::workspace::panel::artifacts::card::HtmlReplyCard),
 }
 
 impl Transcript {
@@ -62,6 +64,7 @@ impl Transcript {
             Card::Limit(card) => self.limit_card(ix, card, theme, cx),
             Card::Report(card) => self.report_line(ix, card, theme, cx),
             Card::Note(note) => small::note_line(ix, note, theme),
+            Card::Html(card) => crate::workspace::panel::artifacts::card::reply_card(ix, card, theme),
         }
     }
 
@@ -92,5 +95,6 @@ pub fn top_gap(card: &Card) -> f32 {
         Card::Images(_) | Card::Generated(_) => 8.0,
         Card::Limit(_) => 0.0,
         Card::Question(_) | Card::Divider(_) | Card::Report(_) | Card::Note(_) => 12.0,
+        Card::Html(_) => 8.0,
     }
 }

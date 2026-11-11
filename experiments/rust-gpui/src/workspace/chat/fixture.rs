@@ -791,6 +791,7 @@ pub fn cards_demo() -> Vec<Item> {
         card.interactive = true;
     }
     items.extend(built);
+    items.push(Item::Card(Card::Html(crate::workspace::panel::artifacts::card::fixture_reply())));
 
     items
 }

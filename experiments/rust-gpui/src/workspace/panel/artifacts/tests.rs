@@ -1,0 +1,427 @@
+//! WP-34: the protocol and its files, the content security policy, the page's messages, and the Artifact tab in the
+//! headless window (where no native view is built, so the host's placement stands in for it). The expected strings
+//! are what `packages/shared/src/artifact-document.mjs` and `artifact-assets.mjs` return for the same input.
+
+use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext, px};
+
+use super::document::{self, ARTIFACT_CSP, PAGE_HELPER, Range, artifact_csp, artifact_document, byte_range, rewrite_asset_urls};
+use super::fixture::{self, CHAT_PAGE, REPLY_PAGE};
+use super::messages::{self, PageMessage};
+use super::protocol::{ASSET_CSP, Asset, PREFIX, Previews, RegisterError};
+use super::{ArtifactDock, ArtifactsView, MAX_SCALE, MIN_SCALE, ZOOM_STEP, fit_scale};
+use crate::platform::webview::{HostRequest, HostResponse};
+use crate::testing;
+use crate::workspace::panel::{Panel, PanelTab};
+
+// The protocol and its files.
+
+fn get<'a>(url: &'a str) -> HostRequest<'a> {
+    HostRequest { method: "GET", url, range: None }
+}
+
+fn registered() -> (Previews, String) {
+    let mut previews = Previews::default();
+    let page = fixture::page(CHAT_PAGE).unwrap();
+    let url = previews.register(7, page.tabs[0].html, &page.assets, true, &"ab".repeat(24)).unwrap();
+    (previews, url)
+}
+
+#[test]
+fn a_page_registers_under_an_unguessable_address() {
+    let token = super::protocol::random_token();
+    assert_eq!(token.len(), 48);
+    assert!(token.bytes().all(|b| b.is_ascii_hexdigit()));
+    assert_ne!(token, super::protocol::random_token());
+    let (_, url) = registered();
+    assert_eq!(url, format!("{PREFIX}{}", "ab".repeat(24)));
+}
+
+#[test]
+fn the_document_is_served_with_its_policy_and_the_helper() {
+    let (previews, url) = registered();
+    let response = previews.handle(&get(&url));
+    assert_eq!(response.status, 200);
+    assert_eq!(response.header("Content-Type"), Some("text/html; charset=utf-8"));
+    assert_eq!(response.header("Content-Security-Policy"), Some(artifact_csp("milagre-artifact:").as_str()));
+    assert_eq!(response.header("Cache-Control"), Some("no-store"));
+    assert_eq!(response.header("Referrer-Policy"), Some("no-referrer"));
+    assert_eq!(response.header("X-Content-Type-Options"), Some("nosniff"));
+    let body = String::from_utf8(response.body).unwrap();
+    assert!(body.starts_with("<!doctype html><meta http-equiv=\"Content-Security-Policy\""), "the policy comes first");
+    assert!(body.contains(PAGE_HELPER), "a page carries its helper");
+    // The page's `assets/<name>` now point under its own address.
+    assert!(body.contains(&format!("src=\"{url}/assets/chart.svg\"")));
+    assert!(body.contains(&format!("src=\"{url}/assets/swatch.png\"")));
+    assert!(!body.contains("src=\"assets/") && !body.contains("src=\"./assets/"));
+    // A query or a trailing slash still finds it.
+    assert_eq!(previews.handle(&get(&format!("{url}?v=2"))).status, 200);
+    assert_eq!(previews.handle(&get(&format!("{url}/"))).status, 200);
+}
+
+#[test]
+fn a_file_is_served_whole_sandboxed_and_typed() {
+    let (previews, url) = registered();
+    let response = previews.handle(&get(&format!("{url}/assets/swatch.png")));
+    assert_eq!(response.status, 200);
+    assert_eq!(response.header("Content-Type"), Some("image/png"));
+    assert_eq!(response.header("Content-Security-Policy"), Some(ASSET_CSP));
+    assert_eq!(response.header("Accept-Ranges"), Some("bytes"));
+    assert_eq!(response.header("Content-Length"), Some(response.body.len().to_string().as_str()));
+    assert!(response.body.starts_with(b"\x89PNG"));
+    let svg = previews.handle(&get(&format!("{url}/assets/chart%2Esvg")));
+    assert_eq!((svg.status, svg.header("Content-Type")), (200, Some("image/svg+xml")), "names are percent-decoded");
+}
+
+#[test]
+fn a_file_is_served_by_byte_range() {
+    let (previews, url) = registered();
+    let file = format!("{url}/assets/chart.svg");
+    let whole = previews.handle(&get(&file)).body;
+    let part = previews.handle(&HostRequest { method: "GET", url: &file, range: Some("bytes=4-13") });
+    assert_eq!(part.status, 206);
+    assert_eq!(part.header("Content-Range"), Some(format!("bytes 4-13/{}", whole.len()).as_str()));
+    assert_eq!(part.header("Content-Length"), Some("10"));
+    assert_eq!(part.body, whole[4..14]);
+    let tail = previews.handle(&HostRequest { method: "GET", url: &file, range: Some("bytes=-5") });
+    assert_eq!(tail.body, whole[whole.len() - 5..]);
+    let past = previews.handle(&HostRequest { method: "GET", url: &file, range: Some("bytes=99999-") });
+    assert_eq!(past.status, 416);
+    assert_eq!(past.header("Content-Range"), Some(format!("bytes */{}", whole.len()).as_str()));
+    assert!(past.body.is_empty());
+}
+
+#[test]
+fn anything_else_is_not_found() {
+    let (mut previews, url) = registered();
+    let not_found = |response: HostResponse| response.status == 404;
+    assert!(not_found(previews.handle(&HostRequest { method: "POST", url: &url, range: None })));
+    assert!(not_found(previews.handle(&get(&format!("{PREFIX}{}", "cd".repeat(24))))));
+    assert!(not_found(previews.handle(&get(&format!("{url}/assets/missing.png")))));
+    assert!(not_found(previews.handle(&get(&format!("{url}/assets/../assets/chart.svg")))));
+    assert!(not_found(previews.handle(&get(&format!("{url}/chart.svg")))));
+    assert!(not_found(previews.handle(&get("milagre-artifact://other/x"))));
+    // Another owner cannot release it; its owner can, and then nothing of it is served.
+    previews.release(8, &url);
+    assert_eq!(previews.handle(&get(&url)).status, 200);
+    previews.release(7, &url);
+    assert!(not_found(previews.handle(&get(&url))));
+    assert!(not_found(previews.handle(&get(&format!("{url}/assets/chart.svg")))));
+    assert!(previews.is_empty());
+}
+
+#[test]
+fn registering_has_limits_and_drops_badly_named_files() {
+    let mut previews = Previews::default();
+    let huge = "x".repeat(super::protocol::MAX_BYTES + 1);
+    assert_eq!(previews.register(1, &huge, &[], true, "00"), Err(RegisterError::TooLarge));
+    let bad = Asset { name: "../secret".into(), mime: "text/plain".into(), bytes: std::sync::Arc::from(&b"x"[..]) };
+    let url = previews.register(1, "<img src=\"assets/../secret\">", &[bad], true, "01").unwrap();
+    assert_eq!(previews.handle(&get(&format!("{url}/assets/../secret"))).status, 404);
+    for n in 0..super::protocol::MAX_ENTRIES - 1 {
+        previews.register(2, "<p>", &[], false, &format!("{n:04}")).unwrap();
+    }
+    assert_eq!(previews.register(2, "<p>", &[], false, "full"), Err(RegisterError::TooMany));
+    previews.clear(2);
+    assert_eq!(previews.len(), 1);
+}
+
+// The content security policy.
+
+#[test]
+fn the_policy_blocks_fetch_and_remote_scripts() {
+    let directives: Vec<&str> = ARTIFACT_CSP.split("; ").collect();
+    assert_eq!(directives[0], "default-src 'none'", "anything not listed, connect-src included, falls back to none");
+    assert!(!ARTIFACT_CSP.contains("connect-src"), "no fetch, XHR, WebSocket or EventSource");
+    assert!(directives.contains(&"script-src 'unsafe-inline'"), "inline scripts only: no host, no https:, no 'self'");
+    assert!(!ARTIFACT_CSP.contains("unsafe-eval"));
+    assert!(directives.contains(&"form-action 'none'") && directives.contains(&"base-uri 'none'"));
+    assert!(!ARTIFACT_CSP.contains("frame-src") && !ARTIFACT_CSP.contains("child-src"), "frames fall back to none too");
+}
+
+#[test]
+fn the_policy_matches_the_shared_module() {
+    assert_eq!(
+        ARTIFACT_CSP,
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https:; img-src data: blob: https:; \
+         font-src data: https:; media-src data: blob: https:; form-action 'none'; base-uri 'none'"
+    );
+    assert_eq!(
+        artifact_csp("milagre-artifact:"),
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https:; img-src data: blob: https: \
+         milagre-artifact:; font-src data: https: milagre-artifact:; media-src data: blob: https: milagre-artifact:; \
+         form-action 'none'; base-uri 'none'"
+    );
+    // The page's files load from the scheme, but scripts and connections still do not.
+    let page = artifact_csp("milagre-artifact:");
+    assert!(page.contains("script-src 'unsafe-inline';"));
+    assert!(!page.contains("connect-src"));
+}
+
+#[test]
+fn an_inline_reply_gets_the_plain_policy_and_no_helper() {
+    let mut previews = Previews::default();
+    let url = previews.register(1, "<p>hi</p>", &[], false, "02").unwrap();
+    let response = previews.handle(&get(&url));
+    assert_eq!(response.header("Content-Security-Policy"), Some(ARTIFACT_CSP));
+    assert!(!String::from_utf8(response.body).unwrap().contains("__milagrePage"));
+}
+
+// The document.
+
+#[test]
+fn the_policy_goes_after_the_doctype_and_comments() {
+    let meta = format!("<meta http-equiv=\"Content-Security-Policy\" content=\"{ARTIFACT_CSP}\">");
+    assert_eq!(
+        artifact_document("<!-- c --><!DOCTYPE html><html><body>x</body></html>", false, ""),
+        format!("<!-- c --><!DOCTYPE html>{meta}<html><body>x</body></html>")
+    );
+    // A bare fragment gets a doctype, a charset and a viewport.
+    assert_eq!(
+        artifact_document("<p>hi</p>", false, ""),
+        format!(
+            "<!doctype html>{meta}<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><p>hi</p>"
+        )
+    );
+    // A comment that only mentions a doctype is not one.
+    assert!(artifact_document("<!-- <!doctype x> --><p>", false, "").starts_with("<!doctype html><meta"));
+}
+
+#[test]
+fn asset_references_are_rewritten_only_when_whole() {
+    let html = "a assets/x.png ./assets/x.png myassets/x.png assets/x.pngx \"assets/x.png\" /assets/x.png";
+    assert_eq!(rewrite_asset_urls(html, &["x.png"], |_| "U".into()), "a U U myassets/x.png assets/x.pngx \"U\" /assets/x.png");
+}
+
+#[test]
+fn byte_ranges_match_the_shared_module() {
+    let cases = [
+        ("bytes=0-9", Range::Part { offset: 0, length: 10 }),
+        ("bytes=-5", Range::Part { offset: 15, length: 5 }),
+        ("bytes=5-", Range::Part { offset: 5, length: 15 }),
+        ("bytes=20-", Range::Unsatisfiable),
+        ("bytes=-0", Range::Unsatisfiable),
+        ("bytes=-50", Range::Part { offset: 0, length: 20 }),
+        ("bytes=x", Range::Whole),
+        ("bytes=3-1", Range::Unsatisfiable),
+        ("bytes=-", Range::Whole),
+    ];
+    for (header, expected) in cases {
+        assert_eq!(byte_range(Some(header), 20), expected, "{header}");
+    }
+    assert_eq!(byte_range(None, 20), Range::Whole);
+}
+
+#[test]
+fn file_names_and_types() {
+    assert!(document::valid_asset_name("chart.svg") && document::valid_asset_name("a_b-1.PNG"));
+    assert!(!document::valid_asset_name(".hidden") && !document::valid_asset_name("a/b") && !document::valid_asset_name(""));
+    assert!(!document::valid_asset_name(&"a".repeat(101)));
+    assert_eq!(document::asset_type("x.JPG"), "image/jpeg");
+    assert_eq!(document::asset_type("clip.webm"), "video/webm");
+    assert_eq!(document::asset_type("data.bin"), "application/octet-stream");
+}
+
+// The page's messages.
+
+#[test]
+fn page_messages_are_read_as_known_fields_only() {
+    let key = "\"milagre\":\"milagre:artifact-page\"";
+    assert_eq!(messages::parse(&format!("{{{key},\"t\":\"ready\"}}")), Some(PageMessage::Ready));
+    assert_eq!(
+        messages::parse(&format!("{{{key},\"t\":\"size\",\"sw\":1100,\"cw\":540}}")),
+        Some(PageMessage::Size { scroll_width: 1100.0, client_width: 540.0 })
+    );
+    assert_eq!(
+        messages::parse(&format!("{{{key},\"t\":\"zoom\",\"dy\":-12.5,\"cx\":10,\"cy\":20}}")),
+        Some(PageMessage::Zoom { dy: -12.5, cx: 10.0, cy: 20.0 })
+    );
+    assert_eq!(
+        messages::parse(&format!("{{{key},\"t\":\"pin\",\"k\":3,\"sx\":1,\"sy\":2}}")),
+        Some(PageMessage::Pin { key: "3".into(), sx: 1.0, sy: 2.0 })
+    );
+    let long = "x".repeat(900);
+    let Some(PageMessage::Press { near, .. }) =
+        messages::parse(&format!("{{{key},\"t\":\"press\",\"x\":0.1,\"y\":0.2,\"near\":\"{long}\"}}"))
+    else {
+        panic!("a press reads")
+    };
+    assert_eq!(near.len(), 600, "text is capped");
+    // Without the key, with a missing or mistyped field, or of an unknown type: dropped.
+    assert_eq!(messages::parse("{\"t\":\"ready\"}"), None);
+    assert_eq!(messages::parse(&format!("{{{key},\"t\":\"size\",\"sw\":\"wide\",\"cw\":1}}")), None);
+    assert_eq!(messages::parse(&format!("{{{key},\"t\":\"zoom\",\"dy\":1}}")), None);
+    assert_eq!(messages::parse(&format!("{{{key},\"t\":\"navigate\",\"to\":\"https://x\"}}")), None);
+    assert_eq!(messages::parse("[1,2]"), None);
+}
+
+#[test]
+fn commands_reach_the_helper_as_its_own_messages() {
+    let js = messages::scale(1.5, Some((10.0, 20.0)));
+    assert!(js.starts_with("window.postMessage({") && js.ends_with("},\"*\")"));
+    let body: serde_json::Value = serde_json::from_str(&js["window.postMessage(".len()..js.len() - ",\"*\")".len()]).unwrap();
+    assert_eq!(body["milagre"], "milagre:artifact-page");
+    assert_eq!((body["t"].as_str(), body["s"].as_f64(), body["cx"].as_f64()), (Some("scale"), Some(1.5), Some(10.0)));
+    let page = fixture::page(CHAT_PAGE).unwrap();
+    let pins = page.pins("overview", "#000000", "#ffffff", "#007e33", "#ffffff");
+    assert_eq!(pins.len(), 2);
+    assert_eq!((pins[1].number, pins[1].fill.as_str()), (2, "#007e33"), "the resolved pin is green");
+    assert!(messages::pins(&pins).contains("\"a\":\"h1:1@0.62,0.5\""));
+    assert!(page.pins("regions", "", "", "", "").is_empty());
+}
+
+#[test]
+fn the_fit_is_the_page_width_when_wider_else_100() {
+    assert_eq!(fit_scale(560.0, None), 1.0);
+    assert_eq!(fit_scale(560.0, Some(400.0)), 1.0);
+    assert!((fit_scale(560.0, Some(1120.0)) - 0.5).abs() < 1e-9);
+    assert_eq!(fit_scale(100.0, Some(10_000.0)), MIN_SCALE);
+    assert_eq!(fit_scale(0.0, Some(1120.0)), 1.0);
+}
+
+// The tab in the window.
+
+fn mount(cx: &mut TestAppContext) -> (Entity<Panel>, Entity<ArtifactsView>, &mut VisualTestContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    let panel = workspace.read_with(cx, |workspace, _| workspace.panel.clone());
+    let view = cx.update(|_, cx| cx.global::<ArtifactDock>().0.upgrade()).expect("the panel built the Artifact tab");
+    (panel, view, cx)
+}
+
+fn redraw(cx: &mut VisualTestContext) {
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        let _ = window.draw(cx);
+    });
+}
+
+fn open_tab(panel: &Entity<Panel>, cx: &mut VisualTestContext) {
+    panel.update(cx, |panel, cx| panel.activate(PanelTab::Artifact, cx));
+    redraw(cx);
+}
+
+#[gpui::test]
+fn the_page_fills_the_body_under_the_page_bar(cx: &mut TestAppContext) {
+    let (panel, view, cx) = mount(cx);
+    assert!(!view.read_with(cx, |view, _| view.is_shown()), "the panel opens on Changes");
+    open_tab(&panel, cx);
+    assert!(view.read_with(cx, |view, _| view.is_shown()));
+    let host = view.read_with(cx, |view, _| view.host().cloned()).expect("showing the tab builds the host");
+    let body = testing::bounds(cx, "artifact-page");
+    let placed = host.read_with(cx, |host, _| host.placement()).expect("the page is placed");
+    assert_eq!(placed.visible, body, "the page covers exactly the page body");
+    assert_eq!(placed.inner.origin, gpui::point(px(0.0), px(0.0)));
+    assert_eq!(panel.read_with(cx, |panel, _| panel.width()), 560.0, "the Artifact panel's own default width");
+    let bar = testing::bounds(cx, "artifact-zoom");
+    assert!(bar.bottom() <= body.top(), "the zoom sits above the page, never over it");
+}
+
+#[gpui::test]
+fn hiding_the_tab_or_opening_settings_hides_the_page(cx: &mut TestAppContext) {
+    let (panel, view, cx) = mount(cx);
+    open_tab(&panel, cx);
+    let host = view.read_with(cx, |view, _| view.host().cloned()).unwrap();
+    panel.update(cx, |panel, cx| panel.activate(PanelTab::Changes, cx));
+    redraw(cx);
+    assert!(!host.read_with(cx, |host, _| host.is_shown()));
+    assert_eq!(host.read_with(cx, |host, _| host.placement()), None, "a hidden tab's page is not placed");
+    open_tab(&panel, cx);
+    assert!(host.read_with(cx, |host, _| host.placement()).is_some(), "back, and placed again");
+    panel.update(cx, |panel, cx| panel.close(cx));
+    redraw(cx);
+    assert_eq!(host.read_with(cx, |host, _| host.placement()), None, "the panel closed");
+    open_tab(&panel, cx);
+    cx.update(|_, cx| crate::platform::webview::set_overlay_open("settings", true, cx));
+    redraw(cx);
+    assert_eq!(host.read_with(cx, |host, _| host.placement()), None, "a GPUI overlay would draw under the page");
+    cx.update(|_, cx| crate::platform::webview::set_overlay_open("settings", false, cx));
+    redraw(cx);
+    assert!(host.read_with(cx, |host, _| host.placement()).is_some());
+}
+
+#[gpui::test]
+fn resizing_the_window_moves_the_page_with_its_body(cx: &mut TestAppContext) {
+    let (panel, view, cx) = mount(cx);
+    open_tab(&panel, cx);
+    let host = view.read_with(cx, |view, _| view.host().cloned()).unwrap();
+    let before = host.read_with(cx, |host, _| host.placement()).unwrap().visible;
+    cx.simulate_resize(gpui::size(px(1280.0), px(760.0)));
+    redraw(cx);
+    let after = host.read_with(cx, |host, _| host.placement()).unwrap().visible;
+    assert_ne!(before, after);
+    // The page goes where its body is, cut by the window (the dock may lay the panel out past the edge for a frame).
+    let window = gpui::Bounds { origin: gpui::point(px(0.0), px(0.0)), size: cx.update(|window, _| window.viewport_size()) };
+    assert_eq!(after, testing::bounds(cx, "artifact-page").intersect(&window));
+}
+
+#[gpui::test]
+fn the_page_tabs_switch_what_is_registered(cx: &mut TestAppContext) {
+    let (panel, view, cx) = mount(cx);
+    open_tab(&panel, cx);
+    let (first, previews) = view.read_with(cx, |view, _| (view.url().unwrap().to_string(), view.previews()));
+    let regions = testing::bounds(cx, "artifact-tab-regions");
+    cx.simulate_click(regions.center(), Modifiers::none());
+    redraw(cx);
+    assert_eq!(view.read_with(cx, |view, _| view.tab_id()).as_ref(), "regions");
+    let second = view.read_with(cx, |view, _| view.url().unwrap().to_string());
+    assert_ne!(first, second, "each tab shown gets a new address");
+    let previews = previews.lock().unwrap();
+    assert_eq!(previews.len(), 1, "the tab left is released");
+    assert_eq!(previews.handle(&get(&first)).status, 404);
+    assert!(String::from_utf8(previews.handle(&get(&second)).body).unwrap().contains("<h2>Regions</h2>"));
+}
+
+#[gpui::test]
+fn the_zoom_steps_resets_and_fits(cx: &mut TestAppContext) {
+    let (panel, view, cx) = mount(cx);
+    open_tab(&panel, cx);
+    let click = |cx: &mut VisualTestContext, selector: &'static str| {
+        let at = testing::bounds(cx, selector).center();
+        cx.simulate_click(at, Modifiers::none());
+        redraw(cx);
+    };
+    click(cx, "artifact-zoom-in");
+    assert!((view.read_with(cx, |view, _| view.scale()) - ZOOM_STEP).abs() < 1e-9);
+    for _ in 0..10 {
+        click(cx, "artifact-zoom-in");
+    }
+    assert_eq!(view.read_with(cx, |view, _| view.scale()), MAX_SCALE);
+    click(cx, "artifact-zoom");
+    assert_eq!(view.read_with(cx, |view, _| view.scale()), 1.0, "the reading resets to 100%");
+    // The page reports it is wider than the panel: Fit zooms out to its width.
+    view.update(cx, |view, cx| view.on_page(PageMessage::Size { scroll_width: 1100.0, client_width: 540.0 }, cx));
+    click(cx, "artifact-fit");
+    let room = f64::from(f32::from(testing::bounds(cx, "artifact-page").size.width));
+    assert!((view.read_with(cx, |view, _| view.scale()) - room / 1100.0).abs() < 1e-6);
+    // Ctrl-wheel in the page zooms out from there, not below the minimum.
+    view.update(cx, |view, cx| view.on_page(PageMessage::Zoom { dy: 100_000.0, cx: 5.0, cy: 5.0 }, cx));
+    assert_eq!(view.read_with(cx, |view, _| view.scale()), MIN_SCALE);
+    view.update(cx, |view, cx| view.on_page(PageMessage::Fit, cx));
+    assert!((view.read_with(cx, |view, _| view.scale()) - room / 1100.0).abs() < 1e-6, "a double-click fits again");
+}
+
+#[gpui::test]
+fn an_html_reply_opens_its_page_in_the_tab(cx: &mut TestAppContext) {
+    let (panel, view, cx) = mount(cx);
+    assert_ne!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Artifact);
+    // What the card's Open calls.
+    cx.update(|_, cx| super::open(&super::card::fixture_reply().page, cx));
+    redraw(cx);
+    assert_eq!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Artifact);
+    assert!(view.read_with(cx, |view, _| view.is_shown()));
+    assert_eq!(view.read_with(cx, |view, _| view.page().id.clone()).as_ref(), REPLY_PAGE);
+    assert!(testing::bounds(cx, "artifact-title").size.width > px(0.0), "a one-tab page shows its title, no tab row");
+    assert!(cx.debug_bounds("artifact-tab-overview").is_none());
+}
+
+#[gpui::test]
+fn the_reply_card_draws_in_the_transcript(cx: &mut TestAppContext) {
+    use crate::workspace::chat::fixture::cards_demo;
+    use crate::workspace::chat::transcript::{Card, Item, Transcript};
+    let items = cards_demo();
+    let ix = items.iter().position(|item| matches!(item, Item::Card(Card::Html(_)))).expect("the cards demo has an HTML reply");
+    let (_, cx) = testing::mount_in_root(cx, move |_, cx| Transcript::with_items(items, cx));
+    cx.simulate_resize(gpui::size(px(800.0), px(9000.0)));
+    redraw(cx);
+    let open = cx.debug_bounds(testing::leak(format!("html-reply-open-{ix}"))).expect("the card draws its Open");
+    assert_eq!(open.size.height, px(28.0));
+}

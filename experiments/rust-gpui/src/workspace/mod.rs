@@ -48,7 +48,10 @@ impl Workspace {
             SidebarEvent::NewChat => this.chat.update(cx, |chat, cx| chat.composer.update(cx, |composer, cx| composer.start_new_chat(cx))),
         });
         let follow = cx.observe(&sidebar, |this, _, cx| this.follow_sidebar(None, cx));
-        Self { sidebar, chat, panel, settings, _subscriptions: vec![layout, follow, new_chat] }
+        // A web page draws over GPUI: it hides while Settings is open (src/platform/webview.rs).
+        let web = cx
+            .observe(&settings, |_, settings, cx| crate::platform::webview::set_overlay_open("settings", settings.read(cx).is_open(), cx));
+        Self { sidebar, chat, panel, settings, _subscriptions: vec![layout, follow, web, new_chat] }
     }
 
     /// A different Chat picked in the sidebar: the panel shows that Chat's tab and width. The sidebar does not

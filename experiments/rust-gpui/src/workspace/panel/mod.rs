@@ -9,6 +9,7 @@
 //!   [`body::TabPlaceholder`]s. The panel itself holds no state a body changes, so typing in the composer or a
 //!   transcript animation re-renders none of them.
 
+pub mod artifacts;
 pub mod body;
 pub mod changes;
 pub mod dock;
@@ -28,6 +29,7 @@ use gpui::{
 };
 use gpui_component::resizable::ResizableState;
 
+use self::artifacts::ArtifactsView;
 use self::body::TabPlaceholder;
 use self::changes::ChangesView;
 use self::fixture::ChatContent;
@@ -112,6 +114,7 @@ pub struct Panel {
     /// Horizontal scroll of the tab list; also used to bring a clicked tab fully into view.
     tabs_scroll: ScrollHandle,
     changes: Entity<ChangesView>,
+    artifacts: Entity<ArtifactsView>,
     terminal: Entity<TerminalPanel>,
     placeholders: HashMap<PanelTab, Entity<TabPlaceholder>>,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
@@ -139,6 +142,10 @@ impl Panel {
             resizable: cx.new(|_| ResizableState::default()),
             tabs_scroll: ScrollHandle::new(),
             changes,
+            artifacts: {
+                let panel = cx.entity();
+                cx.new(|cx| ArtifactsView::new(&panel, cx))
+            },
             terminal: cx.new(TerminalPanel::new),
             placeholders,
             renders: 0,
@@ -210,6 +217,7 @@ impl Panel {
     pub fn body_view(&self, tab: PanelTab) -> Option<AnyView> {
         match tab {
             PanelTab::Changes => Some(self.changes.clone().into()),
+            PanelTab::Artifact => Some(self.artifacts.clone().into()),
             PanelTab::Terminal => Some(self.terminal.clone().into()),
             other => self.placeholders.get(&other).map(|view| view.clone().into()),
         }

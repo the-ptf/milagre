@@ -19,7 +19,7 @@ default = ["syntect"]
 # Probe code only; the app never turns it on. The fit-check tests themselves build under `cargo test`.
 fitcheck = []
 # The D1 webview probe: gpui-webview (wry on WKWebView) behind a feature, off by default.
-webview = ["fitcheck", "dep:gpui-webview", "dep:wry"]
+webview = ["fitcheck", "dep:gpui-webview"]
 # gpui-component's syntect highlighter (and two-face's grammars): code colours in markdown, on by default.
 syntect = ["gpui-component/syntect"]
 
@@ -47,7 +47,9 @@ gpui-base = "=0.9.1"
 # The D1 probe (feature `webview`): a wry child webview in a GPUI window. Same release train as
 # gpui-component; `lb-wry` is Longbridge's wry fork that gpui-webview builds on.
 gpui-webview = { version = "=0.9.1", optional = true }
-wry = { package = "lb-wry", version = "=0.53.3", optional = true }
+# The web content host (src/platform/webview.rs, WP-34): Artifact pages in a WKWebView child view.
+# Apache-2.0 OR MIT. Was the probe's optional dependency; its tree was already in Cargo.lock.
+wry = { package = "lb-wry", version = "=0.53.3" }
 # Errors in the asset source and the data layer. Already in GPUI's tree (its `Result` is anyhow's).
 anyhow = "1"
 # A message context kind src/data does not type (`ChatContext::Other`) keeps its whole JSON object. Already in
@@ -66,6 +68,13 @@ async-channel = "2"
 [target.'cfg(target_os = "macos")'.dependencies]
 # Already in GPUI's tree at this version; used by src/snapshot.rs to find the window's NSView.
 raw-window-handle = "0.6"
+# The web content host's AppKit side (src/platform/webview.rs): the clipping NSView around the webview, its
+# appearance and first responder. All three are wry's own (MIT; Zlib OR Apache-2.0 OR MIT), no new crate.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAppearance", "NSResponder", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry"] }
+# The unguessable address of each Artifact preview (src/workspace/panel/artifacts/protocol.rs). Already in the tree.
+getrandom = "0.3"
 
 [dev-dependencies]
 # `test-support` adds GPUI's headless test platform (`#[gpui::test]`, `TestAppContext`, `debug_selector`).
