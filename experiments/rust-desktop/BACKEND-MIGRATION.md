@@ -6,11 +6,11 @@ The installed Electron app and this client share the daemon through its existing
 
 ## Current safety gate (2026-11-11)
 
-Owner root containment/outbound boundary fixes77201a3a/fc188ec6/18203711 pass77 root tests. Claude diagnostics fixff07398a passes132 tests plus8 isolated ContentOwner checks. Runtime review fixes throughb0356590 pass45 tests against them. Independent review closes these owner/Claude P2s; corrected streaming measurement passes across three alternating samples per revision with matching output digests. No live store adoption is authorized by these tests.
+The installed shell still uses the single production Node owner. Current Rust ports run on isolated capabilities and fake providers; no production ownership cutover is authorized by those tests.
 
-Registry8b2a0370 fixes outside-copy seeded paths after the prior Link/Git/pruning fixes;22 root tests pass, re-review pending. Remote re-pairing is refused by an irreversible registry removal set. The remote P2 is assigned. ACP answer observer cancellation also needs a fix before wiring. Accounts09710e8f/76c169d6 add pending creation IDs, abandonment and recoverable removal/latch semantics;34 targeted root tests pass, full matrices are agent evidence. ACP4075edf1 provides a bounded fake-only session (79 feature tests), not vendor/auth/policy wiring. [MIGRATION-STATUS.md](MIGRATION-STATUS.md) is authoritative for current validation and remaining gates; inventory counts below include historical checkpoints.
+Owner d1e38722/4e61145b pass85 root tests and release-library strict Clippy. ACP d931b872/bc77748b pass83 feature tests; usage ade6ef57 passes64. Independent review closes assigned lifecycle findings. Registry da95e712 passes23 tests and strict Clippy, and independent review closes its P2. Runtime155c4902 fixes the new AnswerForgotten integration and uses session-owned ACP receipts; all53 combined root tests pass after efc18d2c adds immediate per-slot MCP revocation. Remote749a075a passes103 tests plus4 doctests and strict Clippy. Full36 accounts tests pass, including both recovery matrices.
 
-Native Design PNG feedback and renderer state pass the fixture runtime route; automatic PNG-to-transcript persistence remains unsupported. The installed shell and production Node host remain unchanged.
+Remote removal epochs, per-key admission and joined synthetic supervision are integrated, but live persistence, routing and phone interoperability are absent. Owner handover formatting is next; runtime panic supervision remains. Remote review finds advisory-event overflow can retire the synthetic service; that fix is assigned before production wiring. Native Design PNG feedback is verified only through the fixture route; automatic transcript-image persistence remains unsupported. [MIGRATION-STATUS.md](MIGRATION-STATUS.md) records current validation and remaining gates; inventory counts below include historical checkpoints.
 
 ## What has moved
 
