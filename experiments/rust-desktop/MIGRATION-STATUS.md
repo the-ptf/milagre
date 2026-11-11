@@ -1,4 +1,4 @@
-# Integration status (2026-11-10, 23:29 local)
+# Integration status (2026-11-11, 00:08 local)
 
 Work continues on local `poc/rust-tauri-local`. Nothing is pushed. The full Rust migration is **not complete**: the installed app still uses the production Node owner. Preserve the production React UI and all retained functionality. Browser embedding, voice, floating inbox and decorative effects may be omitted. Never replace/restart the production host, take over live locks or change the native mobile fingerprint without explicit approval.
 
@@ -22,7 +22,7 @@ All Worktree suffixes above are under `/Users/victor/.milagre/worktrees/milagre-
 
 ## Installed app and real WebKit evidence
 
-Installed `~/Applications/Milagre Rust.app` uses orange R icon and bundle ID `com.milagre.rust-poc`. Shell checkpoint `440f06d1` is still current; all later changes are experimental backend/performance/docs. Installed and release Mach-O UUID is `8CDB99FC-A413-33EC-BB0B-DFD7048464E1`, signature verification passes. Full binary hashes differ after signing. Rust PID19348 started22:44:50; production daemon PID55108 started08:32:04, unchanged. Production Electron PID55099 remains separate.
+Installed `~/Applications/Milagre Rust.app` uses orange R icon and bundle ID `com.milagre.rust-poc`. Shell checkpoint `440f06d1` is still current; all later changes are experimental backend/performance/docs. Installed and release Mach-O UUID is `8CDB99FC-A413-33EC-BB0B-DFD7048464E1`, signature verification passes. Full binary hashes differ after signing. Rust PID16468 started November 10 at23:32:28; production daemon PID55108 started08:32:04, unchanged. Production Electron PID55099 remains separate.
 
 - Production React, CSS/fonts, preload API adapter, persistent Rust socket client, large-state hydration, reconnect/focus/Link restore, preference overlay, media/Artifact schemes and frame-aware navigation are implemented.
 - Native downloads/images, own-instance flock, notification suppression while Electron runs, menus/hide/reopen and configured shortcuts are implemented. Ordinary release has no sourcemaps. Native diagnostics/captures use private files.
@@ -50,18 +50,16 @@ Two real saved Designs under private `/tmp/milagre-real-design-copy` (83 layers,
 
 ## Active review gates
 
-Sonnet report `rust-owner-chathost-claude-review.md` in review Worktree:
+1. Owner lifecycle checkpoint `e1b3ea89` is integrated as `37264274`. Root51tests pass, including73 actual Node ChatHost trace steps. Every event and exit now has a TurnId; idle duplicate ends and stale generations are dropped. Periodic `tick` forces overdue interrupts, retries kept ends and pumps bounded events. Forced close and forget close sessions without reopening Projects. Sonnet re-review is pending, and runtime API adaptation is in progress.
+2. Claude's earlier analysis/Auto/cancelled-steer defects are fixed. The remaining P2 is shared count and byte budgeting across every event producer, including amplified subagent snapshots. Receiver-drop and mode-ordering fixes are assigned to Claude Chat11046. No real provider is wired.
+3. Peer protocol review found public pre-authorization reply/channel access and parsed-JSON memory amplification. Agent11150 is adding a consuming authorization boundary and streaming validation, aggregate budgets and fragment expiry. Current phone assembly limits do not resolve every desktop frame-reader issue.
+4. Codex constrained roles require independent host dispatcher policy and a production classifier. Classifier `0927a695` passes six root tests with218 Node inputs,60 adversarial cases and1000 malformed inputs. It still requires a trusted execution environment/configuration; it is not a sandbox. Content agent is implementing immutable role/manifest/wake-scope and6+2 budget enforcement before MCP dispatch. Codex agent is adding panic containment at the classifier boundary.
 
-1. Canonicalize Project paths before ChatHost run keys; otherwise aliases bypass busy/queue checks.
-2. Fix fallible event folds and discarded errors that leave runs busy; use message IDs rather than Arc identity for saved user replacement.
-3. Make Provider boundary nonblocking with explicit lifecycle/turn identity and stale-event rejection. Steps/subagents/plans/answers remain gated until ported.
-4. Claude close must cancel late handlers without killing the CLI during its session flush; broken stdin must settle accepted replies and stop the process. Bound connect-time buffering too.
-
-Codex requested-path `..`, malformed/missing paths and mode races are fixed and tested. Root asked the adapter owner to check raw cwd/root `symlink/..` as a separate case before real wiring. Port stale identities, agent-group protection and reused orphan groups are fixed; runtime may enable stop only with its extra descendant guard and real disposable-process protocol tests. No production stop was attempted.
+No real provider wiring or production owner cutover is permitted by these checkpoints. Steps/subagents/plans/answers, complete provider orchestration, account services, usage, registries, Links/Routines and phone network/service integration remain unfinished.
 
 ## Comparison Artifact and performance
 
-Artifact `1442139e`, “Milagre Rust migration: working comparison”, version2, contains six actual matching screenshots and status/screenshot/measurement tabs;340/720 widths checked. Screenshot source for Electron is the real production renderer/preload in a limited background capture shell directly connected to the unchanged owner, not the complete installed Electron main process. Rust captures come from the installed app. Source report assets are ignored under `.milagre/rust-comparison-report`.
+Artifact `1442139e`, “Milagre Rust migration: working comparison”, version3, contains six actual matching screenshots and status/screenshot/measurement tabs;340/720 widths checked. Screenshot source for Electron is the real production renderer/preload in a limited background capture shell directly connected to the unchanged owner, not the complete installed Electron main process. Rust captures come from the installed app. Source report assets are ignored under `.milagre/rust-comparison-report`.
 
 Five runs collected55 RSS samples and50 CPU intervals. Median of run RSS medians: limited Electron922.4MiB, Rust plus three verified WebKit helpers514.8MiB, shared Node owner359.8MiB. Rust had not reached steady state; other agents varied; hidden windows had different DOM visibility. These observations do not establish full-app memory reduction or speedup. Raw `/tmp/milagre-rust-paired-observation/summary.json`. Helper PID45896 was cleaned up; production remained untouched.
 
@@ -98,3 +96,14 @@ Codex `1a1a88af` integrated as `4b70d5eb`: immutable roles, constrained startup 
 Peer/phone protocol `701a322a` integrated as `2edd3b16`,18 Rust tests pass root. Agent11150 continues bounded phone HTTP/body assembly and batches with synthetic carriers only. Usage agent Chat11038 was restarted after confirmed credit failure. Do not retry indefinitely if credits fail again.
 
 Actor `a06463b4` committed: six Rust tests/seven actual Node-client suites reported, root verification running. One ChatHost/ProjectStates owner, bounded admission/ticks, snapshot publication order, closing-time lifecycle pumping, failed-publication retained FIFO/latch and retryable failed flush. Forced drop is explicitly crash-equivalent. Owner generation/deadline/forget fixes still pending. Content agent works on `rust-tools` in-process MCP content dispatch and native PNG feedback with actual schemas; no listener/live profile.
+
+## Current integration checkpoint
+
+- `85066647`: renderer and MCP callers share one content writer with immutable per-Chat grants, commit-boundary authorization leases, version conflicts, PNG outside the store lock and explicit shutdown. Root13 tool tests pass, including63 actual Node calls; content agent reports27 store tests. Runtime integration is in progress with real Node-client tests.
+- `0927a695`: native static shell classifier, six root tests pass. Source classification accepts133 and refuses85 of218 Node inputs, with11 documented stricter/corrected outcomes. It never executes commands. The parser's execution preconditions remain an owner integration gate.
+- `37264274`: owner generation/watchdog/forget safety, root51 tests pass. Runtime agent has the required `Agent`/`Exited` TurnId, `tick(now)` and force flags. Independent review assigned.
+- `a4199634`: bounded phone upload/response assembly, ordered batches, local cancellation/deadlines and lossless live-data strings. Root31 Rust tests pass. Actual Node assembles seven Rust requests and seven responses; extracted mobile dispatch matches ordered events including surrogates/PUA. The original reciprocal crypto/frame check also passes. No network or actual phone was exercised.
+
+Root logs: `/tmp/milagre-rust-owner-generation-root.log`, `/tmp/milagre-rust-remote-phone-root.log`, `/tmp/milagre-rust-shared-tools-root.log`, `/tmp/milagre-rust-command-policy-root.log`. Signature and running process check repeated: Rust16468 and production55108 unchanged, installed shell source still440f06d1. Latest saved real WebKit smoke has content/workflows/comparison passed; no interactive coverage was added this checkpoint. Heartbeat remains enabled.
+
+Current in-session agents: `runtime_resume` owns wire/runtime and is fixing bounded worker cleanup plus actor API adaptation; `content_resume` owns content/tool policy; `git_resume` owns the next isolated account metadata service checkpoint. Persistent agents10960 owner feature traces,10975 Codex images/policy,11046 Claude queue safety,11038 usage parsing,11150 peer safety,10929 review. Do not edit their in-progress files.
