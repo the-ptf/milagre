@@ -236,3 +236,34 @@ fn the_pinned_rows_start_right_under_the_header_with_no_destination_rows(cx: &mu
         assert!(cx.debug_bounds(id).is_some(), "{id} is in the top bar");
     }
 }
+
+#[gpui::test]
+fn the_done_footer_opens_a_list_and_a_done_row_opens_its_chat(cx: &mut TestAppContext) {
+    let (workspace, cx) = crate::testing::mount_workspace(cx);
+    let sidebar = workspace.read_with(cx, |w, _| w.sidebar.clone());
+    let done = sidebar.read_with(cx, |s, _| s.done_count());
+    assert!(done > 1);
+    assert!(cx.debug_bounds("done-row-0").is_none(), "folded by default");
+    let footer = cx.debug_bounds("sidebar-done").expect("the Done footer").center();
+    cx.simulate_click(footer, Modifiers::none());
+    assert!(sidebar.read_with(cx, |s, _| s.done_open()));
+    let first = cx.debug_bounds("done-row-0").expect("the list is open");
+    assert!(cx.debug_bounds("done-row-1").is_some());
+    assert!(cx.debug_bounds("done-row-30").is_none(), "the list is virtualized");
+    assert!(first.size.height <= px(30.0));
+    let key = sidebar.read_with(cx, |s, _| s.done_rows()[0].key.to_string());
+    cx.simulate_click(first.center(), Modifiers::none());
+    assert_eq!(sidebar.read_with(cx, |s, _| s.selected_row().map(|row| row.key.to_string())), Some(key.clone()));
+    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), None, "no list row is selected");
+    cx.run_until_parked();
+    let chat = workspace.read_with(cx, |w, _| w.chat.clone());
+    assert_eq!(chat.read_with(cx, |c, _| c.key().map(str::to_owned)), Some(key.clone()), "the Chat column shows it");
+    // Its menu offers Reopen, and the footer folds the list again.
+    let context = sidebar.read_with(cx, |s, _| s.menu_context(&key)).expect("a menu");
+    assert!(
+        super::menu::entries(&context).iter().any(|entry| matches!(entry, super::menu::MenuEntry::Row(item) if item.label == "Reopen"))
+    );
+    let footer = cx.debug_bounds("sidebar-done").expect("the Done footer").center();
+    cx.simulate_click(footer, Modifiers::none());
+    assert!(cx.debug_bounds("done-row-0").is_none());
+}

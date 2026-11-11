@@ -57,8 +57,8 @@ use gpui::{
 use crate::data::{Data, Polled, poll_once};
 use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::lists::order::ChatOrder;
-use crate::theme::{ActiveTheme, ROW_TWO_LINE};
-use crate::ui::{IconButton, IconButtonSize, IconName, IconSize};
+use crate::theme::{ActiveTheme, ROW_TWO_LINE, TEXT_13, TextStepExt, sidebar_step};
+use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize};
 use crate::workspace::chat::pills::bookmark::FamilyChat;
 use crate::workspace::chrome::{self, NoDrag};
 pub use actions::{Actions, ArchiveMode, ChatPatch, RecordingActions, SidebarActions, SidebarCall};
@@ -85,6 +85,13 @@ pub struct Sidebar {
     meta: Vec<RowMeta>,
     pinned: usize,
     done: usize,
+    /// The Done section's rows, most recently marked first (`DoneSection.tsx`), and whether its list is open: kept for
+    /// the session (the desktop keeps it in `milagre.sidebarDoneOpen`).
+    done_rows: Vec<ChatRow>,
+    done_open: bool,
+    /// The Done row picked: the Chat on screen while no list row is selected.
+    done_selected: Option<String>,
+    done_scroll: UniformListScrollHandle,
     selected: Option<usize>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
@@ -157,6 +164,10 @@ impl Sidebar {
             meta: Vec::new(),
             pinned: 0,
             done: 0,
+            done_rows: Vec::new(),
+            done_open: false,
+            done_selected: None,
+            done_scroll: UniformListScrollHandle::new(),
             selected: None,
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
@@ -223,9 +234,16 @@ impl Sidebar {
     fn rebuild(&mut self, select: Option<&str>) {
         let selected_key =
             select.map(str::to_owned).or_else(|| self.selected.and_then(|ix| self.rows.get(ix)).map(|row| row.key.to_string()));
+        let done_key = self.done_selected.take().filter(|_| select.is_none() && selected_key.is_none());
         let lists = list::chat_lists_with(&self.data, CHAT_ORDER, &self.opened, &self.list_filters);
         self.pinned = lists.pinned.len();
         self.done = lists.done.len();
+        self.done_rows = lists
+            .done
+            .iter()
+            .map(|item| ChatRow::with_show(&list::ShownChat { item: item.clone(), depth: 0, family: None }, &self.data, self.show))
+            .collect();
+        self.done_selected = done_key.filter(|key| self.done_rows.iter().any(|row| row.key.as_ref() == key));
         self.rows = lists.pinned.iter().chain(&lists.rows).map(|shown| ChatRow::with_show(shown, &self.data, self.show)).collect();
         self.meta = lists.pinned.iter().chain(&lists.rows).map(RowMeta::of).collect();
         self.selected = selected_key.and_then(|key| self.rows.iter().position(|row| row.key.as_ref() == key));
@@ -243,6 +261,39 @@ impl Sidebar {
     /// The row the sidebar shows at `ix` (pinned rows first).
     pub fn row(&self, ix: usize) -> Option<&ChatRow> {
         self.rows.get(ix)
+    }
+
+    /// The row of the Chat on screen: the selected list row, or the Done row picked.
+    pub fn selected_row(&self) -> Option<&ChatRow> {
+        match self.selected {
+            Some(ix) => self.rows.get(ix),
+            None => self.done_selected.as_ref().and_then(|key| self.done_rows.iter().find(|row| row.key.as_ref() == key)),
+        }
+    }
+
+    pub fn done_open(&self) -> bool {
+        self.done_open
+    }
+
+    pub fn done_rows(&self) -> &[ChatRow] {
+        &self.done_rows
+    }
+
+    /// The footer's toggle: opens or folds the Done list.
+    pub fn toggle_done(&mut self, cx: &mut Context<Self>) {
+        self.done_open = !self.done_open;
+        cx.notify();
+    }
+
+    /// A Done row clicked: its Chat opens, with no list row selected.
+    pub fn select_done(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(key) = self.done_rows.get(ix).map(|row| row.key.to_string()) else { return };
+        if let Some((view, _)) = self.selected.and_then(|row| self.row_views.get(&row)) {
+            view.update(cx, |view, cx| view.set_selected(false, cx));
+        }
+        self.selected = None;
+        self.done_selected = Some(key);
+        cx.notify();
     }
 
     /// Every Chat of every visible scope as the bookmark and the family menu read it. A Chat with a row borrows the
@@ -327,6 +378,7 @@ impl Sidebar {
             }
         }
         self.selected = Some(ix);
+        self.done_selected = None;
     }
 
     fn move_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
@@ -413,6 +465,49 @@ impl Sidebar {
 }
 
 impl Sidebar {
+    /// The Done list's rows `range`: a check, the title, and the row's menu (Reopen) on a right press.
+    fn render_done_rows(&mut self, range: Range<usize>, _window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let theme = *cx.theme();
+        range
+            .filter_map(|ix| {
+                let row = self.done_rows.get(ix)?.clone();
+                let selected = self.done_selected.as_deref() == Some(row.key.as_ref());
+                let hover = theme.hover2;
+                Some(
+                    div()
+                        .id(("done-row", ix))
+                        .debug_selector(move || format!("done-row-{ix}"))
+                        .flex()
+                        .items_center()
+                        .gap(px(10.0))
+                        .h(px(bottom::DONE_ROW))
+                        .mx(px(8.0))
+                        .px(px(8.0))
+                        .rounded(crate::theme::RADIUS_CONTROL)
+                        .cursor_pointer()
+                        .when(selected, |el| el.bg(hover))
+                        .when(!selected, |el| el.hover(move |style| style.bg(hover)))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            window.focus(&this.focus, cx);
+                            this.select_done(ix, cx);
+                        }))
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
+                                cx.stop_propagation();
+                                this.select_done(ix, cx);
+                                let key = this.done_rows[ix].key.to_string();
+                                this.open_menu_key(&key, event.position, window, cx);
+                            }),
+                        )
+                        .child(Icon::new(IconName::CheckmarkCircle02).size(IconSize::S14).color(theme.ink4))
+                        .child(div().min_w_0().truncate().text_step(sidebar_step(TEXT_13)).text_color(theme.ink3).child(row.title.clone()))
+                        .into_any_element(),
+                )
+            })
+            .collect()
+    }
+
     /// The collapsed rail's icons for the list rows `range`.
     fn render_rail(&mut self, range: Range<usize>, _window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         range
@@ -531,6 +626,20 @@ impl Render for Sidebar {
         let theme = *cx.theme();
         let pinned: Vec<AnyElement> = (0..self.pinned).map(|ix| self.row_view(ix, window, cx)).collect();
         let (footer, toast) = (self.footer(cx), self.toast_slot(cx));
+        let done = bottom::DoneSection {
+            count: self.done,
+            open: self.done_open,
+            on_toggle: {
+                let sidebar = cx.entity();
+                Rc::new(move |_, cx| sidebar.update(cx, |sidebar, cx| sidebar.toggle_done(cx)))
+            },
+            list: (self.done_open && self.done > 0).then(|| {
+                uniform_list("done-list", self.done_rows.len(), cx.processor(Self::render_done_rows))
+                    .track_scroll(&self.done_scroll)
+                    .h(px(bottom::DONE_LIST_HEIGHT.min(bottom::DONE_ROW * self.done_rows.len() as f32 + 2.0)))
+                    .into_any_element()
+            }),
+        };
         div()
             .id("sidebar")
             .key_context("Sidebar")
@@ -566,7 +675,7 @@ impl Render for Sidebar {
                     .flex_1()
                     .min_h_0(),
             )
-            .child(bottom::bottom_group(self.done, &self.data.usage, toast, footer, &theme))
+            .child(bottom::bottom_group(done, &self.data.usage, toast, footer, &theme))
             .children(self.overlays(window, cx))
             .into_any_element()
     }

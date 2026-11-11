@@ -156,8 +156,7 @@ impl Workspace {
     /// notify itself on a selection (only the two rows do, and every view above them re-renders), so `render`
     /// calls this too; it is two reads when nothing changed.
     fn follow_sidebar(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
-        let sidebar = self.sidebar.read(cx);
-        let row = sidebar.selected().and_then(|ix| sidebar.row(ix)).cloned();
+        let row = self.sidebar.read(cx).selected_row().cloned();
         let Some(row) = row else { return };
         if self.panel.read(cx).chat() != row.key.as_ref() {
             let key = row.key.clone();

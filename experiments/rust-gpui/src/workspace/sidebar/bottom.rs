@@ -15,6 +15,17 @@ use crate::theme::{TEXT_12, TEXT_13, TextStepExt, Theme, sidebar_step};
 use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, ProviderLogo};
 
 const DONE_HEIGHT: f32 = 40.0;
+/// A Done row (`h-[30px]`), and the list's most height (`max-h-[186px]`).
+pub const DONE_ROW: f32 = 30.0;
+pub const DONE_LIST_HEIGHT: f32 = 186.0;
+
+/// The Done section: the footer row with its count, and the list under it while it is open.
+pub struct DoneSection {
+    pub count: usize,
+    pub open: bool,
+    pub on_toggle: FooterHandler,
+    pub list: Option<AnyElement>,
+}
 const FOOTER_HEIGHT: f32 = 44.0;
 
 /// A footer button's handler.
@@ -50,7 +61,7 @@ pub const FOOTER_BAR: f32 = FOOTER_HEIGHT;
 /// The Done row, then the toast's slot, the usage block and the footer, each under a 1px `line` rule. The toast hangs
 /// from a zero-height slot between Done and the usage block, so it floats over the usage meters.
 pub fn bottom_group(
-    done_count: usize,
+    done: DoneSection,
     usage: &UsageSnapshot,
     toast: AnyElement,
     footer: Footer,
@@ -58,6 +69,7 @@ pub fn bottom_group(
 ) -> impl IntoElement + use<> {
     let rule = || div().flex_none().h(px(1.0)).w_full().bg(theme.line);
     let hover = theme.hover;
+    let DoneSection { count: done_count, open: done_open, on_toggle, list: done_list } = done;
     let done = div()
         .id("sidebar-done")
         .debug_selector(|| "sidebar-done".to_string())
@@ -69,7 +81,8 @@ pub fn bottom_group(
         .gap(px(8.0))
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
-        .child(Icon::new(IconName::ArrowRight01).color(theme.ink3))
+        .on_click(move |_, window, cx| on_toggle(window, cx))
+        .child(Icon::new(if done_open { IconName::ArrowDown01 } else { IconName::ArrowRight01 }).color(theme.ink3))
         .child(div().text_step(sidebar_step(TEXT_13)).font_weight(FontWeight::MEDIUM).text_color(theme.ink2).child("Done"))
         .child(div().text_step(sidebar_step(TEXT_13)).font_weight(FontWeight::MEDIUM).text_color(theme.ink3).child(done_count.to_string()));
     let report = usage.report();
@@ -94,6 +107,7 @@ pub fn bottom_group(
         .flex_none()
         .child(rule())
         .child(done)
+        .children(done_list)
         .child(toast)
         .child(rule())
         .child(usage)

@@ -202,16 +202,23 @@ impl Sidebar {
     /// Opens the row's menu at `at` (a Chat pending deletion has none).
     pub(super) fn open_menu(&mut self, ix: usize, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(key) = self.rows.get(ix).map(|row| row.key.to_string()) else { return };
-        if self.is_archived_key(&key) {
-            return;
+        if self.open_menu_key(&key, at, window, cx) {
+            self.select(ix, cx);
         }
-        let Some(context) = self.menu_context(&key) else { return };
+    }
+
+    /// Opens the menu of the Chat with this key (a Done row has no list index). `false` when it has none.
+    pub(super) fn open_menu_key(&mut self, key: &str, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.is_archived_key(key) {
+            return false;
+        }
+        let Some(context) = self.menu_context(key) else { return false };
         self.close_card();
         self.filters_open = None;
-        self.select(ix, cx);
         self.menu = Some(OpenMenu { context, at });
         let _ = window;
         cx.notify();
+        true
     }
 
     pub fn close_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -746,6 +753,7 @@ impl Sidebar {
             "filters-show" => self.filters_open = Some(Some(Sub::Show)),
             "filters-projects" => self.filters_open = Some(Some(Sub::Projects)),
             "filters-computers" => self.filters_open = Some(Some(Sub::Computers)),
+            "done-open" => self.done_open = true,
             "toast" => {
                 let key = self.rows[8].key.to_string();
                 self.mark_done(&key, true, cx);
