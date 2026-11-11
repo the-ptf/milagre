@@ -13,7 +13,6 @@ use std::sync::Arc;
 use milagre_owner_store::brief::fake::FakeBriefModel;
 use milagre_owner_store::brief::BriefRefused;
 use milagre_owner_store::chat_host::AnswerResult;
-use milagre_owner_store::chat_host::HandoffMode;
 use milagre_owner_store::chat_host::{
     AnswerTicket, ChatHost, MockProvider, Notice, SteeringMode, TurnId,
 };
@@ -55,7 +54,7 @@ fn host_for(
     host.register(Box::new(mock.clone()));
     host.register(Box::new(MockProvider::sharing("claude", mock)));
     host.steering = SteeringMode::Recorded;
-    host.handoff = HandoffMode::Restore;
+    host.enable_restore_for_tests().unwrap();
     host.register_brief_model(Box::new(brief.clone()));
     let counter = counter.clone();
     host.set_ids(move || {

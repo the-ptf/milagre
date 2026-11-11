@@ -183,7 +183,7 @@ fn only_admitted_worktrees_inside_the_copy_are_run_in() {
 fn the_minimal_brief_lists_the_admitted_worktrees_changes() {
     use milagre_owner_store::brief::fake::FakeBriefModel;
     use milagre_owner_store::brief::BriefRefused;
-    use milagre_owner_store::chat_host::{ChatHost, HandoffMode, MockProvider};
+    use milagre_owner_store::chat_host::{ChatHost, MockProvider};
     use milagre_owner_store::states::{ProjectStates, Timing};
     let Some((_base, copy)) = setup() else { return };
     let worktree = repository(&copy, "wt");
@@ -202,7 +202,7 @@ fn the_minimal_brief_lists_the_admitted_worktrees_changes() {
     )
     .unwrap();
     let mut host = ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0));
-    host.handoff = HandoffMode::Restore;
+    host.enable_restore_for_tests().unwrap();
     let kiro = MockProvider::new("kiro");
     host.register(Box::new(kiro.clone()));
     let brief = FakeBriefModel::default();

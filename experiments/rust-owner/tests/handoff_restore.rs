@@ -23,6 +23,11 @@ struct Copy {
 
 /// Chats 1..=n, each replied to once on Kiro, no native session left: the next send restores.
 fn copy(chats: i64) -> Copy {
+    copy_mode(chats, true)
+}
+
+/// [`copy`], with restore handoffs turned on (tests only) or left gated as in production.
+fn copy_mode(chats: i64, restore: bool) -> Copy {
     let base = tempfile::tempdir().unwrap();
     let isolation = Isolation::create(&base.path().join("copies"), &Policy::default()).unwrap();
     let project = isolation.project(Path::new("p")).unwrap();
@@ -42,7 +47,14 @@ fn copy(chats: i64) -> Copy {
     )
     .unwrap();
     let mut host = ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0));
-    host.handoff = HandoffMode::Restore;
+    assert_eq!(
+        host.handoff_mode(),
+        HandoffMode::Gated,
+        "a new host isn't gated"
+    );
+    if restore {
+        host.enable_restore_for_tests().unwrap();
+    }
     host.handoff_zone = Zone::Utc;
     let kiro = MockProvider::new("kiro");
     host.register(Box::new(kiro.clone()));
@@ -377,10 +389,24 @@ fn recovery_fails_dividers_left_preparing() {
 /// Production keeps the gate.
 #[test]
 fn the_restore_gate_stays_in_production() {
-    let mut c = copy(1);
-    c.host.handoff = HandoffMode::Gated;
+    let mut c = copy_mode(1, false);
     let refused = c.send(1, "Next").unwrap_err().to_string();
     assert!(refused.contains("handoff restore"), "{refused}");
+    // The refused attempt latches: Restore can't be turned on afterwards.
+    assert!(c.host.enable_restore_for_tests().is_err());
+    assert_eq!(c.host.handoff_mode(), HandoffMode::Gated);
+}
+
+/// Restore can be turned on only before the host has done anything: a rejected send attempt (here, before the
+/// Project is open) is enough to refuse it, as is a send that went through.
+#[test]
+fn restore_is_turned_on_only_on_a_fresh_host() {
+    let mut c = copy_mode(1, false);
+    assert_eq!(c.host.send(&json!({ "projectPath": c.project.display().to_string(), "sessionId": 1, "provider": "kiro", "model": "m", "body": "x" })).unwrap_err().code(), Some("PROJECT_NOT_READY"));
+    assert!(c.host.enable_restore_for_tests().is_err());
+    let mut fresh = copy_mode(1, false);
+    fresh.host.enable_restore_for_tests().unwrap();
+    assert_eq!(fresh.host.handoff_mode(), HandoffMode::Restore);
 }
 
 /// Send now on a message queued behind a restore being prepared: the pick is in place before the Stop, and the Stop

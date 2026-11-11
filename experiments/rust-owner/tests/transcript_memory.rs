@@ -258,7 +258,7 @@ fn transcript_jobs_stay_within_their_byte_bounds() {
             0,
         ),
     );
-    host.handoff = milagre_owner_store::chat_host::HandoffMode::Restore;
+    host.enable_restore_for_tests().unwrap();
     host.register(Box::new(milagre_owner_store::chat_host::MockProvider::new(
         "kiro",
     )));

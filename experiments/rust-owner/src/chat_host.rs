@@ -756,8 +756,10 @@ pub struct ChatHost {
     next_turn: u64,
     /// Steering: gated unless a conformance run records it (see [`SteeringMode`]).
     pub steering: SteeringMode,
-    /// Restore handoffs: gated unless a conformance run or an isolated test prepares them (see [`HandoffMode`]).
-    pub handoff: HandoffMode,
+    /// Restore handoffs: gated; only `enable_restore_for_tests` (test-fixtures) turns them on (see [`HandoffMode`]).
+    handoff: HandoffMode,
+    /// A send was attempted (rejected ones too): Restore can no longer be turned on.
+    send_attempted: bool,
     /// The time zone a transcript's Routine runs are written in (Node: the computer's).
     pub handoff_zone: handover::Zone,
     /// The worktrees Git may run in for a handoff's changed files (none until the runtime admits them).
@@ -848,6 +850,7 @@ impl ChatHost {
             next_turn: 0,
             steering: SteeringMode::Gated,
             handoff: HandoffMode::Gated,
+            send_attempted: false,
             handoff_zone: handover::Zone::Local,
             deferred: Vec::new(),
             providers_shut_down: false,
@@ -1078,6 +1081,7 @@ impl ChatHost {
 
     /// ChatHost.send / sendMessage.
     pub fn send(&mut self, request: &Value) -> Result<Sent> {
+        self.send_attempted = true;
         if let Some(delivery) = request.get("delivery").filter(|value| !value.is_null()) {
             if !matches!(delivery.as_str(), Some("queue" | "now")) {
                 return Err(StoreError::Invalid("Invalid message delivery.".into()));
@@ -3192,6 +3196,29 @@ impl ChatHost {
                 error: error.to_string(),
             }),
         }
+    }
+
+    /// Whether restore handoffs are prepared ([`HandoffMode::Restore`], tests only) or refused (production).
+    pub fn handoff_mode(&self) -> HandoffMode {
+        self.handoff
+    }
+
+    /// Tests only: prepares restore handoffs instead of refusing them. Refused once any send was attempted (rejected
+    /// ones included) or any turn, run, preparation or job exists: a host changes mode only before it has done anything.
+    #[cfg(feature = "test-fixtures")]
+    pub fn enable_restore_for_tests(&mut self) -> Result<()> {
+        if self.send_attempted
+            || self.next_turn > 0
+            || !self.runs.is_empty()
+            || !self.preparing.is_empty()
+            || !self.job_slots.is_empty()
+        {
+            return Err(StoreError::Invalid(
+                "Restore handoffs can only be turned on before the host has done anything.".into(),
+            ));
+        }
+        self.handoff = HandoffMode::Restore;
+        Ok(())
     }
 
     /// Opens a Project for this host: the only way it becomes ready, and required before any send, queued start,

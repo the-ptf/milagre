@@ -160,8 +160,10 @@ owner turn is an `Ordinary` session.
 ## Handoff (gated; contract agreed, being built)
 
 Restore only first; switch stays gated. Both gates stay until the traces and the runtime adapter are verified.
-`ChatHost::handoff` is `HandoffMode::Gated` in production; `HandoffMode::Restore` (isolated tests and conformance
-only) runs the restore lifecycle:
+The mode is private: `ChatHost::handoff_mode()` reads it (`HandoffMode::Gated` on every new host). Only
+`ChatHost::enable_restore_for_tests()` (built only with `test-fixtures`; refused once a send was attempted, rejected
+ones included, or any turn, run, preparation or job exists) turns on `HandoffMode::Restore`, which runs the restore
+lifecycle:
 
 1. `send` to a Chat whose last turn was on the same provider, with a completed reply and no native session: with the
    handover store leased and a job reservation free (else refused before anything is staged), the divider
