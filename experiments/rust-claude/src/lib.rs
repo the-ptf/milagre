@@ -20,6 +20,7 @@ pub mod mcp;
 pub mod milagre;
 pub mod process;
 pub mod protocol;
+pub mod raw_mcp;
 pub mod session;
 pub mod steps;
 pub mod subagents;

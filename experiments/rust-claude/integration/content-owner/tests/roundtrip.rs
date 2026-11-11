@@ -298,3 +298,282 @@ async fn host_role_manifest_and_budget_survive_provider_control_transport() {
     ));
     assert!(session.pid().is_none());
 }
+
+struct Observed(milagre_tools::CallReceipt);
+fn delivery(status: milagre_tools::CallStatus) -> milagre_claude::mcp::DeliveryState {
+    use milagre_claude::mcp::DeliveryState;
+    match status.mutation {
+        milagre_tools::MutationOutcome::NotAttempted => DeliveryState::NotAttempted,
+        milagre_tools::MutationOutcome::Committed => DeliveryState::Committed,
+        milagre_tools::MutationOutcome::Uncertain => DeliveryState::Uncertain,
+    }
+}
+impl milagre_claude::mcp::DispatchReceipt for Observed {
+    fn cancel(&self) -> milagre_claude::mcp::DeliveryState {
+        delivery(self.0.cancel())
+    }
+    fn status(&self) -> milagre_claude::mcp::DeliveryState {
+        delivery(self.0.status())
+    }
+}
+/// Fixture adapter for the existing owner-issued AcceptedCall. No store or replay in the provider.
+struct ReceiptDispatch {
+    dispatcher: Arc<Dispatcher>,
+    observed: Arc<Mutex<Option<milagre_tools::CallReceipt>>>,
+    hold_completed_reply: bool,
+    calls: Arc<AtomicUsize>,
+}
+impl McpDispatch for ReceiptDispatch {
+    fn dispatch(&self, frame: Vec<u8>, cancel: CancelSignal) -> BoxFuture<Result<Option<Vec<u8>>, DispatchError>> {
+        self.start(frame, cancel).response
+    }
+    fn start(&self, frame: Vec<u8>, _: CancelSignal) -> milagre_claude::mcp::DispatchCall {
+        use milagre_claude::mcp::DispatchCall;
+        use milagre_owner_store::jsjson;
+        let request = jsjson::parse_bytes(&frame).unwrap();
+        let call = self.dispatcher.start_call(request["params"]["name"].as_str().unwrap(), &request["params"]["arguments"]).unwrap();
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let receipt = call.receipt();
+        *self.observed.lock().unwrap() = Some(receipt.clone());
+        let hold = self.hold_completed_reply;
+        DispatchCall {
+            receipt: Some(Arc::new(Observed(receipt))),
+            response: Box::pin(async move {
+                let result = call.wait().await;
+                if hold {
+                    std::future::pending::<()>().await;
+                }
+                Ok(Some(jsjson::to_string(&json!({"jsonrpc":"2.0","id":request["id"],"result":result})).into_bytes()))
+            }),
+        }
+    }
+}
+fn external_schema(name: &str, read: bool) -> Value {
+    json!({"name":name,"description":"Isolated fixture only","inputSchema":{"type":"object","properties":{},"additionalProperties":false},"annotations":{"readOnlyHint":read}})
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stored_utf16_surrogates_real_noncharacters_and_pua_survive_raw_cli_reply() {
+    use milagre_owner_store::jsjson;
+    let temp = tempfile::tempdir().unwrap();
+    let owner = owner(temp.path());
+    let scoped = caller(Arc::new(AtomicBool::new(true)));
+    let original_units = [0xd800, 0x61, 0xdfff, 0xdbff, 0xdffe, 0xe000, 0xf8ff]; // lone high/low, real U+10FFFE, PUA
+    let title = jsjson::from_utf16(&original_units);
+    let seed = owner.session(scoped.clone()).unwrap();
+    let saved = seed.call("artifact_show", &json!({"id":"unicode","title":title,"html":"<p>fixture</p>"})).await;
+    assert_eq!(saved["isError"], false, "{saved}");
+    let scope = owner.renderer_scope("/fixture#1", "/fixture", Arc::new(|| Ok(()))).unwrap();
+    let stored = owner.renderer(&scope, "artifact:get", &json!({"chatId":"/fixture#1","id":"unicode"})).unwrap();
+    assert_eq!(jsjson::to_utf16(stored["title"].as_str().unwrap()), original_units);
+    // A trusted read endpoint returns the actual stored title as text, not nested JSON-as-text.
+    let read_owner = owner.clone();
+    let tool = milagre_tools::RegisteredTool::new(
+        external_schema("fixture_title", true),
+        milagre_tools::ToolEffect::Read,
+        Arc::new(move |context, _| {
+            context.assert_active()?;
+            let stored = read_owner.renderer(&scope, "artifact:get", &json!({"chatId":"/fixture#1","id":"unicode"}))?;
+            Ok(json!({"content":[{"type":"text","text":stored["title"]}],"isError":false}))
+        }),
+    )
+    .unwrap();
+    let dispatcher = Arc::new(owner.host_session(scoped, PolicyOptions::default(), vec![tool]).unwrap());
+    let body = rpc(17, "tools/call", json!({"name":"fixture_title","arguments":{}}));
+    let expected = dispatcher.dispatch(&serde_json::to_vec(&body).unwrap()).await.unwrap();
+    assert!(serde_json::from_slice::<Value>(&expected).is_err(), "fixture must exercise actual lone surrogates");
+    let decoded = jsjson::parse_bytes(&expected).unwrap();
+    assert_eq!(jsjson::to_utf16(decoded["result"]["content"][0]["text"].as_str().unwrap()), original_units);
+    let worker = Worker::new(dispatcher.clone());
+    let registry = InProcessMcp::new();
+    let registration = registry.register("milagre", manifest(&dispatcher), worker.clone(), McpLimits::default()).unwrap();
+    let mut config = options(temp.path(), vec![send("unicode", body), json!({"expect_raw_mcp":String::from_utf8(expected).unwrap()})]);
+    registration.attach(&mut config).unwrap();
+    let (client, mut events) =
+        ClaudeClient::spawn(&config.launch, Handlers { mcp: config.mcp, ..Default::default() }, config.limits).unwrap();
+    loop {
+        match events.recv().await {
+            Some(ClaudeEvent::Message(v)) if v["type"] == "raw_mcp_verified" => break,
+            Some(ClaudeEvent::Diagnostic(_)) => {}
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(client.close().await.code, Some(0));
+    worker.close();
+    owner.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn timed_out_committed_artifact_reports_receipt_without_replay() {
+    let temp = tempfile::tempdir().unwrap();
+    let owner = owner(temp.path());
+    let dispatcher = Arc::new(owner.session(caller(Arc::new(AtomicBool::new(true)))).unwrap());
+    let observed = Arc::new(Mutex::new(None));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let callback = Arc::new(ReceiptDispatch {
+        dispatcher: dispatcher.clone(),
+        observed: observed.clone(),
+        hold_completed_reply: true,
+        calls: calls.clone(),
+    });
+    let registry = InProcessMcp::new();
+    let registration = registry
+        .register("milagre", manifest(&dispatcher), callback, McpLimits { timeout: Duration::from_millis(300), ..Default::default() })
+        .unwrap();
+    let mut config = options(
+        temp.path(),
+        vec![
+            send(
+                "write",
+                rpc(
+                    1,
+                    "tools/call",
+                    json!({"name":"artifact_show","arguments":{"id":"once","title":"Committed once","html":"<p>saved</p>"}}),
+                ),
+            ),
+            expect(),
+        ],
+    );
+    registration.attach(&mut config).unwrap();
+    let (client, mut events) =
+        ClaudeClient::spawn(&config.launch, Handlers { mcp: config.mcp, ..Default::default() }, config.limits).unwrap();
+    let failed = reply(&mut events).await;
+    assert_eq!(failed["error"]["data"], json!({"delivery":"committed","retry":"never_automatically"}));
+    assert_eq!(observed.lock().unwrap().as_ref().unwrap().status().mutation, milagre_tools::MutationOutcome::Committed);
+    let scope = owner.renderer_scope("/fixture#1", "/fixture", Arc::new(|| Ok(()))).unwrap();
+    assert_eq!(owner.renderer(&scope, "artifact:get", &json!({"chatId":"/fixture#1","id":"once"})).unwrap()["version"], 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(client.close().await.code, Some(0));
+    owner.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn late_external_commit_evidence_does_not_rewrite_uncertain_delivery() {
+    let temp = tempfile::tempdir().unwrap();
+    let owner = owner(temp.path());
+    let evidence = temp.path().join("external-write");
+    let written = evidence.clone();
+    let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let _release_on_failure = ReleaseWorker(release.clone());
+    let waiting = release.clone();
+    let tool = milagre_tools::RegisteredTool::new(
+        external_schema("fixture_write", false),
+        milagre_tools::ToolEffect::Write,
+        Arc::new(move |context, _| {
+            context.assert_active()?;
+            std::fs::write(&written, b"once").map_err(|_| Error::new("Fixture write failed"))?;
+            context.confirm_committed()?;
+            let (lock, wake) = &*waiting;
+            let mut ready = lock.lock().unwrap();
+            while !*ready {
+                ready = wake.wait(ready).unwrap();
+            }
+            Ok(json!({"content":[],"isError":false}))
+        }),
+    )
+    .unwrap();
+    let dispatcher = Arc::new(owner.host_session(caller(Arc::new(AtomicBool::new(true))), PolicyOptions::default(), vec![tool]).unwrap());
+    let observed = Arc::new(Mutex::new(None));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let callback = Arc::new(ReceiptDispatch {
+        dispatcher: dispatcher.clone(),
+        observed: observed.clone(),
+        hold_completed_reply: false,
+        calls: calls.clone(),
+    });
+    let registry = InProcessMcp::new();
+    let registration = registry
+        .register("milagre", manifest(&dispatcher), callback, McpLimits { timeout: Duration::from_millis(300), ..Default::default() })
+        .unwrap();
+    let mut config =
+        options(temp.path(), vec![send("write", rpc(1, "tools/call", json!({"name":"fixture_write","arguments":{}}))), expect()]);
+    registration.attach(&mut config).unwrap();
+    let (client, mut events) =
+        ClaudeClient::spawn(&config.launch, Handlers { mcp: config.mcp, ..Default::default() }, config.limits).unwrap();
+    let failed = reply(&mut events).await;
+    // Always release the owner worker before assertions, including on failure.
+    *release.0.lock().unwrap() = true;
+    release.1.notify_one();
+    assert_eq!(failed["error"]["data"], json!({"delivery":"uncertain","retry":"never_automatically"}));
+    let receipt = observed.lock().unwrap().as_ref().unwrap().clone();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if receipt.status().external == milagre_tools::ExternalCompletion::Finished(milagre_tools::MutationOutcome::Committed) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(receipt.status().mutation, milagre_tools::MutationOutcome::Uncertain);
+    assert_eq!(std::fs::read(evidence).unwrap(), b"once");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(client.close().await.code, Some(0));
+    owner.shutdown();
+}
+
+struct ReleaseWorker(Arc<(Mutex<bool>, std::sync::Condvar)>);
+impl Drop for ReleaseWorker {
+    fn drop(&mut self) {
+        *self.0 .0.lock().unwrap() = true;
+        self.0 .1.notify_all();
+    }
+}
+#[test]
+fn queued_accepted_call_cancelled_before_storage_reports_not_attempted() {
+    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).max_blocking_threads(1).enable_all().build().unwrap();
+    runtime.block_on(async {
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let release = ReleaseWorker(gate.clone());
+        let (entered, ready) = tokio::sync::oneshot::channel();
+        let blocker = tokio::task::spawn_blocking(move || {
+            entered.send(()).unwrap();
+            let mut open = gate.0.lock().unwrap();
+            while !*open {
+                open = gate.1.wait(open).unwrap();
+            }
+        });
+        ready.await.unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let owner = owner(temp.path());
+        let dispatcher = Arc::new(owner.session(caller(Arc::new(AtomicBool::new(true)))).unwrap());
+        let observed = Arc::new(Mutex::new(None));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let callback = Arc::new(ReceiptDispatch {
+            dispatcher: dispatcher.clone(),
+            observed: observed.clone(),
+            hold_completed_reply: false,
+            calls: calls.clone(),
+        });
+        let registry = InProcessMcp::new();
+        let registration = registry
+            .register("milagre", manifest(&dispatcher), callback, McpLimits { timeout: Duration::from_millis(100), ..Default::default() })
+            .unwrap();
+        let mut config = options(
+            temp.path(),
+            vec![
+                send(
+                    "queued",
+                    rpc(1, "tools/call", json!({"name":"artifact_show","arguments":{"id":"never","title":"Never","html":"<p>never</p>"}})),
+                ),
+                expect(),
+            ],
+        );
+        registration.attach(&mut config).unwrap();
+        let (client, mut events) =
+            ClaudeClient::spawn(&config.launch, Handlers { mcp: config.mcp, ..Default::default() }, config.limits).unwrap();
+        let failed = reply(&mut events).await;
+        drop(release);
+        blocker.await.unwrap();
+        assert_eq!(failed["error"]["data"], json!({"delivery":"not_attempted","retry":"never_automatically"}));
+        let receipt = observed.lock().unwrap().as_ref().unwrap().clone();
+        assert_eq!(receipt.status().phase, milagre_tools::CallPhase::CancelledBeforeStart);
+        assert_eq!(receipt.status().mutation, milagre_tools::MutationOutcome::NotAttempted);
+        let scope = owner.renderer_scope("/fixture#1", "/fixture", Arc::new(|| Ok(()))).unwrap();
+        assert_eq!(owner.renderer(&scope, "artifact:list", &json!({"chatId":"/fixture#1"})).unwrap(), json!([]));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(client.close().await.code, Some(0));
+        owner.shutdown();
+    });
+}

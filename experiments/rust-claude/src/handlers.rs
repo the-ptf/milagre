@@ -91,6 +91,11 @@ pub trait HookHandler: Send + Sync + 'static {
 /// response (the transport then acks with an empty result, as the Python SDK does).
 pub trait McpHandler: Send + Sync + 'static {
     fn message(&self, message: McpMessage, cancel: CancelSignal) -> BoxFuture<Result<Option<Value>, String>>;
+    /// Native transport prefers this path. Existing Value handlers remain source-compatible.
+    fn wire_message(&self, message: McpMessage, cancel: CancelSignal) -> BoxFuture<Result<Option<crate::raw_mcp::McpReply>, String>> {
+        let work = self.message(message, cancel);
+        Box::pin(async move { work.await.map(|reply| reply.map(crate::raw_mcp::McpReply::Json)) })
+    }
 }
 
 /// Any other CLI-originated request (`elicitation`, `request_user_dialog`, future subtypes).

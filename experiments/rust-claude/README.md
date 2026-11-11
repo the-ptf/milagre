@@ -109,14 +109,34 @@ registration.attach(&mut options)?;
 
 The provider owns no content store and never retries a callback. The owner supplies policy and
 bounded scheduling; callback failures use static `DispatchError` variants. Default bridge limits
-are 8 active calls, 6,065,536 request bytes, 32 MiB reply bytes and 60 seconds. Transport frame
-limits also apply. `tools/list` must match the registered names/read-only effects exactly; only
+are 8 active calls, 6,065,536 request bytes, 4 MiB per reply, 32 MiB shared reply-buffer capacity
+and 60 seconds. Each accepted call reserves twice its maximum reply size before dispatch, covering
+raw input plus replacement/framing allocation. The reservation follows the reply through the
+control queue and stdin write, including cancellation and error paths. Thus the default byte cap
+allows at most four maximum-sized replies even though the call-count ceiling is eight. Small
+control envelopes, bounded protocol indexes, request buffers and owner callback allocations are
+separate; the owner must bound its own work. Transport frame limits also apply. `tools/list` must match the registered names/read-only effects exactly; only
 read-only tools are preallowed. Attach rejects conflicting server names, handlers and manifest
 cache overrides before mutating options. External server configuration is preserved.
 
 A handler is pinned to its registration generation. Revoke, callback cancellation or future drop
 can discard a response after its mutation committed. This does not undo owner writes and must not
 trigger automatic replay. A new same-name registration does not grant anything to the old handler.
+`McpDispatch::start` may return a `DispatchCall` with an owner-backed `DispatchReceipt`.
+Map the owner's `CallReceipt.cancel().mutation` and `status().mutation` to typed `DeliveryState`;
+keep late `external` evidence separate. Every bridge error carries static `error.data.delivery`
+(`not_attempted`, `committed` or `uncertain`) and `retry: never_automatically`. Missing evidence,
+receipt panics and callback panics remain uncertain after dispatch. Timeout does not change a
+committed write into a failed mutation, and late external evidence never rewrites a delivered
+uncertain result. Keep the owner receipt if later reconciliation is needed.
+
+Native transport calls `McpHandler::wire_message`; its default adapts existing Value handlers.
+The bridge sends raw validated JSON without decoding content strings or using surrogate sentinels.
+Lone UTF-16 surrogate escapes, real U+10FFFE and PUA survive exactly. `tools/list` indexes only
+bounded protocol fields and adds load metadata in one bounded serialization pass; nested schemas
+and descriptions remain raw. Ordinary tool replies are compacted in place for NDJSON. Direct
+legacy `message()` callers still receive Value and cannot represent lone surrogates; use the wire
+path. Incoming CLI frames still use serde Value, so lone-surrogate request arguments remain a gap.
 Notifications get a control acknowledgement without a JSON-RPC result. Analysis remains refused.
 See [INTEGRATION-GAPS.md](INTEGRATION-GAPS.md) for owner obligations and unsupported integration.
 
@@ -126,7 +146,7 @@ Run the real isolated ContentOwner tests (temporary storage, fake CLI, no provid
 python3 experiments/rust-claude/scripts/test-content-owner.py
 ```
 
-This snapshots `rust-tools`, `rust-content-store` and `rust-owner` from `1e69dd81` into a temporary
+This snapshots `rust-tools`, `rust-content-store` and `rust-owner` from `afba0d21` into a temporary
 directory and copies this crate beside them. Pass a revision argument to test a later owner.
 The separate `integration/content-owner` workspace keeps owner dependencies out of base builds.
 

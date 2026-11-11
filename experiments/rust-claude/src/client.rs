@@ -252,7 +252,7 @@ enum WriterCmd {
         written: Arc<AtomicBool>,
     },
     /// A reply to a CLI request (reserved lane). Losing one is fatal.
-    Reply(Vec<u8>),
+    Reply(crate::raw_mcp::EncodedReply),
     End,
 }
 
@@ -801,6 +801,7 @@ async fn writer_loop(shared: Arc<Shared>, stdin: ChildStdin, mut user: mpsc::Rec
             _ = exit.changed() => return,
         };
         let Some(command) = command else { return };
+        let mut _reservation = None;
         let bytes = match command {
             WriterCmd::Frame(bytes) => bytes,
             WriterCmd::Request { id, bytes, written } => {
@@ -810,7 +811,9 @@ async fn writer_loop(shared: Arc<Shared>, stdin: ChildStdin, mut user: mpsc::Rec
                 written.store(true, Ordering::SeqCst);
                 bytes
             }
-            WriterCmd::Reply(bytes) => {
+            WriterCmd::Reply(reply) => {
+                _reservation = reply.reservation;
+                let bytes = reply.bytes;
                 if shared.closing.load(Ordering::SeqCst) {
                     continue;
                 }
@@ -977,7 +980,11 @@ fn dispatch(shared: &Arc<Shared>, handlers: &Handlers, request: IncomingRequest)
 }
 
 /// `None`: no reply at all.
-async fn handle(handlers: Handlers, request: IncomingRequest, cancel: CancelSignal) -> Option<Result<Value, String>> {
+enum ReplyPayload {
+    Json(Value),
+    Mcp(crate::raw_mcp::McpReply),
+}
+async fn handle(handlers: Handlers, request: IncomingRequest, cancel: CancelSignal) -> Option<Result<ReplyPayload, String>> {
     let IncomingRequest { request_id, subtype, request, .. } = request;
     match subtype.as_str() {
         "can_use_tool" => {
@@ -991,7 +998,7 @@ async fn handle(handlers: Handlers, request: IncomingRequest, cancel: CancelSign
                 (_, Some(permissions)) => permissions.can_use_tool(parsed, cancel).await,
                 _ => Err("canUseTool callback is not provided".into()),
             };
-            Some(result.map(|result| result.to_payload(&input)))
+            Some(result.map(|result| ReplyPayload::Json(result.to_payload(&input))))
         }
         "hook_callback" => {
             let parsed = match HookCallback::from_request(&request_id, &request) {
@@ -999,7 +1006,7 @@ async fn handle(handlers: Handlers, request: IncomingRequest, cancel: CancelSign
                 Err(error) => return Some(Err(error)),
             };
             match &handlers.hooks {
-                Some(hooks) => Some(hooks.call(parsed, cancel).await),
+                Some(hooks) => Some(hooks.call(parsed, cancel).await.map(ReplyPayload::Json)),
                 None => Some(Err(format!("No hook callback found for ID: {}", parsed.callback_id))),
             }
         }
@@ -1008,18 +1015,23 @@ async fn handle(handlers: Handlers, request: IncomingRequest, cancel: CancelSign
                 Ok(parsed) => parsed,
                 Err(error) => return Some(Err(error)),
             };
+            use crate::raw_mcp::McpReply;
             let reply = match &handlers.mcp {
-                None => parsed.unknown_server(),
-                Some(mcp) => match mcp.message(parsed.clone(), cancel).await {
-                    Ok(Some(reply)) => reply,
-                    Ok(None) => protocol::mcp_notification_ack(),
-                    Err(error) => parsed.internal_error(&error),
-                },
+                None => McpReply::Json(parsed.unknown_server()),
+                Some(mcp) => {
+                    // Retain only the small RPC id for a possible error, not a cloned request payload.
+                    let id = parsed.message.get("id").cloned().unwrap_or(Value::Null);
+                    match mcp.wire_message(parsed, cancel).await {
+                        Ok(Some(reply)) => reply,
+                        Ok(None) => McpReply::Json(protocol::mcp_notification_ack()),
+                        Err(error) => McpReply::Json(json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":error}})),
+                    }
+                }
             };
-            Some(Ok(json!({ "mcp_response": reply })))
+            Some(Ok(ReplyPayload::Mcp(reply)))
         }
         _ => match &handlers.other {
-            Some(other) => other.request(subtype, request, cancel).await.transpose(),
+            Some(other) => other.request(subtype, request, cancel).await.map(|reply| reply.map(ReplyPayload::Json)).transpose(),
             None if subtype == "request_user_dialog" => None,
             None => Some(Err(format!("Unsupported control request subtype: {subtype}"))),
         },
@@ -1028,24 +1040,37 @@ async fn handle(handlers: Handlers, request: IncomingRequest, cancel: CancelSign
 
 /// Queue a reply on the reserved lane. A reply that cannot be delivered stops the process: the CLI
 /// would otherwise wait on it forever.
-async fn write_reply(shared: &Shared, request_id: &str, reply: Option<Result<Value, String>>) {
+async fn write_reply(shared: &Shared, request_id: &str, reply: Option<Result<ReplyPayload, String>>) {
+    use crate::raw_mcp::{EncodedReply, McpReply};
     if shared.closing.load(Ordering::SeqCst) {
         return;
     }
     let frame = match reply {
         None => return,
-        Some(Ok(payload)) => protocol::success_response(request_id, payload),
-        Some(Err(error)) => protocol::error_response(request_id, &error),
+        Some(Ok(ReplyPayload::Mcp(McpReply::Raw(raw)))) => raw.frame(request_id, shared.limits.max_outgoing_frame_bytes),
+        reply => {
+            let frame = match reply {
+                Some(Ok(ReplyPayload::Json(payload))) => protocol::success_response(request_id, payload),
+                Some(Ok(ReplyPayload::Mcp(McpReply::Json(payload)))) => {
+                    protocol::success_response(request_id, json!({"mcp_response":payload}))
+                }
+                Some(Err(error)) => protocol::error_response(request_id, &error),
+                _ => unreachable!(),
+            };
+            frame::encode(&frame, shared.limits.max_outgoing_frame_bytes).map(|bytes| EncodedReply { bytes, reservation: None })
+        }
     };
-    let bytes = frame::encode(&frame, shared.limits.max_outgoing_frame_bytes).unwrap_or_else(|size| {
-        // Too large to send as is: answer with an error so the CLI is not left waiting.
-        let fallback = protocol::error_response(request_id, &format!("reply of {size} bytes exceeds the frame limit"));
-        frame::encode(&fallback, usize::MAX).expect("small frame")
+    let reply = frame.unwrap_or_else(|size| {
+        let fallback = protocol::error_response(
+            request_id,
+            &format!("reply of {size} bytes exceeds the frame limit; delivery is uncertain, do not replay mutations"),
+        );
+        EncodedReply { bytes: frame::encode(&fallback, usize::MAX).expect("small frame"), reservation: None }
     });
     if shared.exit_rx.borrow().is_some() {
         return;
     }
-    let error = match shared.control.try_send(WriterCmd::Reply(bytes)) {
+    let error = match shared.control.try_send(WriterCmd::Reply(reply)) {
         Ok(()) => return,
         Err(mpsc::error::TrySendError::Full(_)) => "the reply lane is full",
         Err(mpsc::error::TrySendError::Closed(_)) => "stdin is gone",

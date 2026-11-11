@@ -52,12 +52,23 @@ Bytes already handed to the transport cannot be recalled. Notifications return t
 control acknowledgement, without waiting for a JSON-RPC reply.
 
 Eight fake-CLI bridge tests cover lifecycle, exact manifests, static errors, conflicts and limits.
-Three separate integration tests exercise actual ContentOwner initialize/list/call/schema errors,
-notifications, revocation/shutdown, shared renderer visibility and the escalation 6+2 budget.
-`scripts/test-content-owner.py` builds those against pinned source `1e69dd81` in a temporary snapshot.
+Seven separate integration tests exercise actual ContentOwner initialize/list/call/schema errors,
+notifications, revocation/shutdown, shared renderer visibility, the escalation 6+2 budget, stored
+UTF-16 content, cancelled queued calls, committed mutations and late external outcome evidence.
+`scripts/test-content-owner.py` builds those against pinned source `afba0d21` in a temporary snapshot.
 The base crate has no ContentOwner dependency. One attached in-process handler per session is
 supported; multi-handler composition, full host chat/worktree tools, account-specific discovery,
 production owner worker and runtime adapter remain outside this checkpoint.
+
+The callback can expose an owner-backed `DispatchReceipt` through `McpDispatch::start` without
+changing existing `dispatch` implementations. Errors carry typed delivery evidence as static JSON
+data and never authorize automatic replay. `CallStatus.external` is independent late evidence;
+the adapter maps `mutation` and preserves the uncertainty already delivered to its caller.
+Raw outbound replies avoid Value reparsing and keep lone surrogates, U+10FFFE and PUA losslessly.
+Reply-buffer reservations cover two maximum-sized buffers per admitted call and remain held
+until stdin delivery or discard. Defaults are 4 MiB per reply and 32 MiB shared capacity; owner
+work/request memory and small protocol headers/indexes have separate bounds. Incoming lone-surrogate
+arguments and direct legacy Value-returning handler calls remain unsupported.
 
 Analysis-only startup remains refused. Host read-only roles alone cannot restrict native Claude
 commands/settings/plugins; the full constrained launch policy must land before enabling them.

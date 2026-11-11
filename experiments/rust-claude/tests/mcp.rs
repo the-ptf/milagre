@@ -147,8 +147,14 @@ async fn typed_errors_panics_and_invalid_payloads_never_expose_callback_details(
         } else {
             "Host MCP returned an invalid response."
         };
-        run(vec![request("x", rpc(1, "tools/list")), expect(1, "error", json!({"code":-32603,"message":message}))], registration.handler())
-            .await;
+        run(
+            vec![
+                request("x", rpc(1, "tools/list")),
+                expect(1, "error", json!({"code":-32603,"message":message,"data":{"delivery":"uncertain","retry":"never_automatically"}})),
+            ],
+            registration.handler(),
+        )
+        .await;
     }
 }
 
@@ -355,5 +361,5 @@ async fn pinned_handler_rejects_other_server_without_dispatch() {
     let registration = registry.register("milagre", tools(), echo(), McpLimits::default()).unwrap();
     let mut message = request("wrong", rpc(1, "ping"));
     message["request"]["request"]["server_name"] = json!("other");
-    run(vec![message, expect(1, "error", json!({"code":-32601,"message":"MCP server is not registered."}))], registration.handler()).await;
+    run(vec![message, expect(1, "error", json!({"code":-32601,"message":"MCP server is not registered.","data":{"delivery":"not_attempted","retry":"never_automatically"}}))], registration.handler()).await;
 }

@@ -26,6 +26,7 @@
 //!   {"wait_eof": true}                 read stdin until EOF, then write {"type":"fake_eof"}
 //! `FAKE_CLAUDE_NO_STDIN=1` never reads stdin (for backpressure tests); `FAKE_CLAUDE_STDIN_DELAY_MS=n`
 //! starts reading it only after n ms.
+//!   {"expect_raw_mcp": "<JSON>"}      compare opaque reply bytes; accepts lone surrogate escapes
 //!   {"expect_skip": {"type": t}}       read frames, skipping `user` ones, until one of type t; writes
 //!                                      {"type":"fake_received","frame":...,"skipped":n}
 //! A failed check prints to stderr and exits with status 3. After the last step the fake waits for
@@ -170,6 +171,17 @@ fn main() {
                         out.line(&json!({"type":"control_response", "response":{"subtype":"success","request_id":frame["request_id"],"response":{}}}));
                     }
                 }
+            }
+            "expect_raw_mcp" => {
+                type RawMap<'a> = std::collections::BTreeMap<String, &'a serde_json::value::RawValue>;
+                let line = lines.recv_timeout(Duration::from_secs(5)).ok().flatten().unwrap_or_else(|| fail("raw reply missing".into()));
+                let frame: RawMap<'_> = serde_json::from_str(&line).unwrap_or_else(|_| fail("raw frame invalid".into()));
+                let response: RawMap<'_> = serde_json::from_str(frame["response"].get()).unwrap();
+                let payload: RawMap<'_> = serde_json::from_str(response["response"].get()).unwrap();
+                if payload["mcp_response"].get() != arg.as_str().unwrap() {
+                    fail("raw MCP bytes differed".into());
+                }
+                out.line(&json!({"type":"raw_mcp_verified"}));
             }
             "expect_skip" => {
                 let kind = arg["type"].as_str().unwrap_or("");
