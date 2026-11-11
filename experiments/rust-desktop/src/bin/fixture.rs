@@ -1,9 +1,14 @@
 //! Separate development shell. Never install or route to the production owner.
+#[path = "../content.rs"]
+#[allow(dead_code)]
+mod content;
 #[cfg(feature = "fixture-native-smoke")]
 #[path = "../evidence.rs"]
 mod evidence;
 #[path = "../fixture_launch.rs"]
 mod fixture_launch;
+#[path = "../navigation.rs"]
+mod navigation;
 #[cfg(feature = "fixture-native-smoke")]
 #[path = "../fixture_smoke.rs"]
 mod fixture_smoke;
@@ -24,10 +29,12 @@ use tauri::{Emitter, Manager};
 struct Quit(AtomicBool);
 #[tauri::command]
 async fn daemon(
+    app: tauri::AppHandle,
     transport: tauri::State<'_, transport::Transport>,
     method: String,
     args: Value,
 ) -> Result<Value, Value> {
+    if method == "project:forget" { content::clear_previews(&app); }
     transport.call(method, args).await
 }
 #[tauri::command]
@@ -58,7 +65,12 @@ async fn smoke_result(app: tauri::AppHandle, value: String) -> Result<Value, Str
 }
 #[tauri::command]
 async fn native_call(app: tauri::AppHandle, method: String, args: Value) -> Result<Value, Value> {
+    if let Some(result) = content::invoke_fixture(&app, &method, &args).await {
+        return result;
+    }
     match method.as_str() {
+        #[cfg(feature = "fixture-content-smoke")]
+        "fixture:preview-check" => content::inspect_fixture_preview(app, args[0].as_str().unwrap_or("")).await,
         #[cfg(feature = "fixture-native-smoke")]
         "fixture:smoke-context" => app
             .state::<fixture_smoke::Smoke>()
@@ -157,8 +169,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| std::io::Error::other(e.to_string()))?;
     let owned = context.clone();
     let background = std::env::var("MILAGRE_BACKGROUND").as_deref() == Ok("1");
-    let app=tauri::Builder::default().manage(context.clone()).manage(Quit(AtomicBool::new(false)))
+    let app=content::install_fixture_artifacts(tauri::Builder::default(), context.project().to_string_lossy().into_owned()).manage(context.clone()).manage(Quit(AtomicBool::new(false)))
         .on_page_load(|webview, payload| {
+            if webview.label() != "main" || payload.url().scheme() != "tauri" || payload.url().host_str() != Some("localhost") { return; }
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) { content::clear_previews(webview.app_handle()); }
             #[cfg(feature = "fixture-native-smoke")]
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
                 if let Some(window) = webview.app_handle().get_webview_window("main") {
@@ -175,10 +189,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             app.manage(fixture_smoke::Smoke::new(&owned).map_err(std::io::Error::other)?);
             app.manage(transport::start_fixture(app.handle().clone(),owned.clone()));
             if background{app.set_activation_policy(tauri::ActivationPolicy::Accessory);}
-            let window=tauri::WebviewWindowBuilder::from_config(app.handle(),&app.config().app.windows[0])?
-                .incognito(true)
+            let window_builder=tauri::WebviewWindowBuilder::from_config(app.handle(),&app.config().app.windows[0])?
+                .initialization_script(include_str!("../../renderer/fixture-network-policy.js"));
+            #[cfg(feature = "fixture-content-smoke")]
+            let window_builder=window_builder.initialization_script(include_str!("../../renderer/fixture-reduced-motion.js"))
+                .initialization_script_for_all_frames(include_str!("../../renderer/fixture-design-observer.js"));
+            let window=window_builder.incognito(true)
                 .on_navigation(|u|u.scheme()=="tauri"&&u.host_str()==Some("localhost"))
                 .on_new_window(|_,_|tauri::webview::NewWindowResponse::Deny).build()?;
+            navigation::install(&window).map_err(std::io::Error::other)?;
             shortcuts::install(app.handle()).map_err(std::io::Error::other)?;
             use tauri::menu::{Menu,MenuItem,Submenu,PredefinedMenuItem};
             let quit=MenuItem::with_id(app,"fixture-quit","Quit Milagre Rust Fixture",true,Some("CmdOrCtrl+Q"))?;

@@ -161,7 +161,7 @@ async function run(index) {
   assert.equal(entry.report.ownerStop.ok, true);
   assert.equal(entry.report.exitCleanup.ok, true);
   assert.equal(entry.report.stages.length, 2);
-  if (entry.report.scenario === "send") {
+  if (["send", "content"].includes(entry.report.scenario)) {
     const [sent, reloaded] = entry.report.stages.map((stage) => stage.send);
     assert.equal(sent.sendClicks, 1);
     assert.equal(sent.sendCalls, 1);
@@ -177,6 +177,40 @@ async function run(index) {
     assert.deepEqual(reloaded.beforeSidebarClick, { selected: false, replyVisible: false });
     assert.equal(reloaded.sidebarClicks, 1);
     assert.deepEqual(reloaded.transcript, sent.transcript);
+  }
+  if (entry.report.scenario === "content") {
+    const [first, second] = entry.report.stages.map((stage) => stage.content);
+    assert.equal(first.stage, "complete");
+    assert.equal(second.stage, "complete");
+    assert.equal(first.retainedPreview.status, 200);
+    assert.equal(second.stalePreview.status, 404);
+    assert.equal(first.design.saveClicks, 1);
+    assert.equal(second.design.saveClicks, 0);
+    assert.deepEqual(first.design.saved, second.design.saved);
+    for (const content of [first, second]) {
+      assert.equal(content.csp.positiveInlineImage, true);
+      assert.equal(content.csp.externalImage.directive, "img-src");
+      assert.equal(content.csp.absoluteMediaScheme.directive, "img-src");
+      assert.equal(content.canvasPainted, true);
+      assert.equal(content.html.ready, true);
+      assert.equal(content.html.parentReadDenied, true);
+      assert.equal(content.html.observation.tauri, "undefined");
+      assert.equal(content.html.observation.bridge, "undefined");
+      assert.equal(content.html.observation.topReadable, false);
+      assert.equal(content.html.observation.csp.externalImage.directive, "img-src");
+      assert.equal(content.html.observation.csp.absoluteMediaScheme.directive, "img-src");
+      assert.equal(content.html.currentPreview.status, 200);
+      assert.equal(content.design.saved.version, 2);
+      for (const frame of [content.design.initialFrame, content.design.savedFrame]) {
+        assert.equal(frame.controllerReady, true);
+        assert.equal(frame.selectionVisible, true);
+        assert.ok(frame.width > 0 && frame.height > 0);
+        assert.equal(frame.tauri, "undefined");
+        assert.equal(frame.bridge, "undefined");
+        assert.equal(frame.topReadable, false);
+      }
+      assert.equal(content.design.savedFrame.text, "Rust fixture design edited in WebKit");
+    }
   }
   for (const stage of entry.report.stages) {
     assert.equal(stage.passed, true);

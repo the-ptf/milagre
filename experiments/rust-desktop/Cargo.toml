@@ -8,6 +8,7 @@ default = []
 app-fixture = ["dep:tempfile"]
 fixture-native-smoke = ["app-fixture"]
 fixture-send-smoke = ["fixture-native-smoke"]
+fixture-content-smoke = ["fixture-send-smoke"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 [dependencies]

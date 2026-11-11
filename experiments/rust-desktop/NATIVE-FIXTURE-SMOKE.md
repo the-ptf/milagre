@@ -277,3 +277,119 @@ writer attribution or comprehensive filesystem isolation. Six helper tests,
 format checks pass. Logs: `/tmp/milagre-native-click-{observer,tests,clippy}.log`.
 The default shell and production renderer source are unchanged. No fixture was
 installed, no live provider or production host was used, and nothing was pushed.
+
+## Fixture content checkpoint
+
+Build the separate shell with `--features fixture-content-smoke` and run the same
+fixed observer. It retains the scripted send and leave-and-reopen checks, then
+uses production Artifacts and Designs toolbar buttons, the real Design editor's
+Text inspector and Save button. The runtime's one SharedContent writer seeds
+`fixture-report` (HTML), `fixture-screen` (Design) and `fixture-note.txt` only in
+the generated Project. The probe does not create content through frontend stubs
+or edit the production React components.
+
+The content checks distinguish these observations:
+
+- The HTML iframe emits its production page-helper ready event. A feature-only
+  observer reads its actual heading and absence of the Tauri/renderer bridges;
+  both parent and child observe the opaque sandbox boundary.
+- The Design thumbnail reports painted. A read-only all-frame script observes
+  the real srcdoc heading, positive rendered bounds, `design-guides` created by
+  the production controller and the visible selection outline applied by that
+  controller. It does not supply content, selection, a controller or a ready
+  event. The inspector edit and save are a separate path through production UI.
+- The owner reread must return version 2 and the edited text. After main-document
+  reload the inspector, srcdoc and owner read must retain that edit, without a
+  second save or send. This is owner-read evidence, not a direct SQLite read.
+- A fresh HTML preview is opened and its native handler returns 200 immediately
+  before reload. That exact capability must return 404 afterward. These native
+  handler results are labeled as such, separately from WebKit frame rendering.
+- Actual main-document CSP violations reject an HTTPS image and an absolute-path
+  `milagre-media` image, while an inline image decodes. The fixture does not
+  register the media scheme. This is no packet capture or filesystem-isolation
+  claim. The actual HTML iframe separately reports both CSP refusals under its own restrictive policy. The Design srcdoc
+  also inherits the main document's additive fetch policy.
+
+Only the exact boolean and `: reduce` reduced-motion queries are emulated before
+React starts. Other queries use WebKit's result. This synthetic environment lets
+hidden-window transition completion reach the real panel content; decorative
+animation and system accessibility-preference parity are not tested. The fixture
+also installs the same existing frame-aware native navigation delegate as the
+default shell. Main navigation remains restricted, allowed child frames retain
+their sandbox, and new windows remain denied.
+
+Several failing runs are retained. The first content attempts, including
+`/private/tmp/milagre-native-fixture-observer-9YM5Cv/observer.json`, lacked the
+frame-aware navigation delegate and never reached an HTML iframe. The later
+`/private/tmp/milagre-native-fixture-observer-LinrbX/observer.json` negative control
+showed that the configured/custom-scheme CSP alone did not reject the HTTPS image; explicit additive meta policies now precede generated
+content. Those failed attempts are not claimed as content passes.
+
+`/private/tmp/milagre-native-fixture-observer-ubSGJL/observer.json` and
+`/private/tmp/milagre-fixture-evidence-JYdAhq/report.json` retain the next failure.
+The HTML iframe rendered and the Design save returned version 2, matching the
+owner reread, but the transcript then disappeared while Chat 1 stayed selected.
+The bounded DOM observations record reply visible at 3023 ms, absent at 3098 ms,
+and editor unmounted at 3110 ms. There were no recorded renderer errors. Source
+inspection found that the fixture's 350 ms idle unload published raw state with
+messages removed, without a negotiated lean-state marker. The production UI
+therefore treated the Chat as empty and removed its content anchor. The runtime
+fix must preserve the whole-state contract; the probe does not add keepalive
+reads or extend timing to conceal this failure.
+
+The checkpoint does not package a raster helper, claim PNG tool feedback,
+exercise real providers, or test every Design edit, comment or attachment flow.
+The saved content stays in generated profiles, and all screenshots are fixture
+test evidence rather than real-provider PR images.
+
+### Two-process content pass
+
+After owner `9389bdb4` and runtime `2c13dd74`, the 350 ms idle policy is unchanged
+and whole-client publication retains the transcript. The first corrected-runtime
+run (`/private/tmp/milagre-native-fixture-observer-IS46RH/observer.json`) kept the
+editor mounted and reached Saved version 2. Its new frame-text assertion still
+failed because the production Design renderer lays out wrapped lines in separate
+block spans. The probe now retains `rawText` and compares whitespace-normalized
+rendered text. It does not replace or modify that text.
+
+Both fresh processes passed in
+`/private/tmp/milagre-native-fixture-observer-YpZlgj/observer.json`. The evidence
+roots are `/private/tmp/milagre-fixture-evidence-Uz7hIe` and
+`/private/tmp/milagre-fixture-evidence-4QY9wO`. Each process made one scripted send
+and one Design Save before reload, then zero sends and zero saves afterward.
+The version-2 owner read, inspector and real srcdoc all retain
+`Rust fixture design edited in WebKit`; the raw rendered text is
+`Rust fixture design edited\nin WebKit`. The controller-created guides, selection
+outline and heading bounds (342 by 96 CSS pixels) are observed before and after
+reload. Both main document and actual HTML iframe report the expected HTTPS and
+media-scheme image CSP violations. The live preview handler gives 200 before
+reload and the exact old capability gives 404 afterward.
+
+The Uz7hIe native PNGs were visually inspected: before reload the Chat transcript
+and HTML page are visible together; after reload the Design editor displays the
+saved edited heading and selection outline. Each PNG is 2880 by 1800. The same
+phase is pixel-identical across the two deterministic fresh processes, so pixels
+alone do not establish process separation or reload. The observer's distinct
+profiles, PIDs and stage data establish those checks. PNG SHA-256 values:
+
+- Before reload: `1bbf00cd3757efa68ee1ed932d423b495c8d8f681cea82e342f5b6f374363c3e`
+- After reload: `475a7a4c3355ee02323e9b9af3603ded3955b10dc1e95a3650cf9b90b58354cf`
+
+Both processes exit 0 with no signal and empty stderr, report a nonpersistent
+WebKit store, and complete owner Stop plus explicit Exit cleanup. Both generated
+roots remain absent through actual 5000 ms observations. The two watched
+preference files have `no-change-observed`; attribution is unknown and
+`isolationClaim` remains false.
+
+The staged binary manifest records:
+
+- Shell: `d522c589bcbc166784f55d4e9145298819275e1c65b1710430185b46c80242d8`
+- Owner: `c62e4faf023daba9cec44273283bde5346bea61daeee319aa98fd1784d684072`
+
+Validation: 38 fixture tests pass, with one installed-host check ignored; eight
+of these cover the content boundary. Seven observer/reduced-motion tests pass.
+Strict all-target `fixture-content-smoke` Clippy, selected JavaScript lint/format
+and diff checks pass. Logs: `/tmp/milagre-content-final-tests.log`,
+`/tmp/milagre-content-final-clippy.log`, `/tmp/milagre-content-native-final.log`.
+The parent separately validates and installs the default shell. This native
+checkpoint installs nothing and never contacts the production host.

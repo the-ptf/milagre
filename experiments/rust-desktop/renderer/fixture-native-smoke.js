@@ -66,7 +66,8 @@ void (async () => {
     context = await wait(() => invoke("native_call", { method: "fixture:smoke-context", args: [] }), "native nonpersistent store");
     result.phase = context.phase;
     result.scenario = context.scenario;
-    if (context.scenario === "send" && typeof window.__fixtureSendPhase !== "function") throw Error("Fixed send probe missing");
+    if (["send", "content"].includes(context.scenario) && typeof window.__fixtureSendPhase !== "function") throw Error("Fixed send probe missing");
+    if (context.scenario === "content" && typeof window.__fixtureContentPhase !== "function") throw Error("Fixed content probe missing");
     await wait(() => window.__rustDiagnostics?.ready && document.querySelector('button[aria-label="Settings"]'), "production renderer");
     await bounded(document.fonts.ready, "fonts");
     const current = await bounded(window.milagre.getCurrentProject(), "project:current");
@@ -109,6 +110,7 @@ void (async () => {
       db.close();
     }
     if (window.__fixtureSendPhase) result.send = await window.__fixtureSendPhase(context, { bounded, wait });
+    if (window.__fixtureContentPhase) result.content = await window.__fixtureContentPhase(context, { bounded, wait });
     for (const animation of document.getAnimations()) {
       if (Number.isFinite(animation.effect?.getComputedTiming().endTime)) {
         try {
@@ -131,6 +133,7 @@ void (async () => {
   } catch (error) {
     result.error = error.message || String(error);
     if (window.__fixtureSendTrace) result.send = window.__fixtureSendTrace;
+    if (window.__fixtureContentTrace) result.content = window.__fixtureContentTrace;
   }
   result.diagnostics = {
     errors: window.__rustDiagnostics?.errors?.slice(-30),

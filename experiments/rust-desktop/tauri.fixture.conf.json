@@ -25,7 +25,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "img-src 'self' data: blob: milagre-artifact:; media-src 'self' data: blob: milagre-artifact:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; frame-src 'self' milagre-artifact:"
     }
   },
   "bundle": {

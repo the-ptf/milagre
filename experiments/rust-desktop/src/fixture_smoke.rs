@@ -21,6 +21,15 @@ pub struct Smoke {
     submitted: AtomicBool,
     report: Mutex<Value>,
 }
+fn scenario() -> &'static str {
+    if cfg!(feature = "fixture-content-smoke") {
+        "content"
+    } else if cfg!(feature = "fixture-send-smoke") {
+        "send"
+    } else {
+        "storage"
+    }
+}
 impl Smoke {
     pub fn new(context: &LaunchContext) -> Result<Self, String> {
         let temp = tempfile::Builder::new()
@@ -31,7 +40,7 @@ impl Smoke {
             .map_err(|e| e.to_string())?;
         let root = temp.keep();
         let nonce = root.file_name().unwrap().to_string_lossy().into_owned();
-        let report = json!({"schemaVersion":1,"scenario":if cfg!(feature="fixture-send-smoke") {"send"} else {"storage"},"source":"actual background WKWebView, production renderer, isolated scripted Rust owner","identity":context.smoke_identity(),"evidenceRoot":root,"passed":false,"cookies":"not tested","nativeDeallocation":"not observed","stages":[]});
+        let report = json!({"schemaVersion":1,"scenario":scenario(),"source":"actual background WKWebView, production renderer, isolated scripted Rust owner","identity":context.smoke_identity(),"evidenceRoot":root,"passed":false,"cookies":"not tested","nativeDeallocation":"not observed","stages":[]});
         let value = Self {
             root,
             nonce,
@@ -70,7 +79,7 @@ impl Smoke {
             );
         }
         Ok(
-            json!({"phase":self.phase.load(Ordering::Acquire),"nonce":self.nonce,"project":project,"scenario":if cfg!(feature="fixture-send-smoke") {"send"} else {"storage"}}),
+            json!({"phase":self.phase.load(Ordering::Acquire),"nonce":self.nonce,"project":project,"scenario":scenario()}),
         )
     }
     pub fn page_loaded(&self, window: &tauri::WebviewWindow, url: &str) {
@@ -81,6 +90,8 @@ impl Smoke {
         if self.phase.load(Ordering::Acquire) < 2 {
             #[cfg(feature = "fixture-send-smoke")]
             let _ = window.eval(include_str!("../renderer/fixture-send-smoke.js"));
+            #[cfg(feature = "fixture-content-smoke")]
+            let _ = window.eval(include_str!("../renderer/fixture-content-smoke.js"));
             let evaluated = window.eval(include_str!("../renderer/fixture-native-smoke.js"));
             if let Ok(mut report) = self.report.lock() {
                 report["probeEvaluation"] = match evaluated {
@@ -129,8 +140,12 @@ pub async fn result(app: tauri::AppHandle, value: String) -> Result<Value, Strin
     } else {
         true
     };
-    let passed =
-        result["passed"] == true && smoke.store.load(Ordering::Acquire) == 1 && scenario_ok;
+    let content_ok =
+        !cfg!(feature = "fixture-content-smoke") || result["content"]["stage"] == "complete";
+    let passed = result["passed"] == true
+        && smoke.store.load(Ordering::Acquire) == 1
+        && scenario_ok
+        && content_ok;
     let window = app
         .get_webview_window("main")
         .ok_or("Main window missing")?;
@@ -214,7 +229,7 @@ pub fn watchdog(app: tauri::AppHandle) {
 
 async fn document_probe(window: &tauri::WebviewWindow) -> Value {
     let (send, recv) = std::sync::mpsc::sync_channel(1);
-    let script = r#"({url:location.href,readyState:document.readyState,title:document.title,tauri:typeof window.__TAURI__,bridge:typeof window.milagre,probeStarted:!!window.__fixtureNativeSmoke,sendProbe:window.__fixtureSendTrace??null,rootChildren:document.getElementById('root')?.childElementCount,text:document.body?.innerText.slice(0,3000),diagnostics:window.__rustDiagnostics?{ready:window.__rustDiagnostics.ready,errors:window.__rustDiagnostics.errors.slice(-30),calls:window.__rustDiagnostics.calls.slice(-40).map(({method,error,pending})=>({method,error,pending}))}:null})"#;
+    let script = r#"({url:location.href,readyState:document.readyState,title:document.title,tauri:typeof window.__TAURI__,bridge:typeof window.milagre,probeStarted:!!window.__fixtureNativeSmoke,sendProbe:window.__fixtureSendTrace??null,contentProbe:window.__fixtureContentTrace??null,frames:[...document.querySelectorAll("iframe")].map(f=>({src:f.src,title:f.title,sandbox:f.getAttribute("sandbox")})),rootChildren:document.getElementById('root')?.childElementCount,text:document.body?.innerText.slice(0,3000),diagnostics:window.__rustDiagnostics?{ready:window.__rustDiagnostics.ready,errors:window.__rustDiagnostics.errors.slice(-30),calls:window.__rustDiagnostics.calls.slice(-40).map(({method,error,pending})=>({method,error,pending}))}:null})"#;
     if let Err(error) = window.eval_with_callback(script, move |value| {
         let _ = send.send(value);
     }) {

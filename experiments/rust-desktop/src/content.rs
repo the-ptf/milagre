@@ -43,9 +43,24 @@ struct Preview {
 struct Previews {
     entries: HashMap<String, Preview>,
     bytes: usize,
+    generation: u64,
+}
+impl Previews {
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.bytes = 0;
+        self.generation = self.generation.saturating_add(1);
+    }
+    fn admits(&self, generation: Option<u64>) -> bool {
+        self.generation != u64::MAX && generation.is_none_or(|value| value == self.generation)
+    }
 }
 #[derive(Default)]
-struct ContentState(Mutex<Previews>);
+struct ContentState {
+    previews: Mutex<Previews>,
+    fixture_project: Option<String>,
+}
+const FIXTURE_POLICY: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob: milagre-artifact:; font-src data:; media-src data: blob: milagre-artifact:; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'";
 fn failure(message: &str) -> Value {
     json!({"code":"CONTENT_ERROR","message":message})
 }
@@ -154,14 +169,14 @@ fn document(html: &str, inline: bool) -> (String, String) {
 /// Called only from the main app's privileged native command adapter.
 pub fn invoke(app: &tauri::AppHandle, method: &str, args: &Value) -> Option<Reply> {
     match method {
-        "artifact-preview:register" => Some(register(app, args)),
+        "artifact-preview:register" => Some(register(app, args, None)),
         "artifact-preview:release" => Some((|| {
             let url = args[0]
                 .as_str()
                 .ok_or_else(|| failure("Expected a preview address"))?;
             let state = app.state::<ContentState>();
             let mut state = state
-                .0
+                .previews
                 .lock()
                 .map_err(|_| failure("Preview store unavailable"))?;
             if let Some(old) = state.entries.remove(url) {
@@ -172,7 +187,7 @@ pub fn invoke(app: &tauri::AppHandle, method: &str, args: &Value) -> Option<Repl
         _ => None,
     }
 }
-fn register(app: &tauri::AppHandle, args: &Value) -> Reply {
+fn register(app: &tauri::AppHandle, args: &Value, generation: Option<u64>) -> Reply {
     let html = args[0]
         .as_str()
         .ok_or_else(|| failure("Expected artifact HTML"))?;
@@ -198,12 +213,34 @@ fn register(app: &tauri::AppHandle, args: &Value) -> Reply {
             page = rewrite_asset(&page, &asset.name, &format!("{url}/assets/{}", asset.name));
         }
     }
-    let (body, policy) = document(&page, source["inline"].as_bool() == Some(true));
+    let (mut body, mut policy) = document(&page, source["inline"].as_bool() == Some(true));
     let state = app.state::<ContentState>();
+    if state.fixture_project.is_some() {
+        policy = FIXTURE_POLICY.into();
+        // WK custom-scheme response headers alone did not enforce the fixture
+        // image policy in the native negative control. Keep an additive meta
+        // policy before any generated helper or saved document content too.
+        body.insert_str(
+            "<!doctype html>".len(),
+            &format!("<meta http-equiv=\"Content-Security-Policy\" content=\"{FIXTURE_POLICY}\">"),
+        );
+    }
+    #[cfg(feature = "fixture-content-smoke")]
+    let body = if state.fixture_project.is_some() {
+        format!(
+            "{body}<script>{}</script>",
+            include_str!("../renderer/fixture-frame-observer.js")
+        )
+    } else {
+        body
+    };
     let mut state = state
-        .0
+        .previews
         .lock()
         .map_err(|_| failure("Preview store unavailable"))?;
+    if !state.admits(generation) {
+        return Err(failure("Preview document was revoked"));
+    }
     if body.len() + state.bytes > MAX_PREVIEWS || state.entries.len() >= 128 {
         return Err(failure("Too many artifact previews are open"));
     }
@@ -218,6 +255,61 @@ fn register(app: &tauri::AppHandle, args: &Value) -> Reply {
         },
     );
     Ok(Value::String(url))
+}
+#[cfg(feature = "app-fixture")]
+#[allow(dead_code)] // This shared module is also compiled by the feature-on production bin.
+fn fixture_chat(project: &str, chat: &Value) -> bool {
+    chat.as_str()
+        .is_some_and(|chat| chat == format!("{project}#1") || chat == format!("{project}#2"))
+}
+/// The fixture owns only its two generated Chats. Even cached HTML requires a live
+/// owner read, and the fixture policy never admits external network resources.
+#[cfg(feature = "app-fixture")]
+#[allow(dead_code)] // This shared module is also compiled by the feature-on production bin.
+pub async fn invoke_fixture(app: &tauri::AppHandle, method: &str, args: &Value) -> Option<Reply> {
+    if method == "artifact-preview:register" {
+        let project = app.state::<ContentState>().fixture_project.clone()?;
+        let generation = match app.state::<ContentState>().previews.lock() {
+            Ok(state) => state.generation,
+            Err(_) => return Some(Err(failure("Preview store unavailable"))),
+        };
+        if !fixture_chat(&project, &args[1]["chatId"]) {
+            return Some(Err(failure(
+                "Preview must belong to a generated fixture Chat",
+            )));
+        }
+        if let Err(error) = app
+            .state::<crate::transport::Transport>()
+            .call("project:read".into(), json!([project]))
+            .await
+        {
+            clear_previews(app);
+            return Some(Err(error));
+        }
+        return Some(register(app, args, Some(generation)));
+    }
+    invoke(app, method, args)
+}
+#[cfg(feature = "fixture-content-smoke")]
+#[allow(dead_code)] // Native probe belongs to the separate fixture bin.
+pub async fn inspect_fixture_preview(app: tauri::AppHandle, url: &str) -> Reply {
+    if !url
+        .strip_prefix(PREFIX)
+        .is_some_and(|id| id.len() == 48 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+    {
+        return Err(failure("Expected one generated preview URL"));
+    }
+    let response = artifact(
+        app,
+        Request::builder()
+            .uri(url)
+            .body(Vec::new())
+            .map_err(|_| failure("Invalid preview URL"))?,
+    )
+    .await;
+    Ok(
+        json!({"status":response.status().as_u16(), "policy":response.headers().get("Content-Security-Policy").and_then(|v|v.to_str().ok()), "bytes":response.body().len(), "source":"native artifact protocol handler; not an observed WebKit response"}),
+    )
 }
 fn reply(status: u16, mime: &str, body: Vec<u8>, policy: &str) -> BytesResponse {
     Response::builder()
@@ -326,13 +418,24 @@ async fn artifact(app: tauri::AppHandle, request: Request<Vec<u8>>) -> BytesResp
     if request.method() != "GET" {
         return missing();
     }
+    if let Some(project) = app.state::<ContentState>().fixture_project.clone() {
+        if app
+            .state::<crate::transport::Transport>()
+            .call("project:read".into(), json!([project]))
+            .await
+            .is_err()
+        {
+            clear_previews(&app);
+            return missing();
+        }
+    }
     let url = request.uri().to_string();
     let (base, name) = url
         .split_once("/assets/")
         .map_or((url.as_str(), None), |(a, b)| (a, Some(b)));
     let entry = {
         let state = app.state::<ContentState>();
-        let Ok(state) = state.0.lock() else {
+        let Ok(state) = state.previews.lock() else {
             return missing();
         };
         state.entries.get(base).cloned()
@@ -385,6 +488,16 @@ async fn artifact(app: tauri::AppHandle, request: Request<Vec<u8>>) -> BytesResp
             return missing();
         }
         bytes.extend(chunk);
+    }
+    // A reload/release during an asset read must not turn the cloned entry into
+    // an authority that survives the document which registered it.
+    let state = app.state::<ContentState>();
+    if !state
+        .previews
+        .lock()
+        .is_ok_and(|previews| previews.entries.contains_key(base))
+    {
+        return missing();
     }
     ranged_response(&asset.mime, bytes, asset.size, chosen)
 }
@@ -468,30 +581,78 @@ fn media(request: Request<Vec<u8>>) -> BytesResponse {
 /// Call for the trusted main document only, never for Artifact child navigation.
 pub fn clear_previews(app: &tauri::AppHandle) {
     let state = app.state::<ContentState>();
-    if let Ok(mut state) = state.0.lock() {
-        *state = Previews::default();
+    if let Ok(mut state) = state.previews.lock() {
+        state.clear();
     };
 }
+fn artifact_protocol(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder.register_asynchronous_uri_scheme_protocol(
+        "milagre-artifact",
+        |context, request, responder| {
+            let app = context.app_handle().clone();
+            tauri::async_runtime::spawn(
+                async move { responder.respond(artifact(app, request).await) },
+            );
+        },
+    )
+}
+pub fn install_artifacts(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    artifact_protocol(builder.manage(ContentState::default()))
+}
+#[cfg(feature = "app-fixture")]
+#[allow(dead_code)] // This shared module is also compiled by the feature-on production bin.
+pub fn install_fixture_artifacts(
+    builder: tauri::Builder<tauri::Wry>,
+    project: String,
+) -> tauri::Builder<tauri::Wry> {
+    artifact_protocol(builder.manage(ContentState {
+        previews: Mutex::default(),
+        fixture_project: Some(project),
+    }))
+}
 pub fn install(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-    builder
-        .manage(ContentState::default())
-        .register_asynchronous_uri_scheme_protocol(
-            "milagre-artifact",
-            |context, request, responder| {
-                let app = context.app_handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    responder.respond(artifact(app, request).await)
-                });
-            },
-        )
-        .register_asynchronous_uri_scheme_protocol("milagre-media", |_, request, responder| {
+    install_artifacts(builder).register_asynchronous_uri_scheme_protocol(
+        "milagre-media",
+        |_, request, responder| {
             std::thread::spawn(move || responder.respond(media(request)));
-        })
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fixture_policy_is_offline_and_chat_binding_is_exact() {
+        assert!(!FIXTURE_POLICY.contains("https:"));
+        assert!(!FIXTURE_POLICY.contains("milagre-media:"));
+        assert!(FIXTURE_POLICY.contains("connect-src 'none'"));
+        assert!(FIXTURE_POLICY.contains("frame-src 'none'"));
+        #[cfg(feature = "app-fixture")]
+        {
+            assert!(fixture_chat("/copy/project", &json!("/copy/project#1")));
+            assert!(fixture_chat("/copy/project", &json!("/copy/project#2")));
+            for chat in [
+                Value::Null,
+                json!("/copy/project#3"),
+                json!("/copy/other#1"),
+                json!("remote|/copy/project#1"),
+            ] {
+                assert!(!fixture_chat("/copy/project", &chat));
+            }
+        }
+    }
+    #[test]
+    fn clearing_revokes_a_registration_waiting_on_readiness() {
+        let mut state = Previews::default();
+        let before = state.generation;
+        assert!(state.admits(Some(before)));
+        state.clear();
+        assert!(!state.admits(Some(before)));
+        assert!(state.admits(Some(state.generation)));
+        state.generation = u64::MAX;
+        assert!(!state.admits(Some(u64::MAX)));
+    }
     #[test]
     fn ranges_reject_overflow_and_handle_suffixes() {
         assert_eq!(range(Some("bytes=2-5"), 10), Ok(Some((2, 4))));
