@@ -22,6 +22,13 @@ An **MCP server** saved in Milagre's own list instead of a provider's config. Mi
 A git repository that has been opened in Milagre at least once. Every **Worktree** of the repository belongs to the same **Project**, whichever of its folders was opened.
 _Avoid_: folder, workspace, repo
 
+**Parent Project**:
+A **Project** whose folder holds other **Projects**, its **Sub-projects**: usually a plain folder of several repositories (a client's, a team's). Adding a folder with repositories inside offers it as one (Settings › Worktrees › Detect Sub-projects turns that off), and its ⋯ menu chooses them again later. Its own **Chats** run in its folder, listed as its workspace above its **Sub-projects**. It is on the recent list like any **Project**; its **Sub-projects** follow it there without counting against the list.
+_Avoid_: project group (code calls Named Links `projectGroups`), workspace
+
+**Sub-project**:
+A **Project** listed under its **Parent Project**, a folder inside it. In the sidebar it shows its **Worktrees**, the main checkout marked primary, each with its **Chats**. It has its own **Worktrees**, settings and **Links** like any **Project**, and runs on its **Parent Project**'s **Accounts** unless it chooses its own. A **Parent Project** and its **Sub-projects** are a family: a **Chat** in one reads, starts **Chats** in and makes **Delegations** to the others' **Worktrees** without a **Link**. It is one level deep only, so a **Sub-project** never holds **Sub-projects**. Removing it takes it off its parent's list; its folder stays.
+
 **Chats home**:
 The internal **Project** that holds a **Computer**'s **Chats** without a **Project**, one **Worktree** per **Chat**. A git repository at `~/.milagre/chats`, made on first use. Never shown as a **Project**: the UI calls it "No project" and lists its **Chats** in a **Chats** group. See ADR-0011.
 _Avoid_: quick chats, default project
@@ -73,7 +80,7 @@ A symmetric, persistent relationship between two **Link** endpoints, each a **Pr
 _Avoid_: Connection (the typed, possibly temporary relationship in spec 001, a separate feature), vínculo
 
 **Delegation**:
-A request from a **Chat** for work by another **Chat**, delivered as a message to it and carried out by that **Chat**'s own agent. The receiving **Chat** is on the other side of a **Link**, or in any **Worktree** of the requesting **Chat**'s own **Project**, which needs no **Link**. The requesting agent picks the receiving **Worktree** and **Chat**, opening a new **Chat** when none fits. It appears there as a message from the requesting **Chat**, never as the user's. If the receiving agent is mid-turn, it steers that turn; if it is waiting on the user, the **Delegation** waits too. Across a **Link**, the requesting agent never edits the other side's files itself. When the receiving agent finishes, a **Delegation report** appears in the requesting **Chat**.
+A request from a **Chat** for work by another **Chat**, delivered as a message to it and carried out by that **Chat**'s own agent. The receiving **Chat** is on the other side of a **Link**, or in any **Worktree** of the requesting **Chat**'s own **Project** or of its **Parent Project**'s family, which needs no **Link**. The requesting agent picks the receiving **Worktree** and **Chat**, opening a new **Chat** when none fits. It appears there as a message from the requesting **Chat**, never as the user's. If the receiving agent is mid-turn, it steers that turn; if it is waiting on the user, the **Delegation** waits too. Across a **Link**, the requesting agent never edits the other side's files itself. When the receiving agent finishes, a **Delegation report** appears in the requesting **Chat**.
 _Avoid_: remote edit, cross-worktree edit
 
 **Delegation report**:
@@ -131,6 +138,7 @@ _Avoid_: client (any connection to the daemon, this Mac's own window included)
 
 ## Relationships
 
+- A **Parent Project** has zero or more **Sub-projects**; a **Sub-project** belongs to exactly one **Parent Project**.
 - A **Project** has one or more **Worktrees**; an ordinary **Worktree** has one or more **Chats**. A named Link's shared **Chat** owns one **Worktree** per member **Project**.
 - A **Computer** has one **Chats home**, which holds one **Worktree** per project-less **Chat**.
 - A **Chat** has zero or more **Terminals**; each **Terminal** belongs to exactly one **Chat**.

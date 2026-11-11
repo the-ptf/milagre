@@ -1075,6 +1075,9 @@ function WorktreesSettings() {
       <Group title="Main branch">
         <MainSyncDefaultSetting />
       </Group>
+      <Group title="Add Project">
+        <DetectSubprojectsSetting />
+      </Group>
       <Group title="Storage" footer="Each Project's page sets how its new Worktrees are named and set up.">
         <Row label={CLEANUP_TITLE} description={CLEANUP_INTRO}>
           <button type="button" data-worktrees-cleanup onClick={() => setCleaning(true)} className={SECONDARY_BUTTON}>
@@ -2540,6 +2543,40 @@ export function MainSyncDefaultSetting() {
     <div data-main-sync-default>
       <Row label={MAIN_SYNC_TITLE} description={MAIN_SYNC_HINT}>
         <SettingCheckbox label={MAIN_SYNC_TITLE} checked={syncMain === true} onChange={(next) => void change(next)} />
+      </Row>
+      {error && <p className="px-4 pb-3 break-words text-12 text-red-ink">{error}</p>}
+    </div>
+  );
+}
+
+const DETECT_SUBPROJECTS_TITLE = "Detect Sub-projects";
+// Add Project's folder check (project:scan-children): kept by the daemon, so the phone's Add Project follows it too.
+export function DetectSubprojectsSetting() {
+  const [detect, setDetect] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    // An older host without the command reads as on, the default.
+    Promise.resolve()
+      .then(() => bridgeFor(null).readDetectSubprojects())
+      .then(
+        (value) => setDetect(value?.detectSubprojects !== false),
+        () => setDetect(true),
+      );
+  }, []);
+  async function change(next: boolean) {
+    setError(null);
+    setDetect(next);
+    try {
+      setDetect((await bridgeFor(null).saveDetectSubprojects(next)).detectSubprojects);
+    } catch (failure) {
+      setDetect(!next);
+      setError(ipcErrorMessage(failure));
+    }
+  }
+  return (
+    <div data-detect-subprojects>
+      <Row label={DETECT_SUBPROJECTS_TITLE} description="When a folder you add holds repositories, offer it as a Parent Project with them as Sub-projects.">
+        <SettingCheckbox label={DETECT_SUBPROJECTS_TITLE} checked={detect !== false} onChange={(next) => void change(next)} />
       </Row>
       {error && <p className="px-4 pb-3 break-words text-12 text-red-ink">{error}</p>}
     </div>

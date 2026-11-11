@@ -8,7 +8,8 @@ import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./project-list.ts";
 
 /** One Project or Link of a computer, keyed as the window keeps it (`${id}|path`, `milagre-link:${id}|uuid`). */
 /** `origin`: a Project's Git remote ("host/owner/repo"), which puts its copies on several computers under one heading. */
-export type ComputerScope = { key: string; name: string; initial: string; link: NamedProjectLink | null; computerId: string; origin?: string };
+/** `parent`: the Parent Project a Sub-project is listed under (project-list.ts nestSubprojects). */
+export type ComputerScope = { key: string; name: string; initial: string; link: NamedProjectLink | null; computerId: string; origin?: string; parent?: string };
 
 /** A computer's Projects (those not hidden) then its Links, from its own lists; main has already qualified their keys. */
 export function computerScopes(computerId: string, recent: RecentProject[], links: NamedProjectLink[]): ComputerScope[] {
@@ -22,6 +23,7 @@ export function computerScopes(computerId: string, recent: RecentProject[], link
         link: null,
         computerId,
         ...(project.origin ? { origin: project.origin } : {}),
+        ...(project.parent ? { parent: project.parent } : {}),
       })),
     ...links.filter((link) => !link.hidden).map((link) => ({ key: `milagre-link:${link.id}`, name: link.name, initial: "", link, computerId })),
   ];

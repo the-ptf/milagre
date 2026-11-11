@@ -482,6 +482,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/pr-blockers" && !(id in modules)) return require("@milagre/shared/pr-blockers");
       // /storage's name and hint, which the Chat lists beside /undo.
       if (id === "@milagre/shared/storage" && !(id in modules)) return require("../packages/shared/src/storage.ts");
+      if (id === "@milagre/shared/project-list" && !(id in modules)) return require("../packages/shared/src/project-list.ts");
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },

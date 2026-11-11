@@ -1433,5 +1433,14 @@ export type ProjectAccountScope = {
 };
 export type ProjectAccountsSnapshot = {
   scopeKey: string;
-  providers: { provider: ModelProvider; accountId: string | null; effectiveId: string; defaultId: string; accounts: ProviderAccount[] }[];
+  /** `defaultId`: what runs without a choice of the scope's own, its Parent Project's (`inheritedFrom`, a Sub-project's
+   * parent path) when that has one, else the computer default. */
+  providers: {
+    provider: ModelProvider;
+    accountId: string | null;
+    effectiveId: string;
+    defaultId: string;
+    inheritedFrom?: string;
+    accounts: ProviderAccount[];
+  }[];
 };

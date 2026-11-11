@@ -83,6 +83,7 @@ const { archiveFinishedSubagents, archiveSubagent, deleteSession, patchSession, 
 const { attentionContext, attentionNotice } = require("@milagre/shared/attention");
 const { resolveProjectImage } = require("./project-image.cjs");
 const { createProjectFinder } = require("./project-finder.cjs");
+const { createProjectTree } = require("./subprojects.cjs");
 const { saveProjectState, readProjectState, compactProjectState, stateFile } = require("./project-store.cjs");
 const { createRecentProjects, launchProject, plainFolder, rememberProject, switchTarget } = require("./recent-projects.cjs");
 const { agentFolders } = require("./agent-folders.cjs");
@@ -881,7 +882,8 @@ function createRuntime(options) {
     const { icon } = await projectSettings().get(projectPath);
     if (icon) return icon;
     await environmentReady;
-    return resolveProjectImage(projectPath);
+    // A Parent Project without a remote of its own shows its Sub-projects' owner.
+    return resolveProjectImage(projectPath, { related: (await projectTree().families()).get(projectPath) ?? [] });
   }
   commands.handle("project:image", (_event, projectPath) => projectImage(projectPath));
   // The icon the user chose in Settings, or null to go back to the repository's own.
@@ -2695,7 +2697,39 @@ function createRuntime(options) {
 
   let shownProjectPath = null;
   let recentStore = null;
-  const recentProjects = () => (recentStore ??= createRecentProjects(path.join(dataDir, "recent-projects.json")));
+  // The recent list as every reader sees it: each Parent Project followed by its Sub-projects (subprojects.cjs), so a
+  // Sub-project is known (read, switched to, resumed) wherever a recent Project is, without counting against the list.
+  const recentProjects = () => {
+    if (recentStore) return recentStore;
+    const store = createRecentProjects(path.join(dataDir, "recent-projects.json"));
+    const list = async () => projectTree().list(await store.list());
+    // Forgetting a Sub-project takes it off its parent's list; it is never on the recent list itself.
+    recentStore = {
+      ...store,
+      list,
+      forget: async (projectPath) => (await Promise.all([projectTree().remove(projectPath).then(syncParents), store.forget(projectPath)]), list()),
+    };
+    return recentStore;
+  };
+  let treeStore = null;
+  const projectTree = () =>
+    (treeStore ??= createProjectTree({
+      settings: projectSettings(),
+      open: (folder) => openProject(folder, { takeNotice: false, focus: false, remember: false }),
+      assertRegistrable: (folder) => assertRegistrableProject(folder),
+      // A Sub-project unchecked from its parent stays listed, now as a Project of its own.
+      remember: (folder) => recentProjects().add(folder),
+    }));
+  // A Sub-project's Chats run on its Parent Project's accounts unless it chooses its own (accounts.cjs), and a family's
+  // Chats reach each other's Projects (agentScope, linked's grantedProjects). Both are read synchronously, so kept here.
+  let families = new Map();
+  const familyOf = (projectPath) => families.get(projectPath) ?? [];
+  const syncParents = async () => {
+    const [parents, next] = await Promise.all([projectTree().parents(), projectTree().families()]);
+    families = next;
+    accounts.setParents(parents);
+  };
+  void syncParents().catch((error) => console.warn("Milagre couldn't read the Sub-projects:", error.message));
   let registryStore = null;
   const projectRegistry = () =>
     (registryStore ??= createProjectRegistry(path.join(dataDir, "project-registry.json"), options.registryRoots ? { roots: options.registryRoots } : {}));
@@ -2854,7 +2888,8 @@ function createRuntime(options) {
       return { path: worktree.path, branch: worktree.name };
     },
     registry: projectRegistry,
-    grantedProjects: (chatId) => localMcp.grantedProjects(chatId),
+    // A Parent Project's family is in reach like a granted Project: no Link needed between its Sub-projects.
+    grantedProjects: (chatId) => [...new Set([...localMcp.grantedProjects(chatId), ...familyOf(projectOfKey(chatId))])],
     // A named Link's member Projects, { id, name, path }, for its shared Chats' Delegations.
     linkProjects: async (linkId) => {
       const link = await linkRuntime.definition(linkId);
@@ -3209,7 +3244,12 @@ function createRuntime(options) {
     const home = project.kind === "chats";
     if (register && !home) await projectRegistry().add(identity);
     // The identity says what rememberProject would ask git again: its path is a checkout's top folder, or outside Git.
-    if (remember && !home) await rememberProject(recentProjects(), identity.path, { plain: async () => !identity.git, topLevel: async () => identity.path });
+    // A Sub-project is listed under its parent, never on the recent list itself: opening one moves its parent up instead,
+    // so a family worked in only through its Sub-projects never drops off the list.
+    const parent = remember && !home ? await projectTree().parentOf(identity.path) : null;
+    if (parent) await recentProjects().add(parent);
+    else if (remember && !home)
+      await rememberProject(recentProjects(), identity.path, { plain: async () => !identity.git, topLevel: async () => identity.path });
     if (focus) shownProjectPath = identity.path;
     // The first window to open the project after chats came back says so, once. A read at startup (resuming a turn)
     // or after removing a worktree keeps the notice for it.
@@ -3463,10 +3503,11 @@ function createRuntime(options) {
   });
   // The Chats home is a Project only to the runtime: no list shows it.
   const withoutHomes = (list) => list.filter((project) => !chatsHome.isHome(project.path));
-  // Each recent Project says whether the user hid it from the sidebar and the phone's list.
+  // Each recent Project says whether the user hid it from the sidebar and the phone's list; a hidden Parent Project
+  // hides its Sub-projects too.
   async function withHidden(list) {
     const hidden = await projectSettings().hiddenPaths();
-    return list.map((project) => (hidden.has(project.path) ? { ...project, hidden: true } : project));
+    return list.map((project) => (hidden.has(project.path) || (project.parent && hidden.has(project.parent)) ? { ...project, hidden: true } : project));
   }
   // Each Project's Git origin, so a new-chat picker shows one repository cloned on several computers as one Project.
   // Read once per folder while the runtime runs; a folder without Git, or with a local-path remote, has none.
@@ -3616,6 +3657,18 @@ function createRuntime(options) {
     localMcp.forgetProjectGrants(projectPath);
     return withHidden(await recentProjects().forget(projectPath));
   });
+  // Add Project's folder check and a Parent Project's Sub-projects (subprojects.cjs). The scan reads folder names only, as
+  // the remote folder picker (fs:list-dirs) does.
+  commands.handle("project:scan-children", (_event, folder) => projectTree().scan(folder));
+  commands.handle("project:set-subprojects", async (_event, parentPath, paths) => {
+    await knownFolder(parentPath);
+    await projectTree().set(parentPath, paths);
+    await syncParents();
+    emit("local-mcp:changed", { projectAdded: true });
+    return withOrigins(withoutHomes(await withHidden(await recentProjects().list())));
+  });
+  commands.handle("subprojects:detect:read", () => projectSettings().getDetectSubprojects());
+  commands.handle("subprojects:detect:save", (_event, value) => projectSettings().setDetectSubprojects(value !== false));
   // The phone's project search: Git repositories under the home folder, matched by name (see project-finder.cjs).
   const projectFinder = createProjectFinder(options.projectSearchRoot || require("node:os").homedir());
   commands.handle("project:find", (_event, query) => projectFinder.search(typeof query === "string" ? query.slice(0, 200) : ""));
@@ -3674,7 +3727,8 @@ function createRuntime(options) {
       if (!session || session.archived) throw Error("Chat is unavailable or archived");
       const designGrant = { designs: { chatId, designIds: "*", capabilities: ["read", "write"] } };
       // A shared Link Chat manages its Link's member Projects as an ordinary Chat manages its own Project.
-      const projectPaths = isLinkScopeKey(projectPath) ? (linkMembers.get(scopeFromKey(projectPath).linkId) ?? []) : [projectPath];
+      // A Project in a Parent Project's family manages the others too.
+      const projectPaths = isLinkScopeKey(projectPath) ? (linkMembers.get(scopeFromKey(projectPath).linkId) ?? []) : [projectPath, ...familyOf(projectPath)];
       if (!projectPaths.length) return designGrant;
       return {
         ...designGrant,

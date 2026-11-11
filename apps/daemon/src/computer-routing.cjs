@@ -84,7 +84,8 @@ const withoutHidden = (value) => {
   return rest;
 };
 const withPath = (id, item) => field(id, item, "path", key);
-const withRemotePath = (id, item) => withoutHidden(withPath(id, item));
+// A Sub-project's `parent` is a path on that computer too.
+const withRemotePath = (id, item) => withoutHidden(field(id, withPath(id, item), "parent", key));
 const withChat = (id, item) => field(id, item, "chatId", key);
 const withLink = (id, item) => withoutHidden(field(id, item, "id", linkId));
 // A Routine's and a Run's ids are 8 hex characters per Mac, so they name their computer like a chat key does. A flow Run's
@@ -152,6 +153,7 @@ const RESULTS = {
   "project:recent": PROJECT_LIST,
   "project:known": PROJECT_LIST,
   "project:forget": PROJECT_LIST,
+  "project:set-subprojects": PROJECT_LIST,
   "project:registry": PROJECT_LIST,
   "project:position": PROJECT_LIST,
   "link:list": (id, result) => each(id, result, withLink),

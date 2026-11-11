@@ -11,6 +11,7 @@ import { FIELD_LABEL, Input } from "./primitives/Field";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
 import { ScrollArea } from "./primitives/ScrollArea";
+import { useOpenFolder } from "./SubprojectsDialog";
 import { ThisComputer, isWindows, thisComputer } from "../lib/shortcut-hints";
 
 const THIS_MAC = "this-mac";
@@ -38,6 +39,8 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
   const [url, setUrl] = useState("");
   // This Mac's clone folder, from its own dialog; null is ~/Code. Another computer's is the folder on screen.
   const [parent, setParent] = useState<string | null>(null);
+  // A folder chosen on This Mac with repositories inside: the Sub-projects step takes the dialog's place.
+  const folder = useOpenFolder(onOpened, onClose);
   const reads = useRef(0);
   const computer = computers.find((item) => item.id === on);
   const reachable = computer?.state === "online";
@@ -81,8 +84,8 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
   async function chooseHere() {
     setError(null);
     try {
-      const opened = await window.milagre.openProject();
-      if (opened) onOpened(opened);
+      const chosen = await bridgeFor(null).chooseFolder("Open project");
+      if (chosen) await folder.open(chosen);
     } catch (cause) {
       setError(ipcErrorMessage(cause));
     }
@@ -124,6 +127,8 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
   }
   const crumbs = listing ? ["~", ...listing.path.slice(listing.home.length).split("/").filter(Boolean)] : [];
   const [now] = useState(() => Date.now());
+
+  if (folder.dialog) return folder.dialog;
 
   return (
     <Dialog data-add-project title="Add Project" onClose={onClose} width={520}>

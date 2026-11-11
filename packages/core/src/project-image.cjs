@@ -60,8 +60,12 @@ async function localImage(projectPath) {
 }
 
 function githubOwner(remote) {
-  // Only GitHub remotes; do not send arbitrary Git hosts to the GitHub API.
-  const match = /^(?:git@github\.com:|https:\/\/github\.com\/|ssh:\/\/git@github\.com\/)([a-zA-Z0-9-]+)\/[^/\s]+\/?$/.exec(remote);
+  // Only GitHub remotes; do not send arbitrary Git hosts to the GitHub API. An SSH host alias for a second GitHub account
+  // (git@github.com-work:owner/repo, from ~/.ssh/config) still names a GitHub owner; only that name reaches the API.
+  const match =
+    /^(?:git@github\.com(?:-[a-zA-Z0-9_.-]+)?:|https:\/\/github\.com\/|ssh:\/\/git@github\.com(?:-[a-zA-Z0-9_.-]+)?\/)([a-zA-Z0-9-]+)\/[^/\s]+\/?$/.exec(
+      remote,
+    );
   return match?.[1] ?? null;
 }
 
@@ -99,15 +103,27 @@ function avatar(account) {
   }
 }
 
-async function resolveProjectImage(projectPath, { account = githubAccount, readGit = git } = {}) {
+/**
+ * `related`: folders that speak for a Project without a GitHub remote of its own (a Parent Project's Sub-projects); the
+ * first one's GitHub owner stands in for it, so a client's folder shows the client's organization, not the user.
+ */
+async function resolveProjectImage(projectPath, { account = githubAccount, readGit = git, related = [] } = {}) {
   if (typeof projectPath !== "string" || !path.isAbsolute(projectPath)) throw new Error("An absolute project path is required");
   const image = await localImage(projectPath);
   if (image) return image;
 
-  let owner = null;
-  try {
-    owner = githubOwner(await readGit(projectPath, "remote", "get-url", "origin"));
-  } catch {}
+  const ownerOf = async (folder) => {
+    try {
+      return githubOwner(await readGit(folder, "remote", "get-url", "origin"));
+    } catch {
+      return null;
+    }
+  };
+  let owner = await ownerOf(projectPath);
+  for (const folder of related) {
+    if (owner) break;
+    owner = await ownerOf(folder);
+  }
   const ownerAccount = owner ? await account(`users/${owner}`, projectPath) : null;
   if (ownerAccount?.type === "Organization" && avatar(ownerAccount)) return avatar(ownerAccount);
   const profile = avatar(await account("user", projectPath));

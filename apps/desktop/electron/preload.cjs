@@ -194,6 +194,8 @@ function makeBridge(invoke, listen, send) {
     saveProjectGit: (projectPath, value) => invoke("project-git:save", projectPath, value),
     readMainSync: (projectPath) => invoke("main-sync:read", projectPath),
     saveMainSync: (projectPath, override) => invoke("main-sync:save", projectPath, override),
+    readDetectSubprojects: () => invoke("subprojects:detect:read"),
+    saveDetectSubprojects: (value) => invoke("subprojects:detect:save", value),
     readMainSyncDefault: () => invoke("main-sync:default:read"),
     saveMainSyncDefault: (value) => invoke("main-sync:default:save", value),
     onMainSyncStatus: (callback) => listen("main-sync:status", callback),
@@ -313,12 +315,16 @@ function makeBridge(invoke, listen, send) {
     getCurrentProject: () => invoke("project:current"),
     openProject: () => invoke("project:open"),
     /** This Mac's folder dialog without opening anything: where a clone goes. A path, or null when cancelled. */
-    chooseFolder: () => invoke("project:choose-folder"),
+    chooseFolder: (title) => invoke("project:choose-folder", title),
     /** A folder on this computer, opened as a Project without the folder dialog (the remote folder picker). */
     openProjectAt: (folder) => invoke("project:open-at", folder, { takeNotice: true }),
     listDirs: (request) => invoke("fs:list-dirs", request),
     readMedia: (request) => invoke("media:read", request),
     listRecentProjects: () => invoke("project:recent"),
+    /** The repositories and folders inside a folder, offered as Sub-projects when it is added. */
+    scanSubprojects: (folder) => invoke("project:scan-children", folder),
+    /** Makes a recent Project the Parent Project of the folders chosen inside it; an empty list makes it ordinary again. */
+    setSubprojects: (parentPath, paths) => invoke("project:set-subprojects", parentPath, paths),
     /** Every Project the computer knows, for the new-chat picker; the sidebar keeps to the recent ones. */
     listKnownProjects: () => invoke("project:known"),
     listAgentFolders: () => invoke("onboarding:agent-folders"),

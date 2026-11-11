@@ -37,6 +37,8 @@ export type RecentProject = {
   name?: string;
   hidden?: boolean;
   origin?: string;
+  /** The Parent Project this Sub-project is listed under (it follows its parent on the list). */
+  parent?: string;
   link?: NamedProjectLink;
   projects?: RegisteredProject[];
 };

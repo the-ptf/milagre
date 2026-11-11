@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import { GitForkIcon, Search01Icon } from "@hugeicons/core-free-icons";
+import { Folder01Icon, GitBranchIcon, GitForkIcon, Search01Icon } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { ProjectIcon } from "./project-icon";
 import { lineHeight, radius, type } from "./design-tokens";
-import { Field, InlineError, PillButton, pressStyle, useStyles } from "./ui";
+import { Field, InlineError, PillButton, RowCheckbox, pressStyle, useStyles } from "./ui";
 import { createStylesHook, useTheme, type Palette } from "./theme";
+import type { SubprojectScan } from "@milagre/shared/project-list";
 
 type Found = { path: string; name: string };
+
 type Results = { query: string; items: Found[]; error?: string };
 
 /** A home-folder path as the Mac's Finder would show it. */
@@ -25,6 +27,20 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Results | null>(null);
   const [cloning, setCloning] = useState(false);
+  // A typed folder with repositories inside: the Sub-projects step takes the search's place.
+  const [scan, setScan] = useState<SubprojectScan | null>(null);
+  const [checking, setChecking] = useState(false);
+  // A typed path is checked for repositories inside it first (the Mac's Settings › Worktrees › Detect Sub-projects can
+  // turn that off); a computer whose Milagre can't check opens it as one Project, as before.
+  async function openTyped(folder: string) {
+    if (!client || checking) return;
+    setChecking(true);
+    const found = await client.call<SubprojectScan>("project:scan-children", [folder]).catch(() => null);
+    setChecking(false);
+    // A repository with repositories inside (submodules, a monorepo) opens as one Project.
+    if (found?.detect && !found.git && found.children.some((child) => child.git)) setScan(found);
+    else onOpen(folder);
+  }
   useEffect(() => {
     if (!client || cloning) return;
     let live = true;
@@ -55,6 +71,7 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
     };
   }, [client, query, cloning]);
   if (cloning) return <CloneForm onBack={() => setCloning(false)} onOpen={onOpen} />;
+  if (scan) return <SubprojectsForm scan={scan} onBack={() => setScan(null)} onOpen={onOpen} />;
   const typed = query.trim();
   const path = typed.startsWith("/") ? typed : "";
   const recent = new Set(session.recent.map((item) => item.path));
@@ -77,7 +94,7 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
           clearButtonMode="while-editing"
           returnKeyType="go"
           onSubmitEditing={() => {
-            if (path) onOpen(path);
+            if (path) void openTyped(path);
             else if (current?.items[0]) onOpen(current.items[0].path);
           }}
         />
@@ -97,7 +114,9 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
               detail="From a GitHub or Git address"
               onPress={() => setCloning(true)}
             />
-            {path ? <Row title={`Open ${shortPath(path)}`} detail="Full path" onPress={() => onOpen(path)} /> : null}
+            {path ? (
+              <Row title={`Open ${shortPath(path)}`} detail={checking ? "Checking the folder…" : "Full path"} onPress={() => void openTyped(path)} />
+            ) : null}
           </>
         }
         ListEmptyComponent={
@@ -189,7 +208,87 @@ function CloneForm({ onBack, onOpen }: { onBack: () => void; onOpen: (path: stri
   );
 }
 
-function Row({ icon, title, detail, onPress }: { icon?: React.ReactNode; title: string; detail: string; onPress: () => void }) {
+/**
+ * Adds a folder with repositories inside as a Parent Project: each repository starts checked, other folders unchecked,
+ * as desktop's Add Project does. "Open as one Project" skips the grouping.
+ */
+function SubprojectsForm({ scan, onBack, onOpen }: { scan: SubprojectScan; onBack: () => void; onOpen: (path: string) => void }) {
+  const client = useSession().client;
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [selected, setSelected] = useState<string[]>(() => scan.children.filter((child) => child.chosen).map((child) => child.path));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const name = scan.folder.split("/").findLast(Boolean) ?? scan.folder;
+  const chosen = scan.children.map((child) => child.path).filter((path) => selected.includes(path));
+  const toggle = (path: string) => setSelected((current) => (current.includes(path) ? current.filter((item) => item !== path) : [...current, path]));
+  async function add(grouped: boolean) {
+    if (!client || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      if (!grouped) {
+        onOpen(scan.folder);
+        return;
+      }
+      const opened = await client.call<{ path: string }>("project:open", [scan.folder]);
+      await client.call("project:set-subprojects", [opened.path, chosen]);
+      onOpen(opened.path);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
+  return (
+    <View style={{ flex: 1 }}>
+      <Text style={[styles.muted, { paddingHorizontal: 16, paddingBottom: 12 }]}>
+        {`${name} holds ${scan.children.filter((child) => child.git).length} repositories. Add it as a Parent Project with the ones you check as its Sub-projects, each with its own Worktrees and Chats.`}
+      </Text>
+      <FlatList
+        data={scan.children}
+        keyExtractor={(item) => item.path}
+        contentContainerStyle={{ paddingHorizontal: 4, paddingBottom: 12 }}
+        renderItem={({ item }) => (
+          <Row
+            icon={<Icon icon={item.git ? GitBranchIcon : Folder01Icon} tone="ink3" size={20} />}
+            title={item.name}
+            detail={item.relative === item.name ? (item.git ? "Git repository" : "Folder") : item.relative}
+            onPress={() => toggle(item.path)}
+            trailing={<RowCheckbox label={item.name} selected={selected.includes(item.path)} disabled={busy} onPress={() => toggle(item.path)} />}
+          />
+        )}
+      />
+      <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 12 }}>
+        <InlineError warning message={error} />
+        <Text style={{ color: colors.ink2, fontSize: type.caption1 }}>{`${chosen.length} of ${scan.children.length} selected`}</Text>
+        <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+          <PillButton title="Back" variant="plain" muted disabled={busy} onPress={onBack} />
+          <PillButton title="Open as one Project" variant="plain" disabled={busy} onPress={() => void add(false)} />
+          <PillButton
+            title={`Add with ${chosen.length} Sub-project${chosen.length === 1 ? "" : "s"}`}
+            loading={busy}
+            disabled={!chosen.length}
+            onPress={() => void add(true)}
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function Row({
+  icon,
+  title,
+  detail,
+  onPress,
+  trailing,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  detail: string;
+  onPress: () => void;
+  trailing?: React.ReactNode;
+}) {
   const s = useS();
   const { colors } = useTheme();
   return (
@@ -208,6 +307,7 @@ function Row({ icon, title, detail, onPress }: { icon?: React.ReactNode; title: 
           {detail}
         </Text>
       </View>
+      {trailing}
     </Pressable>
   );
 }

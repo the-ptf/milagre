@@ -147,6 +147,12 @@ const PATHS = Object.freeze({
   "project:forget": ([projectPath]) => [projectPath],
   // The search names no path; its results are cut down to the folder (filterResult).
   "project:find": none,
+  // A folder's children are read, and a Parent Project's Sub-projects are opened: all inside the folder.
+  "project:scan-children": ([folder]) => [folder],
+  "project:set-subprojects": ([parentPath, paths]) => [parentPath, ...(Array.isArray(paths) ? paths : [])],
+  // The switch reaches every folder added on the Mac, so a confined phone only reads it.
+  "subprojects:detect:read": none,
+  "subprojects:detect:save": denied,
   "project:image": ([projectPath]) => [projectPath],
   "project:set-icon": ([projectPath]) => [projectPath],
   "project-git:read": ([projectPath]) => [projectPath],

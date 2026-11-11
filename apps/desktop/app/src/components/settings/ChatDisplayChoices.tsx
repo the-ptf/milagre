@@ -181,6 +181,28 @@ function GroupedPreview() {
   );
 }
 
+/** Sub-projects: a Parent Project, its Sub-projects under it, each with a Worktree and its Chats. */
+function SubprojectsPreview() {
+  return (
+    <span className="flex flex-col gap-[5px]">
+      <GroupHeader color={AVATARS[0]!} width="36%" />
+      <span className="pl-2.5">
+        <GroupHeader color={AVATARS[1]!} width="42%" />
+      </span>
+      <span className="flex items-center gap-1.5 pl-5">
+        <span className="size-1 shrink-0 rounded-full bg-green" />
+        <Bar width="28%" soft thin />
+      </span>
+      <span className="pl-3">
+        <GroupChat title="62%" meta="34%" />
+      </span>
+      <span className="pl-2.5">
+        <GroupHeader color={AVATARS[2]!} width="36%" />
+      </span>
+    </span>
+  );
+}
+
 /** The reply under the work: full-width bars, the last one short. */
 function AnswerBars({ lines }: { lines: number }) {
   return (
@@ -245,6 +267,7 @@ function FullToolsPreview() {
 const CHAT_LIST_CHOICES: Choice<ChatList>[] = [
   { id: "list", label: "One list", description: "Newest first, Project on each row.", preview: <OneListPreview /> },
   { id: "grouped", label: "By Project", description: "A group per Project that folds.", preview: <GroupedPreview /> },
+  { id: "tree", label: "Sub-projects", description: "Parent Projects with their Sub-projects and Worktrees.", preview: <SubprojectsPreview /> },
 ];
 
 const REASONING_CHOICES: Choice<"folded" | "expanded">[] = [

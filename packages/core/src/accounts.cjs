@@ -242,9 +242,17 @@ function createAccounts({
     }
     return snapshot();
   }
+  // Each Sub-project's Parent Project (subprojects.cjs): a Sub-project without its own choice uses its parent's.
+  let parents = new Map();
+  const inherited = (provider, scope) => {
+    const parent = parents.get(scope);
+    return parent ? { parent, id: saved.scopes[parent]?.[provider] } : null;
+  };
   function selected(provider, scope) {
     providerCheck(provider);
-    return (scope ? saved.scopes[validScope(scope)]?.[provider] : undefined) ?? saved.selected[provider];
+    if (!scope) return saved.selected[provider];
+    validScope(scope);
+    return saved.scopes[scope]?.[provider] ?? inherited(provider, scope)?.id ?? saved.selected[provider];
   }
   function scopeSnapshot(scope) {
     validScope(scope);
@@ -255,6 +263,8 @@ function createAccounts({
         .map((group) => {
           const accountId = saved.scopes[scope]?.[group.provider] ?? null;
           const effectiveId = selected(group.provider, scope);
+          // Without its own choice a Sub-project follows its Parent Project's, then the computer default.
+          const parent = inherited(group.provider, scope);
           const entries = [...group.accounts];
           if (!entries.some((a) => a.id === effectiveId))
             entries.push({
@@ -265,7 +275,14 @@ function createAccounts({
               missing: true,
               message: "This assigned account was removed. Choose another account or use the computer default.",
             });
-          return { provider: group.provider, accountId, effectiveId, defaultId: group.selectedId, accounts: entries };
+          return {
+            provider: group.provider,
+            accountId,
+            effectiveId,
+            defaultId: parent?.id ?? group.selectedId,
+            ...(parent?.id ? { inheritedFrom: parent.parent } : {}),
+            accounts: entries,
+          };
         }),
     };
   }
@@ -480,6 +497,11 @@ function createAccounts({
     selected,
     scope,
     assign,
+    /** Each Sub-project's Parent Project, by path; their Chats then run on its accounts unless they choose their own. */
+    setParents(next) {
+      parents = new Map(next);
+      for (const provider of PROVIDERS) changed(provider);
+    },
     close() {
       closed = true;
       for (const k of Array.from(logins.keys())) cancel(...k.split(":"));

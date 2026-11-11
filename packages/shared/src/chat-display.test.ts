@@ -24,16 +24,18 @@ test("Tool call display keeps a saved choice and reads Murilo mode as Full detai
   assert.equal(parseToolCallDisplay("loud"), "compact");
 });
 
-test("Chat list reads a saved choice and falls back to One list", () => {
+test("Chat list reads a saved choice and falls back to Sub-projects", () => {
   assert.equal(parseChatList("grouped"), "grouped");
   assert.equal(parseChatList("list"), "list");
-  assert.equal(parseChatList(undefined), "list");
-  assert.equal(parseChatList("tabs"), "list");
-  assert.equal(parseChatList(null), "list");
+  assert.equal(parseChatList("tree"), "tree");
+  assert.equal(parseChatList(undefined), "tree");
+  assert.equal(parseChatList("tabs"), "tree");
+  assert.equal(parseChatList(null), "tree");
   assert.deepEqual(
     CHAT_LIST_MODES.map((mode) => mode.id),
-    ["list", "grouped"],
+    ["list", "grouped", "tree"],
   );
   assert.equal(chatListLabel("list"), "One list");
   assert.equal(chatListLabel("grouped"), "Grouped by Project");
+  assert.equal(chatListLabel("tree"), "Sub-projects");
 });

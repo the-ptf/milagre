@@ -431,6 +431,11 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         const homeChat = Object.values(home.state.sessions)[0];
         await shared.call("chat:patch", [home.path, homeChat.id, { title: "Personal menu regression" }]);
         await shared.call("chat:git-note", [home.path + "#" + homeChat.id, "A saved conversation for scoped menu checks."]);
+        // One list: its collapsed rail keeps a New chat button (the Sub-projects default shows each Project instead).
+        await evaluate(`
+          window.milagrePreferences.set("milagre-settings", JSON.stringify({ ...JSON.parse(window.milagrePreferences.get("milagre-settings").value || "{}"), chatList: "list" }));
+          window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }));
+        `);
         await evaluate("window.milagre.openInboxChat(" + JSON.stringify(home.path + "#" + homeChat.id) + ")");
         await waitFor(() => evaluate('document.body.textContent.includes("A saved conversation for scoped menu checks.")'), "personal Chat opens");
         await evaluate(`document.querySelector('[aria-label="New chat"]').click()`);

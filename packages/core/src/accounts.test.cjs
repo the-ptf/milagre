@@ -394,3 +394,27 @@ test("a connected CLI account that isn't signed in yet signs in where the termin
   assert.equal(group(accounts.snapshot(), "claude").accounts[0].state, "ready");
   await assert.rejects(accounts.login("claude", "default"), /Add account/);
 });
+
+test("a Sub-project without its own account runs on its Parent Project's, and its own choice wins", async (t) => {
+  const f = fixture(t);
+  await f.accounts.list();
+  const work = group(await f.accounts.add("claude", "Work"), "claude").accounts[1];
+  f.children[0].child.emit("close", 0);
+  await tick();
+  const mine = group(await f.accounts.add("claude", "Mine"), "claude").accounts[2];
+  f.children[1].child.emit("close", 0);
+  await tick();
+  const parent = "/work/client";
+  const child = "/work/client/api";
+  f.accounts.assign(parent, "claude", work.id);
+  assert.equal(f.accounts.selected("claude", child), "default");
+  f.accounts.setParents(new Map([[child, parent]]));
+  assert.equal(f.accounts.selected("claude", child), work.id);
+  const inherited = group(await f.accounts.scope(child), "claude");
+  assert.deepEqual([inherited.accountId, inherited.effectiveId, inherited.defaultId, inherited.inheritedFrom], [null, work.id, work.id, parent]);
+  f.accounts.assign(child, "claude", mine.id);
+  assert.equal(f.accounts.selected("claude", child), mine.id);
+  f.accounts.setParents(new Map());
+  f.accounts.assign(child, "claude", null);
+  assert.equal(f.accounts.selected("claude", child), "default");
+});

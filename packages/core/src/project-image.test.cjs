@@ -15,11 +15,32 @@ async function fixture(t) {
 }
 
 test("recognizes GitHub HTTPS and SSH remotes without contacting other hosts", () => {
-  for (const remote of ["https://github.com/acme/shop.git", "git@github.com:acme/shop.git", "ssh://git@github.com/acme/shop.git"]) {
+  for (const remote of [
+    "https://github.com/acme/shop.git",
+    "git@github.com:acme/shop.git",
+    "ssh://git@github.com/acme/shop.git",
+    "git@github.com-work:acme/shop.git",
+    "ssh://git@github.com-work/acme/shop.git",
+  ]) {
     assert.equal(githubOwner(remote), "acme");
   }
   assert.equal(githubOwner("https://github.com.evil.test/acme/shop.git"), null);
   assert.equal(githubOwner("git@gitlab.com:acme/shop.git"), null);
+  assert.equal(githubOwner("git@github.com.evil.test:acme/shop.git"), null);
+});
+
+test("a folder without a remote shows the organization of the folders that speak for it", async (t) => {
+  const root = await fixture(t);
+  const remotes = { [path.join(root, "api")]: "git@github.com-work:acme/api.git" };
+  const image = await resolveProjectImage(root, {
+    related: [path.join(root, "docs"), path.join(root, "api")],
+    readGit: async (folder) => {
+      if (!remotes[folder]) throw new Error("no remote");
+      return remotes[folder];
+    },
+    account: async (endpoint) => (endpoint === "users/acme" ? photo(1, "Organization") : photo(2)),
+  });
+  assert.equal(image, `${photo(1).avatar_url}&s=80`);
 });
 
 test("project image wins over organization and profile; configured icons are supported", async (t) => {

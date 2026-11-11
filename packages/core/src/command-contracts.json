@@ -2138,7 +2138,15 @@
       "parameters": []
     },
     "project:choose-folder": {
-      "parameters": []
+      "parameters": [
+        {
+          "name": "title",
+          "optional": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
     },
     "project:open-at": {
       "parameters": [
@@ -2185,6 +2193,38 @@
     },
     "project:recent": {
       "parameters": []
+    },
+    "project:scan-children": {
+      "parameters": [
+        {
+          "name": "folder",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "project:set-subprojects": {
+      "parameters": [
+        {
+          "name": "parentPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "paths",
+          "optional": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      ]
     },
     "project:known": {
       "parameters": []
@@ -4025,6 +4065,20 @@
           "optional": false,
           "schema": {
             "type": "string"
+          }
+        }
+      ]
+    },
+    "subprojects:detect:read": {
+      "parameters": []
+    },
+    "subprojects:detect:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
           }
         }
       ]

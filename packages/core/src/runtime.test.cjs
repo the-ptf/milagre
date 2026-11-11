@@ -2196,3 +2196,84 @@ test("a Milagre bug report reaches the user redacted, and the approved text is w
   await runtime.invoke("agent:interrupt", [chatId]);
   await runtime.close();
 });
+
+test("a Parent Project lists its Sub-projects after it, off the recent list's count, and a Sub-project opens like a recent one", async (t) => {
+  const { project, make } = await fixture(t);
+  const parent = path.join(path.dirname(project), "client");
+  for (const name of ["api", "web"]) {
+    await fs.mkdir(path.join(parent, name), { recursive: true });
+    execFileSync("git", ["init", "-b", "main", path.join(parent, name)], { stdio: "ignore" });
+  }
+  await fs.mkdir(path.join(parent, "docs"));
+  const runtime = make();
+  await runtime.openProject(project);
+  await runtime.openProject(parent);
+
+  const scan = await runtime.invoke("project:scan-children", [parent]);
+  assert.equal(scan.detect, true);
+  assert.deepEqual(
+    scan.children.map((child) => [child.name, child.git]),
+    [
+      ["api", true],
+      ["docs", false],
+      ["web", true],
+    ],
+  );
+  await assert.rejects(runtime.invoke("project:set-subprojects", [path.join(parent, "docs"), []]), /Open this project/);
+  await assert.rejects(runtime.invoke("project:set-subprojects", [parent, [project]]), /inside/);
+
+  const listed = await runtime.invoke("project:set-subprojects", [parent, [path.join(parent, "web"), path.join(parent, "api", "src", "..")]]);
+  assert.deepEqual(
+    listed.map((entry) => [entry.name, entry.parent ?? null]),
+    [
+      ["client", null],
+      ["web", parent],
+      ["api", parent],
+      ["project", null],
+    ],
+  );
+  assert.deepEqual(
+    (await runtime.invoke("project:scan-children", [parent])).children.filter((child) => child.chosen).map((child) => child.name),
+    ["api", "web"],
+  );
+  // Registered for the canvas and Links; readable and switchable without ever going on the recent list itself.
+  assert.ok((await runtime.invoke("project:registry")).some((entry) => entry.path === path.join(parent, "api")));
+  assert.equal((await runtime.invoke("project:read", [path.join(parent, "api")])).path, path.join(parent, "api"));
+  await runtime.invoke("project:switch", [path.join(parent, "api")]);
+  assert.deepEqual(
+    (await runtime.invoke("project:recent")).map((entry) => entry.name),
+    ["client", "web", "api", "project"],
+  );
+  await assert.rejects(runtime.invoke("project:set-subprojects", [path.join(parent, "api"), []]), /can't hold/);
+
+  // Removing a Sub-project takes it off its parent only.
+  const afterForget = await runtime.invoke("project:forget", [path.join(parent, "web")]);
+  assert.deepEqual(
+    afterForget.map((entry) => entry.name),
+    ["client", "api", "project"],
+  );
+  // Unchecked, a Sub-project stays listed as a Project of its own.
+  assert.deepEqual(
+    (await runtime.invoke("project:set-subprojects", [parent, []])).map((entry) => entry.name),
+    ["api", "client", "project"],
+  );
+
+  // A folder can't be a Sub-project of two Parent Projects, nor a Parent Project inside another.
+  await runtime.invoke("project:set-subprojects", [parent, [path.join(parent, "api")]]);
+  await runtime.openProject(path.dirname(parent));
+  await assert.rejects(runtime.invoke("project:set-subprojects", [path.dirname(parent), [path.join(parent, "api")]]), /Sub-project of client already/);
+  await assert.rejects(runtime.invoke("project:set-subprojects", [path.dirname(parent), [parent]]), /Parent Project already/);
+  // Opening a Sub-project moves its parent up the recent list, and a hidden parent hides its Sub-projects.
+  await runtime.invoke("project:switch", [path.join(parent, "api")]);
+  assert.deepEqual(
+    (await runtime.invoke("project:recent")).slice(0, 2).map((entry) => entry.name),
+    ["client", "api"],
+  );
+  await runtime.invoke("project:set-hidden", [parent, true]);
+  assert.equal((await runtime.invoke("project:recent")).find((entry) => entry.name === "api").hidden, true);
+  await runtime.invoke("project:set-hidden", [parent, false]);
+  // Removing the Parent Project takes its Sub-projects with it: the list is cleared, so none comes back nested.
+  await runtime.invoke("project:forget", [parent]);
+  assert.equal((await runtime.invoke("project:scan-children", [parent])).children.find((child) => child.name === "api").chosen, true);
+  assert.ok(!(await runtime.invoke("project:recent")).some((entry) => entry.parent === parent));
+});

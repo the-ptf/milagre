@@ -135,7 +135,7 @@ const DEFAULTS: AppSettings = {
   openLinksIn: "milagre",
   tldrEnabled: true,
   chatOrder: "created",
-  chatList: "list",
+  chatList: "tree",
   chatRowShow: DESKTOP_CHAT_ROW_SHOW,
   toolCallDisplay: "compact",
   expandReasoning: false,

@@ -27,6 +27,8 @@ import { FIELD_INNER } from "./primitives/Field";
 import { InlineError } from "./primitives/InlineError";
 import { SectionLabel } from "./primitives/SectionLabel";
 import { Skeleton } from "./primitives/Skeleton";
+import { useOpenFolder } from "./SubprojectsDialog";
+import { bridgeFor } from "../lib/computer-bridge";
 
 const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro"];
 
@@ -312,6 +314,8 @@ function ProjectStep({ onBack, onOpened, onSkip }: { onBack: () => void; onOpene
   const [form, setForm] = useState<Form>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // A folder with repositories inside asks which become its Sub-projects first, as Add Project does.
+  const openFolder = useOpenFolder(onOpened);
   useEffect(() => {
     let live = true;
     window.milagre
@@ -345,7 +349,12 @@ function ProjectStep({ onBack, onOpened, onSkip }: { onBack: () => void; onOpene
       icon: FolderOpenIcon,
       title: "Open folder",
       detail: `Pick one on ${thisComputer}`,
-      onClick: () => void run(() => window.milagre.openProject()),
+      onClick: () =>
+        void run(async () => {
+          const chosen = await bridgeFor(null).chooseFolder("Open project");
+          if (chosen) await openFolder.open(chosen);
+          return null;
+        }),
     },
     { id: "clone", icon: GitForkIcon, title: "Clone a repository", detail: "Paste a GitHub URL", onClick: () => setForm({ kind: "clone", value: "" }) },
     {
@@ -458,7 +467,15 @@ function ProjectStep({ onBack, onOpened, onSkip }: { onBack: () => void; onOpene
                         undo their changes.
                       </p>
                       <div className="flex gap-2">
-                        <Button disabled={busy} onClick={() => void run(() => window.milagre.openProjectAt(folder.path))}>
+                        <Button
+                          disabled={busy}
+                          onClick={() =>
+                            void run(async () => {
+                              await openFolder.open(folder.path);
+                              return null;
+                            })
+                          }
+                        >
                           Open folder
                         </Button>
                         <Button variant="secondary" disabled={busy} onClick={() => void run(() => window.milagre.setUpGit(folder.path))}>
@@ -473,6 +490,7 @@ function ProjectStep({ onBack, onOpened, onSkip }: { onBack: () => void; onOpene
           </ul>
         </section>
       )}
+      {openFolder.dialog}
       <footer className="flex items-center justify-between">
         <Button variant="quiet" className={QUIET_EDGE} onClick={onBack} disabled={busy}>
           <Icon icon={ArrowLeft02Icon} size={16} />

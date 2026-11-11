@@ -50,12 +50,20 @@ export function parseToolCallDisplay(value: unknown, murilo?: unknown): ToolCall
 
 // Settings › Chat: how the sidebar lists Chats. Each device keeps its own choice.
 
-/** One list shows every Chat of every Project in a single list; Grouped by Project keeps a fold per Project. */
-export type ChatList = "list" | "grouped";
+/**
+ * One list shows every Chat of every Project in a single list; Grouped by Project keeps a fold per Project; Sub-projects
+ * keeps that fold too, with each Parent Project's Sub-projects under it and their Chats by Worktree.
+ */
+export type ChatList = "list" | "grouped" | "tree";
 
 export const CHAT_LIST_MODES: { id: ChatList; label: string; description: string }[] = [
   { id: "list", label: "One list", description: "Every Chat of every Project in one list, with its Project on the second line." },
   { id: "grouped", label: "Grouped by Project", description: "A group per Project that folds." },
+  {
+    id: "tree",
+    label: "Sub-projects",
+    description: "A group per Project, with each Parent Project's Sub-projects under it and their Chats by Worktree.",
+  },
 ];
 
 export const CHAT_LIST_TITLE = "Chat list";
@@ -63,10 +71,10 @@ export const CHAT_LIST_HINT = "How the sidebar lists your Chats.";
 
 /** The label of a Chat list value. */
 export function chatListLabel(value: ChatList): string {
-  return CHAT_LIST_MODES.find((mode) => mode.id === value)?.label ?? "One list";
+  return CHAT_LIST_MODES.find((mode) => mode.id === value)?.label ?? "Sub-projects";
 }
 
-/** A saved choice; anything else is One list. */
+/** A saved choice; anything else (nothing chosen yet) is Sub-projects, so Parent Projects show their Sub-projects. */
 export function parseChatList(value: unknown): ChatList {
-  return value === "grouped" ? "grouped" : "list";
+  return value === "list" || value === "grouped" ? value : "tree";
 }

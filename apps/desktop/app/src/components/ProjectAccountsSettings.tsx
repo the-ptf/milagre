@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { accountFallbackLabel } from "@milagre/shared/project-list";
 import type { ReactNode } from "react";
 import type { ModelProvider, ProjectAccountScope, ProjectAccountsSnapshot } from "@milagre/shared/model";
 import { accountType, providerName } from "@milagre/shared/providers";
@@ -51,13 +52,13 @@ export function projectAccountOptions(group: ProviderAccounts): SelectOption<str
   return [
     {
       value: "",
-      label: "Use computer default",
+      label: accountFallbackLabel(group.inheritedFrom),
       description: defaultAccount?.email || defaultAccount?.label || "No computer default",
       icon: <AccountIcon plan={defaultAccount?.plan} />,
       display: (
         <>
-          <span className="truncate">{defaultAccount?.email || defaultAccount?.label || "Use computer default"}</span>
-          <span className="shrink-0 rounded-chip bg-field px-1.5 py-0.5 text-10 font-medium text-ink-2">Default</span>
+          <span className="truncate">{defaultAccount?.email || defaultAccount?.label || accountFallbackLabel(group.inheritedFrom)}</span>
+          <span className="shrink-0 rounded-chip bg-field px-1.5 py-0.5 text-10 font-medium text-ink-2">{group.inheritedFrom ? "Parent" : "Default"}</span>
         </>
       ),
     },
