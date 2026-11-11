@@ -6,7 +6,7 @@ The installed Electron app and this client share the daemon through its existing
 
 ## Current safety gate (2026-11-11)
 
-Owner readiness fix `0e8be144` and runtime recovery regressions `4cb991e8` are integrated. The two readiness P2s await independent review. Root72 runtime tests pass. Full owner validation is blocked by the existing restored-mtime Git filter regression: safe status missed the edited file without executing the filter. The other161 owner tests pass with that exact case explicitly excluded; the assertion remains unchanged. Remote storage safety `bee70780`/`79d0f710`/`60f5eb23` passes168 Rust tests,7 doctests,7 Node checks and strict Clippy. Production adoption remains gated. The installed shell still requires the shared Node owner.
+Owner Git timestamp fix `fff6087b` and deterministic filter regression `21aa9490` pass the full168-test owner suite and strict Clippy. Retained-event heap estimates and replay-error bounds are integrated as `eb896d2e`. Review closes the original readiness P2s but finds one new replay-order P2: a parked Exited can overtake a completion retained after a failed save. That fix is assigned. An earlier runtime suite failed scripted-owner snapshot paging with DAEMON_CLOSED. Independent queue-capacity correction5d9a9d52/d849c05e passes20 wire and72 runtime root tests, but the intermittent disconnect cause remains unproven. Remote store safety passes168 Rust tests,7 doctests,7 Node checks and source review with no P1/P2. Production adoption remains gated and the installed shell still requires the shared Node owner.
 
 The installed shell still uses the single production Node owner. Current Rust ports run on isolated capabilities and fake providers; no production ownership cutover is authorized by those tests.
 
