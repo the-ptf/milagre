@@ -1,8 +1,12 @@
 # milagre-gpui-spike (experiment)
 
-Can Milagre's desktop UI be built in [GPUI](https://gpui.rs), Zed's Rust UI framework? This crate is step 1 of 4: a
-window with the three-column shell (design A, "integrated sidebar") drawn with the real theme tokens from
-`DESIGN.md`. Standalone crate, fixture data only, not wired to anything.
+Milagre's desktop UI in [GPUI](https://gpui.rs), Zed's Rust UI framework. It started as a four-step spike (the three-column
+shell, the sidebar, the panel tabs, the transcript and composer) and is now the foundation of a full port that runs beside
+the Tauri shell. Standalone crate, fixture data only, not wired to the daemon yet.
+
+- `CONVENTIONS.md`: module layout, how to add a view, an icon or a test, the rules for parallel agents, the checks.
+- `PORT-MAP.md`: what of the Electron app is ported, and what is next.
+- This file: the GPUI choice and its evidence, what each piece does, what was measured, what is still open.
 
 ## Build and run
 
@@ -11,16 +15,19 @@ cd experiments/rust-gpui
 cargo build                    # debug binary: target/debug/milagre-gpui-spike
 cargo run                      # opens the 1440x900 window, dark theme
 MILAGRE_GPUI_THEME=light cargo run
-cargo test                     # token test + interaction tests in GPUI's headless test platform
+cargo test                     # tokens, primitives, data, and the views in GPUI's headless test platform
 cargo clippy --all-targets -- -D warnings
 ```
 
 `MILAGRE_GPUI_SNAPSHOT=/tmp/shell.png cargo run` draws the window, saves it as a PNG and quits on its own. It exists
 because `screencapture -l` needs the Screen Recording permission for whatever launched it, while a process may
 capture its own windows without it (`src/snapshot.rs`). The window is not activated in this mode, so the traffic
-lights come out grey.
+lights come out grey, and AppKit may report it occluded, after which gpui-pre draws no more frames (it stops an
+occluded window's display link): snapshot mode waits for the provider logos to decode before it opens the window, and
+an animation or a later change never shows in a snapshot.
 
-Needs Xcode's command line tools (for `bindgen`'s libclang). It does **not** need the Metal Toolchain: see below.
+Needs Xcode's command line tools (for `bindgen`'s libclang). It does **not** need the Metal Toolchain (`runtime_shaders`).
+`node tools/gen-icons.mjs` (run by hand when icons change) needs the repository's `node_modules`.
 
 ## GPUI version decision
 
@@ -99,39 +106,85 @@ startup and in `tests.rs::gpui_component_widgets_mount`. What it offers for the 
 Not adopted into our views yet: its widgets draw with its own theme (`gpui_component::Theme`), which would need to be
 fed from our tokens first.
 
-## Layout
+## What is where
 
-| File               | What                                                                                      |
-| ------------------ | ----------------------------------------------------------------------------------------- |
-| `src/main.rs`      | `Application`, the Quit action and menu, `WindowOptions`, theme global, snapshot mode     |
-| `src/lib.rs`       | Module list; everything but startup is in the library so tests can mount it               |
-| `src/theme.rs`     | `Theme` (`dark()`, `light()`) as a GPUI global, `ActiveTheme`, type scale, radii, heights |
-| `src/workspace.rs` | Root view: three column entities and the 1px hairlines between them                       |
-| `src/sidebar.rs`   | Sidebar (304px, `canvas`): traffic-light header, `uniform_list` of 8 fixture Chat rows    |
-| `src/chat.rs`      | Chat column (flex, `page`): header, empty transcript area, composer placeholder           |
-| `src/panel.rs`     | Side panel (518px, `canvas`): six text tabs that switch on click, a `line` rule, a body   |
-| `src/chrome.rs`    | `header(id)`: the 44px header every column uses as the window title bar                   |
-| `src/snapshot.rs`  | macOS self-capture to PNG                                                                 |
-| `src/tests.rs`     | Clicks a tab and a row through GPUI's test window; checks column and row geometry         |
+`CONVENTIONS.md` has the module table. In short: `app.rs` starts the app; `theme/` holds the tokens; `ui/` the shared
+primitives; `data/` the domain types, the `DataSource` trait and its fixture; `workspace/` the window, one folder per
+column; `testing/` the headless test helpers; `assets/` and `tools/gen-icons.mjs` the icons.
 
-Seams for the next steps: the Chat list is `Sidebar::render_rows` (swap `fixture_rows` for real data; nav rows go
-above the `uniform_list`), the transcript goes in the `"transcript"` div in `chat.rs`, and each panel tab's content in
-the `"panel-body"` div in `panel.rs`. Each column is its own `Entity` with its own `Render`, so `cx.notify()` in one
-re-renders only that one.
+Seams for the next steps: the sidebar builds its rows from domain data with `ChatRow::new` (`workspace/sidebar/row.rs`;
+swap `fixture_rows` for a `state:read` plus `chat:runs` through the `Data` global), the transcript's items come from
+`workspace/chat/fixture.rs` (turning `chat:messages` pages into `Item`s is not written), and each panel tab's content goes
+in the `"panel-body"` div in `workspace/panel/mod.rs`.
 
-## Results (2026-11-11, Apple M5 Pro, 18 cores)
+## Icons, logos and fonts
 
-- Cold `cargo build` (after `cargo clean`, crates already downloaded): 20.7 s wall, 180 s CPU, 451 crates.
-  Incremental rebuild after editing one view: 1.5 s. `cargo test` compile from warm deps: 13.6 s (the
-  `test-support` feature builds a second GPUI variant).
-- Debug binary 30.7 MB, release binary 5.9 MB (not stripped). `target/` is 2.4 GB after one debug build.
-- No warnings from this crate; clippy clean with `-D warnings`. The only warning is cargo's future-incompatibility
-  note about two dependencies (`block 0.1.6`, `proc-macro-error2 2.0.1`).
-- Tests: 6 pass. `dark_theme_matches_design_md` checks 27 dark tokens against hand-copied DESIGN.md values;
-  `clicking_a_panel_tab_makes_it_active` and `clicking_a_chat_row_selects_it` click through `simulate_click`;
-  `columns_have_their_fixed_widths` checks where rows and tabs land.
-- Screenshot pixels: sidebar 0–304pt, hairlines at 304 and 921, panel from 922, tab rule at 44, composer bottom edge
-  24 from the window bottom, traffic lights centred at 21.75 in the 44px header.
+- **Icons are Hugeicons**, the set the desktop uses: `@hugeicons/core-free-icons` 4.3.5 (MIT; licence copied to
+  `assets/hugeicons/LICENSE.md`). The package is not in this worktree's `node_modules` (none is installed here); the
+  generator was run against the main checkout's copy, the version the root `package.json` pins. `tools/gen-icons.mjs`
+  writes each glyph as an SVG stroked the way the desktop's `<Icon>` draws it (`HugeiconsIcon` with `strokeWidth` puts the
+  stroke on every element; the width is in the 24-unit viewBox, so 1.8 at 16px draws 1.2px). Files carry 1.8; the asset
+  source swaps it to 1.6 or 2 for the `@1.6` and `@2` paths 12 and 18px icons ask for. The 35 names are the ones the
+  sidebar, panel tabs, composer, tool rows and primitives import in `apps/desktop/app/src`.
+- `Icon::new(IconName::Search01).size(IconSize::S16).color(theme.ink3)`. Every hand-drawn path icon is gone. Status
+  marks follow the desktop's `ChatMarkDot`: a `SpinnerRing` while running, `ShieldAlert` and `BubbleChatQuestion` in
+  orange, a red dot for failed, the accent dot for unread. The usage warning is `Alert02` in `red-ink`, as
+  `SidebarUsage.tsx` draws "Couldn't read usage" (the spike drew an orange triangle).
+- **Provider logos are the real marks** from `packages/shared/src/provider-logos.ts` (from Lobe Icons,
+  `@lobehub/icons-static-svg` 1.95.1, MIT; the marks are their owners' trademarks), generated to `assets/logos/`: brand
+  colours drawn with `img()` (resvg keeps Codex's gradient and Antigravity's masked, blurred blobs; `assets/tests.rs`
+  renders each and checks it is in colour) and a one-colour outline for `.mono(color)`. They are decoded at startup.
+- Everything is embedded with `include_bytes!` (a generated table, no runtime file reads). The asset source falls back
+  to `gpui-kit-assets` (Lucide, ISC) for gpui-component's own widgets; ours live under `hugeicons/`, `logos/` and `ui/` so
+  the two never collide.
+- **Fonts.** Text is the system UI font (`.SystemUIFont`, SF Pro). Code is **SF Mono through the private family
+  `.AppleSystemUIFontMonospaced`**: CoreText resolves it (every glyph 1266 units wide, unlike Menlo's 1233), so the app gets
+  what CSS `ui-monospace` gives the Electron app without bundling a font (Apple's licence does not allow shipping SF Mono).
+  `theme::init_fonts` checks at startup and falls back to Menlo, which ships with every macOS. Bundling a mono font was
+  rejected: it would not match the desktop, and the system copy needs nothing.
+
+## Window chrome
+
+| Question                                               | Status                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dragging by the full 44px headers of all three columns | Built: the window opens with `app_owns_titlebar_drag` and every header calls `Window::start_window_move` on the first mouse move after a press (Zed's own title bar does the same). Controls in a header take `.no_drag()`. Covered by a headless test with the call recorded; **not dragged by hand**.                                                                                                               |
+| Double-click to zoom                                   | Built: `titlebar_double_click` (honours the system's "double-click a title bar to" setting); a double-click on a tab or button does not zoom. Test as above.                                                                                                                                                                                                                                                          |
+| Traffic lights centred                                 | `traffic_light_position` (16, 15): measured in the snapshot at rows 30 to 57 of 2x pixels, centre 22.00pt in the 44px header (the spike's 21.75 was with a looser threshold; same frame).                                                                                                                                                                                                                             |
+| Colour space                                           | Still open. gpui-pre's `CAMetalLayer` is untagged unless `WindowOptions::use_display_p3` tags it Display P3, which would make our sRGB tokens look more saturated, not convert them. A fix: tag the layer `kCGColorSpaceSRGB` (a few lines in `gpui_apple::MetalRenderer::configure_layer` plus a window option), or tag it P3 and convert every token, and every image, from sRGB to P3 ourselves. Not patched here. |
+
+## Rendering: what re-renders what
+
+GPUI re-renders a notifying view and every view on its path to the root; a re-rendering view re-renders its plain child
+views and reuses its cached ones (`AnyView::cached`) unless they are dirty; a dirty cached view rebuilds its whole subtree,
+cached views inside it included (`workspace/tests.rs` pins this down). What the layout does with that:
+
+- Cached leaves: each visible sidebar row (`ChatRowView`), the transcript, the running row, the panel. Plain views,
+  kept cheap: the root, the sidebar, the Chat column, the composer (its height follows its text).
+- The running mark is no longer a transcript item: an animation re-renders its own view every frame, and inside the list
+  that rebuilt every visible item (13 per frame measured on 0.2.2). It is now `RunningRow`, a cached view over the
+  transcript's bottom edge, and the transcript keeps room for it.
+- Measured in the test platform: a keystroke rebuilds no transcript item, no sidebar row, not the panel and not the
+  running row; a running-mark frame rebuilds only the running row; a sidebar re-render rebuilds no row; a selection change
+  renders exactly the two rows it touches.
+- Still re-rendered on every keystroke and every animation frame: the root, the sidebar's own render (header, the list's
+  frame, the bottom group) and the Chat column's (header, pills, composer). Each is a small tree.
+- GPUI refreshes every view once on a focus change, and on the first key after mouse input (or the first mouse move after
+  typing); `chat/tests.rs` documents it.
+
+## Results (2026-11-11, Apple M5 Pro, 18 cores, rustc 1.99.1)
+
+- Cold `cargo build` (after `cargo clean`, crates already downloaded): 34.4 s wall, 407 crates, no warnings (0.2.2 was
+  20.7 s and 451 crates; gpui-component and the Lucide bundle are most of the difference, see the decision table). Cold
+  `cargo build --release`: 51.3 s. `cargo test` compile and run from warm dependencies: 32 s (`test-support` builds a
+  second GPUI variant).
+- Debug binary 110.7 MB, release binary 21.4 MB, not stripped (0.2.2: 30.7 and 5.9 MB). A gpui-pre hello world is 8.8 MB in
+  release; how much of the rest is gpui-component (`init` links its widgets) was not isolated. `target/` is 4.8 GB after
+  one debug and one release build.
+- Clippy clean with `-D warnings`. Tests: 60 pass (the spike's 34, consciously updated where gpui-pre differs, plus 26
+  new: light theme and type scale, assets, primitives, data and fixture, window chrome, cached rows and re-render paths).
+- Snapshot: traffic lights centred at 22.00pt in the 44px header; dark and light compared with the spike's last shot (the
+  only differences are the real icons and logos, SF Mono code, the secondary button's ring, the tile letter at 10px, and
+  fixture content).
 
 ## What was easy
 
@@ -140,34 +193,27 @@ re-renders only that one.
   heights can be `const` tokens.
 - A theme is a struct with `impl Global`, set once with `cx.set_global` and read in any render with
   `cx.global::<Theme>()` (wrapped as `cx.theme()`). Colours are `Rgba`; translucent tokens keep their alpha.
-- One entity per column with its own `Render` gives independent re-renders for free.
-- `uniform_list` is a ready virtualized list for fixed-height rows (Milagre's 48px two-line rows), and click
-  handlers inside it work like anywhere else.
+- `uniform_list` is a ready virtualized list for fixed-height rows (Milagre's 48px two-line rows), and its rows can be
+  cached views.
 - System UI font, 500/600 weights, 13/18 and 12/16 line heights all render crisply and match the Electron metrics.
 - The headless test platform is the best surprise: mount the real view, find elements by `debug_selector`, click
   them, assert state and pixel bounds, in milliseconds and without a screen.
-- Debug build cycle is fast: 1.5 s incremental.
+- Moving from 0.2.2 to gpui-pre took 16 mechanical compile fixes and two test changes.
 
 ## What was awkward
 
-- The crates.io release is a year old, and newer GPUI is a git rev of the whole Zed repo or someone else's snapshot.
-  This is the biggest long-term question for a real port.
-- The default build needs Xcode's Metal Toolchain, which is no longer installed with Xcode; `runtime_shaders` works
-  around it.
-- Window dragging on macOS: GPUI 0.2.2 has no macOS `start_window_move`, so only AppKit's native title-bar strip
-  (the top ~28px) drags the window; the lower 16px of the 44px headers do not. `WindowControlArea::Drag` only feeds
-  the Windows hit test. Double-click to zoom is wired through `titlebar_double_click`. **Not tested by hand**: nobody
-  was at the Mac to drag the window.
-- `traffic_light_position.y` is the button frame's top, measured inside the native title bar. y 16 (Electron's value)
-  put the lights 0.75pt low; 15 centres them. Found by measuring the screenshot.
-- Colour management, from reading the source and the captured pixels: GPUI 0.2.2 never sets a colour space on its
-  `CAMetalLayer`, and the raw window pixels equal the token hex values within ±2. So sRGB hex values are shown as the
-  display's native colours instead of being converted the way Chromium does. Neutral surfaces barely change; on a P3
-  display the saturated accent and status colours should look more vivid than in the Electron app. Fixing it needs a
-  GPUI patch. Not compared side by side with Electron.
-- Missing styles Milagre uses: no letter-spacing (the 22px title's `-0.02em`), and no backdrop blur on an element
-  (DESIGN.md's `backdrop-blur-chip` on the composer, the progressive edge blur); GPUI only blurs shadows and whole
-  window backgrounds.
+- GPUI itself still has no selectable static text, no per-span size, padding or radius, no letter-spacing and no element
+  backdrop blur (the decision table above). gpui-component covers the first two for markdown and text views; the
+  composer's blur and the 22px title's `-0.02em` have no answer short of gpui-ce or a patch.
+- Caching is coarse: a dirty cached view rebuilds every cached view inside it, so containers cannot be cached when
+  something inside them changes often. See "Rendering".
+- `list()` items have their own heights, so they cannot be cached views: anything that changes on its own must live
+  outside the list.
+- `img()` draws nothing until its asset has decoded and its view renders again. Logos are decoded at startup.
+- A window AppKit reports occluded gets no frames (gpui-pre stops its display link), so unattended runs (snapshot mode,
+  the timing probe) only ever see the first frames.
+- The text system is not loaded unless `gpui_platform`'s `font-kit` feature is on; without it, no text and no error,
+  only a log line.
 - Edition 2024 return-position `impl Trait` captures every lifetime in scope, so helpers that take `&Theme` and return
   an element need `impl IntoElement + use<>`.
 - At the 960px minimum width the Chat column is only 136px wide; the real app needs the panel to collapse. Not a GPUI
@@ -178,48 +224,46 @@ re-renders only that one.
 
 ## Sidebar notes
 
-- `src/sidebar.rs` is the full 304px sidebar: header with three icon buttons (x 208, 240, 272), Canvas / Routines / Links,
-  an "All Chats" label, a `uniform_list` of 500 fixture Chats (`src/fixtures.rs`), and a pinned Done row, usage block and footer.
-- Icons are stroked vector paths (`PathBuilder` painted in a `canvas`), not SVG files: `svg()` needs an `AssetSource` set with
-  `Application::with_assets`, which is in `main.rs`. Strokes have butt caps (GPUI does not re-export lyon's `LineCap`).
-  The running mark is a static arc (no spinner), "needs approval" is a ring, question and failed are "?" and "!" text.
+- `workspace/sidebar/` is the full 304px sidebar: header with three 24px icon buttons (x 208, 240, 272), Canvas /
+  Routines / Links, an "All Chats" section label, a `uniform_list` of 500 fixture Chats, and a pinned Done row, usage block
+  and footer (`bottom.rs`).
+- Rows are built from domain data (`data/fixture.rs`) by `ChatRow::new`: the tile is the Project's initial (or the
+  Chat's, in the Chats home), the detail "project · #PR (+n) · computer", the mark from `ChatStatus::of`.
 - Keyboard: the sidebar has a `FocusHandle` (`track_focus`, `key_context("Sidebar")`) and `on_key_down`; Up/Down move the
   selection and call `UniformListScrollHandle::scroll_to_item` (only Top/Center/Bottom exist, no "nearest", so the sidebar
   uses the last built range to pick Top or Bottom). Nothing focuses the sidebar at startup; a click does.
-- Virtualization: each frame builds only the visible rows (about 19 at 900px high) out of 500 (`sidebar_tests.rs`).
+- Virtualization: only the rows in view (about 19 at 900px high) have views, plus 64 on each side kept for scrolling back.
 
 ## Panel tabs notes
 
-- The panel header (`src/panel.rs`) shows six tabs as icon plus name (Changes with a "4" count, Terminal, Browser, Designs, Artifact, PR)
-  in a list that scrolls horizontally; expand and close (24px buttons, 16px glyphs) are pinned at the right, outside the list.
-- Scrolling is GPUI's own: `overflow_x_scroll()` plus `track_scroll(&ScrollHandle)` on the list. A mouse wheel, a trackpad swipe and
-  shift+wheel move it (the wheel scroll is exercised in `panel_tests.rs`); there is no scrollbar. Clicking a tab calls
-  `ScrollHandle::scroll_to_item(ix)`, which scrolls the minimum needed to show the tab fully on the next frame. Tabs must be direct children
-  of the scroll div for that to work.
-- Icons are Lucide-style strokes on a 24 grid (`src/icons.rs`), painted with `PathBuilder` at 14px / 1.8px stroke (tabs) and 16px / 1.5px (buttons).
-- At 518px the PR tab is mostly clipped at rest, as intended. A clipped tab is not clickable where it is clipped, so `tests.rs` clicks Artifact
-  instead of PR; `panel_tests.rs` scrolls the list with the wheel first, then clicks PR.
+- The panel header shows six `ui::Tab`s (Changes with a "4" count, Terminal, Browser, Designs, Artifact, PR) in a list
+  that scrolls horizontally; expand and close (24px `IconButton`s, 16px glyphs) are pinned at the right, outside the list.
+- Scrolling is GPUI's own: `overflow_x_scroll()` plus `track_scroll(&ScrollHandle)` on the list. A mouse wheel, a trackpad
+  swipe and shift+wheel move it; there is no scrollbar. Clicking a tab calls `ScrollHandle::scroll_to_item(ix)`, which
+  scrolls the minimum needed to show the tab fully on the next frame. Tabs must be direct children of the scroll div.
+- At 518px the PR tab is mostly clipped at rest, as intended. A clipped tab is not clickable where it is clipped.
 
 ## Usage block notes
 
-- The usage block (`usage_row` in `src/sidebar.rs`) has three 32px rows: provider logo (16px, x 12), name (x 40), a 12px orange warning
-  triangle after "Claude", then per usage window a right-aligned 12px label over a 2px track (`line`) with an `ink3` fill. Two windows
-  use 68px meters at x 132 and 208; one window uses one 144px track from x 132 to 276. The block pads 8px top and bottom only, since
-  the x positions are relative to the 288px inner area. Fills are at least 2px above 0% and absent at 0%. Data is in `fixtures.rs` (`USAGE`).
-- The logos (`ProviderLogo` in `src/icons.rs`) are stand-ins drawn as stroked vector paths (starburst, cloud, arch), not the real marks.
+- Three 32px rows: the provider's brand mark (16px, x 12), name (x 40), the `Alert02` mark after a provider whose read
+  failed, then per usage window a right-aligned 12px label over a 2px track (`line`) with an `ink3` fill. Two windows use
+  68px meters at x 132 and 208; one window uses one 144px track from x 132 to 276. Fills are at least 2px above 0% and
+  absent at 0%. Data: `data::fixture::usage()` (`ProviderUsage`).
 
 ## Transcript notes
 
 The Chat column now holds a real transcript and composer (2026-11-11).
 
-| File                   | Lines (code) | What                                                                                     |
-| ---------------------- | ------------ | ---------------------------------------------------------------------------------------- |
-| `src/transcript.rs`    | 608 (526)    | `Transcript` entity: items, `list()` + `ListState`, item rows, path glyphs, timing probe |
-| `src/composer.rs`      | 830 (710)    | Composer: multi-line text input (~590 code lines) plus the send row (~120)               |
-| `src/markdown.rs`      | 455 (393)    | pulldown-cmark events to blocks; blocks to GPUI elements                                 |
-| `src/chat.rs`          | 123 (106)    | Header, cached transcript view, floating pills, composer; Send appends a user message    |
-| `src/chat_fixtures.rs` | 284 (226)    | The first screen plus ~2,000 generated items (fixed seed), long markdown answers         |
-| `src/chat_tests.rs`    | 277 (236)    | 15 headless tests (markdown, list, approvals, typing, keys, paste, IME, link, caching)   |
+| File                           | Lines (code) | What                                                                                |
+| ------------------------------ | ------------ | ----------------------------------------------------------------------------------- |
+| `workspace/chat/transcript.rs` | 608 (526)    | `Transcript` entity: items, `list()` + `ListState`, item rows, timing probe         |
+| `workspace/chat/composer.rs`   | 830 (710)    | Composer: multi-line text input (~590 code lines) plus the send row (~120)          |
+| `workspace/chat/markdown.rs`   | 455 (393)    | pulldown-cmark events to blocks; blocks to GPUI elements                            |
+| `workspace/chat/mod.rs`        | 123 (106)    | Header, cached transcript and running row, floating pills, composer                 |
+| `workspace/chat/fixture.rs`    | 284 (226)    | The first screen plus ~2,000 generated items (fixed seed), long markdown answers    |
+| `workspace/chat/tests.rs`      | 277 (236)    | Headless tests (markdown, list, approvals, typing, keys, paste, IME, link, caching) |
+
+(Line counts are from the spike's step 4, before the move into folders.)
 
 How it works:
 
@@ -243,8 +287,10 @@ Env vars: `MILAGRE_GPUI_TIMING=1` prints the timing probe; `MILAGRE_GPUI_TRANSCR
 `MILAGRE_GPUI_COMPOSER_TEXT` (`\n` for newlines) and `MILAGRE_GPUI_COMPOSER_SELECT=<start>..<end>` prefill the composer for a
 snapshot.
 
-Measurements (Apple M5 Pro, release build, `MILAGRE_GPUI_TIMING=1` with `MILAGRE_GPUI_SNAPSHOT` so the window never activates;
-three runs). The probe times from the start of `Transcript::render` to the paint of a zero-size canvas drawn last in the
+Measurements on GPUI 0.2.2, before this foundation (Apple M5 Pro, release build, `MILAGRE_GPUI_TIMING=1` with
+`MILAGRE_GPUI_SNAPSHOT` so the window never activates; three runs). On gpui-pre the probe still prints the first frame (26
+items built, as before), but its later steps need frames an unattended, occluded window no longer gets; the headless
+tests in "Rendering" are the evidence for the structural changes since. The probe times from the start of `Transcript::render` to the paint of a zero-size canvas drawn last in the
 transcript, and counts calls to `render_item`. Launch time is perl's clock just before `exec` against the epoch printed at the
 first paint. GPU time and presentation are not included.
 
@@ -266,15 +312,14 @@ What was awkward:
 - Never-measured items count as 0px. After jumping 300 items up, the list knew a scrollable height of 2,983px for 2,001 items,
   so a scrollbar would be wrong and pixel jumps (`scroll_by`) land short. `ListState::measure_all()` fixes it by laying out
   every item once on open. Wheel scrolling measures as it goes and is fine.
-- An animation anywhere in the transcript (the breathing running mark) asks for a frame and marks the transcript view dirty,
-  so every visible item is rebuilt every frame (13 per frame here). GPUI marks ancestors of a dirty view dirty too, so moving
-  the mark into its own entity does not help; it has to live outside the list. The headless tests keep it still (`cfg(test)`).
-- Static text is not selectable in GPUI 0.2.2: no selection, no copy. `StyledText::layout()` maps points to indices, so
+- An animation anywhere in the transcript (the breathing running mark) asked for a frame and marked the transcript view
+  dirty, so every visible item was rebuilt every frame (13 per frame here). It now lives outside the list (`running.rs`).
+- Static text is not selectable in GPUI (0.2.2 or gpui-pre): no selection, no copy. `StyledText::layout()` maps points to indices, so
   selection inside one paragraph is buildable; selection across paragraphs and list items (some not even laid out) needs a
   transcript-wide selection model, as Zed's own `markdown` crate has (not published on crates.io).
-- `TextRun` has a font, colours and decorations but no size, padding or radius: inline code is Menlo at the prose size with a
-  square `field` background, not a 4px pill at a smaller size.
-- `ui-monospace` (SF Mono) has no family name apps can load (`NSFontManager` lists Andale Mono, Menlo, PT Mono); code uses Menlo.
+- `TextRun` has a font, colours and decorations but no size, padding or radius: inline code is mono at the prose size with a
+  square `field` background, not a 4px pill at a smaller size (gpui-component's `TextView` draws it as a chip).
+- Code is SF Mono through `.AppleSystemUIFontMonospaced` (see "Icons, logos and fonts").
 - A hugging flex container whose children have negative margins measures 0px wide (the activity marks overlapped their text);
   fixed with an explicit width.
 - GPUI 0.2.2's test support never cleared a frame's debug bounds (gpui-pre does, per frame). The test platform's text system
