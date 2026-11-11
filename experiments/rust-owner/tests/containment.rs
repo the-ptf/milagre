@@ -10,6 +10,8 @@ use milagre_owner_store::isolation::{Isolation, Policy};
 use milagre_owner_store::write::ProjectStateWriter;
 use milagre_owner_store::OwnedProject;
 
+type Make = Box<dyn Fn(&Path)>;
+
 struct Setup {
     _base: tempfile::TempDir,
     isolation: Isolation,
@@ -121,7 +123,7 @@ fn symlinks_along_the_project_path_are_refused() {
 fn links_inside_milagre_are_refused_before_the_lock() {
     let s = setup();
     let before = tree(&s.outside);
-    let cases: Vec<(&str, Box<dyn Fn(&Path)>)> = vec![
+    let cases: Vec<(&str, Make)> = vec![
         (
             ".milagre is a link",
             Box::new(|project: &Path| {

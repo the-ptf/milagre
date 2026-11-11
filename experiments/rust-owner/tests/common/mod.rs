@@ -69,3 +69,37 @@ pub fn copy_tree(from: &Path, to: &Path) {
         }
     }
 }
+
+/// writer-node.cjs `placeholders`: the folder's path (real and as given) as `<project>`, temporary names as `<tmp>`.
+pub fn normalize(message: &str, dir: &Path) -> String {
+    let real = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let mut text = message
+        .replace(&real.display().to_string(), "<project>")
+        .replace(&dir.display().to_string(), "<project>");
+    let pattern = "coordination.json.";
+    let mut out = String::new();
+    while let Some(at) = text.find(pattern) {
+        out.push_str(&text[..at + pattern.len()]);
+        let rest = &text[at + pattern.len()..];
+        let digits = |text: &str| text.bytes().take_while(u8::is_ascii_digit).count();
+        let first = digits(rest);
+        let second = if first > 0 && rest[first..].starts_with('.') {
+            digits(&rest[first + 1..])
+        } else {
+            0
+        };
+        if second > 0 && rest[first + 1 + second..].starts_with(".tmp") {
+            out.push_str("<tmp>");
+            text = rest[first + 1 + second + 4..].to_string();
+        } else {
+            text = rest.to_string();
+        }
+    }
+    out.push_str(&text);
+    out
+}
+
+pub fn sha256(text: &str) -> String {
+    use sha2::Digest;
+    hex::encode(sha2::Sha256::digest(text.as_bytes()))
+}

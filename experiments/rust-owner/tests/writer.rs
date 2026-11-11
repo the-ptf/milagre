@@ -164,6 +164,7 @@ impl RustRun {
                 .unwrap_or(false),
             unloaded,
             sweep_min_age: Duration::ZERO,
+            now: None,
         };
         self.owner()
             .save_project_state(&saving, &options)
@@ -172,7 +173,7 @@ impl RustRun {
 
     /// writer-node.cjs `settle`: carry the saved (compacted) messages forward.
     fn settle(&mut self) {
-        let Some(saved) = self.owner.as_ref().unwrap().saved_rows().cloned() else {
+        let Some(saved) = self.owner.as_ref().unwrap().saved_rows() else {
             return;
         };
         if let Some(Value::Array(messages)) = self.state.get("messages") {

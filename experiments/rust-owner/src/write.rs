@@ -70,6 +70,8 @@ pub struct SaveOptions {
     pub unloaded: BTreeSet<ChatId>,
     /// Unreferenced sidecars younger than this stay (a save in flight may own them). Node's default is a minute.
     pub sweep_min_age: Duration,
+    /// The clock sweeps measure age against (Node's `Date.now`); the system clock when None.
+    pub now: Option<std::time::SystemTime>,
 }
 
 impl Default for SaveOptions {
@@ -78,6 +80,7 @@ impl Default for SaveOptions {
             durable: false,
             unloaded: BTreeSet::new(),
             sweep_min_age: Duration::from_secs(60),
+            now: None,
         }
     }
 }

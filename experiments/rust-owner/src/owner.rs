@@ -15,11 +15,14 @@ use base64::Engine;
 use rusqlite::params_from_iter;
 use serde_json::{Map, Value};
 
-use crate::chat_db::{bind_js, sql_value, ChatId, LookupField, MessageRepository, Preview, Row};
+use crate::chat_db::{
+    bind_js, sql_value, ChatDb, ChatId, LookupField, MessageRepository, Preview, Row,
+};
 use crate::commands::ProjectReader;
 use crate::error::{Result, StoreError};
 use crate::isolation::Isolation;
 use crate::jsjson;
+use crate::message_store::{id_key, MessageStore, Msg, MsgRef, ProjectState, SavedMsgs, SavedRow};
 use crate::ownership::{self, OwnerGuard, RustOwnerLock};
 use crate::project::{
     inside, is_sidecar_name, sha256_hex, state_file, MessageStorage, ProjectRepository,
@@ -29,6 +32,7 @@ use crate::write::{
     MessageStoreWriter, OwnerLock, ProjectStateWriter, SaveOptions, SaveReport, SavedRows,
     WriteOptions, WriteStats,
 };
+use std::sync::Arc;
 
 /// chat-db.cjs MESSAGES_MARKER.
 pub fn messages_marker() -> Value {
@@ -40,14 +44,6 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 const MAX_ATTACHMENT_BYTES: usize = 50 * 1024 * 1024;
 const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-
-/// A key of a JavaScript Map keyed by message id: `1` and `1.0` are one key, `"1"` another, `undefined` its own.
-fn key_of(id: Option<&Value>) -> String {
-    match id {
-        Some(value) => jsjson::to_string(value),
-        None => "\u{0}undefined".into(),
-    }
-}
 
 /// node:sqlite binding of `value ?? null`.
 fn bind_or_null(value: Option<&Value>, parameter: usize) -> Result<rusqlite::types::Value> {
@@ -68,19 +64,12 @@ fn number_of(value: &Value) -> f64 {
     value.as_f64().unwrap_or(f64::NAN)
 }
 
-struct Known {
-    id: Value,
-    chat: Value,
-    position: f64,
-    message: Option<Value>,
-}
-
 /// One Project owned by this process, inside an isolated copy.
 pub struct OwnedProject {
     store: ProjectStore,
     guard: OwnerGuard,
-    /// message-store.cjs savedRows for this Project: what chats.db holds for the Chats in memory.
-    saved: Option<SavedRows>,
+    /// message-store.cjs's store for this Project: the saved rows the writer and the message cache share.
+    messages: MessageStore,
     /// project-store.cjs `settled`: session/agent -> digest of the transcript sidecar the saved state points at.
     settled: Option<HashMap<String, String>>,
     /// project-store.cjs `swept`: the first save of a run sweeps old sidecars even when it wrote none.
@@ -95,7 +84,7 @@ impl OwnedProject {
         Ok(OwnedProject {
             store: ProjectStore::owned(&root),
             guard,
-            saved: None,
+            messages: MessageStore::default(),
             settled: None,
             swept: false,
         })
@@ -110,8 +99,8 @@ impl OwnedProject {
     }
 
     /// What chats.db holds for the Chats in memory, as the next save will use it.
-    pub fn saved_rows(&self) -> Option<&SavedRows> {
-        self.saved.as_ref()
+    pub fn saved_rows(&self) -> Option<SavedRows> {
+        self.messages.saved.as_ref().map(to_rows)
     }
 
     /// Releases the owner lock (ownership.cjs release).
@@ -133,24 +122,7 @@ impl OwnedProject {
     /// project-store.cjs readProjectState as the owner runs it: a hot journal is rolled back, the detail sidecars
     /// compaction moved are written, and what chats.db holds becomes the saved rows the next save compares against.
     pub fn load(&mut self) -> Result<ProjectStateRead> {
-        self.saved = None;
-        let read = ProjectRepository::read_project_state(&self.store)?;
-        for (_, details) in &read.pending_sidecars {
-            self.write_content(
-                "details",
-                jsjson::to_string(&Value::Object(details.clone())).as_bytes(),
-                "json",
-            )?;
-        }
-        if read.storage == MessageStorage::ChatsDb {
-            let rows = self.store.chats().read_rows()?.unwrap_or_default();
-            self.saved = Some(
-                rows.into_iter()
-                    .map(|row| (key_of(row.message.get("id")), row))
-                    .collect::<SavedRows>(),
-            );
-        }
-        Ok(read)
+        Ok(self.load_shared()?.1)
     }
 
     // ---- content-addressed files (project-content.cjs) -------------------------------------------------------
@@ -217,7 +189,13 @@ impl OwnedProject {
 
     /// sweepContent: removes `<sha256>.json` files of `.milagre/<folder>` no saved state references, older than
     /// `min_age`. Best effort, like Node: a leftover costs disk, never data.
-    fn sweep(&self, folder: &str, referenced: &HashSet<String>, min_age: Duration) -> u64 {
+    fn sweep(
+        &self,
+        folder: &str,
+        referenced: &HashSet<String>,
+        min_age: Duration,
+        now: SystemTime,
+    ) -> u64 {
         let Ok(root) = std::fs::canonicalize(self.root()) else {
             return 0;
         };
@@ -234,7 +212,6 @@ impl OwnedProject {
         let Ok(entries) = std::fs::read_dir(&directory) else {
             return 0;
         };
-        let now = SystemTime::now();
         let mut removed = 0;
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
@@ -345,13 +322,11 @@ impl OwnedProject {
         Ok(Value::Object(rest))
     }
 
-    /// migrateImages: inline `dataUrl` images become files; one that can't be stored stays as it is.
-    fn migrate_images(&self, state: &Value) -> Value {
-        let Some(Value::Array(messages)) = state.get("messages") else {
-            return state.clone();
-        };
+    /// migrateImages: inline `dataUrl` images become files; one that can't be stored stays as it is. When any image
+    /// was stored, every message that had inline images is a new message (Node rebuilds them all); otherwise all stay.
+    fn migrate_images(&self, messages: &[MsgRef]) -> Vec<MsgRef> {
         let mut changed = false;
-        let mut out = Vec::with_capacity(messages.len());
+        let mut out: Vec<MsgRef> = Vec::with_capacity(messages.len());
         for message in messages {
             let images = match message.get("images") {
                 Some(Value::Array(images))
@@ -380,27 +355,32 @@ impl OwnedProject {
                     Err(_) => stored.push(image.clone()),
                 }
             }
-            let mut message = message.as_object().cloned().unwrap_or_default();
-            message.insert("images".into(), Value::Array(stored));
-            out.push(Value::Object(message));
+            let mut value = message.value().as_object().cloned().unwrap_or_default();
+            value.insert("images".into(), Value::Array(stored));
+            out.push(Msg::new(Value::Object(value)));
         }
-        if !changed {
-            return state.clone();
+        if changed {
+            out
+        } else {
+            messages.to_vec()
         }
-        let mut state = state.clone();
-        state["messages"] = Value::Array(out);
-        state
     }
 
-    /// compactDetails with sidecar writes: long details of finished steps move to `.milagre/details`.
-    fn compact_details(&self, state: &Value) -> Result<(Value, bool)> {
-        let Some(Value::Array(messages)) = state.get("messages") else {
-            return Ok((state.clone(), false));
-        };
+    /// compactDetails with sidecar writes: long details of finished steps move to `.milagre/details`. Messages in
+    /// `known` (by identity: compacted already) are skipped, as compactProjectDetails passes `previous`.
+    pub(crate) fn compact_details(
+        &self,
+        messages: &[MsgRef],
+        known: Option<&HashSet<*const Msg>>,
+    ) -> Result<(Vec<MsgRef>, bool)> {
         let mut wrote = false;
         let mut out = Vec::with_capacity(messages.len());
         for message in messages {
-            match self.store.compact_message(message) {
+            if known.is_some_and(|known| known.contains(&Arc::as_ptr(message))) {
+                out.push(message.clone());
+                continue;
+            }
+            match self.store.compact_message(message.value()) {
                 Some((compacted, _, details)) => {
                     self.write_content(
                         "details",
@@ -408,17 +388,12 @@ impl OwnedProject {
                         "json",
                     )?;
                     wrote = true;
-                    out.push(compacted);
+                    out.push(Msg::new(compacted));
                 }
                 None => out.push(message.clone()),
             }
         }
-        if !wrote {
-            return Ok((state.clone(), false));
-        }
-        let mut state = state.clone();
-        state["messages"] = Value::Array(out);
-        Ok((state, true))
+        Ok((out, wrote))
     }
 
     /// compactSubagents: each subagent's full transcript in a sidecar, the state keeping its last entry (1000 code
@@ -609,20 +584,56 @@ impl ProjectRepository for OwnedProject {
     }
 }
 
-impl MessageStoreWriter for OwnedProject {
-    fn write_messages(
-        &mut self,
-        messages: &[Value],
-        saved: Option<&SavedRows>,
+/// How a save decides a message is unchanged since it was saved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Same {
+    /// Node's `===`: the same message object (the runtime's states, see message_store.rs).
+    Identity,
+    /// Equal values (callers that hand over plain JSON, where identity means nothing).
+    Value,
+}
+
+impl Same {
+    fn eq(self, a: &MsgRef, b: &MsgRef) -> bool {
+        match self {
+            Same::Identity => Arc::ptr_eq(a, b),
+            Same::Value => Arc::ptr_eq(a, b) || a.value() == b.value(),
+        }
+    }
+}
+
+struct Known {
+    id: Value,
+    chat: Value,
+    position: f64,
+    message: Option<MsgRef>,
+}
+
+impl OwnedProject {
+    /// The saved rows and chats.db, for the message cache (message_store.rs) that shares them with the writer.
+    pub(crate) fn cache(&mut self) -> (&ChatDb, &mut MessageStore) {
+        (self.store.chats(), &mut self.messages)
+    }
+
+    pub(crate) fn chats(&self) -> &ChatDb {
+        self.store.chats()
+    }
+
+    /// chat-db.cjs writeMessages over shared messages.
+    pub(crate) fn write_rows(
+        &self,
+        messages: &[MsgRef],
+        saved: Option<&SavedMsgs>,
         options: &WriteOptions,
-    ) -> Result<(SavedRows, WriteStats)> {
+        same: Same,
+    ) -> Result<(SavedMsgs, WriteStats)> {
         let connection = self.store.chats().open_writable(true)?.expect("created");
         connection.execute_batch(&format!(
             "PRAGMA synchronous = {}",
             if options.durable { "FULL" } else { "NORMAL" }
         ))?;
         let mut stats = WriteStats::default();
-        let mut writes: Vec<(String, Row)> = Vec::new();
+        let mut writes: Vec<(String, SavedRow)> = Vec::new();
         let mut removals: Vec<String> = Vec::new();
         let mut renumbered: Option<HashMap<String, Value>> = None;
         connection.execute_batch("BEGIN")?;
@@ -632,10 +643,10 @@ impl MessageStoreWriter for OwnedProject {
                     .iter()
                     .map(|(key, row)| {
                         let known = Known {
-                            id: row.message.get("id").cloned().unwrap_or(Value::Null),
+                            id: row.msg.get("id").cloned().unwrap_or(Value::Null),
                             chat: row.chat.clone(),
-                            position: row.position_f64(),
-                            message: Some(row.message.clone()),
+                            position: row.position(),
+                            message: Some(row.msg.clone()),
                         };
                         (key.clone(), known)
                     })
@@ -653,7 +664,7 @@ impl MessageStoreWriter for OwnedProject {
                             message: None,
                             id: id.clone(),
                         };
-                        out.push((key_of(Some(&id)), known));
+                        out.push((id_key(Some(&id)), known));
                     }
                     out
                 }
@@ -669,12 +680,11 @@ impl MessageStoreWriter for OwnedProject {
             if let Some(saved) = saved {
                 let unknown: Vec<Value> = messages
                     .iter()
-                    .filter(|message| !saved.contains_key(&key_of(message.get("id"))))
+                    .filter(|message| !saved.contains_key(&message.key()))
                     .map(|message| message.get("id").cloned().unwrap_or(Value::Null))
                     .collect();
                 if !unknown.is_empty() {
-                    let mut statement = connection
-                        .prepare("SELECT id, session_id, position FROM messages WHERE id IN (SELECT value FROM json_each(?))")?;
+                    let mut statement = connection.prepare("SELECT id, session_id, position FROM messages WHERE id IN (SELECT value FROM json_each(?))")?;
                     let mut rows = statement.query([jsjson::to_string(&Value::Array(unknown))])?;
                     while let Some(row) = rows.next()? {
                         let id = sql_value(row.get_ref(0)?);
@@ -684,7 +694,7 @@ impl MessageStoreWriter for OwnedProject {
                             message: None,
                             id: id.clone(),
                         };
-                        found.insert(key_of(Some(&id)), known);
+                        found.insert(id_key(Some(&id)), known);
                     }
                 }
             }
@@ -702,7 +712,7 @@ impl MessageStoreWriter for OwnedProject {
             let mut previous = f64::NEG_INFINITY;
             let mut ids: HashSet<String> = HashSet::new();
             for message in messages {
-                let key = key_of(message.get("id"));
+                let key = message.key();
                 let last = known_index
                     .get(key.as_str())
                     .map(|index| &known[*index].1)
@@ -717,7 +727,10 @@ impl MessageStoreWriter for OwnedProject {
                 previous = position;
                 ids.insert(key.clone());
                 let unchanged = last.is_some_and(|last| {
-                    last.message.as_ref() == Some(message) && last.position == position
+                    last.message
+                        .as_ref()
+                        .is_some_and(|known| same.eq(known, message))
+                        && last.position == position
                 });
                 if !unchanged {
                     let params = vec![
@@ -727,7 +740,7 @@ impl MessageStoreWriter for OwnedProject {
                         bind_or_null(message.get("clientMessageId"), 4)?,
                         bind_or_null(message.get("operationId"), 5)?,
                         // JSON.stringify output: plain text, unpaired surrogates already escaped as \udxxx.
-                        rusqlite::types::Value::Text(jsjson::to_string(message)),
+                        rusqlite::types::Value::Text(jsjson::to_string(message.value())),
                     ];
                     upsert.execute(params_from_iter(params))?;
                     stats.written += 1;
@@ -735,8 +748,8 @@ impl MessageStoreWriter for OwnedProject {
                 let chat = message.get("session_id").cloned().unwrap_or(Value::Null);
                 writes.push((
                     key,
-                    Row {
-                        message: message.clone(),
+                    SavedRow {
+                        msg: message.clone(),
                         position: jsjson::number(position),
                         chat,
                     },
@@ -775,7 +788,7 @@ impl MessageStoreWriter for OwnedProject {
                 let mut map = HashMap::new();
                 while let Some(row) = rows.next()? {
                     map.insert(
-                        key_of(Some(&sql_value(row.get_ref(0)?))),
+                        id_key(Some(&sql_value(row.get_ref(0)?))),
                         sql_value(row.get_ref(1)?),
                     );
                 }
@@ -805,37 +818,48 @@ impl MessageStoreWriter for OwnedProject {
         }
         Ok((next, stats))
     }
-}
 
-impl ProjectStateWriter for OwnedProject {
-    fn save_project_state(&mut self, state: &Value, options: &SaveOptions) -> Result<SaveReport> {
-        let migrated = self.migrate_images(state);
-        let (compacted, details_wrote) = self.compact_details(&migrated)?;
-        let (mut persisted, settle, subagents_wrote) = self.compact_subagents(&compacted)?;
-        ProjectStore::without_suggestions(&mut persisted);
+    /// project-store.cjs saveProjectState over a state of shared messages (`state.unloaded` gives keep and drop).
+    pub(crate) fn save_state(
+        &mut self,
+        state: &ProjectState,
+        options: &SaveOptions,
+        same: Same,
+    ) -> Result<SaveReport> {
+        let messages = state.messages.as_ref().map(|messages| messages.as_slice());
+        let migrated = messages.map(|messages| self.migrate_images(messages));
+        let (compacted, details_wrote) = match &migrated {
+            Some(messages) => {
+                let (messages, wrote) = self.compact_details(messages, None)?;
+                (Some(messages), wrote)
+            }
+            None => (None, false),
+        };
+        let (rest, settle, subagents_wrote) =
+            self.compact_subagents(&Value::Object((*state.rest).clone()))?;
+        let mut rest = rest;
+        ProjectStore::without_suggestions(&mut rest);
         let has_session = |value: &Value, chat: &ChatId| {
             value
                 .get("sessions")
                 .and_then(Value::as_object)
                 .is_some_and(|sessions| sessions.contains_key(&chat.to_string()))
         };
-        let keep: BTreeSet<ChatId> = options
+        let keep: BTreeSet<ChatId> = state
             .unloaded
             .iter()
             .copied()
-            .filter(|chat| has_session(&persisted, chat))
+            .filter(|chat| has_session(&rest, chat))
             .collect();
-        let drop: BTreeSet<ChatId> = options
+        let drop: BTreeSet<ChatId> = state
             .unloaded
             .iter()
             .copied()
             .filter(|chat| !keep.contains(chat))
             .collect();
         let mut stats = WriteStats::default();
-        let mut stored_in_db = false;
-        if let Some(Value::Array(messages)) = persisted.get("messages") {
-            let messages = messages.clone();
-            if self.saved.is_none() {
+        if let Some(messages) = &compacted {
+            if self.messages.saved.is_none() {
                 // The first save after the move keeps the old file once, beside it, in case anything needs it back.
                 let from = state_file(self.root());
                 let to = PathBuf::from(format!("{}.before-chats-db", from.display()));
@@ -843,25 +867,25 @@ impl ProjectStateWriter for OwnedProject {
                     let _ = std::fs::copy(&from, &to);
                 }
             }
-            let (next, written) = self.write_messages(
-                &messages,
-                self.saved.clone().as_ref(),
+            let (next, written) = self.write_rows(
+                messages,
+                self.messages.saved.as_ref(),
                 &WriteOptions {
                     durable: options.durable,
                     keep,
                     drop,
                 },
+                same,
             )?;
-            self.saved = Some(next);
+            self.messages.saved = Some(next);
             stats = written;
-            stored_in_db = true;
         }
-        let contents = if stored_in_db {
-            let mut marked = persisted.clone();
+        let contents = if compacted.is_some() {
+            let mut marked = rest.clone();
             marked["messages"] = messages_marker();
             jsjson::to_string(&marked)
         } else {
-            jsjson::to_string(&persisted)
+            jsjson::to_string(&rest)
         };
         self.write_state_file(&contents, options.durable)?;
         self.settled = Some(settle);
@@ -869,7 +893,7 @@ impl ProjectStateWriter for OwnedProject {
         if wrote || !self.swept {
             self.swept = true;
             let mut sidecars = HashSet::new();
-            if let Some(Value::Object(sessions)) = persisted.get("sessions") {
+            if let Some(Value::Object(sessions)) = rest.get("sessions") {
                 for session in sessions.values() {
                     for agent in session
                         .get("subagents")
@@ -890,11 +914,10 @@ impl ProjectStateWriter for OwnedProject {
                     }
                 }
             }
-            self.sweep("subagents", &sidecars, options.sweep_min_age);
-            let mut details: HashSet<String> = persisted
-                .get("messages")
-                .and_then(Value::as_array)
-                .into_iter()
+            let now = options.now.unwrap_or_else(SystemTime::now);
+            self.sweep("subagents", &sidecars, options.sweep_min_age, now);
+            let mut details: HashSet<String> = compacted
+                .iter()
                 .flatten()
                 .filter_map(|message| {
                     message
@@ -904,11 +927,11 @@ impl ProjectStateWriter for OwnedProject {
                 })
                 .collect();
             // The messages of an unloaded Chat point at sidecars too, from their rows.
-            let readable: Vec<ChatId> = options
+            let readable: Vec<ChatId> = state
                 .unloaded
                 .iter()
                 .copied()
-                .filter(|chat| has_session(state, chat))
+                .filter(|chat| state.has_session(*chat))
                 .collect();
             details.extend(
                 self.store
@@ -916,7 +939,7 @@ impl ProjectStateWriter for OwnedProject {
                     .read_detail_refs(&readable)
                     .unwrap_or_default(),
             );
-            self.sweep("details", &details, options.sweep_min_age);
+            self.sweep("details", &details, options.sweep_min_age, now);
         }
         Ok(SaveReport {
             rows_written: stats.written,
@@ -924,5 +947,99 @@ impl ProjectStateWriter for OwnedProject {
             sidecars_written: wrote,
             state_bytes: contents.len() as u64,
         })
+    }
+
+    /// readProjectState as the owner runs it, keeping the messages shared with the saved rows (as Node's are): a hot
+    /// journal is rolled back, the detail sidecars compaction moved are written.
+    pub fn load_shared(&mut self) -> Result<(ProjectState, ProjectStateRead)> {
+        self.messages.saved = None;
+        let read = ProjectRepository::read_project_state_uncompacted(&self.store)?;
+        let mut state = ProjectState::from_value(&read.state);
+        if read.storage == MessageStorage::ChatsDb {
+            let rows = self.store.chats().read_rows()?.unwrap_or_default();
+            let mut saved = SavedMsgs::new();
+            for (row, message) in rows.into_iter().zip(state.message_list().iter()) {
+                saved.insert(
+                    message.key(),
+                    SavedRow {
+                        msg: message.clone(),
+                        position: row.position,
+                        chat: row.chat,
+                    },
+                );
+            }
+            self.messages.saved = Some(saved);
+        }
+        self.messages.unloaded = false;
+        let (compacted, _) = self.compact_details(state.message_list(), None)?;
+        let pending: Vec<Value> = state
+            .message_list()
+            .iter()
+            .zip(&compacted)
+            .filter(|(before, after)| !Arc::ptr_eq(before, after))
+            .map(|(before, _)| before.get("id").cloned().unwrap_or(Value::Null))
+            .collect();
+        if state.messages.is_some() {
+            state = state.with_messages(compacted);
+        }
+        let read = ProjectStateRead {
+            state: state.to_value(),
+            storage: read.storage,
+            pending_detail_compaction: pending,
+            pending_sidecars: Vec::new(),
+        };
+        Ok((state, read))
+    }
+}
+
+impl MessageStoreWriter for OwnedProject {
+    fn write_messages(
+        &mut self,
+        messages: &[Value],
+        saved: Option<&SavedRows>,
+        options: &WriteOptions,
+    ) -> Result<(SavedRows, WriteStats)> {
+        let messages: Vec<MsgRef> = messages.iter().cloned().map(Msg::new).collect();
+        let saved: Option<SavedMsgs> = saved.map(|saved| {
+            saved
+                .iter()
+                .map(|(key, row)| {
+                    (
+                        key.clone(),
+                        SavedRow {
+                            msg: Msg::new(row.message.clone()),
+                            position: row.position.clone(),
+                            chat: row.chat.clone(),
+                        },
+                    )
+                })
+                .collect()
+        });
+        let (next, stats) = self.write_rows(&messages, saved.as_ref(), options, Same::Value)?;
+        Ok((to_rows(&next), stats))
+    }
+}
+
+fn to_rows(saved: &SavedMsgs) -> SavedRows {
+    saved
+        .iter()
+        .map(|(key, row)| {
+            (
+                key.clone(),
+                Row {
+                    message: row.msg.value().clone(),
+                    position: row.position.clone(),
+                    chat: row.chat.clone(),
+                },
+            )
+        })
+        .collect()
+}
+
+impl ProjectStateWriter for OwnedProject {
+    fn save_project_state(&mut self, state: &Value, options: &SaveOptions) -> Result<SaveReport> {
+        let mut shared = ProjectState::from_value(state);
+        shared.unloaded = std::sync::Arc::new(options.unloaded.clone());
+        self.save_state(&shared, options, Same::Value)
     }
 }

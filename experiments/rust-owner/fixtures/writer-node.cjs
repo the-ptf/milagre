@@ -297,7 +297,10 @@ async function main() {
   throw new Error(`unknown command ${command}`);
 }
 
-main().catch((error) => {
-  console.error(error.stack);
-  process.exitCode = 1;
-});
+module.exports = { snapshot, load, placeholders };
+
+if (require.main === module)
+  main().catch((error) => {
+    console.error(error.stack);
+    process.exitCode = 1;
+  });
