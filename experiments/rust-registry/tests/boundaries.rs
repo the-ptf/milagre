@@ -300,7 +300,7 @@ async fn source_aliases_normalize_but_missing_link_ids_never_mint_a_grant() {
     save(&root, value);
     let snapshot = registry.snapshot().unwrap();
     let source = snapshot.project(&a).await.unwrap();
-    assert!(snapshot.reachable(&source, &a).await.is_err());
+    assert!(snapshot.reachable(&source, &a).await.unwrap().is_empty());
 }
 
 #[tokio::test]

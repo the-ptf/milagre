@@ -462,6 +462,9 @@ impl Snapshot {
     }
     pub async fn link(&self, id: &str) -> Result<LinkGrant> {
         self.check()?;
+        if !scopes::valid_link_id(&json!(id)) {
+            return Err("Invalid Link id.".into());
+        }
         let group = self.data["projectGroups"]
             .as_array()
             .unwrap()
@@ -656,6 +659,9 @@ impl Snapshot {
             .collect::<Vec<_>>();
         let mut scoped = Vec::new();
         for mut link in relevant {
+            if !links::saved_edge_shape(&link) {
+                continue;
+            }
             let mut outside = false;
             for side in ["a", "b"] {
                 if let Some(id) = link[side]["project_id"].as_str() {
@@ -674,9 +680,6 @@ impl Snapshot {
             }
             if outside {
                 continue;
-            }
-            if !link["id"].as_str().is_some_and(|id| !id.is_empty()) {
-                return Err("Saved canvas Link has no valid id.".into());
             }
             scoped.push(link);
         }

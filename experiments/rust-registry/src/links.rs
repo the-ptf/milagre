@@ -13,6 +13,17 @@ pub fn valid_group(group: &Value) -> bool {
                     == ids.len()
         })
 }
+/// Admission shape for saved canvas metadata. This validates syntax only, not
+/// existence, scope or authority. Pure Node helpers below retain Node semantics.
+pub(crate) fn saved_edge_shape(link: &Value) -> bool {
+    link["id"].as_str().is_some_and(|id| !id.is_empty())
+        && ["a", "b"].iter().all(|side| {
+            let endpoint = &link[*side];
+            endpoint.is_object()
+                && absolute(&endpoint["project_id"])
+                && endpoint.get("worktree_path").is_none_or(absolute)
+        })
+}
 fn active_has(active: &Value, id: &Value, path: &Value) -> bool {
     id.as_str()
         .and_then(|id| active[id].as_array())

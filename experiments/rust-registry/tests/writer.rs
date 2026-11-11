@@ -659,3 +659,93 @@ async fn outside_seed_rows_survive_admitted_mutations_without_becoming_grants() 
     );
     assert_eq!(std::fs::read_dir(&foreign).unwrap().count(), 1);
 }
+
+#[tokio::test]
+async fn malformed_saved_endpoints_are_pruned_without_blocking_valid_registry_work() {
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let a = isolation.root().join("a");
+    let b = isolation.root().join("b");
+    let c = isolation.root().join("c");
+    for path in [&a, &b, &c] {
+        std::fs::create_dir(path).unwrap();
+    }
+    let projects = json!([{"id":a,"path":a},{"id":b,"path":b}]);
+    let valid = json!({"id":"valid","a":{"project_id":a},"b":{"project_id":b}});
+    let malformed = vec![
+        json!({"id":"relative-id","a":{"project_id":"x"},"b":{"project_id":a}}),
+        json!({"id":"empty-id","a":{"project_id":a},"b":{"project_id":""}}),
+        json!({"id":"relative-path","a":{"project_id":a},"b":{"project_id":b,"worktree_path":"relative"}}),
+        json!({"id":"empty-path","a":{"project_id":a,"worktree_path":""},"b":{"project_id":b}}),
+        json!({"id":"null-path","a":{"project_id":a},"b":{"project_id":b,"worktree_path":null}}),
+        json!({"id":"numeric-id","a":{"project_id":a},"b":{"project_id":3}}),
+        json!({"id":"missing-endpoint","a":{"project_id":a}}),
+        json!({"id":"nonobject-endpoint","a":{"project_id":a},"b":"x"}),
+    ];
+    let node_input = json!({"links":malformed,"projects":projects,"active":{a.to_str().unwrap():[a],b.to_str().unwrap():[b]}});
+    let output = Command::new("node").args(["-e","const {pruneLinks}=require(process.argv[1]); const x=JSON.parse(process.argv[2]); process.stdout.write(JSON.stringify(pruneLinks(x.links,x.projects,x.active)))"])
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/core/src/project-links.cjs"))
+        .arg(node_input.to_string()).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+        json!([])
+    );
+    let mut edges = malformed;
+    edges.push(valid.clone());
+    // A missing canvas id is invalid admission metadata even if Node's pure
+    // endpoint helper accepts both endpoints. It must not wedge valid edges.
+    edges.push(json!({"a":{"project_id":a},"b":{"project_id":b}}));
+    let seed = json!({"projects":projects,"links":edges});
+    let copy = RegistryCopy::create(
+        isolation,
+        Seeds {
+            registry: Some(seed.to_string().into_bytes()),
+            recent: None,
+        },
+    )
+    .unwrap();
+    let reader = copy.reader(Arc::new(|| Ok(()))).unwrap();
+    let snapshot = reader.snapshot().unwrap();
+    assert!(reader
+        .probe("relative")
+        .await
+        .err()
+        .unwrap()
+        .contains("absolute"));
+    assert!(snapshot
+        .project("relative")
+        .await
+        .err()
+        .unwrap()
+        .contains("absolute"));
+    assert_eq!(snapshot.link("x").await.err().unwrap(), "Invalid Link id.");
+    let source = snapshot.project(&a).await.unwrap();
+    let linked = snapshot.reachable(&source, &a).await.unwrap();
+    assert_eq!(linked.len(), 1);
+    assert_eq!(linked[0].link_ids(), ["valid"]);
+    let mut writer = copy
+        .writer(Arc::new(|| Ok(())), clock(Arc::new(AtomicUsize::new(0))))
+        .unwrap();
+    writer.call("register", &json!({"path":c})).await.unwrap();
+    let after = bytes(copy.path(), "project-registry.json").unwrap();
+    assert_eq!(jsjson::parse(&after).unwrap()["links"], json!([valid]));
+    assert!(writer
+        .call(
+            "link:add",
+            &json!({"a":{"project_id":a},"b":{"project_id":"x"}})
+        )
+        .await
+        .is_err());
+    assert_eq!(bytes(copy.path(), "project-registry.json"), Some(after));
+    let snapshot = reader.snapshot().unwrap();
+    let source = snapshot.project(&a).await.unwrap();
+    let linked = snapshot.reachable(&source, &a).await.unwrap();
+    assert_eq!(linked.len(), 1);
+    assert_eq!(linked[0].worktree(), b);
+    linked[0].check().await.unwrap();
+}

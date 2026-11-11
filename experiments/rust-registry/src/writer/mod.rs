@@ -384,6 +384,9 @@ impl Writer {
             .collect::<Vec<_>>();
         let mut kept = Vec::new();
         for link in data["links"].as_array().unwrap() {
+            if !links::saved_edge_shape(link) {
+                continue;
+            }
             if self.edge_outside(link, data)?
                 || (ids.contains(&link["a"]["project_id"])
                     && ids.contains(&link["b"]["project_id"]))
@@ -574,6 +577,10 @@ impl Writer {
                     args
                 };
                 let (a, b) = (&saved["a"], &saved["b"]);
+                let admission_shape = json!({"id":"requested","a":a,"b":b});
+                if !links::saved_edge_shape(&admission_shape) {
+                    return Err(WriteError::refused("These endpoints cannot be linked."));
+                }
                 if method == "link:restore"
                     && (!saved["id"].as_str().is_some_and(|s| !s.is_empty())
                         || !saved["created_at"].is_string())
@@ -620,6 +627,9 @@ impl Writer {
                 let admitted = self.admitted_projects(data)?;
                 let mut kept = Vec::new();
                 for link in data["links"].as_array().unwrap() {
+                    if !links::saved_edge_shape(link) {
+                        continue;
+                    }
                     if self.edge_outside(link, data)?
                         || links::can_link(&link["a"], &link["b"], &admitted, &active)
                     {
