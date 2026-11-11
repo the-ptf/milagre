@@ -83,7 +83,60 @@ fn throws(what: &str) -> StoreError {
 
 /// `String(value)`: what a template literal or `Array.prototype.join` writes. `None` is `undefined`.
 fn s(value: Option<&Value>) -> String {
-    property_key(value)
+    let mut out = String::new();
+    write_js(&mut out, value, usize::MAX);
+    out
+}
+
+/// [`s`] refused once the text passes `cap` bytes (it stops there: nothing past the cap is ever held).
+fn s_cap(value: Option<&Value>, cap: usize) -> Result<String> {
+    let mut out = String::new();
+    if write_js(&mut out, value, cap) {
+        Ok(out)
+    } else {
+        Err(too_large(cap))
+    }
+}
+
+fn too_large(cap: usize) -> StoreError {
+    StoreError::Invalid(format!("The transcript is larger than {cap} bytes."))
+}
+
+/// Appends `String(value)` to `out`, streaming: an array's elements are written one by one (never collected), and it
+/// stops, returning false, as soon as `out` would pass `cap` bytes.
+fn write_js(out: &mut String, value: Option<&Value>, cap: usize) -> bool {
+    match defined(value) {
+        Some(Value::Array(items)) => {
+            for (index, item) in items.iter().enumerate() {
+                if index > 0 {
+                    if out.len() >= cap {
+                        return false;
+                    }
+                    out.push(',');
+                }
+                if !item.is_null() && !jsjson::is_undefined(item) && !write_js(out, Some(item), cap)
+                {
+                    return false;
+                }
+            }
+            out.len() <= cap
+        }
+        Some(Value::String(text)) => {
+            if out.len() + text.len() > cap {
+                return false;
+            }
+            out.push_str(text);
+            true
+        }
+        other => {
+            let text = property_key(other);
+            if out.len() + text.len() > cap {
+                return false;
+            }
+            out.push_str(&text);
+            true
+        }
+    }
 }
 
 /// `value.key` for a named (non-index, non-`length`) key. Throws on `null`/`undefined`; other primitives and arrays
@@ -303,7 +356,11 @@ pub(crate) fn greater(a: Option<&Value>, b: Option<&Value>) -> bool {
 /// providers.mjs `providerName`: `(names[provider] ?? names.claude).name`, `names` a plain object, so a name of
 /// `Object.prototype` finds that function (its `name`), and `__proto__` finds the prototype (no `name`).
 pub fn provider_name(provider: Option<&Value>) -> String {
-    let key = property_key(provider);
+    // Every name that matters is short: a longer key (a huge array, say) is never built in full.
+    let mut key = String::new();
+    if !write_js(&mut key, provider, 32) {
+        return "Claude".into();
+    }
     match key.as_str() {
         "codex" => "Codex".into(),
         "claude" => "Claude".into(),
@@ -388,16 +445,19 @@ fn clock(at: Option<&Value>, clock: &Clock) -> Result<String> {
 }
 
 /// routines.mjs `routineRunText(context)`.
-fn routine_run_text(context: Option<&Value>, now: &Clock) -> Result<String> {
+fn routine_run_text(context: Option<&Value>, now: &Clock, cap: usize) -> Result<String> {
     let time = clock(prop(context, "at")?, now)?;
     if !truthy(opt_prop(context, "quiet")) {
         let label = opt_prop(context, "label").filter(|label| !nullish(Some(label)));
-        let label = label.map_or("Heartbeat".into(), |label| s(Some(label)));
+        let label = match label {
+            Some(label) => s_cap(Some(label), cap)?,
+            None => "Heartbeat".into(),
+        };
         return Ok(format!("{label} · {time}"));
     }
     let summary = opt_prop(context, "summary");
     Ok(if truthy(summary) {
-        format!("{time} · quiet: {}", s(summary))
+        format!("{time} · quiet: {}", s_cap(summary, cap)?)
     } else {
         format!("{time} · quiet")
     })
@@ -498,7 +558,7 @@ fn short_title(line: Vec<u16>) -> Vec<u16> {
 }
 
 /// chats.mjs `chatTitle(session, messages)`: the title, or `session.agent_name` (any value) when there is none.
-fn chat_title(session: Option<&Value>, messages: &[&Value]) -> Result<String> {
+fn chat_title(session: Option<&Value>, messages: &[&Value], cap: usize) -> Result<String> {
     for key in ["title", "generatedTitle"] {
         if let Some(title) = opt_trim(opt_prop(session, key), "a Chat title")? {
             if !title.is_empty() {
@@ -555,7 +615,7 @@ fn chat_title(session: Option<&Value>, messages: &[&Value]) -> Result<String> {
         }
     };
     if line.is_empty() {
-        return Ok(s(opt_prop(session, "agent_name")));
+        return s_cap(opt_prop(session, "agent_name"), cap);
     }
     Ok(jsjson::from_utf16(&short_title(line)))
 }
@@ -563,67 +623,47 @@ fn chat_title(session: Option<&Value>, messages: &[&Value]) -> Result<String> {
 // ---- handover.cjs ---------------------------------------------------------------------------------------------------
 
 /// `senderHeading(message)`: what wrote a message nobody typed; `None` for a message the user typed.
-fn sender_heading(message: &Value) -> Result<Option<String>> {
+fn sender_heading(message: &Value, cap: usize) -> Result<Option<String>> {
     let context = opt_prop(Some(message), "context");
     let Some(context @ (Value::Object(_) | Value::Array(_))) = context else {
         return Ok(None);
     };
     let context = Some(context);
-    let field = |key: &str| s(opt_prop(context, key));
+    let field = |key: &str| s_cap(opt_prop(context, key), cap);
     let Some(Value::String(kind)) = opt_prop(context, "kind") else {
         return Ok(None);
     };
     Ok(Some(match kind.as_str() {
-        "delegation" => format!("Delegation from {} (another Chat, not the user)", field("fromLabel")),
+        "delegation" => format!("Delegation from {} (another Chat, not the user)", field("fromLabel")?),
         "delegation-report" => format!(
             "Delegation report from {} (another Chat's agent, not the user)",
-            field("fromLabel")
+            field("fromLabel")?
         ),
-        "negotiation-agreement" => format!("Negotiation agreement with {} (written by Milagre)", field("with")),
+        "negotiation-agreement" => format!("Negotiation agreement with {} (written by Milagre)", field("with")?),
         "advisor-result" => format!(
             "Advisor result: {} ({}, {}; Milagre sent it, not the user)",
-            field("title"),
+            field("title")?,
             provider_name(opt_prop(context, "provider")),
-            field("outcome")
+            field("outcome")?
         ),
         "pr-action" => format!(
             "PR action: {} on #{} (the user clicked a pill; Milagre wrote the message)",
-            field("action"),
-            field("pr")
+            field("action")?,
+            field("pr")?
         ),
         "linear-issue" => match opt_prop(context, "routine") {
             Some(routine @ (Value::Object(_) | Value::Array(_))) => format!(
                 "Routine Run: {}, from Linear issue {} (Milagre sent it, not the user; the issue text was written by its author)",
-                s(opt_prop(Some(routine), "name")),
-                field("key")
+                s_cap(opt_prop(Some(routine), "name"), cap)?,
+                field("key")?
             ),
             _ => format!(
                 "User, starting from Linear issue {} (the issue text was written by its author)",
-                field("key")
+                field("key")?
             ),
         },
         _ => return Ok(None),
     }))
-}
-
-/// `stepLine(step)`.
-fn step_line(step: Option<&Value>) -> Result<String> {
-    let mut notes = Vec::new();
-    if is_str(prop(step, "status")?, "failed") {
-        notes.push("failed".to_string());
-    }
-    for key in ["note", "file"] {
-        let value = opt_prop(step, key);
-        if truthy(value) {
-            notes.push(s(value));
-        }
-    }
-    let title = s(opt_prop(step, "title"));
-    Ok(if notes.is_empty() {
-        format!("- {title}")
-    } else {
-        format!("- {title} ({})", notes.join(", "))
-    })
 }
 
 /// `state.sessions[sessionId]`: an own property or nothing. Sessions that aren't an object, and a name of
@@ -645,7 +685,11 @@ fn session_of<'a>(sessions: Option<&'a Value>, session_id: &Value) -> Result<Opt
 
 /// `state.worktrees?.[session.worktree_id]?.path`.
 fn worktree_path<'a>(worktrees: Option<&'a Value>, id: Option<&Value>) -> Option<&'a Value> {
-    let key = property_key(id);
+    // A key that isn't text is never longer than a few bytes when it names a worktree; a longer one names none.
+    let mut key = String::new();
+    if !write_js(&mut key, id, 4096) {
+        return None;
+    }
     match defined(worktrees) {
         Some(Value::Object(map)) => opt_prop(defined(map.get(&key)), "path"),
         Some(Value::Array(items)) => opt_prop(
@@ -689,30 +733,6 @@ pub fn render_transcript_bounded(
     render(state, session_id, after, now, Some(limit))
 }
 
-/// The transcript's parts joined as they come (`parts.join("\n\n")`), with an optional byte limit.
-struct Parts {
-    out: String,
-    limit: Option<usize>,
-}
-
-impl Parts {
-    fn push(&mut self, part: String) {
-        if !self.out.is_empty() {
-            self.out.push_str("\n\n");
-        }
-        self.out.push_str(&part);
-    }
-
-    fn check(&self) -> Result<()> {
-        match self.limit {
-            Some(limit) if self.out.len() > limit => Err(StoreError::Invalid(format!(
-                "The transcript is larger than {limit} bytes."
-            ))),
-            _ => Ok(()),
-        }
-    }
-}
-
 fn render(
     state: &Value,
     session_id: &Value,
@@ -747,22 +767,32 @@ fn render(
     let workspace = worktree_path(opt_prop(Some(state), "worktrees"), worktree_id)
         .filter(|path| !nullish(Some(path)))
         .or_else(|| opt_prop(session, "workspacePath").filter(|path| !nullish(Some(path))));
-    let workspace = workspace.map_or("unknown".into(), |path| s(Some(path)));
-    let mut parts = Parts {
-        out: String::new(),
-        limit,
+    let cap = limit.unwrap_or(usize::MAX);
+    let workspace = match workspace {
+        Some(path) => s_cap(Some(path), cap)?,
+        None => "unknown".into(),
     };
-    parts.push(format!("# Chat transcript: {}", chat_title(session, &all)?));
-    parts.push(format!(
-        "Provider: {} · Worktree: {workspace}",
+    let mut out = Out {
+        buf: String::new(),
+        cap,
+        first: true,
+    };
+    out.part()?;
+    out.text("# Chat transcript: ")?;
+    let title = chat_title(session, &all, cap)?;
+    out.text(&title)?;
+    out.part()?;
+    out.text(&format!(
+        "Provider: {} · Worktree: ",
         provider_name(opt_prop(session, "provider"))
-    ));
-    parts.check()?;
+    ))?;
+    out.text(&workspace)?;
+    drop((title, workspace));
     if after.is_some() {
-        parts.push("Earlier messages are left out: you already know them.".into());
+        out.part()?;
+        out.text("Earlier messages are left out: you already know them.")?;
     }
     for message in shown {
-        parts.check()?;
         let context = opt_prop(Some(message), "context");
         let kind = opt_prop(context, "kind");
         if is_str(kind, "handoff") {
@@ -773,73 +803,158 @@ fn render(
             };
             let from = provider_name(prop(prop(context, "from")?, "provider")?);
             let to = provider_name(prop(prop(context, "to")?, "provider")?);
-            parts.push(format!("## Handoff{failed}: {from} → {to}"));
+            out.part()?;
+            out.text(&format!("## Handoff{failed}: {from} → {to}"))?;
         } else if DIVIDERS.iter().any(|divider| is_str(kind, divider)) {
-            parts.push(format!("## {}", s(opt_prop(Some(message), "body"))));
+            out.part()?;
+            out.text("## ")?;
+            out.js(opt_prop(Some(message), "body"))?;
         } else if is_str(kind, "routine-run") {
-            parts.push(format!("## {}", routine_run_text(context, now)?));
+            let heading = routine_run_text(context, now, out.room())?;
+            out.part()?;
+            out.text("## ")?;
+            out.text(&heading)?;
             let body = opt_prop(Some(message), "body");
             if opt_trim(body, "a message body")?.is_some_and(|body| !body.is_empty()) {
-                parts.push(s(body));
+                out.part()?;
+                out.js(body)?;
             }
         } else if is_str(kind, "compaction") {
-            parts.push(format!("## {}", compaction_text(context)));
+            out.part()?;
+            out.text("## ")?;
+            out.text(&compaction_text(context))?;
         } else if is_str(opt_prop(Some(message), "role"), "assistant") {
             let steps = match opt_prop(Some(message), "steps") {
-                None | Some(Value::Null) => Vec::new(),
+                None | Some(Value::Null) => &[][..],
                 Some(Value::Array(steps)) => {
-                    let mut kept = Vec::new();
+                    // Node filters every step before formatting any: a step that is null throws first.
                     for step in steps {
-                        if !is_str(prop(Some(step), "kind")?, "thinking") {
-                            kept.push(step);
-                        }
+                        prop(Some(step), "kind")?;
                     }
-                    let mut lines = Vec::new();
-                    for step in kept {
-                        lines.push(step_line(Some(step))?);
-                    }
-                    lines
+                    &steps[..]
                 }
                 Some(_) => return Err(throws("a message's steps aren't a list")),
             };
             let model = opt_prop(Some(message), "model");
-            let model = if truthy(model) {
-                format!(" ({})", s(model))
-            } else {
-                String::new()
-            };
-            parts.push(format!("## Assistant{model}"));
-            let mut content = Vec::new();
-            let steps = steps.join("\n");
-            if !steps.is_empty() {
-                content.push(steps);
+            out.part()?;
+            out.text("## Assistant")?;
+            if truthy(model) {
+                out.text(" (")?;
+                out.js(model)?;
+                out.text(")")?;
+            }
+            // `[steps.join("\n"), body].filter(Boolean).join("\n\n")`, written line by line.
+            out.part()?;
+            let mut lines = 0;
+            for step in steps
+                .iter()
+                .filter(|step| !is_str(opt_prop(Some(step), "kind"), "thinking"))
+            {
+                if lines > 0 {
+                    out.text("\n")?;
+                }
+                lines += 1;
+                out.step_line(Some(step))?;
             }
             let body = opt_prop(Some(message), "body");
             if truthy(body) {
-                content.push(s(body));
+                if lines > 0 {
+                    out.text("\n\n")?;
+                }
+                out.js(body)?;
             }
-            parts.push(content.join("\n\n"));
         } else {
-            let heading = sender_heading(message)?.unwrap_or_else(|| "User".into());
-            parts.push(format!("## {heading}"));
-            let mut content = Vec::new();
+            let heading = sender_heading(message, out.room())?;
+            out.part()?;
+            out.text("## ")?;
+            out.text(heading.as_deref().unwrap_or("User"))?;
+            out.part()?;
+            let mut written = false;
             for key in ["handoverBrief", "body"] {
                 let value = opt_prop(Some(message), key);
                 if opt_trim(value, "a message part")?.is_some_and(|part| !part.is_empty()) {
-                    content.push(s(value));
+                    if written {
+                        out.text("\n\n")?;
+                    }
+                    written = true;
+                    out.js(value)?;
                 }
             }
-            parts.push(content.join("\n\n"));
         }
     }
-    parts.check()?;
-    let mut out = parts.out;
-    out.push('\n');
+    out.text("\n")?;
+    let mut text = out.buf;
     // Joined as JavaScript joins strings: two halves that meet make one pair again (only halves can meet).
-    if jsjson::has_lone_surrogate(&out) {
-        out = jsjson::from_utf16(&jsjson::to_utf16(&out));
+    if jsjson::has_lone_surrogate(&text) {
+        text = jsjson::from_utf16(&jsjson::to_utf16(&text));
     }
-    Ok(out)
+    Ok(text)
+}
+
+/// The transcript as it is written: every piece goes straight into one buffer, refused as soon as it would pass the
+/// cap (nothing past it is ever held: no per-message or per-element strings).
+struct Out {
+    buf: String,
+    cap: usize,
+    /// No part written yet (parts are joined with a blank line).
+    first: bool,
+}
+
+impl Out {
+    /// Starts a part: the blank line `parts.join("\n\n")` puts before every part but the first.
+    fn part(&mut self) -> Result<()> {
+        if !std::mem::take(&mut self.first) {
+            self.text("\n\n")?;
+        }
+        Ok(())
+    }
+
+    fn text(&mut self, text: &str) -> Result<()> {
+        if self.buf.len() + text.len() > self.cap {
+            return Err(too_large(self.cap));
+        }
+        self.buf.push_str(text);
+        Ok(())
+    }
+
+    fn js(&mut self, value: Option<&Value>) -> Result<()> {
+        if write_js(&mut self.buf, value, self.cap) {
+            Ok(())
+        } else {
+            Err(too_large(self.cap))
+        }
+    }
+
+    /// What is left under the cap.
+    fn room(&self) -> usize {
+        self.cap.saturating_sub(self.buf.len())
+    }
+
+    /// `stepLine(step)`: `- title (failed, note, file)`, the notes that are truthy.
+    fn step_line(&mut self, step: Option<&Value>) -> Result<()> {
+        let failed = is_str(prop(step, "status")?, "failed");
+        let note = opt_prop(step, "note").filter(|note| truthy(Some(note)));
+        let file = opt_prop(step, "file").filter(|file| truthy(Some(file)));
+        self.text("- ")?;
+        self.js(opt_prop(step, "title"))?;
+        if failed || note.is_some() || file.is_some() {
+            self.text(" (")?;
+            let mut first = true;
+            if failed {
+                self.text("failed")?;
+                first = false;
+            }
+            for value in [note, file].into_iter().flatten() {
+                if !first {
+                    self.text(", ")?;
+                }
+                first = false;
+                self.js(Some(value))?;
+            }
+            self.text(")")?;
+        }
+        Ok(())
+    }
 }
 
 /// `cutTranscript(transcript)`: within TRANSCRIPT_LIMIT code units, its first message and the most recent part, with

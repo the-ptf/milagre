@@ -140,6 +140,9 @@ fn transcript_jobs_stay_within_their_byte_bounds() {
     let third = jobs.job(&project, source(&big, 3)).unwrap();
     drop((second, third));
     drop(big);
+    for outcome in jobs.take_outcomes() {
+        jobs.finish(outcome.id());
+    }
 
     // 4. Rendering stops at its limit: a 5 MiB transcript rendered with a 1 MiB limit never holds much more.
     let messages: Vec<Value> = (0..80)
@@ -155,5 +158,52 @@ fn transcript_jobs_stay_within_their_byte_bounds() {
     assert!(
         peak < 3 * MIB,
         "rendering with a 1 MiB limit allocated {peak} bytes"
+    );
+
+    // 5. One message's body, a 25 MiB string, against a 1 MiB limit: refused before it is copied.
+    let body = json!({ "sessions": { "1": { "title": "T" } }, "messages": [
+        { "id": 1, "session_id": 1, "role": "assistant", "body": "z".repeat(25 * MIB) },
+    ] });
+    let (rendered, peak) =
+        peak_of(|| render_transcript_bounded(&body, &json!(1), None, &CLOCK, MIB).err());
+    assert!(rendered.is_some());
+    assert!(
+        peak < MIB,
+        "a 25 MiB body against a 1 MiB limit allocated {peak} bytes"
+    );
+    drop(body);
+
+    // 6. A body that isn't text: String([0, 0, ...]) of two million elements is written element by element, never
+    //    collected, and stops at the limit.
+    let zeros = json!({ "sessions": { "1": { "title": "T" } }, "messages": [
+        { "id": 1, "session_id": 1, "role": "assistant", "body": vec![0; 2_000_000] },
+    ] });
+    let (rendered, peak) =
+        peak_of(|| render_transcript_bounded(&zeros, &json!(1), None, &CLOCK, MIB).err());
+    assert!(rendered.is_some());
+    assert!(
+        peak < 3 * MIB,
+        "String(array) against a 1 MiB limit allocated {peak} bytes"
+    );
+    drop(zeros);
+
+    // 7. A real job whose input fits (about 6 MiB) but whose transcript doesn't: three million steps, each written as
+    //    "- undefined" (about 36 MiB). The job fails at the 32 MiB transcript cap, holding at most about that.
+    let steps = json!({ "sessions": { "1": { "title": "T" } }, "messages": [
+        { "id": 1, "session_id": 1, "role": "assistant", "body": "", "steps": vec![0; 3_000_000] },
+    ] });
+    let job = jobs.job(&project, source(&steps, 1)).unwrap();
+    let id = job.id();
+    drop(steps);
+    let ((), peak) = peak_of(|| job.run());
+    let outcomes = jobs.take_outcomes();
+    assert!(
+        matches!(&outcomes[..], [milagre_owner_store::transcripts::JobOutcome::Failed { error, leftover: None, .. }] if error.contains("larger than")),
+        "the oversized transcript wasn't refused"
+    );
+    jobs.finish(id);
+    assert!(
+        peak < 40 * MIB,
+        "a job refusing a 36 MiB transcript allocated {peak} bytes"
     );
 }
