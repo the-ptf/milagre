@@ -937,6 +937,8 @@ export interface ChatStep {
   title: string;
   /** Saved steps are done or failed; only a reply still streaming has running ones. */
   status: "running" | "done" | "failed";
+  /** Provider-supplied purpose of a command, shown while it runs; the title and detail keep the command. */
+  description?: string;
   /** The command and its output, a unified diff, or the thinking summary, capped at 20,000 characters. */
   detail?: string;
   /**

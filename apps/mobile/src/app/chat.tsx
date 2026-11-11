@@ -1164,8 +1164,7 @@ function ChatPane({
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking;
   const run = chat ? liveRun : undefined;
-  // What the Chat waits on before its agent works (its new Worktree, the send, the agent starting), or mid-turn a Link
-  // Chat's Worktree or a setup: named beside the running mark, as on desktop.
+  // The send's progress, then the current tool or thinking heading beside the running mark and timer, as on desktop.
   const phase =
     pending && !run
       ? sendStatusLabel({

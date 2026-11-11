@@ -21,7 +21,7 @@ function Title({ step, running }: { step: ChatStep; running: boolean }) {
   const sweep = useStepTitleSweep(running);
   return (
     <>
-      {titleSpans(stepDisplayTitle(step, running)).map((span, index) =>
+      {titleSpans(stepDisplayTitle({ ...step, description: undefined, detail: undefined }, running)).map((span, index) =>
         span.code ? (
           <code key={index} className={`${CODE_CHIP} ${sweep.className ?? ""}`}>
             {span.text}
@@ -102,7 +102,7 @@ export function ActivityBlock({
         if (boundary === null) setBoundary(activityBoundary(entries, waitingStepIds, streaming));
         setOpen((value) => !value);
       }}
-      // The whole line is the toggle: hovering anywhere fills it and lights the chevron and time at its right end too.
+      // The whole line is the toggle, with time and chevron immediately after its content.
       className={`group/fold flex h-6 w-full min-w-0 items-center gap-2 rounded-control px-[var(--row-inset,0px)] text-left text-12 text-ink-2 transition-colors hover:text-ink ${HOVER_FILL}`}
     >
       {/* A waiting line is about one call: its glyph alone, not the reply's mix. */}
@@ -134,15 +134,13 @@ export function ActivityBlock({
         </span>
       )}
       {streaming && !waiting && <span className="shrink-0 text-11 text-ink-3">{steps.length} calls</span>}
-      {/* The chevron and time take the rows' columns, so every duration ends on one right edge. */}
-      <span aria-hidden className="flex-1" />
+      {elapsed && <span className="shrink-0 text-11 text-ink-3 tabular-nums transition-colors group-hover/fold:text-ink-2">{elapsed}</span>}
       <span
         aria-hidden
         className={`shrink-0 text-ink-3 transition-[color,rotate,transform] duration-base ease-enter group-hover/fold:text-ink ${open ? "rotate-180" : ""}`}
       >
         <Icon icon={ArrowDown01Icon} size={12} />
       </span>
-      {elapsed && <span className="min-w-10 shrink-0 text-right text-11 text-ink-3 tabular-nums transition-colors group-hover/fold:text-ink-2">{elapsed}</span>}
     </button>
   );
 

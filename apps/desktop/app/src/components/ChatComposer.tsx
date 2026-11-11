@@ -1499,7 +1499,7 @@ export function ChatComposer({
     [newChatChange, chatsDraft, noProjectGroup],
   );
   const workingModelName = runModelName ?? selectedModel.name;
-  // A Link Chat's Worktree being made, or a setup running, is named; the agent's own work shows the mark alone.
+  // Live work stays beside the running mark and timer, including tool purposes and thinking summary headings.
   const phase = statusLabel ?? runStatusLabel(streamingSteps);
   // Set while the transcript is scrolled up: its "Go to bottom" sits at the right end of the chip row, never over text.
   // Kept with the transcript it belongs to, so a Chat opened next (or a parked one) never shows another's button.

@@ -28,6 +28,8 @@ const calls = [
 ];
 function Fixture() {
  const [waiting, setWaiting] = useState(true);
+ const [liveSteps, setLiveSteps] = useState([...calls.map(entry => entry.step), ...runs['/fixture#1'].steps]);
+ window.setActivitySteps = setLiveSteps;
  const request = waiting ? { requestId: "push-approval", kind: "command", tool: "Bash", title: "Run \u0060git push\u0060", description: "Push the branch", command: "git push", cwd: "/fixture", allowForChat: true, stepId: "push" } : undefined;
  window.decisions ??= [];
  // As App does: the row that shows the approval claims it, and the card above the composer stays away while it does.
@@ -36,7 +38,7 @@ function Fixture() {
   <ChatComposer messages={[{ id: 1, session_id: 1, role: "user", body: "Review the tool calls.", context: null }]} messageScope="/fixture" projectPath="/fixture"
    imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
    draft="" onDraftChange={noop} onSend={noop} isSending sendBlocked={false}
-   streamingText="I'll review the tool calls and run their checks." streamingSteps={[...calls.map(entry => entry.step), ...runs['/fixture#1'].steps]}
+   streamingText="I'll review the tool calls and run their checks." streamingSteps={liveSteps}
    waitingStepIds={waiting ? ["push"] : []}
    stepApproval={scope.value}
    approval={waiting && !scope.inline ? <button id="card">Allow once</button> : null}
@@ -138,6 +140,34 @@ async function check() {
       true,
       "long public summaries remain reachable in their bounded scroll area after completion",
     );
+    const thought = {
+      id: "live-thought",
+      kind: "thinking",
+      title: "Thinking",
+      status: "running",
+      startedAt: Date.now(),
+      detail: "**Inspecting recorded swipe events**\n\nCompare the fields.",
+    };
+    await run(`window.setActivitySteps(${JSON.stringify([thought])})`);
+    await wait('document.querySelector("[data-slot=step]").textContent.includes("Inspecting recorded swipe events")');
+    await run(`window.setActivitySteps(${JSON.stringify([{ ...thought, detail: `${thought.detail}\n\n**Testing both post orders**` }])})`);
+    await wait('document.querySelector("[data-slot=step]").textContent.includes("Testing both post orders")');
+    const command = {
+      id: "live-command",
+      kind: "shell",
+      title: "Ran `npm test`",
+      description: "Check recorded swipe events",
+      status: "running",
+      startedAt: Date.now(),
+      detail: "$ npm test\n",
+    };
+    await run(`window.setActivitySteps(${JSON.stringify([command, thought])})`);
+    await wait(`document.querySelector('[role="status"][aria-label="Check recorded swipe events"]')?.textContent.includes("Check recorded swipe events")`);
+    assert.equal(await run('document.querySelector("[data-slot=activity] > button").textContent.includes("Running 2 calls")'), true);
+    await run('document.querySelector("[data-slot=activity] > button").click()');
+    await wait('document.querySelectorAll("[data-slot=step]").length === 2');
+    await run('document.querySelector("[data-slot=step] button[aria-expanded]").click()');
+    await wait('document.querySelector("[data-slot=step]").textContent.includes("npm test")');
     if (process.env.MILAGRE_SCREENSHOT_DIR) {
       await delay(400);
       const fs = require("node:fs");

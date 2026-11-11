@@ -4,6 +4,7 @@ import { useDisplayValue } from "../lib/display-clock";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "./primitives/Icon";
+import { useStepTitleSweep } from "../lib/step-sweep";
 
 /** The Milagre mark running: the legs take turns striding while the sparkle bobs and turns a quarter on each step. */
 function RunningLogo() {
@@ -36,12 +37,13 @@ function useElapsed(startedAt?: number) {
 /** The turn running and how long it has run. The label is only announced to screen readers, unless `showLabel` writes it out beside the mark. */
 export function ThinkingIndicator({ label, showLabel = false, startedAt }: { label: string; showLabel?: boolean; startedAt?: number }) {
   const elapsed = useElapsed(startedAt);
+  const sweep = useStepTitleSweep(showLabel);
 
   return (
     <div role="status" aria-label={label} className="flex w-fit items-center gap-2 px-1 py-1">
       <RunningLogo />
       {showLabel && (
-        <span aria-hidden className="min-w-0 truncate text-12 text-ink-3">
+        <span aria-hidden className={`min-w-0 truncate text-12 text-ink-3 ${sweep.className ?? ""}`}>
           {label}
         </span>
       )}

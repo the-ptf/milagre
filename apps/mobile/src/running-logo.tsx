@@ -119,9 +119,28 @@ function useElapsed(startedAt?: number) {
   return useDisplayValue(250, (now) => formatElapsed(now - (startedAt ?? start)));
 }
 
+function RunningLabel({ label }: { label: string }) {
+  const { colors } = useTheme();
+  const active = useScreenActive();
+  const reduced = useShimmerReducedMotion(active);
+  const style = { color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 };
+  return (
+    <View style={{ flexShrink: 1 }}>
+      {active && !reduced ? (
+        <ShimmerText settledChildren={label} style={style}>
+          {label}
+        </ShimmerText>
+      ) : (
+        <Text numberOfLines={1} style={style}>
+          {label}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 /** Desktop's ThinkingIndicator: the running mark and the elapsed time; the label is for screen readers unless shown. */
 export function ThinkingIndicator({ label, showLabel = false, startedAt }: { label: string; showLabel?: boolean; startedAt?: number }) {
-  const { colors } = useTheme();
   return (
     <View
       accessible
@@ -130,11 +149,7 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
       style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4, paddingVertical: 4 }}
     >
       <RunningLogo />
-      {showLabel && (
-        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1, flexShrink: 1 }}>
-          {label}
-        </Text>
-      )}
+      {showLabel && <RunningLabel label={label} />}
       <Elapsed startedAt={startedAt} />
     </View>
   );

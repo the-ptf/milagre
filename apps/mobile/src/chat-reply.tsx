@@ -200,7 +200,7 @@ function ActivityRow({
   const summary = activitySummary(steps, { credits });
   const elapsed = useDisplayValue(1000, (now) => activityDuration(steps, live, now), live);
   const runningCount = steps.filter((step) => step.status === "running").length;
-  const label = current ? stepDisplayTitle(current, !waiting) : live ? "Working" : summary.text || "Activity";
+  const label = current ? stepDisplayTitle({ ...current, description: undefined, detail: undefined }, !waiting) : live ? "Working" : summary.text || "Activity";
   return (
     <Pressable
       accessibilityRole="button"
@@ -230,11 +230,10 @@ function ActivityRow({
           <Text style={{ color: colors.redInk, fontSize: type.caption1, lineHeight: typeLineHeight.caption1 }}>{summary.failed} failed</Text>
         </View>
       )}
-      <View style={{ flex: 1 }} />
-      <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
       {!!elapsed && (
         <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: typeLineHeight.caption1, fontVariant: ["tabular-nums"] }}>{elapsed}</Text>
       )}
+      <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
     </Pressable>
   );
 }
