@@ -63,6 +63,9 @@ async function main() {
   }
   if (command === "serve") {
     if (positionals.length !== 1) throw new Error("Unexpected serve arguments");
+    process.on("unhandledRejection", (reason) => {
+      console.error("[daemon] unhandled rejection", reason, reason?.stack ?? "");
+    });
     const daemon = await startDaemon({
       dataDir,
       version: values["app-version"] || version,

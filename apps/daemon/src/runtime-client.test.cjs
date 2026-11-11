@@ -77,3 +77,97 @@ test("a reconnect goes on when the Project the sidebar opened was deleted meanwh
   await restart();
   assert.equal((await desktop.invoke("project:current")).path, project);
 });
+
+// Isolate reopening failures from the real host's Project storage and locks.
+for (const method of ["project:open", "link:open"])
+  test(`reconnect drops a broken ${method} and delivers the snapshot`, async (t) => {
+    const { EventEmitter } = require("node:events");
+    const events = [];
+    const calls = [];
+    let generation = 0;
+    let first;
+    let latest;
+    const snapshot = { eventSeq: 0, projects: [{ path: "/healthy" }] };
+    const broken = method === "link:open" ? "12345678-1234-1234-1234-123456789abc" : "/broken";
+    const connect = async () => {
+      const index = generation++;
+      const connection = new EventEmitter();
+      connection.status = { methods: [], capabilities: ["result-pages-v1"] };
+      connection.close = () => connection.emit("close");
+      connection.call = async (name, args = []) => {
+        calls.push({ index, name, args });
+        if (index > 0 && name === method && args[0] === broken) throw new Error("state file unreadable");
+        if (name === "link:open") return { link: { id: args[0] } };
+        if (name === "project:open") return { path: args[0] };
+        if (name === "daemon:snapshot") return { snapshotId: 1, pageCount: 1 };
+        if (name === "daemon:snapshot-page") return JSON.stringify(snapshot);
+        return {};
+      };
+      first ??= connection;
+      latest = connection;
+      return connection;
+    };
+    const desktop = await connectDesktopRuntime({ connect, reconnectMs: 10, emit: (channel, payload) => events.push({ channel, payload }) });
+    t.after(() => desktop.close());
+    const warn = t.mock.method(console, "warn", () => {});
+    await desktop.openProject("/healthy");
+    await desktop.invoke(method, [broken]);
+    await desktop.invoke("chat:set-open", ["broken-chat"]);
+    first.close();
+    await waitFor(() => events.some((event) => event.channel === "runtime:snapshot"));
+    assert.deepEqual(events.find((event) => event.channel === "runtime:snapshot").payload, snapshot);
+    assert.ok(calls.some(({ index, name, args }) => index === 1 && name === "project:open" && args[0] === "/healthy"));
+    assert.ok(calls.some(({ index, name, args }) => index === 1 && name === "chat:set-open" && args[0] === null));
+    assert.ok(warn.mock.calls.some(({ arguments: args }) => args[1].endsWith(broken) && args[2] === "state file unreadable"));
+    latest.close();
+    await waitFor(() => events.filter((event) => event.channel === "runtime:snapshot").length === 2);
+    assert.equal(
+      calls.some(({ index, name, args }) => index === 2 && name === method && args[0] === broken),
+      false,
+    );
+  });
+
+for (const failure of [
+  Object.assign(new Error("closed"), { code: "DAEMON_CLOSED" }),
+  Object.assign(new Error("closing"), { code: "CLOSING" }),
+  Object.assign(new Error("unauthorized"), { code: "UNAUTHORIZED" }),
+  Object.assign(new Error("reset"), { code: "ECONNRESET" }),
+  Object.assign(new Error("invalid frame"), { code: "FRAME_TOO_LARGE" }),
+  new Error("Daemon connection closed"),
+  new Error("Timed out: project:open. It may still be running; do not retry a mutation without checking state."),
+])
+  test(`reconnect retries connection failures without dropping the Project: ${failure.message}`, async (t) => {
+    const { EventEmitter } = require("node:events");
+    const events = [];
+    const reopened = [];
+    let generation = 0;
+    let first;
+    const desktop = await connectDesktopRuntime({
+      reconnectMs: 10,
+      emit: (channel, payload) => events.push({ channel, payload }),
+      connect: async () => {
+        const index = generation++;
+        const connection = new EventEmitter();
+        connection.status = { methods: [], capabilities: ["result-pages-v1"] };
+        connection.close = () => connection.emit("close");
+        connection.call = async (name, args = []) => {
+          if (name === "project:open") {
+            reopened.push(index);
+            if (index === 1) throw failure;
+            return { path: args[0] };
+          }
+          if (name === "daemon:snapshot") return { snapshotId: 1, pageCount: 1 };
+          if (name === "daemon:snapshot-page") return JSON.stringify({ eventSeq: 0 });
+          return {};
+        };
+        first ??= connection;
+        return connection;
+      },
+    });
+    t.after(() => desktop.close());
+    await desktop.openProject("/project");
+    first.close();
+    await waitFor(() => events.some((event) => event.channel === "runtime:snapshot"));
+    assert.ok(events.some(({ channel, payload }) => channel === "runtime:connection" && payload.message === `Host unavailable: ${failure.message}`));
+    assert.ok(reopened.includes(2), "the Project is still remembered on the next reconnect");
+  });
