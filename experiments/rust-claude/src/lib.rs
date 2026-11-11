@@ -11,6 +11,7 @@ pub mod drafts;
 pub mod events;
 pub mod frame;
 pub mod handlers;
+pub mod images;
 pub mod launch;
 pub mod milagre;
 pub mod process;
@@ -32,3 +33,5 @@ pub use events::ClaudeMapper;
 pub use session::{
     AccessDecision, AccessPolicy, ClaudeSession, PreToolUseGuard, SessionError, SessionEvents, SessionOptions, TurnRequest, TurnStart,
 };
+
+pub use images::{FileImageStore, ToolImageStore};

@@ -71,6 +71,8 @@ pub struct SessionOptions {
     pub access: Option<Arc<dyn AccessPolicy>>,
     pub mcp: Option<Arc<dyn McpHandler>>,
     pub clock: Option<Clock>,
+    /// Owner-selected image persistence. None disables image writes, but keeps Read tool rows.
+    pub image_store: Option<Arc<dyn crate::images::ToolImageStore>>,
     /// Queue threshold before the session stops reading the CLI or accepting another start.
     /// One mapped frame and concurrent control handlers may emit a burst beyond this threshold.
     pub event_capacity: usize,
@@ -93,6 +95,7 @@ impl SessionOptions {
             access: None,
             mcp: None,
             clock: None,
+            image_store: None,
             event_capacity: 1024,
         }
     }
@@ -415,6 +418,9 @@ impl ClaudeSession {
         let mapper = {
             let mut mapper = ClaudeMapper::new(options.clock.clone());
             mapper.session_id = options.resume_id.clone();
+            if let Some(store) = &options.image_store {
+                mapper.set_image_store(store.clone());
+            }
             mapper
         };
         let state = State {

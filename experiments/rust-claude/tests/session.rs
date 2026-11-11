@@ -666,3 +666,21 @@ async fn auto_mode_rechecks_pending_edit_paths_and_fails_closed() {
         std::fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[tokio::test]
+async fn read_images_persist_returned_bytes_through_session_options() {
+    let root = common::scratch("session-images");
+    let mut script = handshake();
+    script.extend([json!({"expect":{"type":"user"}}),init(),
+        json!({"emit":{"type":"assistant","message":{"content":[{"type":"tool_use","id":"r","name":"Read","input":{"file_path":"/never/read/source.gif"}}]}}}),
+        json!({"emit":{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"r","content":[{"type":"image","source":{"type":"base64","media_type":"image/gif","data":"R0lGODlh"}}]}]}}}),result()]);
+    let (session, mut events) =
+        configured(script, |o| o.image_store = Some(Arc::new(milagre_claude::FileImageStore::new(root.join("images")))));
+    session.start_turn(request("one")).await.unwrap();
+    let trace = until(&mut events, "turn-completed").await;
+    let image = trace.iter().find(|e| e["type"] == "step-started" && e["step"]["kind"] == "image").unwrap();
+    assert_eq!(image["step"]["sourceFile"], "/never/read/source.gif");
+    assert_eq!(std::fs::read(image["step"]["file"].as_str().unwrap()).unwrap(), b"GIF89a");
+    session.close().await;
+    std::fs::remove_dir_all(root).unwrap();
+}

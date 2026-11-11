@@ -1,0 +1,1094 @@
+{
+  "generatedBy": "scripts/generate-images.cjs",
+  "cases": [
+    {
+      "name": "four-formats",
+      "unwritable": false,
+      "steps": [
+        {
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "r",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/never/read/source.png"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r",
+                "kind": "read",
+                "title": "Read `source.png`",
+                "file": "/never/read/source.png"
+              }
+            }
+          ],
+          "files": {}
+        },
+        {
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "r",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo="
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": "/9j/AQ=="
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/gif",
+                        "data": "R0lGODlh"
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/webp",
+                        "data": "UklGRnh4eHhXRUJQ"
+                      }
+                    }
+                  ],
+                  "is_error": false
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "r",
+              "status": "done"
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r:image:0",
+                "kind": "image",
+                "title": "Viewed an image",
+                "imageOrigin": "viewed",
+                "sourceFile": "/never/read/source.png",
+                "file": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png"
+              }
+            },
+            {
+              "type": "step-completed",
+              "id": "r:image:0",
+              "status": "done",
+              "file": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png"
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r:image:1",
+                "kind": "image",
+                "title": "Viewed an image",
+                "imageOrigin": "viewed",
+                "sourceFile": "/never/read/source.png",
+                "file": "2501302c0464719ae433103d7f70c01350d8dceee909f52197fe284905e20a96.jpg"
+              }
+            },
+            {
+              "type": "step-completed",
+              "id": "r:image:1",
+              "status": "done",
+              "file": "2501302c0464719ae433103d7f70c01350d8dceee909f52197fe284905e20a96.jpg"
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r:image:2",
+                "kind": "image",
+                "title": "Viewed an image",
+                "imageOrigin": "viewed",
+                "sourceFile": "/never/read/source.png",
+                "file": "610f5ae4d76e332636a17bd357fd6ce99029316a99d320280d4d77a746bf29e8.gif"
+              }
+            },
+            {
+              "type": "step-completed",
+              "id": "r:image:2",
+              "status": "done",
+              "file": "610f5ae4d76e332636a17bd357fd6ce99029316a99d320280d4d77a746bf29e8.gif"
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r:image:3",
+                "kind": "image",
+                "title": "Viewed an image",
+                "imageOrigin": "viewed",
+                "sourceFile": "/never/read/source.png",
+                "file": "1cb7b8474bc21db394b02a699127014d2e21ac08f2e98ca1b27c1e58e602a76f.webp"
+              }
+            },
+            {
+              "type": "step-completed",
+              "id": "r:image:3",
+              "status": "done",
+              "file": "1cb7b8474bc21db394b02a699127014d2e21ac08f2e98ca1b27c1e58e602a76f.webp"
+            }
+          ],
+          "files": {
+            "1cb7b8474bc21db394b02a699127014d2e21ac08f2e98ca1b27c1e58e602a76f.webp": "524946467878787857454250",
+            "2501302c0464719ae433103d7f70c01350d8dceee909f52197fe284905e20a96.jpg": "ffd8ff01",
+            "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png": "89504e470d0a1a0a",
+            "610f5ae4d76e332636a17bd357fd6ce99029316a99d320280d4d77a746bf29e8.gif": "474946383961"
+          }
+        }
+      ]
+    },
+    {
+      "name": "bad-siblings",
+      "unwritable": false,
+      "steps": [
+        {
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "r",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/never/read/source.png"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r",
+                "kind": "read",
+                "title": "Read `source.png`",
+                "file": "/never/read/source.png"
+              }
+            }
+          ],
+          "files": {}
+        },
+        {
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "r",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/svg+xml",
+                        "data": "PHN2Zy8+"
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "d3Jvbmcgc2lnbmF0dXJl"
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": "iVBORw0KGgo="
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "url",
+                        "url": "file:///never/read/source.png"
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": ""
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": "%%%"
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": "R0lGODlh\n"
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": "R0lGODlh="
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": "/9j/AR=="
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": "/9j/AQ"
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": "_9j_AQ=="
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo="
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "caption"
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": "/9j/AQ=="
+                      }
+                    }
+                  ],
+                  "is_error": false
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "r",
+              "status": "done"
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r:image:11",
+                "kind": "image",
+                "title": "Viewed an image",
+                "imageOrigin": "viewed",
+                "sourceFile": "/never/read/source.png",
+                "file": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png"
+              }
+            },
+            {
+              "type": "step-completed",
+              "id": "r:image:11",
+              "status": "done",
+              "file": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png"
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r:image:13",
+                "kind": "image",
+                "title": "Viewed an image",
+                "imageOrigin": "viewed",
+                "sourceFile": "/never/read/source.png",
+                "file": "2501302c0464719ae433103d7f70c01350d8dceee909f52197fe284905e20a96.jpg"
+              }
+            },
+            {
+              "type": "step-completed",
+              "id": "r:image:13",
+              "status": "done",
+              "file": "2501302c0464719ae433103d7f70c01350d8dceee909f52197fe284905e20a96.jpg"
+            }
+          ],
+          "files": {
+            "2501302c0464719ae433103d7f70c01350d8dceee909f52197fe284905e20a96.jpg": "ffd8ff01",
+            "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png": "89504e470d0a1a0a"
+          }
+        }
+      ]
+    },
+    {
+      "name": "replayed-result",
+      "unwritable": false,
+      "steps": [
+        {
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "r",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/never/read/source.png"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r",
+                "kind": "read",
+                "title": "Read `source.png`",
+                "file": "/never/read/source.png"
+              }
+            }
+          ],
+          "files": {}
+        },
+        {
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "r",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo="
+                      }
+                    }
+                  ],
+                  "is_error": false
+                }
+              ]
+            },
+            "isReplay": true
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "r",
+              "status": "done"
+            }
+          ],
+          "files": {}
+        }
+      ]
+    },
+    {
+      "name": "failed-result",
+      "unwritable": false,
+      "steps": [
+        {
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "r",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/never/read/source.png"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r",
+                "kind": "read",
+                "title": "Read `source.png`",
+                "file": "/never/read/source.png"
+              }
+            }
+          ],
+          "files": {}
+        },
+        {
+          "message": {
+            "type": "user",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "r",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo="
+                      }
+                    }
+                  ],
+                  "is_error": true
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "r",
+              "status": "failed",
+              "detail": "[image]"
+            }
+          ],
+          "files": {}
+        }
+      ]
+    },
+    {
+      "name": "orphan-result",
+      "unwritable": false,
+      "steps": [
+        {
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "r",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo="
+                      }
+                    }
+                  ],
+                  "is_error": false
+                }
+              ]
+            }
+          },
+          "events": [],
+          "files": {}
+        }
+      ]
+    },
+    {
+      "name": "duplicate-result-consumed-once",
+      "unwritable": false,
+      "steps": [
+        {
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "r",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/never/read/source.png"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r",
+                "kind": "read",
+                "title": "Read `source.png`",
+                "file": "/never/read/source.png"
+              }
+            }
+          ],
+          "files": {}
+        },
+        {
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "r",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo="
+                      }
+                    }
+                  ],
+                  "is_error": false
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "r",
+              "status": "done"
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r:image:0",
+                "kind": "image",
+                "title": "Viewed an image",
+                "imageOrigin": "viewed",
+                "sourceFile": "/never/read/source.png",
+                "file": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png"
+              }
+            },
+            {
+              "type": "step-completed",
+              "id": "r:image:0",
+              "status": "done",
+              "file": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png"
+            }
+          ],
+          "files": {
+            "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png": "89504e470d0a1a0a"
+          }
+        },
+        {
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "r",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo="
+                      }
+                    }
+                  ],
+                  "is_error": false
+                }
+              ]
+            }
+          },
+          "events": [],
+          "files": {
+            "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png": "89504e470d0a1a0a"
+          }
+        }
+      ]
+    },
+    {
+      "name": "not-read",
+      "unwritable": false,
+      "steps": [
+        {
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "r",
+                  "name": "Bash",
+                  "input": {
+                    "command": "cat image.png"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r",
+                "kind": "shell",
+                "title": "Ran `cat image.png`",
+                "detail": "$ cat image.png\n"
+              }
+            }
+          ],
+          "files": {}
+        },
+        {
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "r",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo="
+                      }
+                    }
+                  ],
+                  "is_error": false
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "r",
+              "status": "done",
+              "detail": "$ cat image.png\n[image]"
+            }
+          ],
+          "files": {}
+        }
+      ]
+    },
+    {
+      "name": "subagent-read",
+      "unwritable": false,
+      "steps": [
+        {
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": "agent",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "r",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "image.png"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [],
+          "files": {}
+        },
+        {
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": "agent",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "r",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo="
+                      }
+                    }
+                  ],
+                  "is_error": false
+                }
+              ]
+            }
+          },
+          "events": [],
+          "files": {}
+        }
+      ]
+    },
+    {
+      "name": "batched-read-results",
+      "unwritable": false,
+      "steps": [
+        {
+          "message": {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "a",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/never/read/source.png"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "b",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/never/read/source.png"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "a",
+                "kind": "read",
+                "title": "Read `source.png`",
+                "file": "/never/read/source.png"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "b",
+                "kind": "read",
+                "title": "Read `source.png`",
+                "file": "/never/read/source.png"
+              }
+            }
+          ],
+          "files": {}
+        },
+        {
+          "message": {
+            "type": "user",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "a",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo="
+                      }
+                    }
+                  ],
+                  "is_error": false
+                },
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "b",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/gif",
+                        "data": "R0lGODlh"
+                      }
+                    }
+                  ],
+                  "is_error": false
+                }
+              ]
+            },
+            "tool_use_result": {
+              "type": "image",
+              "file": "ignored"
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "a",
+              "status": "done"
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "a:image:0",
+                "kind": "image",
+                "title": "Viewed an image",
+                "imageOrigin": "viewed",
+                "sourceFile": "/never/read/source.png",
+                "file": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png"
+              }
+            },
+            {
+              "type": "step-completed",
+              "id": "a:image:0",
+              "status": "done",
+              "file": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png"
+            },
+            {
+              "type": "step-completed",
+              "id": "b",
+              "status": "done"
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "b:image:0",
+                "kind": "image",
+                "title": "Viewed an image",
+                "imageOrigin": "viewed",
+                "sourceFile": "/never/read/source.png",
+                "file": "610f5ae4d76e332636a17bd357fd6ce99029316a99d320280d4d77a746bf29e8.gif"
+              }
+            },
+            {
+              "type": "step-completed",
+              "id": "b:image:0",
+              "status": "done",
+              "file": "610f5ae4d76e332636a17bd357fd6ce99029316a99d320280d4d77a746bf29e8.gif"
+            }
+          ],
+          "files": {
+            "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png": "89504e470d0a1a0a",
+            "610f5ae4d76e332636a17bd357fd6ce99029316a99d320280d4d77a746bf29e8.gif": "474946383961"
+          }
+        }
+      ]
+    },
+    {
+      "name": "no-source-path",
+      "unwritable": false,
+      "steps": [
+        {
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "r",
+                  "name": "Read",
+                  "input": {}
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r",
+                "kind": "read",
+                "title": "Read a file"
+              }
+            }
+          ],
+          "files": {}
+        },
+        {
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "r",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo="
+                      }
+                    }
+                  ],
+                  "is_error": false
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "r",
+              "status": "done"
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r:image:0",
+                "kind": "image",
+                "title": "Viewed an image",
+                "imageOrigin": "viewed",
+                "file": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png"
+              }
+            },
+            {
+              "type": "step-completed",
+              "id": "r:image:0",
+              "status": "done",
+              "file": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png"
+            }
+          ],
+          "files": {
+            "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png": "89504e470d0a1a0a"
+          }
+        }
+      ]
+    },
+    {
+      "name": "unwritable-store",
+      "unwritable": true,
+      "steps": [
+        {
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "r",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/never/read/source.png"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r",
+                "kind": "read",
+                "title": "Read `source.png`",
+                "file": "/never/read/source.png"
+              }
+            }
+          ],
+          "files": {}
+        },
+        {
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "r",
+                  "content": [
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgo="
+                      }
+                    },
+                    {
+                      "type": "image",
+                      "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": "/9j/AQ=="
+                      }
+                    }
+                  ],
+                  "is_error": false
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "r",
+              "status": "done"
+            }
+          ],
+          "files": {}
+        }
+      ]
+    }
+  ]
+}

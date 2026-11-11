@@ -205,6 +205,7 @@ MILAGRE_CLAUDE_LIVE=1 cargo test --test live_claude -- --ignored --nocapture   #
 NODE_PATH=<checkout>/node_modules node experiments/rust-claude/scripts/generate-conformance.cjs  # refresh fixtures
 NODE_PATH=<checkout>/node_modules node experiments/rust-claude/scripts/generate-events.cjs
 NODE_PATH=<checkout>/node_modules node experiments/rust-claude/scripts/generate-session.cjs
+NODE_PATH=<checkout>/node_modules node experiments/rust-claude/scripts/generate-images.cjs
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -221,7 +222,7 @@ cargo fmt --check
   commands, login/rate-limit errors and suggestions; child tasks/transcripts/status/progress and
   background sets. Its generator uses a deterministic clock. The transcript-tail case feeds 105
   messages and compares the final 100-row snapshots and cumulative progress.
-- `tests/session.rs` covers 26 integration cases, including eight Node `ClaudeSession` traces:
+- `tests/session.rs` covers 27 integration cases, including eight Node `ClaudeSession` traces:
   starts/steering, implicit turns, notification-only turns, suggestions, permissions/questions,
   settings ordering, can-start, resume/login/crashes, backpressure, oversize sends, dropped startup,
   dropped steering, dropped close, session drop and interrupt grace. Fake processes only. Existing
@@ -251,8 +252,9 @@ Owner integration and remaining mapping:
    usage, errors and suggestions are ported, including `claudeSubagents`/`settleSubagents`: nested
    launches, status updates, task lists, transcript/progress caps, foreground waits and background
    sets. Background work survives a normal turn end; close/crash settles it before terminal events.
-   `claudeReadImages` (image-file persistence) remains unported; fixtures exclude Read-image cases.
-   The mapper is not wired to the production owner yet.
+   `claudeReadImages` persists returned image bytes only when the owner supplies a `ToolImageStore`;
+   eleven Node traces compare event order and exact saved bytes. The mapper is not wired to the
+   production owner yet.
 3. In-process MCP server for linked tools (`createSdkMcpServer` + `runTool`): only the `mcp_message`
    hook exists; MCP `initialize` / `tools/list` / `tools/call` serving, `alwaysLoad`, annotations and
    `sdkMcpServerManifests` are not implemented.
@@ -324,3 +326,32 @@ The owner's event consumer must drain concurrently with start and mode calls. Th
 remain serialized, so public mode updates can wait behind startup or a full event queue. First-turn
 cancellation, mode-update responsiveness, CLI delivery acknowledgement and per-turn policy injection
 must be accounted for when adapting to the owner's nonblocking `Provider`/`TurnId` API.
+
+## Read-image storage
+
+Set `SessionOptions.image_store = Some(Arc::new(FileImageStore::new(private_media_directory)))`
+or call `ClaudeMapper::set_image_store` directly. With no store, mapping does no image I/O. The
+owner chooses and controls the directory, serves its files and manages retention; no shared global
+temp store is selected automatically. `ToolImageStore::save(mime, base64) -> Result<PathBuf, String>`
+also permits a host media-store implementation.
+
+Only matched, consumed, top-level, successful, non-replay Read results produce viewed-image steps.
+Bad or unwritable images skip individually, preserving the Read row and valid siblings. PNG, JPEG,
+GIF and WebP use Node's signature checks, strict canonical base64 and 50 MiB decoded-size limit.
+These are signature checks, not full image decoding. Source filenames are event metadata only;
+they are never opened. Files are named by SHA-256 of the bytes, with Node's extension mapping.
+
+The default file store creates directories with 0700 and files with 0600 on Unix, publishes complete
+files atomically via hard links, deduplicates concurrent saves and refuses existing symlink,
+non-file or corrupt hash entries. Parent directories must be trusted; this is not protection from
+an attacker replacing the owner's directory tree. Filesystems without hard links return an error,
+which skips the image. Saving and validation are synchronous during mapping (under the session
+lock); moving large-image I/O off that lock is an owner integration requirement. Disk quotas,
+retention, crash-temp cleanup and Windows behavior remain unimplemented or unverified.
+
+`tests/images.rs` checks eleven Node traces including saved bytes, atomic concurrent deduplication,
+private modes, corrupt entries, symlink refusal, oversized payloads and no-store behavior. The
+session test proves returned bytes persist without opening the source path. The Node fixture
+script redirects only its own image temp path and removes that fresh scratch directory afterwards.
+
+See [INTEGRATION-GAPS.md](INTEGRATION-GAPS.md) for MCP serving, policy and owner adapter boundaries.

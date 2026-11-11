@@ -207,6 +207,7 @@ pub struct ClaudeMapper {
     tasks: Tasks,
     subagents: crate::subagents::Subagents,
     clock: Clock,
+    image_store: Option<Arc<dyn crate::images::ToolImageStore>>,
 }
 
 impl std::fmt::Debug for ClaudeMapper {
@@ -339,7 +340,13 @@ impl ClaudeMapper {
             tasks: Tasks::default(),
             subagents: Default::default(),
             clock: clock.unwrap_or_else(|| Arc::new(system_clock)),
+            image_store: None,
         }
+    }
+
+    /// Enable Read-image persistence in an owner-selected store. Unconfigured mappers do no I/O.
+    pub fn set_image_store(&mut self, store: Arc<dyn crate::images::ToolImageStore>) {
+        self.image_store = Some(store);
     }
 
     fn now(&self) -> u64 {
@@ -594,6 +601,11 @@ impl ClaudeMapper {
                     let Some(call) = self.tools.remove(&id) else { continue };
                     let structured = if results.len() == 1 { message.get("tool_use_result").filter(|v| !v.is_null()) } else { None };
                     events.push(step_completed(claude_step_result(&call, block, structured)));
+                    if !truthy(message.get("isReplay")) {
+                        if let Some(store) = &self.image_store {
+                            events.extend(crate::images::read_images(&call, block, store.as_ref()));
+                        }
+                    }
                     if let Some(tasks) = self.tasks.apply_tool_result(&call, block, structured) {
                         events.push(json!({ "type": "tasks-updated", "tasks": tasks }));
                     }
@@ -655,7 +667,7 @@ impl ClaudeMapper {
     }
 }
 
-fn truthy(value: Option<&Value>) -> bool {
+pub(crate) fn truthy(value: Option<&Value>) -> bool {
     match value {
         None | Some(Value::Null) | Some(Value::Bool(false)) => false,
         Some(Value::String(text)) => !text.is_empty(),
