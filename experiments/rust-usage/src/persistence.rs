@@ -99,14 +99,16 @@ struct LoadReservation<'a> {
     _serial: std::sync::MutexGuard<'a, ()>,
 }
 impl LoadReservation<'_> {
-    fn settle(&self, bytes: u64, scoped: bool) -> Option<Arc<LoadCharge>> {
-        debug_assert!(bytes <= self.capacity);
+    fn settle(&self, bytes: u64, scoped: bool) -> io::Result<Option<Arc<LoadCharge>>> {
+        if bytes > self.capacity {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "loaded cache exceeds reserved byte capacity"));
+        }
         let mut state = lock(&self.budget.state);
         // Charges may have dropped during the read; consult current ownership, not the pre-read count.
         let (previous, owners) = state.slots.get(&self.slot).copied().unwrap_or_default();
         state.slots.insert(self.slot.clone(), (bytes.max(previous), owners + usize::from(scoped)));
         state.reservation = None;
-        scoped.then(|| Arc::new(LoadCharge { state: self.budget.state.clone(), slot: self.slot.clone() }))
+        Ok(scoped.then(|| Arc::new(LoadCharge { state: self.budget.state.clone(), slot: self.slot.clone() })))
     }
 }
 impl Drop for LoadReservation<'_> {
@@ -364,7 +366,7 @@ impl CacheOwner {
             self.diagnostic(&key, &message);
             io::Error::new(error.kind(), message)
         })?;
-        let charge = reservation.settle(bytes, matches!(key, Key::Quota(_)));
+        let charge = reservation.settle(bytes, matches!(key, Key::Quota(_)))?;
         Ok((value, charge))
     }
     fn load_with_limit(&self, key: Key, limit: u64) -> io::Result<(Value, u64)> {

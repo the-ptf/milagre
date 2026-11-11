@@ -126,7 +126,7 @@ Use a Tokio runtime with timers; this crate enables the `time` feature.
   `open_with_limits(..., ServiceLimits { cache_load_bytes })` overrides the default 64 MiB aggregate input-byte
   load budget shared across scan, pricing and quota slots. Loads serialize through a separate gate on blocking
   workers. Capacity is reserved under a short budget lock before reading; disk I/O, parsing and copying happen
-  outside that lock. Success settles against current store ownership; errors/panics release the reservation.
+  outside that lock. Success settles against current store ownership with a release-build capacity check; errors/panics release the reservation.
   Store destruction and budget inspection never acquire the loading gate.
   Disk loads charge actual bytes read, including whitespace, without a second serialization buffer. Pending snapshots
   use a bounded counting writer before cloning. Missing/malformed JSON consumes no retained charge. Quota charges
@@ -174,11 +174,15 @@ Use a Tokio runtime with timers; this crate enables the `time` feature.
   survive cancellation of other providers. Each final export has its own panic/error boundary. Scanner and pricing
   mutex poison is recovered independently with diagnostics; a failed account export cannot skip either.
   Recovery at scan start, pricing start/read/completion/cancellation, and final export discards possibly partial
-  state and clears poison. Scanner roots stay pinned to the supplied copies; offsets/rows/completion are reset
-  and the next successful scan replaces prior token rows, including when empty. Pricing becomes unavailable
-  until the injected trusted catalog reader succeeds. Recovery never treats the poisoned data as valid. A
-  shutdown before rebuilding persists empty recovered caches; it cannot restore lost deleted-file history. Failed final
-  writes remain in the capability for reopen/retry. Interrupted scans report `Scanner stopped`, without a fault
+  working state, restores the last good snapshot, clears poison and records a diagnostic. Snapshots are captured
+  from startup rehydration and successful scans/catalog refreshes, before staging. Scanner roots stay pinned;
+  restored offsets and retained deleted-file history survive rescans even when a copied root is missing. Pricing
+  retains its original timestamp and normal refresh/backoff rules; restoration does not claim fresh catalog data.
+  Recovered state is not exported until a successful scan or catalog refresh, respectively. Poisoned shutdown
+  preserves existing disk bytes; previously staged good snapshots still flush normally. A failed refresh cannot
+  replace the last good cache with empty state. The facade retains one additional scanner snapshot and pricing
+  value for recovery, outside the rehydration input-byte accounting; startup copies run on the blocking worker.
+  Failed final writes remain in the capability for reopen/retry. Interrupted scans report `Scanner stopped`, without a fault
   diagnostic. Token-owner cancellation is distinct from a callback panic.
   Drop requests the same cleanup when a Tokio runtime is available, without exposing its result; it is a fallback,
   not a replacement for explicit shutdown. Active commands hold their own service references, so dropping an
@@ -284,8 +288,8 @@ Preserved Node behavior:
 
 ## Verification
 
-On macOS arm64: **76 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
-command traces**, account isolation, callback lifecycle and **18 persistence tests**, plus **27 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
+On macOS arm64: **79 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
+command traces**, account isolation, callback lifecycle and **19 persistence tests**, plus **29 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
 from Rust output. Codex is an EventEmitter fixture; Claude uses supplied synthetic credential text and a fake fetch.
 No provider process, keychain access or network transport is available to the fixture sandbox.
 

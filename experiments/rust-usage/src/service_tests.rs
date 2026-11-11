@@ -701,14 +701,12 @@ async fn final_export_recovers_scanner_and_pricing_poison_independently() {
     let service = UsageService::open(&cap, h.options()).await.unwrap();
     service.handle("usage:read", &Value::Null).await.unwrap();
     service.refresh_prices().await.unwrap();
-    service.scan.scanner.lock().unwrap().scan(NOW).unwrap();
+    service.scan.start(NOW).unwrap().await.unwrap();
     let expected_quota = service.accounts.stores();
     assert!(service.prices.pricing.lock().unwrap().current().is_some());
     service.flush().await.unwrap();
-    // Remove only this fresh fixture's committed files, so reopen proves final export saved every state.
-    for entry in fs::read_dir(cap.test_directory()).unwrap() {
-        fs::remove_file(entry.unwrap().path()).unwrap();
-    }
+    let scan_bytes = fs::read(cap.test_directory().join("token-usage.json")).unwrap();
+    let price_bytes = fs::read(cap.test_directory().join("token-prices.json")).unwrap();
     for poison_scan in [true, false] {
         assert!(guarded_sync(|| {
             if poison_scan {
@@ -727,8 +725,10 @@ async fn final_export_recovers_scanner_and_pricing_poison_independently() {
     for (selection, value) in expected_quota {
         assert_eq!(cache.load_quota(&selection).unwrap().to_json(), value);
     }
-    assert_eq!(cache.load_scan().unwrap().finished_at, None);
-    assert!(cache.load_pricing().unwrap().current().is_none());
+    assert_eq!(fs::read(cap.test_directory().join("token-usage.json")).unwrap(), scan_bytes);
+    assert_eq!(fs::read(cap.test_directory().join("token-prices.json")).unwrap(), price_bytes);
+    assert_eq!(cache.load_scan().unwrap().finished_at, Some(NOW));
+    assert!(cache.load_pricing().unwrap().current().is_some());
     cache.shutdown().await.unwrap();
 }
 
@@ -821,8 +821,8 @@ async fn scanner_recovers_after_caught_panic_by_rescanning_only_supplied_roots()
     .is_err());
     fs::remove_file(&transcript).unwrap();
     let (after, changed) = service.scan.start(NOW + 1).unwrap().await.unwrap();
-    assert!(changed, "reset must replace the token owner's previously retained rows");
-    assert_eq!(after, json!([]), "poisoned rows cannot survive as retained deleted-file rows");
+    assert!(changed, "restoration must update the token owner's rows");
+    assert_eq!(after, before, "recovery must retain known history after the source file was deleted");
     assert!(!service.scan.scanner.is_poisoned());
     assert!(service.cache_diagnostics().iter().any(|d| d.slot == "scanner" && d.issue.contains("discarded")));
     fs::write(&transcript, fixture["line"].as_str().unwrap()).unwrap();
@@ -838,6 +838,8 @@ async fn pricing_reads_and_start_recover_poison_without_serving_partial_catalog(
     let service = UsageService::open(&cap, h.options()).await.unwrap();
     assert!(service.refresh_prices().await.unwrap());
     for access in ["models", "status", "start"] {
+        let models = service.prices.models();
+        let status = service.prices.status();
         assert!(guarded_sync(|| {
             let mut pricing = service.prices.pricing.lock().unwrap();
             pricing.complete(Some(&json!({"claude-partial":{"input_cost_per_token":999,"output_cost_per_token":999}})), NOW);
@@ -845,11 +847,12 @@ async fn pricing_reads_and_start_recover_poison_without_serving_partial_catalog(
         })
         .is_err());
         match access {
-            "models" => assert_eq!(service.prices.models(), Value::Null),
-            "status" => assert_eq!(service.prices.status(), json!({"status":"unavailable"})),
+            "models" => assert_eq!(service.prices.models(), models),
+            "status" => assert_eq!(service.prices.status(), status),
             _ => {}
         }
-        assert!(service.refresh_prices().await.unwrap(), "poison recovery permits a fresh trusted fetch");
+        h.now.fetch_add(25 * 60 * 60 * 1000, Ordering::SeqCst);
+        assert!(service.refresh_prices().await.unwrap(), "restored catalogs refresh on their normal TTL");
         assert!(!service.prices.pricing.is_poisoned());
         assert!(service.prices.models().get("claude-partial").is_none());
         assert!(service.prices.models().get("claude-fixture").is_some());
@@ -886,4 +889,106 @@ async fn cancelling_pending_price_callback_recovers_poison_in_reset_guard() {
     assert!(!service.prices.pricing.is_poisoned());
     assert!(service.cache_diagnostics().iter().any(|d| d.slot == "pricing" && d.issue.contains("discarded")));
     cap.open().unwrap().shutdown().await.unwrap();
+}
+
+fn poison_usage_states(service: &UsageService) {
+    assert!(guarded_sync(|| {
+        let mut scanner = service.scan.scanner.lock().unwrap();
+        scanner.restore_after_panic(ScanCache::default());
+        panic!("fixture interrupted scan erased working state");
+    })
+    .is_err());
+    assert!(guarded_sync(|| {
+        let mut pricing = service.prices.pricing.lock().unwrap();
+        *pricing = Pricing::default();
+        panic!("fixture interrupted catalog erased working state");
+    })
+    .is_err());
+}
+fn history_options(h: &Harness, root: &std::path::Path) -> ServiceOptions {
+    let mut options = h.options();
+    options.roots = vec![CopiedRoot::new("claude", root.to_path_buf()).unwrap()];
+    options
+}
+fn copied_history() -> (tempfile::TempDir, std::path::PathBuf) {
+    let copy = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(copy.path()).unwrap().join("copied");
+    fs::create_dir(&root).unwrap();
+    let fixture: Value = serde_json::from_str(include_str!("../tests/fixtures/persistence.json")).unwrap();
+    fs::write(root.join("fixture.jsonl"), fixture["line"].as_str().unwrap()).unwrap();
+    (copy, root)
+}
+
+#[tokio::test]
+async fn poisoned_shutdown_preserves_disk_bytes_and_rehydrated_deleted_history() {
+    let cap = TempCache::fresh().unwrap();
+    let h = Harness::new();
+    let (_copy, root) = copied_history();
+    let seed = UsageService::open(&cap, history_options(&h, &root)).await.unwrap();
+    let (rows, _) = seed.scan.start(NOW).unwrap().await.unwrap();
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    assert!(seed.refresh_prices().await.unwrap());
+    stop(&seed).await;
+    let scan_bytes = fs::read(cap.test_directory().join("token-usage.json")).unwrap();
+    let price_bytes = fs::read(cap.test_directory().join("token-prices.json")).unwrap();
+    fs::remove_file(root.join("fixture.jsonl")).unwrap();
+    let mut options = history_options(&h, &root);
+    options.fetch_catalog = Arc::new(|| Box::pin(async { Err(()) }));
+    let service = UsageService::open(&cap, options).await.unwrap();
+    poison_usage_states(&service);
+    h.now.fetch_add(25 * 60 * 60 * 1000, Ordering::SeqCst);
+    assert!(service.prices.models().get("claude-fixture").is_some());
+    assert!(!service.refresh_prices().await.unwrap());
+    let attempts = cap.test_write_attempts();
+    stop(&service).await;
+    assert_eq!(cap.test_write_attempts(), attempts, "poisoned shutdown must not stage replacement files");
+    assert_eq!(fs::read(cap.test_directory().join("token-usage.json")).unwrap(), scan_bytes);
+    assert_eq!(fs::read(cap.test_directory().join("token-prices.json")).unwrap(), price_bytes);
+    for slot in ["scanner", "pricing"] {
+        assert!(service.cache_diagnostics().iter().any(|d| d.slot == slot && d.issue.contains("not exported")));
+    }
+    let next = UsageService::open(&cap, history_options(&h, &root)).await.unwrap();
+    assert_eq!(next.scan.scanner.lock().unwrap().rows(), rows);
+    assert!(next.prices.models().get("claude-fixture").is_some());
+    stop(&next).await;
+}
+
+#[tokio::test]
+async fn recovery_with_missing_roots_and_failed_refresh_preserves_last_good_snapshots() {
+    let cap = TempCache::fresh().unwrap();
+    let h = Harness::new();
+    let (_copy, root) = copied_history();
+    let fail = Arc::new(AtomicBool::new(false));
+    let mut options = history_options(&h, &root);
+    let original = options.fetch_catalog.clone();
+    let failing = fail.clone();
+    options.fetch_catalog = Arc::new(move || if failing.load(Ordering::SeqCst) { Box::pin(async { Err(()) }) } else { original() });
+    let service = UsageService::open(&cap, options).await.unwrap();
+    let (before, _) = service.scan.start(NOW).unwrap().await.unwrap();
+    service.refresh_prices().await.unwrap();
+    service.flush().await.unwrap();
+    let price_bytes = fs::read(cap.test_directory().join("token-prices.json")).unwrap();
+    let prices = service.prices.models();
+    fs::remove_file(root.join("fixture.jsonl")).unwrap();
+    fs::remove_dir(&root).unwrap();
+    poison_usage_states(&service);
+    h.now.fetch_add(25 * 60 * 60 * 1000, Ordering::SeqCst);
+    fail.store(true, Ordering::SeqCst);
+    let (after, _) = service.scan.start(h.now.load(Ordering::SeqCst)).unwrap().await.unwrap();
+    assert_eq!(after, before, "an unreadable root cannot rebuild deleted history; restore it first");
+    assert_eq!(service.prices.models(), prices);
+    assert!(!service.refresh_prices().await.unwrap());
+    service.flush().await.unwrap();
+    assert_eq!(fs::read(cap.test_directory().join("token-prices.json")).unwrap(), price_bytes);
+    assert_eq!(crate::transcript::rows(&service.cache.load_scan().unwrap().files), before);
+    assert!(service.prices.recovered.load(Ordering::Acquire));
+    fail.store(false, Ordering::SeqCst);
+    h.now.fetch_add(900_001, Ordering::SeqCst);
+    assert!(service.refresh_prices().await.unwrap());
+    assert!(!service.prices.recovered.load(Ordering::Acquire));
+    assert_ne!(fs::read(cap.test_directory().join("token-prices.json")).unwrap(), price_bytes);
+    stop(&service).await;
+    let next = cap.open().unwrap();
+    assert_eq!(crate::transcript::rows(&next.load_scan().unwrap().files), before);
+    next.shutdown().await.unwrap();
 }

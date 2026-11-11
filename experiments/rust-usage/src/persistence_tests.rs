@@ -497,3 +497,20 @@ async fn load_reservation_rolls_back_on_failure_and_panic_and_missing_slots_do_n
     }
     owner.shutdown().await.unwrap();
 }
+
+#[test]
+fn settlement_enforces_capacity_in_release_and_rolls_back_without_charging() {
+    let budget = LoadBudget::new(8);
+    let reservation = budget.reserve("fixture");
+    assert_eq!(reservation.settle(9, true).unwrap_err().kind(), io::ErrorKind::InvalidData);
+    assert!(lock(&budget.state).slots.is_empty());
+    assert_eq!(budget.used_bytes(), 8);
+    drop(reservation);
+    assert_eq!(budget.used_bytes(), 0);
+    let reservation = budget.reserve("fixture");
+    let charge = reservation.settle(8, true).unwrap().unwrap();
+    drop(reservation);
+    assert_eq!(budget.used_bytes(), 8);
+    drop(charge);
+    assert_eq!(budget.used_bytes(), 0);
+}

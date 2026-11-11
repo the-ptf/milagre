@@ -105,9 +105,9 @@ impl Scanner {
     pub fn new(roots: Vec<CopiedRoot>, cache: ScanCache) -> Self {
         Self { roots, cache, scanned_at: 0 }
     }
-    /// A panic may have interrupted offsets or aggregation. Keep only the caller-authorized roots.
-    pub(crate) fn reset_after_panic(&mut self) {
-        self.cache = ScanCache::default();
+    /// Restore a verified snapshot without losing deleted-file history or changing authorized roots.
+    pub(crate) fn restore_after_panic(&mut self, last_good: ScanCache) {
+        self.cache = last_good;
         self.scanned_at = 0;
     }
     pub fn rows(&self) -> Value {

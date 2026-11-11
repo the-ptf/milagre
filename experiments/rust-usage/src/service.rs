@@ -5,7 +5,7 @@ use crate::{
     owner::{self, FutureResult, Projects, ScanResult, TokenUsage, TokenUsageOptions},
     persistence::{CacheDiagnostic, CacheOwner, LoadBudget, TempCache},
     pricing::Pricing,
-    scan::{CopiedRoot, ScanCancellation, Scanner},
+    scan::{CopiedRoot, ScanCache, ScanCancellation, Scanner},
     supervisor::{self, guarded, guarded_sync, Supervisor},
 };
 use serde_json::{json, Value};
@@ -72,11 +72,16 @@ impl UsageService {
         let loaded = jobs
             .run(move || {
                 disk.load_scan_budgeted(&budget)
-                    .and_then(|scan| disk.load_pricing_budgeted(&budget).map(|pricing| (scan, pricing.current().cloned())))
+                    .and_then(|scan| {
+                        disk.load_pricing_budgeted(&budget).map(|pricing| {
+                            let pricing = pricing.current().cloned();
+                            (scan.clone(), scan, pricing.clone(), pricing)
+                        })
+                    })
                     .map_err(|e| e.to_string())
             })
             .await;
-        let (scan_cache, pricing) = match loaded {
+        let (scan_cache, last_scan, pricing, last_prices) = match loaded {
             Ok(value) => value,
             Err(error) => {
                 let _ = cache.shutdown().await;
@@ -131,11 +136,14 @@ impl UsageService {
                 Box::pin(async move { jobs.run(move || cache.load_quota_budgeted(&selection, &budget).map_err(|e| e.to_string())).await })
             }),
         );
+        let last_scan = Arc::new(Mutex::new(last_scan));
         let scanner = Scanner::new(options.roots, scan_cache);
         let rows = scanner.rows();
         let finished = scanner.finished();
         let scan = Arc::new(ScanOwner {
             scanner: Arc::new(Mutex::new(scanner)),
+            last_good: last_scan,
+            recovered: Arc::new(AtomicBool::new(false)),
             state: Mutex::new(ScanState::default()),
             cancel: ScanCancellation::default(),
             cache: cache.clone(),
@@ -143,6 +151,8 @@ impl UsageService {
             gate: Arc::new(Mutex::new(None)),
         });
         let prices = Arc::new(PriceOwner {
+            last_good: Mutex::new(last_prices),
+            recovered: AtomicBool::new(false),
             pricing: Mutex::new(Pricing::from_json(pricing.unwrap_or(Value::Null))),
             pending: Mutex::new(None),
             tasks: Supervisor::default(),
@@ -348,12 +358,25 @@ async fn finalize(
         let mut errors = Vec::new();
         export_state(&disk, "accounts", &mut errors, || disk.save_accounts(&accounts.stores()));
         export_state(&disk, "scanner", &mut errors, || {
-            let (scanner, _) = recover_scanner(&scan.scanner, &disk);
-            disk.save_scan(scanner.cache())
+            let (scanner, _) = recover_scanner(&scan.scanner, &scan.last_good, &scan.recovered, &disk);
+            if scan.recovered.load(Ordering::Acquire) {
+                disk.record_diagnostic("scanner", "recovered snapshot not exported; last good cache preserved until successful scan");
+                Ok(())
+            } else {
+                disk.save_scan(scanner.cache())
+            }
         });
         export_state(&disk, "pricing", &mut errors, || {
             let pricing = prices.lock_pricing();
-            disk.save_pricing(&pricing)
+            if prices.recovered.load(Ordering::Acquire) {
+                disk.record_diagnostic(
+                    "pricing",
+                    "recovered snapshot not exported; last good cache preserved until successful catalog refresh",
+                );
+                Ok(())
+            } else {
+                disk.save_pricing(&pricing)
+            }
         });
         errors
     })
@@ -452,18 +475,26 @@ struct ScanState {
 struct ScanOwner {
     cancel: ScanCancellation,
     scanner: Arc<Mutex<Scanner>>,
+    last_good: Arc<Mutex<ScanCache>>,
+    recovered: Arc<AtomicBool>,
     state: Mutex<ScanState>,
     cache: Arc<CacheOwner>,
     #[cfg(test)]
     gate: ScanGate,
 }
-fn recover_scanner<'a>(scanner: &'a Mutex<Scanner>, cache: &CacheOwner) -> (std::sync::MutexGuard<'a, Scanner>, bool) {
+fn recover_scanner<'a>(
+    scanner: &'a Mutex<Scanner>,
+    last_good: &Mutex<ScanCache>,
+    recovered: &AtomicBool,
+    cache: &CacheOwner,
+) -> (std::sync::MutexGuard<'a, Scanner>, bool) {
     match scanner.lock() {
         Ok(scanner) => (scanner, false),
         Err(poison) => {
             let mut guard = poison.into_inner();
-            guard.reset_after_panic();
-            cache.record_diagnostic("scanner", "poisoned scanner state discarded; copied roots require rescan");
+            guard.restore_after_panic(last_good.lock().unwrap_or_else(|e| e.into_inner()).clone());
+            recovered.store(true, Ordering::Release);
+            cache.record_diagnostic("scanner", "poisoned scanner state discarded; last good snapshot restored, including retained history");
             scanner.clear_poison();
             (guard, true)
         }
@@ -480,6 +511,8 @@ impl ScanOwner {
         }
         let (tx, rx) = watch::channel(None);
         let scanner = self.scanner.clone();
+        let last_good = self.last_good.clone();
+        let recovery_pending = self.recovered.clone();
         let cancel = self.cancel.clone();
         let cache = self.cache.clone();
         #[cfg(test)]
@@ -493,7 +526,7 @@ impl ScanOwner {
                         let _ = entered.send(());
                         resume.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
                     }
-                    let (mut scanner, recovered) = recover_scanner(&scanner, &cache);
+                    let (mut scanner, recovered) = recover_scanner(&scanner, &last_good, &recovery_pending, &cache);
                     let changed = scanner.scan_cancellable(now, &cancel).map_err(|e| {
                         if e.kind() == std::io::ErrorKind::Interrupted {
                             "Scanner stopped".to_owned()
@@ -501,7 +534,9 @@ impl ScanOwner {
                             e.to_string()
                         }
                     })?;
-                    let changed = changed || recovered;
+                    *last_good.lock().unwrap_or_else(|e| e.into_inner()) = scanner.cache().clone();
+                    let was_recovered = recovery_pending.swap(false, Ordering::AcqRel);
+                    let changed = changed || recovered || was_recovered;
                     if changed {
                         if let Err(error) = cache.save_scan(scanner.cache()) {
                             cache.record_diagnostic("scanner", &error.to_string());
@@ -530,6 +565,8 @@ impl ScanOwner {
 }
 struct PriceOwner {
     pricing: Mutex<Pricing>,
+    last_good: Mutex<Option<Value>>,
+    recovered: AtomicBool,
     pending: Mutex<Option<supervisor::Receiver<ResultValue<bool>>>>,
     tasks: Supervisor,
     fetch: Catalog,
@@ -558,8 +595,9 @@ impl PriceOwner {
     fn lock_pricing(&self) -> std::sync::MutexGuard<'_, Pricing> {
         self.pricing.lock().unwrap_or_else(|poison| {
             let mut pricing = poison.into_inner();
-            *pricing = Pricing::default();
-            self.cache.record_diagnostic("pricing", "poisoned pricing state discarded; fresh catalog required");
+            *pricing = Pricing::from_json(self.last_good.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or(Value::Null));
+            self.recovered.store(true, Ordering::Release);
+            self.cache.record_diagnostic("pricing", "poisoned pricing state discarded; last good catalog restored with original timestamp");
             self.pricing.clear_poison();
             pricing
         })
@@ -585,6 +623,8 @@ impl PriceOwner {
                     let changed = pricing.complete(catalog.as_ref(), now);
                     reset.finish();
                     if changed {
+                        *this.last_good.lock().unwrap_or_else(|e| e.into_inner()) = pricing.current().cloned();
+                        this.recovered.store(false, Ordering::Release);
                         if let Err(error) = this.cache.save_pricing(&pricing) {
                             this.cache.record_diagnostic("pricing", &error.to_string());
                         }
