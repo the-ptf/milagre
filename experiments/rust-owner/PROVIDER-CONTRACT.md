@@ -156,3 +156,16 @@ The owner doesn't port constrained roles (Codex `POLICY-CONTRACT.md`: `AnalysisA
 `ExecutionAdvisor`), the dispatcher manifest, the 6+2 escalation budget or the wake-scope guard. Sends that would need
 them (Routine runs, wake guards, `canStart`, limit routing) are refused with explicit gates. Until those land, every
 owner turn is an `Ordinary` session.
+
+## Handoff (gated; contract agreed, being built)
+
+Restore only first; switch stays gated. Both gates stay until the traces and the runtime adapter are verified. The
+agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the negotiation summary.
+
+- **Deliberate deviation: the brief prompt.** Node wraps the transcript in `<transcript>` unescaped. The owner keeps
+  that prompt byte for byte in `handover::brief_request` (parity, traced), but the live brief invocation uses
+  `handover::safe_brief_request`: the cut transcript's own `<transcript` / `</transcript` (whitespace around the slash,
+  ASCII case-insensitive, a word boundary after) are written `&lt;…`, so a message can't end the data block for the
+  model. The prompt is at most `MAX_BRIEF_PROMPT_BYTES` (256 KiB).
+- **Transcripts** go to `<copy>/.owner/handovers/<sha1(project)[..12]>/<session>.md` through `transcripts::TranscriptJob`
+  (bounded, owned, one outcome per job, pinned folder descriptors; see the module docs).

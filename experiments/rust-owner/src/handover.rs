@@ -878,10 +878,16 @@ pub fn transcript_path(dir: &str, project_path: &str, session_id: &Value) -> Str
 
 /// untrusted-text.mjs `neutralizeTags`: every opening or closing Milagre block tag written as `&lt;tag`.
 pub fn neutralize_tags(text: &str) -> String {
+    neutralize(text, &MILAGRE_TAGS)
+}
+
+/// Every `<tag` / `</tag` of `tags` (whitespace allowed around the slash, ASCII case-insensitive, a word boundary
+/// after) written as `&lt;tag`.
+fn neutralize(text: &str, tags: &[&str]) -> String {
     let units = jsjson::to_utf16(text);
     let mut out = Vec::with_capacity(units.len());
     for (at, unit) in units.iter().enumerate() {
-        if *unit == u16::from(b'<') && opens_tag(&units[at + 1..]) {
+        if *unit == u16::from(b'<') && opens_tag(&units[at + 1..], tags) {
             out.extend(utf16("&lt;"));
         } else {
             out.push(*unit);
@@ -891,7 +897,7 @@ pub fn neutralize_tags(text: &str) -> String {
 }
 
 /// Whether `rest` (after a `<`) is `\s*/?\s*(?:tags)\b`, the tags matched ASCII case-insensitively.
-fn opens_tag(rest: &[u16]) -> bool {
+fn opens_tag(rest: &[u16], tags: &[&str]) -> bool {
     let mut at = 0;
     while at < rest.len() && js_space(rest[at]) {
         at += 1;
@@ -904,7 +910,7 @@ fn opens_tag(rest: &[u16]) -> bool {
     }
     let word =
         |unit: u16| unit < 0x80 && (unit as u8).is_ascii_alphanumeric() || unit == u16::from(b'_');
-    MILAGRE_TAGS.iter().any(|tag| {
+    tags.iter().any(|tag| {
         let end = at + tag.len();
         end <= rest.len()
             && rest[at..end]
@@ -1047,6 +1053,25 @@ pub fn brief_request(transcript: &str, catch_up: bool) -> BriefRequest {
         ),
     }
 }
+
+/// What the live brief invocation asks: [`brief_request`] with every `<transcript` and `</transcript` inside the
+/// transcript written as `&lt;…`, so a message can't close the data block for the model. A deliberate safety
+/// deviation from Node (whose prompt is [`brief_request`], kept byte for byte for parity); recorded in
+/// PROVIDER-CONTRACT.md. The text stays owner-encoded: the brief model boundary decodes it once, lossy.
+pub fn safe_brief_request(transcript: &str, catch_up: bool) -> BriefRequest {
+    // Cut first (as Node does), then escape: at most 60,000 code units, each at most 4 UTF-8 bytes once escaped
+    // (`<` becomes `&lt;`), so the prompt stays under MAX_BRIEF_PROMPT_BYTES.
+    let shown = neutralize(&cut_transcript(transcript), &["transcript"]);
+    let request = BriefRequest {
+        system: brief_request("", catch_up).system,
+        prompt: format!("<transcript>\n{shown}\n</transcript>"),
+    };
+    debug_assert!(request.prompt.len() <= MAX_BRIEF_PROMPT_BYTES);
+    request
+}
+
+/// The largest brief prompt sent to a model (UTF-8 bytes).
+pub const MAX_BRIEF_PROMPT_BYTES: usize = 256 << 10;
 
 fn opening(provider: Option<&Value>, catch_up: bool) -> String {
     let name = provider_name(provider);
