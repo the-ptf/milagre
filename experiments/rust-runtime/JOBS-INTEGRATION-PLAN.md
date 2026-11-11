@@ -2,6 +2,8 @@
 
 This is an implementation plan against the negotiated contract, not an implemented API. The current owner source still has no take_jobs or quit_state interface. Wait for its tested checkpoint before matching types or removing restore gates. All planned execution remains inside fresh isolated fixture copies with fixed fake providers.
 
+The transcript foundation is now available in `milagre_owner_store::transcripts`: `TranscriptJobs` reserves at most four non-clone `TranscriptJob` values; `job.run()` consumes its capability and reports to the private owner inbox. A completion guard reports Unknown on drop or panic. Runtime must not call `take_outcomes`, `finish`, commit or discard: those belong to ChatHost's generation and ownership checks. The host-facing job and quit methods remain pending.
+
 ## Ownership and execution
 
 1. Keep ChatHost, ProjectStates, provider admission and publication on the existing owner actor. Consume take_jobs once; do not put jobs in notices or clone them. The owner reserves at most four transcript jobs when staging a restore.
@@ -18,6 +20,8 @@ The negotiated owner states are Running, ClosePending and JobsPending { jobs, cl
 A quit request closes new admission, but keeps the actor, host locks, workers and profile alive. A non-actor shutdown driver must continue ticks and retry shutdown until Done. It cannot run server.shutdown on the actor thread because that calls back into the actor. The executable must not call Server::finish or treat an EOF shutdown attempt as success while QUIT_PENDING remains. Whether the final owner API offers a notification or requires polling determines the driver's concrete implementation.
 
 Only Done may produce the existing stopping acknowledgement and allow profile teardown. Unknown cleanup remains visibly pending; elapsed time is not evidence of success. Forced object drop remains a crash boundary, not a substitute for the agreed quit protocol.
+
+Before wiring the host API, verify that take_jobs remains usable while closing, ticks continue draining completions and cleanup under QUIT_PENDING, and forced forget refuses new sends while retaining its Project until the jobs return. Done must include completed cleanup and consumed outcomes, rather than only a zero worker count. No separate runtime finish callback is needed because each job reports itself.
 
 ## Brief generation and restore
 
