@@ -65,7 +65,7 @@ fn the_corner_has_the_terminal_toggle_and_none_for_the_panels_own_tabs(cx: &mut 
     cx.simulate_click(terminal.center(), Modifiers::none());
     assert!(terminals.read_with(cx, |t, _| t.is_open()), "the Terminals toggle opens the drawer");
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
-    let count = workspace.read_with(cx, |w, cx| w.corner_items(cx).len() + crate::workspace::grid::corner_count(w.grid.read(cx)));
+    let count = workspace.read_with(cx, |w, cx| w.corner_items(cx).len());
     assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(count));
 }
 

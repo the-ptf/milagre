@@ -51,18 +51,12 @@ use crate::workspace::chrome;
 use crate::workspace::sidebar::ChatRow;
 
 const COMPOSER_BOTTOM: f32 = 24.0;
-/// In a tile, whose frame already insets it from the window's edge.
-const COMPOSER_BOTTOM_TILED: f32 = 12.0;
 
 /// What the Chat column asks the window to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChatEvent {
     /// Open this Chat (a Subchat row, the bookmark's parent, a family menu row).
     OpenChat(String),
-    /// "Open beside parent" (the split view is a later package: nothing handles it yet).
-    Beside(String),
-    /// "Show all N side by side" (same).
-    ShowAll,
     /// A Subchat's question answered from its row.
     Answer { chat: String, request: String, label: String },
     /// A Subchat's approval allowed or denied from its row.
@@ -101,8 +95,6 @@ pub struct ChatView {
     /// Find in chat and the Quote button (`find_bar.rs`).
     find: find_bar::ChatFind,
     _transcript_events: Subscription,
-    /// Drawn as the focused tile of the grid or the split (`workspace::grid`): the tile has the header.
-    tiled: bool,
 }
 
 impl ChatView {
@@ -172,7 +164,6 @@ impl ChatView {
             header_insets: (px(16.0), px(16.0)),
             find: find_bar::ChatFind::from_env(),
             _transcript_events: transcript_events,
-            tiled: false,
         }
     }
 
@@ -184,18 +175,6 @@ impl ChatView {
 
     pub fn header_insets(&self) -> (Pixels, Pixels) {
         self.header_insets
-    }
-
-    /// The grid or the split shows this column as its focused tile, under the tile's own header.
-    pub fn set_tiled(&mut self, tiled: bool, cx: &mut Context<Self>) {
-        if self.tiled != tiled {
-            self.tiled = tiled;
-            cx.notify();
-        }
-    }
-
-    pub fn tiled(&self) -> bool {
-        self.tiled
     }
 
     /// The Chat on screen.
@@ -356,11 +335,11 @@ impl Render for ChatView {
             None => bookmark::identity(self.title.clone(), self.project.clone(), &theme),
         });
         let menu = match (&self.family, self.family_open, self.key.as_deref()) {
-            (Some(menu), true, Some(key)) => Some(bookmark::family_menu_view(menu, key, self.bookmark.is_some(), &theme, cx)),
+            (Some(menu), true, Some(key)) => Some(bookmark::family_menu_view(menu, key, &theme, cx)),
             _ => None,
         };
         let find_overlays = self.find_overlays(window, cx);
-        let composer_bottom = if self.tiled { COMPOSER_BOTTOM_TILED } else { COMPOSER_BOTTOM };
+        let composer_bottom = COMPOSER_BOTTOM;
         self.find_actions(div(), cx)
             .relative()
             .flex()
@@ -369,7 +348,7 @@ impl Render for ChatView {
             .min_w_0()
             .h_full()
             .bg(theme.page)
-            .when(!self.tiled, |el| el.child(header))
+            .child(header)
             .child(
                 div()
                     .id("transcript")

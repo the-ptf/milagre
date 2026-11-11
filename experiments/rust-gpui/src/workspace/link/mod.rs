@@ -8,6 +8,7 @@
 
 pub mod changes;
 pub mod fixture;
+pub mod hooks;
 
 #[cfg(test)]
 mod tests;

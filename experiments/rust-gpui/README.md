@@ -296,8 +296,8 @@ Chat on screen) until a preference store exists.
 
 ## Sidebar notes
 
-- `workspace/sidebar/` is the full 304px sidebar: header with three 24px icon buttons (x 208, 240, 272), Canvas /
-  Routines / Links, the Pinned rows, an "All Chats" section label, a `uniform_list` of the fixture's 500 rows, and a
+- `workspace/sidebar/` is the full 304px sidebar: header with the New Chat button (x 272; the sidebar toggle,
+  Routines, Link Projects and Search live in the window's top bar, as in React), the Pinned rows, an "All Chats" section label, a `uniform_list` of the fixture's 500 rows, and a
   pinned Done row (with its count), usage block and footer (`bottom.rs`).
 - `list.rs` reads computers, recent Projects, states, runs, PRs and usage through `DataSource` and ports the desktop's
   `scopeChats`, `mergeScopeChats` and `shownChats` over `logic::lists` and `logic::marks`: hidden Projects and archived,
@@ -313,7 +313,7 @@ Chat on screen) until a preference store exists.
 
 ## Panel tabs notes
 
-- The panel header shows six `ui::Tab`s (Changes with a "4" count, Terminal, Browser, Designs, Artifact, PR) in a list
+- The panel header shows four `ui::Tab`s (Changes with a "4" count, Designs, Artifact, PR; there is no Browser tab) in a list
   that scrolls horizontally; expand and close (24px `IconButton`s, 16px glyphs) are pinned at the right, outside the list.
 - Scrolling is GPUI's own: `overflow_x_scroll()` plus `track_scroll(&ScrollHandle)` on the list. A mouse wheel, a trackpad
   swipe and shift+wheel move it; there is no scrollbar. Clicking a tab calls `ScrollHandle::scroll_to_item(ix)`, which
@@ -593,16 +593,16 @@ WP-22 (2026-11-11): the activity fold and the tool rows, in `workspace/chat/tran
 ## Panel notes
 
 - Dock (`workspace/panel/dock.rs`): the Chat and the panel are one gpui-component `h_resizable` group; the panel's left edge drags
-  (min/default/max per kind from `panel-width.ts`: Changes, Terminal and PR 280/320/640, Browser 360/440/1400, Designs and Artifact
+  (min/default/max per kind from `panel-width.ts`: Changes and PR 280/320/640, Designs and Artifact
   440/560/1400; the Chat keeps 420). The width is remembered per kind for the session; a double-click on the edge resets it (read by a
   window-level listener, because the handle occludes hit-tested ones). Every layout change (open, close, expand, tab, Chat) makes a fresh
-  `ResizableState`, so the panel always opens at its remembered width. Expanded drops the group: the panel takes the width.
-- Shortcuts: `changes.toggle`, `terminal.toggle`, `browser.toggle`, `designs.toggle`, `artifacts.toggle` are bound from
+  `ResizableState`, so the panel always opens at its remembered width. Expanded drops the group: the panel takes the width, and an open diff draws inside it (under the tab strip, in place of the list) instead of over the Chat column; collapsing moves it back.
+- Shortcuts: `changes.toggle`, `terminal.toggle`, `designs.toggle`, `artifacts.toggle` are bound from
   `logic::keybindings` (`dock::install_keys`, once) and handled on the Workspace root; a shortcut hides the panel when its tab is the open one.
 - Per Chat: `Panel` keeps open/tab/expanded by Chat key. The sidebar does not notify itself on a selection, so `Workspace::render`
   (which re-renders when a row does) calls `follow_sidebar`. Designs, Artifact and PR tabs show only for Chats that have content
-  (`panel/fixture.rs`, the seam for the daemon); Changes, Terminal, Browser always do.
-- Each tab body is a cached view (`size_full`): `ChangesView` or a `TabPlaceholder`. Typing in the composer renders neither the panel nor a body
+  (`panel/fixture.rs`, the seam for the daemon); Changes always does.
+- Each tab body is a cached view (`size_full`): `ChangesView`, the PR, Designs, Artifact or Simulator view. Typing in the composer renders neither the panel nor a body
   (`dock_tests.rs`); a view mounted cached sees the first key after a mouse press as a refresh, so tests type once before measuring.
 - Changes (`panel/changes/`): `data.rs` panel-local input types over `logic::diff::git`; `fixture.rs` 13 files not committed, 3 on the
   branch, 5 commits, patches whose counts are computed and tested against gpui-component's parser; `files.rs` flat list (<=10 files) and
@@ -627,7 +627,7 @@ The module comment in `diff/mod.rs` lists the files and every deliberate differe
   come within 60 rows of the screen; files over 3,000 changed lines wait for "Show diff"; binary, too large, renamed and empty files say so.
 - Line comments: press the row's "+" and drag (Shift extends), the editor opens under the range (⌘↵ saves, Esc cancels); cards with
   label, Outdated, a clamped body, Edit and Delete; outdated ones under their file, ones whose file left at the top. "Send N comments" sends
-  `formatCommentsMessage` to the Chat through `PanelEvent::FixInChat`. Kept per Chat in memory (the desktop's `localStorage`).
+  `formatCommentsMessage` to the Chat through `PanelEvent::FixInChat`. Kept per Chat in `diff-comments.json` in the state directory (`workspace/shell/persist.rs`; the desktop's `localStorage`), so they last across launches; snapshots and tests keep them in memory. The PR diff's Refresh reads the PR and its patches again.
 - PR: threads under their lines through `PrView::thread_card`, the rest under the file; the editor's "Add to review" is `Write::Comment`.
 - Code selection is the diff's own (WP-16's `ui::selection` serialises Markdown): a drag selects text in one column, ⌘C copies it as lines.
 - Placement: under the panel's list, where the old pane was. The desktop draws it over the Chat column; that is a hook in
@@ -825,10 +825,26 @@ WP-27 (2026-11-11): `workspace/chat/pills/`, `workspace/chat/undo_panel.rs`, `lo
   Not built: QA persona avatars, advisor Stop and Retry, markdown in Result and the log, keyboard walk through subagent rows.
 - **C-06** (`pills/bookmark.rs`): the identity in the top strip, the Subchat bookmark (`... / ‹ ● Parent / Subchat ⇅`, the
   parent tinted with Needs you) and the family menu, over `chat_bookmark` and `chat_family`. Not built: the Routine chip and
-  the bookmark reserve, ⌘[, and the two split entries do nothing yet (`ChatEvent::Beside` and `ShowAll`).
+  the bookmark reserve and ⌘[. The family menu has no "Open beside parent" or "Show all side by side": the Chat grid and the split are out of the port.
 - **Undo** (`undo_panel.rs`) replaces the composer: list (arrows, Enter, Escape), preview with conflicts (Keep current or
   Undo) and a button that stays off until every conflict is answered. `/undo` opens it. Fixture checkpoints; `checkpoints.ts`
   helpers ported and tested. Not built: Esc Esc, the task's message outline in the transcript, the Changes panel on a file.
 - Seeds for snapshots (never in tests): `MILAGRE_GPUI_PILLS_OPEN=tasks|ports|subchats|subagents`, `_PILLS_AGENT=<id>`,
   `_UNDO=list|preview|redo`, `_FAMILY_MENU=1`, `_SELECT_ROW=<n>`.
-- `ChatView` emits `ChatEvent` (open a Chat, answer, respond, the split entries); `Workspace` follows `OpenChat` into the sidebar.
+- `ChatView` emits `ChatEvent` (open a Chat, answer, respond); `Workspace` follows `OpenChat` into the sidebar.
+
+## Persistence notes
+
+`workspace/shell/persist.rs` keeps small JSON files beside `window-state.json` in `~/Library/Application Support/Milagre GPUI/`
+(`MILAGRE_GPUI_STATE_DIR` moves them): `diff-comments.json` (line comments per Chat; the Changes diff and the PR diff each rewrite only
+their own mode's comments) and `merge-methods.json` (the PR merge method per repository). `app.rs` turns it on for a normal start only:
+snapshot mode and the tests never call `persist::enable`, so nothing is read or written, and a test that needs a file builds a `JsonFile`
+on a path of its own (`persist::test_file`).
+
+## Removed from the port (Victor, 2026-11-11)
+
+The Chat grid and the split (`src/workspace/grid/`, ⌘⇧M, the corner's grid and Subchats buttons, the sidebar's drag onto the Chat view and
+the family menu's two split entries), the corner's Artifact, Designs, PR and Changes toggles (the panel's tab strip has them; Terminals and
+an attached Simulator keep theirs), the Browser tab, and the sidebar's Canvas, Routines and Links rows (the top bar has Routines with its unread
+dot and Link Projects). The Link workspace stayed: it has its own `ChatView` and never used the grid. The shared key table still lists
+`grid.toggle`, `grid.focusPrevious` and `grid.focusNext` and the `gridShown` condition (that table mirrors the desktop's); nothing binds them here.
