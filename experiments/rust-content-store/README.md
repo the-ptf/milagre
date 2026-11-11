@@ -51,6 +51,8 @@ The limits match the production Artifact contract: 1,000,000 UTF-16 HTML units, 
 
 This crate never calls `Isolation::project`. It validates every relative path before creating anything, then uses retained directory descriptors with `openat(O_NOFOLLOW)`, `mkdirat`, `renameat` and `unlinkat`. Directory traversal cannot follow a replaced symlink into another location. Files are checked again after nonblocking open, so directories and FIFOs cannot masquerade as assets. Asset imports copy in 1 MiB buffers and hash the exact copied bytes. Metadata and small documents use bounded reads; exceptional oversized existing metadata/legacy JSON is rejected explicitly instead of allocating without a limit.
 
+`ArtifactStore::authorized(grant)` and `DesignKits::authorized(grant)` create synchronous scoped leases for a shared owner. Every existing write checkpoint checks the original owner guard followed by the additional caller guard. Dropping the lease restores the owner guard, including during unwinding. The MCP dispatcher uses these leases to prevent one Chat's revocation from changing another Chat's authority. No extra writer or filesystem lock is opened.
+
 The lock coordinates Rust instances only. It does not make a simultaneous Node writer safe. An owner integration must preserve ADR-0003 ownership, hold its own authoritative lock, and provide the active-owner callback. This crate has no daemon listener, no profile discovery, no production writer switch, no shutdown/restart logic and no live-data migration command.
 
 ## Validation and remaining work

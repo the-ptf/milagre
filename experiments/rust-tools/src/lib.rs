@@ -2,7 +2,7 @@
 mod feedback;
 mod schema;
 use milagre_content_store::{
-    design::{self, raster::RasterRenderer, DesignKits},
+    design::{self, raster::RasterRenderer, DesignKits, ProjectForChat},
     ActiveCheck, ArtifactStore, Error, Result, Runtime,
 };
 use milagre_owner_store::{jsjson, Isolation};
@@ -11,7 +11,10 @@ use std::{
     cell::RefCell,
     collections::BTreeSet,
     path::PathBuf,
-    sync::{Arc, OnceLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, OnceLock,
+    },
 };
 
 const MAX_BODY: usize = 1024 * 1024;
@@ -37,18 +40,6 @@ pub struct Caller {
     pub bundled_skills: PathBuf,
     pub assert_active: ActiveCheck,
 }
-struct State {
-    artifacts: ArtifactStore,
-    kits: RefCell<DesignKits>,
-}
-/// One owner serializes calls through this value. Recheck the caller's active
-/// grant on each request and each write; the stores retain their own lock guard.
-pub struct Dispatcher {
-    caller: Caller,
-    state: State,
-    raster: Option<Arc<RasterRenderer>>,
-    fault: Option<String>,
-}
 fn contract() -> &'static Value {
     static DATA: OnceLock<Value> = OnceLock::new();
     DATA.get_or_init(|| {
@@ -69,122 +60,310 @@ fn tool_error(message: impl Into<String>) -> Value {
 fn protocol_error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
-impl Dispatcher {
+struct Stores {
+    artifacts: ArtifactStore,
+    kits: DesignKits,
+}
+enum Work {
+    Done(Value),
+    Preview(Box<Preview>),
+}
+struct Preview {
+    saved: Value,
+    document: Value,
+    crop: Option<Value>,
+    intent: Option<Value>,
+    inspection: Option<Value>,
+}
+/// One serialized owner shared by renderer requests and immutable MCP sessions.
+pub struct ContentOwner {
+    isolation: Isolation,
+    stores: Mutex<Option<Stores>>,
+    project_for_chat: ProjectForChat,
+    owner_active: ActiveCheck,
+    raster: Option<Arc<RasterRenderer>>,
+    active: Arc<AtomicBool>,
+    fault: Mutex<Option<String>>,
+}
+pub struct Dispatcher {
+    caller: Caller,
+    owner: Arc<ContentOwner>,
+}
+impl ContentOwner {
+    #[allow(clippy::too_many_arguments)]
     pub fn open(
         isolation: Isolation,
         artifacts: PathBuf,
         kits: PathBuf,
-        mut caller: Caller,
+        project_for_chat: ProjectForChat,
+        owner_active: ActiveCheck,
         runtime: Arc<dyn Runtime>,
         raster: Option<Arc<RasterRenderer>>,
-    ) -> Result<Self> {
-        if caller.chat_id.is_empty()
-            || caller.project_id.is_empty()
-            || !caller.bundled_skills.is_absolute()
-        {
-            return Err(Error::new(
-                "Content tools need an explicit Chat, Project and bundled skill directory.",
+    ) -> Result<Arc<Self>> {
+        owner_active()?;
+        let resolver = project_for_chat.clone();
+        let store = ArtifactStore::open(
+            isolation.clone(),
+            &artifacts,
+            Arc::new(move |chat| resolver(chat).map(|_| ())),
+            owner_active.clone(),
+            runtime,
+        )?;
+        let kits = DesignKits::open(
+            isolation.clone(),
+            &kits,
+            project_for_chat.clone(),
+            owner_active.clone(),
+        )?;
+        Ok(Arc::new(Self {
+            isolation,
+            stores: Mutex::new(Some(Stores {
+                artifacts: store,
+                kits,
+            })),
+            project_for_chat,
+            owner_active,
+            raster,
+            active: Arc::new(AtomicBool::new(true)),
+            fault: Mutex::new(None),
+        }))
+    }
+    fn check(&self) -> Result<()> {
+        if let Some(fault) = self.fault.lock().unwrap().clone() {
+            return Err(Error::new(fault));
+        }
+        if !self.active.load(Ordering::Acquire) {
+            return Err(Error::coded(
+                "CONTENT_OWNER_INACTIVE",
+                "The content owner is closed.",
             ));
         }
-        for root in &mut caller.roots {
-            let canonical = std::fs::canonicalize(&*root)?;
-            if !canonical.starts_with(isolation.root()) || canonical == isolation.root() {
-                return Err(Error::new(
-                    "Tool Worktrees must be inside the isolated copy.",
+        (self.owner_active)()
+    }
+    fn caller_check(&self, caller: &Caller) -> Result<()> {
+        self.check()?;
+        (caller.assert_active)()?;
+        if (self.project_for_chat)(&caller.chat_id)? != caller.project_id {
+            return Err(Error::new("Chat outside the caller's Project scope."));
+        }
+        Ok(())
+    }
+    pub fn session(self: &Arc<Self>, caller: Caller) -> Result<Dispatcher> {
+        let caller = normalize_caller(&self.isolation, caller)?;
+        // Serialize admission with shutdown and renderer/MCP storage work.
+        let _lane = self.stores.lock().unwrap();
+        self.caller_check(&caller)?;
+        Ok(Dispatcher {
+            caller,
+            owner: self.clone(),
+        })
+    }
+    fn with_stores<T>(
+        &self,
+        caller: &Caller,
+        operation: impl FnOnce(&mut ArtifactStore, &mut DesignKits) -> Result<T>,
+    ) -> Result<T> {
+        let mut lane = self.stores.lock().unwrap();
+        self.caller_check(caller)?;
+        let stores = lane
+            .as_mut()
+            .ok_or_else(|| Error::new("The content owner is closed."))?;
+        let is_open = self.active.clone();
+        let caller_guard = caller.assert_active.clone();
+        let global = self.owner_active.clone();
+        let project = self.project_for_chat.clone();
+        let chat = caller.chat_id.clone();
+        let expected = caller.project_id.clone();
+        let guard: ActiveCheck = Arc::new(move || {
+            if !is_open.load(Ordering::Acquire) {
+                return Err(Error::coded(
+                    "CONTENT_OWNER_INACTIVE",
+                    "The content owner is closed.",
                 ));
             }
-            if !canonical.is_dir() {
-                return Err(Error::new("Tool Worktrees must be directories."));
-            }
-            *root = canonical;
-        }
-        let grant = caller.assert_active.clone();
-        let roots = caller.roots.clone();
-        caller.assert_active = Arc::new(move || {
-            grant()?;
-            for root in &roots {
-                if std::fs::canonicalize(root)? != *root {
-                    return Err(Error::new(
-                        "An admitted Tool Worktree changed its location.",
-                    ));
-                }
+            global()?;
+            caller_guard()?;
+            if project(&chat)? != expected {
+                return Err(Error::new("Chat outside the caller's Project scope."));
             }
             Ok(())
         });
-        (caller.assert_active)()?;
-        let chat = caller.chat_id.clone();
-        let validate = Arc::new(move |id: &str| {
-            if id == chat {
-                Ok(())
-            } else {
-                Err(Error::new("Chat outside the caller's scope."))
-            }
+        let mut artifacts = stores.artifacts.authorized(guard.clone());
+        let mut kits = stores.kits.authorized(guard);
+        let result = operation(&mut artifacts, &mut kits).and_then(|value| {
+            self.caller_check(caller)?;
+            Ok(value)
         });
+        if let Err(error) = &result {
+            if fatal(error) {
+                *self.fault.lock().unwrap() =
+                    Some(format!("Content storage stopped: {}", error.message));
+            }
+        }
+        result
+    }
+    /// Existing renderer routes share the same store lane. The renderer receives
+    /// full resource scope from the owner, never from MCP arguments.
+    pub fn renderer(&self, caller: &Caller, method: &str, request: &Value) -> Result<Value> {
+        if request["chatId"].as_str() != Some(&caller.chat_id) {
+            return Err(Error::new("Chat outside the caller's scope."));
+        }
+        if !caller.html || !caller.designs || !matches!(caller.design_scope, DesignScope::All) {
+            return Err(Error::new(
+                "Renderer calls need the owner's full content scope.",
+            ));
+        }
+        if if method == "artifact:apply" {
+            !caller.write
+        } else {
+            !caller.read
+        } {
+            return Err(Error::new(
+                "The caller does not grant this content capability.",
+            ));
+        }
+        self.with_stores(caller, |store, kits| match method {
+            "artifact:list" => store.list(request),
+            "artifact:get" => store.get(request),
+            "artifact:asset" => store.asset(request),
+            "artifact:comments" => store.comments(request),
+            "artifact:apply" => {
+                let kits = RefCell::new(kits);
+                let read = |r: &Value| kits.borrow_mut().read(r);
+                let prepared = store.prepare_design_apply(request, &read)?;
+                store.commit_design(prepared, &read, &design::render_html)
+            }
+            _ => Err(Error::coded(
+                "COMMAND_FAILED",
+                format!("Unknown command: {method}"),
+            )),
+        })
+    }
+    pub fn storage_fault(&self) -> Option<String> {
+        self.fault.lock().unwrap().clone()
+    }
+    /// Invalidates every retained session and releases content-store locks before
+    /// the runtime releases its outer owner lock. Idempotent.
+    pub fn shutdown(&self) {
+        self.active.store(false, Ordering::Release);
+        self.stores.lock().unwrap().take();
+    }
+}
+fn fatal(error: &Error) -> bool {
+    [
+        "INVALID_CONTENT_STORAGE",
+        "UNSAFE_FILE",
+        "IO_ERROR",
+        "OWNERSHIP_LOST",
+        "OWNERSHIP_UNVERIFIED",
+        "CONTENT_OWNER_INACTIVE",
+    ]
+    .contains(&error.code.as_str())
+}
+fn normalize_caller(isolation: &Isolation, mut caller: Caller) -> Result<Caller> {
+    if caller.chat_id.is_empty()
+        || caller.project_id.is_empty()
+        || !caller.bundled_skills.is_absolute()
+    {
+        return Err(Error::new(
+            "Content tools need an explicit Chat, Project and bundled skill directory.",
+        ));
+    }
+    for root in &mut caller.roots {
+        let canonical = std::fs::canonicalize(&*root)?;
+        if !canonical.starts_with(isolation.root())
+            || canonical == isolation.root()
+            || !canonical.is_dir()
+        {
+            return Err(Error::new(
+                "Tool Worktrees must be directories inside the isolated copy.",
+            ));
+        }
+        *root = canonical;
+    }
+    let previous = caller.assert_active.clone();
+    let roots = caller.roots.clone();
+    caller.assert_active = Arc::new(move || {
+        previous()?;
+        for root in &roots {
+            if std::fs::canonicalize(root)? != *root {
+                return Err(Error::new(
+                    "An admitted Tool Worktree changed its location.",
+                ));
+            }
+        }
+        Ok(())
+    });
+    Ok(caller)
+}
+fn available(caller: &Caller, tool: &Value) -> bool {
+    let name = tool["name"].as_str().unwrap();
+    if name == "design_delete" {
+        return false;
+    }
+    if tool["annotations"]["readOnlyHint"] == true {
+        if !caller.read {
+            return false;
+        }
+    } else if !caller.write {
+        return false;
+    }
+    if name.starts_with("design_kit_") {
+        return caller.kits;
+    }
+    if name.starts_with("design_") {
+        return caller.designs;
+    }
+    if ["artifact_comments", "artifact_resolve_comment"].contains(&name) {
+        return caller.html || caller.designs;
+    }
+    caller.html
+}
+impl Dispatcher {
+    /// Convenience single-Chat fixture constructor. Runtime integration shares a ContentOwner.
+    pub fn open(
+        isolation: Isolation,
+        artifacts: PathBuf,
+        kits: PathBuf,
+        caller: Caller,
+        runtime: Arc<dyn Runtime>,
+        raster: Option<Arc<RasterRenderer>>,
+    ) -> Result<Self> {
         let chat = caller.chat_id.clone();
         let project = caller.project_id.clone();
-        let project_for = Arc::new(move |id: &str| {
+        let resolve = Arc::new(move |id: &str| {
             if id == chat {
                 Ok(project.clone())
             } else {
                 Err(Error::new("Chat outside the caller's scope."))
             }
         });
-        let store = ArtifactStore::open(
-            isolation.clone(),
-            &artifacts,
-            validate,
+        let owner = ContentOwner::open(
+            isolation,
+            artifacts,
+            kits,
+            resolve,
             caller.assert_active.clone(),
             runtime,
-        )?;
-        let kits = DesignKits::open(isolation, &kits, project_for, caller.assert_active.clone())?;
-        Ok(Self {
-            caller,
-            state: State {
-                artifacts: store,
-                kits: RefCell::new(kits),
-            },
             raster,
-            fault: None,
-        })
+        )?;
+        owner.session(caller)
     }
     fn active(&self) -> Result<()> {
-        if let Some(fault) = &self.fault {
-            return Err(Error::new(fault));
-        }
-        (self.caller.assert_active)()
+        self.owner.caller_check(&self.caller)
     }
-    fn available(&self, tool: &Value) -> bool {
-        let name = tool["name"].as_str().unwrap();
-        if name == "design_delete" {
-            return false;
-        }
-        if tool["annotations"]["readOnlyHint"] == true {
-            if !self.caller.read {
-                return false;
-            }
-        } else if !self.caller.write {
-            return false;
-        }
-        if name.starts_with("design_kit_") {
-            return self.caller.kits;
-        }
-        if name.starts_with("design_") {
-            return self.caller.designs;
-        }
-        if ["artifact_comments", "artifact_resolve_comment"].contains(&name) {
-            return self.caller.html || self.caller.designs;
-        }
-        self.caller.html
+    pub fn storage_fault(&self) -> Option<String> {
+        self.owner.storage_fault()
     }
     pub fn list(&self) -> Result<Value> {
         self.active()?;
         Ok(
-            json!({"tools":contract()["tools"].as_array().unwrap().iter().filter(|t|self.available(t)).map(|t|{let mut t=t.clone();t["description"]=json!(t["description"].as_str().unwrap().replace("$BUNDLED_SKILLS",&self.caller.bundled_skills.to_string_lossy()));t}).collect::<Vec<_>>()}),
+            json!({"tools":contract()["tools"].as_array().unwrap().iter().filter(|tool|available(&self.caller,tool)).map(|tool|{let mut tool=tool.clone();tool["description"]=json!(tool["description"].as_str().unwrap().replace("$BUNDLED_SKILLS",&self.caller.bundled_skills.to_string_lossy()));tool}).collect::<Vec<_>>()}),
         )
     }
     /// One complete in-process JSON-RPC frame. Notifications produce no reply.
     /// Transport adapters enforce framing/authentication before passing a frame.
-    pub async fn dispatch(&mut self, bytes: &[u8]) -> Option<Vec<u8>> {
+    pub async fn dispatch(&self, bytes: &[u8]) -> Option<Vec<u8>> {
         let value = if bytes.len() > MAX_DESIGN_BODY {
             protocol_error(
                 Value::Null,
@@ -281,10 +460,7 @@ impl Dispatcher {
             Some(encoded.into_bytes())
         }
     }
-    pub fn storage_fault(&self) -> Option<&str> {
-        self.fault.as_deref()
-    }
-    pub async fn call(&mut self, name: &str, args: &Value) -> Value {
+    pub async fn call(&self, name: &str, args: &Value) -> Value {
         let limit = if ["design_show", "design_apply"].contains(&name) {
             MAX_DESIGN_BODY
         } else {
@@ -293,11 +469,11 @@ impl Dispatcher {
         if jsjson::to_string(args).len() > limit {
             return tool_error(format!("Request exceeds the {limit}-byte MCP limit."));
         }
-        let Some(tool) = contract()["tools"]
+        let Some(_tool) = contract()["tools"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|t| t["name"] == name && self.available(t))
+            .find(|tool| tool["name"] == name && available(&self.caller, tool))
         else {
             return tool_error("Tool unavailable for this connection");
         };
@@ -312,30 +488,66 @@ impl Dispatcher {
             Ok(v) => v,
             Err(e) => return tool_error(e),
         };
-        let readonly = tool["annotations"]["readOnlyHint"] == true;
-        match self.run(name, &args).await {
-            Ok(result) => {
-                if readonly {
-                    if let Err(e) = self.active() {
-                        return tool_error(e.message);
-                    }
-                }
-                result
+        let work = self.owner.with_stores(&self.caller, |artifacts, kits| {
+            Execution {
+                caller: &self.caller,
+                artifacts,
+                kits: RefCell::new(kits),
             }
-            Err(error) => {
-                if ["INVALID_CONTENT_STORAGE", "UNSAFE_FILE", "IO_ERROR"]
-                    .contains(&error.code.as_str())
-                {
-                    self.fault = Some(format!("Content storage stopped: {}", error.message));
-                }
-                tool_error(if name.starts_with("design_") {
-                    concise(&error)
-                } else {
-                    error.message
+            .run(name, &args)
+        });
+        let result = match work {
+            Ok(Work::Done(value)) => Ok(value),
+            Ok(Work::Preview(preview)) => {
+                let Preview {
+                    saved,
+                    document,
+                    crop,
+                    intent,
+                    inspection,
+                } = *preview;
+                let value = feedback::feedback(
+                    saved,
+                    &document,
+                    self.owner.raster.as_deref(),
+                    crop.as_ref(),
+                    intent.as_ref(),
+                )
+                .await;
+                value.map(|mut value| {
+                    if let Some(inspection) = inspection {
+                        let line = value["content"][0]["text"].as_str().unwrap();
+                        value["content"][0]["text"] = json!(format!(
+                            "{line}\n{}",
+                            jsjson::to_string(&json!({"inspection":inspection}))
+                        ));
+                    }
+                    value
                 })
             }
+            Err(e) => Err(e),
+        };
+        // A committed write remains saved when the grant is revoked during preview.
+        // Do not return its saved content/image to a revoked caller.
+        if let Err(e) = self.active() {
+            return tool_error(e.message);
+        }
+        match result {
+            Ok(value) => value,
+            Err(e) => tool_error(if name.starts_with("design_") {
+                concise(&e)
+            } else {
+                e.message
+            }),
         }
     }
+}
+struct Execution<'a> {
+    caller: &'a Caller,
+    artifacts: &'a mut ArtifactStore,
+    kits: RefCell<&'a mut DesignKits>,
+}
+impl Execution<'_> {
     fn permit(&self, id: Option<&str>) -> Result<()> {
         match &self.caller.design_scope {
             DesignScope::All => Ok(()),
@@ -361,7 +573,6 @@ impl Dispatcher {
             query["format"] = json!("html");
         }
         let designs = self
-            .state
             .artifacts
             .list(&json!({"chatId":self.caller.chat_id,"format":"design"}))?;
         let design_ids = designs
@@ -370,7 +581,7 @@ impl Dispatcher {
             .iter()
             .filter_map(|d| d["id"].as_str())
             .collect::<BTreeSet<_>>();
-        let mut comments = self.state.artifacts.comments(&query)?;
+        let mut comments = self.artifacts.comments(&query)?;
         comments.as_array_mut().unwrap().retain(|c| {
             let id = c["design"]["id"].as_str();
             if id.is_some_and(|id| design_ids.contains(id)) {
@@ -381,7 +592,7 @@ impl Dispatcher {
         });
         Ok(comments)
     }
-    async fn run(&mut self, name: &str, args: &Value) -> Result<Value> {
+    fn run(&mut self, name: &str, args: &Value) -> Result<Work> {
         if name.starts_with("design_")
             && !name.starts_with("design_kit_")
             && name != "design_list"
@@ -395,13 +606,11 @@ impl Dispatcher {
             }
         }
         let request = self.request(args, None);
-        match name {
-            "artifact_show" => Ok(text(
-                self.state.artifacts.show(&request, &self.caller.roots)?,
-            )),
-            "artifact_read" => Ok(text(self.state.artifacts.artifact_read(&request)?)),
+        let result = match name {
+            "artifact_show" => Ok(text(self.artifacts.show(&request, &self.caller.roots)?)),
+            "artifact_read" => Ok(text(self.artifacts.artifact_read(&request)?)),
             "artifact_list" | "design_list" => {
-                let mut list = self.state.artifacts.list(&self.request(
+                let mut list = self.artifacts.list(&self.request(
                     args,
                     Some(if name == "design_list" {
                         "design"
@@ -441,58 +650,46 @@ impl Dispatcher {
                         "This comment is outside the connection's scope or is unavailable.",
                     ));
                 }
-                self.active()?;
-                Ok(text(self.state.artifacts.resolve_comment(&request)?))
+                (self.caller.assert_active)()?;
+                Ok(text(self.artifacts.resolve_comment(&request)?))
             }
-            "design_kit_read" => Ok(text(self.state.kits.borrow_mut().read(&request)?)),
-            "design_kit_save" => Ok(text(self.state.kits.borrow_mut().save(&request)?)),
+            "design_kit_read" => Ok(text(self.kits.borrow_mut().read(&request)?)),
+            "design_kit_save" => Ok(text(self.kits.borrow_mut().save(&request)?)),
             "design_read" => {
-                let mut saved = self
-                    .state
-                    .artifacts
-                    .get(&self.request(args, Some("design")))?;
+                let mut saved = self.artifacts.get(&self.request(args, Some("design")))?;
                 remove(&mut saved, "html");
                 Ok(text(saved))
             }
-            "design_export" => Ok(text(self.state.artifacts.export_design(&request)?)),
-            "design_validate" => Ok(text(self.validate(args))),
+            "design_export" => Ok(text(self.artifacts.export_design(&request)?)),
+            "design_validate" => self.validate(args).map(text),
             "design_show" | "design_apply" => {
                 if name == "design_show"
                     && args.get("document").is_some() == args.get("from").is_some()
                 {
                     return Err(Error::new("Send document OR from (with operations)."));
                 }
-                let (saved, document) = {
-                    let state = &mut self.state;
-                    let kit = |r: &Value| state.kits.borrow_mut().read(r);
-                    let prepared = if name == "design_show" {
-                        state.artifacts.prepare_design_show(&request, &kit)?
-                    } else {
-                        state.artifacts.prepare_design_apply(&request, &kit)?
-                    };
-                    let document = prepared.document().clone();
-                    let mut saved =
-                        state
-                            .artifacts
-                            .commit_design(prepared, &kit, &design::render_html)?;
-                    remove(&mut saved, "html");
-                    remove(&mut saved, "document");
-                    (saved, document)
+                let kit = |r: &Value| self.kits.borrow_mut().read(r);
+                let prepared = if name == "design_show" {
+                    self.artifacts.prepare_design_show(&request, &kit)?
+                } else {
+                    self.artifacts.prepare_design_apply(&request, &kit)?
                 };
-                feedback::feedback(
+                let document = prepared.document().clone();
+                let mut saved =
+                    self.artifacts
+                        .commit_design(prepared, &kit, &design::render_html)?;
+                remove(&mut saved, "html");
+                remove(&mut saved, "document");
+                return Ok(Work::Preview(Box::new(Preview {
                     saved,
-                    &document,
-                    self.raster.as_deref(),
-                    None,
-                    args.get("intent"),
-                )
-                .await
+                    document,
+                    crop: None,
+                    intent: args.get("intent").cloned(),
+                    inspection: None,
+                })));
             }
             "design_inspect" => {
-                let mut saved = self
-                    .state
-                    .artifacts
-                    .get(&self.request(args, Some("design")))?;
+                let mut saved = self.artifacts.get(&self.request(args, Some("design")))?;
                 let document = saved["document"].clone();
                 remove(&mut saved, "html");
                 remove(&mut saved, "document");
@@ -507,14 +704,6 @@ impl Dispatcher {
                     .transpose()?;
                 let crop = crop.map(|b| json!({"x":b.x,"y":b.y,"width":b.width,"height":b.height}));
                 let version = saved["version"].clone();
-                let mut result = feedback::feedback(
-                    saved,
-                    &document,
-                    self.raster.as_deref(),
-                    crop.as_ref(),
-                    None,
-                )
-                .await?;
                 let diagnostics = match design::diagnostics(&document) {
                     Ok(mut d) => {
                         let mut out = json!({"status":"checked"});
@@ -529,20 +718,22 @@ impl Dispatcher {
                 if let Some(id) = args.get("nodeId") {
                     inspection["nodeId"] = id.clone();
                 }
-                if let Some(crop) = crop {
-                    inspection["preview"]["crop"] = crop;
+                if let Some(crop) = &crop {
+                    inspection["preview"]["crop"] = crop.clone();
                 }
-                let line = result["content"][0]["text"].as_str().unwrap();
-                result["content"][0]["text"] = json!(format!(
-                    "{line}\n{}",
-                    jsjson::to_string(&json!({"inspection":inspection}))
-                ));
-                Ok(result)
+                return Ok(Work::Preview(Box::new(Preview {
+                    saved,
+                    document,
+                    crop,
+                    intent: None,
+                    inspection: Some(inspection),
+                })));
             }
             _ => Err(Error::new("Tool unavailable for this connection")),
-        }
+        };
+        result.map(Work::Done)
     }
-    fn validate(&mut self, args: &Value) -> Value {
+    fn validate(&mut self, args: &Value) -> Result<Value> {
         let attempt = (|| -> Result<Value> {
             let document = if let Some(document) = args.get("document") {
                 if ["id", "operations", "expectedVersion", "intent"]
@@ -564,7 +755,6 @@ impl Dispatcher {
                     ));
                 }
                 let current = self
-                    .state
                     .artifacts
                     .get(&self.request(&json!({"id":args["id"]}), Some("design")))?;
                 if !jsjson::strict_equals(&current["version"], &args["expectedVersion"]) {
@@ -580,7 +770,7 @@ impl Dispatcher {
                 )?
             };
             if let Some(kit) = document.get("kit") {
-                let saved = self.state.kits.borrow_mut().read(
+                let saved = self.kits.borrow_mut().read(
                     &json!({"chatId":self.caller.chat_id,"id":kit["id"],"version":kit["version"]}),
                 )?;
                 if saved != *kit {
@@ -599,8 +789,9 @@ impl Dispatcher {
             )
         })();
         match attempt {
-            Ok(value) => value,
-            Err(e) => validation_error(&e),
+            Ok(value) => Ok(value),
+            Err(e) if fatal(&e) => Err(e),
+            Err(e) => Ok(validation_error(&e)),
         }
     }
 }

@@ -47,7 +47,41 @@ pub fn validate_kit(input: &Value) -> Result<Value> {
     }
     Ok(kit)
 }
+pub struct AuthorizedKits<'a> {
+    store: &'a mut DesignKits,
+    previous: ActiveCheck,
+}
+impl std::ops::Deref for AuthorizedKits<'_> {
+    type Target = DesignKits;
+    fn deref(&self) -> &DesignKits {
+        self.store
+    }
+}
+impl std::ops::DerefMut for AuthorizedKits<'_> {
+    fn deref_mut(&mut self) -> &mut DesignKits {
+        self.store
+    }
+}
+impl Drop for AuthorizedKits<'_> {
+    fn drop(&mut self) {
+        self.store.active = self.previous.clone();
+    }
+}
+
 impl DesignKits {
+    pub fn authorized(&mut self, grant: ActiveCheck) -> AuthorizedKits<'_> {
+        let previous = self.active.clone();
+        let owner = previous.clone();
+        self.active = Arc::new(move || {
+            owner()?;
+            grant()
+        });
+        AuthorizedKits {
+            store: self,
+            previous,
+        }
+    }
+
     pub fn open(
         isolation: Isolation,
         relative: &Path,

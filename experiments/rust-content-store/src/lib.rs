@@ -60,7 +60,43 @@ impl Drop for Staged {
     }
 }
 
+/// A synchronous per-call authorization lease. Every existing write checkpoint
+/// checks both the authoritative owner and the immutable caller grant. Dropping
+/// the lease, including during panic unwinding, restores the owner guard.
+pub struct AuthorizedArtifacts<'a> {
+    store: &'a mut ArtifactStore,
+    previous: ActiveCheck,
+}
+impl std::ops::Deref for AuthorizedArtifacts<'_> {
+    type Target = ArtifactStore;
+    fn deref(&self) -> &ArtifactStore {
+        self.store
+    }
+}
+impl std::ops::DerefMut for AuthorizedArtifacts<'_> {
+    fn deref_mut(&mut self) -> &mut ArtifactStore {
+        self.store
+    }
+}
+impl Drop for AuthorizedArtifacts<'_> {
+    fn drop(&mut self) {
+        self.store.active = self.previous.clone();
+    }
+}
+
 impl ArtifactStore {
+    pub fn authorized(&mut self, grant: ActiveCheck) -> AuthorizedArtifacts<'_> {
+        let previous = self.active.clone();
+        let owner = previous.clone();
+        self.active = Arc::new(move || {
+            owner()?;
+            grant()
+        });
+        AuthorizedArtifacts {
+            store: self,
+            previous,
+        }
+    }
     fn fresh_id(&self, short: bool) -> Result<String> {
         let uuid = self.runtime.uuid();
         validation::id(&json!(uuid))?;

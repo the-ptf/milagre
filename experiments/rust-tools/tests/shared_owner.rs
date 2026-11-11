@@ -1,0 +1,381 @@
+use milagre_content_store::{design::raster::RasterRenderer, Error, SystemRuntime};
+use milagre_owner_store::{jsjson, Isolation, Policy};
+use milagre_tools::{Caller, ContentOwner, DesignScope};
+use serde_json::{json, Value};
+use std::{
+    path::Path,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+fn caller(chat: &str, grant: Arc<AtomicBool>) -> Caller {
+    Caller {
+        chat_id: chat.into(),
+        project_id: chat.split('#').next().unwrap().into(),
+        roots: vec![],
+        read: true,
+        write: true,
+        html: true,
+        designs: true,
+        kits: true,
+        design_scope: DesignScope::All,
+        bundled_skills: Path::new("/fixture/skills").into(),
+        assert_active: Arc::new(move || {
+            if grant.load(Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err(Error::new("Caller revoked"))
+            }
+        }),
+    }
+}
+fn owner(
+    isolation: Isolation,
+    raster: Option<Arc<RasterRenderer>>,
+    live: Arc<AtomicBool>,
+) -> Arc<ContentOwner> {
+    ContentOwner::open(
+        isolation,
+        "artifacts".into(),
+        "kits".into(),
+        Arc::new(|chat| match chat {
+            "/alpha#1" | "/alpha#2" => Ok("/alpha".into()),
+            "/beta#1" => Ok("/beta".into()),
+            _ => Err(Error::new("Chat not admitted")),
+        }),
+        Arc::new(move || {
+            if live.load(Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err(Error::coded("OWNERSHIP_LOST", "Owner identity changed"))
+            }
+        }),
+        Arc::new(SystemRuntime),
+        raster,
+    )
+    .unwrap()
+}
+fn show(title: &str) -> Value {
+    json!({"id":"screen","title":title,"document":{"schemaVersion":1,"width":240,"height":240,"nodes":[{"id":"label","type":"text","width":200,"height":60,"text":"Hello"}]}})
+}
+fn edit(text: &str) -> Value {
+    json!({"id":"screen","expectedVersion":1,"operations":[{"op":"update","id":"label","patch":{"text":text}}]})
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_chats_share_one_writer_and_renderer_mcp_version_conflicts_serialize() {
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let active = Arc::new(AtomicBool::new(true));
+    let owner = owner(isolation, None, active.clone());
+    let a = caller("/alpha#1", active.clone());
+    let b = caller("/alpha#2", active.clone());
+    let one = Arc::new(owner.session(a.clone()).unwrap());
+    let two = Arc::new(owner.session(b.clone()).unwrap());
+    let create = |session: Arc<milagre_tools::Dispatcher>, title| {
+        tokio::spawn(async move { session.call("design_show", &show(title)).await })
+    };
+    let (one_result, two_result) =
+        tokio::join!(create(one.clone(), "One"), create(two.clone(), "Two"));
+    assert_eq!(one_result.unwrap()["isError"], false);
+    assert_eq!(two_result.unwrap()["isError"], false);
+    for (caller, title) in [(&a, "One"), (&b, "Two")] {
+        let read = owner
+            .renderer(
+                caller,
+                "artifact:get",
+                &json!({"chatId":caller.chat_id,"id":"screen","format":"design"}),
+            )
+            .unwrap();
+        assert_eq!(read["title"], title);
+        assert_eq!(read["version"], 1);
+    }
+    let mcp = tokio::spawn({
+        let one = one.clone();
+        async move { one.call("design_apply", &edit("MCP")).await }
+    });
+    let renderer = tokio::spawn({
+        let owner = owner.clone();
+        let caller = a.clone();
+        async move {
+            let mut request = edit("Renderer");
+            request["chatId"] = json!(caller.chat_id);
+            owner.renderer(&caller, "artifact:apply", &request)
+        }
+    });
+    let (mcp, renderer) = tokio::join!(mcp, renderer);
+    let mcp = mcp.unwrap();
+    let renderer = renderer.unwrap();
+    assert_ne!(mcp["isError"] == false, renderer.is_ok());
+    assert_eq!(
+        owner
+            .renderer(
+                &a,
+                "artifact:get",
+                &json!({"chatId":a.chat_id,"id":"screen","format":"design"})
+            )
+            .unwrap()["version"],
+        2
+    );
+    assert_eq!(
+        owner
+            .renderer(
+                &b,
+                "artifact:get",
+                &json!({"chatId":b.chat_id,"id":"screen","format":"design"})
+            )
+            .unwrap()["version"],
+        1
+    );
+    let kit = json!({"expectedVersion":0,"kit":{"title":"Shared","colors":{},"textStyles":{},"spacing":{},"radii":{}}});
+    assert_eq!(one.call("design_kit_save", &kit).await["isError"], false);
+    let read = two.call("design_kit_read", &json!({})).await;
+    assert_eq!(
+        jsjson::parse(read["content"][0]["text"].as_str().unwrap()).unwrap()["title"],
+        "Shared"
+    );
+}
+#[tokio::test]
+async fn grants_projects_and_owner_identity_do_not_cross_sessions() {
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let live = Arc::new(AtomicBool::new(true));
+    let owner = owner(isolation, None, live.clone());
+    let grant = Arc::new(AtomicBool::new(true));
+    let a = caller("/alpha#1", grant.clone());
+    let b = caller("/beta#1", Arc::new(AtomicBool::new(true)));
+    let one = owner.session(a.clone()).unwrap();
+    let two = owner.session(b.clone()).unwrap();
+    let mut crossed = a.clone();
+    crossed.project_id = "/beta".into();
+    assert!(owner.session(crossed).is_err());
+    assert!(owner
+        .renderer(&a, "artifact:list", &json!({"chatId":b.chat_id}))
+        .is_err());
+    assert_eq!(
+        one.call("artifact_list", &json!({"chatId":b.chat_id}))
+            .await["isError"],
+        true
+    );
+    grant.store(false, Ordering::SeqCst);
+    assert_eq!(
+        one.call("artifact_show", &json!({"title":"No","html":"No"}))
+            .await["isError"],
+        true
+    );
+    assert_eq!(
+        two.call("artifact_show", &json!({"title":"Yes","html":"<p>Yes</p>"}))
+            .await["isError"],
+        false
+    );
+    live.store(false, Ordering::SeqCst);
+    assert!(two.list().is_err());
+    assert!(owner
+        .renderer(&b, "artifact:list", &json!({"chatId":b.chat_id}))
+        .is_err());
+}
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn revocation_during_png_hides_reply_without_undoing_commit_or_blocking_renderer() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let entered = temp.path().join("entered");
+    let release = temp.path().join("release");
+    let helper = temp.path().join("helper");
+    std::fs::write(&helper,format!("#!/bin/sh\necho ready > '{}'\nwhile [ ! -e '{}' ]; do /bin/sleep 0.01; done\nexec '{}'\n",entered.display(),release.display(),env!("CARGO_BIN_EXE_milagre-design-raster"))).unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let renderer = Arc::new(RasterRenderer::new(helper).unwrap());
+    let live = Arc::new(AtomicBool::new(true));
+    let owner = owner(isolation, Some(renderer), live);
+    let grant = Arc::new(AtomicBool::new(true));
+    let caller = caller("/alpha#1", grant.clone());
+    let session = owner.session(caller.clone()).unwrap();
+    let task = tokio::spawn(async move {
+        session
+            .call("design_show", &show("Committed before PNG"))
+            .await
+    });
+    for _ in 0..500 {
+        if entered.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert!(entered.exists());
+    let desktop = caller::independent(&caller);
+    let read = owner
+        .renderer(
+            &desktop,
+            "artifact:get",
+            &json!({"chatId":desktop.chat_id,"id":"screen","format":"design"}),
+        )
+        .unwrap();
+    assert_eq!(read["version"], 1);
+    grant.store(false, Ordering::SeqCst);
+    std::fs::write(release, "").unwrap();
+    let response = task.await.unwrap();
+    assert_eq!(response["isError"], true);
+    assert_eq!(response["content"].as_array().unwrap().len(), 1);
+    assert_eq!(response["content"][0]["text"], "Caller revoked");
+    assert_eq!(
+        owner
+            .renderer(
+                &desktop,
+                "artifact:get",
+                &json!({"chatId":desktop.chat_id,"id":"screen","format":"design"})
+            )
+            .unwrap()["version"],
+        1
+    );
+}
+mod caller {
+    use super::*;
+    pub fn independent(caller: &Caller) -> Caller {
+        let mut independent = caller.clone();
+        independent.assert_active = Arc::new(|| Ok(()));
+        independent
+    }
+}
+#[tokio::test]
+async fn shutdown_releases_store_locks_even_with_retained_sessions() {
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let live = Arc::new(AtomicBool::new(true));
+    let original = owner(isolation.clone(), None, live.clone());
+    let caller = caller("/alpha#1", live.clone());
+    let retained = original.session(caller.clone()).unwrap();
+    assert_eq!(
+        retained
+            .call(
+                "artifact_show",
+                &json!({"title":"Saved","html":"<p>Saved</p>"})
+            )
+            .await["isError"],
+        false
+    );
+    original.shutdown();
+    original.shutdown();
+    assert!(retained.list().is_err());
+    assert!(original.session(caller.clone()).is_err());
+    assert!(original
+        .renderer(&caller, "artifact:list", &json!({"chatId":caller.chat_id}))
+        .is_err());
+    let replacement = owner(isolation, None, live);
+    let session = replacement.session(caller).unwrap();
+    let list = session.call("artifact_list", &json!({})).await;
+    assert_eq!(list["isError"], false);
+    assert_eq!(
+        jsjson::parse(list["content"][0]["text"].as_str().unwrap()).unwrap()[0]["title"],
+        "Saved"
+    );
+    assert_eq!(
+        retained.call("artifact_list", &json!({})).await["isError"],
+        true
+    );
+}
+#[tokio::test]
+async fn revocation_inside_design_commit_rolls_back_and_restores_the_owner_guard() {
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let live = Arc::new(AtomicBool::new(true));
+    let owner = owner(isolation, None, live.clone());
+    let desktop = caller("/alpha#1", live);
+    let baseline = owner.session(desktop.clone()).unwrap();
+    assert_eq!(
+        baseline.call("design_show", &show("Original")).await["isError"],
+        false
+    );
+    let html = temp
+        .path()
+        .join("artifacts")
+        .join(milagre_content_store::chat_hash("/alpha#1"))
+        .join("screen/v2.html");
+    let granted = Arc::new(AtomicBool::new(true));
+    let mut revoked = desktop.clone();
+    revoked.assert_active = Arc::new({
+        let html = html.clone();
+        let granted = granted.clone();
+        move || {
+            if html.exists() {
+                granted.store(false, Ordering::SeqCst);
+            }
+            if granted.load(Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err(Error::new("Grant revoked during commit"))
+            }
+        }
+    });
+    let session = owner.session(revoked).unwrap();
+    assert_eq!(
+        session.call("design_apply", &edit("Must roll back")).await["isError"],
+        true
+    );
+    assert!(!granted.load(Ordering::SeqCst));
+    assert!(!html.exists());
+    let read = owner
+        .renderer(
+            &desktop,
+            "artifact:get",
+            &json!({"chatId":desktop.chat_id,"id":"screen","format":"design"}),
+        )
+        .unwrap();
+    assert_eq!(read["version"], 1);
+    assert_eq!(read["document"]["nodes"][0]["text"], "Hello");
+    assert_eq!(
+        baseline
+            .call("design_apply", &edit("Independent grant"))
+            .await["isError"],
+        false
+    );
+    assert!(owner.storage_fault().is_none());
+}
+#[tokio::test]
+async fn kit_commit_uses_the_call_grant_and_does_not_leak_it_to_another_session() {
+    use sha2::Digest;
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let live = Arc::new(AtomicBool::new(true));
+    let owner = owner(isolation, None, live.clone());
+    let regular = caller("/alpha#1", live);
+    let folder = temp
+        .path()
+        .join("kits")
+        .join(hex::encode(sha2::Sha256::digest(b"/alpha")));
+    let revoked = Arc::new(AtomicBool::new(false));
+    let mut caller = regular.clone();
+    caller.assert_active = Arc::new({
+        let folder = folder.clone();
+        let revoked = revoked.clone();
+        move || {
+            if std::fs::read_dir(&folder).is_ok_and(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .any(|entry| entry.path().extension().is_some_and(|ext| ext == "tmp"))
+            }) {
+                revoked.store(true, Ordering::SeqCst);
+            }
+            if revoked.load(Ordering::SeqCst) {
+                Err(Error::new("Kit grant revoked before rename"))
+            } else {
+                Ok(())
+            }
+        }
+    });
+    let restricted = owner.session(caller).unwrap();
+    let regular = owner.session(regular).unwrap();
+    let kit = json!({"expectedVersion":0,"kit":{"title":"Fixture","colors":{},"textStyles":{},"spacing":{},"radii":{}}});
+    assert_eq!(
+        restricted.call("design_kit_save", &kit).await["isError"],
+        true
+    );
+    assert!(revoked.load(Ordering::SeqCst));
+    assert!(!folder.join("project.json").exists());
+    assert!(folder.read_dir().unwrap().next().is_none());
+    assert_eq!(
+        regular.call("design_kit_save", &kit).await["isError"],
+        false
+    );
+}

@@ -8,7 +8,7 @@ milagre-content-store = { path = "../rust-content-store" }
 milagre-owner-store = { path = "../rust-owner" }
 serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
-tokio = { version = "1", features = ["sync", "rt", "macros"] }
+tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time"] }
 [dev-dependencies]
 base64 = "0.22"
 png = "0.17"

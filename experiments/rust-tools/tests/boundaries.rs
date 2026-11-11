@@ -42,7 +42,7 @@ fn open(isolation: Isolation, caller: Caller) -> Dispatcher {
     )
     .unwrap()
 }
-async fn rpc(dispatcher: &mut Dispatcher, value: Value) -> Value {
+async fn rpc(dispatcher: &Dispatcher, value: Value) -> Value {
     jsjson::parse_bytes(
         &dispatcher
             .dispatch(jsjson::to_string(&value).as_bytes())
@@ -55,9 +55,9 @@ async fn rpc(dispatcher: &mut Dispatcher, value: Value) -> Value {
 async fn protocol_negotiation_notifications_unknown_methods_and_limits() {
     let temp = tempfile::tempdir().unwrap();
     let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
-    let mut d = open(isolation, caller(Arc::new(AtomicBool::new(true))));
+    let d = open(isolation, caller(Arc::new(AtomicBool::new(true))));
     for version in ["2025-03-26", "2025-06-18", "future"] {
-        let result=rpc(&mut d,json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":version}})).await;
+        let result=rpc(&d,json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":version}})).await;
         assert_eq!(
             result["result"],
             json!({"protocolVersion":if version=="future"{"2025-06-18"}else{version},"capabilities":{"tools":{}},"serverInfo":{"name":"milagre","version":"1"}})
@@ -68,31 +68,31 @@ async fn protocol_negotiation_notifications_unknown_methods_and_limits() {
         .await
         .is_none());
     assert_eq!(
-        rpc(&mut d, json!({"jsonrpc":"2.0","id":"ping","method":"ping"})).await,
+        rpc(&d, json!({"jsonrpc":"2.0","id":"ping","method":"ping"})).await,
         json!({"jsonrpc":"2.0","id":"ping","result":{}})
     );
     assert_eq!(
         rpc(
-            &mut d,
+            &d,
             json!({"jsonrpc":"2.0","id":4,"method":"resources/list"})
         )
         .await["error"]["code"],
         -32601
     );
-    assert_eq!(rpc(&mut d,json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"design_delete","arguments":{"id":"screen"}}})).await["result"]["isError"],true);
+    assert_eq!(rpc(&d,json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"design_delete","arguments":{"id":"screen"}}})).await["result"]["isError"],true);
     for value in [
         json!([]),
         json!({"jsonrpc":"2.0","id":null,"method":"ping"}),
         json!({"method":"ping","id":1}),
     ] {
-        assert_eq!(rpc(&mut d, value).await["error"]["code"], -32600);
+        assert_eq!(rpc(&d, value).await["error"]["code"], -32600);
     }
     assert_eq!(
         jsjson::parse_bytes(&d.dispatch(b"bad").await.unwrap()).unwrap()["error"]["code"],
         -32700
     );
     let large = json!({"jsonrpc":"2.0","id":1,"method":"ping","padding":"x".repeat(1024*1024)});
-    assert_eq!(rpc(&mut d, large).await["error"]["code"], -32000);
+    assert_eq!(rpc(&d, large).await["error"]["code"], -32000);
     let huge = vec![b'x'; 6_000_000 + 64 * 1024 + 1];
     assert_eq!(
         jsjson::parse_bytes(&d.dispatch(&huge).await.unwrap()).unwrap()["error"]["code"],
@@ -117,7 +117,7 @@ async fn immutable_grants_filter_discovery_scope_reads_and_writes() {
     let temp = tempfile::tempdir().unwrap();
     let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
     let active = Arc::new(AtomicBool::new(true));
-    let mut d = open(isolation.clone(), caller(active.clone()));
+    let d = open(isolation.clone(), caller(active.clone()));
     for id in ["allowed", "outside"] {
         let result=d.call("design_show",&json!({"id":id,"title":id,"document":{"schemaVersion":1,"width":240,"height":240,"nodes":[]}})).await;
         assert_eq!(result["isError"], false);
@@ -148,7 +148,7 @@ async fn immutable_grants_filter_discovery_scope_reads_and_writes() {
     scope.kits = false;
     scope.write = false;
     scope.design_scope = DesignScope::Ids(BTreeSet::from(["allowed".into()]));
-    let mut d = open(isolation.clone(), scope.clone());
+    let d = open(isolation.clone(), scope.clone());
     let tools = d.list().unwrap();
     assert!(tools["tools"]
         .as_array()
@@ -181,7 +181,7 @@ async fn immutable_grants_filter_discovery_scope_reads_and_writes() {
     assert_eq!(d.call("design_apply", &json!({})).await["isError"], true);
     drop(d);
     scope.write = true;
-    let mut d = open(isolation, scope);
+    let d = open(isolation, scope);
     let result=d.call("design_show",&json!({"id":"allowed","title":"Escaping variant","expectedVersion":1,"from":{"id":"outside"}})).await;
     assert_eq!(result["isError"], true);
     assert!(result["content"][0]["text"]
@@ -236,7 +236,7 @@ async fn corrupt_storage_latches_and_live_or_outside_paths_are_refused() {
         None
     )
     .is_err());
-    let mut d = open(isolation, c);
+    let d = open(isolation, c);
     assert_eq!(
         d.call(
             "artifact_show",
@@ -273,7 +273,7 @@ async fn swapped_worktree_roots_revoke_calls_before_asset_import() {
     std::fs::write(outside.path().join("private.txt"), "sentinel").unwrap();
     let mut c = caller(Arc::new(AtomicBool::new(true)));
     c.roots = vec![root.clone()];
-    let mut d = open(isolation, c);
+    let d = open(isolation, c);
     std::fs::remove_dir(&root).unwrap();
     std::os::unix::fs::symlink(outside.path(), &root).unwrap();
     let result=d.call("artifact_show",&json!({"title":"Escape","html":"<a href=\"assets/private.txt\">link</a>","assets":[{"name":"private.txt","path":root.join("private.txt")}]})).await;
@@ -290,6 +290,6 @@ async fn dispatcher_future_can_move_to_an_owner_actor() {
     fn send<T: Send>(_: T) {}
     let temp = tempfile::tempdir().unwrap();
     let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
-    let mut d = open(isolation, caller(Arc::new(AtomicBool::new(true))));
+    let d = open(isolation, caller(Arc::new(AtomicBool::new(true))));
     send(d.dispatch(br#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#));
 }

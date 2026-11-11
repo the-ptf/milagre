@@ -13,7 +13,7 @@ mod kit;
 mod kits;
 mod layout;
 pub mod raster;
-pub use kits::{validate_kit, DesignKits, ProjectForChat};
+pub use kits::{validate_kit, AuthorizedKits, DesignKits, ProjectForChat};
 pub use layout::{layout, Bounds};
 mod operations;
 mod render;

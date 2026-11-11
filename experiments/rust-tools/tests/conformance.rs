@@ -83,7 +83,7 @@ async fn native_content_tools_match_real_node_definitions_and_stores() {
     );
     let raster =
         Arc::new(RasterRenderer::new(env!("CARGO_BIN_EXE_milagre-design-raster")).unwrap());
-    let mut dispatcher = Dispatcher::open(
+    let dispatcher = Dispatcher::open(
         isolation,
         "rust-artifacts".into(),
         "rust-kits".into(),
