@@ -122,4 +122,4 @@ The [fixed-Claim supervisor contract](FIXED-CLAIM-SUPERVISOR-PROPOSAL.md) separa
 
 Checkpoint 1 of that contract is implemented as the [private retained executor core](FIXED-EXECUTOR-CORE.md): two authority-owned slots, fixed results, cancellation/deadline polling, actual joins and terminal drainage. It has no supervisor command or egress.
 
-The [checkpoint 2 tracked-output refinement](TRACKED-OUTPUT-CONTRACT.md) proposes private mailbox ownership, pre-Begin output reservations and explicit synthetic peer acceptance. It awaits agreement; no tracked output implementation or production admission is added.
+The agreed [checkpoint 2 tracked-output contract](TRACKED-OUTPUT-CONTRACT.md) is implemented in separate [reservation/fence](TRACKED-OUTPUT-RESERVATIONS.md) and [packet/verifier/physical-close](TRACKED-FIXED-OUTPUT.md) stages. Private authority operations retain prepaid mailboxes, verify actual synthetic peer acceptance and require packet-drop receipts before completion. No owner pump, supervisor command, public client API or production admission is added.

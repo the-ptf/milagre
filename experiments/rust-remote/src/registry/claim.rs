@@ -243,6 +243,9 @@ impl Registry {
         fence: Arc<crate::tracked_output::Fence>,
         now: u64,
     ) -> Result<()> {
+        if fence.target.generation != token.handle().generation() {
+            return Err(RegistryError::Revoked);
+        }
         let limits = self.limits;
         let a = self.work(token, now)?;
         a.egress_available()?;
@@ -254,5 +257,61 @@ impl Registry {
         }
         a.fixed_fence = Some(fence);
         Ok(())
+    }
+}
+
+impl Registry {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_fixed_claim(
+        &mut self,
+        permit: &Permit,
+        fence: &crate::tracked_output::Fence,
+        plain: &[u8],
+        lease: Reservation,
+        returned: crate::tracked_output::ReturnSender,
+        now: u64,
+        may_send: impl FnOnce() -> crate::Result<()>,
+    ) -> Result<()> {
+        if plain.len() > FIXTURE_FRAME - 25 {
+            return Err(Error::TooLarge.into());
+        }
+        let a = self.claimed(permit, now)?;
+        if !fence.active()
+            || !a
+                .fixed_fence
+                .as_ref()
+                .is_some_and(|f| f.active() && f.same(fence))
+            || a.fixed_packet.is_some()
+            || !a.outbound.is_empty()
+        {
+            return Err(Error::Budget.into());
+        }
+        let bytes = a.session.seal_after(plain, may_send)?;
+        if bytes.capacity() > FIXTURE_FRAME {
+            return Err(Error::TooLarge.into());
+        }
+        a.fixed_packet = Some(crate::tracked_output::Packet::new(bytes, lease, returned));
+        Ok(())
+    }
+    pub(crate) fn transfer_fixed_claim(
+        &mut self,
+        permit: &Permit,
+        fence: &crate::tracked_output::Fence,
+        memory: &crate::supervisor::MemoryCarrier,
+        now: u64,
+    ) -> Result<()> {
+        let a = self.claimed(permit, now)?;
+        if !fence.active()
+            || !a
+                .fixed_fence
+                .as_ref()
+                .is_some_and(|f| f.active() && f.same(fence))
+        {
+            return Err(Error::Budget.into());
+        }
+        let packet = a.fixed_packet.take().ok_or(Error::Unauthorized)?;
+        a.session
+            .with_access(|| memory.deliver_fixed(fence, packet))
+            .map_err(Into::into)
     }
 }

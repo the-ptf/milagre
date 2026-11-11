@@ -115,6 +115,9 @@ struct Mailbox {
     access: Option<policy::Access>,
     fixed_target: Option<crate::tracked_output::TargetId>,
     fixed_fence: Option<Arc<crate::tracked_output::Fence>>,
+    fixed_packet: Option<crate::tracked_output::Packet>,
+    #[cfg(test)]
+    fixed_unwind: u8,
     bound: bool,
     closed: bool,
     bytes: usize,
@@ -191,6 +194,7 @@ impl MemoryCarrier {
         m.closed = true;
         m.access = None;
         m.packets.clear();
+        drop(m.fixed_packet.take());
         m.bytes = 0;
     }
     pub(crate) fn deliver(
@@ -1223,6 +1227,86 @@ impl MemoryCarrier {
 
 pub(crate) fn fixed_mailbox_bookkeeping() -> usize {
     std::mem::size_of::<Mailbox>() + 2 * std::mem::size_of::<usize>()
+}
+
+impl MemoryCarrier {
+    pub(crate) fn deliver_fixed(
+        &self,
+        fence: &crate::tracked_output::Fence,
+        packet: crate::tracked_output::Packet,
+    ) -> crate::Result<()> {
+        let mut m = self.0.lock().map_err(|_| crate::Error::Unauthorized)?;
+        if m.closed
+            || m.fixed_target != Some(fence.target)
+            || !fence.active()
+            || !m
+                .fixed_fence
+                .as_ref()
+                .is_some_and(|f| f.active() && f.same(fence))
+            || m.fixed_packet.is_some()
+            || !m.packets.is_empty()
+        {
+            return Err(crate::Error::Unauthorized);
+        }
+        if packet.wire_len() > crate::tracked_output::FRAME_BYTES {
+            return Err(crate::Error::TooLarge);
+        }
+        m.attempts = m.attempts.saturating_add(1);
+        if m.unknown_next {
+            m.unknown_next = false;
+            return Err(crate::Error::Unauthorized);
+        }
+        m.fixed_packet = Some(packet);
+        Ok(())
+    }
+    // Caller holds the exact session access guard. Release the mailbox lock before
+    // verification; a panic still drops the locally owned packet and publishes credit.
+    pub(crate) fn consume_fixed(
+        &self,
+        fence: &crate::tracked_output::Fence,
+        peer: &mut crate::channel::Channel,
+        expected: &[u8],
+        clock: &Clock,
+        deadline: u64,
+    ) -> crate::Result<()> {
+        let mut m = self.0.lock().map_err(|_| crate::Error::Unauthorized)?;
+        if m.closed
+            || m.fixed_target != Some(fence.target)
+            || !fence.active()
+            || !m
+                .fixed_fence
+                .as_ref()
+                .is_some_and(|f| f.active() && f.same(fence))
+        {
+            return Err(crate::Error::Unauthorized);
+        }
+        let mut packet = m.fixed_packet.take().ok_or(crate::Error::Unauthorized)?;
+        #[cfg(test)]
+        let unwind = std::mem::take(&mut m.fixed_unwind);
+        drop(m);
+        #[cfg(test)]
+        if unwind == 1 {
+            panic!("synthetic unwind before verification");
+        }
+        packet.verify(peer, expected, clock, deadline)?;
+        #[cfg(test)]
+        if unwind == 2 {
+            panic!("synthetic unwind after verification");
+        }
+        drop(packet);
+        Ok(())
+    }
+    #[cfg(test)]
+    pub(crate) fn inject_fixed_unwind(&self, at: u8) {
+        self.0.lock().unwrap().fixed_unwind = at;
+    }
+    #[cfg(test)]
+    pub(crate) fn poison_fixed_mailbox(&self) {
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = self.0.lock().unwrap();
+            panic!("synthetic mailbox poison");
+        });
+    }
 }
 
 #[cfg(test)]

@@ -572,6 +572,7 @@ impl PersistentAuthority {
                 .as_mut()
                 .unwrap()
                 .close(handle, CloseReason::Protocol);
+            self.reconcile_bound();
             return Err(error.into());
         }
         let result = (|| {
@@ -592,7 +593,7 @@ impl PersistentAuthority {
         if self.core().retired {
             self.abort_in_place();
         }
-        self.fixed.cancel_closed();
+        self.reconcile_bound();
         result
     }
     pub fn remove_device(&mut self, key: &str, now: u64) -> super::Result<()> {
@@ -624,10 +625,13 @@ impl PersistentAuthority {
         now: u64,
     ) -> registry::Result<Vec<WorkToken>> {
         self.check_registry()?;
-        self.registry
+        let result = self
+            .registry
             .as_mut()
             .unwrap()
-            .receive_request(h, bytes, now)
+            .receive_request(h, bytes, now);
+        self.reconcile_bound();
+        result
     }
     pub fn take_output(
         &mut self,
@@ -636,7 +640,9 @@ impl PersistentAuthority {
         consume: impl FnOnce(&[u8]) -> crate::Result<()>,
     ) -> registry::Result<bool> {
         self.check_registry()?;
-        self.registry.as_mut().unwrap().take_output(h, now, consume)
+        let result = self.registry.as_mut().unwrap().take_output(h, now, consume);
+        self.reconcile_bound();
+        result
     }
     pub fn drain_work(
         &mut self,
@@ -645,10 +651,13 @@ impl PersistentAuthority {
         now: u64,
     ) -> registry::Result<WorkPage> {
         self.check_registry()?;
-        self.registry
+        let result = self
+            .registry
             .as_mut()
             .unwrap()
-            .drain_work(cursor, limit, now)
+            .drain_work(cursor, limit, now);
+        self.reconcile_bound();
+        result
     }
     pub fn finish_request(
         &mut self,
@@ -657,10 +666,13 @@ impl PersistentAuthority {
         now: u64,
     ) -> registry::Result<Vec<WorkToken>> {
         self.check_registry()?;
-        self.registry
+        let result = self
+            .registry
             .as_mut()
             .unwrap()
-            .finish_request(t, response, now)
+            .finish_request(t, response, now);
+        self.reconcile_bound();
+        result
     }
     pub fn dispatch_synthetic(
         &mut self,
@@ -669,10 +681,13 @@ impl PersistentAuthority {
         now: u64,
     ) -> registry::Result<(crate::http_dispatch::DispatchRecord, Vec<WorkToken>)> {
         self.check_registry()?;
-        self.registry
+        let result = self
+            .registry
             .as_mut()
             .unwrap()
-            .dispatch_synthetic(t, http, now)
+            .dispatch_synthetic(t, http, now);
+        self.reconcile_bound();
+        result
     }
     pub fn tick(&mut self, now: u64) -> std::result::Result<Vec<WorkToken>, PersistentError> {
         self.check_policy()?;

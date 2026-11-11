@@ -78,6 +78,7 @@ impl PersistentAuthority {
             registry.retire();
         }
         self.pending_carriers.clear();
+        self.fixed.cancel_closed();
     }
     pub(crate) fn abort_without_commit(mut self) -> StoppedAuthority {
         if self.pid != std::process::id() {
@@ -125,6 +126,9 @@ impl PersistentAuthority {
             return;
         }
         self.fixed.cancel_closed();
+        if self.fixed.failed() {
+            self.abort_in_place();
+        }
         let stale: Vec<_> = self
             .pending_carriers
             .iter()
@@ -284,10 +288,13 @@ impl PersistentAuthority {
         consume: impl FnOnce(Vec<u8>, Reservation) -> crate::Result<()>,
     ) -> registry::Result<bool> {
         self.check_registry()?;
-        self.registry
+        let result = self
+            .registry
             .as_mut()
             .unwrap()
-            .take_output_owned(h, now, consume)
+            .take_output_owned(h, now, consume);
+        self.reconcile_bound();
+        result
     }
     pub(crate) fn send_for_carrier(
         &mut self,
@@ -296,7 +303,9 @@ impl PersistentAuthority {
         now: u64,
     ) -> registry::Result<()> {
         self.check_registry()?;
-        self.registry.as_mut().unwrap().send_encoded(h, bytes, now)
+        let result = self.registry.as_mut().unwrap().send_encoded(h, bytes, now);
+        self.reconcile_bound();
+        result
     }
     pub(crate) fn close_carrier(&mut self, h: &Handle, reason: CloseReason) -> bool {
         if self.check_registry().is_err() {

@@ -32,6 +32,15 @@ pub(super) struct Tracked {
     scratch: Option<Reservation>,
     packet: Option<Reservation>,
     _receipt: Reservation,
+    sender: Option<crate::tracked_output::ReturnSender>,
+    receiver: crate::tracked_output::ReturnReceiver,
+    returned: Option<crate::tracked_output::ReturnedCredit>,
+    may_send: bool,
+    packet_issued: bool,
+    #[cfg(test)]
+    fail_seal: bool,
+    #[cfg(test)]
+    delay_receipt: bool,
 }
 fn encode(id: i64, status: u16) -> std::result::Result<Vec<u8>, Fault> {
     let outcome = match status {
@@ -58,8 +67,21 @@ impl PersistentAuthority {
         memory: MemoryCarrier,
         limits: MailboxLimits,
     ) -> std::result::Result<TargetId, Fault> {
+        let result = self.register_fixed_target(handle, memory, limits);
+        self.reconcile_bound();
+        result
+    }
+    fn register_fixed_target(
+        &mut self,
+        handle: &Handle,
+        memory: MemoryCarrier,
+        limits: MailboxLimits,
+    ) -> std::result::Result<TargetId, Fault> {
         self.check_registry().map_err(|_| Fault::Stale)?;
         self.fixed.cancel_closed();
+        if self.fixed.failed {
+            return Err(Fault::Worker);
+        }
         if limits.carrier_frames == 0
             || limits.carrier_bytes < 1024
             || limits.carrier_frames > 256
@@ -100,6 +122,7 @@ impl PersistentAuthority {
         }
         let id = TargetId {
             authority: self.core.as_ref().unwrap().instance,
+            generation: handle.generation(),
             serial,
         };
         memory.bind_fixed(access, id).map_err(|_| Fault::Stale)?;
@@ -168,6 +191,7 @@ impl PersistentAuthority {
             .map_err(|_| Fault::Full)?;
         let scratch = prepaid.split(SCRATCH_BYTES).map_err(|_| Fault::Full)?;
         let packet = prepaid.split(PACKET_BYTES).map_err(|_| Fault::Full)?;
+        let (sender, receiver) = crate::tracked_output::receipt_cell();
         Ok(Tracked {
             grant: Some(grant),
             memory: target.memory.clone(),
@@ -176,6 +200,323 @@ impl PersistentAuthority {
             scratch: Some(scratch),
             packet: Some(packet),
             _receipt: prepaid,
+            sender: Some(sender),
+            receiver,
+            returned: None,
+            may_send: false,
+            packet_issued: false,
+            #[cfg(test)]
+            fail_seal: false,
+            #[cfg(test)]
+            delay_receipt: false,
         })
+    }
+}
+
+impl Tracked {
+    fn plain_index(status: u16) -> usize {
+        match status {
+            200 => 0,
+            502 => 1,
+            _ => 2,
+        }
+    }
+    fn collect_return(&mut self, force: bool) {
+        #[cfg(test)]
+        if self.delay_receipt && !force {
+            return;
+        }
+        #[cfg(not(test))]
+        let _ = force;
+        if self.returned.is_none() {
+            self.returned = self.receiver.try_recv().ok();
+        }
+    }
+    fn release_output(&mut self) {
+        self.encoded = Default::default();
+        drop(self.scratch.take());
+        drop(self.packet.take());
+        drop(self.sender.take());
+        drop(self.grant.take());
+    }
+    pub(super) fn cancel_output(&mut self) -> bool {
+        if self.may_send {
+            self.memory.close();
+        }
+        self.collect_return(true);
+        let healthy =
+            self.memory.fixed_cleanup_healthy() && (!self.packet_issued || self.returned.is_some());
+        self.release_output();
+        healthy
+    }
+}
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Accepted {
+    pub(crate) request_id: i64,
+    pub(crate) status: u16,
+}
+impl PersistentAuthority {
+    pub(super) fn reconcile_fixed_output(&mut self, now: u64) {
+        let Some(registry) = self.registry.as_mut() else {
+            return;
+        };
+        for entry in self.fixed.entries.iter_mut().flatten() {
+            let Some(t) = &mut entry.tracked else {
+                continue;
+            };
+            if t.grant.is_none() {
+                continue;
+            }
+            let at = now.max(t.clock.now());
+            let terminal = matches!(
+                entry.observation.state,
+                State::Cancelled | State::TimedOut | State::Failed
+            );
+            if terminal {
+                if t.may_send {
+                    registry.discard_claim_output(
+                        &entry.permit,
+                        if entry.observation.state == State::TimedOut {
+                            registry::WorkStatus::TimedOut
+                        } else {
+                            registry::WorkStatus::Cancelled
+                        },
+                    );
+                }
+                if !t.cancel_output() {
+                    self.fixed.failed = true;
+                }
+                continue;
+            }
+            t.collect_return(false);
+            let Some(receipt) = &t.returned else {
+                continue;
+            };
+            if receipt.accepted()
+                && entry.joined.is_some()
+                && entry.observation.state == State::Ready
+                && at < entry.completion_deadline
+                && registry.claim_barrier(&entry.permit, at, || Ok(())).is_ok()
+            {
+                entry.observation.state = State::Completed;
+                entry.observation.delivery = Delivery::Returned;
+                registry.end_claim(&entry.permit, registry::WorkStatus::Completed, at);
+                t.release_output();
+            } else {
+                entry.observation.state = if at >= entry.completion_deadline {
+                    State::TimedOut
+                } else {
+                    State::Cancelled
+                };
+                registry.discard_claim_output(
+                    &entry.permit,
+                    if entry.observation.state == State::TimedOut {
+                        registry::WorkStatus::TimedOut
+                    } else {
+                        registry::WorkStatus::Cancelled
+                    },
+                );
+                if !t.cancel_output() {
+                    self.fixed.failed = true;
+                }
+            }
+        }
+        self.fixed.cancel_closed();
+    }
+    pub(crate) fn emit_fixed(&mut self, id: Id) -> std::result::Result<(), Fault> {
+        let now = self
+            .fixed
+            .entry(id)
+            .and_then(|e| e.tracked.as_ref())
+            .ok_or(Fault::Stale)?
+            .clock
+            .now();
+        self.poll_fixed(now)?;
+        let entry = self.fixed.entry_mut(id).ok_or(Fault::Stale)?;
+        if entry.joined.is_none() || entry.observation.state != State::Ready {
+            return Err(Fault::State);
+        }
+        let t = entry.tracked.as_mut().ok_or(Fault::State)?;
+        if t.may_send || t.grant.is_none() {
+            return Err(Fault::State);
+        }
+        let registry = self.registry.as_mut().unwrap();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let grant = &t.grant.as_ref().unwrap().0;
+            let plain = &t.encoded[Tracked::plain_index(entry.observation.status.unwrap())];
+            registry.emit_fixed_claim(
+                &entry.permit,
+                grant,
+                plain,
+                t.packet.take().unwrap(),
+                t.sender.take().unwrap(),
+                now,
+                || {
+                    t.may_send = true;
+                    entry.observation.delivery = Delivery::MaySend;
+                    #[cfg(test)]
+                    if t.fail_seal {
+                        return Err(crate::Error::Authentication);
+                    }
+                    Ok(())
+                },
+            )?;
+            t.packet_issued = true;
+            registry.transfer_fixed_claim(&entry.permit, grant, &t.memory, t.clock.now())
+        }));
+        if !matches!(result, Ok(Ok(()))) {
+            entry.cancel(State::Cancelled);
+            self.reconcile_fixed_output(now);
+            if self.fixed.failed {
+                self.abort_in_place();
+                return Err(Fault::Worker);
+            }
+            return Err(Fault::State);
+        }
+        Ok(())
+    }
+    pub(crate) fn consume_fixed(
+        &mut self,
+        id: Id,
+        peer: &mut crate::channel::Channel,
+    ) -> std::result::Result<Accepted, Fault> {
+        let now = self
+            .fixed
+            .entry(id)
+            .and_then(|e| e.tracked.as_ref())
+            .ok_or(Fault::Stale)?
+            .clock
+            .now();
+        self.poll_fixed(now)?;
+        let entry = self.fixed.entry_mut(id).ok_or(Fault::Stale)?;
+        if entry.joined.is_none() || entry.observation.state != State::Ready {
+            return Err(Fault::State);
+        }
+        let t = entry.tracked.as_mut().ok_or(Fault::State)?;
+        if !t.packet_issued || t.returned.is_some() || t.grant.is_none() {
+            return Err(Fault::State);
+        }
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.registry
+                .as_mut()
+                .unwrap()
+                .claim_barrier(&entry.permit, now, || {
+                    t.memory.consume_fixed(
+                        &t.grant.as_ref().unwrap().0,
+                        peer,
+                        &t.encoded[Tracked::plain_index(entry.observation.status.unwrap())],
+                        &t.clock,
+                        entry.completion_deadline,
+                    )
+                })
+        }));
+        if !matches!(result, Ok(Ok(()))) {
+            entry.cancel(State::Cancelled);
+        }
+        self.reconcile_fixed_output(now);
+        if self.fixed.failed {
+            self.abort_in_place();
+            return Err(Fault::Worker);
+        }
+        let entry = self.fixed.entry(id).unwrap();
+        if entry.observation.state != State::Completed {
+            return Err(Fault::State);
+        }
+        Ok(Accepted {
+            request_id: entry.permit.id(),
+            status: entry.observation.status.unwrap(),
+        })
+    }
+}
+
+#[cfg(test)]
+impl PersistentAuthority {
+    pub(in crate::policy::persistent) fn fixed_target_slots(&self) -> usize {
+        self.fixed.targets.iter().flatten().count()
+    }
+    pub(in crate::policy::persistent) fn fixed_scoped_emit(
+        &mut self,
+        id: Id,
+        prepaid: Reservation,
+    ) -> registry::Result<()> {
+        let e = self.fixed.entry(id).unwrap();
+        self.registry
+            .as_mut()
+            .unwrap()
+            .emit_claim(&e.permit, b"null", prepaid, 2, || {
+                panic!("competing scoped emission crossed fence")
+            })
+    }
+    pub(in crate::policy::persistent) fn fixed_tracked_hooks(
+        &mut self,
+        token: WorkToken,
+        target: TargetId,
+        outcome: Outcome,
+        clock: &Clock,
+        hooks: Hooks,
+    ) -> std::result::Result<Id, Fault> {
+        self.start_fixed_prepared(token, outcome, clock, hooks, Some(target))
+    }
+    pub(in crate::policy::persistent) fn fixed_fail_seal(&mut self, id: Id) {
+        self.fixed
+            .entry_mut(id)
+            .unwrap()
+            .tracked
+            .as_mut()
+            .unwrap()
+            .fail_seal = true;
+    }
+    pub(in crate::policy::persistent) fn fixed_delay_receipt(&mut self, id: Id, delay: bool) {
+        self.fixed
+            .entry_mut(id)
+            .unwrap()
+            .tracked
+            .as_mut()
+            .unwrap()
+            .delay_receipt = delay;
+    }
+    pub(in crate::policy::persistent) fn fixed_returned(&self, id: Id) -> bool {
+        self.fixed
+            .entry(id)
+            .unwrap()
+            .tracked
+            .as_ref()
+            .unwrap()
+            .returned
+            .is_some()
+    }
+    pub(in crate::policy::persistent) fn fixed_granted(&self, id: Id) -> bool {
+        self.fixed
+            .entry(id)
+            .unwrap()
+            .tracked
+            .as_ref()
+            .unwrap()
+            .grant
+            .is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn fixed_inline_and_arc_bookkeeping_fit_the_pinned_allowances() {
+        assert_eq!(TRACKED_BYTES, 2_172_416);
+        assert_eq!(TRACKED_BYTES + REGISTRATION_BYTES, 2_176_512);
+        assert!(
+            std::mem::size_of::<Entry>() + std::mem::size_of::<Signal>() + 128 <= METADATA_BYTES
+        );
+        assert!(std::mem::size_of::<crate::tracked_output::Packet>() <= 512);
+        assert!(
+            std::mem::size_of::<Tracked>()
+                + std::mem::size_of::<crate::tracked_output::Fence>()
+                + 512
+                <= RECEIPT_BYTES
+        );
+        assert!(
+            std::mem::size_of::<Target>() + crate::supervisor::fixed_mailbox_bookkeeping() + 256
+                <= REGISTRATION_BYTES
+        );
     }
 }

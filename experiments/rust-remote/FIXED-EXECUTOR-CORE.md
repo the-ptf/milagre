@@ -1,5 +1,7 @@
 # Private authority-owned fixed executor core
 
+This document records checkpoint 1. The separate [tracked fixed-output checkpoint](TRACKED-FIXED-OUTPUT.md) now extends the retained table with private prepaid delivery. `start_fixed` remains output-free and its independent suite remains intact.
+
 This implements checkpoint 1 of the concluded [fixed-Claim supervisor contract](FIXED-CLAIM-SUPERVISOR-PROPOSAL.md). `PersistentAuthority` owns an inline two-slot executor table. It has no owner queue, automatic dispatcher, asynchronous mailbox output, HTTP adapter, arbitrary executor closure or new public client API. Existing scoped Claim and MemoryHttp behavior remain separate.
 
 ## Ownership and internal operations

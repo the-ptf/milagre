@@ -1,6 +1,6 @@
 # Checkpoint 2, reservation and fence boundary
 
-This first implementation commit establishes admission ownership only. It does not emit or consume tracked packets, verify a synthetic peer, publish packet-drop receipts or mark tracked work Completed. Those operations and failure/physical-closure composition remain the next implementation stage of [the agreed contract](TRACKED-OUTPUT-CONTRACT.md). No supervisor command, owner queue, scheduler, HTTP adapter or public client API is added.
+This first implementation commit establishes admission ownership only. It does not emit or consume tracked packets, verify a synthetic peer, publish packet-drop receipts or mark tracked work Completed. Those operations and failure/physical-closure composition are implemented in the separate [second-stage checkpoint](TRACKED-FIXED-OUTPUT.md). This document records the first commit boundary of [the agreed contract](TRACKED-OUTPUT-CONTRACT.md). No supervisor command, owner queue, scheduler, HTTP adapter or public client API is added.
 
 `register_fixed_carrier` installs at most 16 authority-owned exact-generation targets. Registration validates a fresh unbound mailbox, atomically binds its access guard and target identity, and retains a separate 4,096-byte original-session reservation until exact carrier closure or authority drainage. Static mailbox capacity below one frame or 1,024 wire bytes refuses before binding.
 

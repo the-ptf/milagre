@@ -40,6 +40,7 @@ pub(crate) enum State {
     Claimed,
     Running,
     Ready,
+    Completed,
     Cancelled,
     TimedOut,
     Failed,
@@ -50,8 +51,15 @@ pub(crate) enum Execution {
     MayHaveRun,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Delivery {
+    None,
+    MaySend,
+    Returned,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Observation {
     pub state: State,
+    pub delivery: Delivery,
     pub execution: Execution,
     pub status: Option<u16>,
     pub joined: bool,
@@ -134,6 +142,9 @@ struct Entry {
 }
 impl Entry {
     fn cancel(&mut self, state: State) {
+        if self.observation.state == State::Completed {
+            return;
+        }
         self.worker.signal.cancel();
         if !matches!(
             self.observation.state,
@@ -165,6 +176,9 @@ pub(super) struct Core {
     before_begin: Option<BeforeBegin>,
 }
 impl Core {
+    pub(super) fn failed(&self) -> bool {
+        self.failed
+    }
     pub(super) fn cancel_device(&mut self, key: &str) {
         for e in self
             .entries
@@ -199,6 +213,9 @@ impl Core {
                 registry::CarrierStatus::Closed(_)
             ) {
                 e.cancel(State::Cancelled);
+                if e.tracked.as_mut().is_some_and(|t| !t.cancel_output()) {
+                    self.failed = true;
+                }
             }
         }
     }
@@ -221,6 +238,9 @@ impl Core {
         // Keep ownership in the authority's table through every join.
         for slot in &mut self.entries {
             if let Some(e) = slot {
+                if e.tracked.as_mut().is_some_and(|t| !t.cancel_output()) {
+                    self.failed = true;
+                }
                 if !e.join() {
                     self.failed = true;
                 }
@@ -318,6 +338,18 @@ impl PersistentAuthority {
         hooks: Hooks,
         target: Option<TargetId>,
     ) -> std::result::Result<Id, Fault> {
+        let result = self.start_fixed_admitted(token, outcome, clock, hooks, target);
+        self.reconcile_bound();
+        result
+    }
+    fn start_fixed_admitted(
+        &mut self,
+        token: WorkToken,
+        outcome: Outcome,
+        clock: &Clock,
+        hooks: Hooks,
+        target: Option<TargetId>,
+    ) -> std::result::Result<Id, Fault> {
         self.check_registry().map_err(|_| Fault::Stale)?;
         let now = clock.now();
         self.poll_fixed(now)?;
@@ -334,6 +366,14 @@ impl PersistentAuthority {
             .unwrap()
             .inspect_claim(&token, now)
             .map_err(admission)?;
+        let total = if target.is_some() {
+            TRACKED_BYTES
+        } else {
+            EXECUTION_BYTES + METADATA_BYTES
+        };
+        let mut prepaid = budget.reserve(total).map_err(|_| Fault::Full)?;
+        let metadata = prepaid.split(METADATA_BYTES).map_err(|_| Fault::Full)?;
+        let execution = prepaid.split(EXECUTION_BYTES).map_err(|_| Fault::Full)?;
         let device = self
             .registry
             .as_mut()
@@ -350,14 +390,6 @@ impl PersistentAuthority {
             return Err(Fault::Full);
         }
         now.checked_add(345_000).ok_or(Fault::Expired)?;
-        let total = if target.is_some() {
-            TRACKED_BYTES
-        } else {
-            EXECUTION_BYTES + METADATA_BYTES
-        };
-        let mut prepaid = budget.reserve(total).map_err(|_| Fault::Full)?;
-        let metadata = prepaid.split(METADATA_BYTES).map_err(|_| Fault::Full)?;
-        let execution = prepaid.split(EXECUTION_BYTES).map_err(|_| Fault::Full)?;
         let tracked = match target {
             Some(target) => {
                 Some(self.prepare_fixed_output(&token, target, serial, clock, prepaid)?)
@@ -442,6 +474,7 @@ impl PersistentAuthority {
             tracked,
             observation: Observation {
                 state: State::Claimed,
+                delivery: Delivery::None,
                 execution: Execution::NotStarted,
                 status: None,
                 joined: false,
@@ -574,6 +607,11 @@ impl PersistentAuthority {
             .entry_mut(id)
             .ok_or(Fault::Stale)?
             .cancel(State::Cancelled);
+        self.reconcile_fixed_output(self.fixed.last_time);
+        if self.fixed.failed {
+            self.abort_in_place();
+            return Err(Fault::Worker);
+        }
         Ok(())
     }
     /// No completed flag is accepted as join evidence; unfinished handles remain owned.
@@ -592,6 +630,9 @@ impl PersistentAuthority {
         }
         let registry = self.registry.as_mut().unwrap();
         for entry in self.fixed.entries.iter_mut().flatten() {
+            if entry.observation.state == State::Completed {
+                continue;
+            }
             if entry.worker.signal.gate.is_poisoned()
                 || entry.worker.signal.poisoned.load(Ordering::SeqCst)
             {
@@ -649,13 +690,14 @@ impl PersistentAuthority {
                 );
             }
         }
+        self.reconcile_fixed_output(now);
         if self.fixed.failed {
             self.abort_in_place();
             return Err(Fault::Worker);
         }
         Ok(())
     }
-    /// Explicitly discard this core-only result; it cannot be transmitted or replayed.
+    /// Explicit disposal retains unfinished workers; unread tracked output closes its carrier.
     pub(crate) fn discard_fixed(&mut self, id: Id, now: u64) -> std::result::Result<(), Fault> {
         self.cancel_fixed(id)?;
         self.poll_fixed(now)?;
