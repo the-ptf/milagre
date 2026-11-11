@@ -1,0 +1,95 @@
+//! Shared retained-memory reservations. Build ONE GlobalBudget per service and one
+//! ConnectionBudget per connection; clone those handles into every reader/writer.
+use crate::{Error, Result};
+use std::sync::{Arc, Mutex, OnceLock};
+struct Counter {
+    limit: usize,
+    used: Mutex<usize>,
+}
+impl Counter {
+    fn reserve(&self, n: usize) -> Result<()> {
+        let mut used = self.used.lock().map_err(|_| Error::Budget)?;
+        if n > self.limit - *used {
+            return Err(Error::Budget);
+        }
+        *used += n;
+        Ok(())
+    }
+    fn release(&self, n: usize) {
+        let mut used = self.used.lock().unwrap_or_else(|e| e.into_inner());
+        *used -= n;
+    }
+    fn used(&self) -> usize {
+        *self.used.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+#[derive(Clone)]
+pub struct GlobalBudget(Arc<Counter>);
+#[derive(Clone)]
+pub struct ConnectionBudget {
+    global: GlobalBudget,
+    local: Arc<Counter>,
+}
+/// A reservation lives as long as its buffer, including after a reader returns it.
+/// No Clone: cloning a handle must not duplicate uncharged payload storage.
+pub struct Reservation {
+    budget: ConnectionBudget,
+    bytes: usize,
+}
+impl GlobalBudget {
+    pub fn new(limit: usize) -> Result<Self> {
+        if limit == 0 {
+            return Err(Error::Budget);
+        }
+        Ok(Self(Arc::new(Counter {
+            limit,
+            used: Mutex::new(0),
+        })))
+    }
+    pub fn connection(&self, limit: usize) -> Result<ConnectionBudget> {
+        if limit == 0 || limit > self.0.limit {
+            return Err(Error::Budget);
+        }
+        Ok(ConnectionBudget {
+            global: self.clone(),
+            local: Arc::new(Counter {
+                limit,
+                used: Mutex::new(0),
+            }),
+        })
+    }
+    pub fn used(&self) -> usize {
+        self.0.used()
+    }
+}
+impl ConnectionBudget {
+    /// Reserve before allocating. The caller can also reserve its socket/decrypt/phone
+    /// buffers here; those allocations are not automatically intercepted by this API.
+    pub fn reserve(&self, bytes: usize) -> Result<Reservation> {
+        self.local.reserve(bytes)?;
+        if let Err(e) = self.global.0.reserve(bytes) {
+            self.local.release(bytes);
+            return Err(e);
+        }
+        Ok(Reservation {
+            budget: self.clone(),
+            bytes,
+        })
+    }
+    pub fn used(&self) -> usize {
+        self.local.used()
+    }
+    pub(crate) fn standalone() -> Self {
+        static GLOBAL: OnceLock<GlobalBudget> = OnceLock::new();
+        GLOBAL
+            .get_or_init(|| GlobalBudget::new(256 * 1024 * 1024).unwrap())
+            .connection(64 * 1024 * 1024)
+            .unwrap()
+    }
+}
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        self.budget.global.0.release(self.bytes);
+        self.budget.local.release(self.bytes);
+    }
+}

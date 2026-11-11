@@ -87,7 +87,7 @@ fn node_fragmentation_exact_boundaries_and_reassembly() {
         assert!(parts.iter().map(Vec::len).sum::<usize>() < PEER_BUDGET);
         let mut reader = FrameReader::new(direction);
         for (i, part) in parts.iter().enumerate() {
-            let value = reader.read(part).unwrap();
+            let value = reader.read_value(part).unwrap();
             if i + 1 == parts.len() {
                 assert_eq!(value, Some(serde_json::from_str(&json).unwrap()));
             } else {
@@ -168,7 +168,7 @@ fn handshake_auth_policy_binding_and_truncation() {
     assert!(
         !call(&bytes, f["token"].as_str().unwrap(), true, false)
             .unwrap()
-            .device
+            .device()
             .first_pairing
     );
     for pos in [0, 1, 32, 33, 64, 65, 88, 89, bytes.len() - 1] {
@@ -225,7 +225,7 @@ fn fragments_reject_order_interruption_schema_and_release_memory() {
     let text = format!("\"{}\"", "x".repeat(PART_THRESHOLD));
     let parts = writer.write(&text).unwrap();
     let mut reader = FrameReader::new(Direction::Rpc);
-    assert_eq!(reader.read(&parts[1]), Err(Error::BadPart));
+    assert_eq!(reader.read_value(&parts[1]), Err(Error::BadPart));
     let bads: Vec<Vec<u8>> = vec![
         parts[0].clone(),
         br#"{"t":"rpc","frame":{}}"#.to_vec(),
@@ -235,9 +235,9 @@ fn fragments_reject_order_interruption_schema_and_release_memory() {
         br#"{"t":"part","id":1,"i":1,"n":2,"data":"!bad"}"#.to_vec(),
     ];
     for bad in bads {
-        reader.read(&parts[0]).unwrap();
+        reader.read_value(&parts[0]).unwrap();
         assert!(reader.buffered_bytes() > 0);
-        assert_eq!(reader.read(&bad), Err(Error::BadPart));
+        assert_eq!(reader.read_value(&bad), Err(Error::BadPart));
         assert!(!reader.pending());
         assert_eq!(reader.buffered_bytes(), 0);
     }
@@ -252,10 +252,10 @@ fn fragments_reject_order_interruption_schema_and_release_memory() {
         r#"{"t":"part","id":1,"i":0,"n":1,"data":""}"#,
         r#"{"t":"part","id":1,"i":0,"n":2,"data":"Zh=="}"#,
     ] {
-        assert!(reader.read(bad.as_bytes()).is_err(), "{bad}");
+        assert!(reader.read_value(bad.as_bytes()).is_err(), "{bad}");
     }
     assert_eq!(
-        reader.read(br#"{"t":"part","id":1,"i":0,"n":33,"data":""}"#),
+        reader.read_value(br#"{"t":"part","id":1,"i":0,"n":33,"data":""}"#),
         Err(Error::TooLarge)
     );
     assert_eq!(
@@ -263,8 +263,8 @@ fn fragments_reject_order_interruption_schema_and_release_memory() {
         Err(Error::TooLarge)
     );
     assert_eq!(writer.write("not-json"), Err(Error::Schema));
-    assert!(reader.read(&parts[0]).unwrap().is_none());
-    assert!(reader.read(&parts[1]).unwrap().is_some());
+    assert!(reader.read_value(&parts[0]).unwrap().is_none());
+    assert!(reader.read_value(&parts[1]).unwrap().is_some());
     let next = writer.write(&text).unwrap();
     assert_eq!(serde_json::from_slice::<Value>(&next[0]).unwrap()["id"], 2);
 }
@@ -274,20 +274,20 @@ fn multibyte_splits_mid_codepoint_and_custom_resource_limits() {
     let parts = FrameWriter::new(Direction::Evt).write(&text).unwrap();
     let mut r = FrameReader::new(Direction::Evt);
     for p in &parts[..parts.len() - 1] {
-        assert!(r.read(p).unwrap().is_none());
+        assert!(r.read_value(p).unwrap().is_none());
     }
     assert_eq!(
-        r.read(parts.last().unwrap()).unwrap(),
+        r.read_value(parts.last().unwrap()).unwrap(),
         Some(serde_json::from_str(&text).unwrap())
     );
     let mut small = FrameReader::with_limit(Direction::Evt, PIECE_BYTES + 1).unwrap();
-    assert!(small.read(&parts[0]).unwrap().is_none());
-    assert_eq!(small.read(&parts[1]), Err(Error::TooLarge));
+    assert!(small.read_value(&parts[0]).unwrap().is_none());
+    assert_eq!(small.read_value(&parts[1]), Err(Error::TooLarge));
     assert_eq!(small.buffered_bytes(), 0);
     assert!(FrameReader::with_limit(Direction::Evt, MAX_FRAME_BYTES + 1).is_err());
     let mut tiny = FrameReader::with_limit(Direction::Rpc, 1).unwrap();
     assert_eq!(
-        tiny.read(br#"{"t":"rpc","frame":{}}"#),
+        tiny.read_value(br#"{"t":"rpc","frame":{}}"#),
         Err(Error::TooLarge)
     );
 }
@@ -422,15 +422,17 @@ fn fresh_accept_of_replayed_hello_cannot_replay_old_channel_data() {
     let first = accept(c, &message);
     let mut client = pending.finish(&first.reply).unwrap();
     let data = client.seal_encoded(b"null").unwrap();
-    let mut second = host_accept(
-        &keys().0,
-        &message,
-        f["token"].as_str().unwrap(),
-        |_| true,
-        |_| false,
-        &mut Sequence(129),
-    )
-    .unwrap();
+    let mut second = authorize(
+        host_accept(
+            &keys().0,
+            &message,
+            f["token"].as_str().unwrap(),
+            |_| true,
+            |_| false,
+            &mut Sequence(129),
+        )
+        .unwrap(),
+    );
     assert_ne!(first.reply, second.reply);
     assert_eq!(second.channel.open(&data), Err(Error::Authentication));
 }
@@ -441,31 +443,34 @@ fn every_fragment_error_releases_partial_and_invalid_json_is_rejected() {
     let part = |i, data: &str| {
         serde_json::to_vec(&json!({"t":"part","id":1,"i":i,"n":2,"data":data})).unwrap()
     };
-    assert_eq!(reader.read(&part(0, &STANDARD.encode(b"not"))), Ok(None));
     assert_eq!(
-        reader.read(&part(1, &STANDARD.encode(b"json"))),
+        reader.read_value(&part(0, &STANDARD.encode(b"not"))),
+        Ok(None)
+    );
+    assert_eq!(
+        reader.read_value(&part(1, &STANDARD.encode(b"json"))),
         Err(Error::Schema)
     );
     assert_eq!(reader.buffered_bytes(), 0);
     assert_eq!(
-        reader.read(&part(0, &STANDARD.encode(vec![0; PIECE_BYTES + 1]))),
+        reader.read_value(&part(0, &STANDARD.encode(vec![0; PIECE_BYTES + 1]))),
         Err(Error::BadPart)
     );
     let large = format!("\"{}\"", "x".repeat(PART_THRESHOLD));
     let parts = FrameWriter::new(Direction::Rpc).write(&large).unwrap();
-    reader.read(&parts[0]).unwrap();
+    reader.read_value(&parts[0]).unwrap();
     assert_eq!(
-        reader.read(&vec![b'x'; MAX_PLAIN_BYTES + 1]),
+        reader.read_value(&vec![b'x'; MAX_PLAIN_BYTES + 1]),
         Err(Error::TooLarge)
     );
     assert!(!reader.pending());
-    reader.read(&parts[0]).unwrap();
+    reader.read_value(&parts[0]).unwrap();
     reader.reset();
     assert_eq!(reader.buffered_bytes(), 0);
     let nested = format!("{}0{}", "[".repeat(200), "]".repeat(200));
     assert_eq!(
         FrameWriter::new(Direction::Rpc).write(&nested),
-        Err(Error::Schema)
+        Err(Error::TooLarge)
     );
 }
 
@@ -490,5 +495,17 @@ fn node_authenticated_invalid_hello_fixtures_preserve_error_codes_and_precedence
             ),
             Ok(_) => panic!("accepted invalid hello: {}", c["label"]),
         }
+    }
+}
+
+// Test-only Value decoding for legacy assertions. Production readers return leased raw bytes.
+trait ReadValues {
+    fn read_value(&mut self, bytes: &[u8]) -> milagre_remote::Result<Option<Value>>;
+}
+impl ReadValues for FrameReader {
+    fn read_value(&mut self, bytes: &[u8]) -> milagre_remote::Result<Option<Value>> {
+        self.read(bytes, 0)?
+            .map(|frame| serde_json::from_slice(frame.as_bytes()).map_err(|_| Error::Schema))
+            .transpose()
     }
 }

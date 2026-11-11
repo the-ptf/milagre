@@ -159,6 +159,7 @@ impl PendingHello {
         }
         let peer = public(&reply[1..33]);
         let plain = open_box(&self.long_term, &reply[33..57], &reply[57..])?;
+        require_object(&plain)?;
         let inner: AcceptInner = serde_json::from_slice(&plain).map_err(|_| Error::BadHello)?;
         if inner.eph != b64(peer.as_bytes())
             || inner.peer != b64(self.ephemeral.public_key().as_bytes())
@@ -168,13 +169,129 @@ impl PendingHello {
         Ok(Channel::new(SalsaBox::new(&peer, &self.ephemeral), 1))
     }
 }
-/// Crypto and token validation only. The caller must enforce stored device kind,
-/// desktop owner approval, identity retirement, and persistence BEFORE releasing reply/channel.
+/// Cryptographic acceptance only. No reply or channel is exposed before authorize.
+/// Dropping this value denies the connection and releases its keys.
 pub struct Accepted {
+    reply: Vec<u8>,
+    device: Device,
+    channel: Channel,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentityStatus {
+    Current,
+    Retired,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoredDevice {
+    New,
+    Known(DeviceKind),
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnerApproval {
+    Granted,
+    Denied,
+    NotRequired,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Persistence {
+    Committed,
+    Failed,
+    NotRequired,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesktopAccess {
+    Enabled,
+    Disabled,
+}
+/// Explicit service observations, with no permissive default. The service must check
+/// its CURRENT record/generation and complete persistence before constructing Allow.
+/// These are attestations by trusted service code, not proof of an external side effect.
+pub enum ServiceDecision {
+    Deny,
+    Allow {
+        device_key: String,
+        identity: IdentityStatus,
+        stored: StoredDevice,
+        owner: OwnerApproval,
+        persistence: Persistence,
+        desktop: DesktopAccess,
+    },
+}
+/// Only consuming Accepted::authorize constructs this type.
+pub struct Authorized {
     pub reply: Vec<u8>,
     pub device: Device,
     pub channel: Channel,
 }
+impl Accepted {
+    pub fn device(&self) -> &Device {
+        &self.device
+    }
+    /// Consumes the pending acceptance on success AND refusal. A failed policy decision
+    /// cannot be retried against the same acceptance with weaker assertions.
+    ///
+    /// ```compile_fail
+    /// fn bypass(a: milagre_remote::channel::Accepted) { let _ = a.reply; }
+    /// ```
+    /// ```compile_fail
+    /// fn bypass(a: milagre_remote::channel::Accepted) { let _ = a.channel; }
+    /// ```
+    /// ```compile_fail
+    /// use milagre_remote::channel::{Accepted, ServiceDecision};
+    /// fn twice(a: Accepted) { a.authorize(ServiceDecision::Deny); a.authorize(ServiceDecision::Deny); }
+    /// ```
+    pub fn authorize(self, decision: ServiceDecision) -> Result<Authorized> {
+        let ServiceDecision::Allow {
+            device_key,
+            identity,
+            stored,
+            owner,
+            persistence,
+            desktop,
+        } = decision
+        else {
+            return Err(Error::Unauthorized);
+        };
+        if device_key != self.device.key
+            || identity != IdentityStatus::Current
+            || owner == OwnerApproval::Denied
+            || persistence == Persistence::Failed
+        {
+            return Err(Error::Unauthorized);
+        }
+        if self.device.kind == DeviceKind::Desktop && desktop != DesktopAccess::Enabled {
+            return Err(Error::Unauthorized);
+        }
+        match (self.device.first_pairing, stored) {
+            (true, StoredDevice::New) => {
+                if persistence != Persistence::Committed
+                    || (self.device.kind == DeviceKind::Desktop && owner != OwnerApproval::Granted)
+                {
+                    return Err(Error::Unauthorized);
+                }
+            }
+            (false, StoredDevice::Known(kind)) if kind == self.device.kind => {}
+            _ => return Err(Error::Unauthorized),
+        }
+        Ok(Authorized {
+            reply: self.reply,
+            device: self.device,
+            channel: self.channel,
+        })
+    }
+}
+fn require_object(plain: &[u8]) -> Result<()> {
+    if plain
+        .iter()
+        .find(|b| !matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+        != Some(&b'{')
+    {
+        return Err(Error::BadHello);
+    }
+    Ok(())
+}
+/// is_known runs first; can_pair runs once EVEN FOR KNOWN DEVICES, as Node does.
+/// Both callbacks must be read-only and must not consume pairing slots or prompt.
 pub fn host_accept(
     host: &SecretKey,
     hello: &[u8],
@@ -193,6 +310,7 @@ pub fn host_accept(
     let phone = public(&hello[33..65]);
     let long_term = SalsaBox::new(&phone, host);
     let plain = open_box(&long_term, &hello[65..89], &hello[89..]).map_err(|_| Error::BadHello)?;
+    require_object(&plain)?;
     let inner: HelloInner = serde_json::from_slice(&plain).map_err(|_| Error::BadHello)?;
     if inner.eph != b64(eph.as_bytes()) {
         return Err(Error::BadHello);

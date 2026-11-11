@@ -1,13 +1,21 @@
 //! No sockets, persistence, credentials, or service ownership. See README for integration gates.
 #![forbid(unsafe_code)]
+pub mod budget;
 pub mod channel;
 pub mod envelope;
 pub mod peer;
 pub mod phone;
+mod raw_json;
 pub use crypto_box::{PublicKey, SecretKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
+    #[error("service authorization refused")]
+    Unauthorized,
+    #[error("incomplete frame expired")]
+    Timeout,
+    #[error("memory budget exhausted")]
+    Budget,
     #[error("bad-hello")]
     BadHello,
     #[error("bad-token")]

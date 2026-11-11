@@ -73,16 +73,34 @@ pub fn hello(c: &Value) -> (Vec<u8>, PendingHello) {
     )
     .unwrap()
 }
-pub fn accept(c: &Value, hello: &[u8]) -> Accepted {
-    host_accept(
-        &keys().0,
-        hello,
-        fixtures()["token"].as_str().unwrap(),
-        |_| false,
-        |_| true,
-        &mut Sequence(c["hostSeed"].as_u64().unwrap() as u8),
+pub fn accept(c: &Value, hello: &[u8]) -> Authorized {
+    authorize(
+        host_accept(
+            &keys().0,
+            hello,
+            fixtures()["token"].as_str().unwrap(),
+            |_| false,
+            |_| true,
+            &mut Sequence(c["hostSeed"].as_u64().unwrap() as u8),
+        )
+        .unwrap(),
     )
-    .unwrap()
+}
+pub fn authorize(a: Accepted) -> Authorized {
+    let d = a.device();
+    let decision = ServiceDecision::Allow {
+        device_key: d.key.clone(),
+        identity: IdentityStatus::Current,
+        stored: if d.first_pairing {
+            StoredDevice::New
+        } else {
+            StoredDevice::Known(d.kind)
+        },
+        owner: OwnerApproval::Granted,
+        persistence: Persistence::Committed,
+        desktop: DesktopAccess::Enabled,
+    };
+    a.authorize(decision).unwrap()
 }
 pub fn pair() -> (Channel, Channel) {
     let f = fixtures();
@@ -143,8 +161,8 @@ pub fn output() -> Value {
         FrameWriter::new(d)
             .write(&large)
             .unwrap()
-            .into_iter()
-            .map(|p| String::from_utf8(p).unwrap())
+            .iter()
+            .map(|p| String::from_utf8(p.clone()).unwrap())
             .collect::<Vec<_>>()
     };
     json!({"cases": cases, "envelopes": envelopes, "peerHashes": peer_hashes, "parts": { "rpc": parts(Direction::Rpc), "evt": parts(Direction::Evt) }})

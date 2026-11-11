@@ -1,4 +1,53 @@
 {
+  "tweetnaclVersion": "1.0.3",
+  "callbacks": [
+    {
+      "known": false,
+      "pairable": false,
+      "calls": [
+        ["known", "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns"],
+        ["pair", "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns"]
+      ],
+      "error": "unknown-phone",
+      "firstPairing": null
+    },
+    {
+      "known": false,
+      "pairable": true,
+      "calls": [
+        ["known", "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns"],
+        ["pair", "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns"]
+      ],
+      "error": null,
+      "firstPairing": true
+    },
+    {
+      "known": true,
+      "pairable": false,
+      "calls": [
+        ["known", "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns"],
+        ["pair", "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns"]
+      ],
+      "error": null,
+      "firstPairing": false
+    },
+    {
+      "known": true,
+      "pairable": true,
+      "calls": [
+        ["known", "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns"],
+        ["pair", "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns"]
+      ],
+      "error": null,
+      "firstPairing": false
+    }
+  ],
+  "invalidAccepts": [
+    {
+      "label": "positional-accept-array",
+      "reply": "02493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531da0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b702ec44feb55bc0d6db9598c6c7f1133c158235ec1b29dc1f11094a1630a3aa9ca8f521a4d987c39beaf0a5aae218c24f492cce6a2957ad7394b9a436fd0c3f23a1567fe67287a0e7271a5cb35d131a61c8713f9dcf261317a8dd351264f5da2f96ca9686a70335994b25f19ebc"
+    }
+  ],
   "invalidHellos": [
     {
       "label": "missing-token",
@@ -43,6 +92,11 @@
     {
       "label": "array-inner",
       "hello": "0179a631eede1bf9c98f12032cdeadd0e7a079398fc786b88cc846ec89af85a51a5869aff450549732cbaaed5e5df9b30a6da31cb0e5742bad5ad4a1a768f1a67b606162636465666768696a6b6c6d6e6f707172737475767753c26aeab86d45e1da3ad98e451020120398",
+      "error": "bad-hello"
+    },
+    {
+      "label": "populated-positional-array",
+      "hello": "0179a631eede1bf9c98f12032cdeadd0e7a079398fc786b88cc846ec89af85a51a5869aff450549732cbaaed5e5df9b30a6da31cb0e5742bad5ad4a1a768f1a67b606162636465666768696a6b6c6d6e6f70717273747576772626e6cee9f7cb31c1ccafac9e57c93803e7dce2e10ae4d4a117fd7910999e03e8481441e3e2b1de334c3258954166b55c8d7f6e50f45f49853476955820dfe6ed7cce22ade9e3a056eb3a88f3082dc2d21d92eeef2c1ef6c7c496de1f6daedbd3782be2ab9414c416ba2beff148f2351fb6f58c43a48ea9",
       "error": "bad-hello"
     }
   ],

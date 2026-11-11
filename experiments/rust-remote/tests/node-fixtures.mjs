@@ -9,6 +9,8 @@ import assert from "node:assert/strict";
 import * as peer from "../../../packages/shared/src/peer-frames.mjs";
 const require = createRequire(import.meta.url);
 const nacl = require("tweetnacl");
+const tweetnaclVersion = require("tweetnacl/package.json").version;
+assert.equal(tweetnaclVersion, "1.0.3", "fixtures require the repository-pinned tweetnacl 1.0.3");
 const source = readFileSync(new URL("../../../packages/shared/src/relay-crypto.mjs", import.meta.url), "utf8");
 // Only resolve the existing import; all protocol function bodies remain unchanged.
 const resolved = source.replace('"tweetnacl"', JSON.stringify(pathToFileURL(require.resolve("tweetnacl")).href));
@@ -94,6 +96,7 @@ const invalidHellos = (() => {
     { label: "null-kind", value: { ...inner, kind: null } },
     { label: "null-inner", value: null },
     { label: "array-inner", value: [] },
+    { label: "populated-positional-array", value: [token, inner.eph, null, [], "phone"] },
   ];
   return inputs.map(({ label, value }) => {
     const boxed = nacl.box(new TextEncoder().encode(JSON.stringify(value)), pending.message.slice(65, 89), host.publicKey, phone.secretKey);
@@ -115,7 +118,46 @@ const invalidHellos = (() => {
     return { label, hello: hex(hello), error };
   });
 })();
+const callbacks = [false, true].flatMap((known) =>
+  [false, true].map((pairable) => {
+    const { pending } = handshake(cases[0]);
+    const calls = [];
+    let error = null,
+      firstPairing = null;
+    try {
+      const accepted = crypto.hostAccept({
+        host,
+        hello: pending.message,
+        token,
+        isKnown: (id) => {
+          calls.push(["known", id]);
+          return known;
+        },
+        canPair: (id) => {
+          calls.push(["pair", id]);
+          return pairable;
+        },
+        random: sequence(128),
+      });
+      firstPairing = accepted.firstPairing;
+    } catch (e) {
+      error = e.code;
+    }
+    return { known, pairable, calls, error, firstPairing };
+  }),
+);
+const invalidAccepts = (() => {
+  const { pending, accepted } = handshake(cases[0]);
+  const inner = JSON.parse(new TextDecoder().decode(nacl.box.open(accepted.reply.slice(57), accepted.reply.slice(33, 57), host.publicKey, phone.secretKey)));
+  const boxed = nacl.box(new TextEncoder().encode(JSON.stringify([inner.eph, inner.peer])), accepted.reply.slice(33, 57), phone.publicKey, host.secretKey);
+  const reply = new Uint8Array([...accepted.reply.slice(0, 57), ...boxed]);
+  assert.throws(() => crypto.phoneFinish({ ephemeral: pending.ephemeral, phone, host: host.publicKey, reply }));
+  return [{ label: "positional-accept-array", reply: hex(reply) }];
+})();
 const fixtures = {
+  tweetnaclVersion,
+  callbacks,
+  invalidAccepts,
   invalidHellos,
   sourceSha256: {
     relayCrypto: hash(source),
