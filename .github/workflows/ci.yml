@@ -92,11 +92,17 @@ jobs:
           # Node built-ins plus the rpm and repository tools; this was the Linux leg of native-tests.
           - name: Test real Linux repository signing
             run: |-
-              # Canonical DNS outages also affect the Azure alias. Keep signature verification on the independent mirror.
-              if [ -f /etc/apt/apt-mirrors.txt ] && ! getent ahosts archive.ubuntu.com >/dev/null; then
-                printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+              # Ubuntu's archive, security and Azure mirrors share DNS failure modes (runner-images#15296).
+              # Fall back to an independently hosted mirror without changing APT's trusted signing keys.
+              if ! timeout 10 getent ahosts azure.archive.ubuntu.com >/dev/null; then
+                echo "Ubuntu mirror DNS is unavailable; using the Linux Kernel Archives mirror"
+                for mirror_list in /etc/apt/apt-mirrors.txt /etc/apt/apt-mirrors-security.txt; do
+                  if [ -f "$mirror_list" ]; then
+                    printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee "$mirror_list" >/dev/null
+                  fi
+                done
               fi
-              sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm createrepo-c gnupg
+              sudo apt-get -o APT::Update::Error-Mode=any update && sudo apt-get install -y --no-install-recommends rpm createrepo-c gnupg
               export GNUPGHOME="$RUNNER_TEMP/milagre-test-key"
               mkdir -m 700 "$GNUPGHOME"
               gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Milagre CI fixture' rsa3072 sign 1d
@@ -176,6 +182,10 @@ jobs:
             shell: pwsh
             timeout-minutes: 15
             run: node --test --test-reporter=tap --test-timeout=180000 packages/core/src/windows-runtime.test.cjs apps/daemon/src/windows-transport.test.cjs
+          - name: Test Windows adopted Worktree junctions
+            shell: pwsh
+            timeout-minutes: 10
+            run: node --test --test-reporter=tap --test-timeout=180000 --test-name-pattern="canvas Chat modes adopt exact Worktrees" packages/core/src/link-runtime.test.cjs
           - name: Test Windows process tree and ownership
             shell: pwsh
             timeout-minutes: 15

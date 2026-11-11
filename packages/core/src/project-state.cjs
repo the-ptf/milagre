@@ -53,11 +53,15 @@ function reconcileState(rawState, projectName, discoveredWorktrees, options = {}
     const sharedChat = ownedWorktrees.get(discovered.path) ?? ownedWorktrees.get(folder);
     if (sharedChat) {
       worktrees[worktree.id].sharedChat = sharedChat;
+      // Adopting an existing Worktree never discards its conversations or their messages.
+      for (const session of existingSessions.filter((item) => sharedChat.adopted && item.worktree_id === worktree.id))
+        sessions[session.id] = { ...session, readOnlyReason: session.readOnlyReason ?? "This Chat is read-only. Choose a current Chat from the canvas." };
       continue;
     }
     // A worktree can hold several chats; keep them all and make sure it has at least one.
     const worktreeSessions = existingSessions.filter((session) => session.worktree_id === worktree.id);
-    if (worktreeSessions.length === 0) worktreeSessions.push({ id: allocateId(), worktree_id: worktree.id, agent_name: discovered.name, status: "Created" });
+    if (!worktreeSessions.some((session) => !session.readOnlyReason))
+      worktreeSessions.push({ id: allocateId(), worktree_id: worktree.id, agent_name: discovered.name, status: "Created" });
     for (const session of worktreeSessions) {
       sessions[session.id] = { ...session, worktree_id: worktree.id, agent_name: session.agent_name || discovered.name };
     }

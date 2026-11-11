@@ -52,7 +52,7 @@ export function newChatLinks(views: readonly HostView[], currentHostId: string |
   const view = views.find((item) => item.hostId === currentHostId);
   if (!view) return [];
   return view.projects.flatMap((project) =>
-    project.link && !project.hidden
+    project.link && !project.link.canvasLinkId && !project.hidden
       ? [
           {
             hostId: view.hostId,

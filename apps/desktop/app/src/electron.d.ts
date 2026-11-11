@@ -261,7 +261,7 @@ export type RuntimeSnapshot = {
   eventSeq: number;
 };
 export type LinkEndpoint = { project_id: string; worktree_path?: string };
-export type ProjectLink = { id: string; a: LinkEndpoint; b: LinkEndpoint; created_at: string };
+export type ProjectLink = import("@milagre/shared/chat-links").CanvasLink;
 export type CanvasSnapshot = {
   projects: { id: string; path: string; name: string; position: { x: number; y: number } | null; openedAt: string }[];
   links: ProjectLink[];
@@ -650,6 +650,7 @@ export type MilagreBridge = {
   getCanvas: () => Promise<CanvasSnapshot>;
   addLink: (a: LinkEndpoint, b: LinkEndpoint) => Promise<ProjectLink[]>;
   removeLink: (id: string) => Promise<ProjectLink[]>;
+  setLinkChatMode: (id: string, mode: "separate" | "shared") => Promise<ProjectLink[]>;
   /** Undo of a removal: the same Link with its id, so what was saved against it holds again. */
   restoreLink?: (link: ProjectLink) => Promise<ProjectLink[]>;
   /** The canvas Links alone, without every Project's state; a Mac that predates it rejects. */
@@ -873,7 +874,7 @@ declare global {
   interface Window {
     milagrePreferences?: import("./lib/preference-storage").PreferenceBridge;
     milagreWindowChrome?: { controls: "leading" | "overlay" | "external" };
-    milagreLaunch?: { openedProjectsBefore: boolean };
+    milagreLaunch?: { openedProjectsBefore: boolean; simpleIntro: boolean };
     /** The Browser panel's pages, which live in this window (electron/browser-guests.cjs). Absent outside Electron. */
     milagreBrowserPanel?: {
       partition: string;

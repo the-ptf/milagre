@@ -15,18 +15,19 @@ function agentRestoreNote(context) {
  * `note` writes a line in the Chat after a restore wrote files, so its Redo stays in the transcript across restarts.
  * `tell(chatId, text)` queues the same news for the Chat's agent, which the line alone never reaches.
  */
-function registerCheckpoints(commands, { directory, states, busy, ready, note = async () => {}, tell = () => {} }) {
+function registerCheckpoints(commands, { directory, states, busy, ready, note = async () => {}, tell = () => {}, assertWritable = async () => {} }) {
   const preparing = new Set();
   async function rootsFor(chatId) {
     const scope = projectOfKey(chatId),
       id = sessionIdFromKey(chatId);
     if (typeof chatId !== "string" || !scope || !Number.isSafeInteger(id) || !states.has(scope)) throw new Error("Open an existing Chat to use checkpoints");
-    const context = await states.executionContext(scope, id);
+    const context = await states.executionContext(scope, id, { readOnly: true });
     if (!context.cwd) throw new Error("The Chat has no Worktree");
     return context.workspaceRoots ?? [context.cwd];
   }
   const store = createCheckpoints({
     directory,
+    assertWritable,
     validateRoots: async (chatId, roots) => {
       const current = await rootsFor(chatId);
       if (JSON.stringify(current.toSorted()) !== JSON.stringify(roots.toSorted())) throw new Error("The checkpoint belongs to a different Worktree");
@@ -48,6 +49,7 @@ function registerCheckpoints(commands, { directory, states, busy, ready, note = 
       await rootsFor(request.chatId);
       if (method === "list") return store.list(request.chatId);
       if (method === "preview") return store.preview(request.chatId, request.id);
+      await assertWritable(request.chatId);
       const result = await store.restore(request.chatId, request);
       if (result.restored > 0 && result.recoveryId) {
         const context = {
@@ -68,6 +70,7 @@ function registerCheckpoints(commands, { directory, states, busy, ready, note = 
       preparing.add(request.chatId);
       try {
         await ready();
+        await assertWritable(request.chatId);
         return await store.begin({
           chatId: request.chatId,
           roots: await rootsFor(request.chatId),

@@ -529,6 +529,7 @@ function routineTargets({ projects, openState }) {
       const sessionId = sessionIdFromKey(target.chatId);
       const session = (await openState(folder, sessionId))?.sessions?.[sessionId];
       if (!session || session.archived) throw new Error(NO_CHAT);
+      if (session.readOnlyReason) throw new Error(session.readOnlyReason);
     }
   }
   async function checkTarget(target) {
@@ -542,6 +543,7 @@ function routineTargets({ projects, openState }) {
     const sessionId = sessionIdFromKey(target.chatId);
     const session = (await openState(projectPath, sessionId))?.sessions?.[sessionId];
     if (!session || session.archived) throw new Error(NO_CHAT);
+    if (session.readOnlyReason) throw new Error(session.readOnlyReason);
     return { kind: "chat", chatId: chatKey(projectPath, sessionId) };
   }
   return Object.assign(checkTarget, { atStart });

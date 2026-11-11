@@ -1571,6 +1571,7 @@ function createRuntime(options) {
   }
 
   const chats = new ChatHost({
+    assertWritable: (...args) => canvasChatModes.assertWritable(...args),
     interrupt: (chatId) => stopChat(chatId),
     ...(options.limitResume?.now ? { now: options.limitResume.now } : {}),
     contextSettings: () => contextSettings.read(),
@@ -2210,6 +2211,12 @@ function createRuntime(options) {
 
   const checkpoints = registerCheckpoints(commands, {
     directory: path.join(dataDir, "checkpoints"),
+    assertWritable: async (chatId) => {
+      const scope = projectOfKey(chatId);
+      const state = await scopeStates.get(scope);
+      const session = state.sessions[sessionIdFromKey(chatId)];
+      canvasChatModes.assertWritable(scope, state, session, state.worktrees?.[session?.worktree_id]);
+    },
     states: scopeStates,
     ready: () => environmentReady,
     busy: (chatId) => chats.isBusy(chatId) || agents.isTurnActive(chatId) || Boolean(agents.sessions.get(chatId)?.activeChildren?.size),
@@ -2428,6 +2435,12 @@ function createRuntime(options) {
     if (!Number.isSafeInteger(sessionId) || sessionId < 1) throw new Error("Choose an existing Chat to delete.");
     const chatId = `${projectPath}#${sessionId}`;
     await existingChat("deleting it")(chatId);
+    if (isLinkScopeKey(projectPath)) {
+      const { linkId } = scopeFromKey(projectPath);
+      const link = await linkRuntime.definition(linkId);
+      if (link.canvasLinkId && !(await linkStore.get(linkId)).releasedAt)
+        throw new Error("Switch this Link to separate Chats before deleting its shared conversation.");
+    }
     await stopChatWork(chatId);
     await worktreeSetups.cancel(chatId);
     await agents.closeChat(chatId);
@@ -2541,9 +2554,10 @@ function createRuntime(options) {
   // on the same session, which reads its MCP servers, skills and sign-in again.
   commands.handle("chat:reload", async (_event, chatId) => {
     await existingChat("reloading it")(chatId);
-    await chats.cancelLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId));
     const state = await scopeStates.get(projectOfKey(chatId));
     const sessionId = sessionIdFromKey(chatId);
+    if (state.sessions[sessionId]?.readOnlyReason) throw new Error(state.sessions[sessionId].readOnlyReason);
+    await chats.cancelLimitResume(projectOfKey(chatId), sessionId);
     // Background work runs in the agent process Reload ends: the Chat reloads once it finishes (T3 #16000).
     const background = Math.max(agents.backgroundWork(chatId), processWork(state.sessions[sessionId]).length);
     if (background) throw new Error(backgroundBusyMessage("reload", background));
@@ -2671,6 +2685,10 @@ function createRuntime(options) {
   // both come through here.
   async function setPermissionMode(chatId, mode) {
     if (!PERMISSION_MODES.has(mode)) throw new Error(`Unknown permission mode: ${mode}`);
+    const scope = projectOfKey(chatId);
+    const state = await scopeStates.get(scope);
+    const session = state.sessions[sessionIdFromKey(chatId)];
+    canvasChatModes.assertWritable(scope, state, session, state.worktrees?.[session?.worktree_id]);
     if (mode !== "full") await advisors?.stopExecution(chatId);
     const result = await chats.setPermissionMode(chatId, mode, (id, picked) => agents.setPermissionMode(id, picked));
     if (mode === "full") advisors?.resumeExecution(chatId);
@@ -2715,7 +2733,7 @@ function createRuntime(options) {
   }
   // The sidebar's Link icons follow Links drawn or removed anywhere: the canvas, the sidebar, the phone.
   async function linksChanged() {
-    const links = (await projectRegistry().snapshot()).links;
+    const links = await canvasChatModes.describe((await projectRegistry().snapshot()).links);
     emit("canvas:links-changed", { links });
     return links;
   }
@@ -3416,7 +3434,7 @@ function createRuntime(options) {
     }
     registry.projects = registry.projects.filter((project) => sidebarPaths.has(project.path) || linkedIds.has(project.id));
     const statesByPath = await Promise.all(registry.projects.map(async (project) => ({ path: project.path, state: (await readProject(project.path)).state })));
-    return { ...registry, states: statesByPath };
+    return { ...registry, links: await canvasChatModes.describe(registry.links), states: statesByPath };
   });
   async function addLink(a, b) {
     const active = await canvasActiveWorktrees();
@@ -3429,12 +3447,28 @@ function createRuntime(options) {
     return links;
   }
   async function removeLink(id) {
-    await projectRegistry().removeLink(id);
-    await linked.linkRemoved(id);
-    return linksChanged();
+    return canvasChatModes.remove(id, async () => {
+      await projectRegistry().removeLink(id);
+      await linked.linkRemoved(id);
+      return linksChanged();
+    });
   }
   commands.handle("canvas:link-add", (_event, a, b) => addLink(a, b));
   commands.handle("canvas:link-remove", (_event, id) => removeLink(id));
+  const canvasChatModes = require("./canvas-chat-mode.cjs").createCanvasChatModes({
+    registry: projectRegistry(),
+    store: linkStore,
+    scheduled: () => routines.list().routines,
+    states,
+    readProject,
+    ownProject,
+    chats,
+    agents,
+    broadcast: broadcastProjectState,
+    changed: linksChanged,
+    git,
+  });
+  commands.handle("canvas:chat-mode", (_event, id, mode) => canvasChatModes.change(id, mode));
   commands.handle("canvas:link-restore", async (_event, link) => {
     await projectRegistry().restoreLink(link, await canvasActiveWorktrees());
     return linksChanged();
@@ -3452,7 +3486,7 @@ function createRuntime(options) {
       linksPrune = { ...linksPrune, running };
     }
     await linksPrune.running;
-    return (await projectRegistry().snapshot()).links;
+    return canvasChatModes.describe((await projectRegistry().snapshot()).links);
   });
   commands.handle("linked:grant", (_event, chatId, linkId) => linked.grant(chatId, linkId));
   commands.handle("canvas:worktree-position", (_event, id, worktreePath, position) => projectRegistry().setWorktreePosition(id, worktreePath, position));

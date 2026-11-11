@@ -350,6 +350,7 @@ function makeBridge(invoke, listen, send) {
     getCanvas: () => invoke("canvas:snapshot"),
     addLink: (a, b) => invoke("canvas:link-add", a, b),
     removeLink: (id) => invoke("canvas:link-remove", id),
+    setLinkChatMode: (id, mode) => invoke("canvas:chat-mode", id, mode),
     restoreLink: (link) => invoke("canvas:link-restore", link),
     getLinks: () => invoke("canvas:links"),
     onLinksChanged: (callback) => listen("canvas:links-changed", (payload) => callback(payload.links)),
@@ -618,7 +619,10 @@ const controls = process.argv.find((argument) => argument.startsWith("--milagre-
 contextBridge.exposeInMainWorld("milagreWindowChrome", { controls: controls === "leading" || controls === "overlay" ? controls : "external" });
 contextBridge.exposeInMainWorld("milagre", bridge);
 // Whether this computer had opened a Project before this launch; onboarding skips its first-launch intro then.
-contextBridge.exposeInMainWorld("milagreLaunch", { openedProjectsBefore: process.argv.includes("--milagre-opened-projects-before=1") });
+contextBridge.exposeInMainWorld("milagreLaunch", {
+  openedProjectsBefore: process.argv.includes("--milagre-opened-projects-before=1"),
+  simpleIntro: process.argv.includes("--milagre-simple-intro=1"),
+});
 
 // The Browser panel's pages live in this window, whichever computer is selected: a page asking for a new window, and
 // ⌘L, ⌘R and ⌘W pressed inside one (browser-guests.cjs).

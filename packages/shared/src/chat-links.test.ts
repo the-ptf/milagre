@@ -87,3 +87,23 @@ test("linkAskMessage names the destination in the body and gives the agent its C
   assert.match(prompt, /\/p2\/web/);
   assert.match(prompt, /Delegation/);
 });
+
+test("Chat mode actions enforce isolated cross-Project eligibility, labels, and explicit recovery", async () => {
+  const { sharedChatEligibility, chatModeActions, chatModeEndLabel, chatModeLabel } = await import("./chat-links.mjs");
+  const projects = [
+    { id: "p1", path: "/p1", name: "Frontend" },
+    { id: "p2", path: "/p2", name: "Backend" },
+  ];
+  const pair = { id: "edge", a: alpha, b: web, created_at: "" };
+  assert.equal(sharedChatEligibility(pair, projects), null);
+  assert.deepEqual(chatModeActions(pair, projects), [{ mode: "shared", label: "Use shared Chat" }]);
+  assert.deepEqual(chatModeActions({ ...pair, b: bravo }, projects), []);
+  assert.deepEqual(chatModeActions({ ...pair, a: { project_id: "p1", worktree_path: "/p1" } }, projects), []);
+  assert.deepEqual(chatModeActions({ ...pair, a: { project_id: "p1" } }, projects), []);
+  const active = { ...pair, sharedChat: { linkId: "owner", sessionId: 1 } };
+  assert.deepEqual(chatModeActions(active, projects), [{ mode: "separate", label: "Use separate Chats" }]);
+  assert.deepEqual(chatModeActions({ ...active, chatModeTransition: "separate" }, []), [{ mode: "separate", label: "Finish switching" }]);
+  assert.equal(chatModeActions({ ...active, chatModeTransition: "shared" }, projects)[0].label, "Finish switching");
+  assert.match(chatModeLabel({ ...active, chatModeTransition: "shared" }), /Switching/);
+  assert.equal(chatModeEndLabel(alpha, projects, "feature/cart"), "Frontend / feature/cart");
+});

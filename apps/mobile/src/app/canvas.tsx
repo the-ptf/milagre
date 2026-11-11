@@ -4,7 +4,17 @@ import { Pressable, RefreshControl, Text, View } from "react-native";
 import { lineHeight, radius, type } from "../design-tokens";
 import { Redirect, Stack, router, type Href } from "expo-router";
 import { ArrowRight01Icon, GitBranchIcon, Link04Icon } from "@hugeicons/core-free-icons";
-import { linkedEndLabel, type CanvasLink, type LinkEnd } from "@milagre/shared/chat-links";
+import {
+  CHAT_MODE_COPY,
+  chatModeActions,
+  chatModeLabel,
+  chatModeEndLabel,
+  sharedChatEligibility,
+  linkedEndLabel,
+  type CanvasLink,
+  type LinkEnd,
+} from "@milagre/shared/chat-links";
+import { confirmSheet } from "../confirm-store";
 import {
   canvasAttention,
   canvasFilterCounts,
@@ -25,7 +35,7 @@ import { ChatMarkIcon } from "../status-indicators";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { Icon, ProviderLogo } from "../icons";
 import { ProjectIcon } from "../project-icon";
-import { Chip, EmptyState, ErrorNotice, PageScroll, Tag, pressStyle, useStyles } from "../ui";
+import { Chip, EmptyState, ErrorNotice, PageScroll, PillButton, Tag, pressStyle, useStyles } from "../ui";
 import { useTheme, type Palette } from "../theme";
 
 const FILTERS: Array<{ id: CanvasFilter; label: string; dot?: "orange" | "accent" }> = [
@@ -63,6 +73,7 @@ export default function CanvasScreen() {
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [changingMode, setChangingMode] = useState(false);
   const now = useDisplayNow(60_000);
   const alive = useRef(true);
   useEffect(() => {
@@ -90,9 +101,11 @@ export default function CanvasScreen() {
       ),
     [listed, previewProject],
   );
+  // The live socket refreshes Links on reconnect, including when Canvas opened before its first Project read succeeded.
   useEffect(() => {
+    setError("");
     void load();
-  }, [load]);
+  }, [load, links.links]);
   const refresh = useCallback(async () => {
     setRefreshing(true);
     setError("");
@@ -151,6 +164,38 @@ export default function CanvasScreen() {
     if (router.canDismiss()) router.dismissAll();
     router.replace(href);
   };
+  const modeEndLabel = (end: LinkEnd) =>
+    chatModeEndLabel(
+      end,
+      links.projects,
+      Object.values(copyOf(links.projects.find((project) => project.id === end.project_id)?.path ?? "")?.project.state.worktrees ?? {}).find(
+        (worktree) => worktree.path === end.worktree_path,
+      )?.name,
+    );
+  const changeMode = (link: CanvasLink) => {
+    const client = session.client;
+    if (!client) return;
+    const choose = (mode: "shared" | "separate") => {
+      setChangingMode(true);
+      setError("");
+      void client
+        .call("canvas:chat-mode", [link.id, mode])
+        .then(() => refresh())
+        .catch(async (cause: Error) => {
+          await links.refresh();
+          setError(cause.message);
+        })
+        .finally(() => setChangingMode(false));
+    };
+    confirmSheet(
+      "Chat mode",
+      `${chatModeLabel(link)}\n\n${link.sharedChat ? CHAT_MODE_COPY.separateDetail : CHAT_MODE_COPY.shareDetail}\n\n${sharedChatEligibility(link, links.projects) && !link.sharedChat ? sharedChatEligibility(link, links.projects) + "\n\n" : ""}${modeEndLabel(link.a)}\n${modeEndLabel(link.b)}`,
+      [
+        { text: "Cancel", style: "cancel" },
+        ...chatModeActions(link, links.projects).map((action) => ({ text: action.label, onPress: () => choose(action.mode) })),
+      ],
+    );
+  };
 
   if (!session.client) return <Redirect href="/" />;
   const total = counts.all;
@@ -173,6 +218,15 @@ export default function CanvasScreen() {
           })}
         </View>
         {error ? <ErrorNotice message={error} retry={() => void refresh()} retryTitle="Reload" /> : null}
+        {links.links
+          .filter((link) => link.a.worktree_path && link.b.worktree_path)
+          .map((link) => (
+            <View key={link.id} style={[styles.card, { gap: 8 }]}>
+              <Text style={styles.muted}>{[link.a, link.b].map(modeEndLabel).join(" + ")}</Text>
+              <Text style={styles.footnote}>{chatModeLabel(link)}</Text>
+              <PillButton title={link.chatModeTransition ? "Finish switching…" : "Chat mode…"} disabled={changingMode} onPress={() => changeMode(link)} />
+            </View>
+          ))}
         {loading ? (
           <Text style={styles.muted}>Loading Projects…</Text>
         ) : !total && !sections.length ? (

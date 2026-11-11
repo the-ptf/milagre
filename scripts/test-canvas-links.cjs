@@ -18,7 +18,7 @@ const frontend = state(
   [tree(1, "/a", "main", { added: 212, removed: 148 }), tree(4, "/a-finished", "finished-work"), tree(6, "/a-starter", "starter"), tree(8, "/a-filters", "sidebar-filters", { added: 410, removed: 96 })],
   [chat(2, 1, "Build UI"), chat(5, 4, "Archived", { archived: true }), chat(7, 6, "Starter", { summary: { count: 0 } }), chat(9, 8, "Sidebar filters"), chat(10, 8, "Review filters", { provider: "codex" })],
 );
-const backend = state([tree(1, "/b", "main", { added: 38, removed: 12 })], [chat(2, 1, "Add API", { provider: "codex" })]);
+const backend = state([tree(1, "/b-feature", "main", { added: 38, removed: 12 })], [chat(2, 1, "Add API", { provider: "codex" })]);
 const empty = state([tree(1, "/c", "main")], [chat(2, 1, "Old work", { archived: true })]);
 const projects = [
   { id: "a", path: "/a", name: "Frontend", openedAt: "2026-10-03T10:00:00Z", position: { x: 0, y: 0 } },
@@ -28,11 +28,21 @@ const projects = [
 const run = (approvals, questions) => ({ approvals, questions });
 const runs = { "/a#2": run([{ id: "approval" }], []), "/a#10": run([], [{ id: "question" }]), "/b#2": run([], []) };
 const readLinks = () => JSON.parse(localStorage.getItem("canvas-test-links") || "[]");
+window.__canvasOffline = true;
 window.milagre = {
+  onRuntimeConnection: (callback) => { window.__connectionChanged = callback; return () => {}; },
   onLinksChanged: (callback) => { window.__linksChanged = callback; return () => {}; },
-  getCanvas: async () => ({ projects, links: readLinks(), worktreePositions: {}, states: [{ path: "/a", state: frontend }, { path: "/b", state: backend }, { path: "/c", state: empty }] }),
+  getCanvas: async () => { if (window.__canvasOffline) throw new Error("Host disconnected"); return ({ projects, links: readLinks(), worktreePositions: {}, states: [{ path: "/a", state: frontend }, { path: "/b", state: backend }, { path: "/c", state: empty }] }); },
   addLink: async (a, b) => { const links = [...readLinks(), { id: "link-1", a, b, created_at: new Date().toISOString() }]; localStorage.setItem("canvas-test-links", JSON.stringify(links)); return links; },
   removeLink: async id => { const links = readLinks().filter(link => link.id !== id); localStorage.setItem("canvas-test-links", JSON.stringify(links)); return links; },
+  setLinkChatMode: async (id, mode) => {
+    window.__modeCall = { id, mode };
+    const sharedChat = mode === "shared" ? { linkId: "shared-link", sessionId: 1 } : undefined;
+    frontend.worktrees[8].sharedChat = sharedChat;
+    backend.worktrees[1].sharedChat = sharedChat;
+    const links = readLinks().map(link => link.id === id ? { ...link, sharedChat } : link);
+    localStorage.setItem("canvas-test-links", JSON.stringify(links)); return links;
+  },
   setProjectPosition: async () => [],
   setWorktreePosition: async () => null,
   getProjectImage: async () => null,
@@ -80,6 +90,9 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await evaluate('localStorage.removeItem("canvas-test-links")');
     await window.reload();
+    await waitFor('document.body.textContent.includes("Host disconnected")');
+    assert.equal(await evaluate('document.querySelectorAll("[data-canvas-chat]").length'), 0);
+    await evaluate("window.__canvasOffline = false; window.__connectionChanged({ connected: true })");
     await waitFor('document.querySelectorAll(".react-flow__node-project").length === 2');
     await waitFor('document.querySelectorAll("[data-canvas-chat]").length === 4');
     // Only what the sidebar lists: archived chats, empty starters and Projects left with neither stay off.
@@ -90,8 +103,8 @@ async function browserChecks() {
     assert.equal(await evaluate(`${card("/a")}.dataset.attention`), "waiting");
     assert.match(await evaluate(`${card("/a")}.textContent`), /Build UI.*Waiting for you.*main/);
     assert.match(await evaluate(`${card("/a-filters")}.textContent`), /Sidebar filters.*Idle · 25m ago.*Review filters.*Asking you.*sidebar-filters/);
-    assert.match(await evaluate(`${card("/b")}.textContent`), /Add API.*Running/);
-    assert.equal(await evaluate(`${card("/b")}.querySelectorAll("svg").length > 1`), true, "the card shows its provider logo");
+    assert.match(await evaluate(`${card("/b-feature")}.textContent`), /Add API.*Running/);
+    assert.equal(await evaluate(`${card("/b-feature")}.querySelectorAll("svg").length > 1`), true, "the card shows its provider logo");
     // React Flow's own controls and attribution are gone; the canvas has its own zoom.
     assert.equal(await evaluate('Boolean(document.querySelector(".react-flow__attribution, .react-flow__controls"))'), false);
     assert.equal(await evaluate('Boolean(document.querySelector("[data-canvas-zoom]"))'), true);
@@ -105,11 +118,11 @@ async function browserChecks() {
     // The filter dims cards with nothing to show, and counts what each keeps.
     assert.match(await evaluate("document.querySelector('[data-canvas-filter=\"needs-you\"]').textContent"), /Needs you\s*2/);
     await evaluate("document.querySelector('[data-canvas-filter=\"needs-you\"]').click()");
-    await waitFor(`${card("/b")}.classList.contains("opacity-35")`);
+    await waitFor(`${card("/b-feature")}.classList.contains("opacity-35")`);
     assert.equal(await evaluate(`${card("/a")}.classList.contains("opacity-35")`), false);
     await screenshot("needs-you");
     await evaluate("document.querySelector('[data-canvas-filter=\"all\"]').click()");
-    await waitFor(`!${card("/b")}.classList.contains("opacity-35")`);
+    await waitFor(`!${card("/b-feature")}.classList.contains("opacity-35")`);
     const from = await point("Frontend", "right");
     const to = await point("Backend", "left");
     assert.ok(from && to, "project handles are rendered");
@@ -130,6 +143,8 @@ async function browserChecks() {
     await waitFor('JSON.parse(localStorage.getItem("canvas-test-links") || "[]").length === 0');
     // The same gesture creates it again; a reload reads the saved Link through the stubbed bridge.
     await window.reload();
+    await waitFor("!!window.__connectionChanged");
+    await evaluate("window.__canvasOffline = false; window.__connectionChanged({ connected: true })");
     await waitFor('document.querySelectorAll(".react-flow__node-project").length === 2');
     const fromAgain = await point("Frontend", "right");
     const toAgain = await point("Backend", "left");
@@ -142,8 +157,12 @@ async function browserChecks() {
     mouse("mouseUp", toAgain.x, toAgain.y);
     await waitFor('JSON.parse(localStorage.getItem("canvas-test-links") || "[]").length === 1');
     await window.reload();
+    await waitFor("!!window.__connectionChanged");
+    await evaluate("window.__canvasOffline = false; window.__connectionChanged({ connected: true })");
     await waitFor('document.querySelectorAll(".react-flow__edge").length === 1');
     await window.loadURL(`${process.argv[2]}?dark`);
+    await waitFor("!!window.__connectionChanged");
+    await evaluate("window.__canvasOffline = false; window.__connectionChanged({ connected: true })");
     await waitFor('document.querySelectorAll(".react-flow__edge").length === 1');
     // A Link changed outside the canvas (the sidebar, the phone) reaches it without waiting for its next read.
     await evaluate("window.__linksChanged([])");
@@ -152,6 +171,28 @@ async function browserChecks() {
     await waitFor('document.querySelectorAll(".react-flow__edge").length === 1');
     await delay(300);
     await screenshot("dark");
+    await evaluate(`{
+      const links = [{ id: "worktree-link", a: { project_id: "a", worktree_path: "/a-filters" }, b: { project_id: "b", worktree_path: "/b-feature" }, created_at: "" }];
+      localStorage.setItem("canvas-test-links", JSON.stringify(links)); window.__linksChanged(links);
+    }`);
+    await waitFor('Boolean(document.querySelector(".react-flow__edge[data-id=worktree-link]"))');
+    await evaluate('document.querySelector(".react-flow__edge[data-id=worktree-link]").dispatchEvent(new MouseEvent("click", { bubbles: true }))');
+    await waitFor('[...document.querySelectorAll("button")].some(button => button.textContent === "Chat mode…")');
+    await evaluate('[...document.querySelectorAll("button")].find(button => button.textContent === "Chat mode…").click()');
+    await waitFor('Boolean(document.querySelector("dialog[open]"))');
+    assert.match(await evaluate('document.querySelector("dialog").textContent'), /one permission setting starting in Ask/);
+    assert.match(await evaluate('document.querySelector("dialog").textContent'), /Existing Chats become read-only/);
+    await evaluate('[...document.querySelectorAll("dialog button")].find(button => button.textContent === "Use shared Chat").click()');
+    await waitFor('window.__modeCall?.mode === "shared" && !document.querySelector("dialog")');
+    assert.equal(
+      await evaluate('[...document.querySelectorAll("[data-canvas-chat]")].filter(button => button.textContent.includes("Shared Link Chat")).length'),
+      2,
+    );
+    await evaluate('[...document.querySelectorAll("button")].find(button => button.textContent === "Chat mode…").click()');
+    await waitFor('Boolean(document.querySelector("dialog[open]"))');
+    assert.match(await evaluate('document.querySelector("dialog").textContent'), /shared conversation read-only/);
+    await evaluate('[...document.querySelectorAll("dialog button")].find(button => button.textContent === "Use separate Chats").click()');
+    await waitFor('window.__modeCall?.mode === "separate" && !document.querySelector("dialog")');
     console.log("PASS: canvas shows only listed chats, live states, filter, new chat, own zoom, Link drag, removal, persistence after reload");
     app.exit(0);
   } catch (error) {
