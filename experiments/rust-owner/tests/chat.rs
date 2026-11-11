@@ -10,7 +10,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use milagre_owner_store::brief::fake::FakeBriefModel;
+use milagre_owner_store::brief::BriefRefused;
 use milagre_owner_store::chat_host::AnswerResult;
+use milagre_owner_store::chat_host::HandoffMode;
 use milagre_owner_store::chat_host::{
     AnswerTicket, ChatHost, MockProvider, Notice, SteeringMode, TurnId,
 };
@@ -20,6 +23,12 @@ use milagre_owner_store::states::{ProjectStates, Timing};
 use serde_json::{json, Map, Value};
 
 struct Run {
+    /// The scripted brief model, what the next handoff's brief does, and the briefs answered so far.
+    brief: FakeBriefModel,
+    brief_mode: Value,
+    briefs_seen: usize,
+    /// A handoff whose brief hangs (a deadline or a Stop ends it): its start is told as `handoffStarted` once settled.
+    detached: Option<(String, TurnId)>,
     isolation: Isolation,
     project: PathBuf,
     host: ChatHost,
@@ -36,6 +45,7 @@ fn host_for(
     now: i64,
     mock: &MockProvider,
     counter: &Arc<AtomicU64>,
+    brief: &FakeBriefModel,
 ) -> ChatHost {
     let mut host = ChatHost::new(ProjectStates::new(
         isolation.clone(),
@@ -45,6 +55,8 @@ fn host_for(
     host.register(Box::new(mock.clone()));
     host.register(Box::new(MockProvider::sharing("claude", mock)));
     host.steering = SteeringMode::Recorded;
+    host.handoff = HandoffMode::Restore;
+    host.register_brief_model(Box::new(brief.clone()));
     let counter = counter.clone();
     host.set_ids(move || {
         let next = counter.fetch_add(1, Ordering::SeqCst) + 1;
@@ -54,8 +66,45 @@ fn host_for(
 }
 
 impl Run {
+    /// Where this Chat's handover transcripts go (the job's folder for the Project).
+    fn handovers(&self) -> PathBuf {
+        use sha1::{Digest, Sha1};
+        let digest = hex::encode(Sha1::digest(self.project.as_os_str().as_encoded_bytes()));
+        self.isolation
+            .root()
+            .join(".owner/handovers")
+            .join(&digest[..12])
+    }
+
     fn clean(&self, text: &str) -> String {
-        common::normalize(text, &self.project)
+        let text = text.replace(&self.handovers().display().to_string(), "<handovers>");
+        common::normalize(&text, &self.project)
+    }
+
+    /// Runs a handoff as far as it goes: transcript jobs, then the brief as the trace scripts it, until nothing moves.
+    fn drive_handoff(&mut self) {
+        for _ in 0..20 {
+            let jobs = self.host.take_jobs();
+            let ran = !jobs.is_empty();
+            for job in jobs {
+                job.run();
+            }
+            self.host.pump();
+            let asked = self.brief.asked();
+            let fresh = asked.len() > self.briefs_seen;
+            for request in &asked[self.briefs_seen..] {
+                if let Some(reply) = self.brief_mode.get("reply").and_then(Value::as_str) {
+                    self.brief.reply(request.brief, reply);
+                } else if self.brief_mode.get("fail").is_some() {
+                    self.brief.fail(request.brief);
+                }
+            }
+            self.briefs_seen = asked.len();
+            self.host.pump();
+            if !ran && !fresh {
+                break;
+            }
+        }
     }
 
     fn clean_value(&self, value: &Value) -> Value {
@@ -84,9 +133,24 @@ impl Run {
             "send" => {
                 let mut request = step["request"].clone();
                 request["projectPath"] = json!(p.display().to_string());
+                if let Some(mode) = step.get("brief") {
+                    self.brief_mode = mode.clone();
+                    self.brief.state.lock().unwrap().refuse =
+                        mode.get("none").map(|_| BriefRefused::NoModel);
+                }
                 let result = self.host.send(&request);
-                // Node awaits `sent.started`: the start answers through the provider's events.
+                // Node awaits `sent.started`: a handoff is prepared first (transcript, brief), then the start answers
+                // through the provider's events.
+                self.drive_handoff();
                 self.host.pump();
+                if step["brief"].get("hang").is_some() {
+                    let chat = self.chat(&request["sessionId"]);
+                    let result = result.map(|sent| {
+                        self.detached = sent.turn.map(|turn| (chat, turn));
+                        json!({ "sessionId": sent.session_id, "duplicate": false, "queued": false, "started": "preparing" })
+                    });
+                    return self.attempt(result);
+                }
                 let notices = self.host.take_notices();
                 let result = result.map(|sent| {
                     let started = if sent.duplicate {
@@ -177,8 +241,18 @@ impl Run {
             }
             "advance" => {
                 let to = self.host.states.now() + step["ms"].as_i64().unwrap();
-                self.host.states.advance(to);
+                if step.get("tick").is_some() {
+                    // Node's timers fire as its clock moves (a brief's deadline): the Rust host's run on `tick`.
+                    self.host.tick(to);
+                    self.drive_handoff();
+                } else {
+                    self.host.states.advance(to);
+                }
                 Value::Null
+            }
+            "recover" => {
+                let result = self.host.recover_handoffs(&p).map(|()| Value::Null);
+                self.attempt(result)
             }
             "flush" => {
                 let result = self.host.states.flush(Some(&p)).map(|_| Value::Null);
@@ -186,12 +260,15 @@ impl Run {
             }
             "crash" => {
                 let now = self.host.states.now();
-                let next = host_for(&self.isolation, now, &self.mock, &self.counter);
+                let next = host_for(&self.isolation, now, &self.mock, &self.counter, &self.brief);
                 let old = std::mem::replace(&mut self.host, next);
                 old.states.abandon().unwrap();
                 Value::Null
             }
-            "snapshot" => jsjson::parse(&common::snapshot(&p)).unwrap(),
+            "snapshot" => {
+                let replace = [(self.handovers().display().to_string(), "<handovers>")];
+                jsjson::parse(&common::snapshot_replacing(&p, &replace)).unwrap()
+            }
             other => panic!("unknown step {other}"),
         }
     }
@@ -234,6 +311,28 @@ impl Run {
             .collect();
         let mut taken = std::mem::take(&mut self.held);
         taken.extend(self.host.take_notices());
+        // A detached handoff's start, as Node tells it when `sent.started` settles: its result, or null once its turn
+        // ended without starting.
+        let mut handoff_started = None;
+        if let Some((chat, turn)) = self.detached.clone() {
+            let started = taken.iter().find_map(|notice| match notice {
+                Notice::Started {
+                    turn: started,
+                    result,
+                    ..
+                } if *started == turn => Some(result.clone()),
+                _ => None,
+            });
+            if let Some(result) = started {
+                handoff_started = Some(json!({ "handoffStarted": self.clean_value(&result) }));
+                self.detached = None;
+            } else if self.host.active_turn(&chat) != Some(turn)
+                && self.host.test_preparation(&chat).is_none()
+            {
+                handoff_started = Some(json!({ "handoffStarted": null }));
+                self.detached = None;
+            }
+        }
         let notices: Vec<Value> = taken
             .into_iter()
             .filter(|notice| {
@@ -266,7 +365,14 @@ impl Run {
                     unreachable!()
                 }
             })
+            .chain(handoff_started.clone().filter(|started| !started["handoffStarted"].is_null()))
             .chain(late)
+            .collect();
+        // A cancelled handoff's start settles (null) as soon as it is aborted, before the cancel is saved and told.
+        let notices: Vec<Value> = handoff_started
+            .filter(|started| started["handoffStarted"].is_null())
+            .into_iter()
+            .chain(notices)
             .collect();
         let (turns, interrupts, answers) = {
             let mut state = self.mock.state.lock().unwrap();
@@ -387,13 +493,20 @@ fn rust_chat_host_matches_node() {
         );
         let mock = MockProvider::new("kiro");
         let counter = Arc::new(AtomicU64::new(0));
+        let brief = FakeBriefModel::default();
+        brief.state.lock().unwrap().refuse = Some(BriefRefused::NoModel);
         let host = host_for(
             &isolation,
             trace["start"].as_i64().unwrap(),
             &mock,
             &counter,
+            &brief,
         );
         let mut run = Run {
+            brief,
+            brief_mode: json!({ "none": true }),
+            briefs_seen: 0,
+            detached: None,
             isolation,
             project,
             host,

@@ -250,6 +250,87 @@ T.append({"name": "claude-steering-save", "start": START, "seed": seed, "steps":
     {"op": "advance", "ms": 300},
     {"op": "snapshot"}]})
 
+# ---- restore handoffs: a Chat whose provider session is gone hands itself over to a new session ---------------------
+restore_seed = {
+    "next_id": 3,
+    "worktrees": {"1": {"id": 1, "path": "/tmp/milagre-chat-worktree", "name": "main"}},
+    "sessions": {"1": {"id": 1, "worktree_id": 1, "agent_name": "main", "status": "Created", "title": "Fix the build", "provider": "kiro"}},
+    "messages": [
+        {"id": 1, "session_id": 1, "role": "user", "body": "Make the tests pass", "model": "model-a", "images": [], "context": None},
+        {"id": 2, "session_id": 1, "role": "assistant", "body": "Done: they pass.", "model": "model-a", "outcome": "completed",
+         "steps": [{"id": "s1", "kind": "shell", "title": "Run npm test", "status": "done"}, {"id": "s2", "kind": "thinking", "title": "Thinking"}]},
+    ],
+}
+BRIEF = '{"brief": "## Goal\\nKeep the tests passing.\\n## Next steps\\nUpdate the docs."}'
+
+T.append({"name": "restore-brief", "start": START, "seed": restore_seed, "steps": [
+    {"op": "open"},
+    dict(send("And update the docs", "r1"), brief={"reply": BRIEF}),
+    event("turn-started", turnId="t2"),
+    event("text-delta", text="Updating the docs."),
+    event("turn-completed"),
+    {"op": "advance", "ms": 300},
+    {"op": "snapshot"}]})
+
+T.append({"name": "restore-brief-fails", "start": START, "seed": restore_seed, "steps": [
+    {"op": "open"},
+    dict(send("And update the docs", "r1"), brief={"fail": True}),
+    event("turn-completed"),
+    {"op": "advance", "ms": 300},
+    {"op": "snapshot"}]})
+
+T.append({"name": "restore-no-model", "start": START, "seed": restore_seed, "steps": [
+    {"op": "open"},
+    dict(send("And update the docs", "r1"), brief={"none": True}),
+    event("turn-completed"),
+    {"op": "advance", "ms": 300},
+    {"op": "snapshot"}]})
+
+# The brief's model never answers: after its 30 s deadline the minimal brief opens the turn.
+T.append({"name": "restore-deadline", "start": START, "seed": restore_seed, "steps": [
+    {"op": "open"},
+    dict(send("And update the docs", "r1"), brief={"hang": True}),
+    {"op": "advance", "ms": 30000, "tick": True},
+    event("turn-completed"),
+    {"op": "advance", "ms": 300},
+    {"op": "snapshot"}]})
+
+# Stop while the brief is written: no agent runs yet, so the handoff fails and its turn is cancelled.
+T.append({"name": "restore-stop", "start": START, "seed": restore_seed, "steps": [
+    {"op": "open"},
+    dict(send("And update the docs", "r1"), brief={"hang": True}),
+    {"op": "interrupt", "session": 1},
+    {"op": "advance", "ms": 300},
+    {"op": "snapshot"}]})
+
+# A crash left a divider preparing and a handover pending: the next start fails the one and clears the other.
+crashed = json.loads(json.dumps(restore_seed))
+crashed["next_id"] = 5
+crashed["sessions"]["1"]["handoverPending"] = True
+crashed["messages"] += [
+    {"id": 3, "session_id": 1, "role": "assistant", "body": "",
+     "context": {"kind": "handoff", "from": {"provider": "kiro", "model": "model-a"}, "to": {"provider": "kiro", "model": "model-a"}, "status": "preparing"}},
+    {"id": 4, "session_id": 1, "role": "user", "body": "And update the docs", "model": "model-a", "images": [], "context": None},
+]
+T.append({"name": "restore-recovery", "start": START, "seed": crashed, "steps": [
+    {"op": "open"},
+    {"op": "recover"},
+    {"op": "advance", "ms": 300},
+    {"op": "snapshot"}]})
+
+# One process per turn (the ACP fixture): the first turn names no native session, so the second send restores.
+T.append({"name": "restore-acp-second-send", "start": START, "seed": seed, "steps": [
+    {"op": "open"},
+    send("Make the tests pass", "a1"),
+    event("turn-started", turnId="t1"),
+    event("text-delta", text="They pass."),
+    event("turn-completed"),
+    dict(send("And update the docs", "a2"), brief={"reply": BRIEF}),
+    event("text-delta", text="Docs updated."),
+    event("turn-completed"),
+    {"op": "advance", "ms": 300},
+    {"op": "snapshot"}]})
+
 with open("fixtures/chat-traces.json", "w", encoding="ascii") as out:
     out.write(json.dumps(T, indent=2) + "\n")
 print(len(T), "traces,", sum(len(t["steps"]) for t in T), "steps")

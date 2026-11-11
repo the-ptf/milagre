@@ -58,6 +58,29 @@ pub fn snapshot(dir: &Path) -> String {
     String::from_utf8(run_node(&["snapshot", dir.to_str().unwrap()]).stdout).unwrap()
 }
 
+/// [`snapshot`] with more [text, placeholder] pairs put in (writer-node.cjs `MILAGRE_SNAPSHOT_REPLACE`).
+pub fn snapshot_replacing(dir: &Path, replace: &[(String, &str)]) -> String {
+    let pairs: Vec<[&str; 2]> = replace
+        .iter()
+        .map(|(from, to)| [from.as_str(), *to])
+        .collect();
+    let output = Command::new("node")
+        .arg(driver())
+        .args(["snapshot", dir.to_str().unwrap()])
+        .env(
+            "MILAGRE_SNAPSHOT_REPLACE",
+            serde_json::to_string(&pairs).unwrap(),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
 pub fn copy_tree(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap().flatten() {

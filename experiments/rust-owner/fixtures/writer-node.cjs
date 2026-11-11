@@ -50,8 +50,11 @@ function placeholders(dir) {
 }
 
 /** Files (mode and content hash; JSON text with the folder's path replaced), rows, and Node's read of a copy. */
-async function snapshot(dir) {
-  const clean = placeholders(dir);
+// `replace`: more [text, placeholder] pairs to put in (a trace's handover transcripts, for one); also read from
+// MILAGRE_SNAPSHOT_REPLACE (JSON) when run as a command.
+async function snapshot(dir, replace = JSON.parse(process.env.MILAGRE_SNAPSHOT_REPLACE ?? "[]")) {
+  const base = placeholders(dir);
+  const clean = (text) => replace.reduce((out, [from, to]) => out.split(from).join(to), base(text));
   const files = [];
   const walk = (folder) => {
     for (const entry of fs.readdirSync(folder, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {

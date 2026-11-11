@@ -64,7 +64,7 @@ async function run(tracesFile, name, dir) {
   const trace = JSON.parse(fs.readFileSync(tracesFile, "utf8")).find((item) => item.name === name);
   const { mock } = require("node:test");
   mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: trace.start });
-  const clean = placeholders(dir);
+  let clean = placeholders(dir);
   const cleanValue = (value) => (value === null || value === undefined ? null : JSON.parse(clean(JSON.stringify(value))));
   console.warn = () => {};
   let notices = [];
@@ -79,6 +79,15 @@ async function run(tracesFile, name, dir) {
   let steerNext = false;
   // Turn ids count successful starts over the whole trace, as the Rust mock provider does.
   let startedTurns = 0;
+  // Handoffs: transcripts go where the Rust owner puts them (beside the Project, `.owner/handovers`), written at once
+  // so the trace stays deterministic; the brief is handover.cjs's own generateBrief over a scripted model.
+  const handover = require(source("agents/handover.cjs"));
+  const handovers = path.join(path.dirname(dir), ".owner", "handovers");
+  const handoversFolder = path.join(handovers, createHash("sha1").update(dir).digest("hex").slice(0, 12));
+  const cleanText = clean;
+  clean = (text) => cleanText(String(text).split(handoversFolder).join("<handovers>"));
+  // What the brief's model does for the next handoff: { reply }, { fail: true }, { none: true } or { hang: true }.
+  let briefMode = { none: true };
   let m;
   let states;
   let host;
@@ -111,6 +120,27 @@ async function run(tracesFile, name, dir) {
       nameChat: async (_path, sessionId) => notices.push({ nameChat: sessionId }),
       onQueuedStart: (_chatId, entry) => notices.push({ queueStartedWithoutSender: entry.id }),
       onQueuedRemoved: (_chatId, entry) => notices.push({ queueRemovedWithoutSender: entry.id }),
+      handoverTools: {
+        writeTranscript: async ({ projectPath, sessionId, markdown }) => {
+          const file = handover.transcriptPath(handovers, projectPath, sessionId);
+          fs.mkdirSync(path.dirname(file), { recursive: true });
+          fs.writeFileSync(file, markdown);
+          return file;
+        },
+        brief: ({ cwd: _cwd, worktrees: _worktrees, projectPath: _projectPath, ...input }) => {
+          const mode = briefMode;
+          const models = mode.none
+            ? {}
+            : {
+                [input.provider]: () => {
+                  if (mode.fail) return Promise.reject(new Error("model failed"));
+                  if (mode.hang) return new Promise(() => {});
+                  return Promise.resolve(mode.reply);
+                },
+              };
+          return handover.generateBrief({ ...input, changedFiles: async () => [] }, { models });
+        },
+      },
     });
   };
   make();
@@ -151,9 +181,15 @@ async function run(tracesFile, name, dir) {
         await states.get(dir);
         break;
       case "send":
+        if (step.brief) briefMode = step.brief;
         result = await attempt(async () => {
           steerNext = step.request.sessionId != null && Boolean(host.runs[chat(step.request.sessionId)]);
           const sent = await host.send({ ...step.request, projectPath: dir });
+          // A handoff whose brief waits on a deadline or a Stop: its start is told when it settles.
+          if (step.brief?.hang) {
+            void sent.started.then((value) => notices.push({ handoffStarted: cleanValue(value) }));
+            return { sessionId: sent.sessionId, duplicate: false, queued: false, started: "preparing" };
+          }
           // A queued or duplicate send calls no startTurn: the flag must not reach a later start.
           if (sent.queued || sent.duplicate) steerNext = false;
           if (sent.queued) void sent.started.then((value) => notices.push({ queuedStarted: cleanValue(value) }));
@@ -171,8 +207,15 @@ async function run(tracesFile, name, dir) {
         });
         break;
       case "interrupt":
-        // agent:interrupt reaches the provider's session (SessionManager.interrupt); its turn-cancelled follows.
-        interrupts.push(clean(chat(step.session)));
+        // agent:interrupt: a handoff being prepared is cancelled (runtime.cjs, cancelHandoff); otherwise it reaches the
+        // provider's session (SessionManager.interrupt) and its turn-cancelled follows.
+        if (!(await host.cancelHandoff(chat(step.session)))) interrupts.push(clean(chat(step.session)));
+        break;
+      case "recover":
+        result = await attempt(async () => {
+          await host.recoverHandoffs(dir);
+          return null;
+        });
         break;
       case "queueSend":
         result = await attempt(async () => {
@@ -250,7 +293,7 @@ async function run(tracesFile, name, dir) {
         make();
         break;
       case "snapshot":
-        result = await snapshot(dir);
+        result = await snapshot(dir, [[handoversFolder, "<handovers>"]]);
         break;
       default:
         throw new Error(`unknown step ${step.op}`);
