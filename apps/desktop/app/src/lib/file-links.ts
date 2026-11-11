@@ -48,3 +48,37 @@ export function fileSpanIndex(title: string, file: string | undefined): number {
   if (!file || !/^(Read|Edited|Created|Wrote|Deleted) /.test(title)) return -1;
   return titleSpans(title).findIndex((span) => span.code);
 }
+
+const WINDOWS_PATH = /^[a-z]:[\\/]/i;
+
+/**
+ * The files a Chat's steps worked on (absolute, as the tools named them) that a relative path may mean, the latest first.
+ * An agent working in a subfolder names files relative to it: `casos/a.md` for `C:\proj\.routines\r\casos\a.md`, which
+ * misses under the Chat's folder. A Windows path matches with either slash and in any case, as Windows does.
+ */
+export function touchedFileMatches(relative: string, files: readonly string[]): string[] {
+  const tail = relative.replace(/\\/g, "/").replace(/^(\.\/)+/, "");
+  if (!tail || tail.startsWith("/") || WINDOWS_PATH.test(tail) || tail.split("/").includes("..")) return [];
+  const matches: string[] = [];
+  for (let index = files.length - 1; index >= 0; index--) {
+    const file = files[index]!;
+    const windows = WINDOWS_PATH.test(file);
+    if (!windows && !file.startsWith("/")) continue;
+    const found = windows ? file.replace(/\\/g, "/").toLowerCase().endsWith(`/${tail.toLowerCase()}`) : file.endsWith(`/${tail}`);
+    if (found && !matches.includes(file)) matches.push(file);
+  }
+  return matches;
+}
+
+type OpenResult = { ok: true } | { ok: false; error: { message: string } };
+
+/**
+ * Opens `path`, then each of `fallbacks` while opening fails. Resolves to null once one opens, or to the first failure's
+ * message, the one about the path the reply named.
+ */
+export async function openFirstFound(open: (path: string) => Promise<OpenResult>, path: string, fallbacks: readonly string[]): Promise<string | null> {
+  const first = await open(path);
+  if (first.ok) return null;
+  for (const fallback of fallbacks) if ((await open(fallback)).ok) return null;
+  return first.error.message;
+}

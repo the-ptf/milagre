@@ -1,6 +1,7 @@
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { useSyncExternalStore } from "react";
 import type { EditorInfo } from "../model";
+import { openFirstFound } from "./file-links";
 import { showNotice } from "./notice";
 import { getSettings, useSettings } from "./settings";
 
@@ -35,11 +36,18 @@ export function useEditors(): { editors: EditorInfo[] | null; editor: EditorInfo
   return { editors, editor: editors ? pickEditor(editors, editorId) : undefined };
 }
 
-/** Opens a file (or, with no path, the folder) in the chosen editor; a failure shows as a small notice. */
-export async function openInEditor(root: string, target: { path?: string; line?: number } = {}) {
+/**
+ * Opens a file (or, with no path, the folder) in the chosen editor; a failure shows as a small notice. When the path
+ * isn't there, each of `fallbacks` (files the Chat worked on that end with it) is tried before the notice.
+ */
+export async function openInEditor(root: string, target: { path?: string; line?: number } = {}, fallbacks: readonly string[] = []) {
+  const editor = getSettings().editorId || undefined;
   try {
-    const result = await window.milagre.openInEditor({ root, ...target, editor: getSettings().editorId || undefined });
-    if (!result.ok) showNotice(result.error.message);
+    const failure =
+      target.path === undefined
+        ? await window.milagre.openInEditor({ root, editor }).then((result) => (result.ok ? null : result.error.message))
+        : await openFirstFound((path) => window.milagre.openInEditor({ root, path, line: target.line, editor }), target.path, fallbacks);
+    if (failure) showNotice(failure);
   } catch (error) {
     showNotice(ipcErrorMessage(error));
   }
