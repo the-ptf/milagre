@@ -8,7 +8,12 @@
 //! - **Cleared environment.** `/usr/bin/git` with only `PATH=/usr/bin:/bin`, `HOME` the isolated copy, `LC_ALL=C`, no
 //!   system or global config, `GIT_OPTIONAL_LOCKS=0`, no prompt, `GIT_DIR`/`GIT_WORK_TREE` pinned and discovery
 //!   ceiling at the copy; `core.fsmonitor=false` and `core.hooksPath=/dev/null` on the command line.
-//! - **Bounded.** 3 seconds per run (then killed), 1 MiB of output per pipe, at most [`MAX_MEMBERS`] members.
+//! - **Bounded.** 3 seconds per run and 6 for all members of a handoff (then the run's whole process group is
+//!   killed, and its pipes waited on for at most half a second, never joined blindly), 1 MiB of Git output and 2 MiB of
+//!   listed files for all members together, aliases of at most 256 bytes, at most [`MAX_MEMBERS`] members.
+//! - **No config swapped mid-run.** The `.git` folder's and its config's identity (device, inode, size, change time)
+//!   is read before the checks and again after Git ran; any difference gives no list. (A config edited and put back
+//!   to the same size within one change-time tick isn't caught.)
 //! - **Off the actor.** It runs inside the transcript job (`TranscriptJob::run`), on the runtime's blocking worker.
 //!
 //! Node's answer for anything that fails (a member not admitted, Git failing, a timeout) is no list at all
@@ -26,8 +31,18 @@ use crate::{Result, StoreError};
 
 /// The most worktree members one handoff runs Git in.
 pub const MAX_MEMBERS: usize = 16;
+/// Git's output, all members together (bytes); more is no list.
 const OUTPUT_LIMIT: usize = 1 << 20;
+/// The listed files, aliases included, all members together (bytes); more is no list.
+const LIST_LIMIT: usize = 2 << 20;
+/// The longest alias a Link member may put in front of its files (bytes); a longer one is no list.
+const MAX_ALIAS: usize = 256;
+/// One run, then its whole process group is killed.
 const TIMEOUT: Duration = Duration::from_secs(3);
+/// All members of one handoff together.
+const TOTAL_TIMEOUT: Duration = Duration::from_secs(6);
+/// How long the pipes may stay open once Git has exited or been killed.
+const DRAIN: Duration = Duration::from_millis(500);
 const GIT: &str = "/usr/bin/git";
 
 /// The worktrees the owner may run Git in, all inside one isolated copy.
@@ -85,7 +100,21 @@ impl GitGrants {
                 members
                     .iter()
                     .map(|member| {
-                        let alias = jsjson::property_key(member.get("alias"));
+                        let alias = match member.get("alias") {
+                            Some(serde_json::Value::String(alias)) if alias.len() > MAX_ALIAS => {
+                                return None
+                            }
+                            Some(serde_json::Value::String(alias)) => alias.clone(),
+                            // A number, a flag, null or none is short written as JavaScript would; a list or an
+                            // object isn't an alias any member has (no list rather than writing it out).
+                            other @ (None
+                            | Some(
+                                serde_json::Value::Null
+                                | serde_json::Value::Bool(_)
+                                | serde_json::Value::Number(_),
+                            )) => jsjson::property_key(other),
+                            Some(_) => return None,
+                        };
                         let path = member.get("worktreePath")?.as_str()?;
                         Some((Some(alias), admitted(path)?))
                     })
@@ -95,6 +124,20 @@ impl GitGrants {
             _ => Some(vec![(None, admitted(cwd?)?)]),
         }
     }
+}
+
+/// What a run's checks saw of the Git folder and its config (device, inode, size, change time): compared again
+/// after the run, so a config swapped or edited while Git ran gives no list.
+type Seen = [(u64, u64, u64, i64, i64); 2];
+
+fn seen(path: &Path) -> Option<Seen> {
+    use std::os::unix::fs::MetadataExt;
+    let of = |path: &Path| {
+        std::fs::symlink_metadata(path)
+            .ok()
+            .map(|m| (m.dev(), m.ino(), m.len(), m.ctime(), m.ctime_nsec()))
+    };
+    Some([of(&path.join(".git"))?, of(&path.join(".git/config"))?])
 }
 
 /// The admission checks, run again before each Git run.
@@ -163,17 +206,34 @@ fn check(copy: &Path, path: &Path) -> Result<()> {
 /// does; `None` when anything fails. Blocking: call it off the owner's actor.
 pub fn changed_files(copy: &Path, plan: &ChangedPlan) -> Option<Vec<String>> {
     let plan = plan.as_ref()?;
+    let started = Instant::now();
+    let mut output_left = OUTPUT_LIMIT;
+    let mut list_bytes = 0usize;
     let mut files = Vec::new();
     for (alias, folder) in plan {
+        // One budget for the whole handoff: time and output shrink as members run.
+        let time_left = TOTAL_TIMEOUT.checked_sub(started.elapsed())?.min(TIMEOUT);
+        let before = seen(folder)?;
         check(copy, folder).ok()?;
-        let output = status(copy, folder)?;
+        let output = status(copy, folder, time_left, output_left)?;
+        // The config Git read must be the one checked: anything swapped or edited meanwhile gives no list.
+        if seen(folder)? != before {
+            return None;
+        }
+        check(copy, folder).ok()?;
+        output_left -= output.len();
         for line in output.split('\n').filter(|line| !line.is_empty()) {
             let units = jsjson::to_utf16(line);
             let name = jsjson::from_utf16(&units[units.len().min(3)..]);
-            files.push(match alias {
+            let file = match alias {
                 Some(alias) => format!("{alias}/{name}"),
                 None => name,
-            });
+            };
+            list_bytes += file.len();
+            if list_bytes > LIST_LIMIT {
+                return None;
+            }
+            files.push(file);
         }
     }
     Some(files)
@@ -181,8 +241,9 @@ pub fn changed_files(copy: &Path, plan: &ChangedPlan) -> Option<Vec<String>> {
 
 /// `git status --porcelain` in `folder`, hardened (see the module docs); its output read as UTF-8 (U+FFFD for
 /// invalid bytes, as Node's `encoding: "utf8"`), or `None`.
-fn status(copy: &Path, folder: &Path) -> Option<String> {
-    let mut child = Command::new(GIT)
+fn status(copy: &Path, folder: &Path, timeout: Duration, limit: usize) -> Option<String> {
+    let mut command = Command::new(GIT);
+    command
         .current_dir(folder)
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
@@ -202,41 +263,90 @@ fn status(copy: &Path, folder: &Path) -> Option<String> {
             "core.hooksPath=/dev/null",
             "status",
             "--porcelain",
-        ])
+        ]);
+    let output = run_bounded(command, timeout, limit);
+    #[cfg(feature = "test-fixtures")]
+    test_hooks::run_after_git();
+    output
+}
+
+/// Runs `command` in its own process group with its pipes read on threads: `None` past `timeout` (the whole group
+/// killed), past `limit` bytes of output, on failure, or when its pipes stay open DRAIN after it exits.
+fn run_bounded(mut command: Command, timeout: Duration, limit: usize) -> Option<String> {
+    use std::os::unix::process::CommandExt;
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        // Its own process group: a timeout kills Git and anything it started.
+        .process_group(0)
         .spawn()
         .ok()?;
-    let read = |mut pipe: Box<dyn Read + Send>| {
+    let group = rustix::process::Pid::from_raw(child.id() as i32)?;
+    let read = |mut pipe: Box<dyn Read + Send>, keep: usize| {
+        let (done, result) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut bytes = Vec::new();
-            let _ = (&mut pipe)
-                .take(OUTPUT_LIMIT as u64 + 1)
-                .read_to_end(&mut bytes);
+            let _ = (&mut pipe).take(keep as u64 + 1).read_to_end(&mut bytes);
             // Whatever is left is drained (never kept), so Git can't block on a full pipe.
             let _ = std::io::copy(&mut pipe, &mut std::io::sink());
-            bytes
-        })
+            let _ = done.send(bytes);
+        });
+        result
     };
-    let stdout = read(Box::new(child.stdout.take()?));
-    let stderr = read(Box::new(child.stderr.take()?));
+    let stdout = read(Box::new(child.stdout.take()?), limit);
+    let stderr = read(Box::new(child.stderr.take()?), 64 * 1024);
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
-            Ok(None) if started.elapsed() < TIMEOUT => std::thread::sleep(Duration::from_millis(5)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
+            Ok(None) if started.elapsed() < timeout => std::thread::sleep(Duration::from_millis(5)),
+            _ => break None,
         }
     };
-    let out = stdout.join().ok()?;
-    let _ = stderr.join();
-    if !status?.success() || out.len() > OUTPUT_LIMIT {
+    if status.is_none() {
+        // Timed out: Git isn't reaped yet, so its group id is still its own; the whole group goes, then Git is reaped.
+        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    // A descendant left holding a pipe can't hold the run: the readers are waited on for DRAIN at most, never joined.
+    let out = stdout.recv_timeout(DRAIN).ok()?;
+    let _ = stderr.recv_timeout(DRAIN);
+    if !status?.success() || out.len() > limit {
         return None;
     }
     Some(String::from_utf8_lossy(&out).into_owned())
+}
+
+/// Test hooks: the bounded runner on any command, and a closure run right after Git (to change the config mid-run).
+#[cfg(feature = "test-fixtures")]
+pub mod test_hooks {
+    use std::cell::RefCell;
+    use std::time::Duration;
+
+    thread_local! {
+        static AFTER_GIT: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    }
+
+    pub fn after_git(hook: impl FnOnce() + 'static) {
+        AFTER_GIT.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+    }
+
+    pub(super) fn run_after_git() {
+        if let Some(hook) = AFTER_GIT.with(|slot| slot.borrow_mut().take()) {
+            hook();
+        }
+    }
+
+    pub fn run_bounded(
+        program: &str,
+        args: &[&str],
+        timeout: Duration,
+        limit: usize,
+    ) -> Option<String> {
+        let mut command = std::process::Command::new(program);
+        command.args(args);
+        super::run_bounded(command, timeout, limit)
+    }
 }

@@ -229,3 +229,103 @@ fn the_minimal_brief_lists_the_admitted_worktrees_changes() {
     );
     assert!(prompt.contains("- edited.txt"), "{prompt}");
 }
+
+/// The bounded runner: a run past its time is killed with everything it started; a descendant left holding a pipe
+/// after the run exits can't hold it longer than the drain wait; output past the cap is no output.
+#[test]
+fn runs_are_bounded_in_time_descendants_and_output() {
+    use milagre_owner_store::changed_files::test_hooks::run_bounded;
+    use std::time::{Duration, Instant};
+    let base = tempfile::tempdir().unwrap();
+    let pidfile = base.path().join("child.pid");
+    // Timed out: the background descendant dies with the group.
+    let started = Instant::now();
+    let script = format!("sleep 30 & echo $! > {}; wait", pidfile.display());
+    assert!(run_bounded(
+        "/bin/sh",
+        &["-c", &script],
+        Duration::from_millis(300),
+        1024
+    )
+    .is_none());
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    let pid: i32 = std::fs::read_to_string(&pidfile)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    // SAFETY: signal 0 only checks the process exists.
+    assert!(
+        unsafe { libc::kill(pid, 0) } != 0,
+        "a descendant outlived the timeout"
+    );
+    // Exited, but a detached descendant keeps stdout open: no output, and no 30 s wait.
+    let started = Instant::now();
+    assert!(run_bounded(
+        "/bin/sh",
+        &["-c", "(sleep 30 &); echo hi"],
+        Duration::from_secs(2),
+        1024
+    )
+    .is_none());
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    // Too much output: no output.
+    assert!(run_bounded(
+        "/bin/sh",
+        &["-c", "head -c 4096 /dev/zero"],
+        Duration::from_secs(2),
+        1024
+    )
+    .is_none());
+    assert_eq!(
+        run_bounded("/bin/sh", &["-c", "echo ok"], Duration::from_secs(2), 1024).as_deref(),
+        Some("ok\n")
+    );
+}
+
+/// A config edited while Git ran gives no list; an alias over 256 bytes or that isn't text-like gives no list.
+#[test]
+fn a_config_changed_mid_run_or_an_odd_alias_gives_no_list() {
+    use milagre_owner_store::changed_files::test_hooks::after_git;
+    let Some((_base, copy)) = setup() else { return };
+    let repo = repository(&copy, "repo");
+    let mut grants = GitGrants::new(&copy);
+    grants.admit(&repo).unwrap();
+    let plan = grants.plan(Some(&repo.display().to_string()), None);
+    let config = repo.join(".git/config");
+    after_git(move || {
+        let mut text = std::fs::read_to_string(&config).unwrap();
+        text.push_str("[user]\n\tname = changed\n");
+        std::fs::write(&config, text).unwrap();
+    });
+    assert!(
+        changed_files(&copy, &plan).is_none(),
+        "a config changed mid-run was read as checked"
+    );
+    assert!(changed_files(&copy, &plan).is_some());
+    let path = repo.display().to_string();
+    assert!(grants
+        .plan(
+            None,
+            Some(&json!([{ "alias": "a".repeat(257), "worktreePath": path }]))
+        )
+        .is_none());
+    assert!(grants
+        .plan(
+            None,
+            Some(&json!([{ "alias": ["x"], "worktreePath": path }]))
+        )
+        .is_none());
+    assert!(grants
+        .plan(None, Some(&json!([{ "alias": 7, "worktreePath": path }])))
+        .is_some());
+}

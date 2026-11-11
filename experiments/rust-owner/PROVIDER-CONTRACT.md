@@ -213,8 +213,10 @@ agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the n
   job (off the actor) only in worktrees the runtime admitted with `ChatHost::admit_worktree` (canonical, inside the
   isolated copy, a `.git` folder of its own, no `commondir`, no `include`/`worktree`/`fsmonitor` config; checked again
   at each run), with `/usr/bin/git`, a cleared environment (no system or global config, `GIT_OPTIONAL_LOCKS=0`, no
-  prompt, `GIT_DIR`/`GIT_WORK_TREE` pinned, discovery ceiling at the copy, hooks and fsmonitor off), 3 s and 1 MiB per
-  pipe. Anything not admitted or failing gives no list, as Node's `changedFiles().catch(() => [])`. Lines are read as
+  prompt, `GIT_DIR`/`GIT_WORK_TREE` pinned, discovery ceiling at the copy, hooks and fsmonitor off), in its own process
+  group (killed whole on timeout; pipes waited on 500 ms at most), 3 s per run and 6 s per handoff, 1 MiB of Git output
+  and 2 MiB of listed files per handoff, aliases up to 256 bytes; the `.git` folder and config identity is compared
+  before and after the run. Anything not admitted or failing gives no list, as Node's `changedFiles().catch(() => [])`. Lines are read as
   Node reads them (`line.slice(3)`, the alias in front for a Link member); Git's own defaults apply where Node would
   use the person's Git config (`core.quotePath`). Admission is a new runtime API: coordinate before the runtime calls
   it.
