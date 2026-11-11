@@ -561,12 +561,23 @@ pub fn inbox_state(db: &ChatDb, state: &ProjectState) -> Result<Value> {
                 && message.get("role").and_then(Value::as_str) == Some("assistant")
         });
         if let Some(message) = last {
+            // `body?.slice(0, 240) ?? ""`: text is cut at 240 UTF-16 units, a list keeps its first 240 items (Array
+            // slice), none is "", and anything else makes Node throw, so the whole call fails the same way (the unread
+            // outcome is what selects the Chat, so one malformed reply fails the inbox, as in Node).
             let body = match message.get("body") {
                 Some(Value::String(body)) => {
                     let units = jsjson::to_utf16(body);
                     Value::String(jsjson::from_utf16(&units[..units.len().min(240)]))
                 }
-                _ => Value::String(String::new()),
+                None | Some(Value::Null) => Value::String(String::new()),
+                Some(Value::Array(items)) => {
+                    Value::Array(items.iter().take(240).cloned().collect())
+                }
+                Some(_) => {
+                    return Err(crate::StoreError::Invalid(
+                        "body?.slice is not a function".into(),
+                    ));
+                }
             };
             let mut preview = Map::new();
             preview.insert(

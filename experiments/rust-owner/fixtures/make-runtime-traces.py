@@ -69,6 +69,36 @@ T.append({"name": "lazy-lifecycle", "start": START, "seed": lazy_seed, "steps": 
     {"op": "inboxValue"}, {"op": "search", "query": "parser"}, {"op": "sendStatus", "id": "cm-6"},
     {"op": "snapshot"},
     {"op": "crash"}, {"op": "open"}, {"op": "search", "query": "parser"}, {"op": "allMessages", "marks": True}, {"op": "snapshot"}]})
+# Inbox previews of unread outcomes over malformed bodies, as message-store.cjs inboxState reads them: a list body is
+# cut by Array slice (240 items), a missing one is "", and an object one makes Node throw (the whole read fails);
+# once that Chat is unloaded its preview comes from chats.db as text and the read works again.
+inbox_seed = {
+    "next_id": 20,
+    "sessions": {
+        "1": {"id": 1, "title": "List", "unread": True},
+        "2": {"id": 2, "title": "None", "unread": True},
+        "3": {"id": 3, "title": "Object", "unread": True},
+    },
+    "messages": [
+        m(1, 1, "user", "List body", clientMessageId="ib-1"),
+        {"id": 2, "session_id": 1, "role": "assistant", "body": list(range(300)), "outcome": "completed"},
+        m(3, 2, "user", "No body", clientMessageId="ib-3"),
+        {"id": 4, "session_id": 2, "role": "assistant", "outcome": "failed"},
+        m(5, 3, "user", "Object body", clientMessageId="ib-5"),
+        m(6, 3, "assistant", "fine so far", outcome="completed"),
+    ],
+}
+T.append({"name": "inbox-malformed-bodies", "start": START, "seed": inbox_seed, "steps": [
+    {"op": "open"},
+    {"op": "update", "chats": [1, 2, 3], "change": {"kind": "append", "messages": [m(7, 1, "user", "touch", clientMessageId="ib-7")]}},
+    {"op": "inboxValue"},
+    {"op": "update", "chats": [3], "change": {"kind": "append", "messages": [
+        {"id": 8, "session_id": 3, "role": "assistant", "body": {"structured": True, "n": 1}, "outcome": "completed"}]}},
+    {"op": "inboxValue"},
+    {"op": "advance", "ms": 300},
+    {"op": "advance", "ms": 11 * 60 * 1000},
+    {"op": "inboxValue"},
+    {"op": "snapshot"}]})
 T.append({"name": "failures-and-retry", "start": START, "seed": seed, "steps": [
     {"op": "open"},
     {"op": "update", "chats": [1], "change": {"kind": "append", "messages": [m(12, 1, "user", "Will fail to save", clientMessageId="cm-12")]}},
