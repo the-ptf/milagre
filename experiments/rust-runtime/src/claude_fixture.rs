@@ -34,6 +34,7 @@ pub enum Scenario {
     Crash,
     HangInitialize,
     QuestionDelayedReceipt,
+    AnswerSaturation,
     Subagent,
     Unicode,
     Content,
@@ -819,8 +820,8 @@ impl Worker {
              },
              reply=answers.recv(), if replies.len()<8=>if let Some(mut reply)=reply{
               if reply.turn!=latest{drop(reply);continue;}
-              let session=session.clone();let delayed=matches!(self.scenario,Scenario::QuestionDelayedReceipt);
-              replies.spawn(async move{reply.guard.entered=true;let accepted=match reply.answer{Answer::Permission(decision)=>session.respond_to_permission(&reply.request,&decision),Answer::Question(value)=>session.answer_question(&reply.request,value.as_object())};if accepted&&delayed{tokio::time::sleep(Duration::from_millis(400)).await;}reply.guard.settle(if accepted{AnswerOutcome::Accepted}else{AnswerOutcome::NotWaiting});});
+              let session=session.clone();let delay=match self.scenario{Scenario::QuestionDelayedReceipt=>400,Scenario::AnswerSaturation=>10000,_=>0};
+              replies.spawn(async move{reply.guard.entered=true;let accepted=match reply.answer{Answer::Permission(decision)=>session.respond_to_permission(&reply.request,&decision),Answer::Question(value)=>session.answer_question(&reply.request,value.as_object())};if accepted&&delay>0{tokio::time::sleep(Duration::from_millis(delay)).await;}reply.guard.settle(if accepted{AnswerOutcome::Accepted}else{AnswerOutcome::NotWaiting});});
               self.shared.peak_reply_tasks.fetch_max(replies.len(),Ordering::AcqRel);
              },
              _=replies.join_next(),if !replies.is_empty()=>{},
@@ -883,6 +884,19 @@ fn script_for(scenario: Scenario, queue_release: &Path) -> Value {
         match scenario {
    Scenario::Permission=>steps.extend([json!({"request":{"id":"p1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo fixture"}}}}),json!({"expect":{"type":"control_response","fields":{"/response/request_id":"p1"}}})]),
    Scenario::Question|Scenario::QuestionDelayedReceipt|Scenario::Unicode=>steps.extend([json!({"request":{"id":"q1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A","description":"First"},{"label":"B","description":"Second"}]}]}}}}),json!({"expect":{"type":"control_response","fields":{"/response/request_id":"q1"}}})]),
+   Scenario::AnswerSaturation => {
+    let mut expected = Vec::new();
+    for id in 0..8 {
+     let id = format!("q{id}");
+     steps.push(json!({"request":{"id":id,"request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A","description":"First"},{"label":"B","description":"Second"}]}]}}}}));
+     expected.push(json!({"/type":"control_response","/response/request_id":id}));
+    }
+    expected.push(json!({"/type":"control_request","/request/subtype":"interrupt"}));
+    steps.push(json!({"expect_pair":expected}));
+    steps.push(json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Eight answers and Stop received"}}}}));
+    steps.push(json!({"wait_eof":true}));
+    break;
+   },
    Scenario::Design => { steps.extend(design_steps()); },
    Scenario::Queue => { if turn==0 {steps.push(json!({"wait_file":queue_release}));} },
    Scenario::Content => {

@@ -380,3 +380,81 @@ fn repeated_answer_bursts_keep_task_retention_bounded_and_settle_every_admission
     p.shutdown();
     assert!(monitor.wait_stopped(Duration::from_secs(3)));
 }
+
+#[test]
+fn stop_with_eight_entered_and_eight_queued_answers_settles_once_without_blocking() {
+    let mut p = ClaudeFixture::create(Scenario::AnswerSaturation).unwrap();
+    let monitor = p.monitor();
+    p.start_turn(TurnId(1), &RawJson(request(&p))).unwrap();
+    collect(&mut p, |events| {
+        events.iter().filter(|e| matches!(e,
+        ProviderEvent::Agent { event: RawJson(v), .. } if v["type"] == "question-request"
+    )).count() == 8
+    });
+    for id in 0..8 {
+        p.answer_question(
+            "fixture",
+            TurnId(1),
+            AnswerId(id),
+            &format!("q{id}"),
+            &RawJson(json!({"0":["A"]})),
+        )
+        .unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while monitor.peak_reply_tasks() != 8 {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    for id in 8..16 {
+        p.answer_question(
+            "fixture",
+            TurnId(1),
+            AnswerId(id),
+            "unmatched",
+            &RawJson(json!({})),
+        )
+        .unwrap();
+    }
+    assert!(p
+        .answer_question(
+            "fixture",
+            TurnId(1),
+            AnswerId(16),
+            "unmatched",
+            &RawJson(json!({}))
+        )
+        .is_err());
+    let start = Instant::now();
+    p.interrupt("fixture", TurnId(1)).unwrap();
+    assert!(start.elapsed() < Duration::from_millis(50));
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+    let events = p.take_events();
+    assert_eq!(events.iter().filter(|e| terminal(e)).count(), 1);
+    assert!(events.iter().any(|e| matches!(e, ProviderEvent::Agent { event: RawJson(v), .. } if v["text"] == "Eight answers and Stop received")));
+    let mut settled = std::collections::HashSet::new();
+    for event in events {
+        if let ProviderEvent::AnswerSettled {
+            answer, outcome, ..
+        } = event
+        {
+            assert!(settled.insert(answer.0));
+            if answer.0 < 8 {
+                assert!(
+                    matches!(outcome, AnswerOutcome::Uncertain(_)),
+                    "{outcome:?}"
+                );
+            } else {
+                assert!(matches!(outcome, AnswerOutcome::Failed(_)), "{outcome:?}");
+            }
+        }
+    }
+    assert_eq!(settled, (0..16).collect());
+    assert_eq!(monitor.peak_reply_tasks(), 8);
+    let pid = monitor.pid("fixture").unwrap();
+    assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ESRCH)
+    );
+}
