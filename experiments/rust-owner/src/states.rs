@@ -149,6 +149,11 @@ impl ProjectStates {
         self.stranded.take()
     }
 
+    /// The isolated copy these states write in.
+    pub fn isolation(&self) -> &Isolation {
+        &self.isolation
+    }
+
     /// Node's saveProjectState sweep age (a minute); tests that save from a fixed clock may shorten it.
     pub fn set_sweep_min_age(&mut self, age: Duration) {
         self.sweep_min_age = age;

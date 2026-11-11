@@ -45,6 +45,9 @@ use crate::error::{Result, StoreError};
 use crate::jsjson::{self, RawJson};
 use crate::message_store::{Msg, MsgRef, ProjectState};
 use crate::states::ProjectStates;
+use crate::transcripts::{
+    JobId, JobOutcome, StagedTranscript, TranscriptInput, TranscriptJob, TranscriptJobs,
+};
 
 /// What each provider can do (shared/provider-capabilities.mjs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -100,6 +103,42 @@ impl ProviderError {
             message: message.into(),
         }
     }
+}
+
+/// A handoff being prepared in a Chat (restore only; see HANDOFF-PROPOSAL.md).
+#[derive(Debug)]
+struct Preparing {
+    /// The turn reserved when the handoff was staged: its generation. Nothing of another turn touches it.
+    turn: TurnId,
+    project: PathBuf,
+    /// The transcript once committed, and what the brief's model is to read.
+    transcript: Option<PathBuf>,
+    brief_transcript: Option<String>,
+}
+
+/// A transcript job out: whose it is, whether its handoff was cancelled (its result is then only cleaned up), and a
+/// temporary file still to remove.
+struct JobSlot {
+    project: PathBuf,
+    chat: String,
+    turn: TurnId,
+    cancelled: bool,
+    cleanup: Option<StagedTranscript>,
+    /// A cleanup failure was told (once per job).
+    told: bool,
+}
+
+/// Where a quit stands (see [`ChatHost::shutdown`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuitState {
+    /// No quit began, or it was refused.
+    Running,
+    /// The quit waits on transcript jobs still out or on temporary files still to remove: every lock is held.
+    JobsPending { jobs: usize, cleanups: usize },
+    /// The providers are shut down and every job is done, but the final save and close failed: call `shutdown` again.
+    ClosePending,
+    /// The quit finished: jobs and cleanups done, states saved and closed, locks released.
+    Done,
 }
 
 /// What a provider tells the host, taken with [`Provider::take_events`] or handed to [`ChatHost::deliver`].
@@ -698,6 +737,13 @@ pub struct ChatHost {
     pub interrupt_grace_ms: i64,
     /// Events a bounded pump left for the next one.
     held_events: Vec<ProviderEvent>,
+    /// Handoffs being prepared, by Chat: the turn reserved for each (its generation) and what is ready so far.
+    preparing: HashMap<String, Preparing>,
+    /// The transcript jobs (opened on first use) and the ones not yet taken by the runtime.
+    transcripts: Option<TranscriptJobs>,
+    ready_jobs: std::collections::VecDeque<TranscriptJob>,
+    /// Every job out, from its reservation until its outcome is handled and anything it left is gone.
+    job_slots: BTreeMap<JobId, JobSlot>,
     /// Notices dropped because nobody took them (the oldest go first past `MAX_NOTICES`).
     dropped_notices: u64,
     next_answer: u64,
@@ -751,6 +797,10 @@ impl ChatHost {
             deadlines: HashMap::new(),
             interrupt_grace_ms: INTERRUPT_GRACE_MS,
             held_events: Vec::new(),
+            preparing: HashMap::new(),
+            transcripts: None,
+            ready_jobs: std::collections::VecDeque::new(),
+            job_slots: BTreeMap::new(),
             dropped_notices: 0,
             next_answer: 0,
             pending_answers: BTreeMap::new(),
@@ -886,6 +936,8 @@ impl ChatHost {
             .keys()
             .chain(self.starting.keys())
             .chain(self.stuck.keys())
+            .chain(self.preparing.keys())
+            .chain(self.job_slots.values().map(|slot| &slot.chat))
             .cloned()
             .collect();
         for chat in now.symmetric_difference(&self.busy) {
@@ -1702,6 +1754,7 @@ impl ChatHost {
     /// (a turn end can start a queued message, whose start answers with more events). Returns what was refused or
     /// failed; each is also left as it was (a refused event folds nothing).
     pub fn pump(&mut self) -> Vec<StoreError> {
+        self.drive_jobs(false);
         let mut errors = self.retry_stuck();
         for round in 0.. {
             // What a bounded pump left comes first, whether or not a provider sent more since.
@@ -1737,6 +1790,8 @@ impl ChatHost {
             self.states.advance(now);
         }
         let mut errors = self.pump();
+        // Job outcomes and temporary files still to remove: handled while a quit or a forget waits on them too.
+        self.drive_jobs(true);
         let overdue: Vec<(String, TurnId)> = self
             .deadlines
             .iter()
@@ -2561,6 +2616,7 @@ impl ChatHost {
             .chain(self.starting.keys())
             .chain(self.stuck.keys())
             .chain(self.active.keys())
+            .chain(self.preparing.keys())
             .filter(|chat| in_project(chat))
             .cloned()
             .collect::<HashSet<_>>()
@@ -2587,13 +2643,342 @@ impl ChatHost {
             self.stuck.remove(chat);
             self.runs.shift_remove(chat);
         }
+        self.cancel_preparations(Some(&key));
+        self.drive_jobs(true);
         self.sync_busy();
         self.close_sessions(&key);
         self.release_waiters(Some(&key));
+        if self.jobs_out(Some(&key)) > 0 {
+            // The Project stays open, locked and closing (no send taken) until its jobs report back and their files
+            // are gone; `forget` again then finishes.
+            return Err(self.quit_pending("Closing this Project"));
+        }
         let closed = self.states.forget(&key);
         self.closing.remove(&key);
         self.deferred.retain(|(chat, _)| !in_project(chat));
         closed
+    }
+
+    // ---- handoff transcript jobs ----------------------------------------------------------------------------
+
+    /// The transcript jobs to run, each handed over once (a job can't be cloned): run each with
+    /// [`TranscriptJob::run`] on a blocking worker. A job reports its own outcome to the host, also when it is dropped
+    /// unrun, panics or its worker is cancelled; `pump` and `tick` take it from there. Callable at any time, while
+    /// quitting or closing a Project too.
+    pub fn take_jobs(&mut self) -> Vec<TranscriptJob> {
+        self.ready_jobs.drain(..).collect()
+    }
+
+    /// Where a quit stands: `Done` only once every job's outcome is handled, every temporary file it left is removed,
+    /// and the states are saved and closed.
+    pub fn quit_state(&self) -> QuitState {
+        if self.closed {
+            return QuitState::Done;
+        }
+        if !self.quitting {
+            return QuitState::Running;
+        }
+        if !self.job_slots.is_empty() {
+            let cleanups = self
+                .job_slots
+                .values()
+                .filter(|slot| slot.cleanup.is_some())
+                .count();
+            return QuitState::JobsPending {
+                jobs: self.job_slots.len() - cleanups,
+                cleanups,
+            };
+        }
+        if self.providers_shut_down {
+            QuitState::ClosePending
+        } else {
+            QuitState::Running
+        }
+    }
+
+    #[cfg_attr(not(feature = "test-fixtures"), allow(dead_code))]
+    /// Refused with `TRANSCRIPTS_AT_CAPACITY` when every job reservation is taken: checked before a handoff stages
+    /// anything.
+    fn transcript_capacity(&self) -> Result<()> {
+        if self.job_slots.len() >= crate::transcripts::MAX_TRANSCRIPT_JOBS {
+            return Err(StoreError::TranscriptsAtCapacity(format!(
+                "{} handoffs are being prepared; try again once one has started.",
+                crate::transcripts::MAX_TRANSCRIPT_JOBS
+            )));
+        }
+        Ok(())
+    }
+
+    /// Reserves the transcript job of the handoff `chat` prepares for `turn`, ready for `take_jobs`.
+    #[cfg_attr(not(feature = "test-fixtures"), allow(dead_code))]
+    fn reserve_transcript(
+        &mut self,
+        project: &Path,
+        chat: &str,
+        turn: TurnId,
+        input: TranscriptInput,
+    ) -> Result<JobId> {
+        self.transcript_capacity()?;
+        if self.transcripts.is_none() {
+            self.transcripts = Some(TranscriptJobs::new(self.states.isolation())?);
+        }
+        let job = self
+            .transcripts
+            .as_mut()
+            .expect("opened above")
+            .job(project, input)?;
+        let id = job.id();
+        self.job_slots.insert(
+            id,
+            JobSlot {
+                project: project.to_path_buf(),
+                chat: chat.to_string(),
+                turn,
+                cancelled: false,
+                cleanup: None,
+                told: false,
+            },
+        );
+        self.ready_jobs.push_back(job);
+        self.sync_busy();
+        Ok(id)
+    }
+
+    /// Handles the job outcomes reported since the last call; with `retry_cleanups` (only `tick` and `shutdown`), also
+    /// tries once more to remove each temporary file a job left. That is the only retry, and it only ever unlinks the
+    /// job's own temporary name through the folder it holds: at most one try per job per call.
+    fn drive_jobs(&mut self, retry_cleanups: bool) {
+        let outcomes = match &self.transcripts {
+            Some(jobs) => jobs.take_outcomes(),
+            None => return,
+        };
+        for outcome in outcomes {
+            self.job_outcome(outcome);
+        }
+        if retry_cleanups {
+            let waiting: Vec<JobId> = self
+                .job_slots
+                .iter()
+                .filter(|(_, slot)| slot.cleanup.is_some())
+                .map(|(id, _)| *id)
+                .collect();
+            for id in waiting {
+                if let Some(staged) = self
+                    .job_slots
+                    .get_mut(&id)
+                    .and_then(|slot| slot.cleanup.take())
+                {
+                    self.clean_up(id, staged);
+                }
+            }
+        }
+    }
+
+    fn job_outcome(&mut self, outcome: JobOutcome) {
+        let id = outcome.id();
+        let Some(slot) = self.job_slots.get(&id) else {
+            // Each job reports once and its slot lives until then: nothing else can report.
+            return;
+        };
+        let (chat, turn, project) = (slot.chat.clone(), slot.turn, slot.project.clone());
+        let current = !slot.cancelled
+            && !self.quitting
+            && !self.closing.contains(&project)
+            && self
+                .preparing
+                .get(&chat)
+                .is_some_and(|preparing| preparing.turn == turn);
+        match outcome {
+            JobOutcome::Staged {
+                staged,
+                brief_transcript,
+            } if current => {
+                // The generation and the Project are checked here, on the actor, right before the one rename.
+                match self
+                    .states
+                    .assert_owned(&project)
+                    .and_then(|()| staged.commit())
+                {
+                    Ok(path) => {
+                        self.end_job(id);
+                        self.transcript_ready(&chat, turn, path, brief_transcript);
+                    }
+                    Err(error) => {
+                        // It may be renamed already: never renamed, rendered or written again. The handoff ends.
+                        self.clean_up(id, staged);
+                        self.abandon_preparation(
+                            &chat,
+                            turn,
+                            &format!("The handoff transcript couldn't be saved: {error}"),
+                        );
+                    }
+                }
+            }
+            JobOutcome::Staged { staged, .. } => self.clean_up(id, staged),
+            JobOutcome::Failed {
+                error, leftover, ..
+            } => {
+                match leftover {
+                    Some(staged) => self.clean_up(id, staged),
+                    None => self.end_job(id),
+                }
+                if current {
+                    self.abandon_preparation(
+                        &chat,
+                        turn,
+                        &format!("The handoff transcript couldn't be written: {error}"),
+                    );
+                }
+            }
+            JobOutcome::Unknown { leftover, .. } => {
+                match leftover {
+                    Some(staged) => self.clean_up(id, staged),
+                    None => self.end_job(id),
+                }
+                if current {
+                    self.abandon_preparation(
+                        &chat,
+                        turn,
+                        "The handoff transcript job stopped before it finished.",
+                    );
+                }
+            }
+        }
+    }
+
+    /// Removes a temporary file a job left (through its held folder). The job's reservation ends once it is gone; a
+    /// failure keeps it (and its Project held) for the next try, told once.
+    fn clean_up(&mut self, id: JobId, staged: StagedTranscript) {
+        match staged.discard() {
+            Ok(()) => self.end_job(id),
+            Err(error) => {
+                let Some(slot) = self.job_slots.get_mut(&id) else {
+                    return;
+                };
+                slot.cleanup = Some(staged);
+                if !slot.told {
+                    slot.told = true;
+                    let chat = slot.chat.clone();
+                    self.notice(Notice::Failed {
+                        chat,
+                        what:
+                            "removing a handoff's temporary transcript (tried again on each tick)"
+                                .into(),
+                        error: error.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    fn end_job(&mut self, id: JobId) {
+        self.job_slots.remove(&id);
+        if let Some(jobs) = &mut self.transcripts {
+            jobs.finish(id);
+        }
+        self.sync_busy();
+    }
+
+    /// The handoff's transcript is in place: what its brief reads is kept for the next step.
+    fn transcript_ready(
+        &mut self,
+        chat: &str,
+        turn: TurnId,
+        path: PathBuf,
+        brief_transcript: String,
+    ) {
+        if let Some(preparing) = self.preparing.get_mut(chat).filter(|p| p.turn == turn) {
+            preparing.transcript = Some(path);
+            preparing.brief_transcript = Some(brief_transcript);
+        }
+    }
+
+    /// A handoff of `turn` that won't start: forgotten, and told. Nothing of it is retried.
+    fn abandon_preparation(&mut self, chat: &str, turn: TurnId, why: &str) {
+        if self.preparing.get(chat).is_some_and(|p| p.turn == turn) {
+            self.preparing.remove(chat);
+            self.sync_busy();
+            self.notice(Notice::Failed {
+                chat: chat.to_string(),
+                what: "preparing the handoff".into(),
+                error: why.to_string(),
+            });
+        }
+    }
+
+    /// Stops the handoffs being prepared (all, or one Project's): their jobs' results will only be cleaned up, and
+    /// jobs not yet taken are dropped (each reports `Unknown`, nothing written).
+    fn cancel_preparations(&mut self, project: Option<&Path>) {
+        let in_scope = |path: &Path| project.is_none_or(|key| key == path);
+        for slot in self.job_slots.values_mut() {
+            if in_scope(&slot.project) {
+                slot.cancelled = true;
+            }
+        }
+        let cancelled: HashSet<JobId> = self
+            .job_slots
+            .iter()
+            .filter(|(_, slot)| slot.cancelled)
+            .map(|(id, _)| *id)
+            .collect();
+        self.ready_jobs.retain(|job| !cancelled.contains(&job.id()));
+        self.preparing
+            .retain(|_, preparing| !in_scope(&preparing.project));
+        self.sync_busy();
+    }
+
+    /// Jobs or cleanups still out for `project` (all Projects with `None`).
+    fn jobs_out(&self, project: Option<&Path>) -> usize {
+        self.job_slots
+            .values()
+            .filter(|slot| project.is_none_or(|key| key == slot.project))
+            .count()
+    }
+
+    fn quit_pending(&self, what: &str) -> StoreError {
+        let QuitState::JobsPending { jobs, cleanups } = self.quit_state() else {
+            return StoreError::QuitPending(format!(
+                "{what} waits on {} handoff transcript jobs.",
+                self.jobs_out(None)
+            ));
+        };
+        StoreError::QuitPending(format!(
+            "{what} waits on {jobs} handoff transcript jobs and {cleanups} temporary files; every lock is held. Call it again once they report back."
+        ))
+    }
+
+    /// Tests only: prepares a handoff's transcript in `chat` with a new turn, as staging a restore will.
+    #[cfg(feature = "test-fixtures")]
+    pub fn test_prepare_transcript(
+        &mut self,
+        project: &Path,
+        chat: &str,
+        input: TranscriptInput,
+    ) -> Result<(TurnId, JobId)> {
+        self.next_turn += 1;
+        let turn = TurnId(self.next_turn);
+        self.preparing.insert(
+            chat.to_string(),
+            Preparing {
+                turn,
+                project: project.to_path_buf(),
+                transcript: None,
+                brief_transcript: None,
+            },
+        );
+        let job = self.reserve_transcript(project, chat, turn, input)?;
+        Ok((turn, job))
+    }
+
+    /// Tests only: the handoff being prepared in `chat`: its turn, its committed transcript and what the brief reads.
+    #[cfg(feature = "test-fixtures")]
+    pub fn test_preparation(
+        &self,
+        chat: &str,
+    ) -> Option<(TurnId, Option<PathBuf>, Option<String>)> {
+        self.preparing
+            .get(chat)
+            .map(|p| (p.turn, p.transcript.clone(), p.brief_transcript.clone()))
     }
 
     /// Senders still waiting on a queued message's start (or a start in flight) hear `null` (Node's "Milagre
@@ -2657,6 +3042,10 @@ impl ChatHost {
     /// it only retries the save and the close, and the quit is complete once it returns `Ok`.
     pub fn shutdown(&mut self, force: bool) -> Result<()> {
         if self.providers_shut_down {
+            self.drive_jobs(true);
+            if !self.job_slots.is_empty() {
+                return Err(self.quit_pending("The quit"));
+            }
             let closed = self.states.close();
             // A release refused during the close leaves its lock on disk: told before returning, so a host that quits
             // now still hears it with one last take of the notices.
@@ -2679,6 +3068,7 @@ impl ChatHost {
             .active
             .keys()
             .chain(self.stuck.keys())
+            .chain(self.preparing.keys())
             .cloned()
             .collect::<HashSet<_>>()
             .into_iter()
@@ -2726,7 +3116,14 @@ impl ChatHost {
         }
         self.release_waiters(None);
         self.latest.clear();
+        // Handoffs being prepared stop; their jobs' results are only cleaned up. Until every job reported and every
+        // temporary file is gone, nothing closes and every lock stays held.
+        self.cancel_preparations(None);
+        self.drive_jobs(true);
         self.sync_busy();
+        if !self.job_slots.is_empty() {
+            return Err(self.quit_pending("The quit"));
+        }
         let closed = self.states.close();
         self.tell_stranded();
         closed?;

@@ -167,5 +167,16 @@ agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the n
   `handover::safe_brief_request`: the cut transcript's own `<transcript` / `</transcript` (whitespace around the slash,
   ASCII case-insensitive, a word boundary after) are written `&lt;…`, so a message can't end the data block for the
   model. The prompt is at most `MAX_BRIEF_PROMPT_BYTES` (256 KiB).
+- **Jobs (host API).** `ChatHost::take_jobs()` hands each `TranscriptJob` over once (callable while quitting or
+  closing); the runtime runs it with `job.run()` on a blocking worker. The job reports its own outcome to the host's
+  inbox (also when dropped unrun, panicking or cancelled); `pump` handles outcomes and `tick` also retries removing
+  temporary files a job left, once per job per tick, only through the folder the job held. A result is committed
+  only for the handoff's own turn, with the Project still owned; anything else is removed, never committed.
+- **Quit and forget.** `shutdown` stays `Result<()>`. With jobs or temporary files still out it returns
+  `QUIT_PENDING`: providers are shut down once, handoffs are cancelled, and every lock and Project is held.
+  `quit_state()` says `Running`, `JobsPending { jobs, cleanups }`, `ClosePending` or `Done`; `Done` only once every
+  job reported, every temporary file is gone and the states closed. A forced `forget` with jobs out cancels them,
+  keeps the Project open, locked and closing (no send taken) and returns `QUIT_PENDING`; `forget` again finishes once
+  they report back. A plain quit or forget is refused while a handoff is being prepared, as with a running turn.
 - **Transcripts** go to `<copy>/.owner/handovers/<sha1(project)[..12]>/<session>.md` through `transcripts::TranscriptJob`
   (bounded, owned, one outcome per job, pinned folder descriptors; see the module docs).

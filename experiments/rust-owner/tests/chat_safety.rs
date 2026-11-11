@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use milagre_owner_store::chat_host::{
     AnswerId, AnswerOutcome, AnswerResult, AnswerTicket, ChatHost, MockProvider, Notice,
-    ProviderError, ProviderErrorKind, ProviderEvent, SteeringMode, TurnId,
+    ProviderError, ProviderErrorKind, ProviderEvent, QuitState, SteeringMode, TurnId,
 };
 use milagre_owner_store::isolation::{Isolation, Policy};
 use milagre_owner_store::jsjson::{self, RawJson};
@@ -1784,4 +1784,245 @@ fn a_lock_left_by_a_replaced_root_is_told() {
     );
     std::fs::remove_file(&copy.project).unwrap();
     std::fs::rename(&moved, &copy.project).unwrap();
+}
+
+// ---- handoff transcript jobs (host plumbing) ---------------------------------------------------------------------
+
+fn transcript_input() -> milagre_owner_store::transcripts::TranscriptInput {
+    milagre_owner_store::transcripts::TranscriptInput {
+        state: json!({
+            "sessions": { "1": { "title": "T", "provider": "kiro", "worktree_id": 1 } },
+            "messages": [{ "id": 1, "session_id": 1, "role": "user", "body": "hello" }],
+        }),
+        session: 1,
+        catch_up_after: None,
+        clock: milagre_owner_store::handover::Clock {
+            zone: milagre_owner_store::handover::Zone::Utc,
+            now_ms: 0.0,
+        },
+    }
+}
+
+fn handovers(copy: &Copy) -> PathBuf {
+    copy.host.states.isolation().root().join(".owner/handovers")
+}
+
+fn files_named(dir: &Path, suffix: &str) -> usize {
+    let mut found = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&path) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                stack.push(entry.path());
+            } else if entry.file_name().to_string_lossy().ends_with(suffix) {
+                found += 1;
+            }
+        }
+    }
+    found
+}
+
+/// A job is taken once, runs off the host, reports itself, and its transcript is committed on the next pump for the
+/// handoff's own turn.
+#[test]
+fn a_transcript_job_is_taken_once_and_committed_for_its_turn() {
+    let mut copy = Copy::plain();
+    copy.host.states.get(&copy.project).unwrap();
+    let chat = copy.chat();
+    let (turn, _) = copy
+        .host
+        .test_prepare_transcript(&copy.project, &chat, transcript_input())
+        .unwrap();
+    let jobs = copy.host.take_jobs();
+    assert_eq!(jobs.len(), 1);
+    assert!(copy.host.take_jobs().is_empty(), "handed over once");
+    for job in jobs {
+        std::thread::spawn(move || job.run()).join().unwrap();
+    }
+    assert!(copy.host.pump().is_empty());
+    let (found, transcript, brief) = copy.host.test_preparation(&chat).unwrap();
+    assert_eq!(found, turn);
+    let transcript = transcript.expect("committed");
+    assert!(std::fs::read_to_string(&transcript)
+        .unwrap()
+        .contains("hello"));
+    assert!(brief.unwrap().contains("# Chat transcript: T"));
+    assert_eq!(files_named(&handovers(&copy), ".tmp"), 0);
+}
+
+/// A newer handoff in the same Chat makes the older job's result stale: it is removed, never committed.
+#[test]
+fn a_stale_transcript_is_removed_not_committed() {
+    let mut copy = Copy::plain();
+    copy.host.states.get(&copy.project).unwrap();
+    let chat = copy.chat();
+    copy.host
+        .test_prepare_transcript(&copy.project, &chat, transcript_input())
+        .unwrap();
+    let old = copy.host.take_jobs().remove(0);
+    let (turn, _) = copy
+        .host
+        .test_prepare_transcript(&copy.project, &chat, transcript_input())
+        .unwrap();
+    old.run();
+    copy.host.pump();
+    assert_eq!(
+        files_named(&handovers(&copy), ".md"),
+        0,
+        "a stale result was committed"
+    );
+    assert_eq!(files_named(&handovers(&copy), ".tmp"), 0);
+    copy.host.take_jobs().remove(0).run();
+    copy.host.pump();
+    let (found, transcript, _) = copy.host.test_preparation(&chat).unwrap();
+    assert_eq!(found, turn);
+    assert!(transcript.is_some());
+}
+
+/// A job the runtime drops (a cancelled worker) reports itself: the handoff is abandoned and told, nothing retried.
+#[test]
+fn a_dropped_job_abandons_its_handoff() {
+    let mut copy = Copy::plain();
+    copy.host.states.get(&copy.project).unwrap();
+    let chat = copy.chat();
+    copy.host
+        .test_prepare_transcript(&copy.project, &chat, transcript_input())
+        .unwrap();
+    drop(copy.host.take_jobs());
+    copy.host.take_notices();
+    copy.host.pump();
+    assert!(copy.host.test_preparation(&chat).is_none());
+    let told = copy.host.take_notices().into_iter().any(|notice| {
+        matches!(notice, Notice::Failed { what, error, .. } if what == "preparing the handoff" && error.contains("stopped before it finished"))
+    });
+    assert!(told);
+    assert!(copy.host.take_jobs().is_empty(), "nothing is run again");
+    copy.host.shutdown(false).unwrap();
+    assert_eq!(copy.host.quit_state(), QuitState::Done);
+}
+
+/// A quit with a job still out returns QUIT_PENDING with every lock held and sends refused; once the job reports
+/// back (its result only cleaned up) the next quit finishes.
+#[test]
+fn a_quit_waits_for_jobs_out_and_holds_its_locks() {
+    let mut copy = Copy::plain();
+    copy.host.states.get(&copy.project).unwrap();
+    let chat = copy.chat();
+    copy.host
+        .test_prepare_transcript(&copy.project, &chat, transcript_input())
+        .unwrap();
+    assert!(
+        copy.host.shutdown(false).is_err(),
+        "a handoff being prepared refuses a plain quit"
+    );
+    assert_eq!(copy.host.quit_state(), QuitState::Running);
+    let job = copy.host.take_jobs().remove(0);
+    let pending = copy.host.shutdown(true).unwrap_err();
+    assert_eq!(pending.code(), Some("QUIT_PENDING"), "{pending}");
+    assert_eq!(
+        copy.host.quit_state(),
+        QuitState::JobsPending {
+            jobs: 1,
+            cleanups: 0
+        }
+    );
+    assert!(ownership::project_lock(&copy.project).exists());
+    assert_eq!(copy.kiro.state.lock().unwrap().shutdowns, 1);
+    assert!(copy.send("late", "c9", json!({})).is_err());
+    assert!(copy.host.take_jobs().is_empty());
+    job.run();
+    copy.host.tick(copy.host.states.now());
+    assert_eq!(copy.host.quit_state(), QuitState::ClosePending);
+    copy.host.shutdown(true).unwrap();
+    assert_eq!(copy.host.quit_state(), QuitState::Done);
+    assert_eq!(copy.kiro.state.lock().unwrap().shutdowns, 1);
+    assert!(!ownership::project_lock(&copy.project).exists());
+    assert_eq!(files_named(&handovers(&copy), ".tmp"), 0);
+    assert_eq!(
+        files_named(&handovers(&copy), ".md"),
+        0,
+        "a cancelled handoff committed"
+    );
+}
+
+/// A temporary file that can't be removed keeps its job (and the quit) pending; each tick tries once more, and once it
+/// goes the quit finishes. The failure is told once.
+#[test]
+fn a_cleanup_that_fails_is_retried_on_tick_and_holds_the_quit() {
+    let mut copy = Copy::plain();
+    copy.host.states.get(&copy.project).unwrap();
+    let chat = copy.chat();
+    copy.host
+        .test_prepare_transcript(&copy.project, &chat, transcript_input())
+        .unwrap();
+    let job = copy.host.take_jobs().remove(0);
+    assert!(copy.host.shutdown(true).is_err());
+    job.run();
+    let folder = std::fs::read_dir(handovers(&copy))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o500)).unwrap();
+    copy.host.take_notices();
+    for _ in 0..3 {
+        copy.host.tick(copy.host.states.now());
+    }
+    let told = copy
+        .host
+        .take_notices()
+        .into_iter()
+        .filter(|notice| matches!(notice, Notice::Failed { what, .. } if what.starts_with("removing a handoff's temporary")))
+        .count();
+    assert_eq!(told, 1, "told once");
+    assert_eq!(
+        copy.host.quit_state(),
+        QuitState::JobsPending {
+            jobs: 0,
+            cleanups: 1
+        }
+    );
+    assert_eq!(
+        copy.host.shutdown(true).unwrap_err().code(),
+        Some("QUIT_PENDING")
+    );
+    assert!(ownership::project_lock(&copy.project).exists());
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).unwrap();
+    copy.host.tick(copy.host.states.now());
+    copy.host.shutdown(true).unwrap();
+    assert_eq!(copy.host.quit_state(), QuitState::Done);
+    assert_eq!(files_named(&handovers(&copy), ".tmp"), 0);
+}
+
+/// A forced forget with a job out cancels the handoff but keeps the Project open, locked and closing (no send taken)
+/// with QUIT_PENDING; once the job reports back, forgetting again finishes.
+#[test]
+fn a_forced_forget_with_a_job_out_holds_the_project_until_it_reports() {
+    let mut copy = Copy::plain();
+    copy.host.states.get(&copy.project).unwrap();
+    let chat = copy.chat();
+    copy.host
+        .test_prepare_transcript(&copy.project, &chat, transcript_input())
+        .unwrap();
+    let job = copy.host.take_jobs().remove(0);
+    assert!(copy.host.forget(&copy.project, false).is_err());
+    let pending = copy.host.forget(&copy.project, true).unwrap_err();
+    assert_eq!(pending.code(), Some("QUIT_PENDING"), "{pending}");
+    assert!(ownership::project_lock(&copy.project).exists());
+    assert!(copy.host.test_preparation(&chat).is_none());
+    let refused = copy.send("late", "c9", json!({})).unwrap_err().to_string();
+    assert!(refused.contains("closing"), "{refused}");
+    assert_eq!(
+        copy.host.forget(&copy.project, true).unwrap_err().code(),
+        Some("QUIT_PENDING")
+    );
+    job.run();
+    copy.host.tick(copy.host.states.now());
+    copy.host.forget(&copy.project, true).unwrap();
+    assert!(!ownership::project_lock(&copy.project).exists());
+    assert_eq!(files_named(&handovers(&copy), ".md"), 0);
 }
