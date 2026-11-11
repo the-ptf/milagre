@@ -395,12 +395,15 @@ async fn accepted_steer_survives_dropped_receipt_during_mode_change() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn terminal_during_steer_mode_change_starts_a_new_owned_turn() {
+    let dir = scratch("terminal-mode-barrier");
+    let barrier = dir.join("terminal-observed");
     let mut script = handshake();
     script.extend([
         json!({"expect":{"type":"user"}}),
         init(),
         json!({"expect":{"subtype":"set_permission_mode"}}),
         result(),
+        json!({"wait_file":barrier}),
         json!({"reply":{}}),
         json!({"expect":{"type":"user"}}),
         text("second"),
@@ -411,15 +414,20 @@ async fn terminal_during_steer_mode_change_starts_a_new_owned_turn() {
     until(&mut events, "session-started").await;
     let mut r = request("two");
     r.permission_mode = Some("full".into());
-    let second = session.start_turn(r).await.unwrap();
+    let (second, trace) = tokio::join!(session.start_turn(r), async {
+        let trace = until(&mut events, "turn-completed").await;
+        std::fs::write(&barrier, b"observed").unwrap();
+        trace
+    });
+    let second = second.unwrap();
     assert!(!second.steered);
     assert_ne!(first.turn_id, second.turn_id);
-    let trace = until(&mut events, "turn-completed").await;
     assert_eq!(kinds(&trace), ["turn-completed"]);
     let trace = until(&mut events, "turn-completed").await;
     assert_eq!(kinds(&trace), ["turn-started", "text-delta", "turn-completed"]);
     assert_eq!(trace[1]["messageId"], json!(second.turn_id));
     session.close().await;
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
@@ -723,14 +731,10 @@ async fn permission_and_question_bursts_share_output_budget() {
 }
 
 #[tokio::test]
-async fn subagent_count_and_snapshot_overflow_stop_process() {
+async fn subagent_count_overflow_stops_process() {
     let agents: Vec<_> =
         (0..3).map(|i| json!({"type":"tool_use","id":format!("a{i}"),"name":"Agent","input":{"description":"child"}})).collect();
     pressure_failure(vec![json!({"emit":{"type":"assistant","message":{"content":agents}}})], |o| o.max_subagents = 2).await;
-    pressure_failure(vec![
-        json!({"emit":{"type":"assistant","message":{"content":[{"type":"tool_use","id":"a","name":"Agent","input":{}}]}}}),
-        json!({"emit":{"type":"assistant","parent_tool_use_id":"a","uuid":"child-msg","message":{"content":[{"type":"text","text":"x".repeat(10000)}]}}}),
-    ], |o| o.subagent_snapshot_bytes = 2048).await;
 }
 
 #[tokio::test]
@@ -920,4 +924,70 @@ async fn repeated_subagent_snapshots_in_one_frame_share_batch_byte_budget() {
         },
     )
     .await;
+}
+
+#[tokio::test]
+async fn twenty_large_child_results_trim_history_and_preserve_chat_turn() {
+    for bytes in [256 * 1024, 4096] {
+        let mut script = handshake();
+        script.extend([json!({"expect":{"type":"user"}}), init(), background_launch()]);
+        for i in 0..20 {
+            script.push(json!({"emit":{"type":"user","parent_tool_use_id":"child","message":{"content":[{"type":"tool_result","tool_use_id":format!("read-{i}"),"content":"x".repeat(20000)}]}}}));
+        }
+        script.extend([text("still here"), result()]);
+        let (session, mut events) = configured(script, |o| o.subagent_snapshot_bytes = bytes);
+        session.start_turn(request("one")).await.unwrap();
+        let trace = until(&mut events, "turn-completed").await;
+        assert!(!trace.iter().any(|e| e["type"] == "turn-failed"));
+        let child = &trace.iter().rev().find(|e| e["type"] == "subagent-update").unwrap()["agent"];
+        assert_eq!(child["truncated"], true);
+        let rows = child["transcript"].as_array().unwrap();
+        assert!(!rows.is_empty() && rows.len() < 20);
+        assert_eq!(rows.last().unwrap()["id"], "result:read-19");
+        assert!(serde_json::to_vec(child).unwrap().len() <= bytes);
+        assert!(session.pid().is_some());
+        assert!(!session.is_closed());
+        session.close().await;
+    }
+}
+
+#[tokio::test]
+async fn many_large_children_cannot_mask_stop_or_crash_outcome() {
+    for stop in [true, false] {
+        let mut script = handshake();
+        script.push(json!({"expect":{"type":"user"}}));
+        for i in 0..40 {
+            script.push(json!({"emit":{"type":"assistant","message":{"content":[{"type":"tool_use","id":format!("child-{i}"),"name":"Agent","input":{"run_in_background":true}}]}}}));
+            for row in 0..12 {
+                script.push(json!({"emit":{"type":"user","parent_tool_use_id":format!("child-{i}"),"message":{"content":[{"type":"tool_result","tool_use_id":format!("read-{row}"),"content":"x".repeat(20000)}]}}}));
+            }
+            script.extend([text("fixture barrier"), json!({"expect":{"type":"user"}})]);
+        }
+        if stop {
+            script.extend([json!({"expect":{"subtype":"interrupt"}}), json!({"reply":{}}), json!({"wait_eof":true})]);
+        } else {
+            script.push(json!({"exit":7}));
+        }
+        let (session, mut events) = session(script);
+        session.start_turn(request("one")).await.unwrap();
+        for _ in 0..40 {
+            let trace = until(&mut events, "text-delta").await;
+            assert!(!trace.iter().any(|e| e["type"] == "turn-failed"));
+            session.start_turn(request("fixture barrier")).await.unwrap();
+        }
+        if stop {
+            session.interrupt().await;
+        }
+        let trace = until(&mut events, if stop { "turn-cancelled" } else { "turn-failed" }).await;
+        let settled: Vec<_> = trace.iter().filter(|e| e["type"] == "subagent-update").collect();
+        assert_eq!(settled.len(), 40);
+        for event in settled {
+            assert_eq!(event["agent"]["status"], if stop { "cancelled" } else { "failed" });
+            assert_eq!(event["agent"]["background"], true);
+            assert_eq!(event["agent"]["transcript"], json!([]));
+        }
+        assert!(!trace.iter().any(|e| e["code"] == "claude_event_limit"));
+        assert!(events.recv().await.is_none());
+        session.close().await;
+    }
 }

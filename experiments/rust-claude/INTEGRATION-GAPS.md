@@ -122,7 +122,9 @@ on the blocking pool. Results are mapped only for the current process generation
 without waiting for storage. Already-started filesystem writes cannot be forcibly cancelled.
 Automatic canonical-path checks likewise run on the blocking pool, then revalidate request tokens
 and mode. Output queues and mapped batches now have shared count/estimated-byte limits with a
-reserved terminal error and independent CLI shutdown; subagent snapshots/counts are capped too.
+reserved terminal error and independent CLI shutdown; subagent histories are trimmed with a sticky `truncated` marker and tracked counts are capped.
+Close/crash child updates contain empty transcript deltas; the adapter must merge those by id and
+preserve retained rows, including when its own UI format uses transcript-tail replacement objects.
 See README's queue safety contract for defaults and intentional differences from Node. Filesystem authorization remains point-in-time; neither path checks nor image storage
 provide a filesystem sandbox. Windows and real billed provider turns remain unverified. The
 opt-in live initialize/control test remains ignored throughout this work.

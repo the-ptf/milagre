@@ -12,6 +12,7 @@ const task = (subtype, fields = {}) => ({ type: "system", subtype, task_id: "t1"
 const bg = (tasks) => task("background_tasks_changed", { tasks });
 const settle = (status) => ({ settle: status });
 module.exports = [
+  ["child-transcript-byte-tail", [launch(), ...Array.from({ length: 20 }, (_, i) => result(`read-${i}`, "x".repeat(20000), "a")), settle("cancelled")]],
   [
     "child-foreground-nested",
     [

@@ -182,10 +182,6 @@ struct EventQueue {
 }
 impl EventQueue {
     fn push(&self, event: Value) {
-        if crate::budget::is_failure(&event) {
-            self.fail(event);
-            return;
-        }
         let bytes = crate::budget::weight(&event);
         let mut state = self.state.lock().unwrap();
         if state.closed {
@@ -193,7 +189,7 @@ impl EventQueue {
         }
         if state.events.len() >= self.capacity - 1 || bytes > (self.bytes - 1024).saturating_sub(state.bytes) {
             drop(state);
-            self.fail(crate::budget::failure("Claude session output exceeded its event count or byte budget."));
+            self.fail(crate::budget::BudgetFailure::Queue);
             return;
         }
         state.bytes += bytes;
@@ -201,14 +197,14 @@ impl EventQueue {
         drop(state);
         self.added.notify_one();
     }
-    fn fail(&self, event: Value) {
+    fn fail(&self, failure: crate::budget::BudgetFailure) {
+        let event = failure.event();
+        let bytes = crate::budget::weight(&event);
         let mut state = self.state.lock().unwrap();
         if state.closed {
             return;
         }
         // Only internal, fixed-size failure messages enter the reserved slot.
-        let bytes = crate::budget::weight(&event);
-        assert!(bytes <= 1024);
         state.bytes += bytes;
         state.events.push_back((event, bytes));
         state.closed = true;
@@ -631,6 +627,16 @@ impl Drop for AbandonGuard {
 }
 
 impl Inner {
+    fn emit_mapped(&self, events: crate::budget::Mapped) {
+        match events {
+            Ok(events) => {
+                for event in events {
+                    self.emit(event);
+                }
+            }
+            Err(failure) => self.queue.fail(failure),
+        }
+    }
     fn emit(&self, event: Value) {
         self.queue.push(event);
     }
@@ -1058,9 +1064,7 @@ impl Inner {
     // The state transition happens before any await; cleanup owns only the client and continues if
     // a caller drops close(). Dropping the runtime also drops that last client and kills its group.
     fn stop_locked(&self, state: &mut State) -> Option<watch::Receiver<Option<ExitInfo>>> {
-        for event in state.mapper.settle_subagents("cancelled") {
-            self.emit(event);
-        }
+        self.emit_mapped(state.mapper.settle_compact("cancelled"));
         state.closed = true;
         state.cancel_requested |= state.turn_active;
         state.generation += 1;
@@ -1268,9 +1272,7 @@ impl Inner {
         if kind == "prompt_suggestion" {
             let prompt_suggestions = self.options.prompt_suggestions && !self.options.analysis_only && !self.options.execution_advisor;
             if prompt_suggestions && !state.closed && !state.turn_active && !state.cancel_requested && !state.implicit_turn {
-                for event in state.mapper.map_prepared(message, Some(images)) {
-                    self.emit(event);
-                }
+                self.emit_mapped(state.mapper.map_prepared(message, Some(images)));
             }
             return;
         }
@@ -1297,7 +1299,7 @@ impl Inner {
             candidate.has_text = false;
             candidate.local_command_error = None;
             let events = candidate.map_prepared(message, Some(images));
-            if events.is_empty() {
+            if events.as_ref().is_ok_and(|v| v.is_empty()) {
                 candidate.turn_id = state.mapper.turn_id.clone();
                 candidate.has_text = state.mapper.has_text;
             } else {
@@ -1308,11 +1310,14 @@ impl Inner {
         } else {
             state.mapper.map_prepared(message, Some(images))
         };
-        for event in events {
-            if crate::budget::is_failure(&event) {
-                self.queue.fail(event);
-                break;
+        let events = match events {
+            Ok(events) => events,
+            Err(failure) => {
+                self.queue.fail(failure);
+                return;
             }
+        };
+        for event in events {
             state.implicit_turn = false;
             if event["type"] == "session-started" {
                 state.announced_id = true;
@@ -1359,9 +1364,7 @@ impl Inner {
         state.client = None;
         state.closed = true;
         let status = if state.cancel_requested { "cancelled" } else { "failed" };
-        for event in state.mapper.settle_subagents(status) {
-            self.emit(event);
-        }
+        self.emit_mapped(state.mapper.settle_compact(status));
         if let Some(info) = &info {
             state.exit = Some(info.clone());
         }
@@ -1394,7 +1397,7 @@ async fn pump(weak: Weak<Inner>, generation: u64, mut events: EventStream, queue
                 drop(inner);
                 let budget = crate::EventBudget { count: queue.capacity - 1, bytes: queue.bytes - 1024 };
                 if jobs.len() > budget.count {
-                    queue.fail(crate::budget::failure("Claude image work exceeded its event budget."));
+                    queue.fail(crate::budget::BudgetFailure::Images);
                     return;
                 }
                 let images = if jobs.is_empty() {
@@ -1408,18 +1411,21 @@ async fn pump(weak: Weak<Inner>, generation: u64, mut events: EventStream, queue
                         let mut images = std::collections::HashMap::new();
                         let mut remaining = budget;
                         for (id, call, result, store) in jobs {
-                            let events = crate::images::read_images(&call, &result, store.as_ref(), remaining);
-                            let failed = events.iter().any(crate::budget::is_failure);
+                            let events = crate::images::read_images(&call, &result, store.as_ref(), remaining)?;
                             remaining.count = remaining.count.saturating_sub(events.len());
                             remaining.bytes = remaining.bytes.saturating_sub(events.iter().map(crate::budget::weight).sum::<usize>());
                             images.insert(id, events);
-                            if failed {
-                                break;
-                            }
                         }
-                        images
+                        Ok::<_, crate::budget::BudgetFailure>(images)
                     });
-                    tokio::select! { result = save => result.unwrap_or_default(), _ = status.changed() => return }
+                    match tokio::select! { result = save => result.unwrap_or(Err(crate::budget::BudgetFailure::Images)), _ = status.changed() => return }
+                    {
+                        Ok(images) => images,
+                        Err(failure) => {
+                            queue.fail(failure);
+                            return;
+                        }
+                    }
                 };
                 let Some(inner) = weak.upgrade() else {
                     return;
@@ -1665,6 +1671,22 @@ mod workspace_tests {
 mod event_queue_tests {
     use super::*;
     #[test]
+    fn payload_code_cannot_enter_the_reserved_failure_slot() {
+        let queue = EventQueue {
+            state: Mutex::new(QueueState { events: VecDeque::new(), bytes: 0, closed: false }),
+            added: Notify::new(),
+            capacity: 4,
+            bytes: 8192,
+            status: watch::channel(0).0,
+        };
+        queue.push(json!({"code":"claude_event_limit","text":"x".repeat(5000)}));
+        assert!(!queue.closed());
+        assert_eq!(queue.pop().unwrap()["text"].as_str().unwrap().len(), 5000);
+        queue.push(json!({"code":"claude_event_limit","text":"x".repeat(9000)}));
+        assert!(queue.closed());
+        assert_eq!(queue.pop().unwrap(), crate::budget::BudgetFailure::Queue.event());
+    }
+    #[test]
     fn concurrent_producers_cannot_exceed_either_budget_or_duplicate_failure() {
         for (capacity, bytes) in [(4, 8192), (100, 2048)] {
             let queue = Arc::new(EventQueue {
@@ -1692,7 +1714,7 @@ mod event_queue_tests {
                 assert!(state.events.len() <= capacity);
                 assert!(state.bytes <= bytes);
                 assert_eq!(state.bytes, state.events.iter().map(|(v, _)| crate::budget::weight(v)).sum::<usize>());
-                assert_eq!(state.events.iter().filter(|(v, _)| crate::budget::is_failure(v)).count(), 1);
+                assert_eq!(state.events.iter().filter(|(v, _)| v["code"] == "claude_event_limit").count(), 1);
             }
             while queue.pop().is_some() {}
             assert_eq!(queue.state.lock().unwrap().bytes, 0);

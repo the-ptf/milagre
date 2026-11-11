@@ -385,12 +385,26 @@ this code as a session failure, not a second completion of the previous turn. St
 transport's pending message channel to one frame; input frames and in-progress parsing retain
 the separate `Limits.max_frame_bytes` bound (64 MiB default).
 
-`max_subagents` defaults to 128 tracked children across the session, including completed children;
-`subagent_snapshot_bytes` defaults to 256 KiB per child. Exceeding either fails explicitly instead
-of silently evicting a child. Child task indexes are capped relative to the child limit. Snapshot
-batches, close/crash settlement and image event batches also obey count/byte limits, so repeated
-full snapshots cannot grow a frame's mapped output without a bound. Ordinary Node traces remain
-unchanged within these limits. Limits intentionally add failure cases not present in Node.
+`max_subagents` defaults to 128 tracked children across the session, including completed children.
+Exceeding that count fails explicitly; children are never silently evicted. Child task indexes are
+capped relative to this limit. `subagent_snapshot_bytes` defaults to 256 KiB per child. Oversized
+snapshots retain the newest rows (at most 100), then shorten display strings at UTF-8 boundaries
+and omit optional metadata if needed. `agent.truncated: true` is sticky. If task metadata must be
+omitted, its retained task accumulator is cleared too. Identity, status and timestamps stay exact;
+an identity alone that cannot fit the configured budget still fails explicitly.
+
+Close/crash settlement emits compact status updates with an empty transcript delta, original
+startedAt, a title capped at 200 UTF-16 units, and the background flag. Consumers must merge these
+updates by child id and keep the prior transcript rows, as Node's provider reducer does; they are
+not replacement snapshots. This avoids re-emitting megabytes of history before Stop/crash events.
+Consumers that store transcript-tail replacement objects must adapt these deltas before reducing
+them. A stalled consumer or a deliberately tiny queue can still exhaust the shared output budget.
+
+Mapped batches and image work propagate typed internal budget errors; event JSON cannot select the
+reserved failure slot. Public standalone mapping still converts those errors to the documented
+`turn-failed` shape. The 43 Node mapper traces include the intentional truncation-marker/tail
+extension, and fake CLI tests cover 20 results of 20,000 characters and 40 large children settling
+before Stop and crash outcomes. Other Node traces remain unchanged within these limits.
 
 Dropping the only `SessionEvents` receiver clears buffered output, stops its CLI and unblocks
 startup. Dropping the session cancels owned delivery tasks. No background task depends on the

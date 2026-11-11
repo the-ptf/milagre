@@ -371,6 +371,10 @@ impl ClaudeMapper {
         self.subagents.settle(status, self.now())
     }
 
+    pub(crate) fn settle_compact(&mut self, status: &str) -> crate::budget::Mapped {
+        self.subagents.settle_bounded(status, self.now(), true)
+    }
+
     fn text_delta(&mut self, text: &str, starts_message: bool) -> Value {
         self.has_text = true;
         Obj::new()
@@ -458,11 +462,11 @@ impl ClaudeMapper {
     }
 
     pub fn map(&mut self, message: &Value) -> Vec<Value> {
-        self.map_prepared(message, None)
+        crate::budget::public_events(self.map_prepared(message, None))
     }
 
     /// `mapClaudeMessage(message, state)`.
-    pub(crate) fn map_prepared(&mut self, message: &Value, images: Option<&HashMap<String, Vec<Value>>>) -> Vec<Value> {
+    pub(crate) fn map_prepared(&mut self, message: &Value, images: Option<&HashMap<String, Vec<Value>>>) -> crate::budget::Mapped {
         let kind = message.get("type").and_then(Value::as_str).unwrap_or("");
         let subtype = message.get("subtype").and_then(Value::as_str);
         let top = is_top(message);
@@ -473,7 +477,7 @@ impl ClaudeMapper {
             let suggestion = message.get("suggestion").and_then(Value::as_str);
             let same_session = message.get("session_id").and_then(Value::as_str) == self.session_id.as_deref();
             if !top || !same_session || self.suggestion_turn_id.is_none() || suggestion.is_none_or(|s| js_trim(s).is_empty()) {
-                return Vec::new();
+                return Ok(Vec::new());
             }
             let turn_id = self.suggestion_turn_id.take().unwrap();
             let mut events = crate::budget::Batch::new(self.budget);
@@ -481,7 +485,7 @@ impl ClaudeMapper {
             return events.finish();
         }
         let mut events = crate::budget::Batch::new(self.budget);
-        events.extend(self.subagents.map(message, self.now()));
+        events.merge(self.subagents.map_bounded(message, self.now()));
         if events.failed() {
             return events.finish();
         }
@@ -660,7 +664,7 @@ impl ClaudeMapper {
                             if let Some(images) = images {
                                 events.extend(images.get(&id).cloned().unwrap_or_default());
                             } else {
-                                events.extend(crate::images::read_images(&call, block, store.as_ref(), self.budget));
+                                events.merge(crate::images::read_images(&call, block, store.as_ref(), self.budget));
                             }
                         }
                     }

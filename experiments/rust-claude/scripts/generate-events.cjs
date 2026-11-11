@@ -324,6 +324,7 @@ const output = cases.map(([name, messages, initial = {}]) => {
       Date.now = () => clock;
       const events = message.settle ? settleSubagents(state, message.settle) : mapClaudeMessage(message, state);
       // The tail case checks the final 100 rows and cumulative totals; omit its growing warmup snapshots.
+      if (name === "child-transcript-byte-tail" && index > 0 && index < 20) return { at: time, message };
       if (name === "child-transcript-tail" && index > 0 && index < 101) return { at: time, message };
       return { at: time, message, events: JSON.parse(JSON.stringify(events)) };
     }),

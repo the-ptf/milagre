@@ -16,6 +16,7 @@
 //!                                      answer a request saved with "as": n in its expect step
 //!   {"request": {"id": id, "request": {...}}}
 //!   {"cancel": id}                     write control_cancel_request
+//!   {"wait_file": "/path/barrier"}     wait up to 5 seconds for a test-owned barrier
 //!   {"sleep_ms": n}
 //!   {"exit": code}
 //!   {"close_stdout": true}
@@ -217,6 +218,14 @@ fn main() {
             }
             "request" => out.line(&json!({ "type": "control_request", "request_id": arg["id"], "request": arg["request"] })),
             "cancel" => out.line(&json!({ "type": "control_cancel_request", "request_id": arg })),
+            "wait_file" => {
+                let path = std::path::Path::new(arg.as_str().unwrap());
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                while !path.exists() {
+                    assert!(std::time::Instant::now() < deadline, "fixture barrier timed out");
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }
             "sleep_ms" => std::thread::sleep(Duration::from_millis(arg.as_u64().unwrap_or(0))),
             "exit" => std::process::exit(arg.as_i64().unwrap_or(0) as i32),
             "close_stdin" => {

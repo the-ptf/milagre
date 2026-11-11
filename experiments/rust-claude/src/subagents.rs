@@ -120,20 +120,75 @@ fn add_progress(previous: Option<&Value>, row: &Value) -> Value {
     }
     p
 }
+/// Retain recent rows first, then shorten display strings. Identity/status/timestamps stay exact.
+/// `truncated` is sticky so the reducer never presents an incomplete history as complete.
+fn trim_snapshot(agent: &mut Value, limit: usize) -> bool {
+    let rows = agent["transcript"].as_array_mut().unwrap();
+    let trimmed_rows = rows.len() > 100;
+    if trimmed_rows {
+        rows.drain(..rows.len() - 100);
+    }
+    if !trimmed_rows && crate::budget::weight(agent) <= limit {
+        return true;
+    }
+    agent["truncated"] = true.into();
+    while crate::budget::weight(agent) > limit && agent["transcript"].as_array().unwrap().len() > 1 {
+        agent["transcript"].as_array_mut().unwrap().remove(0);
+    }
+    loop {
+        let excess = crate::budget::weight(agent).saturating_sub(limit);
+        if excess == 0 {
+            return true;
+        }
+        let last = agent["transcript"].as_array().unwrap().len().saturating_sub(1);
+        let row_text = format!("/transcript/{last}/text");
+        let paths = ["/title", "/prompt", "/agentType", "/latestActivity", "/progress/said", row_text.as_str()];
+        let longest = paths
+            .into_iter()
+            .filter_map(|path| agent.pointer(path).and_then(Value::as_str).map(|s| (path, s.len())))
+            .filter(|(_, len)| *len > 0)
+            .max_by_key(|(_, len)| *len);
+        if let Some((path, len)) = longest {
+            let text = agent.pointer_mut(path).unwrap().as_str().unwrap();
+            let mut keep = len.saturating_sub(excess);
+            while !text.is_char_boundary(keep) {
+                keep -= 1;
+            }
+            let short = text[..keep].to_owned();
+            *agent.pointer_mut(path).unwrap() = short.into();
+            continue;
+        }
+        // Large task arrays or malformed display metadata cannot consume unbounded retained space.
+        let removable = ["tasks", "progress", "prompt", "agentType", "latestActivity", "title"]
+            .into_iter()
+            .filter_map(|key| agent.get(key).map(|v| (key, crate::budget::weight(v))))
+            .max_by_key(|(_, bytes)| *bytes);
+        if let Some((key, _)) = removable {
+            agent.as_object_mut().unwrap().remove(key);
+            continue;
+        }
+        if !agent["transcript"].as_array().unwrap().is_empty() {
+            agent["transcript"] = json!([]);
+            continue;
+        }
+        // Only an oversized identity or a nonsensically small configured budget reaches here.
+        return false;
+    }
+}
 impl Subagents {
     pub fn set_limits(&mut self, budget: crate::budget::EventBudget, agents: usize, snapshot_bytes: usize) {
         self.budget = budget;
         self.max_agents = agents;
         self.max_snapshot_bytes = snapshot_bytes;
     }
-    fn fail(&mut self) -> Value {
+    fn fail(&mut self) -> crate::budget::BudgetFailure {
         self.failed = true;
-        crate::budget::failure("Claude subagent tracking exceeded its count or snapshot budget.")
+        crate::budget::BudgetFailure::Subagents
     }
 
-    fn update(&mut self, id: &str, patch: Value, entry: Option<Value>, now: u64) -> Value {
+    fn update(&mut self, id: &str, patch: Value, entry: Option<Value>, now: u64) -> Result<Value, crate::budget::BudgetFailure> {
         if self.failed || (!self.agents.contains_key(id) && self.agents.len() >= self.max_agents) {
-            return self.fail();
+            return Err(self.fail());
         }
         let previous = self.agents.get(id);
         let row = entry.filter(|e| truthy(&e["text"])).map(|mut e| {
@@ -147,7 +202,7 @@ impl Subagents {
         let patch = patch.as_object().unwrap();
         if let Some(previous) = previous {
             if same && patch.iter().all(|(k, v)| previous.get(k) == Some(v)) {
-                return json!({"type":"subagent-update","agent":previous});
+                return Ok(json!({"type":"subagent-update","agent":previous}));
             }
         }
         let mut agent = Obj::new()
@@ -167,29 +222,56 @@ impl Subagents {
             let rows = agent["transcript"].as_array_mut().unwrap();
             rows.retain(|r| r["id"] != row["id"]);
             rows.push(row);
-            if rows.len() > 100 {
-                rows.drain(..rows.len() - 100);
-            }
         }
         if active(&agent) {
             agent.as_object_mut().unwrap().remove("endedAt");
         } else if agent.get("endedAt").is_none() {
             agent["endedAt"] = now.into();
         }
-        if crate::budget::weight(&agent) > self.max_snapshot_bytes {
-            return self.fail();
+        if !trim_snapshot(&mut agent, self.max_snapshot_bytes) {
+            return Err(self.fail());
+        }
+        if agent.get("tasks").is_none() {
+            self.tasks.remove(id);
         }
         self.agents.insert(id.into(), agent.clone());
-        json!({"type":"subagent-update","agent":agent})
+        Ok(json!({"type":"subagent-update","agent":agent}))
     }
     pub fn end_turn(&mut self) {
         self.foreground.clear();
     }
     pub fn settle(&mut self, status: &str, now: u64) -> Vec<Value> {
+        crate::budget::public_events(self.settle_bounded(status, now, false))
+    }
+    pub(crate) fn settle_bounded(&mut self, status: &str, now: u64, compact: bool) -> crate::budget::Mapped {
         let ids: Vec<_> = self.agents.iter().filter(|(_, a)| active(a)).map(|(id, _)| id.clone()).collect();
         let mut events = crate::budget::Batch::new(self.budget);
         for id in ids {
-            events.push(self.update(&id, json!({"status":status}), None, now));
+            if compact {
+                // Reducers merge by id. Keep the existing transcript; settlement only changes status.
+                let agent = self.agents.get_mut(&id).unwrap();
+                agent["status"] = status.into();
+                agent["updatedAt"] = now.into();
+                agent["endedAt"] = now.into();
+                if !trim_snapshot(agent, self.max_snapshot_bytes) {
+                    events.fail(crate::budget::BudgetFailure::Subagents);
+                    break;
+                }
+                let patch = Obj::new()
+                    .set("id", id)
+                    .set("status", status)
+                    .set("updatedAt", now)
+                    .set("endedAt", now)
+                    .set("startedAt", agent["startedAt"].clone())
+                    .set("title", utf16_slice(agent["title"].as_str().unwrap_or("Subagent"), 0, 200))
+                    .set("transcript", json!([]))
+                    .opt("background", agent.get("background").cloned())
+                    .opt("truncated", agent.get("truncated").cloned())
+                    .build();
+                events.push(json!({"type":"subagent-update","agent":patch}));
+            } else {
+                events.push_result(self.update(&id, json!({"status":status}), None, now));
+            }
             if events.failed() {
                 break;
             }
@@ -216,9 +298,12 @@ impl Subagents {
         vec![json!({"type":"background-tasks","tasks":next})]
     }
     pub fn map(&mut self, message: &Value, now: u64) -> Vec<Value> {
+        crate::budget::public_events(self.map_bounded(message, now))
+    }
+    pub(crate) fn map_bounded(&mut self, message: &Value, now: u64) -> crate::budget::Mapped {
         let mut events = crate::budget::Batch::new(self.budget);
         if self.failed {
-            return vec![self.fail()];
+            return Err(self.fail());
         }
         let parent = message["parent_tool_use_id"].as_str().filter(|s| !s.is_empty());
         let content = message.pointer("/message/content").and_then(Value::as_array);
@@ -228,7 +313,7 @@ impl Subagents {
                     break;
                 }
                 if self.calls.len() + self.results.len() > self.max_agents.saturating_mul(16) {
-                    events.push(self.fail());
+                    events.fail(self.fail());
                     break;
                 }
                 let name = block["name"].as_str().unwrap_or_default();
@@ -247,7 +332,7 @@ impl Subagents {
                         .opt("parentId", parent)
                         .opt("background", background.then_some(true))
                         .build();
-                    events.push(self.update(&id, patch, None, now));
+                    events.push_result(self.update(&id, patch, None, now));
                 }
                 let Some(parent) = parent.filter(|p| self.agents.contains_key(*p)) else { continue };
                 if block["type"] == "tool_use" && ["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"].contains(&name) {
@@ -257,7 +342,7 @@ impl Subagents {
                         self.results.insert(id);
                     }
                     if let Some(tasks) = self.tasks.entry(parent.into()).or_default().apply_tool_use(name, &block["input"]) {
-                        events.push(self.update(parent, json!({"tasks":tasks}), None, now));
+                        events.push_result(self.update(parent, json!({"tasks":tasks}), None, now));
                     }
                     continue;
                 }
@@ -280,7 +365,7 @@ impl Subagents {
                     .set("text", text.clone())
                     .opt("tool", step.as_ref().and_then(|s| s.get("kind")).cloned())
                     .build();
-                events.push(self.update(
+                events.push_result(self.update(
                     parent,
                     json!({"latestActivity":if step.is_some(){text}else{json!("Responding")}}),
                     Some(row),
@@ -300,7 +385,7 @@ impl Subagents {
                         events.push(json!({"type":"subagents-waiting","waiting":!self.foreground.is_empty()}));
                     }
                     if message["tool_use_result"]["status"] != "async_launched" {
-                        events.push(self.update(
+                        events.push_result(self.update(
                             &id,
                             json!({"status":if truthy(&block["is_error"]){"failed"}else{"completed"},"latestActivity":"Finished"}),
                             Some(json!({"id":"result","kind":"message","text":text_content(&block["content"])})),
@@ -314,10 +399,10 @@ impl Subagents {
                             .then(|| message.get("tool_use_result"))
                             .flatten();
                         if let Some(tasks) = self.tasks.entry(agent.clone()).or_default().apply_tool_result(&call, block, structured) {
-                            events.push(self.update(&agent, json!({"tasks":tasks}), None, now));
+                            events.push_result(self.update(&agent, json!({"tasks":tasks}), None, now));
                         }
                     } else if !self.results.remove(&id) {
-                        events.push(self.update(
+                        events.push_result(self.update(
                             parent,
                             json!({}),
                             Some(json!({"id":format!("result:{id}"),"kind":"tool","text":text_content(&block["content"])})),
@@ -391,11 +476,63 @@ impl Subagents {
                 }
             }
             let row = truthy(&message["summary"]).then(|| json!({"id":"summary","kind":"message","text":message["summary"]}));
-            events.push(self.update(&id, Value::Object(patch), row, now));
+            events.push_result(self.update(&id, Value::Object(patch), row, now));
         }
         if self.calls.len() + self.results.len() + self.task_agents.len() > self.max_agents.saturating_mul(16) {
-            events.push(self.fail());
+            events.fail(self.fail());
         }
         events.finish()
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    #[test]
+    fn oversized_unicode_display_and_task_payloads_stay_bounded() {
+        let mut agents = Subagents::default();
+        agents.set_limits(Default::default(), 128, 4096);
+        for i in 0..20 {
+            let event = agents
+                .update(
+                    "a",
+                    json!({"background":true,"title":"😀".repeat(10000),"prompt":"界".repeat(10000),"tasks":[{"content":"x".repeat(10000)}]}),
+                    Some(json!({"id":format!("r{i}"),"kind":"tool","text":"😀".repeat(10000)})),
+                    i,
+                )
+                .unwrap();
+            assert!(crate::budget::weight(&event["agent"]) <= 4096);
+            assert_eq!(event["agent"]["truncated"], true);
+            assert_eq!(event["agent"]["status"], "running");
+            assert_eq!(event["agent"]["background"], true);
+        }
+        assert!(!agents.failed);
+        assert!(!agents.tasks.contains_key("a"));
+        agents.settle_bounded("cancelled", 21, true).unwrap();
+        assert!(crate::budget::weight(&agents.agents["a"]) <= 4096);
+    }
+    #[test]
+    fn compact_settlement_merges_to_the_same_child_state() {
+        let mut agents = Subagents::default();
+        let initial = agents
+            .update(
+                "a",
+                json!({"title":"Review","background":true,"prompt":"Check"}),
+                Some(json!({"id":"r1","kind":"tool","text":"result"})),
+                1,
+            )
+            .unwrap();
+        let full = agents.clone().settle_bounded("cancelled", 2, false).unwrap();
+        let compact = agents.settle_bounded("cancelled", 2, true).unwrap();
+        let mut merged = initial["agent"].clone();
+        // Node merges rows by id; an empty update leaves existing transcript rows intact.
+        for (key, value) in compact[0]["agent"].as_object().unwrap() {
+            if key != "transcript" {
+                merged[key] = value.clone();
+            }
+        }
+        assert_eq!(merged, full[0]["agent"]);
+        assert_eq!(compact[0]["agent"]["background"], true);
+        assert!(agents.settle_bounded("cancelled", 3, true).unwrap().is_empty());
     }
 }

@@ -141,12 +141,12 @@ impl ToolImageStore for FileImageStore {
     }
 }
 
-pub(crate) fn read_images(call: &Value, result: &Value, store: &dyn ToolImageStore, budget: crate::EventBudget) -> Vec<Value> {
+pub(crate) fn read_images(call: &Value, result: &Value, store: &dyn ToolImageStore, budget: crate::EventBudget) -> crate::budget::Mapped {
     if call["name"] != "Read" || crate::events::truthy(result.get("is_error")) {
-        return vec![];
+        return Ok(vec![]);
     }
     let Some(blocks) = result["content"].as_array() else {
-        return vec![];
+        return Ok(vec![]);
     };
     let mut events = crate::budget::Batch::new(budget);
     for (index, block) in blocks.iter().enumerate() {
