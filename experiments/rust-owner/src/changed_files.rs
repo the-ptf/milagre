@@ -19,11 +19,16 @@
 //!   it exits the pipes may stay open half a second (a descendant); then the group goes and the run gives no list.
 //!   A read or wait that fails (other than an interrupted read, retried) is no list too, never the output read so far.
 //!   A descendant that left the group (`setsid`) isn't owned or signalled; it holds nothing of ours after the run.
-//! - **Nothing else reaps our children.** The owner process must keep `SIGCHLD` at its default and run no reaper that
-//!   waits on any child (`waitpid(-1)`, `wait()`); waiting on its own children by pid (std, tokio::process) is fine.
-//!   This crate does neither (its only other child, `ps` in ownership checks, is waited on by pid). If something does
-//!   reap Git first, the run loses it: `waitid` fails (`ECHILD`), Git's pid is never signalled or waited on again (it
-//!   may be another process's by then), its group isn't killed, and the run gives no list.
+//! - **Our children stay waitable.** The owner process must not make children unwaitable or reap ones it didn't
+//!   spawn: no `SIGCHLD` set to `SIG_IGN`, no `SA_NOCLDWAIT`, no reaper waiting on any child (`waitpid(-1)`, `wait()`).
+//!   A `SIGCHLD` handler is fine, and so is waiting on one's own children by pid. Audited (root, locked versions):
+//!   tokio 1.54.1 `process::unix` (its `SIGCHLD` notification and orphan queue `try_wait` only its own children, by
+//!   handle) and portable-pty 0.9.0 (resets `SIGCHLD` only in the child's `pre_exec`; waits its exact child) keep this;
+//!   this crate's only other child, `ps` in ownership checks, is waited on by pid. If something still reaps Git first,
+//!   the run loses it: `waitid` fails (`ECHILD`), Git's pid is never signalled or waited on again (it may be another
+//!   process's by then), its group isn't killed, and the run gives no list. The first loss in a process is reported
+//!   once on stderr (no path or name in it); later ones only count. A reaper racing between the last check and the
+//!   group kill can't be ruled out from inside this process; the requirement above is what rules it out.
 //! - **Off the actor.** It runs inside the transcript job (`TranscriptJob::run`), on the runtime's blocking worker.
 //!
 //! Node's answer for anything that fails (a member not admitted, Git failing, a timeout) is no list at all
@@ -801,6 +806,7 @@ impl Owned {
                 Err(rustix::io::Errno::INTR) => continue,
                 Err(errno) => {
                     self.state = Ownership::Lost;
+                    lost_child(errno);
                     #[cfg(feature = "test-fixtures")]
                     test_hooks::log("lost", self.child.id());
                     return Err(errno.into());
@@ -837,6 +843,19 @@ impl Owned {
             self.child.id(),
         );
         status.ok()
+    }
+}
+
+/// How many Git children this process lost (see `Owned`); the first is reported once on stderr.
+static LOST_CHILDREN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn lost_child(errno: rustix::io::Errno) {
+    if LOST_CHILDREN.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+        eprintln!(
+            "milagre owner: a Git child could not be waited on ({errno}); something else reaps child processes \
+             (SIGCHLD ignored, SA_NOCLDWAIT or a wait-any reaper). Changed files are left out of handoff briefs \
+             while that lasts; later losses aren't reported."
+        );
     }
 }
 
@@ -989,6 +1008,11 @@ pub mod test_hooks {
     /// with `ECHILD`).
     pub fn fail_next_wait(errno: i32) {
         WAIT_FAILURE.with(|slot| slot.set(Some(rustix::io::Errno::from_raw_os_error(errno))));
+    }
+
+    /// How many Git children this process lost so far (all threads).
+    pub fn lost_children() -> u64 {
+        super::LOST_CHILDREN.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub(super) fn take_wait_failure() -> Option<rustix::io::Errno> {
