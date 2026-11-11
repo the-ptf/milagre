@@ -16,17 +16,18 @@ use alacritty_terminal::index::{Column, Line, Point as GridPoint, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
 use gpui::{
-    ClipboardItem, Context, CursorStyle, EventEmitter, FocusHandle, Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, ScrollEvent, SharedString, Task, Window, actions, div, prelude::*, px,
+    ClipboardItem, Context, CursorStyle, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyDownEvent, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollEvent, SharedString, Task, Window, actions, anchored, deferred, div, prelude::*, px,
 };
 
 use super::colors::Palette;
 use super::grid::{GridState, Metrics, TerminalGrid};
 use super::keys::{self, KeyOptions, KeyRoute};
 use super::session::{GridSize, Session};
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, RADIUS_CARD};
+use crate::ui::{MenuList, MenuRow};
 
-actions!(terminal, [Copy, Paste]);
+actions!(terminal, [Copy, Paste, CloseTerminal]);
 
 /// The key context of a focused Terminal (`terminalFocus` in the desktop's keybindings).
 pub const KEY_CONTEXT: &str = "Terminal";
@@ -42,9 +43,14 @@ pub const PAD_BOTTOM: Pixels = px(4.0);
 pub enum TerminalEvent {
     /// The shell set another title.
     Title,
-    /// The shell exited: the panel drops the tab (`ended` in `terminal-sessions.ts`).
+    /// The shell exited: the drawer drops the tab (`ended` in `terminal-sessions.ts`).
     Exited,
+    /// ⌘W in this Terminal: the drawer ends it, asking first if a command runs.
+    CloseRequested,
 }
+
+/// The right-click menu's width (`MENU_WIDTH` in `TerminalMenu.tsx`).
+const MENU_WIDTH: Pixels = px(200.0);
 
 pub struct TerminalView {
     pub(super) session: Session,
@@ -60,6 +66,8 @@ pub struct TerminalView {
     resize: Option<Task<()>>,
     /// Whether the PTY has been told a size yet: the first one goes at once.
     sized: bool,
+    /// The right-click menu: where it opened and whether Copy is offered.
+    menu: Option<(Point<Pixels>, bool)>,
     _events: Task<()>,
     renders: usize,
 }
@@ -72,7 +80,7 @@ impl Focusable for TerminalView {
     }
 }
 
-/// Copy and Paste for a focused Terminal (⌘C, ⌘V) and New Terminal (⌘T), once per app.
+/// Copy, Paste and Close for a focused Terminal (⌘C, ⌘V, ⌘W), once per app.
 pub fn install_keys(cx: &mut gpui::App) {
     struct Installed;
     impl gpui::Global for Installed {}
@@ -81,10 +89,10 @@ pub fn install_keys(cx: &mut gpui::App) {
     }
     cx.set_global(Installed);
     cx.bind_keys([
-        gpui::KeyBinding::new("cmd-c", Copy, Some(KEY_CONTEXT)),
-        gpui::KeyBinding::new("cmd-v", Paste, Some(KEY_CONTEXT)),
-        // `terminal.new` (mod+t), while the Terminal tab has the keyboard.
-        gpui::KeyBinding::new("cmd-t", super::NewTerminal, Some("TerminalPanel")),
+        KeyBinding::new("cmd-c", Copy, Some(KEY_CONTEXT)),
+        KeyBinding::new("cmd-v", Paste, Some(KEY_CONTEXT)),
+        // `app:close-focused-terminal`: ⌘W ends the focused Terminal instead of closing the window.
+        KeyBinding::new("cmd-w", CloseTerminal, Some(KEY_CONTEXT)),
     ]);
 }
 
@@ -119,6 +127,7 @@ impl TerminalView {
             scroll_rest: 0.0,
             resize: None,
             sized: false,
+            menu: None,
             _events: task,
             renders: 0,
         }
@@ -280,6 +289,64 @@ impl TerminalView {
         Some((GridPoint::new(Line(line as i32 - offset), Column(col)), if right { Side::Right } else { Side::Left }))
     }
 
+    /// A right click: the Copy and Paste menu where it was pressed (`TerminalMenu.tsx`).
+    fn on_right_down(&mut self, event: &MouseDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let can_copy = self.session.term.lock().selection.as_ref().is_some_and(|s| !s.is_empty());
+        self.menu = Some((event.position, can_copy));
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    pub fn menu_open(&self) -> bool {
+        self.menu.is_some()
+    }
+
+    /// Closes the menu and gives the keyboard back to the Terminal.
+    pub fn close_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.menu.take().is_some() {
+            window.focus(&self.focus, cx);
+            cx.notify();
+        }
+    }
+
+    fn menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let (position, can_copy) = self.menu?;
+        let theme = *cx.theme();
+        let view = cx.entity().downgrade();
+        let run = move |action: fn(&mut TerminalView, &mut Context<TerminalView>)| {
+            let view = view.clone();
+            move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut gpui::App| {
+                let _ = view.update(cx, |view, cx| {
+                    action(view, cx);
+                    view.close_menu(window, cx);
+                });
+            }
+        };
+        let list = MenuList::new("terminal-menu")
+            .row(MenuRow::new("terminal-menu-copy", "Copy").trailing_shortcut("⌘C").disabled(!can_copy).on_click(run(|view, cx| {
+                view.copy(cx);
+            })))
+            .row(MenuRow::new("terminal-menu-paste", "Paste").trailing_shortcut("⌘V").on_click(run(|view, cx| view.paste(cx))));
+        let surface = div()
+            .id("terminal-menu-surface")
+            .debug_selector(|| "terminal-menu".to_string())
+            .occlude()
+            .w(MENU_WIDTH)
+            .p(px(6.0))
+            .rounded(RADIUS_CARD)
+            .bg(theme.surface)
+            .shadow(theme.shadow_raised())
+            .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, window, cx| this.close_menu(window, cx)))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if event.keystroke.key == "escape" {
+                    cx.stop_propagation();
+                    this.close_menu(window, cx);
+                }
+            }))
+            .child(list);
+        Some(deferred(anchored().position(position).snap_to_window_with_margin(px(8.0)).child(surface)).with_priority(1))
+    }
+
     fn on_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
         let Some((point, side)) = self.point_at(event.position) else { return };
@@ -370,6 +437,7 @@ impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.renders += 1;
         let theme = *cx.theme();
+        let menu = self.menu(cx);
         let grid = TerminalGrid {
             view: cx.entity(),
             term: self.session.term.clone(),
@@ -386,6 +454,8 @@ impl Render for TerminalView {
                 this.copy(cx);
             }))
             .on_action(cx.listener(|this, _: &Paste, _, cx| this.paste(cx)))
+            .on_action(cx.listener(|_, _: &CloseTerminal, _, cx| cx.emit(TerminalEvent::CloseRequested)))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_down))
             .on_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
@@ -401,5 +471,6 @@ impl Render for TerminalView {
             .pb(PAD_BOTTOM)
             .bg(theme.surface)
             .child(div().debug_selector(|| "terminal-grid".to_string()).size_full().child(grid))
+            .children(menu)
     }
 }

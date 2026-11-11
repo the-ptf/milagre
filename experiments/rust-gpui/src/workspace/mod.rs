@@ -26,6 +26,7 @@ use crate::settings::{self, SettingsModal, ToggleSettings};
 use crate::theme::{ActiveTheme, Theme};
 use crate::workspace::chat::{ChatEvent, ChatView};
 use crate::workspace::panel::dock;
+use crate::workspace::panel::terminal::{self, TerminalDrawer};
 use crate::workspace::panel::{Panel, PanelEvent};
 use crate::workspace::sidebar::{Sidebar, SidebarEvent};
 
@@ -34,6 +35,8 @@ pub struct Workspace {
     pub chat: Entity<ChatView>,
     pub panel: Entity<Panel>,
     pub settings: Entity<SettingsModal>,
+    /// Each Chat's Terminals, in a drawer under the Chat column.
+    pub terminals: Entity<TerminalDrawer>,
     /// The Routines page, in place of the Chat column while the sidebar's Routines button is on (WP-45).
     pub routines: Entity<RoutinesView>,
     routines_open: bool,
@@ -74,6 +77,7 @@ impl Workspace {
             chat,
             panel,
             settings,
+            terminals: cx.new(TerminalDrawer::new),
             routines,
             routines_open,
             routines_at,
@@ -99,6 +103,7 @@ impl Workspace {
             let key = row.key.clone();
             self.panel.update(cx, |panel, cx| panel.set_chat(key, cx));
         }
+        self.terminals.update(cx, |terminals, cx| terminals.set_chat(row.key.clone(), cx));
         // The Chat column needs the window (the composer's text area); `render` always follows too.
         if let Some(window) = window
             && self.chat.read(cx).key() != Some(row.key.as_ref())
@@ -126,10 +131,10 @@ impl Render for Workspace {
         let columns = if self.routines_open {
             div().flex().flex_1().min_w_0().h_full().child(self.routines.clone()).into_any_element()
         } else {
-            dock::layout(&self.panel, self.chat.clone(), cx)
+            dock::layout(&self.panel, terminal::column(self.chat.clone(), &self.terminals, window, cx), cx)
         };
         let settings = self.settings.clone();
-        dock::on_actions(div(), &self.panel)
+        terminal::on_actions(dock::on_actions(div(), &self.panel), &self.terminals)
             .on_action(move |_: &ToggleSettings, window, cx| {
                 settings.update(cx, |modal, cx| modal.toggle(window, cx));
             })

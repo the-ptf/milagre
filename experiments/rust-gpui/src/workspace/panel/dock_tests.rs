@@ -170,7 +170,7 @@ fn each_chat_keeps_its_tab_and_the_panel_comes_back_to_it(cx: &mut TestAppContex
 fn tabs_without_content_are_hidden(cx: &mut TestAppContext) {
     let (workspace, cx) = mount(cx);
     let (sidebar, panel) = workspace.read_with(cx, |w, _| (w.sidebar.clone(), w.panel.clone()));
-    assert_eq!(panel.read_with(cx, |p, _| p.visible_tabs().len()), 6, "the Chat on screen has everything");
+    assert_eq!(panel.read_with(cx, |p, _| p.visible_tabs().len()), 5, "the Chat on screen has everything");
     let seeded = panel.read_with(cx, |p, _| p.chat().to_string());
     // Find a visible row whose Chat has fewer than six tabs.
     let mut found = None;
@@ -188,8 +188,8 @@ fn tabs_without_content_are_hidden(cx: &mut TestAppContext) {
     settle(cx);
     assert!(cx.debug_bounds("panel-tab-Designs").is_none(), "Designs is hidden");
     assert!(cx.debug_bounds("panel-tab-Changes").is_some());
-    assert!(cx.debug_bounds("panel-tab-Terminal").is_some());
-    assert!(panel.read_with(cx, |p, _| p.visible_tabs().len()) < 6);
+    assert!(cx.debug_bounds("panel-tab-Browser").is_some());
+    assert!(panel.read_with(cx, |p, _| p.visible_tabs().len()) < 5);
 }
 
 /// Typing in the composer re-renders the root, the sidebar and the Chat column, never the panel nor any tab body.
@@ -210,8 +210,8 @@ fn typing_in_the_composer_renders_no_panel_view(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(counts(cx), before, "typing rebuilds neither the panel nor its Changes body");
     // A tab click re-renders the panel (it shows the new tab) but not the Changes body it leaves.
-    let terminal = cx.debug_bounds("panel-tab-Terminal").expect("Terminal").center();
-    cx.simulate_click(terminal, Modifiers::none());
+    let designs = cx.debug_bounds("panel-tab-Designs").expect("Designs").center();
+    cx.simulate_click(designs, Modifiers::none());
     settle(cx);
     assert!(counts(cx).0 > before.0);
     cx.simulate_input("x"); // the first key after the mouse refreshes every view once

@@ -4,6 +4,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,6 +63,8 @@ impl EventListener for Listener {
 pub struct Record {
     pub input: Vec<u8>,
     pub sizes: Vec<GridSize>,
+    /// What a test says runs in front (a session with no shell has no process to ask).
+    pub busy: Option<String>,
 }
 
 pub struct Session {
@@ -74,6 +77,8 @@ pub struct Session {
     wake_pending: Arc<AtomicBool>,
     /// The program the shell runs as, for the tab's title until the shell sets one.
     pub shell_name: String,
+    /// The PTY's controller side, to ask which process group is in front.
+    controller: Option<File>,
 }
 
 /// What to run: the login shell (alacritty's default, `login -flp $USER $SHELL` on macOS) unless the environment
@@ -115,17 +120,18 @@ impl Session {
         ]);
         let options = Options { shell, working_directory: Some(cwd.to_path_buf()), drain_on_exit: true, env };
         let pty = tty::new(&options, window_size(size, cell), 0)?;
+        let controller = pty.file().try_clone().ok();
         let event_loop = EventLoop::new(term.clone(), listener, pty, true, false)?;
         let notifier = Notifier(event_loop.channel());
         event_loop.spawn();
-        Ok(Self { term, pty: Some(notifier), events, record: Arc::default(), wake_pending, shell_name: name })
+        Ok(Self { term, pty: Some(notifier), events, record: Arc::default(), wake_pending, shell_name: name, controller })
     }
 
     /// An emulator with no shell: what the headless tests drive with [`Session::feed`].
     pub fn detached(size: GridSize) -> Self {
         let (listener, events, wake_pending) = channel();
         let term = Arc::new(FairMutex::new(Term::new(config(), &size, listener)));
-        Self { term, pty: None, events, record: Arc::default(), wake_pending, shell_name: shell_name(None) }
+        Self { term, pty: None, events, record: Arc::default(), wake_pending, shell_name: shell_name(None), controller: None }
     }
 
     pub fn has_shell(&self) -> bool {
@@ -150,6 +156,18 @@ impl Session {
             }
             None => self.record.lock().unwrap_or_else(|e| e.into_inner()).sizes.push(size),
         }
+    }
+
+    /// What runs in front of the shell, if anything: the name of the PTY's foreground process group leader when it
+    /// is not a shell (`busy` in the host's `TerminalInfo`). Closing a busy Terminal asks first.
+    pub fn busy(&self) -> Option<String> {
+        if let Some(name) = self.record.lock().unwrap_or_else(|e| e.into_inner()).busy.clone() {
+            return Some(name);
+        }
+        let controller = self.controller.as_ref()?;
+        let name = foreground_name(controller)?;
+        let shells = ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh", "nu", "login", self.shell_name.as_str()];
+        (!shells.contains(&name.trim_start_matches('-'))).then_some(name)
     }
 
     /// The view has drawn: the next output wakes it again.
@@ -189,4 +207,25 @@ pub fn default_cwd() -> PathBuf {
         .map(Path::to_path_buf)
         .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
         .unwrap_or(here)
+}
+
+/// The name of the process leading the PTY's foreground group.
+#[cfg(target_os = "macos")]
+fn foreground_name(controller: &File) -> Option<String> {
+    use std::os::fd::AsRawFd;
+    // SAFETY: plain libc calls on a descriptor we own and a buffer of the size we pass.
+    unsafe {
+        let group = libc::tcgetpgrp(controller.as_raw_fd());
+        if group <= 0 {
+            return None;
+        }
+        let mut buffer = [0u8; 256];
+        let len = libc::proc_name(group, buffer.as_mut_ptr().cast(), buffer.len() as u32);
+        (len > 0).then(|| String::from_utf8_lossy(&buffer[..len as usize]).into_owned())
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn foreground_name(_: &File) -> Option<String> {
+    None
 }

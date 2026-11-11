@@ -64,6 +64,8 @@ unicode-segmentation = "1.10"
 alacritty_terminal = { version = "=0.26.0", default-features = false }
 # Wakes the Terminal view from alacritty's PTY thread. Already in GPUI's tree (Cargo.lock), so no new crate.
 async-channel = "2"
+# Which process a Terminal runs in front (`tcgetpgrp`, `proc_name`), so closing a busy one asks first. Already in the tree.
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Already in GPUI's tree at this version; used by src/snapshot.rs to find the window's NSView.

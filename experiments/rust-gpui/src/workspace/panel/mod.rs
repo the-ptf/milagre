@@ -33,7 +33,6 @@ use self::artifacts::ArtifactsView;
 use self::body::TabPlaceholder;
 use self::changes::ChangesView;
 use self::fixture::ChatContent;
-use self::terminal::TerminalPanel;
 use crate::theme::ActiveTheme;
 use crate::ui::{IconButton, IconButtonSize, IconName, IconSize, Tab};
 use crate::workspace::chrome::{self, NoDrag};
@@ -45,7 +44,6 @@ pub const PANEL_WIDTH: f32 = 320.0;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PanelTab {
     Changes,
-    Terminal,
     Browser,
     Designs,
     Artifact,
@@ -53,13 +51,12 @@ pub enum PanelTab {
 }
 
 impl PanelTab {
-    pub const ALL: [PanelTab; 6] =
-        [PanelTab::Changes, PanelTab::Terminal, PanelTab::Browser, PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr];
+    /// Terminals live in the drawer under the Chat (`panel/terminal/`), as on the desktop.
+    pub const ALL: [PanelTab; 5] = [PanelTab::Changes, PanelTab::Browser, PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr];
 
     pub fn label(self) -> &'static str {
         match self {
             PanelTab::Changes => "Changes",
-            PanelTab::Terminal => "Terminal",
             PanelTab::Browser => "Browser",
             PanelTab::Designs => "Designs",
             PanelTab::Artifact => "Artifact",
@@ -71,7 +68,6 @@ impl PanelTab {
     pub fn icon(self) -> IconName {
         match self {
             PanelTab::Changes => IconName::FileDiff,
-            PanelTab::Terminal => IconName::ComputerTerminal01,
             PanelTab::Browser => IconName::Globe02,
             PanelTab::Designs => IconName::PaintBoard,
             PanelTab::Artifact => IconName::File01,
@@ -115,7 +111,6 @@ pub struct Panel {
     tabs_scroll: ScrollHandle,
     changes: Entity<ChangesView>,
     artifacts: Entity<ArtifactsView>,
-    terminal: Entity<TerminalPanel>,
     placeholders: HashMap<PanelTab, Entity<TabPlaceholder>>,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
     renders: usize,
@@ -130,7 +125,7 @@ impl Panel {
         changes.update(cx, |changes, cx| changes.set_chat(chat.clone(), content.changes.clone(), cx));
         let placeholders = PanelTab::ALL
             .into_iter()
-            .filter(|tab| !matches!(tab, PanelTab::Changes | PanelTab::Terminal))
+            .filter(|tab| !matches!(tab, PanelTab::Changes))
             .map(|tab| (tab, cx.new(|_| TabPlaceholder::new(tab))))
             .collect();
         let mut panel = Self {
@@ -146,7 +141,6 @@ impl Panel {
                 let panel = cx.entity();
                 cx.new(|cx| ArtifactsView::new(&panel, cx))
             },
-            terminal: cx.new(TerminalPanel::new),
             placeholders,
             renders: 0,
         };
@@ -218,7 +212,6 @@ impl Panel {
         match tab {
             PanelTab::Changes => Some(self.changes.clone().into()),
             PanelTab::Artifact => Some(self.artifacts.clone().into()),
-            PanelTab::Terminal => Some(self.terminal.clone().into()),
             other => self.placeholders.get(&other).map(|view| view.clone().into()),
         }
     }

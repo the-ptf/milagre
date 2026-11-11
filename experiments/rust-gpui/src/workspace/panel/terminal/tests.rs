@@ -18,7 +18,7 @@ use super::grid::build_frame;
 use super::keys::{KeyOptions, KeyRoute, control_byte, encode, paste_bytes, scroll_arrows};
 use super::session::{GridSize, Session};
 use super::view::{PTY_RESIZE, TerminalView};
-use super::{Spawn, TerminalPanel};
+use super::{HEIGHT_INITIAL, HEIGHT_MIN, Spawn, TerminalDrawer};
 use crate::testing;
 use crate::theme::Theme;
 
@@ -29,7 +29,15 @@ fn key(source: &'static str) -> Vec<u8> {
 }
 
 fn key_in(source: &'static str, mode: TermMode) -> Vec<u8> {
-    match encode(&Keystroke::parse(source).expect("a keystroke"), mode, KeyOptions::default()) {
+    key_with(source, mode, KeyOptions::default())
+}
+
+fn meta(source: &'static str) -> Vec<u8> {
+    key_with(source, TermMode::default(), KeyOptions { option_as_meta: true })
+}
+
+fn key_with(source: &'static str, mode: TermMode, options: KeyOptions) -> Vec<u8> {
+    match encode(&Keystroke::parse(source).expect("a keystroke"), mode, options) {
         KeyRoute::Shell(bytes) => bytes,
         KeyRoute::App => panic!("{source} went to the app"),
     }
@@ -47,7 +55,9 @@ fn arrows_follow_application_cursor_mode() {
 #[test]
 fn modified_named_keys_carry_the_xterm_parameter() {
     assert_eq!(key("shift-up"), b"\x1b[1;2A");
-    assert_eq!(key("alt-right"), b"\x1b[1;3C");
+    assert_eq!(key_with("alt-right", TermMode::default(), KeyOptions { option_as_meta: true }), b"\x1b[1;3C");
+    assert_eq!(key("alt-right"), b"\x1bf", "Option+Right moves a word, as in the desktop's xterm");
+    assert_eq!(key("alt-left"), b"\x1bb");
     assert_eq!(key("ctrl-left"), b"\x1b[1;5D");
     assert_eq!(key_in("ctrl-shift-up", TermMode::APP_CURSOR), b"\x1b[1;6A", "a modifier wins over application mode");
     assert_eq!(key("pageup"), b"\x1b[5~");
@@ -82,9 +92,9 @@ fn control_combinations_are_c0_bytes() {
 }
 
 #[test]
-fn alt_is_meta_and_plain_keys_type() {
-    assert_eq!(key("alt-b"), b"\x1bb");
-    assert_eq!(key("alt-shift-a"), b"\x1bA");
+fn alt_is_meta_when_asked_and_plain_keys_type() {
+    assert_eq!(meta("alt-b"), b"\x1bb");
+    assert_eq!(meta("alt-shift-a"), b"\x1bA");
     assert_eq!(key("alt-enter"), b"\x1b\r");
     assert_eq!(key("alt-backspace"), b"\x1b\x7f");
     assert_eq!(key("a"), b"a");
@@ -94,9 +104,11 @@ fn alt_is_meta_and_plain_keys_type() {
     assert_eq!(key("tab"), b"\t");
     assert_eq!(key("shift-tab"), b"\x1b[Z");
     assert_eq!(key("escape"), b"\x1b");
-    // Option composing a character when Meta is off (xterm.js `macOptionIsMeta: false`).
-    let composed = Keystroke { modifiers: Modifiers { alt: true, ..Modifiers::default() }, key: "e".into(), key_char: Some("´".into()) };
-    assert_eq!(encode(&composed, TermMode::default(), KeyOptions { option_as_meta: false }), KeyRoute::Shell("´".as_bytes().to_vec()));
+    // Option composes characters by default, as in the desktop's xterm (`macOptionIsMeta: false`).
+    assert!(!KeyOptions::default().option_as_meta);
+    let composed = Keystroke { modifiers: Modifiers { alt: true, ..Modifiers::default() }, key: "2".into(), key_char: Some("€".into()) };
+    assert_eq!(encode(&composed, TermMode::default(), KeyOptions::default()), KeyRoute::Shell("€".as_bytes().to_vec()));
+    assert_eq!(encode(&composed, TermMode::default(), KeyOptions { option_as_meta: true }), KeyRoute::Shell(b"\x1b2".to_vec()));
     let typed = Keystroke { modifiers: Modifiers::default(), key: "e".into(), key_char: Some("é".into()) };
     assert_eq!(encode(&typed, TermMode::default(), KeyOptions::default()), KeyRoute::Shell("é".as_bytes().to_vec()));
 }
@@ -258,13 +270,15 @@ fn selections_read_and_paint_their_cells() {
 
 // ---------------------------------------------------------------------------------------------- the view
 
-fn mount(cx: &mut TestAppContext) -> (Entity<TerminalPanel>, &mut VisualTestContext) {
-    let (panel, cx) = testing::mount_in_root(cx, |_, cx| TerminalPanel::with_spawn(Spawn::Detached, cx));
+/// A drawer on its own, with one Terminal open in it.
+fn mount(cx: &mut TestAppContext) -> (Entity<TerminalDrawer>, &mut VisualTestContext) {
+    let (drawer, cx) = testing::mount_in_root(cx, |_, cx| TerminalDrawer::with_spawn(Spawn::Detached, cx));
+    drawer.update(cx, |d, cx| d.add(cx));
     cx.run_until_parked();
-    (panel, cx)
+    (drawer, cx)
 }
 
-fn active(panel: &Entity<TerminalPanel>, cx: &mut VisualTestContext) -> Entity<TerminalView> {
+fn active(panel: &Entity<TerminalDrawer>, cx: &mut VisualTestContext) -> Entity<TerminalView> {
     panel.read_with(cx, |p, _| p.active_terminal()).expect("a Terminal")
 }
 
@@ -281,9 +295,9 @@ fn written(view: &Entity<TerminalView>, cx: &mut VisualTestContext) -> Vec<u8> {
 }
 
 #[gpui::test]
-fn the_tab_opens_one_terminal_sized_to_its_bounds(cx: &mut TestAppContext) {
+fn a_terminal_is_sized_to_its_bounds(cx: &mut TestAppContext) {
     let (panel, cx) = mount(cx);
-    assert_eq!(panel.read_with(cx, |p, _| p.terminals().len()), 1, "the first Terminal opens when the tab shows");
+    assert_eq!(panel.read_with(cx, |p, _| (p.terminals().len(), p.is_open())), (1, true));
     let view = active(&panel, cx);
     let grid = view.read_with(cx, |v, _| v.grid_size()).expect("laid out");
     let term_cols = view.read_with(cx, |v, _| {
@@ -302,8 +316,8 @@ fn typing_goes_to_the_shell_and_command_keys_do_not(cx: &mut TestAppContext) {
     let grid = cx.debug_bounds("terminal-grid").expect("the grid").center();
     cx.simulate_click(grid, Modifiers::none());
     written(&view, cx);
-    cx.simulate_keystrokes("l s enter ctrl-c up alt-b");
-    assert_eq!(written(&view, cx), b"ls\r\x03\x1b[A\x1bb");
+    cx.simulate_keystrokes("l s enter ctrl-c up ctrl-alt-c");
+    assert_eq!(written(&view, cx), b"ls\r\x03\x1b[A\x1b\x03");
 }
 
 #[gpui::test]
@@ -397,14 +411,13 @@ fn tabs_add_show_and_close(cx: &mut TestAppContext) {
     cx.simulate_click(first, Modifiers::none());
     cx.run_until_parked();
     assert_eq!(panel.read_with(cx, |p, _| p.active_index()), 0);
-    // ⌘T in a focused Terminal opens another.
-    cx.simulate_keystrokes("cmd-t");
+    panel.update_in(cx, |p, window, cx| p.new_terminal(window, cx));
     cx.run_until_parked();
     assert_eq!(panel.read_with(cx, |p, _| p.terminals().len()), 3);
     let shown = active(&panel, cx);
     panel.update(cx, |p, cx| {
-        let id = p.tabs.iter().find(|t| t.view == shown).unwrap().id;
-        p.close(id, cx)
+        let id = p.current().unwrap().tabs.iter().find(|t| t.view == shown).unwrap().id;
+        p.request_close(id, cx)
     });
     cx.run_until_parked();
     assert_eq!(panel.read_with(cx, |p, _| (p.terminals().len(), p.active_index())), (2, 1));
@@ -424,21 +437,17 @@ fn a_shell_title_names_its_tab(cx: &mut TestAppContext) {
     assert!(panel.read_with(cx, |p, _| p.renders()) > before, "the header shows the new title");
 }
 
-/// Output (and typing) repaint the Terminal and the plain views on its path, never the sidebar's rows or the
-/// transcript's items.
+/// Output (and typing) repaint the Terminal and the plain views on its path, never the sidebar's rows, the
+/// transcript's items or the side panel.
 #[gpui::test]
 fn output_repaints_only_the_terminal(cx: &mut TestAppContext) {
     let (workspace, cx) = testing::mount_workspace(cx);
-    let (sidebar, chat, panel) = workspace.read_with(cx, |w, _| (w.sidebar.clone(), w.chat.clone(), w.panel.clone()));
+    let (sidebar, chat, panel, drawer) =
+        workspace.read_with(cx, |w, _| (w.sidebar.clone(), w.chat.clone(), w.panel.clone(), w.terminals.clone()));
     let transcript = chat.read_with(cx, |c, _| c.transcript.clone());
-    let tab = cx.debug_bounds("panel-tab-Terminal").expect("Terminal tab").center();
-    cx.simulate_click(tab, Modifiers::none());
+    cx.simulate_keystrokes("cmd-j");
     cx.run_until_parked();
-    let terminals = panel
-        .read_with(cx, |p, _| p.body_view(crate::workspace::panel::PanelTab::Terminal))
-        .and_then(|v| v.downcast::<TerminalPanel>().ok())
-        .expect("the Terminal tab's body");
-    let view = active(&terminals, cx);
+    let view = active(&drawer, cx);
     let grid = cx.debug_bounds("terminal-grid").expect("the grid").center();
     cx.simulate_click(grid, Modifiers::none());
     cx.simulate_keystrokes("a"); // the first key after the mouse refreshes every view once
@@ -448,7 +457,7 @@ fn output_repaints_only_the_terminal(cx: &mut TestAppContext) {
             transcript.read_with(cx, |t, _| t.item_renders()),
             sidebar.read_with(cx, |s, _| s.rows_built()),
             panel.read_with(cx, |p, _| p.renders()),
-            terminals.read_with(cx, |t, _| t.renders()),
+            drawer.read_with(cx, |t, _| t.renders()),
             view.read_with(cx, |v, _| v.renders()),
         )
     };
@@ -459,11 +468,152 @@ fn output_repaints_only_the_terminal(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("b c");
     cx.run_until_parked();
     let after = counts(cx);
-    assert_eq!((after.0, after.1), (before.0, before.1), "no transcript item and no sidebar row is rebuilt");
+    assert_eq!((after.0, after.1, after.2), (before.0, before.1, before.2), "no transcript item, sidebar row or side panel render");
     assert!(after.4 >= before.4 + 5, "the Terminal itself repainted");
-    // GPUI re-renders every view on the notifying view's path (CONVENTIONS.md rule 1): the panel and the tab
-    // header do run, once per frame, and are cheap; the sidebar and Chat column stay on their cached children.
-    assert!(after.2 - before.2 <= after.4 - before.4 && after.3 - before.3 <= after.4 - before.4, "at most once per Terminal frame");
+    // GPUI re-renders every view on the notifying view's path (CONVENTIONS.md rule 1): the drawer's header runs, once
+    // per frame, and is cheap; the sidebar and Chat column stay on their cached children.
+    assert!(after.3 - before.3 <= after.4 - before.4, "the drawer at most once per Terminal frame");
+}
+
+/// ⌘J opens the drawer under the Chat with a first Terminal, hides it, and shows it again; each Chat keeps its own.
+#[gpui::test]
+fn each_chat_has_its_own_drawer(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    let drawer = workspace.read_with(cx, |w, _| w.terminals.clone());
+    assert!(cx.debug_bounds("terminal-drawer").is_none(), "closed at first, with no shell started");
+    cx.simulate_keystrokes("cmd-j");
+    cx.run_until_parked();
+    let first_chat = drawer.read_with(cx, |d, _| d.chat().to_string());
+    assert_eq!(drawer.read_with(cx, |d, _| (d.is_open(), d.terminals().len())), (true, 1));
+    let card = cx.debug_bounds("terminal-drawer").expect("the drawer is drawn");
+    let composer = cx.debug_bounds("composer").expect("the composer");
+    assert!(card.top() >= composer.bottom(), "the drawer sits under the Chat");
+    assert_eq!(card.size.height, px(super::GAP + HEIGHT_INITIAL + super::INSET));
+    let panel = cx.debug_bounds("panel-header").expect("the side panel");
+    assert!(card.right() <= panel.left() + px(1.0), "under the Chat column only, not the side panel");
+    cx.simulate_keystrokes("cmd-t");
+    cx.run_until_parked();
+    assert_eq!(drawer.read_with(cx, |d, _| d.terminals().len()), 2, "⌘T adds one");
+
+    // Another Chat has none of them, and its drawer is closed.
+    let row = cx.debug_bounds("chat-row-7").expect("row 7").center();
+    cx.simulate_click(row, Modifiers::none());
+    cx.run_until_parked();
+    assert_ne!(drawer.read_with(cx, |d, _| d.chat().to_string()), first_chat);
+    assert_eq!(drawer.read_with(cx, |d, _| (d.is_open(), d.terminals().len())), (false, 0));
+    assert!(cx.debug_bounds("terminal-drawer").is_none());
+
+    // Back on the first Chat, its two Terminals and its open drawer return.
+    let rows = workspace.read_with(cx, |w, _| w.sidebar.clone());
+    let ix = (0..20)
+        .find(|ix| rows.read_with(cx, |s, _| s.row(*ix).is_some_and(|r| r.key.as_ref() == first_chat)))
+        .expect("the first Chat's row");
+    let row = cx.debug_bounds(testing::leak(format!("chat-row-{ix}"))).expect("its row").center();
+    cx.simulate_click(row, Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(drawer.read_with(cx, |d, _| (d.is_open(), d.terminals().len())), (true, 2));
+    let grid = cx.debug_bounds("terminal-grid").expect("the grid").center();
+    cx.simulate_click(grid, Modifiers::none());
+    cx.simulate_keystrokes("cmd-j");
+    cx.run_until_parked();
+    assert!(!drawer.read_with(cx, |d, _| d.is_open()), "⌘J hides it");
+    assert_eq!(drawer.read_with(cx, |d, _| d.terminals().len()), 2, "hiding keeps the Terminals");
+}
+
+#[gpui::test]
+fn dragging_the_top_edge_resizes_within_its_limits(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    let drawer = workspace.read_with(cx, |w, _| w.terminals.clone());
+    cx.simulate_keystrokes("cmd-j");
+    cx.run_until_parked();
+    let drag = |cx: &mut VisualTestContext, to_y: f32| {
+        let handle = cx.debug_bounds("terminal-resize").expect("the handle").center();
+        cx.simulate_mouse_down(handle, MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_move(point(handle.x, handle.y - px(10.0)), Some(MouseButton::Left), Modifiers::none());
+        cx.simulate_mouse_move(point(handle.x, px(to_y)), Some(MouseButton::Left), Modifiers::none());
+        cx.simulate_mouse_up(point(handle.x, px(to_y)), MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+    };
+    let start = cx.debug_bounds("terminal-resize").expect("the handle").center().y;
+    drag(cx, f32::from(start) - 100.0);
+    let taller = drawer.read_with(cx, |d, _| d.height());
+    assert!((taller - (HEIGHT_INITIAL + 100.0)).abs() <= 8.0, "follows the pointer: {taller}");
+    drag(cx, 0.0);
+    let window = cx.update(|window, _| f32::from(window.viewport_size().height));
+    assert_eq!(drawer.read_with(cx, |d, _| d.height()), (window * 0.75).round(), "at most 75% of the window");
+    let handle = cx.debug_bounds("terminal-resize").expect("the handle").center();
+    cx.simulate_mouse_down(handle, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(point(handle.x, handle.y + px(10.0)), Some(MouseButton::Left), Modifiers::none());
+    cx.simulate_mouse_move(point(handle.x, px(window)), Some(MouseButton::Left), Modifiers::none());
+    cx.simulate_mouse_up(point(handle.x, px(window)), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(drawer.read_with(cx, |d, _| d.height()), HEIGHT_MIN, "at least 120");
+}
+
+/// ⌘W ends the focused Terminal; one running a command asks first ("End <title>"), and a second ⌘W ends it.
+#[gpui::test]
+fn cmd_w_ends_a_terminal_and_asks_first_when_busy(cx: &mut TestAppContext) {
+    let (drawer, cx) = mount(cx);
+    drawer.update(cx, |d, cx| d.add(cx));
+    cx.run_until_parked();
+    let view = active(&drawer, cx);
+    let grid = cx.debug_bounds("terminal-grid").expect("the grid").center();
+    cx.simulate_click(grid, Modifiers::none());
+    view.update(cx, |v, _| v.session().record.lock().unwrap().busy = Some("vim".into()));
+    cx.simulate_keystrokes("cmd-w");
+    cx.run_until_parked();
+    assert_eq!(drawer.read_with(cx, |d, _| d.terminals().len()), 2, "a busy Terminal is not ended at once");
+    assert!(drawer.read_with(cx, |d, _| d.asking(1)), "its close asks");
+    assert!(cx.debug_bounds("terminal-tab-1").is_some());
+    cx.simulate_keystrokes("cmd-w");
+    cx.run_until_parked();
+    assert_eq!(drawer.read_with(cx, |d, _| d.terminals().len()), 1, "the second ⌘W ends it");
+    let view = active(&drawer, cx);
+    let grid = cx.debug_bounds("terminal-grid").expect("the grid").center();
+    cx.simulate_click(grid, Modifiers::none());
+    cx.simulate_keystrokes("cmd-w");
+    cx.run_until_parked();
+    assert_eq!(drawer.read_with(cx, |d, _| (d.terminals().len(), d.is_open())), (0, false), "an idle one ends at once; the drawer closes");
+    drop(view);
+}
+
+#[gpui::test]
+fn a_right_click_offers_copy_and_paste(cx: &mut TestAppContext) {
+    let (drawer, cx) = mount(cx);
+    let view = active(&drawer, cx);
+    feed(&view, b"hello world", cx);
+    let origin = cx.debug_bounds("terminal-grid").expect("the grid").origin;
+    let cell_w = view.read_with(cx, |v, _| v.grid_state().metrics.unwrap().cell_width);
+    let at = |col: f32| point(origin.x + cell_w * col, origin.y + px(5.0));
+    cx.simulate_mouse_down(at(0.1), MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(at(4.9), Some(MouseButton::Left), Modifiers::none());
+    cx.simulate_mouse_up(at(4.9), MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_down(at(8.0), MouseButton::Right, Modifiers::none());
+    cx.simulate_mouse_up(at(8.0), MouseButton::Right, Modifiers::none());
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| v.menu_open()));
+    assert_eq!(view.read_with(cx, |v, _| v.selection_text()).as_deref(), Some("hello"), "the right click keeps the selection");
+    let copy = cx.debug_bounds("terminal-menu-copy").expect("Copy").center();
+    cx.simulate_click(copy, Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(cx.read_from_clipboard().and_then(|c| c.text()).as_deref(), Some("hello"));
+    assert!(!view.read_with(cx, |v, _| v.menu_open()), "a row closes the menu");
+
+    written(&view, cx);
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string("ls".into()));
+    cx.simulate_mouse_down(at(8.0), MouseButton::Right, Modifiers::none());
+    cx.run_until_parked();
+    let paste = cx.debug_bounds("terminal-menu-paste").expect("Paste").center();
+    cx.simulate_click(paste, Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(written(&view, cx), b"ls");
+
+    cx.simulate_mouse_down(at(8.0), MouseButton::Right, Modifiers::none());
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| v.menu_open()));
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    assert!(!view.read_with(cx, |v, _| v.menu_open()), "Escape closes it");
 }
 
 /// A real login-free shell on a PTY: output reaches the grid and the exit closes the tab.

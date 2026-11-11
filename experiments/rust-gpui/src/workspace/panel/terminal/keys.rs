@@ -1,6 +1,6 @@
 //! What a key pressed in a Terminal sends to the program in front: xterm's encoding for named keys (arrows, Home,
 //! End, Page Up and Down, Insert, Delete, F1 to F12, with the `1;<mods>` parameter when Shift, Alt or Ctrl is held),
-//! Ctrl combinations as C0 control bytes, and Alt as Meta (an ESC before the key).
+//! Ctrl combinations as C0 control bytes, and Alt as Meta (an ESC before the key) when [`KeyOptions`] asks for it.
 //!
 //! ⌘ shortcuts belong to the app on macOS (`lib/terminal-keys.ts`): [`encode`] returns `None` for them, and for a
 //! key it does not know, so the window's own bindings still run.
@@ -17,17 +17,12 @@ pub enum KeyRoute {
     App,
 }
 
-/// Options that change the encoding.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Options that change the encoding. The default leaves Option composing characters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct KeyOptions {
-    /// Option sends ESC + the key instead of the character macOS composes (`macOptionIsMeta`).
+    /// Option sends ESC + the key instead of the character macOS composes (`macOptionIsMeta`). Off, as in the
+    /// desktop's xterm: Option types characters (`@`, `€`, accents), and Esc-then-key still works as Meta.
     pub option_as_meta: bool,
-}
-
-impl Default for KeyOptions {
-    fn default() -> Self {
-        Self { option_as_meta: true }
-    }
 }
 
 /// The routing and bytes for `keystroke` while the terminal is in `mode` (application cursor keys change the
@@ -68,7 +63,11 @@ pub fn encode(keystroke: &Keystroke, mode: TermMode, options: KeyOptions) -> Key
         }
     };
 
+    // xterm.js on macOS with Option not as Meta: Option+Left and Right move by word as Terminal.app does (ESC b, ESC f).
+    let word_jump = m.alt && !m.shift && !m.control && !options.option_as_meta;
     let bytes = match key {
+        "left" if word_jump => b"\x1bb".to_vec(),
+        "right" if word_jump => b"\x1bf".to_vec(),
         "up" => csi_letter('A'),
         "down" => csi_letter('B'),
         "right" => csi_letter('C'),

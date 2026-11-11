@@ -34,11 +34,11 @@ impl WidthRule {
 }
 
 impl PanelTab {
-    /// The panel's width rule. Terminal (a bottom drawer on the desktop) and the PR tab (a tab inside Changes there)
-    /// take the Changes rule: they sit in the same column here.
+    /// The panel's width rule. The PR tab (a tab inside Changes on the desktop) takes the Changes rule: it sits
+    /// in the same column here.
     pub fn width_rule(self) -> WidthRule {
         match self {
-            PanelTab::Changes | PanelTab::Terminal | PanelTab::Pr => WidthRule { min: 280.0, default: 320.0, max: 640.0 },
+            PanelTab::Changes | PanelTab::Pr => WidthRule { min: 280.0, default: 320.0, max: 640.0 },
             PanelTab::Browser => WidthRule { min: 360.0, default: 440.0, max: 1400.0 },
             PanelTab::Designs | PanelTab::Artifact => WidthRule { min: 440.0, default: 560.0, max: 1400.0 },
         }
@@ -47,7 +47,7 @@ impl PanelTab {
     /// Tabs that share one remembered width: the desktop saves one per panel kind, not per Chat.
     pub fn width_key(self) -> PanelTab {
         match self {
-            PanelTab::Terminal | PanelTab::Pr => PanelTab::Changes,
+            PanelTab::Pr => PanelTab::Changes,
             other => other,
         }
     }
@@ -55,14 +55,8 @@ impl PanelTab {
 
 actions!(milagre_gpui_panel, [ToggleChanges, ToggleTerminal, ToggleBrowser, ToggleDesigns, ToggleArtifacts]);
 
-/// The commands the panel answers, and the tab each shows.
-const COMMANDS: [(&str, PanelTab); 5] = [
-    ("changes.toggle", PanelTab::Changes),
-    ("terminal.toggle", PanelTab::Terminal),
-    ("browser.toggle", PanelTab::Browser),
-    ("designs.toggle", PanelTab::Designs),
-    ("artifacts.toggle", PanelTab::Artifact),
-];
+/// The commands bound here. `terminal.toggle` shows the Terminals drawer (`panel/terminal/`), not a panel tab.
+const COMMANDS: [&str; 5] = ["changes.toggle", "terminal.toggle", "browser.toggle", "designs.toggle", "artifacts.toggle"];
 
 /// Binds the panel's commands from the effective key table (`default_keybindings`), once per app.
 pub fn install_keys(cx: &mut App) {
@@ -89,7 +83,7 @@ pub fn install_keys(cx: &mut App) {
             })
         })
         .collect();
-    debug_assert!(COMMANDS.iter().all(|(id, _)| bindings.iter().any(|b| b.command == *id)), "every panel command has a default key");
+    debug_assert!(COMMANDS.iter().all(|id| bindings.iter().any(|b| b.command == *id)), "every panel command has a default key");
     cx.bind_keys(keys);
 }
 
@@ -99,16 +93,14 @@ pub fn on_actions<E: InteractiveElement>(element: E, panel: &Entity<Panel>) -> E
         let panel = panel.clone();
         move |cx: &mut App| panel.update(cx, |panel, cx| panel.toggle_tab(tab, cx))
     };
-    let (changes, terminal, browser, designs, artifacts) = (
+    let (changes, browser, designs, artifacts) = (
         toggle(panel, PanelTab::Changes),
-        toggle(panel, PanelTab::Terminal),
         toggle(panel, PanelTab::Browser),
         toggle(panel, PanelTab::Designs),
         toggle(panel, PanelTab::Artifact),
     );
     element
         .on_action(move |_: &ToggleChanges, _, cx| changes(cx))
-        .on_action(move |_: &ToggleTerminal, _, cx| terminal(cx))
         .on_action(move |_: &ToggleBrowser, _, cx| browser(cx))
         .on_action(move |_: &ToggleDesigns, _, cx| designs(cx))
         .on_action(move |_: &ToggleArtifacts, _, cx| artifacts(cx))

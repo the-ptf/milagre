@@ -12,9 +12,9 @@ fn mount(cx: &mut TestAppContext) -> (gpui::Entity<crate::workspace::panel::Pane
 }
 
 #[gpui::test]
-fn six_tabs_in_order_each_with_icon_and_name(cx: &mut TestAppContext) {
+fn five_tabs_in_order_each_with_icon_and_name(cx: &mut TestAppContext) {
     let (_panel, cx) = mount(cx);
-    let names = ["Changes", "Terminal", "Browser", "Designs", "Artifact", "PR"];
+    let names = ["Changes", "Browser", "Designs", "Artifact", "PR"];
     assert_eq!(PanelTab::ALL.map(PanelTab::label), names);
     let mut last_x = px(-1.0);
     for name in names {
