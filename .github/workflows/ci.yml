@@ -92,15 +92,17 @@ jobs:
           # Node built-ins plus the rpm and repository tools; this was the Linux leg of native-tests.
           - name: Test real Linux repository signing
             run: |-
-              # The hosted image's Azure mirror can fail DNS for the entire job. Use Ubuntu's official mirrors
-              # in this disposable runner; keep signature verification and the real signing test unchanged.
-              if [ -f /etc/apt/apt-mirrors.txt ]; then
-                printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+              # Ubuntu's archive, security and Azure mirrors share DNS failure modes (runner-images#15296).
+              # Fall back to an independently hosted mirror without changing APT's trusted signing keys.
+              if ! timeout 10 getent ahosts azure.archive.ubuntu.com >/dev/null; then
+                echo "Ubuntu mirror DNS is unavailable; using the Linux Kernel Archives mirror"
+                for mirror_list in /etc/apt/apt-mirrors.txt /etc/apt/apt-mirrors-security.txt; do
+                  if [ -f "$mirror_list" ]; then
+                    printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee "$mirror_list" >/dev/null
+                  fi
+                done
               fi
-              if [ -f /etc/apt/apt-mirrors-security.txt ]; then
-                printf '%s\n' 'https://security.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors-security.txt >/dev/null
-              fi
-              sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm createrepo-c gnupg
+              sudo apt-get -o APT::Update::Error-Mode=any update && sudo apt-get install -y --no-install-recommends rpm createrepo-c gnupg
               export GNUPGHOME="$RUNNER_TEMP/milagre-test-key"
               mkdir -m 700 "$GNUPGHOME"
               gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Milagre CI fixture' rsa3072 sign 1d
