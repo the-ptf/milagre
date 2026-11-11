@@ -327,3 +327,59 @@ fn initial_resume_reaches_native_argv_and_reused_session_refuses_a_different_ide
     p.shutdown();
     assert!(m.wait_stopped(Duration::from_secs(3)));
 }
+
+#[test]
+fn repeated_answer_bursts_keep_task_retention_bounded_and_settle_every_admission() {
+    let mut p = ClaudeFixture::create(Scenario::Question).unwrap();
+    let monitor = p.monitor();
+    p.start_turn(TurnId(1), &RawJson(request(&p))).unwrap();
+    collect(&mut p, |e| {
+        e.iter().any(|e|matches!(e,ProviderEvent::Agent{event:RawJson(v),..} if v["type"]=="question-request"))
+    });
+    let mut admitted = std::collections::HashSet::new();
+    let mut settled = std::collections::HashSet::new();
+    for id in 1..=1024 {
+        if p.answer_question(
+            "fixture",
+            TurnId(1),
+            AnswerId(id),
+            "unmatched",
+            &RawJson(json!({})),
+        )
+        .is_ok()
+        {
+            admitted.insert(id);
+        }
+        if id % 16 == 0 {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        for event in p.take_events() {
+            if let ProviderEvent::AnswerSettled {
+                answer, outcome, ..
+            } = event
+            {
+                assert!(matches!(outcome, AnswerOutcome::NotWaiting));
+                assert!(settled.insert(answer.0));
+            }
+        }
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while settled.len() != admitted.len() {
+        for event in p.take_events() {
+            if let ProviderEvent::AnswerSettled {
+                answer, outcome, ..
+            } = event
+            {
+                assert!(matches!(outcome, AnswerOutcome::NotWaiting));
+                assert!(settled.insert(answer.0));
+            }
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(settled, admitted);
+    assert!(admitted.len() > 32);
+    assert!(monitor.peak_reply_tasks() > 0 && monitor.peak_reply_tasks() <= 8);
+    p.shutdown();
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+}

@@ -14,7 +14,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         Arc, Condvar, Mutex,
     },
     time::Duration,
@@ -68,6 +68,7 @@ struct Shared {
     queue: Mutex<Queue>,
     failed: AtomicBool,
     cleanup_failed: AtomicBool,
+    peak_reply_tasks: AtomicUsize,
     workers: Mutex<usize>,
     drained: Condvar,
     pending: Mutex<HashSet<(String, AnswerId)>>,
@@ -100,6 +101,9 @@ pub struct FixtureMonitor {
     _profile: Arc<IsolatedProfile>,
 }
 impl FixtureMonitor {
+    pub fn peak_reply_tasks(&self) -> usize {
+        self.shared.peak_reply_tasks.load(Ordering::Acquire)
+    }
     pub fn workers(&self) -> usize {
         *self.shared.workers.lock().unwrap()
     }
@@ -264,6 +268,7 @@ impl ClaudeFixture {
                 }),
                 failed: AtomicBool::new(false),
                 cleanup_failed: AtomicBool::new(false),
+                peak_reply_tasks: AtomicUsize::new(0),
                 workers: Mutex::new(0),
                 drained: Condvar::new(),
                 pending: Mutex::new(HashSet::new()),
@@ -784,10 +789,11 @@ impl Worker {
                if !self.agent(latest,event,is_end){break;}
               },None=>break
              },
-             reply=answers.recv()=>if let Some(mut reply)=reply{
+             reply=answers.recv(), if replies.len()<8=>if let Some(mut reply)=reply{
               if reply.turn!=latest{drop(reply);continue;}
               let session=session.clone();let delayed=matches!(self.scenario,Scenario::QuestionDelayedReceipt);
               replies.spawn(async move{reply.guard.entered=true;let accepted=match reply.answer{Answer::Permission(decision)=>session.respond_to_permission(&reply.request,&decision),Answer::Question(value)=>session.answer_question(&reply.request,value.as_object())};if accepted&&delayed{tokio::time::sleep(Duration::from_millis(400)).await;}reply.guard.settle(if accepted{AnswerOutcome::Accepted}else{AnswerOutcome::NotWaiting});});
+              self.shared.peak_reply_tasks.fetch_max(replies.len(),Ordering::AcqRel);
              },
              _=replies.join_next(),if !replies.is_empty()=>{},
              start=starts.recv()=>match start{Some(start)=>pending=Some(start),None=>break}
