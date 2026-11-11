@@ -126,7 +126,7 @@ pub fn validate_consistency(document: &Value) -> Result<()> {
                     .join(" ")
             ),
         );
-        error.issues = Some(json!(issues));
+        error.issues = Some(Box::new(json!(issues)));
         return Err(error);
     }
     Ok(())

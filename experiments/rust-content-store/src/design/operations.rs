@@ -1,19 +1,13 @@
 use super::*;
 
-/// Apply one atomic batch to a clone. Layout-aware `intent` is deliberately
-/// rejected until the Rust font/layout diagnostic engine exists.
+/// Apply one atomic batch to a clone, then enforce declared text/layout scope.
 pub fn apply_operations(
     document: &Value,
     operations: &Value,
     intent: Option<&Value>,
 ) -> Result<Value> {
-    if intent.is_some() {
-        return Err(Error::coded(
-            "UNSUPPORTED_DESIGN_INTENT",
-            "Layout-aware Design edit intent requires the existing design layout engine.",
-        ));
-    }
     let mut result = validate_document(document)?;
+    let before = intent.map(|_| result.clone());
     let mut previous = components::sources(&result);
     let list = operations
         .as_array()
@@ -273,5 +267,9 @@ pub fn apply_operations(
         .as_array_mut()
         .unwrap()
         .retain(|node| !removed.contains(&sid(node, "id")));
-    validate_document(&result)
+    let result = validate_document(&result)?;
+    if let (Some(before), Some(intent)) = (before, intent) {
+        intent::check(&before, &result, intent)?;
+    }
+    Ok(result)
 }

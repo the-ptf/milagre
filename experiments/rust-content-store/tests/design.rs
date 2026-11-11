@@ -46,7 +46,7 @@ fn production_design_schema_components_tokens_and_edits_match() {
     for case in oracle["cases"].as_array().unwrap() {
         let input = case["document"].clone();
         let result = match case.get("operations") {
-            Some(operations) => apply_operations(&input, operations, None),
+            Some(operations) => apply_operations(&input, operations, case.get("intent")),
             None => validate_document(&input),
         }
         .and_then(|document| {
@@ -85,12 +85,20 @@ fn production_design_schema_components_tokens_and_edits_match() {
                     );
                     if let Some(issues) = case.get("issues") {
                         assert_eq!(
-                            error.issues.as_ref(),
+                            error.issues.as_deref(),
                             Some(issues),
                             "{} issue paths",
                             case["name"]
                         );
                     }
+                }
+                if let Some(diagnostics) = case.get("diagnostics") {
+                    assert_eq!(
+                        error.diagnostics.as_deref().map(normalize),
+                        Some(normalize(diagnostics)),
+                        "{} diagnostics",
+                        case["name"]
+                    );
                 }
                 if let Some(code) = case.get("code") {
                     assert_eq!(&error.code, code.as_str().unwrap(), "{}", case["name"]);
@@ -270,7 +278,7 @@ fn unsafe_future_or_layout_operations_fail_without_fabricated_success() {
         Some(&json!({"mode":"text-only","textIds":["title"]})),
     )
     .unwrap_err();
-    assert_eq!(error.code, "UNSUPPORTED_DESIGN_INTENT");
+    assert_eq!(error.code, "DESIGN_INTENT_VIOLATION");
     for field in ["constructor", "__proto__", "futureLayout"] {
         let mut future = input.clone();
         future[field] = json!({"unsafe":true});
@@ -323,6 +331,12 @@ fn prepared_revision_rechecks_version_kit_and_active_owner_before_commit() {
     );
     assert!(!called.get());
     let before = tree(&isolation.root().join("rust-design-store"));
+    let rejected_intent = store.prepare_design_apply(&json!({"chatId":"/fixture#7","id":"screen","expectedVersion":1,"intent":{"mode":"text-only","textIds":["missing"]},"operations":[{"op":"document","patch":{"width":390}}]}), &reader);
+    assert_eq!(
+        rejected_intent.err().unwrap().code,
+        "DESIGN_INTENT_VIOLATION"
+    );
+    assert_eq!(tree(&isolation.root().join("rust-design-store")), before);
     let replacement = json!({"expectedVersion":1,"chatId":"/fixture#7","id":"screen","title":"Replacement","document":source});
     let prepared = store.prepare_design_show(&replacement, &reader).unwrap();
     let failed = |_: &Value| {

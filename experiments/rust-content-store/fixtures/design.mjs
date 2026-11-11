@@ -16,10 +16,20 @@ import {
 } from "../../../packages/shared/src/design.mjs";
 import { designIcons } from "../../../packages/shared/src/design-icons.mjs";
 import { namedColors } from "../../../packages/shared/src/design-color-names.mjs";
+import { designEditIntentSchema } from "../../../packages/shared/src/design-intent.mjs";
 const require = createRequire(import.meta.url);
 const { createChatArtifacts } = require("../../../packages/core/src/chat-artifacts.cjs");
 const here = path.dirname(fileURLToPath(import.meta.url));
-const sourceFiles = ["design.mjs", "design-kit.mjs", "design-components.mjs", "design-fonts.mjs", "design-colors.mjs", "design-icons.mjs", "design-paint.mjs"];
+const sourceFiles = [
+  "design.mjs",
+  "design-kit.mjs",
+  "design-components.mjs",
+  "design-fonts.mjs",
+  "design-colors.mjs",
+  "design-icons.mjs",
+  "design-paint.mjs",
+  "design-intent.mjs",
+];
 const clone = (value) => JSON.parse(JSON.stringify(value));
 async function contract() {
   const sources = {};
@@ -32,6 +42,7 @@ async function contract() {
     zodVersion: require("zod/package.json").version,
     document: z.toJSONSchema(designDocumentSchema, { unrepresentable: "any", io: "input" }),
     operation: z.toJSONSchema(designOperationSchema, { unrepresentable: "any", io: "input" }),
+    intent: z.toJSONSchema(designEditIntentSchema, { unrepresentable: "any", io: "input" }),
     icons: Object.keys(designIcons),
     colors: namedColors,
   };
@@ -90,13 +101,14 @@ function fixtures() {
     const item = { name, document: clone(document), ...options };
     if (operations !== undefined) item.operations = operations;
     try {
-      let value = operations === undefined ? validateDesignDocument(document) : applyDesignOperations(document, operations);
+      let value = operations === undefined ? validateDesignDocument(document) : applyDesignOperations(document, operations, options.intent);
       if (options.consistency) validateDesignConsistency(value);
       item.result = value;
     } catch (error) {
       item.error = error.message;
       if (error.code) item.code = error.code;
       if (error.issues) item.issues = error.issues;
+      if (error.diagnostics) item.diagnostics = error.diagnostics;
       item.structural = error.name === "ZodError";
     }
     cases.push(item);
@@ -243,6 +255,66 @@ function fixtures() {
       exceptions: [{ nodeId: "card", field: "typography", value: { reason: "  preserve  " }, reason: "  Intentional exception  " }],
     },
   });
+  const intentDoc = {
+    schemaVersion: 1,
+    width: 390,
+    height: 844,
+    background: "white",
+    nodes: [
+      { id: "card", type: "frame", width: 300, height: 200, layout: "vertical", gap: 8 },
+      { id: "title", parentId: "card", type: "text", width: 280, height: 30, text: "Hi", fill: "black", fontSize: 17 },
+      { id: "body", parentId: "card", type: "text", width: 280, height: 30, text: "Human edit", fill: "black" },
+    ],
+  };
+  const textOnly = { mode: "text-only", textIds: ["title"] };
+  const fit = { mode: "fit-text", textIds: ["title"], layoutIds: ["card"] };
+  const edit = (text) => ({ op: "update", id: "title", patch: { text } });
+  const hug = { op: "update", id: "title", patch: { heightMode: "hug" } };
+  const addIntent = (name, document, operations, intent) => add(name, document, operations, { intent });
+  addIntent("text-only ordinary", intentDoc, [edit("Hello")], textOnly);
+  addIntent("text-only clipped but fixed bounds", intentDoc, [edit("A long title ".repeat(20))], textOnly);
+  for (const [index, op] of [
+    { op: "update", id: "body", patch: { text: "Unrelated" } },
+    { op: "update", id: "title", patch: { fill: "red" } },
+    { op: "document", patch: { consistency: { mode: "advisory" } } },
+    { op: "delete", id: "body" },
+    { op: "replace", document: { ...clone(intentDoc), nodes: intentDoc.nodes.map((n) => (n.id === "body" ? { ...n, text: "Lost" } : n)) } },
+    { op: "insert", node: { id: "extra", type: "text", width: 10, height: 10, text: "New" } },
+    { op: "update", id: "card", patch: { gap: 9 } },
+  ].entries())
+    for (const intent of [textOnly, fit]) addIntent(`forbidden intent ${index} ${intent.mode}`, intentDoc, [op], intent);
+  const hugging = clone(intentDoc);
+  hugging.nodes[1].heightMode = "hug";
+  addIntent("implicit text-only resizing", hugging, [edit("More words ".repeat(10))], textOnly);
+  addIntent("fit missing affected layout scope", intentDoc, [edit("More words ".repeat(9)), hug], { mode: "fit-text", textIds: ["title"] });
+  addIntent("fit scoped successful", intentDoc, [edit("More words ".repeat(9)), hug], fit);
+  addIntent("fit scoped clipped", intentDoc, [edit("More words ".repeat(9))], fit);
+  addIntent("fit scoped overflow", intentDoc, [edit("More words ".repeat(99)), hug], fit);
+  const free = clone(intentDoc);
+  delete free.nodes[0].layout;
+  free.nodes[2].y = 40;
+  addIntent("fit new text overlap", free, [edit("More words ".repeat(9)), hug], fit);
+  const outside = clone(intentDoc);
+  outside.nodes[0].x = 350;
+  addIntent("fit affected ancestor outside", outside, [edit("Hello")], { mode: "fit-text", textIds: ["title"] });
+  for (const [name, intent] of Object.entries({
+    missing: { ...textOnly, textIds: ["missing"] },
+    nontext: { ...textOnly, textIds: ["card"] },
+    layout: { ...textOnly, layoutIds: ["card"] },
+    missingLayout: { ...fit, layoutIds: ["missing"] },
+    badMode: { mode: "other", textIds: ["title"] },
+    empty: { ...textOnly, textIds: [] },
+    extra: { ...textOnly, unknown: true },
+  }))
+    addIntent(`intent invalid ${name}`, intentDoc, [edit("Hi")], intent);
+  const unrelated = clone(intentDoc);
+  unrelated.nodes.push({ id: "defect", type: "text", x: 380, y: 750, width: 200, height: 30, text: "Existing unrelated" });
+  addIntent("fit existing unrelated defect", unrelated, [edit("Hello")], fit);
+  addIntent("component declared source propagation", component, [{ op: "update", id: "label", patch: { text: "Walk" } }], {
+    mode: "text-only",
+    textIds: ["label"],
+  });
+  addIntent("component style preserved", component, [{ op: "update", id: "label", patch: { fontSize: 18 } }], { mode: "text-only", textIds: ["label"] });
   return cases;
 }
 async function render(document) {
@@ -269,7 +341,24 @@ async function storeFixture(root) {
   const fontKey = createHash("sha256").update(fontCss).digest("hex");
   const actions = [
     ["showDesign", { id: "screen", title: "  Welcome  ", group: " Onboarding ", document: styled }],
-    ["apply", { id: "screen", expectedVersion: 1, operations: [{ op: "update", id: "title", patch: { text: "Second revision" } }] }],
+    [
+      "apply",
+      {
+        id: "screen",
+        expectedVersion: 1,
+        intent: { mode: "text-only", textIds: ["title"] },
+        operations: [{ op: "update", id: "button", patch: { fill: "red" } }],
+      },
+    ],
+    [
+      "apply",
+      {
+        id: "screen",
+        expectedVersion: 1,
+        intent: { mode: "text-only", textIds: ["title"] },
+        operations: [{ op: "update", id: "title", patch: { text: "Second revision" } }],
+      },
+    ],
     ["get", { id: "screen", version: 1 }],
     [
       "showDesign",

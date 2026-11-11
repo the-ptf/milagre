@@ -8,6 +8,7 @@ pub use diagnostics::{diagnostics, warning_text};
 pub use diff::document_diff;
 mod components;
 pub(crate) mod font_cache;
+mod intent;
 mod kit;
 mod kits;
 mod layout;

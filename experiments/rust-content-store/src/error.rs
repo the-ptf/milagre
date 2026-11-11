@@ -5,7 +5,8 @@ use std::{fmt, io};
 pub struct Error {
     pub code: String,
     pub message: String,
-    pub issues: Option<Value>,
+    pub issues: Option<Box<Value>>,
+    pub diagnostics: Option<Box<Value>>,
 }
 impl Error {
     pub fn new(message: impl Into<String>) -> Self {
@@ -16,17 +17,21 @@ impl Error {
             code: code.into(),
             message: message.into(),
             issues: None,
+            diagnostics: None,
         }
     }
     pub fn at(message: impl Into<String>, path: &[Value]) -> Self {
         let mut error = Self::new(message);
-        error.issues = Some(json!([{"path":path,"message":error.message}]));
+        error.issues = Some(Box::new(json!([{"path":path,"message":error.message}])));
         error
     }
     pub fn value(&self) -> Value {
         let mut value = json!({"code":self.code,"message":self.message});
         if let Some(issues) = &self.issues {
-            value["issues"] = issues.clone();
+            value["issues"] = issues.as_ref().clone();
+        }
+        if let Some(diagnostics) = &self.diagnostics {
+            value["diagnostics"] = diagnostics.as_ref().clone();
         }
         value
     }

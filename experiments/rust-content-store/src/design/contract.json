@@ -6,7 +6,8 @@
     "design-fonts.mjs": "ba22ab9691675d57b1d3164e2b2798e4ad7fe554febcca3786eefcc4e08de9d0",
     "design-colors.mjs": "f6b22c05f57d03cee8e3cc6d88fb4b9cac5f0170fe615bf9b38b6af719d2d6b8",
     "design-icons.mjs": "4902e7ee8e9067b9ba376edb804c95909b268c0af047debcaa4a79324033a004",
-    "design-paint.mjs": "e1a664424694c55bcce99891f46c8ddb5c5ddf29e67f0bff7a43c4d71826cd68"
+    "design-paint.mjs": "e1a664424694c55bcce99891f46c8ddb5c5ddf29e67f0bff7a43c4d71826cd68",
+    "design-intent.mjs": "3a459daab16cdde8a8b45ff2aa674a8690e24bc6445037ad0a32fd8affe8891d"
   },
   "zodVersion": "4.6.5",
   "document": {
@@ -906,6 +907,18 @@
         "additionalProperties": false
       }
     ]
+  },
+  "intent": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "mode": { "type": "string", "enum": ["text-only", "fit-text"] },
+      "textIds": { "minItems": 1, "maxItems": 100, "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+      "layoutIds": { "maxItems": 100, "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } }
+    },
+    "required": ["mode", "textIds"],
+    "additionalProperties": false,
+    "description": "text-only preserves all fields except text and all computed bounds. fit-text permits geometry within textIds and layoutIds subtrees, preserving styles and other copy. Layout must fit before saving. No automatic repair."
   },
   "icons": [
     "a-arrow-down",
