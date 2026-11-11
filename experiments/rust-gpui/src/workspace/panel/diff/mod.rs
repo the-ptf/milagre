@@ -24,7 +24,8 @@
 //! - Code selection: a drag in the code selects text in one column (both columns of a split row never mix, as the
 //!   comment ranges); ⌘C copies it as lines, without gutters or markers. WP-16's selection model
 //!   (`ui::selection`) serialises Markdown and has no API for other text yet, so this is the diff's own.
-//! - Comments are kept per Chat in memory (the desktop's `localStorage`), so they last the session.
+//! - Comments are kept per Chat in a JSON file in the state directory (the desktop's `localStorage`), so they last
+//!   across launches; snapshots and tests keep them in memory.
 //!
 //! Where it is mounted: over the Chat column, as the desktop does, with the Chat's title as Back's label
 //! (`over_chat.rs`). The Changes panel and the PR panel's Files tab keep their lists and open it; the window draws it.

@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use crate::logic::diff::{DiffHunk, DiffLine, LineKind};
 use crate::ui::markdown::fences::resolve_code_language;
+use crate::workspace::shell::persist::{self, JsonFile};
 
 /// The column of a split view: old on the left, new on the right.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -246,15 +247,101 @@ pub struct CommentView {
     pub outdated: bool,
 }
 
-/// The Chats' comments (`useDiffComments`), in memory: the desktop keeps them in `localStorage` under
-/// `milagre:diff-comments:<chat>`, which the port has no preference store for yet.
+/// The Chats' comments (`useDiffComments`). The desktop keeps them in `localStorage` under
+/// `milagre:diff-comments:<chat>`; here they are one JSON file per app (`diff-comments.json` in the state directory,
+/// see `shell::persist`), so they last across launches. The Changes diff and the PR's diff each hold a store; a
+/// change rewrites only its own mode's comments of that Chat in the file, so neither clobbers the other.
 #[derive(Clone, Debug, Default)]
 pub struct CommentStore {
     by_chat: HashMap<String, Vec<DiffComment>>,
     next_id: u64,
+    file: Option<JsonFile>,
+}
+
+fn mode_name(mode: ChangesMode) -> &'static str {
+    match mode {
+        ChangesMode::Uncommitted => "uncommitted",
+        ChangesMode::Committed => "committed",
+        ChangesMode::Pr => "pr",
+    }
+}
+
+fn to_json(comment: &DiffComment) -> serde_json::Value {
+    serde_json::json!({
+        "id": comment.id,
+        "path": comment.path,
+        "side": comment.side.as_str(),
+        "start": comment.start,
+        "end": comment.end,
+        "snippet": comment.snippet,
+        "body": comment.body,
+        "createdAt": comment.created_at,
+        "mode": mode_name(comment.mode),
+    })
+}
+
+fn from_json(value: &serde_json::Value) -> Option<DiffComment> {
+    let text = |key: &str| value.get(key)?.as_str().map(str::to_string);
+    let number = |key: &str| value.get(key)?.as_u64().and_then(|n| u32::try_from(n).ok());
+    Some(DiffComment {
+        id: text("id")?,
+        path: text("path")?,
+        side: if text("side")? == "old" { DiffSide::Old } else { DiffSide::New },
+        start: number("start")?,
+        end: number("end")?,
+        snippet: value.get("snippet")?.as_array()?.iter().filter_map(|row| row.as_str().map(str::to_string)).collect(),
+        body: text("body")?,
+        created_at: value.get("createdAt")?.as_i64()?,
+        mode: match text("mode")?.as_str() {
+            "committed" => ChangesMode::Committed,
+            "pr" => ChangesMode::Pr,
+            _ => ChangesMode::Uncommitted,
+        },
+    })
+}
+
+/// What a file holds: Chat key to its comments. Anything malformed is left out.
+fn read_all(file: &JsonFile) -> HashMap<String, Vec<DiffComment>> {
+    let Some(serde_json::Value::Object(chats)) = file.read() else { return HashMap::new() };
+    chats
+        .iter()
+        .filter_map(|(chat, list)| Some((chat.clone(), list.as_array()?.iter().filter_map(from_json).collect::<Vec<_>>())))
+        .collect()
 }
 
 impl CommentStore {
+    /// A store kept in the app's state file; in memory only while persistence is off (snapshots, tests).
+    pub fn new() -> Self {
+        Self::with_file(persist::file("diff-comments.json"))
+    }
+
+    /// A store kept in `file`, loaded now.
+    pub fn with_file(file: Option<JsonFile>) -> Self {
+        let by_chat = file.as_ref().map(read_all).unwrap_or_default();
+        let next_id = Self::highest_id(by_chat.values().flatten());
+        Self { by_chat, next_id, file }
+    }
+
+    fn highest_id<'a>(comments: impl Iterator<Item = &'a DiffComment>) -> u64 {
+        comments.filter_map(|c| c.id.strip_prefix('c')?.parse::<u64>().ok()).max().unwrap_or(0)
+    }
+
+    /// Writes `chat`'s comments of `mode` into the file, keeping what the file holds for its other modes (another
+    /// store's) and other Chats.
+    fn save(&self, chat: &str, mode: ChangesMode) {
+        let Some(file) = &self.file else { return };
+        let mut all = read_all(file);
+        let theirs = all.remove(chat).unwrap_or_default().into_iter().filter(|c| c.mode != mode);
+        let mine = self.all(chat).iter().filter(|c| c.mode == mode).cloned();
+        let merged: Vec<DiffComment> = theirs.chain(mine).collect();
+        if !merged.is_empty() {
+            all.insert(chat.to_string(), merged);
+        }
+        let chats: serde_json::Map<String, serde_json::Value> =
+            all.iter().map(|(chat, list)| (chat.clone(), list.iter().map(to_json).collect())).collect();
+        file.write(&serde_json::Value::Object(chats));
+    }
+
     pub fn all(&self, chat: &str) -> &[DiffComment] {
         self.by_chat.get(chat).map(Vec::as_slice).unwrap_or(&[])
     }
@@ -265,6 +352,10 @@ impl CommentStore {
     }
 
     pub fn add(&mut self, chat: &str, mode: ChangesMode, path: &str, selection: DiffSelection, body: &str, now: i64) -> String {
+        // The other store may have added comments since this one loaded: never reuse its ids.
+        if let Some(file) = &self.file {
+            self.next_id = self.next_id.max(Self::highest_id(read_all(file).values().flatten()));
+        }
         self.next_id += 1;
         let id = format!("c{}", self.next_id);
         self.by_chat.entry(chat.to_string()).or_default().push(DiffComment {
@@ -278,12 +369,15 @@ impl CommentStore {
             created_at: now,
             mode,
         });
+        self.save(chat, mode);
         id
     }
 
     pub fn update(&mut self, chat: &str, id: &str, body: &str) {
         if let Some(comment) = self.by_chat.get_mut(chat).and_then(|all| all.iter_mut().find(|c| c.id == id)) {
             comment.body = body.to_string();
+            let mode = comment.mode;
+            self.save(chat, mode);
         }
     }
 
@@ -293,7 +387,13 @@ impl CommentStore {
 
     pub fn remove_many(&mut self, chat: &str, ids: &[String]) {
         if let Some(all) = self.by_chat.get_mut(chat) {
+            let modes: Vec<ChangesMode> = all.iter().filter(|c| ids.contains(&c.id)).map(|c| c.mode).collect();
             all.retain(|c| !ids.contains(&c.id));
+            for mode in [ChangesMode::Uncommitted, ChangesMode::Committed, ChangesMode::Pr] {
+                if modes.contains(&mode) {
+                    self.save(chat, mode);
+                }
+            }
         }
     }
 

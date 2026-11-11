@@ -43,6 +43,8 @@ pub fn run() {
                 if let Some(path) = StateFile::default_path() {
                     cx.set_global(StateFile(path));
                 }
+                // The diff comments and the merge method are kept beside the window state.
+                crate::workspace::shell::persist::enable();
                 open_main_window(cx);
                 cx.activate(true);
             }

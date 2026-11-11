@@ -270,7 +270,7 @@ impl DiffView {
             file_ranges: Vec::new(),
             list: gpui::ListState::new(0, ListAlignment::Top, px(400.0)),
             applied: DiffPrefs::get(cx),
-            comments: CommentStore::default(),
+            comments: CommentStore::new(),
             draft: None,
             editor: None,
             _editor_sub: None,

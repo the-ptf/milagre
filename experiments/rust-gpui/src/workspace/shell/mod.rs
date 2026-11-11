@@ -6,11 +6,13 @@
 //!   toggles in the Chat column's top-right corner, with the clearance the Chat header keeps from both.
 //! - [`keys`]: the shell's commands from the effective key table (⌘B, ⌘N, ⇧⌘T) and the macOS menu bar.
 //! - [`window_state`]: the window's frame and the sidebar's collapsed state, saved and restored.
+//! - [`persist`]: the small JSON files beside it (diff comments, the merge method).
 //!
 //! The look stays design A (the integrated sidebar): the bar is drawn over the sidebar's 44px header while the
 //! sidebar is open and over the Chat header's leading edge while it is a rail, as the desktop's bar moves.
 
 pub mod keys;
+pub mod persist;
 pub mod top_bar;
 pub mod window_state;
 

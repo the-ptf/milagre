@@ -199,3 +199,37 @@ fn a_draft_drags_within_its_hunk_and_column_and_shift_extends_it() {
     let split = Draft { side: Some(DiffSide::New), anchor: 0, head: 2, ..extended };
     assert_eq!(split.editor_row(&h[0]), Some(0), "the last row shown in the new column is a context row");
 }
+
+#[test]
+fn comments_survive_a_relaunch_and_two_stores_do_not_clobber_each_other() {
+    let file = crate::workspace::shell::persist::test_file("diff-comments");
+    let h = hunks();
+    let sel = selection_from_rows(&h[0], 1, 1, None).unwrap();
+    let mut changes = CommentStore::with_file(Some(file.clone()));
+    let mut pr = CommentStore::with_file(Some(file.clone()));
+    let a = changes.add("chat-1", ChangesMode::Uncommitted, "src/a.ts", sel.clone(), "one", 1);
+    let b = pr.add("chat-1", ChangesMode::Pr, "src/a.ts", sel.clone(), "two", 2);
+    assert_ne!(a, b, "ids stay unique across the two stores");
+    changes.add("chat-2", ChangesMode::Committed, "src/b.ts", sel, "three", 3);
+    changes.update("chat-1", &a, "edited");
+
+    let mut relaunched = CommentStore::with_file(Some(file.clone()));
+    assert_eq!(relaunched.all("chat-1").len(), 2);
+    assert_eq!(relaunched.shown("chat-1", ChangesMode::Uncommitted)[0].body, "edited");
+    assert_eq!(relaunched.shown("chat-1", ChangesMode::Pr)[0].snippet, changes.all("chat-1")[0].snippet);
+    assert_eq!(relaunched.all("chat-2")[0].mode, ChangesMode::Committed);
+
+    relaunched.remove("chat-1", &b);
+    assert_eq!(CommentStore::with_file(Some(file.clone())).all("chat-1").len(), 1);
+    assert_eq!(CommentStore::with_file(Some(file)).all("chat-2").len(), 1, "other Chats stay");
+}
+
+#[test]
+fn a_malformed_file_starts_empty_and_persistence_is_off_without_a_file() {
+    let file = crate::workspace::shell::persist::test_file("diff-comments-bad");
+    std::fs::create_dir_all(file.path().parent().unwrap()).unwrap();
+    std::fs::write(file.path(), "{not json").unwrap();
+    assert!(CommentStore::with_file(Some(file)).all("chat-1").is_empty());
+    assert!(CommentStore::new().all("chat-1").is_empty());
+    assert!(crate::workspace::shell::persist::file("x.json").is_none(), "tests never enable persistence");
+}
