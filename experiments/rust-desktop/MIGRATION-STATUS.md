@@ -30,8 +30,13 @@ The runtime rebuild replaced the development app-fixture binary with SHA-256
 `51e90342bf427d7160ff658f7e5c73e50ed7d9b4dad8148b80cc7688bc36a15d`.
 Root reran the shared client's five real owned-child scenarios against it, with Complete
 cleanup and removed stage (`/tmp/milagre-client-ordinary-root-fixture.log`). The client
-API/tree is unchanged. GPUI Chat 11899 was notified that its old `0a909ce5` daemon pin
-must be updated only after its own adapter checks pass. The installed ordinary Tauri
+API/tree is unchanged. GPUI adopted the new daemon pin in its separate commit
+`a053654f`, after twelve actual adapter fixture tests passed at GPUI `296e300b` and
+backend `f5188740`. Root inspected that commit and the saved
+`chat-tie0/experiments/rust-gpui/daemon-check/target/check-gpui-adapter.log`, rather than
+rerunning the GPUI suite. The shared-client pin remains `9aa5deb3`; only the adapter
+fixture hash and its separate lockfile changed. This remains off-default fixture
+integration, not production UI/authority evidence. The installed ordinary Tauri
 binary/signature and production host PIDs are unchanged; no fixture is installed.
 
 Offline HTTP probe `5dacc23e` is accepted as a standalone prerequisite. It drives real Hyper HTTP/1 over bounded generated memory IO without sockets, a runtime, production authority or HTTP Begin. Root passes its single aggregate Rust test (30 parser rows and nine ownership/cancellation rows), strict Clippy, formatting and all seven source/manifest/lock hashes; an independent subagent review found no code blocker. Every captured allocation is released after final disposal. The full 8 MiB upload plus 64 MiB response/trailer trace peaks at 76,009,090 requested-layout bytes. This is measurement, not a certified heap/RSS or admission bound. Transport overhead, forwarded headers, original request capacity, server/socket ownership and composed prepayment still need evidence before actual HTTP integration. Root logs: `/tmp/milagre-http-probe-root-{tests,clippy,fmt}.log`.
