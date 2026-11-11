@@ -118,7 +118,7 @@ async function run() {
     for (const message of state.messages.filter((item) => typeof item.id === "number").slice(0, 8)) {
       assert.deepEqual(await client.call("chat:message", [source, message.id]), await withDetails(oracle, message), `${name} details ${message.id}`);
     }
-    for (const identity of ["cm-1", "cm-2", "queued-1", "queued-10", "legacy-cm-1", "legacy-queued", "missing-identity"]) {
+    for (const identity of ["cm-1", "cm-2", "queued-1", "queued-10", "legacy-cm-1", "legacy-queued", "cm-real-10fffe\u{10fffe}", "missing-identity"]) {
       const message = state.messages.find((item) => item.clientMessageId === identity);
       const queued = Object.values(state.sessions).find((chat) => chat.queued?.some((item) => item.clientMessageId === identity));
       const expected = message ? { sessionId: message.session_id } : queued ? { sessionId: queued.id } : null;

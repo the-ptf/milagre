@@ -1,6 +1,8 @@
-//! Isolated read adapter. No live profile, owner lock, provider, mutation, or arbitrary folder access.
+//! Isolated read/PTY adapters. Optional ProjectStates ownership covers fresh fixture copies only.
+//! No live profile, provider execution, mutation command, or arbitrary Project folder access.
 mod copies;
 mod inbox;
+mod owned;
 mod terminals;
 
 pub use copies::SavedCopies;
@@ -9,7 +11,11 @@ use milagre_owner_wire::{
     ClientContext, Config, Handler, IsolatedProfile, RpcError, RpcResult, Server,
 };
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Clone, Debug)]
 pub struct ProjectInfo {
@@ -25,12 +31,28 @@ pub trait ReadBackend: Send + Sync + 'static {
     fn message(&self, path: &str, id: &Value) -> RpcResult;
     fn send_status(&self, path: &str, identity: &str) -> RpcResult;
     fn has_database(&self, path: &str) -> Result<bool, RpcError>;
+    fn inbox_state(&self, path: &str) -> RpcResult {
+        self.state(path)
+    }
+    fn extra_methods(&self) -> Vec<String> {
+        Vec::new()
+    }
+    fn call(&self, method: &str, _args: &[Value]) -> RpcResult {
+        Err(RpcError::new(
+            "COMMAND_FAILED",
+            format!("Unknown command: {method}"),
+        ))
+    }
+    fn shutdown(&self) -> Result<(), RpcError> {
+        Ok(())
+    }
 }
 
 pub struct ReadHandler {
     backend: Arc<dyn ReadBackend>,
     opened: Mutex<Vec<String>>,
     epoch: String,
+    versions: Mutex<HashMap<String, (String, u64)>>,
     terminals: Option<terminals::TerminalService>,
 }
 impl ReadHandler {
@@ -39,6 +61,7 @@ impl ReadHandler {
             backend,
             opened: Mutex::new(Vec::new()),
             epoch,
+            versions: Mutex::new(HashMap::new()),
             terminals: None,
         }
     }
@@ -84,6 +107,27 @@ impl ReadHandler {
             Ok(result)
         })
     }
+    fn inbox_scopes(&self) -> Result<Vec<Value>, RpcError> {
+        let paths = self.opened.lock().unwrap().clone();
+        paths
+            .iter()
+            .map(|path| {
+                let info = self.info(path)?;
+                Ok(json!({"path":path,"name":info.name,"state":self.backend.inbox_state(path)?}))
+            })
+            .collect()
+    }
+    fn state_read(&self, path: &str) -> RpcResult {
+        let state = self.backend.state(path)?;
+        let digest = hex::encode(Sha256::digest(jsjson::to_string(&state).as_bytes()));
+        let mut versions = self.versions.lock().unwrap();
+        let (previous, version) = versions.entry(path.into()).or_insert((digest.clone(), 1));
+        if *previous != digest {
+            *previous = digest;
+            *version += 1;
+        }
+        Ok(json!({"state":state,"version":version,"epoch":self.epoch}))
+    }
     fn scopes(&self) -> Result<Vec<Value>, RpcError> {
         let paths: Vec<_> = self.opened.lock().unwrap().iter().cloned().collect();
         paths.iter().map(|path| self.project(path)).collect()
@@ -123,12 +167,14 @@ const UNSUPPORTED_MUTATIONS: &[&str] = &[
 ];
 impl Handler for ReadHandler {
     fn methods(&self) -> Vec<String> {
-        READ_METHODS
+        let mut methods: Vec<String> = READ_METHODS
             .iter()
             .chain(UNSUPPORTED_MUTATIONS)
             .chain(milagre_terminals::wire::COMMANDS.iter())
             .map(|name| (*name).into())
-            .collect()
+            .collect();
+        methods.extend(self.backend.extra_methods());
+        methods
     }
     fn encode_result(&self, result: &Value) -> Result<String, RpcError> {
         Ok(jsjson::to_string(result))
@@ -146,6 +192,11 @@ impl Handler for ReadHandler {
                 })?
                 .invoke(method, args, context.client_id());
         }
+        // Wire arguments are ordinary serde Unicode. Storage uses an escaped internal representation
+        // for lone UTF-16 units and literal marker characters, so import incoming domain values once.
+        let imported = jsjson::parse(&Value::Array(args.to_vec()).to_string())
+            .map_err(|error| RpcError::new("INVALID_REQUEST", error))?;
+        let args = imported.as_array().expect("array encoded above");
         if UNSUPPORTED_MUTATIONS.contains(&method) {
             return Err(RpcError::new(
                 "UNSUPPORTED_MUTATION",
@@ -159,7 +210,7 @@ impl Handler for ReadHandler {
             };
         }
         if method == "chat:inbox" {
-            return inbox::snapshot(&self.scopes()?);
+            return inbox::snapshot(&self.inbox_scopes()?);
         }
         let scope = args
             .first()
@@ -174,9 +225,7 @@ impl Handler for ReadHandler {
             }
             "state:read" => {
                 self.require_open(scope, "Open the project before reading its snapshot.")?;
-                // Versions remain 1 because SavedCopies rejects any external file change. A mutable adapter
-                // must supply real versions/epochs before advertising state patch support.
-                Ok(json!({"state":self.backend.state(scope)?,"version":1,"epoch":self.epoch}))
+                self.state_read(scope)
             }
             "chat:messages" => {
                 if !self.backend.has_database(scope)? {
@@ -224,6 +273,15 @@ impl Handler for ReadHandler {
                     })?;
                 self.backend.send_status(scope, identity)
             }
+            _ if self
+                .backend
+                .extra_methods()
+                .iter()
+                .any(|name| name == method) =>
+            {
+                self.require_open(scope, "Open the Project before reading its messages.")?;
+                self.backend.call(method, args)
+            }
             _ => Err(RpcError::new(
                 "COMMAND_FAILED",
                 format!("Unknown command: {method}"),
@@ -234,6 +292,7 @@ impl Handler for ReadHandler {
         if let Some(terminals) = &self.terminals {
             terminals.shutdown();
         }
+        self.backend.shutdown()?;
         Ok(Value::Null)
     }
     fn snapshot(&self, _: &ClientContext) -> RpcResult {
@@ -244,8 +303,33 @@ impl Handler for ReadHandler {
 /// Always creates its own fresh private /tmp profile and copies only compile-time fixture bytes.
 /// There is no existing-path constructor and no environment-selected profile.
 pub fn start() -> Result<Server, RpcError> {
+    start_mode(false)
+}
+
+/// Actual ProjectStates, owning only this run's freshly created marked fixture copies.
+pub fn start_owned() -> Result<Server, RpcError> {
+    start_mode(true)
+}
+fn start_mode(owned: bool) -> Result<Server, RpcError> {
     let profile = IsolatedProfile::create()?;
-    let backend = Arc::new(SavedCopies::create(&profile)?);
+    // This profile has just been created empty in canonical /tmp. The policy is checked before
+    // fixture copies exist, and there is no caller-supplied path or route to a live Project.
+    let isolation = if owned {
+        Some(
+            milagre_owner_store::Isolation::create(
+                profile.path(),
+                &milagre_owner_store::Policy::system(),
+            )
+            .map_err(|error| RpcError::new("ISOLATION_FAILED", error.to_string()))?,
+        )
+    } else {
+        None
+    };
+    let copies = SavedCopies::create(&profile)?;
+    let backend: Arc<dyn ReadBackend> = match isolation {
+        Some(isolation) => Arc::new(owned::OwnedCopies::new(copies.projects(), isolation)),
+        None => Arc::new(copies),
+    };
     let epoch = format!("isolated-read:{}", profile.path().display());
     let events = Arc::new(Mutex::new(None));
     let terminal_service = terminals::TerminalService::new(backend.clone(), events.clone())?;

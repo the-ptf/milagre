@@ -3,6 +3,7 @@ name = "milagre-rust-runtime"
 version = "0.1.0"
 edition = "2021"
 publish = false
+default-run = "milagre-rust-runtime"
 description = "Isolated read integration of Milagre's Rust wire server and saved Project reader"
 
 [dependencies]
