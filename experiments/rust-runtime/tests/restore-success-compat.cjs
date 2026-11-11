@@ -54,9 +54,9 @@ async function main() {
     const messages = (await client.call("chat:messages", [project, 1])).messages;
     assert.equal(messages.filter((message) => message.clientMessageId === "restore-first").length, 1);
     assert.equal(messages.filter((message) => message.clientMessageId === "restore-second").length, 1);
-    assert.equal(messages.filter((message) => message.role === "assistant" && message.body === "Hello").length, 2);
+    assert.equal(messages.filter((message) => message.role === "assistant" && message.body === "live").length, 2);
     const secondIndex = messages.findIndex((message) => message.clientMessageId === "restore-second");
-    assert.equal(messages.slice(secondIndex + 1).filter((message) => message.role === "assistant" && message.body === "Hello").length, 1);
+    assert.equal(messages.slice(secondIndex + 1).filter((message) => message.role === "assistant" && message.body === "live").length, 1);
     assert.equal(messages.filter((message) => message.context?.kind === "handoff").length, 1);
     assert.equal(messages.find((message) => message.context?.kind === "handoff").context.status, "done");
     assert.deepEqual(await client.call("chat:send", [second]), { sessionId: 1 });

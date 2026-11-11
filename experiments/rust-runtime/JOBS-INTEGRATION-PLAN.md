@@ -41,7 +41,7 @@ Implement restore only at first. Keep switch, provider capability changes and an
 
 ## Remaining fixture evidence
 
-- The exact restored prompt at the native ACP process boundary. The successful fixture below currently observes the Provider admission request; the fixed FakeSession has no received-prompt accessor yet.
+- Successful model-generated brief selection and delivery; the fixture below uses the no-model minimal brief.
 - Delayed transcript commit, Stop and late completion preserve Unknown/no-replay and cannot start a replacement turn incorrectly.
 - Brief deadline, cancellation, malformed identity, oversize request/reply and stale result all fail closed without a live model or account.
 
@@ -53,13 +53,15 @@ Production and executable runtime constructors do not call ChatHost::admit_workt
 
 The acp-fixture unit test successful_restore_is_saved_before_the_second_acp_process_and_never_replayed drives the actual Node client through two turns in one Chat. Only that test calls enable_restore_for_tests. Every executable still uses Gated.
 
-1. The first fixed ACP process replies Hello and is reaped. The Node client changes edited.txt and creates fresh.txt in the new private repository, then sends the second message.
+1. The first fixed ACP process replies live and is reaped. The Node client changes edited.txt and creates fresh.txt in the new private repository, then sends the second message.
 2. A handshake pauses the owner-issued transcript job on its worker thread. The actor remains responsive. Saved storage contains exactly one second user message and a preparing divider; no transcript is committed and the second provider has not started.
 3. Releasing the worker lets the owner commit its transcript and use its no-model minimal brief. A test-only Provider wrapper reads saved storage before forwarding admission to AcpFixture. It observes a done divider and a framed prompt with both exact changed filenames. The transcript worker and provider-admission actor have different thread IDs.
 4. The second fixed ACP process completes once. The Node client sees one second user message, one assistant reply after it, and one done divider. Resending the same clientMessageId starts no third process. A second handshake keeps the owner alive while Rust inspects the committed transcript and confirms no temporary file remains.
 5. Node then requests daemon:stop. The test checks QuitState::Done, no stranded-lock notices, two distinct reaped child PIDs, no cleanup failure, and deletion of the private profile after joined teardown.
 
-This proves adapter-boundary prompt framing, durable ordering, no-model changed files, transcript-worker separation and two-process lifecycle. It does not yet prove the exact bytes consumed by the native fake, successful model-generated briefs, restart/resume, arbitrary repository admission or production handoff. The first full run exposed a test race reading the transcript after successful shutdown had deleted the profile; the explicit restored/stop handshake fixes that ordering without delaying teardown.
+The same test now selects the fixed prompt-receipts child scenario. Before each process shuts down, the adapter captures its bounded native receipt snapshot. The child emits receipts only after parsing a complete session/prompt stdin line. Both processes report exactly one receipt, sequence 1. The test checks the host-turn/process binding, exact decoded text and byte length, text SHA-256, and independently reconstructed full JSON frame byte length and SHA-256. The first ordinary prompt and second framed restore prompt both match; retry produces no additional request.
+
+This proves native fake-child consumption, durable ordering, no-model changed files, transcript-worker separation and two-process lifecycle. It does not prove provider interpretation, successful model-generated briefs, restart/resume, arbitrary repository admission or production handoff. The first full run exposed a test race reading the transcript after successful shutdown had deleted the profile; the explicit restored/stop handshake fixes that ordering without delaying teardown.
 
 ## Explicit Project readiness
 
@@ -82,7 +84,7 @@ Only the cfg(test) successful-restore fixture admits its own fresh Git repositor
 
 The actor checks ownership, the Project root and the handover-store lease on its tick at most once per 250 ms. It checks before driving provider events and preparation continuations, then revokes content and hides cached state on failure. A failed Project stays not ready until explicit open. This bounds detection frequency; it does not retract a content operation that already passed its commit guard or eliminate the interval before detection. Owner-side event deferral and preparation launch guards remain separate unresolved review findings in this checkpoint.
 
-Readiness synchronization now runs even when publication has already failed. The content grant opens only after open_project and the following Project read/revalidation both succeed. Startup creates and populates State's cache before Server::bind. Ready, Broadcast and persistence notices share one latest state frame per publication. The run watermark advances only after the corresponding agent event is successfully emitted, and a partially failed publication caches only the successful watermark.
+Readiness synchronization now runs even when publication has already failed. The content grant opens only after open_project and the following Project read/revalidation both succeed. Startup creates and populates State's cache before Server::bind. Ready, Broadcast and persistence notices share one latest state frame per publication. The run watermark advances only after the corresponding agent event is successfully emitted, and a partially failed publication caches only the successful watermark. Updating that watermark changes only runs.seq; it does not clone the whole Project a second time.
 
 Additional evidence:
 

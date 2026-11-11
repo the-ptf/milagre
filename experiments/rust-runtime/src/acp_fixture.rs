@@ -33,6 +33,8 @@ pub enum Scenario {
     BlockedAnswer,
     Watchdog,
     #[cfg(test)]
+    PromptReceipts,
+    #[cfg(test)]
     PanicBeforeSpawn,
     #[cfg(test)]
     PanicActive,
@@ -53,6 +55,8 @@ impl Scenario {
             Self::LateUpdate => "late-update",
             Self::BlockedAnswer => "blocked-answer",
             Self::Watchdog => "stubborn",
+            #[cfg(test)]
+            Self::PromptReceipts => "prompt-receipts",
             #[cfg(test)]
             Self::PanicBeforeSpawn => "reply",
             #[cfg(test)]
@@ -106,6 +110,8 @@ struct Shared {
     turns: AtomicUsize,
     answers_entered: AtomicUsize,
     pids: Mutex<Vec<(u64, u32)>>,
+    #[cfg(test)]
+    prompt_receipts: Mutex<Vec<Value>>,
 }
 impl Shared {
     fn emit(&self, event: ProviderEvent, reserved: bool) -> bool {
@@ -129,6 +135,14 @@ impl Shared {
 #[derive(Clone)]
 pub struct Monitor(Arc<Shared>);
 impl Monitor {
+    #[cfg(test)]
+    pub(crate) fn prompt_receipts(&self) -> Vec<Value> {
+        self.0
+            .prompt_receipts
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
     pub fn answers_entered(&self) -> usize {
         self.0.answers_entered.load(Ordering::Acquire)
     }
@@ -247,6 +261,8 @@ impl AcpFixture {
                 turns: AtomicUsize::new(0),
                 answers_entered: AtomicUsize::new(0),
                 pids: Mutex::new(Vec::new()),
+                #[cfg(test)]
+                prompt_receipts: Mutex::new(Vec::new()),
             }),
             slots: HashMap::new(),
             closed: false,
@@ -679,6 +695,30 @@ impl Worker {
                }));
               }else{reply.receipt.settle(AnswerOutcome::NotWaiting);}
              },
+            }
+        }
+        // The receipt is emitted only by the fixed child after parsing native stdin.
+        // Retain a bounded test-only observation before shutdown/reaping erases this session.
+        #[cfg(test)]
+        if matches!(self.scenario, Scenario::PromptReceipts) {
+            if let Ok(Ok(info)) =
+                tokio::time::timeout(Duration::from_secs(1), session.inspect()).await
+            {
+                let receipt = json!({"turn":self.turn.0,"nativeId":info["nativeId"],"pid":info["pid"],"receivedPromptCount":info["receivedPromptCount"],"receivedPrompts":info["receivedPrompts"]});
+                let mut receipts = self
+                    .shared
+                    .prompt_receipts
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if receipts.len() < 16
+                    && serde_json::to_vec(&receipt).is_ok_and(|bytes| bytes.len() <= 80 * 1024)
+                {
+                    receipts.push(receipt);
+                } else {
+                    self.shared.failed.store(true, Ordering::Release);
+                }
+            } else {
+                self.shared.failed.store(true, Ordering::Release);
             }
         }
         // Drop a claimed reply conservatively; process death does not prove it was not delivered.

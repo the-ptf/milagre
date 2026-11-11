@@ -22,7 +22,7 @@ There are at most 16 workers and 16 unconsumed turn reservations. Normal output 
 
 The actual Node daemon and desktop runtime clients cover text, Allow, Deny, Stop, startup failure, independent Chats, late text and queued sends. A queued successor is preserved and held after the first completed answer. The owner's existing handoff-restore gate refuses a second send because this fixture has no resumable native context. No fake native ID or fixture bypass is used. Full queued continuation and same-Chat reuse are therefore **not implemented**. A fresh Chat can run with its own process.
 
-The native fake does not assert exact prompt contents in these scenarios. The Node-client test verifies saved user text and queue state; direct adapter tests verify native event and process boundaries. No live model turn, provider performance comparison or application UI screenshot comes from these tests.
+The ordinary executable scenarios do not assert exact prompt contents. The private successful-Restore unit fixture below verifies native prompt receipts. The Node-client test verifies saved user text and queue state; direct adapter tests verify native event and process boundaries. No live model turn, provider performance comparison or application UI screenshot comes from these tests.
 
 ## Validation
 
@@ -43,4 +43,4 @@ Panic tests now also cover a drain unwind and an unwind immediately before publi
 
 ## Test-only successful restore
 
-The actor unit fixture now enables owner Restore explicitly and drives two sequential ACP processes through the real Node client. It verifies durable preparing/done ordering, off-actor transcript execution, no-model changed filenames from an explicitly admitted fresh repository in the same Isolation, exact message counts, idempotent retry, child reaping and joined shutdown. See JOBS-INTEGRATION-PLAN.md. The restored prompt is currently asserted at Provider admission; native fake prompt consumption remains unverified. No executable enables Restore or admits that repository.
+The actor unit fixture now enables owner Restore explicitly and drives two sequential ACP processes through the real Node client. It verifies durable preparing/done ordering, off-actor transcript execution, no-model changed filenames from an explicitly admitted fresh repository in the same Isolation, exact message counts, idempotent retry, child reaping and joined shutdown. See JOBS-INTEGRATION-PLAN.md. The fixed prompt-receipts child hashes each parsed stdin request. A cfg(test)-only monitor captures at most sixteen observations, each capped at 80 KiB and taken with a one-second inspection deadline before shutdown. The test checks one receipt per process, host TurnId/PID binding, exact ordinary and framed prompt text, UTF-8 byte counts, SHA-256 text and full-frame digests, and no duplicate request. This proves child parsing, not provider execution or interpretation. No executable enables Restore or admits that repository.

@@ -138,7 +138,7 @@ mod successful_restore {
     }
     #[test]
     fn successful_restore_is_saved_before_the_second_acp_process_and_never_replayed() {
-        let provider = AcpFixture::create(Scenario::Reply).unwrap();
+        let provider = AcpFixture::create(Scenario::PromptReceipts).unwrap();
         let project = provider.project().to_owned();
         let isolation = provider.isolation();
         let isolated_root = isolation.root().to_owned();
@@ -256,7 +256,7 @@ mod successful_restore {
         assert!(starts[1]["transcripts"][0]
             .as_str()
             .unwrap()
-            .contains("Hello"));
+            .contains("live"));
         let prompt = starts[1]["request"]["prompt"].as_str().unwrap();
         assert!(prompt.contains("<handoff_brief>"), "{prompt}");
         assert!(prompt.contains("</handoff_brief>"), "{prompt}");
@@ -289,11 +289,61 @@ mod successful_restore {
         assert_eq!(transcripts.len(), 1);
         let transcript = fs::read_to_string(transcripts[0]).unwrap();
         assert!(transcript.contains("First restore fixture prompt"));
-        assert!(transcript.contains("Hello"));
+        assert!(transcript.contains("live"));
         assert!(monitor.wait_stopped(Duration::from_secs(3)));
         assert!(!monitor.cleanup_failed());
         assert_eq!(monitor.pids().len(), 2);
         assert_ne!(monitor.pids()[0].1, monitor.pids()[1].1);
+        let receipts = monitor.prompt_receipts();
+        assert_eq!(
+            receipts.len(),
+            2,
+            "exactly one native observation per process"
+        );
+        let mut requests = HashSet::new();
+        for (index, observation) in receipts.iter().enumerate() {
+            use sha2::{Digest, Sha256};
+            assert_eq!(observation["turn"], starts[index]["turn"]);
+            assert_eq!(observation["pid"], monitor.pids()[index].1);
+            assert_eq!(observation["receivedPromptCount"], 1);
+            let records = observation["receivedPrompts"].as_array().unwrap();
+            assert_eq!(records.len(), 1, "the child parsed no replayed prompt");
+            let receipt = &records[0];
+            assert_eq!(receipt["sequence"], 1);
+            assert!(requests.insert((
+                observation["turn"].as_u64().unwrap(),
+                receipt["requestId"].as_i64().unwrap()
+            )));
+            let expected = starts[index]["request"]["prompt"].as_str().unwrap();
+            assert_eq!(receipt["textBytes"], expected.len());
+            assert_eq!(
+                receipt["textSha256"],
+                format!("{:x}", Sha256::digest(expected.as_bytes()))
+            );
+            assert_eq!(
+                receipt["text"],
+                if expected.len() <= 4096 {
+                    json!(expected)
+                } else {
+                    Value::Null
+                }
+            );
+            let frame = milagre_acp::protocol::request_frame(
+                receipt["requestId"].as_i64().unwrap(),
+                "session/prompt",
+                &milagre_acp::protocol::prompt(
+                    observation["nativeId"].as_str().unwrap(),
+                    &[json!({"type":"text","text":expected})],
+                ),
+            );
+            let bytes = serde_json::to_vec(&frame).unwrap();
+            assert_eq!(receipt["frameBytes"], bytes.len());
+            assert_eq!(
+                receipt["frameSha256"],
+                format!("{:x}", Sha256::digest(bytes))
+            );
+        }
+
         for (_, pid) in monitor.pids() {
             assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
             assert_eq!(

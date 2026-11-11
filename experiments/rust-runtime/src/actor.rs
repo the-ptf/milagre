@@ -514,7 +514,8 @@ impl State {
     }
     fn tick(&mut self, now: i64) -> Result<(), RpcError> {
         // Live ownership/root/store checks are bounded independently of renderer traffic.
-        // A failure revokes grants before provider completions or preparation continuations.
+        // Revoke grants before driving the host. Owner-side event deferral and launch
+        // guards are separate requirements; this check alone cannot prevent their P2s.
         let mut readiness_error = None;
         if Instant::now() >= self.next_readiness_check {
             self.next_readiness_check = Instant::now() + READINESS_CHECK;
@@ -667,7 +668,7 @@ impl State {
         }
         while let Some((channel, payload)) = self.pending.front() {
             if let Err(error) = publication.emit(channel, payload.clone()) {
-                self.cache(shared);
+                self.cache_run_sequence(shared);
                 return Err(error);
             }
             if channel == "agent:event" {
@@ -677,11 +678,16 @@ impl State {
             }
             self.pending.pop_front();
         }
-        self.cache(shared);
+        self.cache_run_sequence(shared);
         for (reply, result) in self.settled_answers.drain(..) {
             let _ = reply.send(result);
         }
         Ok(())
+    }
+    fn cache_run_sequence(&self, shared: &Shared) {
+        // The Project snapshot was already built under this publication lock. Only
+        // the successful event watermark changed; avoid cloning the whole Project again.
+        shared.snapshot.lock().unwrap()["runs"]["seq"] = json!(self.run_seq);
     }
     fn queue_event(&mut self, channel: &str, mut payload: Value) -> Result<(), RpcError> {
         if self.pending.len() >= 256 {
