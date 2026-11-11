@@ -6,7 +6,7 @@ mod tests;
 use gpui::{ClickEvent, Context, FontWeight, ScrollHandle, Window, div, prelude::*, px};
 
 use crate::theme::{ActiveTheme, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, TEXT_12, TextStepExt};
-use crate::ui::legacy_icons::{PanelIcon, icon};
+use crate::ui::{Icon, IconName, IconSize};
 use crate::workspace::chrome;
 
 pub const PANEL_WIDTH: f32 = 518.0;
@@ -36,14 +36,15 @@ impl PanelTab {
         }
     }
 
-    pub fn icon(self) -> PanelIcon {
+    /// The desktop's tab glyphs (`agents/PanelToggles.tsx`).
+    pub fn icon(self) -> IconName {
         match self {
-            PanelTab::Changes => PanelIcon::FileDiff,
-            PanelTab::Terminal => PanelIcon::Terminal,
-            PanelTab::Browser => PanelIcon::Globe,
-            PanelTab::Designs => PanelIcon::Palette,
-            PanelTab::Artifact => PanelIcon::FileText,
-            PanelTab::Pr => PanelIcon::PullRequest,
+            PanelTab::Changes => IconName::FileDiff,
+            PanelTab::Terminal => IconName::ComputerTerminal01,
+            PanelTab::Browser => IconName::Globe02,
+            PanelTab::Designs => IconName::PaintBoard,
+            PanelTab::Artifact => IconName::File01,
+            PanelTab::Pr => IconName::GitPullRequest,
         }
     }
 }
@@ -103,7 +104,11 @@ impl Render for Panel {
                     cx.stop_propagation();
                     this.activate(tab, cx);
                 }))
-                .child(div().debug_selector(move || format!("panel-tab-icon-{}", tab.label())).child(icon(tab.icon(), 14.0, 1.8, color)))
+                .child(
+                    div()
+                        .debug_selector(move || format!("panel-tab-icon-{}", tab.label()))
+                        .child(Icon::new(tab.icon()).size(IconSize::S14).color(color)),
+                )
                 .child(
                     div()
                         .flex()
@@ -112,7 +117,7 @@ impl Render for Panel {
                         .when(tab == PanelTab::Changes, |el| el.child(div().text_color(theme.ink3).child("4"))),
                 )
         });
-        let button = |id: &'static str, kind: PanelIcon| {
+        let button = |id: &'static str, icon: IconName| {
             let hover = theme.hover;
             div()
                 .id(id)
@@ -126,7 +131,7 @@ impl Render for Panel {
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover))
                 .on_click(|_, _, cx| cx.stop_propagation())
-                .child(icon(kind, 16.0, 1.5, theme.ink3))
+                .child(Icon::new(icon).color(theme.ink3))
         };
         let tab_list = div()
             .id("panel-tab-list")
@@ -152,8 +157,8 @@ impl Render for Panel {
                     .px_2()
                     .gap_1()
                     .child(tab_list)
-                    .child(button("panel-expand", PanelIcon::Expand))
-                    .child(button("panel-close", PanelIcon::Close)),
+                    .child(button("panel-expand", IconName::ArrowExpand01))
+                    .child(button("panel-close", IconName::Cancel01)),
             )
             .child(div().flex_none().h(px(1.0)).bg(theme.line))
             // The active tab's content goes here.

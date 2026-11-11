@@ -29,7 +29,9 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features =
 gpui-component = "=0.9.1"
 # Lucide icons gpui-component's widgets load by path; our AssetSource falls back to it.
 gpui-kit-assets = "=0.9.1"
-# Transcript markdown (src/markdown.rs): CommonMark events, turned into GPUI blocks by hand.
+# Errors in the asset source and the data layer. Already in GPUI's tree (its `Result` is anyhow's).
+anyhow = "1"
+# Transcript markdown (src/workspace/chat/markdown.rs): CommonMark events, turned into GPUI blocks by hand.
 pulldown-cmark = { version = "0.13", default-features = false }
 # Composer caret movement and backspace by grapheme cluster, as GPUI's own `input` example does.
 # Already in GPUI's dependency tree (Cargo.lock), so it adds no new crate.

@@ -15,13 +15,14 @@ use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, Bounds, ClickEvent, Context, FontWeight, ListAlignment, ListOffset, ListState, PathBuilder,
-    Pixels, Rgba, SharedString, Window, canvas, div, list, point, prelude::*, px,
+    Animation, AnimationExt as _, AnyElement, ClickEvent, Context, FontWeight, ListAlignment, ListOffset, ListState, Rgba, SharedString,
+    Window, canvas, div, list, prelude::*, px,
 };
 
 use crate::theme::{
     ActiveTheme, CHAT_TEXT, CODE_TEXT, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_WINDOW, TEXT_12, TEXT_13, TextStepExt, Theme, mono,
 };
+use crate::ui::{Icon, IconName, IconSize};
 use crate::workspace::chat::markdown::{self, Block};
 
 /// The Chat content column, centred in the Chat column.
@@ -48,14 +49,14 @@ pub enum Item {
 /// A folded reply's summary: up to three marks, one line of what happened, and how long it took.
 #[derive(Clone, Debug)]
 pub struct Activity {
-    pub marks: Vec<Glyph>,
+    pub marks: Vec<ToolKind>,
     pub summary: SharedString,
     pub duration: SharedString,
 }
 
 #[derive(Clone, Debug)]
 pub struct Tool {
-    pub glyph: Glyph,
+    pub kind: ToolKind,
     pub label: SharedString,
     pub added: Option<u32>,
     pub removed: Option<u32>,
@@ -213,7 +214,7 @@ impl Transcript {
                         .child(self.decision_button(ix, ApprovalState::Allowed, theme, cx)),
                 )
         } else {
-            let glyph_kind = if approval.state == ApprovalState::Denied { Glyph::Cross } else { Glyph::Check };
+            let icon = if approval.state == ApprovalState::Denied { IconName::Cancel01 } else { IconName::Tick02 };
             div()
                 .debug_selector(|| "approval-resolved".into())
                 .flex()
@@ -222,7 +223,15 @@ impl Transcript {
                 .h(CONTROL_SM)
                 .text_step(TEXT_12)
                 .text_color(theme.ink3)
-                .child(div().flex_none().size(px(16.0)).flex().items_center().justify_center().child(glyph(glyph_kind, 12.0, theme.ink3)))
+                .child(
+                    div()
+                        .flex_none()
+                        .size(px(16.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(Icon::new(icon).size(IconSize::S12).color(theme.ink3)),
+                )
                 .child(approval.state.label())
         };
         div().flex().flex_col().gap_1().child(tool_row(&approval.tool, theme)).child(state_row).child(
@@ -330,7 +339,7 @@ fn activity_row(activity: &Activity, theme: &Theme) -> impl IntoElement + use<> 
             .bg(theme.field)
             .border_2()
             .border_color(theme.page)
-            .child(glyph(*kind, 12.0, theme.ink2))
+            .child(Icon::new(kind.icon()).size(IconSize::S12).color(theme.ink2))
     });
     div()
         .flex()
@@ -357,7 +366,7 @@ fn tool_row(tool: &Tool, theme: &Theme) -> impl IntoElement + use<> {
         .items_center()
         .gap_2()
         .h(CONTROL_SM)
-        .child(div().flex().flex_none().items_center().justify_center().size(px(16.0)).child(glyph(tool.glyph, 16.0, theme.ink3)))
+        .child(div().flex().flex_none().items_center().justify_center().size(px(16.0)).child(Icon::new(tool.kind.icon()).color(theme.ink3)))
         .child(
             div().min_w_0().truncate().text_step(TEXT_13).font_weight(FontWeight::MEDIUM).text_color(theme.ink2).child(tool.label.clone()),
         )
@@ -393,100 +402,25 @@ fn running_row(elapsed: SharedString, animate: bool, theme: &Theme) -> impl Into
         .child(div().text_step(TEXT_12).text_color(theme.ink3).child(elapsed))
 }
 
-/// Line glyphs drawn as paths. GPUI's `svg()` reads only from the app's `AssetSource`, which is
-/// set in `main.rs` (not part of this step), so the spike strokes a few Lucide-like shapes on a
-/// 24-unit grid instead of loading Hugeicons. lyon's round caps are not re-exported by GPUI, so the
-/// ends are square.
+/// What a tool row or an activity mark stands for. Each kind draws the desktop's glyph
+/// (`agents/ActivitySource.tsx`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Glyph {
+pub enum ToolKind {
     Edit,
     Read,
     Command,
     Search,
     Think,
-    Attach,
-    Mic,
-    Send,
-    Check,
-    Cross,
 }
 
-pub fn glyph(kind: Glyph, size: f32, color: Rgba) -> impl IntoElement {
-    let stroke = if size <= 12.0 { 1.25 } else { 1.5 };
-    canvas(
-        |_, _, _| {},
-        move |bounds: Bounds<Pixels>, _, window, _| {
-            let mut path = PathBuilder::stroke(px(stroke));
-            trace(kind, &mut path);
-            path.scale(size / 24.0);
-            path.translate(bounds.origin);
-            if let Ok(path) = path.build() {
-                window.paint_path(path, color);
-            }
-        },
-    )
-    .flex_none()
-    .size(px(size))
-}
-
-fn trace(kind: Glyph, p: &mut PathBuilder) {
-    let pt = |x: f32, y: f32| point(px(x), px(y));
-    let poly = |p: &mut PathBuilder, points: &[(f32, f32)], closed: bool| {
-        let points: Vec<_> = points.iter().map(|&(x, y)| pt(x, y)).collect();
-        p.add_polygon(&points, closed);
-    };
-    let arc = |p: &mut PathBuilder, r: f32, to: (f32, f32), sweep: bool| p.arc_to(pt(r, r), px(0.0), false, sweep, pt(to.0, to.1));
-    match kind {
-        Glyph::Edit => {
-            poly(p, &[(16.5, 3.5), (20.5, 7.5), (8.0, 20.0), (3.5, 20.5), (4.0, 16.0)], true);
-            poly(p, &[(14.0, 6.0), (18.0, 10.0)], false);
-        }
-        Glyph::Read => {
-            poly(p, &[(14.0, 2.5), (6.0, 2.5), (6.0, 21.5), (19.0, 21.5), (19.0, 7.5), (14.0, 2.5), (14.0, 7.5), (19.0, 7.5)], false);
-            poly(p, &[(9.0, 13.0), (16.0, 13.0)], false);
-            poly(p, &[(9.0, 17.0), (14.0, 17.0)], false);
-        }
-        Glyph::Command => {
-            poly(p, &[(4.0, 6.0), (10.0, 12.0), (4.0, 18.0)], false);
-            poly(p, &[(12.0, 19.0), (20.0, 19.0)], false);
-        }
-        Glyph::Search => {
-            p.move_to(pt(18.0, 11.0));
-            arc(p, 7.0, (4.0, 11.0), true);
-            arc(p, 7.0, (18.0, 11.0), true);
-            poly(p, &[(16.0, 16.0), (21.0, 21.0)], false);
-        }
-        Glyph::Think => {
-            poly(p, &[(12.0, 3.0), (14.0, 10.0), (21.0, 12.0), (14.0, 14.0), (12.0, 21.0), (10.0, 14.0), (3.0, 12.0), (10.0, 10.0)], true);
-        }
-        Glyph::Attach => {
-            p.move_to(pt(16.0, 7.0));
-            p.line_to(pt(16.0, 16.0));
-            arc(p, 4.0, (8.0, 16.0), true);
-            p.line_to(pt(8.0, 6.0));
-            arc(p, 2.5, (13.0, 6.0), true);
-            p.line_to(pt(13.0, 15.5));
-            arc(p, 1.0, (11.0, 15.5), true);
-            p.line_to(pt(11.0, 8.0));
-        }
-        Glyph::Mic => {
-            p.move_to(pt(9.0, 6.0));
-            arc(p, 3.0, (15.0, 6.0), true);
-            p.line_to(pt(15.0, 11.0));
-            arc(p, 3.0, (9.0, 11.0), true);
-            p.close();
-            p.move_to(pt(5.5, 11.0));
-            arc(p, 6.5, (18.5, 11.0), false);
-            poly(p, &[(12.0, 17.5), (12.0, 21.0)], false);
-        }
-        Glyph::Send => {
-            poly(p, &[(12.0, 19.0), (12.0, 5.0)], false);
-            poly(p, &[(6.0, 11.0), (12.0, 5.0), (18.0, 11.0)], false);
-        }
-        Glyph::Check => poly(p, &[(5.0, 12.5), (10.0, 17.5), (19.0, 7.0)], false),
-        Glyph::Cross => {
-            poly(p, &[(6.0, 6.0), (18.0, 18.0)], false);
-            poly(p, &[(18.0, 6.0), (6.0, 18.0)], false);
+impl ToolKind {
+    pub fn icon(self) -> IconName {
+        match self {
+            ToolKind::Edit => IconName::PencilEdit02,
+            ToolKind::Read => IconName::File01,
+            ToolKind::Command => IconName::CommandLine,
+            ToolKind::Search => IconName::Search01,
+            ToolKind::Think => IconName::AiBrain01,
         }
     }
 }

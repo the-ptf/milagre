@@ -3,6 +3,7 @@
 //! headless tests can mount it. Module layout and the rules for parallel work: `CONVENTIONS.md`.
 
 pub mod app;
+pub mod assets;
 pub mod data;
 #[cfg(target_os = "macos")]
 pub mod snapshot;

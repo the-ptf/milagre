@@ -27,7 +27,7 @@ pub const MIN_HEIGHT: f32 = 600.0;
 /// Starts the app and opens the main window. Returns when the app quits.
 pub fn run() {
     let snapshot = std::env::var_os("MILAGRE_GPUI_SNAPSHOT").map(PathBuf::from);
-    gpui_platform::application().run(move |cx: &mut App| {
+    gpui_platform::application().with_assets(crate::assets::Assets).run(move |cx: &mut App| {
         init(cx);
         let window = open_main_window(cx);
         match snapshot {

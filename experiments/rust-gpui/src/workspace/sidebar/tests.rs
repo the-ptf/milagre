@@ -102,3 +102,30 @@ fn usage_rows_are_32px_with_meters(cx: &mut TestAppContext) {
     assert!((fill.size.width - track.size.width * 0.46).abs() <= px(1.0), "fill is 46% of the track");
     assert!(cx.debug_bounds("usage-fill-Antigravity-0").is_none() && cx.debug_bounds("usage-fill-Antigravity-1").is_none());
 }
+
+/// Rows are cached views: a sidebar re-render reuses them, and a selection change renders only the two
+/// rows it touches. (A focus change or a mouse/keyboard switch still refreshes every view: GPUI.)
+#[gpui::test]
+fn a_sidebar_re_render_reuses_its_rows(cx: &mut TestAppContext) {
+    let (sidebar, cx) = mount(cx);
+    cx.run_until_parked();
+    let alive = sidebar.read_with(cx, |s, _| s.row_views_alive());
+    assert!(alive > 0 && alive < 100, "views exist only near the viewport: {alive} of {CHAT_COUNT}");
+
+    let before = sidebar.read_with(cx, |s, _| s.rows_built());
+    sidebar.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    assert_eq!(sidebar.read_with(cx, |s, _| s.rows_built()), before, "re-rendering the sidebar rebuilt no row");
+
+    // Focus first, so the selection below is not also a focus change (which refreshes the window).
+    let handle = sidebar.read_with(cx, |s, _| s.focus_handle().clone());
+    cx.update(|window, cx| window.focus(&handle, cx));
+    // And one key the sidebar ignores, to make the mouse-to-keyboard switch (another refresh) first.
+    cx.simulate_keystrokes("x");
+    cx.run_until_parked();
+    let before = sidebar.read_with(cx, |s, _| s.rows_built());
+    cx.simulate_keystrokes("down");
+    let after = sidebar.read_with(cx, |s, _| s.rows_built());
+    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), Some(2));
+    assert_eq!(after - before, 2, "moving the selection renders the old and the new row only");
+}

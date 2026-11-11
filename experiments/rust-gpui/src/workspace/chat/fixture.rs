@@ -8,7 +8,7 @@
 use gpui::SharedString;
 
 use crate::workspace::chat::markdown;
-use crate::workspace::chat::transcript::{Activity, Approval, ApprovalState, Glyph, Item, Tool};
+use crate::workspace::chat::transcript::{Activity, Approval, ApprovalState, Item, Tool, ToolKind};
 
 /// Items in the default transcript.
 pub const HISTORY_ITEMS: usize = 2000;
@@ -26,7 +26,7 @@ pub fn first_screen() -> Vec<Item> {
     vec![
         Item::User("The intro hangs on Linux after the star lands. Find it, fix it and open a PR.".into()),
         Item::Activity(Activity {
-            marks: vec![Glyph::Think, Glyph::Read, Glyph::Command],
+            marks: vec![ToolKind::Think, ToolKind::Read, ToolKind::Command],
             summary: "Thought for 12s · read 6 files · ran 2 commands".into(),
             duration: "41s".into(),
         }),
@@ -35,14 +35,20 @@ pub fn first_screen() -> Vec<Item> {
              **Begin** stays disabled. I'm adding a timer fallback and a check for it.",
         )),
         Item::Tool(Tool {
-            glyph: Glyph::Edit,
+            kind: ToolKind::Edit,
             label: "Edit intro/Dawn.tsx".into(),
             added: Some(12),
             removed: Some(3),
             duration: "0.4s".into(),
         }),
         Item::Approval(Approval {
-            tool: Tool { glyph: Glyph::Command, label: "Run the onboarding check".into(), added: None, removed: None, duration: "".into() },
+            tool: Tool {
+                kind: ToolKind::Command,
+                label: "Run the onboarding check".into(),
+                added: None,
+                removed: None,
+                duration: "".into(),
+            },
             command: "npm test -- --only test-onboarding".into(),
             state: ApprovalState::Waiting,
         }),
@@ -87,9 +93,9 @@ fn push_turn(turn: usize, rng: &mut Rng, items: &mut Vec<Item>) {
     let thought = 3 + rng.below(40);
     let files = 1 + rng.below(14);
     let commands = rng.below(5);
-    let mut marks = vec![Glyph::Think, Glyph::Read];
+    let mut marks = vec![ToolKind::Think, ToolKind::Read];
     if commands > 0 {
-        marks.push(Glyph::Command);
+        marks.push(ToolKind::Command);
     }
     let summary = match commands {
         0 => format!("Thought for {thought}s · read {files} files"),
@@ -105,7 +111,7 @@ fn push_turn(turn: usize, rng: &mut Rng, items: &mut Vec<Item>) {
         let (label, command) = APPROVALS[rng.below(APPROVALS.len())];
         let state = if rng.below(5) == 0 { ApprovalState::Denied } else { ApprovalState::Allowed };
         items.push(Item::Approval(Approval {
-            tool: Tool { glyph: Glyph::Command, label: label.into(), added: None, removed: None, duration: duration(rng) },
+            tool: Tool { kind: ToolKind::Command, label: label.into(), added: None, removed: None, duration: duration(rng) },
             command: command.into(),
             state,
         }));
@@ -129,17 +135,17 @@ fn tool(rng: &mut Rng) -> Tool {
     let tenths = 1 + rng.below(40);
     let duration: SharedString = format!("{}.{}s", tenths / 10, tenths % 10).into();
     match rng.below(4) {
-        0 => Tool { glyph: Glyph::Read, label: format!("Read {path}").into(), added: None, removed: None, duration },
+        0 => Tool { kind: ToolKind::Read, label: format!("Read {path}").into(), added: None, removed: None, duration },
         1 => Tool {
-            glyph: Glyph::Edit,
+            kind: ToolKind::Edit,
             label: format!("Edit {path}").into(),
             added: Some(1 + rng.below(80) as u32),
             removed: Some(rng.below(30) as u32),
             duration,
         },
-        2 => Tool { glyph: Glyph::Command, label: format!("Ran {}", rng.pick(COMMANDS)).into(), added: None, removed: None, duration },
+        2 => Tool { kind: ToolKind::Command, label: format!("Ran {}", rng.pick(COMMANDS)).into(), added: None, removed: None, duration },
         _ => Tool {
-            glyph: Glyph::Search,
+            kind: ToolKind::Search,
             label: format!("Searched for {}", rng.pick(SEARCHES)).into(),
             added: None,
             removed: None,

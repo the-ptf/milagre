@@ -22,7 +22,8 @@ use gpui::{
 use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::theme::{ActiveTheme, CHAT_TEXT, CONTROL_SM, RADIUS_WINDOW, SANS, TEXT_12, TextStepExt, Theme};
-use crate::workspace::chat::transcript::{COLUMN_WIDTH, Glyph, glyph};
+use crate::ui::{Icon, IconName};
+use crate::workspace::chat::transcript::COLUMN_WIDTH;
 
 actions!(
     composer,
@@ -535,7 +536,7 @@ impl Render for Composer {
                     .h(CONTROL_SM)
                     .mx(px(8.0))
                     .mb(px(8.0))
-                    .child(icon_button("composer-attach", Glyph::Attach, &theme))
+                    .child(icon_button("composer-attach", IconName::Attachment01, &theme))
                     .child(div().flex_1())
                     .child(chip(&theme).child("Ask"))
                     .child(
@@ -544,7 +545,7 @@ impl Render for Composer {
                             .child(div().flex_none().size(px(8.0)).rounded_full().bg(rgb(CLAUDE_DOT)))
                             .child("Opus 5.5 · Medium"),
                     )
-                    .child(icon_button("composer-mic", Glyph::Mic, &theme))
+                    .child(icon_button("composer-mic", IconName::Mic01, &theme))
                     .child(
                         div()
                             .id("composer-send")
@@ -559,7 +560,7 @@ impl Render for Composer {
                             .cursor_pointer()
                             .hover(|style| style.opacity(0.9))
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.submit(cx)))
-                            .child(glyph(Glyph::Send, 16.0, theme.on_ink)),
+                            .child(Icon::new(IconName::ArrowUp02).color(theme.on_ink)),
                     ),
             )
     }
@@ -597,7 +598,7 @@ fn chip(theme: &Theme) -> gpui::Div {
         .hover(move |style| style.bg(hover))
 }
 
-fn icon_button(id: &'static str, kind: Glyph, theme: &Theme) -> impl IntoElement + use<> {
+fn icon_button(id: &'static str, icon: IconName, theme: &Theme) -> impl IntoElement + use<> {
     let hover = theme.hover;
     div()
         .id(id)
@@ -609,7 +610,7 @@ fn icon_button(id: &'static str, kind: Glyph, theme: &Theme) -> impl IntoElement
         .rounded_full()
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
-        .child(glyph(kind, 16.0, theme.ink3))
+        .child(Icon::new(icon).color(theme.ink3))
 }
 
 /// Where the shaped input sits and how offsets map to points. Kept on the entity after paint so

@@ -2,6 +2,7 @@
 
 use gpui::{Rgba, SharedString};
 
+use crate::data::Provider;
 use crate::theme::hex;
 
 pub const CHAT_COUNT: usize = 500;
@@ -29,14 +30,6 @@ pub struct ChatRow {
     pub status: ChatStatus,
 }
 
-/// Stand-in logo drawn for a provider (see `icons::ProviderLogo`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LogoKind {
-    Claude,
-    Codex,
-    Antigravity,
-}
-
 /// One usage window of a provider: its label and the percent used.
 #[derive(Clone, Copy, Debug)]
 pub struct UsageWindow {
@@ -47,32 +40,21 @@ pub struct UsageWindow {
 /// One provider line in the usage block.
 #[derive(Clone, Copy, Debug)]
 pub struct UsageRow {
-    pub name: &'static str,
-    pub color: Rgba,
-    pub logo: LogoKind,
+    pub provider: Provider,
+    /// The last usage read failed ("Couldn't read usage").
     pub warning: bool,
     pub windows: &'static [UsageWindow],
 }
 
 pub const USAGE: [UsageRow; 3] = [
     UsageRow {
-        name: "Claude",
-        color: hex("#d97757"),
-        logo: LogoKind::Claude,
+        provider: Provider::Claude,
         warning: true,
         windows: &[UsageWindow { label: "2% wk", percent: 2 }, UsageWindow { label: "3% wk", percent: 3 }],
     },
+    UsageRow { provider: Provider::Codex, warning: false, windows: &[UsageWindow { label: "46% wk", percent: 46 }] },
     UsageRow {
-        name: "Codex",
-        color: hex("#7c8cff"),
-        logo: LogoKind::Codex,
-        warning: false,
-        windows: &[UsageWindow { label: "46% wk", percent: 46 }],
-    },
-    UsageRow {
-        name: "Antigravity",
-        color: hex("#4f9cf9"),
-        logo: LogoKind::Antigravity,
+        provider: Provider::Antigravity,
         warning: false,
         windows: &[UsageWindow { label: "0% 5h", percent: 0 }, UsageWindow { label: "0% wk", percent: 0 }],
     },
