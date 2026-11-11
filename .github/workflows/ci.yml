@@ -92,6 +92,9 @@ jobs:
           # Node built-ins plus the rpm and repository tools; this was the Linux leg of native-tests.
           - name: Test real Linux repository signing
             run: |-
+              # The runner's Azure mirror repeatedly failed DNS, including its mirror-list fallback. Use the
+              # official Ubuntu archive directly; apt still verifies the distribution's signed package indexes.
+              sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|https://archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
               sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm createrepo-c gnupg
               export GNUPGHOME="$RUNNER_TEMP/milagre-test-key"
               mkdir -m 700 "$GNUPGHOME"
