@@ -1,4 +1,4 @@
-use super::{files::Prepared, process::Owned, wire, Error, Execution, FixtureCase, Report, Shared, Slot, COMMITTED, PENDING};
+use super::{files::Prepared, process::Owned, wire, Control, Error, Execution, FixtureCase, Report, Shared, Slot};
 use sha2::{Digest, Sha256};
 use std::{
     io::{Read, Write},
@@ -15,6 +15,8 @@ pub(super) enum Fault {
     PanicAfterSpawn,
     #[cfg(test)]
     SpawnFailure,
+    #[cfg(test)]
+    PartialPreparation,
 }
 fn nonblocking(fd: i32) -> Result<(), Error> {
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
@@ -121,7 +123,20 @@ fn execute(owned: &mut Owned, prepared: &Prepared, shared: &Shared, text: &str, 
     {
         return Err(Error::Protocol);
     }
+    let execution = Execution {
+        compiled_identity: wire::IDENTITY,
+        pid,
+        cwd_device: cwd.0,
+        cwd_inode: cwd.1,
+        nonce,
+        frame_bytes,
+        frame_sha256: frame_digest,
+        text_bytes: receipt.text_bytes,
+        text_sha256: receipt.text_sha256,
+        parent_artifact_sha256: prepared.digest(),
+    };
     shared.parsed.store(true, Ordering::Release);
+    shared.consumed(execution.clone());
     // A natural success requires EOF after the single closed receipt. IgnoreCancel
     // holds its pipes until cancellation, which drives the retained cleanup below.
     let mut extra = [0u8; 1];
@@ -135,18 +150,7 @@ fn execute(owned: &mut Owned, prepared: &Prepared, shared: &Shared, text: &str, 
             Err(_) => return Err(Error::Protocol),
         }
     }
-    Ok(Execution {
-        compiled_identity: wire::IDENTITY,
-        pid,
-        cwd_device: cwd.0,
-        cwd_inode: cwd.1,
-        nonce,
-        frame_bytes,
-        frame_sha256: frame_digest,
-        text_bytes: receipt.text_bytes,
-        text_sha256: receipt.text_sha256,
-        parent_artifact_sha256: prepared.digest(),
-    })
+    Ok(execution)
 }
 
 // Own child, descriptors and capacity together across unexpected unwinding too.
@@ -174,7 +178,7 @@ impl Drop for Resources {
     }
 }
 
-pub(super) fn run(shared: Arc<Shared>, case: FixtureCase, text: String, slot: Slot, fault: Fault) {
+pub(super) fn run(shared: Arc<Shared>, case: FixtureCase, text: String, slot: Slot, fault: Fault, automatic: Option<Control>) {
     let mut resources = Resources { prepared: None, owned: None, slot: Some(slot) };
     let result = catch_unwind(AssertUnwindSafe(|| {
         let until = Instant::now() + Duration::from_secs(5);
@@ -182,16 +186,31 @@ pub(super) fn run(shared: Arc<Shared>, case: FixtureCase, text: String, slot: Sl
         resources.prepared = Some(Prepared::fixed()?);
         let pins = resources.prepared.as_mut().ok_or(Error::Identity)?;
         // Resource ownership is installed before the first fallible directory/copy step.
+        #[cfg(test)]
+        if matches!(fault, Fault::PartialPreparation) {
+            pins.fail_partial_preparation(until)?;
+        } else {
+            pins.populate(until)?;
+        }
+        #[cfg(not(test))]
         pins.populate(until)?;
+        shared.prepared()?;
+        if let Some(control) = &automatic {
+            control.stamp(control.capture()?)?;
+        }
+        while !shared.stamped()? {
+            check(&shared, until)?;
+            pause();
+        }
         pins.check(until)?;
         // Final validation and one-shot commitment are serialized on this worker.
-        // Cancel racing this CAS wins before commitment, or requests cleanup after it.
+        // Cancel under the same gate wins before commitment, or requests cleanup after it.
         #[cfg(test)]
         if let Some(barrier) = shared.before_commit.lock().unwrap().take() {
             barrier.wait();
             barrier.wait();
         }
-        shared.phase.compare_exchange(PENDING, COMMITTED, Ordering::AcqRel, Ordering::Acquire).map_err(|_| Error::Revoked)?;
+        shared.commit()?;
         #[cfg(test)]
         if let Some(barrier) = shared.after_commit.lock().unwrap().take() {
             barrier.wait();
@@ -200,7 +219,7 @@ pub(super) fn run(shared: Arc<Shared>, case: FixtureCase, text: String, slot: Sl
         let cwd = pins.cwd().file.as_raw_fd();
         let mut command = Command::new(pins.executable());
         command
-            .args(crate::launch::KIRO_ARGS)
+            .args(wire::KIRO_ARGS)
             .env_clear()
             .env("HOME", pins.storage.root.path.join("home"))
             .env("TMPDIR", pins.storage.root.path.join("tmp"))
@@ -240,7 +259,7 @@ pub(super) fn run(shared: Arc<Shared>, case: FixtureCase, text: String, slot: Sl
     if report.result == Err(Error::CleanupUncertain) && resources.prepared.is_none() {
         // Storage creation retained an unprovable root before a Pin could be minted.
         std::mem::forget(resources);
-        shared.publish(report);
+        shared.publish(report, true);
         return;
     }
     if let Some(child) = resources.owned.as_mut() {
@@ -253,7 +272,7 @@ pub(super) fn run(shared: Arc<Shared>, case: FixtureCase, text: String, slot: Sl
                 }
                 Err(_) => {
                     report.result = Err(Error::CleanupUncertain);
-                    shared.publish(report.clone());
+                    shared.publish(report.clone(), child.lost());
                     if child.lost() {
                         // Unknown is sticky: no further probe, signal, reap or deletion.
                         std::mem::forget(resources);
@@ -270,12 +289,12 @@ pub(super) fn run(shared: Arc<Shared>, case: FixtureCase, text: String, slot: Sl
         if !report.resources_removed {
             report.result = Err(Error::CleanupUncertain);
             std::mem::forget(resources);
-            shared.publish(report);
+            shared.publish(report, true);
             return;
         }
     }
     // Completion publication follows capacity release; wakeups may immediately start anew.
     resources.prepared.take();
     resources.slot.take();
-    shared.publish(report);
+    shared.publish(report, true);
 }

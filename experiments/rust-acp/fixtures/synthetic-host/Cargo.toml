@@ -1,0 +1,19 @@
+[package]
+name = "milagre-acp-native-core-context"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Standalone compile-context check for the private native fixture core; no host composition yet"
+
+[workspace]
+
+[[test]]
+name = "native_core_context"
+path = "native_core_context.rs"
+
+[dev-dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"

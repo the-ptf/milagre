@@ -261,6 +261,34 @@ impl Prepared {
     pub(super) fn populate(&mut self, until: Instant) -> Result<(), Error> {
         self.populate_with(until, |_, _| {})
     }
+    #[cfg(test)]
+    pub(super) fn fail_partial_preparation(&mut self, until: Instant) -> Result<(), Error> {
+        self.populate_with(until, |pins, stage| {
+            if stage != CopyStage::WritableClosed {
+                return;
+            }
+            let root = &pins.storage.root.path;
+            fs::rename(root.join(BINARY), root.join("held-original")).unwrap();
+            fs::write(root.join(BINARY), b"replacement").unwrap();
+            fs::set_permissions(root.join(BINARY), fs::Permissions::from_mode(0o500)).unwrap();
+            let entries: Vec<_> = [BINARY, "held-original"]
+                .iter()
+                .map(|name| {
+                    let meta = fs::symlink_metadata(root.join(name)).unwrap();
+                    serde_json::json!({ "name": name, "device": meta.dev(), "inode": meta.ino(), "mode": meta.mode() })
+                })
+                .collect();
+            let meta = pins.storage.root.file.metadata().unwrap();
+            // This isolated test process intentionally retains ownership through exit.
+            // Its trusted parent checker may remove only these exact identities afterward.
+            println!(
+                "PRIVATE_COPY_RETAINED_MANIFEST {}",
+                serde_json::json!({
+                    "root": root, "device": meta.dev(), "inode": meta.ino(), "entries": entries
+                })
+            );
+        })
+    }
     fn populate_with(&mut self, until: Instant, mut copied: impl FnMut(&mut Self, CopyStage)) -> Result<(), Error> {
         let prepared = self;
         prepared.workspace = prepared.storage.directory("workspace")?;
@@ -348,4 +376,5 @@ impl Prepared {
 }
 
 #[cfg(test)]
+#[path = "files/tests.rs"]
 mod tests;

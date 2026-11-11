@@ -21,7 +21,7 @@ fn run() -> Result<(), ()> {
         os::unix::fs::MetadataExt,
     };
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    if args != ["acp", "--agent-engine", "v3"] {
+    if args != wire::KIRO_ARGS {
         return Err(());
     }
     let case = std::env::var("MILAGRE_COPY_FIXTURE_CASE").map_err(|_| ())?;

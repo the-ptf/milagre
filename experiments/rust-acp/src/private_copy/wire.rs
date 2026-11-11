@@ -1,6 +1,7 @@
 //! Closed native-fixture wire data shared with its dedicated binary, never a provider grant.
 use serde::{Deserialize, Serialize};
 
+pub const KIRO_ARGS: &[&str] = &["acp", "--agent-engine", "v3"];
 pub const IDENTITY: &str = "milagre-native-acp-copy-fixture-v1";
 pub const TEXT_LIMIT: usize = 64 * 1024;
 pub const FRAME_LIMIT: usize = 512 * 1024;

@@ -7,6 +7,10 @@ immutable-descriptor B06, production authority, a fallback, an account lease, an
 or a complete ACP session. Existing `AcpRpc`, fake-session and launch-planning behavior is unchanged.
 No account, registry, owner, runtime or installed app imports this backend.
 
+The [private-core checkpoint](NATIVE-CORE-CHECKPOINT.md) extracts the same implementation for
+a standalone compile-context test. It adds cancellation/progress observation and a private
+stamped admission boundary; it does not compose the account, registry or ChatHost services yet.
+
 ## Fixed authority and preparation
 
 The public entry is `start(FixtureCase::Ready|IgnoreCancel, text)`. It accepts at most 64 KiB of
@@ -31,7 +35,7 @@ identities, exact workspace identity and both full digests under the five-second
 budget. These deadline checks surround blocking filesystem calls; they are not a hard
 wall-clock bound on a stalled filesystem. Scratch ownership is installed in the resource guard
 before directory creation/copy; failed preparation cannot release its slot if cleanup is uncertain.
-A one-shot Pending-to-Committed CAS follows that check; cancellation before it refuses
+A one-shot Pending-to-Committed transition under the private gate follows that check; cancellation before it refuses
 spawn, while cancellation after commitment permits at most that one child and requires cleanup.
 No prompt is admitted after the worker observes revocation.
 
@@ -66,8 +70,19 @@ not production provider interpretation or execution of immutable artifact bytes.
 
 One global capacity slot admits one preparation/child/cleanup at a time. A dedicated standard
 thread owns all resources, with no caller Tokio requirement. `cancel` and observer drop set
-monotonic revocation without waiting for the worker. `wait(&mut self)` allows one consumer;
-dropping its future abandons only the local wait. Completion publishes after capacity release.
+monotonic revocation without waiting for the worker. `cancel_handle()` can be held independently
+while `wait(&mut self)` or `next_progress(&mut self)` borrows the sole observer. Dropping a wait
+future abandons only that local wait. Successful cleanup publishes after capacity release;
+CleanupUncertain is observable while capacity remains held.
+
+`next_progress` returns bounded cumulative snapshots with increasing revisions: Prepared,
+validated Consumed evidence and cleanup Report. Slow observers retain the consumption fact
+even if terminal cleanup arrives first. Unchanged reports do not advance revisions; the first
+terminal failure remains a failure when later cleanup becomes known. `finished` ends this
+observer stream and does not imply reap/removal: a final uncertain result can retain resources
+for process lifetime. `wait` keeps its compatibility snapshot behavior; progress consumes later
+cleanup changes once per revision. The mutable observer admits one waiter, and cancellation
+capabilities are separately cloneable.
 
 Cleanup is **exact-child-only** because this fixed native program cannot spawn descendants.
 It must not be reused for a vendor CLI, generic ACP process or descendant-capable fixture.
@@ -115,6 +130,13 @@ worker panic, spawn failure, and barriers before/after commit. Revocation before
 zero child; after commit produces one reaped child and no consumed prompt. Every successful
 cleanup removes scratch; the runner's synthetic ambient-HOME canary and staging removal are checked.
 The default suite marks this native test ignored; ignored/refusal-only runs are not native proof.
+
+The same checker also runs the public progress API, private stamped admission and a standalone
+compile context with no ACP dependency or caller Tokio runtime. A separate test process forces
+partial preparation failure after writable-copy close: no child spawns, CleanupUncertain retains
+the slot, and a second start returns Busy. Only after that test process exits does its parent
+remove the two exact retained test-file identities. This is test teardown, not backend cleanup
+success. Ordinary checks never reset ACTIVE to escape retained uncertainty.
 
 The existing default/all-feature suites, strict Clippy, formatting and four Node recorders remain
 regression checks for the crate's other code. They are not dependencies of this native backend.
