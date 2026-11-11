@@ -388,3 +388,99 @@ fn nothing_the_repository_names_is_run() {
         .plan(None, Some(&json!([{ "alias": 7, "worktreePath": path }])))
         .is_some());
 }
+
+/// Races and malformed metadata: a hostile config swapped in after the allow-list was read (also at the same size)
+/// is never run; the private folder's path swapped for a link gives no list and nothing outside the copy is written
+/// or left; an index that is a link gives no list while an absent one (nothing staged yet) lists as Node does; a
+/// config Git can't parse gives no list.
+#[test]
+fn races_and_bad_metadata_never_run_or_redirect() {
+    use milagre_owner_store::changed_files::test_hooks::before_status;
+    let Some((base, copy)) = setup() else { return };
+    let marker = base.path().join("MARKER");
+    let repo = repository(&copy, "repo");
+    let mut grants = GitGrants::new(&copy);
+    grants.admit(&repo).unwrap();
+    let plan = grants.plan(Some(&repo.display().to_string()), None);
+    // Hostile config swapped in between the allow-list read and the status run, then one of the same size.
+    let config = repo.join(".git/config");
+    let original = std::fs::read_to_string(&config).unwrap();
+    let hostile = format!(
+        "[filter \"evil\"]\n\tclean = touch {}\n\trequired = true\n",
+        marker.display()
+    );
+    std::fs::write(repo.join(".gitattributes"), "* filter=evil\n").unwrap();
+    let (swap, text) = (config.clone(), hostile.clone());
+    before_status(move || std::fs::write(&swap, text).unwrap());
+    changed_files(&copy, &plan);
+    assert!(!marker.exists(), "a config swapped in mid-run was run");
+    let mut same = hostile.clone();
+    same.truncate(original.len().min(same.len()));
+    while same.len() < original.len() {
+        same.push('\n');
+    }
+    std::fs::write(&config, &same).unwrap();
+    changed_files(&copy, &plan);
+    assert!(!marker.exists(), "a same-size hostile config was run");
+    std::fs::write(&config, &original).unwrap();
+    std::fs::remove_file(repo.join(".gitattributes")).unwrap();
+    // The private folder's path swapped for a link to a folder outside: no list, nothing written there.
+    let outside = base.path().join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    let git_folder = copy.join(".owner/git");
+    let moved = base.path().join("moved-git");
+    let (from, to, link) = (git_folder.clone(), moved.clone(), outside.clone());
+    before_status(move || {
+        std::fs::rename(&from, &to).unwrap();
+        symlink(&link, &from).unwrap();
+    });
+    assert!(
+        changed_files(&copy, &plan).is_none(),
+        "a swapped private folder was used"
+    );
+    assert_eq!(
+        std::fs::read_dir(&outside).unwrap().count(),
+        0,
+        "something was written outside"
+    );
+    assert_eq!(
+        std::fs::read_dir(&moved).unwrap().count(),
+        0,
+        "the private folder wasn't removed through its handle"
+    );
+    std::fs::remove_file(&git_folder).unwrap();
+    // An index that is a link: no list. An absent one (a fresh repository): listed as Node lists it.
+    let linked = repository(&copy, "linked");
+    grants.admit(&linked).unwrap();
+    let index = linked.join(".git/index");
+    std::fs::rename(&index, base.path().join("index-elsewhere")).unwrap();
+    symlink(base.path().join("index-elsewhere"), &index).unwrap();
+    assert!(changed_files(
+        &copy,
+        &grants.plan(Some(&linked.display().to_string()), None)
+    )
+    .is_none());
+    let fresh = copy.join("fresh");
+    std::fs::create_dir(&fresh).unwrap();
+    git(&fresh, &["init", "-q"]);
+    std::fs::write(fresh.join("new.txt"), "x").unwrap();
+    let fresh = std::fs::canonicalize(fresh).unwrap();
+    assert!(!fresh.join(".git/index").exists());
+    grants.admit(&fresh).unwrap();
+    let listed = changed_files(
+        &copy,
+        &grants.plan(Some(&fresh.display().to_string()), None),
+    )
+    .unwrap();
+    assert_eq!(listed, node_changed(&copy, &[(None, &fresh)]));
+    // A config Git can't parse: no list (Node's run fails too).
+    let broken = repository(&copy, "broken");
+    grants.admit(&broken).unwrap();
+    std::fs::write(broken.join(".git/config"), "[core\n\tbare = false\n").unwrap();
+    assert!(changed_files(
+        &copy,
+        &grants.plan(Some(&broken.display().to_string()), None)
+    )
+    .is_none());
+    assert!(!marker.exists());
+}

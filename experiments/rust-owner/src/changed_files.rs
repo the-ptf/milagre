@@ -246,24 +246,118 @@ const KEPT: [(&str, &[&str]); 8] = [
 /// HEAD, refs and index from here, never from the repository's own `.git` (whose objects it reads through an
 /// alternate only). So nothing the repository's config names (filters, fsmonitor, hooks, submodules, includes,
 /// `worktreeConfig`, replace refs) is ever run or read.
+///
+/// Made, written and removed only through held descriptors (`mkdirat`, `openat` with `O_EXCL|O_NOFOLLOW`, `unlinkat`),
+/// from the copy's own folder down; its path (what Git is given) is checked to lead to the held folder just before Git
+/// runs and again after, and a mismatch is no list. (Git itself opens it by path in between.)
 struct Scratch {
-    dir: PathBuf,
+    path: PathBuf,
+    parent: OwnedFd,
+    name: String,
+    dir: OwnedFd,
 }
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
+        remove_tree(&self.dir);
+        let _ = rustix::fs::unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR);
     }
 }
 
-/// A plain file of at most `cap` bytes inside the repository's `.git` (no link), or `None`.
-fn small_file(path: &Path, cap: u64) -> Option<Vec<u8>> {
-    let meta = std::fs::symlink_metadata(path).ok()?;
-    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > cap {
-        return None;
+use rustix::fs::{AtFlags, Mode, OFlags};
+use std::os::fd::OwnedFd;
+
+fn identity(fd: &OwnedFd) -> Option<(u64, u64)> {
+    let stat = rustix::fs::fstat(fd).ok()?;
+    Some((stat.st_dev as u64, stat.st_ino as u64))
+}
+
+/// The folder `name` under `parent`, made (0700) if missing, opened without following a link.
+fn folder_at(parent: &OwnedFd, name: &str, exclusive: bool) -> Option<OwnedFd> {
+    match rustix::fs::mkdirat(parent, name, Mode::from_raw_mode(0o700)) {
+        Ok(()) => {}
+        Err(rustix::io::Errno::EXIST) if !exclusive => {}
+        Err(_) => return None,
     }
-    let bytes = std::fs::read(path).ok()?;
-    (bytes.len() as u64 <= cap).then_some(bytes)
+    rustix::fs::openat(
+        parent,
+        name,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .ok()
+}
+
+/// A new file `name` under `dir` (exclusive, 0600, no link followed) holding `bytes`.
+fn write_at(dir: &OwnedFd, name: &str, bytes: &[u8]) -> Option<()> {
+    use std::io::Write;
+    let file = rustix::fs::openat(
+        dir,
+        name,
+        OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::from_raw_mode(0o600),
+    )
+    .ok()?;
+    std::fs::File::from(file).write_all(bytes).ok()
+}
+
+/// Everything under the held folder `dir`, removed through descriptors (never by path).
+fn remove_tree(dir: &OwnedFd) {
+    let Ok(entries) = rustix::fs::Dir::read_from(dir) else {
+        return;
+    };
+    let names: Vec<std::ffi::CString> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_owned())
+        .filter(|name| name.as_bytes() != b"." && name.as_bytes() != b"..")
+        .collect();
+    for name in names {
+        if rustix::fs::unlinkat(dir, name.as_c_str(), AtFlags::empty()).is_ok() {
+            continue;
+        }
+        if let Ok(child) = rustix::fs::openat(
+            dir,
+            name.as_c_str(),
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        ) {
+            remove_tree(&child);
+            let _ = rustix::fs::unlinkat(dir, name.as_c_str(), AtFlags::REMOVEDIR);
+        }
+    }
+}
+
+/// A file inside the repository's `.git`, read through its descriptor with at most `cap` bytes ever held:
+/// `Ok(None)` when it doesn't exist, `Err` when it is a link, not a plain file, unreadable or larger than `cap`.
+fn small_file(path: &Path, cap: u64) -> std::result::Result<Option<Vec<u8>>, ()> {
+    let file = match rustix::fs::openat(
+        rustix::fs::CWD,
+        path,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+        Mode::empty(),
+    ) {
+        Ok(file) => file,
+        Err(rustix::io::Errno::NOENT) => return Ok(None),
+        Err(_) => return Err(()),
+    };
+    let stat = rustix::fs::fstat(&file).map_err(|_| ())?;
+    if !rustix::fs::FileType::from_raw_mode(stat.st_mode).is_file() {
+        return Err(());
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::from(file)
+        .take(cap + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| ())?;
+    if bytes.len() as u64 > cap {
+        return Err(());
+    }
+    Ok(Some(bytes))
+}
+
+/// A file that must be there (HEAD, config): `None` unless it reads.
+fn required(path: &Path, cap: u64) -> Option<Vec<u8>> {
+    small_file(path, cap).ok().flatten()
 }
 
 fn hex_id(text: &str) -> bool {
@@ -272,37 +366,65 @@ fn hex_id(text: &str) -> bool {
 
 impl Scratch {
     fn make(copy: &Path, folder: &Path, deadline: Instant) -> Option<Scratch> {
-        use std::os::unix::fs::DirBuilderExt;
-        let owner = copy.join(crate::isolation::OWNER_DIR);
-        for part in [owner.clone(), owner.join("git")] {
-            match std::fs::symlink_metadata(&part) {
-                Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => {}
-                Ok(_) => return None,
-                Err(_) => std::fs::DirBuilder::new().mode(0o700).create(&part).ok()?,
-            }
+        // The copy's own folder, held: everything below is made relative to it.
+        let root = rustix::fs::openat(
+            rustix::fs::CWD,
+            copy,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .ok()?;
+        let pinned = {
+            use std::os::unix::fs::MetadataExt;
+            let meta = std::fs::symlink_metadata(copy).ok()?;
+            (meta.dev(), meta.ino())
+        };
+        if identity(&root)? != pinned || std::fs::canonicalize(copy).ok()? != copy {
+            return None;
         }
+        let owner = folder_at(&root, crate::isolation::OWNER_DIR, false)?;
+        let parent = folder_at(&owner, "git", false)?;
         let mut random = [0u8; 8];
         std::fs::File::open("/dev/urandom")
             .ok()?
             .read_exact(&mut random)
             .ok()?;
-        let dir = owner.join("git").join(hex::encode(random));
-        std::fs::DirBuilder::new().mode(0o700).create(&dir).ok()?;
-        let scratch = Scratch { dir };
+        let name = hex::encode(random);
+        let dir = folder_at(&parent, &name, true)?;
+        let scratch = Scratch {
+            path: copy
+                .join(crate::isolation::OWNER_DIR)
+                .join("git")
+                .join(&name),
+            parent,
+            name,
+            dir,
+        };
         scratch.fill(copy, folder, deadline)?;
         Some(scratch)
     }
 
+    /// The path Git is given still leads to the folder held (no link on it or above it).
+    fn holds(&self) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        let Ok(meta) = std::fs::symlink_metadata(&self.path) else {
+            return false;
+        };
+        !meta.file_type().is_symlink()
+            && Some((meta.dev(), meta.ino())) == identity(&self.dir)
+            && std::fs::canonicalize(&self.path).ok().as_deref() == Some(self.path.as_path())
+    }
+
     fn fill(&self, copy: &Path, folder: &Path, deadline: Instant) -> Option<()> {
         let git = folder.join(".git");
-        let config = small_file(&git.join("config"), 64 * 1024)?;
+        let config = required(&git.join("config"), 64 * 1024)?;
         let text = String::from_utf8_lossy(&config).to_ascii_lowercase();
         // A repository format this run can't read with a plain config (SHA-256 objects, reftables): no list.
         if text.contains("[extensions") {
             return None;
         }
         // HEAD as the commit it names (the branch doesn't show in porcelain output), or as is while unborn.
-        let head = String::from_utf8(small_file(&git.join("HEAD"), 4096)?).ok()?;
+        let head = String::from_utf8(required(&git.join("HEAD"), 4096)?).ok()?;
         let head = head.trim();
         let commit = match head.strip_prefix("ref: ") {
             Some(name)
@@ -311,18 +433,24 @@ impl Scratch {
                         .split('/')
                         .any(|part| part.is_empty() || part.starts_with('.')) =>
             {
-                let loose = small_file(&git.join(name), 4096)
-                    .and_then(|bytes| String::from_utf8(bytes).ok())
-                    .map(|id| id.trim().to_string())
-                    .filter(|id| hex_id(id));
-                loose.or_else(|| {
-                    let packed =
-                        String::from_utf8(small_file(&git.join("packed-refs"), 16 << 20)?).ok()?;
-                    packed.lines().find_map(|line| {
-                        let (id, rest) = line.split_once(' ')?;
-                        (rest == name && hex_id(id)).then(|| id.to_string())
-                    })
-                })
+                // A loose ref that is there but unreadable is no list; one that is absent may be packed.
+                let loose = small_file(&git.join(name), 4096).ok()?;
+                match loose {
+                    Some(bytes) => {
+                        let id = String::from_utf8(bytes).ok()?.trim().to_string();
+                        if !hex_id(&id) {
+                            return None;
+                        }
+                        Some(id)
+                    }
+                    None => match small_file(&git.join("packed-refs"), 16 << 20).ok()? {
+                        Some(bytes) => String::from_utf8(bytes).ok()?.lines().find_map(|line| {
+                            let (id, rest) = line.split_once(' ')?;
+                            (rest == name && hex_id(id)).then(|| id.to_string())
+                        }),
+                        None => None,
+                    },
+                }
             }
             Some(_) => return None,
             None if hex_id(head) => Some(head.to_string()),
@@ -341,38 +469,50 @@ impl Scratch {
             return None;
         }
         let dir = &self.dir;
-        for sub in ["refs", "objects", "objects/info", "objects/pack", "info"] {
-            std::fs::create_dir(dir.join(sub)).ok()?;
+        let refs = folder_at(dir, "refs", true)?;
+        drop(refs);
+        let objects_dir = folder_at(dir, "objects", true)?;
+        let objects_info = folder_at(&objects_dir, "info", true)?;
+        drop(folder_at(&objects_dir, "pack", true)?);
+        let info = folder_at(dir, "info", true)?;
+        write_at(dir, "HEAD", head.as_bytes())?;
+        write_at(
+            &objects_info,
+            "alternates",
+            format!("{}\n", objects.display()).as_bytes(),
+        )?;
+        // The index: absent is fine (nothing staged yet); there but a link, unreadable or too large is no list (a
+        // status without it would differ).
+        if let Some(index) = small_file(&git.join("index"), 64 << 20).ok()? {
+            write_at(dir, "index", &index)?;
         }
-        std::fs::write(dir.join("HEAD"), head).ok()?;
-        std::fs::write(
-            dir.join("objects/info/alternates"),
-            format!("{}\n", objects.display()),
-        )
-        .ok()?;
-        if let Some(index) = small_file(&git.join("index"), 64 << 20) {
-            std::fs::write(dir.join("index"), index).ok()?;
+        if let Some(exclude) = small_file(&git.join("info/exclude"), 1 << 20).ok()? {
+            write_at(&info, "exclude", &exclude)?;
         }
-        if let Some(exclude) = small_file(&git.join("info/exclude"), 1 << 20) {
-            std::fs::write(dir.join("info/exclude"), exclude).ok()?;
-        }
-        // Only the allow-listed settings of the repository's config, read by Git as data (no includes), values checked.
+        // Only the allow-listed settings of the repository's config, read by Git as data (no includes), values
+        // checked. A read that fails or times out is no list (exit 1 is "none of them set").
         let mut kept = String::from("[core]\n\trepositoryformatversion = 0\n\tbare = false\n");
+        if !self.holds() {
+            return None;
+        }
         let mut read = Command::new(GIT);
-        read.current_dir(dir)
+        read.current_dir(&self.path)
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
             .env("HOME", copy)
             .env("LC_ALL", "C")
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_DIR", dir)
+            .env("GIT_DIR", &self.path)
             .arg("config")
             .arg("--file")
             .arg(git.join("config"))
-            .args(["--no-includes", "--get-regexp", "^core\\.(ignorecase|precomposeunicode|filemode|symlinks|trustctime|checkstat|autocrlf|eol)$"]);
-        // Exit 1 is "no such setting": nothing to keep.
-        let listed = run_bounded(read, deadline, 64 * 1024, true).unwrap_or_default();
+            .args([
+                "--no-includes",
+                "--get-regexp",
+                "^core\\.(ignorecase|precomposeunicode|filemode|symlinks|trustctime|checkstat|autocrlf|eol)$",
+            ]);
+        let listed = run_bounded(read, deadline, 64 * 1024, true)?;
         for line in listed.lines() {
             let Some((key, value)) = line.split_once(' ') else {
                 continue;
@@ -384,7 +524,7 @@ impl Scratch {
                 }
             }
         }
-        std::fs::write(dir.join("config"), kept).ok()?;
+        write_at(dir, "config", kept.as_bytes())?;
         Some(())
     }
 }
@@ -393,6 +533,12 @@ impl Scratch {
 /// its output read as UTF-8 (U+FFFD for invalid bytes, as Node's `encoding: "utf8"`), or `None`.
 fn status(copy: &Path, folder: &Path, deadline: Instant, limit: usize) -> Option<String> {
     let scratch = Scratch::make(copy, folder, deadline)?;
+    #[cfg(feature = "test-fixtures")]
+    test_hooks::run_before_status();
+    // Git is given the private folder's path: it must lead to the folder held, now and after the run.
+    if !scratch.holds() {
+        return None;
+    }
     let mut command = Command::new(GIT);
     command
         .current_dir(folder)
@@ -407,7 +553,7 @@ fn status(copy: &Path, folder: &Path, deadline: Instant, limit: usize) -> Option
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_CEILING_DIRECTORIES", copy)
-        .env("GIT_DIR", &scratch.dir)
+        .env("GIT_DIR", &scratch.path)
         .env("GIT_WORK_TREE", folder)
         .args([
             "-c",
@@ -434,6 +580,7 @@ fn status(copy: &Path, folder: &Path, deadline: Instant, limit: usize) -> Option
     );
     #[cfg(feature = "test-fixtures")]
     test_hooks::run_after_git();
+    let output = output.filter(|_| scratch.holds());
     drop(scratch);
     output
 }
@@ -544,6 +691,18 @@ pub mod test_hooks {
 
     thread_local! {
         static AFTER_GIT: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+        static BEFORE_STATUS: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    }
+
+    /// Runs `hook` once, after the private Git folder is filled (its config read) and before `git status` runs.
+    pub fn before_status(hook: impl FnOnce() + 'static) {
+        BEFORE_STATUS.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+    }
+
+    pub(super) fn run_before_status() {
+        if let Some(hook) = BEFORE_STATUS.with(|slot| slot.borrow_mut().take()) {
+            hook();
+        }
     }
 
     pub fn after_git(hook: impl FnOnce() + 'static) {
