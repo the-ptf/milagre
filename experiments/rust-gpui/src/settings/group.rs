@@ -299,7 +299,12 @@ impl RenderOnce for CheckboxRow {
 
         let mut checkbox = Checkbox::new(check_id, checked).disabled(disabled);
         if let Some(handler) = self.on_change.clone() {
-            checkbox = checkbox.on_toggle(move |next, window, cx| handler(next, window, cx));
+            // The box handles its own click (and the keyboard's Enter/Space on it) and stops it there, so the
+            // row's click handler below does not fire a second time for the same press.
+            checkbox = checkbox.on_toggle(move |next, window, cx| {
+                cx.stop_propagation();
+                handler(next, window, cx)
+            });
         }
 
         let mut row: Stateful<Div> = div()
@@ -417,5 +422,39 @@ impl RenderOnce for ChoiceCard {
         }
 
         card
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gpui::{Modifiers, TestAppContext, point, px};
+
+    use super::CheckboxRow;
+    use crate::testing;
+
+    #[gpui::test]
+    fn a_click_on_the_box_toggles_once_and_a_click_on_the_row_toggles_once(cx: &mut TestAppContext) {
+        let fired = Rc::new(Cell::new(Vec::<bool>::new()));
+        let log = fired.clone();
+        let (_, cx) = testing::mount_element(cx, move |_, _| {
+            let log = log.clone();
+            CheckboxRow::new("row", "Show stats", false).on_change(move |next, _, _| {
+                let mut seen = log.take();
+                seen.push(next);
+                log.set(seen);
+            })
+        });
+        let take = || fired.take();
+
+        let box_center = testing::bounds(cx, "row-check-box").center();
+        cx.simulate_click(box_center, Modifiers::none());
+        assert_eq!(take(), vec![true], "the box click fires the handler once, not from the box and the row");
+
+        let row = testing::bounds(cx, "settings-row-show-stats");
+        cx.simulate_click(point(row.origin.x + px(40.0), row.center().y), Modifiers::none());
+        assert_eq!(take(), vec![true], "the row click fires it once too");
     }
 }
