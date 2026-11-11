@@ -679,3 +679,54 @@ fn kept_settings_are_read_as_git_reads_them() {
         );
     }
 }
+
+/// Git's racy-clean rule, deterministic: a same-size edit whose mtime was put back is found only by re-hashing,
+/// which Git does when the entry's mtime isn't older than the index file's. With the index stamped at the entry's
+/// exact time (racy) native Git lists the file; stamped 10 s later it trusts the stat and doesn't. The run matches
+/// native Git in both (its private index copy keeps the index's times).
+#[test]
+fn racy_clean_entries_list_as_native_git_lists_them() {
+    use std::time::{Duration, UNIX_EPOCH};
+    let Some((_base, copy)) = setup() else { return };
+    let set_mtime = |path: &Path, at: std::time::SystemTime| {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(at).set_accessed(at))
+            .unwrap();
+    };
+    let entry_time = UNIX_EPOCH + Duration::new(1_600_000_000, 123_456_789);
+    let mut grants = GitGrants::new(&copy);
+    for (name, index_time, listed) in [
+        ("racy", entry_time, true),
+        ("settled", entry_time + Duration::from_secs(10), false),
+    ] {
+        let repo = copy.join(name);
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q"]);
+        git(&repo, &["config", "core.trustctime", "false"]);
+        let tracked = repo.join("tracked.txt");
+        std::fs::write(&tracked, "before\n").unwrap();
+        set_mtime(&tracked, entry_time);
+        git(&repo, &["add", "tracked.txt"]);
+        git(&repo, &["commit", "-q", "-m", "fixture"]);
+        // Same size, same mtime: only the content differs.
+        std::fs::write(&tracked, "after!\n").unwrap();
+        set_mtime(&tracked, entry_time);
+        set_mtime(&repo.join(".git/index"), index_time);
+        let repo = std::fs::canonicalize(repo).unwrap();
+        grants.admit(&repo).unwrap();
+        let mut rust = changed_files(&copy, &grants.plan(Some(&repo.display().to_string()), None))
+            .expect("a list");
+        let mut native = node_changed(&copy, &[(None, &repo)]);
+        assert_eq!(
+            native.iter().any(|f| f == "tracked.txt"),
+            listed,
+            "{name}: the fixture isn't {name}"
+        );
+        rust.sort();
+        native.sort();
+        assert_eq!(rust, native, "{name}");
+    }
+}

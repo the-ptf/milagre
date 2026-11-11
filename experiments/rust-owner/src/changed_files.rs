@@ -388,6 +388,16 @@ fn folder_at(parent: &OwnedFd, name: &str, exclusive: bool) -> Option<OwnedFd> {
 
 /// A new file `name` under `dir` (exclusive, 0600, no link followed) holding `bytes`.
 fn write_at(dir: &OwnedFd, name: &str, bytes: &[u8]) -> Option<()> {
+    write_at_times(dir, name, bytes, None)
+}
+
+/// [`write_at`], then (with `times`) the file's access and modification times set through its descriptor.
+fn write_at_times(
+    dir: &OwnedFd,
+    name: &str,
+    bytes: &[u8],
+    times: Option<&rustix::fs::Timestamps>,
+) -> Option<()> {
     use std::io::Write;
     let file = rustix::fs::openat(
         dir,
@@ -396,7 +406,26 @@ fn write_at(dir: &OwnedFd, name: &str, bytes: &[u8]) -> Option<()> {
         Mode::from_raw_mode(0o600),
     )
     .ok()?;
-    std::fs::File::from(file).write_all(bytes).ok()
+    let mut file = std::fs::File::from(file);
+    file.write_all(bytes).ok()?;
+    if let Some(times) = times {
+        rustix::fs::futimens(&file, times).ok()?;
+    }
+    Some(())
+}
+
+/// The access and modification times of a file as `fstat` read them (seconds and nanoseconds).
+fn times_of(stat: &rustix::fs::Stat) -> rustix::fs::Timestamps {
+    rustix::fs::Timestamps {
+        last_access: rustix::fs::Timespec {
+            tv_sec: stat.st_atime as _,
+            tv_nsec: stat.st_atime_nsec as _,
+        },
+        last_modification: rustix::fs::Timespec {
+            tv_sec: stat.st_mtime as _,
+            tv_nsec: stat.st_mtime_nsec as _,
+        },
+    }
 }
 
 /// Everything under the held folder `dir`, removed through descriptors (never by path).
@@ -430,6 +459,15 @@ fn remove_tree(dir: &OwnedFd) {
 /// exist; `Err` when anything on the way is a link or not a folder, or the file is a link, not a plain file,
 /// unreadable or larger than `cap`.
 fn read_beneath(dir: &OwnedFd, name: &str, cap: u64) -> std::result::Result<Option<Vec<u8>>, ()> {
+    Ok(read_beneath_stat(dir, name, cap)?.map(|(bytes, _)| bytes))
+}
+
+/// [`read_beneath`], with the file's `fstat` taken through the same descriptor the bytes were read from.
+fn read_beneath_stat(
+    dir: &OwnedFd,
+    name: &str,
+    cap: u64,
+) -> std::result::Result<Option<(Vec<u8>, rustix::fs::Stat)>, ()> {
     let mut parts: Vec<&str> = name.split('/').collect();
     if parts
         .iter()
@@ -469,7 +507,7 @@ fn read_beneath(dir: &OwnedFd, name: &str, cap: u64) -> std::result::Result<Opti
     if bytes.len() as u64 > cap {
         return Err(());
     }
-    Ok(Some(bytes))
+    Ok(Some((bytes, stat)))
 }
 
 /// A file that must be there (HEAD, config): `None` unless it reads.
@@ -578,9 +616,11 @@ impl Scratch {
             format!("{}\n", objects.display()).as_bytes(),
         )?;
         // The index: absent is fine (nothing staged yet); there but a link, unreadable or too large is no list (a
-        // status without it would differ).
-        if let Some(index) = read_beneath(git, "index", 64 << 20).ok()? {
-            write_at(dir, "index", &index)?;
+        // status without it would differ). Its copy keeps the index file's own times (from the descriptor read):
+        // Git re-hashes an entry whose mtime isn't older than the index file's ("racily clean"), so a copy stamped
+        // later would trust a same-size edit whose mtime was kept, where Git on the repository itself checks it.
+        if let Some((index, stat)) = read_beneath_stat(git, "index", 64 << 20).ok()? {
+            write_at_times(dir, "index", &index, Some(&times_of(&stat)))?;
         }
         if let Some(exclude) = read_beneath(git, "info/exclude", 1 << 20).ok()? {
             write_at(&info, "exclude", &exclude)?;
