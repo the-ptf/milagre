@@ -303,6 +303,17 @@ T.append({"name": "restore-stop", "start": START, "seed": restore_seed, "steps":
     {"op": "advance", "ms": 300},
     {"op": "snapshot"}]})
 
+# Send now on a message queued behind a restore being prepared: the Stop cancels the preparation at once and the pick
+# starts, restoring in turn with its own brief.
+T.append({"name": "restore-send-now", "start": START, "seed": restore_seed, "steps": [
+    {"op": "open"},
+    dict(send("First", "r1"), brief={"hang": True}),
+    dict(send("Queued one", "r2", delivery="queue"), brief={"reply": BRIEF}),
+    {"op": "queueSend", "session": 1, "id": QUEUED_1},
+    event("turn-completed"),
+    {"op": "advance", "ms": 300},
+    {"op": "snapshot"}]})
+
 # A crash left a divider preparing and a handover pending: the next start fails the one and clears the other.
 crashed = json.loads(json.dumps(restore_seed))
 crashed["next_id"] = 5

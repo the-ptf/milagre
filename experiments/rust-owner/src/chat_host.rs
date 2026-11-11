@@ -808,6 +808,9 @@ pub struct ChatHost {
     seq: u64,
     starting: HashMap<String, String>,
     send_next: HashMap<String, String>,
+    /// Chats whose restore Stop just cancelled: Node's cancelHandoff runs afterTurn a second time, which holds the
+    /// queue (any queued message left waits for Send now) before the pick it already took starts.
+    hold_on_cancel: HashSet<String>,
     queue_waiters: HashSet<String>,
     turns: HashMap<String, Value>,
     /// The Chat shown in a focused window (Node's openChat with isFocused): a turn ending there isn't unread.
@@ -859,6 +862,7 @@ impl ChatHost {
             seq: 0,
             starting: HashMap::new(),
             send_next: HashMap::new(),
+            hold_on_cancel: HashSet::new(),
             queue_waiters: HashSet::new(),
             turns: HashMap::new(),
             open_chat: None,
@@ -2416,6 +2420,9 @@ impl ChatHost {
     /// `clientMessageId` is already in the Chat leaves the queue and the next one is tried (Node would retry it on
     /// every turn end).
     fn after_turn(&mut self, chat: &str, event: &Value) -> Result<()> {
+        if self.hold_on_cancel.remove(chat) {
+            self.hold_queue(chat)?;
+        }
         let project = Self::project_path(agent_runs::project_of_key(chat));
         // Nothing starts under a quit or a closing Project. A completed turn's queue waits, and moves on if the quit is
         // refused; a stopped or failed one holds as it would otherwise, so it doesn't send on its own once reopened.
@@ -2623,21 +2630,36 @@ impl ChatHost {
             .as_ref()
             .and_then(|s| s.get("provider"))
             .and_then(Value::as_str);
-        if self.runs.contains_key(chat) && provider_capabilities(provider).steer {
+        // Node's canSteerQueued: never while a handoff is prepared (that turn has no agent to steer into).
+        if self.runs.contains_key(chat)
+            && !self.preparing.contains_key(chat)
+            && provider_capabilities(provider).steer
+        {
             return Err(gate(
                 "Sending a queued message into a running turn that can steer",
             ));
         }
         if self.is_busy(chat) {
-            // The pick is kept only once the stop was asked for: a failed interrupt must not leave it waiting for
-            // whichever turn ends next.
             if !self.active.contains_key(chat) {
                 return Err(StoreError::Invalid(
                     "This Chat's turn has nothing to stop yet. Try again once it ends.".into(),
                 ));
             }
-            self.interrupt(chat)?;
-            self.send_next.insert(chat.into(), id.into());
+            // The pick goes in before the stop (Node sets sendNext, then stops): a Stop that ends the turn at once (a
+            // restore being prepared is cancelled synchronously) starts it. A failed interrupt takes it back out, so
+            // it never waits for whichever turn ends next.
+            let previous = self.send_next.insert(chat.into(), id.into());
+            if let Err(error) = self.interrupt(chat) {
+                match previous {
+                    Some(previous) => {
+                        self.send_next.insert(chat.into(), previous);
+                    }
+                    None => {
+                        self.send_next.remove(chat);
+                    }
+                }
+                return Err(error);
+            }
             return Ok(());
         }
         self.start_queued(chat, id).map(|_| ())
@@ -3455,7 +3477,9 @@ impl ChatHost {
             return false;
         }
         let only = chat.to_string();
+        self.hold_on_cancel.insert(only.clone());
         self.cancel_where(|key, _| key == only);
+        self.hold_on_cancel.remove(&only);
         true
     }
 

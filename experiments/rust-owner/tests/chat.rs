@@ -208,6 +208,8 @@ impl Run {
                     .host
                     .send_queued_now(&chat, step["id"].as_str().unwrap())
                     .map(|_| Value::Null);
+                // The pick may start a handoff of its own: prepared as the trace scripts it.
+                self.drive_handoff();
                 self.attempt(result)
             }
             "queueRemove" => {

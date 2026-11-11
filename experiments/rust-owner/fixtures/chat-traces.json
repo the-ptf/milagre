@@ -2195,6 +2195,113 @@
     ]
   },
   {
+    "name": "restore-send-now",
+    "start": 1767225600000,
+    "seed": {
+      "next_id": 3,
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/milagre-chat-worktree",
+          "name": "main"
+        }
+      },
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "agent_name": "main",
+          "status": "Created",
+          "title": "Fix the build",
+          "provider": "kiro"
+        }
+      },
+      "messages": [
+        {
+          "id": 1,
+          "session_id": 1,
+          "role": "user",
+          "body": "Make the tests pass",
+          "model": "model-a",
+          "images": [],
+          "context": null
+        },
+        {
+          "id": 2,
+          "session_id": 1,
+          "role": "assistant",
+          "body": "Done: they pass.",
+          "model": "model-a",
+          "outcome": "completed",
+          "steps": [
+            {
+              "id": "s1",
+              "kind": "shell",
+              "title": "Run npm test",
+              "status": "done"
+            },
+            {
+              "id": "s2",
+              "kind": "thinking",
+              "title": "Thinking"
+            }
+          ]
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "open"
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "First",
+          "clientMessageId": "r1"
+        },
+        "brief": {
+          "hang": true
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Queued one",
+          "clientMessageId": "r2",
+          "delivery": "queue"
+        },
+        "brief": {
+          "reply": "{\"brief\": \"## Goal\\nKeep the tests passing.\\n## Next steps\\nUpdate the docs.\"}"
+        }
+      },
+      {
+        "op": "queueSend",
+        "session": 1,
+        "id": "00000000-0000-4000-8000-000000000001"
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "snapshot"
+      }
+    ]
+  },
+  {
     "name": "restore-recovery",
     "start": 1767225600000,
     "seed": {

@@ -375,3 +375,69 @@ fn the_restore_gate_stays_in_production() {
     let refused = c.send(1, "Next").unwrap_err().to_string();
     assert!(refused.contains("handoff restore"), "{refused}");
 }
+
+/// Send now on a message queued behind a restore being prepared: the pick is in place before the Stop, and the Stop
+/// (which cancels the preparation at once) starts it; it restores in turn and starts with its own brief.
+#[test]
+fn send_now_during_a_preparing_restore_starts_the_queued_message() {
+    let mut c = copy(1);
+    c.send(1, "First").unwrap();
+    let queued = c
+        .host
+        .send(&json!({ "projectPath": c.project.display().to_string(), "sessionId": 1, "provider": "kiro", "model": "m", "body": "Queued one", "clientMessageId": "q1", "delivery": "queue" }))
+        .unwrap();
+    assert!(queued.queued);
+    let session: Value = c
+        .host
+        .states
+        .current(&c.project)
+        .unwrap()
+        .sessions()
+        .unwrap()["1"]
+        .clone();
+    let id = session["queued"][0]["id"].as_str().unwrap().to_string();
+    let first_job = c.host.take_jobs().remove(0);
+    c.host.send_queued_now(&c.chat(1), &id).unwrap();
+    // The first restore is cancelled; the queued message left the queue and is being restored itself.
+    let dividers: Vec<Value> = c
+        .messages()
+        .into_iter()
+        .filter(|m| m["context"]["kind"] == json!("handoff"))
+        .collect();
+    assert_eq!(dividers.len(), 2, "{dividers:?}");
+    assert_eq!(dividers[0]["context"]["status"], json!("failed"));
+    assert_eq!(dividers[1]["context"]["status"], json!("preparing"));
+    let session: Value = c
+        .host
+        .states
+        .current(&c.project)
+        .unwrap()
+        .sessions()
+        .unwrap()["1"]
+        .clone();
+    assert!(
+        session
+            .get("queued")
+            .is_none_or(|q| q.as_array().unwrap().is_empty()),
+        "{session}"
+    );
+    first_job.run();
+    c.run_jobs();
+    let asked = c.brief.asked();
+    assert_eq!(
+        asked.len(),
+        1,
+        "only the queued message's restore asks a brief"
+    );
+    c.brief.reply(asked[0].brief, "{\"brief\": \"b\"}");
+    c.host.pump();
+    let starts = c.starts();
+    assert_eq!(starts.len(), 1);
+    assert!(
+        starts[0]["prompt"]
+            .as_str()
+            .unwrap()
+            .ends_with("Queued one"),
+        "{starts:?}"
+    );
+}

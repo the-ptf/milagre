@@ -220,7 +220,8 @@ async function run(tracesFile, name, dir) {
       case "queueSend":
         result = await attempt(async () => {
           const { interrupt } = await host.sendQueuedNow(chat(step.session), step.id);
-          if (interrupt) interrupts.push(clean(chat(step.session)));
+          // runtime.cjs stopChat: a handoff being prepared is cancelled, else the provider's session is interrupted.
+          if (interrupt && !(await host.cancelHandoff(chat(step.session)))) interrupts.push(clean(chat(step.session)));
           return null;
         });
         break;
