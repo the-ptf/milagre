@@ -1,0 +1,18 @@
+[package]
+name = "milagre-routines"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Pure bounded cron compatibility checkpoint, with no routine execution or timers"
+
+[workspace]
+
+[dependencies]
+jiff = { version = "=0.2.42", default-features = false, features = ["std"] }
+jiff-tzdb = "=0.1.4"
+ryu-js = "=1.0.3"
+serde_json = "=1.0.154"
+
+[dev-dependencies]
+sha2 = "=0.10.9"
