@@ -76,8 +76,8 @@
   "type": "module",
   "exports": {
     "./repository": {
-      "types": "./src/repository.d.cts",
-      "default": "./src/repository.cjs"
+      "types": "./src/repository.d.mts",
+      "default": "./src/repository.mjs"
     },
     "./html-render": {
       "types": "./src/html-render.d.mts",

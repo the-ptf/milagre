@@ -99,3 +99,29 @@ test("ADR numbers are unique and code references point to existing decisions", a
     }
   }
 });
+
+test("the shared repository module ships to installed CLI consumers", async () => {
+  const imported = await import("@milagre/shared/repository");
+  assert.deepEqual({ owner: imported.owner, repo: imported.repo, url: imported.url }, { owner, repo, url });
+  const [packed] = JSON.parse(
+    execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
+      cwd: path.join(root, "packages/shared"),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }),
+  );
+  const shared = JSON.parse(await fs.readFile(path.join(root, "packages/shared/package.json"), "utf8"));
+  for (const target of Object.values(shared.exports["./repository"])) {
+    assert.ok(
+      packed.files.some((file) => file.path === target.replace(/^\.\//, "")),
+      `${target} must ship in the shared package`,
+    );
+  }
+});
+
+test("Linux deployment scripts resolve shared code without installed workspace packages", async () => {
+  for (const file of ["generate-linux-repository.cjs", "verify-public-packages.cjs"]) {
+    const source = await fs.readFile(path.join(root, "scripts", file), "utf8");
+    assert.doesNotMatch(source, /require\(["']@milagre\/shared/, `${file} runs without npm ci`);
+  }
+});

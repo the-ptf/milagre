@@ -2,7 +2,7 @@
 // share. The host replaces what identifies the user's work with these placeholders; desktop and phone mark them in the
 // text the user approves.
 
-import { owner, repo } from "./repository.cjs";
+import { owner, repo } from "./repository.mjs";
 
 /** Where reports go. */
 export const MILAGRE_REPO = `${owner}/${repo}`;

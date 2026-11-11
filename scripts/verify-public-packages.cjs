@@ -1,5 +1,5 @@
 // Deployment must never advertise a missing or different public installer.
-const { url: repository } = require("@milagre/shared/repository");
+const { url: repository } = require("../packages/shared/src/repository.mjs");
 const fs = require("node:fs");
 const path = require("node:path");
 const { createHash } = require("node:crypto");

@@ -8,7 +8,7 @@ const { gzipSync } = require("node:zlib");
 const { spawnSync } = require("node:child_process");
 
 const template = path.resolve(__dirname, "../distribution/linux-repository");
-const { url: repository } = require("@milagre/shared/repository");
+const { url: repository } = require("../packages/shared/src/repository.mjs");
 
 function run(program, args, options = {}) {
   const result = spawnSync(program, args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, ...options });
