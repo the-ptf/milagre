@@ -101,3 +101,5 @@ The parent accepted checkpoint 1 on this contract: a private authority-owned two
 The required tests include removal/carrier replacement/close cancellation, failure after spawning and installing a worker, panic before and after Begin, forgotten observers, progress on another carrier, bounded memory and retained terminal guards. A non-owning observer cannot retain a worker, and no completion flag stands in for JoinHandle consumption. No unresolved contract question blocks this private core. The later tracked-output and owner-pump checkpoints remain separately reviewed work.
 
 The implemented checkpoint 1 boundary and tests are recorded in [FIXED-EXECUTOR-CORE.md](FIXED-EXECUTOR-CORE.md). The remaining output and owner-pump sections above remain a proposal.
+
+Checkpoint 2 now has a concrete [tracked-output ownership and prepayment refinement](TRACKED-OUTPUT-CONTRACT.md), awaiting agreement. It specifies private target registration, exact per-claim charges, direct synthetic peer acceptance and physical mailbox drainage. It does not authorize checkpoint 3 or implement output.

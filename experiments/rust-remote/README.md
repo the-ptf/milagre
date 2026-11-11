@@ -121,3 +121,5 @@ A [private authority/joined-worker composition](HTTP-CLAIM-COMPOSITION.md) now e
 The [fixed-Claim supervisor contract](FIXED-CLAIM-SUPERVISOR-PROPOSAL.md) separates authority-owned executors, tracked synthetic delivery, prepaid status/output and fair bounded actor dispatch. Checkpoint 1 is concluded; later output and owner-pump integration still require agreement and review.
 
 Checkpoint 1 of that contract is implemented as the [private retained executor core](FIXED-EXECUTOR-CORE.md): two authority-owned slots, fixed results, cancellation/deadline polling, actual joins and terminal drainage. It has no supervisor command or egress.
+
+The [checkpoint 2 tracked-output refinement](TRACKED-OUTPUT-CONTRACT.md) proposes private mailbox ownership, pre-Begin output reservations and explicit synthetic peer acceptance. It awaits agreement; no tracked output implementation or production admission is added.
