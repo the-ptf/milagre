@@ -13,13 +13,14 @@ name = "milagre-gpui-spike"
 path = "src/main.rs"
 
 [features]
-default = []
+# Code blocks in the transcript are highlighted (src/ui/markdown/highlight.rs maps the colours).
+default = ["syntect"]
 # WP-01's fit-check gallery (src/fitcheck/gallery.rs) for snapshots: MILAGRE_GPUI_FITCHECK=<page>.
 # Probe code only; the app never turns it on. The fit-check tests themselves build under `cargo test`.
 fitcheck = []
 # The D1 webview probe: gpui-webview (wry on WKWebView) behind a feature, off by default.
 webview = ["fitcheck", "dep:gpui-webview", "dep:wry"]
-# gpui-component's syntect highlighter (and two-face's grammars), for the code-highlighting fit check.
+# gpui-component's syntect highlighter (and two-face's grammars): code colours in markdown, on by default.
 syntect = ["gpui-component/syntect"]
 
 [dependencies]

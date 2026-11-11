@@ -28,6 +28,7 @@ mod icon;
 mod icon_name;
 mod inline_error;
 mod labels;
+pub mod markdown;
 mod notice;
 mod picker;
 mod popover;
