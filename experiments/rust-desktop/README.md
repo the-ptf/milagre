@@ -12,6 +12,8 @@ Projects, Chats and live events use the same private daemon as installed Milagre
 
 Browser embedding, voice, floating inbox and decorative effects are optional for this migration. Other missing features are tracked as migration work, not automatic exemptions. Keep the installed Milagre available while its owner daemon is still required.
 
+The separate feature-gated [desktop fixture launch checkpoint](FIXTURE-LAUNCH.md) compiles the same renderer against a fresh scripted Rust owner. It is uninstalled and has not yet passed native window/storage validation. It never adopts the installed profile or falls back to the Node owner.
+
 ## Build, install and check
 
 1. Install workspace dependencies with `npm ci --ignore-scripts` (Node 24+), and have Rust/macOS build tools installed.

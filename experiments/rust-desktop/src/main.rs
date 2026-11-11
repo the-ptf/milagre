@@ -2,6 +2,9 @@ mod capture;
 mod content;
 mod downloads;
 mod evidence;
+#[cfg(feature = "app-fixture")]
+#[allow(dead_code)]
+mod fixture_launch;
 mod images;
 mod lifecycle;
 mod native;

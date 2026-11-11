@@ -2,6 +2,10 @@
 name = "milagre-rust"
 version = "0.1.0"
 edition = "2021"
+default-run = "milagre-rust"
+[features]
+default = []
+app-fixture = ["dep:tempfile"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 [dependencies]
@@ -9,6 +13,7 @@ tauri = { version = "2", features = [] }
 serde_json = "1"
 sha2 = "0.10"
 libc = "0.2"
+tempfile = { version = "3", optional = true }
 
 base64 = "0.22"
 regex = "1"
@@ -23,3 +28,8 @@ block2 = "0.6"
 objc2-web-kit = { version = "0.3", features = ["WKWebView", "WKSnapshotConfiguration", "block2", "objc2-app-kit"] }
 objc2-app-kit = { version = "0.3", features = ["NSImage", "NSBitmapImageRep", "NSPasteboard", "NSRunningApplication", "NSEvent", "NSWindow", "block2"] }
 objc2-foundation = "0.3"
+
+[[bin]]
+name = "milagre-rust-fixture"
+path = "src/bin/fixture.rs"
+required-features = ["app-fixture"]

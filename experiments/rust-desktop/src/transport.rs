@@ -1071,13 +1071,56 @@ impl Transport {
 }
 
 pub fn start(app: tauri::AppHandle) -> Transport {
+    start_with_source(app, EndpointSource::Installed)
+}
+enum EndpointSource {
+    Installed,
+    #[cfg(feature = "app-fixture")]
+    Fixture(Arc<crate::fixture_launch::LaunchContext>),
+}
+impl EndpointSource {
+    fn fixture(&self) -> bool {
+        match self {
+            Self::Installed => false,
+            #[cfg(feature = "app-fixture")]
+            Self::Fixture(_) => true,
+        }
+    }
+    fn connect(&self) -> Result<UnixStream, Value> {
+        match self {
+            Self::Installed => socket_path().and_then(|path| {
+                UnixStream::connect(path).map_err(|e| {
+                    error(
+                        "DAEMON_UNAVAILABLE",
+                        format!("Open the installed Milagre to reconnect: {e}"),
+                    )
+                })
+            }),
+            #[cfg(feature = "app-fixture")]
+            Self::Fixture(context) => context.connect(),
+        }
+    }
+}
+#[cfg(feature = "app-fixture")]
+#[allow(dead_code)]
+pub fn start_fixture(
+    app: tauri::AppHandle,
+    context: Arc<crate::fixture_launch::LaunchContext>,
+) -> Transport {
+    start_with_source(app, EndpointSource::Fixture(context))
+}
+fn start_with_source(app: tauri::AppHandle, source: EndpointSource) -> Transport {
     let shared = Arc::new(Shared {
         connected_once: AtomicBool::new(false),
         connection: Mutex::new(None),
         changed: Condvar::new(),
         last_error: Mutex::new(error(
             "DAEMON_UNAVAILABLE",
-            "Connecting to the installed Milagre daemon",
+            if source.fixture() {
+                "Connecting to the owned scripted fixture"
+            } else {
+                "Connecting to the installed Milagre daemon"
+            },
         )),
         view: Mutex::new(View::default()),
     });
@@ -1091,26 +1134,23 @@ pub fn start(app: tauri::AppHandle) -> Transport {
     let transport = Transport {
         shared: shared.clone(),
     };
-    thread::spawn(move || supervise(shared, emit));
+    thread::spawn(move || supervise(shared, emit, source));
     transport
 }
-fn supervise(shared: Arc<Shared>, emit: Emit) {
+fn supervise(shared: Arc<Shared>, emit: Emit, source: EndpointSource) {
     let mut connected_before = false;
     loop {
-        let connected = socket_path()
-            .and_then(|path| {
-                UnixStream::connect(path).map_err(|e| {
-                    error(
-                        "DAEMON_UNAVAILABLE",
-                        format!("Open the installed Milagre to reconnect: {e}"),
-                    )
-                })
-            })
+        let connected = source
+            .connect()
             .and_then(|socket| Connection::new(socket, emit.clone()));
         let reason = match connected {
             Err(reason) => reason,
             Ok(connection) => {
-                let ready = configure(&connection, &shared, connected_before);
+                let ready = if source.fixture() {
+                    configure_mode(&connection, &shared, connected_before, true)
+                } else {
+                    configure(&connection, &shared, connected_before)
+                };
                 match ready {
                     Err(reason) => {
                         connection.close(reason.clone());
@@ -1149,6 +1189,15 @@ fn supervise(shared: Arc<Shared>, emit: Emit) {
         (emit)(
             json!({"channel":"runtime:connection","payload":{"connected":false,"message":reason["message"]}}),
         );
+        if source.fixture()
+            && matches!(
+                reason["code"].as_str(),
+                Some("FIXTURE_CHILD_EXITED" | "FIXTURE_ENDPOINT_INVALID")
+            )
+        {
+            shared.changed.notify_all();
+            break;
+        }
         // This reconnects only. It does not launch, stop, upgrade, or recover locks of the owner daemon.
         thread::sleep(Duration::from_secs(1));
     }
@@ -1191,6 +1240,14 @@ fn configure(
     shared: &Shared,
     reconnect: bool,
 ) -> Result<Option<Value>, Value> {
+    configure_mode(connection, shared, reconnect, false)
+}
+fn configure_mode(
+    connection: &Connection,
+    shared: &Shared,
+    reconnect: bool,
+    fixture: bool,
+) -> Result<Option<Value>, Value> {
     let status = connection.request("daemon:status", json!([{ "computerManagement":true }]))?;
     if status["protocolVersion"] != 1 || status["closing"] == true {
         return Err(error(
@@ -1201,7 +1258,7 @@ fn configure(
     let capabilities = capability_set(&status);
     connection.outdated.store(
         !capabilities.contains("result-pages-v1")
-            || !capabilities.contains("computer-management-v1"),
+            || (!fixture && !capabilities.contains("computer-management-v1")),
         Ordering::Release,
     );
     if let Some(args) = patch_options(&capabilities) {
@@ -1263,6 +1320,28 @@ fn configure(
 mod tests {
     use super::*;
     use std::io::Cursor;
+    #[cfg(feature = "app-fixture")]
+    #[test]
+    fn owned_fixture_uses_real_transport_without_claiming_computer_management() {
+        let context = crate::fixture_launch::test_context();
+        let connection = Connection::new(context.connect().unwrap(), Arc::new(|_| {})).unwrap();
+        let shared = Shared {
+            connected_once: AtomicBool::new(false),
+            connection: Mutex::new(None),
+            changed: Condvar::new(),
+            last_error: Mutex::new(Value::Null),
+            view: Mutex::new(View::default()),
+        };
+        configure_mode(&connection, &shared, false, true).unwrap();
+        assert!(!connection.outdated.load(Ordering::Acquire));
+        let status = connection.request("daemon:status", json!([])).unwrap();
+        assert!(!capability_set(&status).contains("computer-management-v1"));
+        let project = connection.request("project:current", json!([])).unwrap();
+        assert_eq!(project["path"], context.project().to_str().unwrap());
+        connection.request("chat:runs", json!([])).unwrap();
+        connection.close(gone());
+        context.request_quit().unwrap();
+    }
     fn receive_event(receiver: &mpsc::Receiver<Value>) -> Value {
         receiver.recv_timeout(Duration::from_secs(3)).unwrap()
     }

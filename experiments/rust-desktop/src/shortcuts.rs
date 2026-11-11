@@ -13,6 +13,22 @@ struct Shortcut {
     shift: bool,
 }
 struct State(Arc<RwLock<Vec<Shortcut>>>);
+thread_local! {
+    static MONITOR: std::cell::RefCell<Option<objc2::rc::Retained<objc2::runtime::AnyObject>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Fixture exit must release the monitor's retained AppHandle and its private storage.
+#[cfg(feature = "app-fixture")]
+#[allow(dead_code)]
+pub fn uninstall_fixture() {
+    MONITOR.with(|slot| {
+        if let Some(monitor) = slot.borrow_mut().take() {
+            unsafe {
+                objc2_app_kit::NSEvent::removeMonitor(&monitor);
+            }
+        }
+    });
+}
 
 fn parse_rules(value: &Value) -> Result<Vec<Shortcut>, Value> {
     let invalid = || json!({"code":"SHORTCUT_ERROR","message":"Invalid forwarded shortcut rules."});
@@ -190,11 +206,8 @@ fn matched(
 
 pub fn install(app: &AppHandle) -> Result<(), String> {
     use block2::RcBlock;
-    use objc2::{rc::Retained, runtime::AnyObject, MainThreadMarker};
+    use objc2::MainThreadMarker;
     use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags, NSWindow};
-    use std::cell::RefCell;
-
-    thread_local! { static MONITOR: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) }; }
     if MainThreadMarker::new().is_none() {
         return Err("Install shortcuts on the main thread".into());
     }
