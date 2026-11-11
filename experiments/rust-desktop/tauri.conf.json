@@ -1,0 +1,36 @@
+{
+  "productName": "Milagre Rust",
+  "version": "0.1.0",
+  "identifier": "com.milagre.rust-poc",
+  "build": {
+    "frontendDist": "dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Milagre Rust",
+        "width": 1440,
+        "height": 900,
+        "visible": false,
+        "create": false,
+        "minWidth": 980,
+        "minHeight": 680,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 16
+        }
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["icon.icns"]
+  }
+}
