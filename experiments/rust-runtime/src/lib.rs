@@ -1,8 +1,10 @@
 //! Isolated read/PTY adapters. Optional ProjectStates ownership covers fresh fixture copies only.
 //! No live profile, provider execution, mutation command, or arbitrary Project folder access.
+mod artifacts;
 mod copies;
 mod inbox;
 mod owned;
+mod ports;
 mod terminals;
 
 pub use copies::SavedCopies;
@@ -43,6 +45,12 @@ pub trait ReadBackend: Send + Sync + 'static {
             format!("Unknown command: {method}"),
         ))
     }
+    fn assert_owned(&self, _path: &str) -> Result<(), RpcError> {
+        Err(RpcError::new(
+            "OWNERSHIP_UNVERIFIED",
+            "This backend has no verified ownership adapter",
+        ))
+    }
     fn shutdown(&self) -> Result<(), RpcError> {
         Ok(())
     }
@@ -50,19 +58,21 @@ pub trait ReadBackend: Send + Sync + 'static {
 
 pub struct ReadHandler {
     backend: Arc<dyn ReadBackend>,
-    opened: Mutex<Vec<String>>,
+    opened: Arc<Mutex<Vec<String>>>,
     epoch: String,
     versions: Mutex<HashMap<String, (String, u64)>>,
     terminals: Option<terminals::TerminalService>,
+    artifacts: Option<artifacts::ArtifactService>,
 }
 impl ReadHandler {
     pub fn new(backend: Arc<dyn ReadBackend>, epoch: String) -> Self {
         Self {
             backend,
-            opened: Mutex::new(Vec::new()),
+            opened: Arc::new(Mutex::new(Vec::new())),
             epoch,
             versions: Mutex::new(HashMap::new()),
             terminals: None,
+            artifacts: None,
         }
     }
     fn info(&self, path: &str) -> Result<ProjectInfo, RpcError> {
@@ -164,6 +174,9 @@ const UNSUPPORTED_MUTATIONS: &[&str] = &[
     "link:create",
     "command:run",
     "desktop:invoke",
+    "artifact:apply",
+    "artifact:delete",
+    "artifact:add-comments",
 ];
 impl Handler for ReadHandler {
     fn methods(&self) -> Vec<String> {
@@ -174,6 +187,20 @@ impl Handler for ReadHandler {
             .map(|name| (*name).into())
             .collect();
         methods.extend(self.backend.extra_methods());
+        if self
+            .terminals
+            .as_ref()
+            .is_some_and(|terminals| terminals.has_ports())
+        {
+            methods.extend(
+                milagre_ports::wire::COMMANDS
+                    .iter()
+                    .map(|name| (*name).into()),
+            );
+        }
+        if self.artifacts.is_some() {
+            methods.extend(artifacts::METHODS.iter().map(|name| (*name).into()));
+        }
         methods
     }
     fn encode_result(&self, result: &Value) -> Result<String, RpcError> {
@@ -192,11 +219,35 @@ impl Handler for ReadHandler {
                 })?
                 .invoke(method, args, context.client_id());
         }
+        if milagre_ports::wire::COMMANDS.contains(&method) {
+            return self
+                .terminals
+                .as_ref()
+                .ok_or_else(|| {
+                    RpcError::new(
+                        "UNSUPPORTED_SERVICE",
+                        "Ports need the isolated terminal owner",
+                    )
+                })?
+                .invoke_ports(method, args);
+        }
         // Wire arguments are ordinary serde Unicode. Storage uses an escaped internal representation
         // for lone UTF-16 units and literal marker characters, so import incoming domain values once.
         let imported = jsjson::parse(&Value::Array(args.to_vec()).to_string())
             .map_err(|error| RpcError::new("INVALID_REQUEST", error))?;
         let args = imported.as_array().expect("array encoded above");
+        if artifacts::METHODS.contains(&method) {
+            return self
+                .artifacts
+                .as_ref()
+                .ok_or_else(|| {
+                    RpcError::new(
+                        "UNSUPPORTED_SERVICE",
+                        "Artifacts require verified isolated ownership",
+                    )
+                })?
+                .invoke(method, args.first().unwrap_or(&Value::Null));
+        }
         if UNSUPPORTED_MUTATIONS.contains(&method) {
             return Err(RpcError::new(
                 "UNSUPPORTED_MUTATION",
@@ -292,11 +343,16 @@ impl Handler for ReadHandler {
         if let Some(terminals) = &self.terminals {
             terminals.shutdown();
         }
+        if let Some(artifacts) = &self.artifacts {
+            artifacts.shutdown()?;
+        }
         self.backend.shutdown()?;
         Ok(Value::Null)
     }
     fn snapshot(&self, _: &ClientContext) -> RpcResult {
-        Ok(json!({"projects":self.scopes()?,"links":[],"runs":{"runs":{},"seq":0},"ports":{}}))
+        Ok(
+            json!({"projects":self.scopes()?,"links":[],"runs":{"runs":{},"seq":0},"ports":self.terminals.as_ref().map(|terminals| terminals.ports_snapshot()).transpose()?.unwrap_or(json!({}))}),
+        )
     }
 }
 
@@ -326,14 +382,22 @@ fn start_mode(owned: bool) -> Result<Server, RpcError> {
         None
     };
     let copies = SavedCopies::create(&profile)?;
+    let content_isolation = isolation.clone();
     let backend: Arc<dyn ReadBackend> = match isolation {
         Some(isolation) => Arc::new(owned::OwnedCopies::new(copies.projects(), isolation)),
         None => Arc::new(copies),
     };
     let epoch = format!("isolated-read:{}", profile.path().display());
     let events = Arc::new(Mutex::new(None));
-    let terminal_service = terminals::TerminalService::new(backend.clone(), events.clone())?;
-    let mut handler = ReadHandler::new(backend, epoch);
+    let terminal_service = terminals::TerminalService::new(backend.clone(), events.clone(), owned)?;
+    let mut handler = ReadHandler::new(backend.clone(), epoch);
+    if let Some(isolation) = content_isolation {
+        handler.artifacts = Some(artifacts::ArtifactService::new(
+            isolation,
+            backend,
+            handler.opened.clone(),
+        )?);
+    }
     handler.terminals = Some(terminal_service);
     let server = Server::bind(
         profile,

@@ -2,6 +2,7 @@
 use crate::ReadBackend;
 use milagre_owner_store::jsjson;
 use milagre_owner_wire::{EventSink, RpcError, RpcResult};
+use milagre_ports::{with_terminal_shells, PortWatcher, PortWatcherOptions, Roots};
 use milagre_terminals::{
     wire, Cleanup, PtyOutput, PtyProcess, PtySpawner, ShellCommand, ShellOption, SpawnRequest,
     Terminals, TerminalsOptions, UnixPtySpawner, Worktree,
@@ -9,13 +10,14 @@ use milagre_terminals::{
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 
 pub type TerminalEvents = Arc<Mutex<Option<EventSink>>>;
 pub struct TerminalService {
     terminals: Terminals,
+    ports: Option<Arc<PortWatcher>>,
     runtime: tokio::runtime::Runtime,
 }
 /// A test-profile shell policy, not a fake PTY: no login rc files, inherited environment, or other executables.
@@ -38,7 +40,11 @@ impl PtySpawner for FixtureSpawner {
     }
 }
 impl TerminalService {
-    pub fn new(backend: Arc<dyn ReadBackend>, events: TerminalEvents) -> Result<Self, RpcError> {
+    pub fn new(
+        backend: Arc<dyn ReadBackend>,
+        events: TerminalEvents,
+        with_ports: bool,
+    ) -> Result<Self, RpcError> {
         let resolve = Arc::new(move |chat: String| {
             let backend = backend.clone();
             Box::pin(async move {
@@ -86,8 +92,16 @@ impl TerminalService {
                 ("LANG".into(), "en_US.UTF-8".into()),
             ])
         });
+        let watcher: Arc<Mutex<Weak<PortWatcher>>> = Arc::new(Mutex::new(Weak::new()));
+        let notify_watcher = watcher.clone();
+        let port_events = events.clone();
         // Shell preferences stay in memory. No settings file is read from or saved to the installed profile.
         options.on_event = Arc::new(move |event| {
+            if event == milagre_terminals::TerminalEvent::ShellsChanged {
+                if let Some(watcher) = notify_watcher.lock().unwrap().upgrade() {
+                    watcher.wake();
+                }
+            }
             if let Some((channel, payload)) = event.wire() {
                 if let Some(sink) = events.lock().unwrap().as_ref() {
                     let _ = sink.emit(channel, payload);
@@ -96,11 +110,41 @@ impl TerminalService {
         });
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
-            .enable_time()
+            .enable_all()
             .build()?;
         let terminals = Terminals::new(options)
             .map_err(|error| RpcError::new("COMMAND_FAILED", error.to_string()))?;
-        Ok(Self { terminals, runtime })
+        let ports = if with_ports {
+            let roots = terminals.clone();
+            let running = terminals.clone();
+            let signals = terminals.clone();
+            let mut options = PortWatcherOptions::new(
+                Arc::new(move || with_terminal_shells(Roots::new(), roots.shells())),
+                Arc::new(move |ports| {
+                    let (channel, value) = milagre_ports::wire::event(ports);
+                    if let (Some(sink), Ok(payload)) = (
+                        port_events.lock().unwrap().as_ref(),
+                        jsjson::parse(&value.to_string()),
+                    ) {
+                        let _ = sink.emit(channel, payload);
+                    }
+                }),
+            );
+            options.is_running = Arc::new(move || running.size() > 0);
+            options.kill = Arc::new(move |target, signal| {
+                crate::ports::scoped_signal(&signals, target, signal)
+            });
+            let ports = Arc::new(PortWatcher::with_runtime(options, runtime.handle().clone()));
+            *watcher.lock().unwrap() = Arc::downgrade(&ports);
+            Some(ports)
+        } else {
+            None
+        };
+        Ok(Self {
+            terminals,
+            ports,
+            runtime,
+        })
     }
     pub fn invoke(&self, method: &str, args: &[Value], client_id: u64) -> RpcResult {
         self.runtime
@@ -120,7 +164,42 @@ impl TerminalService {
                     .map_err(|error| RpcError::new("INVALID_RESPONSE", error))
             })
     }
+    pub fn invoke_ports(&self, method: &str, args: &[Value]) -> RpcResult {
+        if method == "agent:stop-port" {
+            return Err(RpcError::new(
+                "UNSUPPORTED_SERVICE",
+                "Port stops remain disabled until the Rust port ownership review is resolved",
+            ));
+        }
+        let ports = self.ports.as_ref().ok_or_else(|| {
+            RpcError::new(
+                "UNSUPPORTED_SERVICE",
+                "Ports require the isolated owned runtime",
+            )
+        })?;
+        self.runtime
+            .block_on(milagre_ports::wire::handle(ports, method, args))
+            .map_err(|error| RpcError::new("COMMAND_FAILED", error))
+            .and_then(|value| {
+                jsjson::parse(&value.to_string())
+                    .map_err(|error| RpcError::new("INVALID_RESPONSE", error))
+            })
+    }
+    pub fn has_ports(&self) -> bool {
+        self.ports.is_some()
+    }
+    pub fn ports_snapshot(&self) -> RpcResult {
+        let Some(ports) = &self.ports else {
+            return Ok(serde_json::json!({}));
+        };
+        let value = serde_json::to_value(ports.snapshot())
+            .map_err(|error| RpcError::new("INVALID_RESPONSE", error.to_string()))?;
+        jsjson::parse(&value.to_string()).map_err(|error| RpcError::new("INVALID_RESPONSE", error))
+    }
     pub fn shutdown(&self) {
+        if let Some(ports) = &self.ports {
+            ports.close();
+        }
         self.runtime
             .block_on(self.terminals.dispose(Duration::from_secs(3)));
     }

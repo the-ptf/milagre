@@ -9,6 +9,8 @@ description = "Isolated read integration of Milagre's Rust wire server and saved
 [dependencies]
 milagre-owner-store = { path = "../rust-owner" }
 milagre-owner-wire = { path = "../rust-owner-wire" }
+milagre-content-store = { path = "../rust-content-store" }
+milagre-ports = { path = "../rust-ports" }
 milagre-terminals = { path = "../rust-terminals" }
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 serde_json = { version = "1", features = ["preserve_order"] }

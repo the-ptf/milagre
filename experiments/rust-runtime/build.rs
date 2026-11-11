@@ -52,4 +52,22 @@ fn main() {
         output,
     )
     .unwrap();
+    let root =
+        Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("fixtures/artifacts/alpha-1");
+    assert!(
+        fs::symlink_metadata(&root).unwrap().is_dir(),
+        "Artifact fixture root cannot be a symlink"
+    );
+    let root = root.canonicalize().unwrap();
+    println!("cargo:rerun-if-changed={}", root.display());
+    let mut artifacts = Vec::new();
+    collect(&root, &root, &mut artifacts);
+    fs::write(
+        Path::new(&env::var("OUT_DIR").unwrap()).join("artifact-fixtures.rs"),
+        format!(
+            "const ARTIFACT_FILES: &[(&str, &[u8])] = &[{}];",
+            artifacts.join("\n")
+        ),
+    )
+    .unwrap();
 }

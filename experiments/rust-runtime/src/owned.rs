@@ -109,6 +109,14 @@ impl ReadBackend for OwnedCopies {
         })?;
         self.with_states(scope, |states, _| states.call(method, args))
     }
+    fn assert_owned(&self, path: &str) -> Result<(), RpcError> {
+        let path = self.path(path)?;
+        self.states
+            .lock()
+            .unwrap()
+            .assert_owned(&path)
+            .map_err(|error| RpcError::new("OWNERSHIP_LOST", error.to_string()))
+    }
     fn shutdown(&self) -> Result<(), RpcError> {
         self.states.lock().unwrap().close().map_err(store_error)
     }
