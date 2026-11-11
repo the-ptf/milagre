@@ -32,6 +32,12 @@ pub enum Scenario {
     LateUpdate,
     BlockedAnswer,
     Watchdog,
+    #[cfg(test)]
+    PanicBeforeSpawn,
+    #[cfg(test)]
+    PanicActive,
+    #[cfg(test)]
+    PanicAnswer,
 }
 impl Scenario {
     fn name(self) -> &'static str {
@@ -43,6 +49,12 @@ impl Scenario {
             Self::LateUpdate => "late-update",
             Self::BlockedAnswer => "blocked-answer",
             Self::Watchdog => "stubborn",
+            #[cfg(test)]
+            Self::PanicBeforeSpawn => "reply",
+            #[cfg(test)]
+            Self::PanicActive => "slow",
+            #[cfg(test)]
+            Self::PanicAnswer => "permission",
         }
     }
 }
@@ -270,6 +282,7 @@ impl Provider for AcpFixture {
             mpsc::channel(8),
         );
         let worker = Worker {
+            started: AtomicBool::new(false),
             shared: self.shared.clone(),
             _profile: self.profile.clone(),
             chat: chat.clone(),
@@ -289,15 +302,24 @@ impl Provider for AcpFixture {
                     json!({"type":"turn-failed","error":"The ACP fixture executor failed"}),
                 );
                 if let Ok(runtime) = runtime {
-                    runtime.block_on(async {
-                        (started, end) = worker.run(prompt, answers_rx, stop_rx).await;
-                        crate::executor::drain(&runtime, Duration::from_secs(3), || {
-                            worker.shared.failed.store(true, Ordering::Release);
-                            worker.shared.cleanup_failed.store(true, Ordering::Release);
-                            worker.shared.drained.notify_all();
-                        })
-                        .await;
-                    });
+                    let outcome=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||{
+                        runtime.block_on(worker.run(prompt,answers_rx,stop_rx))
+                    }));
+                    match outcome {
+                        Ok(result)=>(started,end)=result,
+                        Err(_)=>{
+                            started=worker.started.load(Ordering::Acquire);
+                            worker.shared.failed.store(true,Ordering::Release);
+                            end=json!({"type":"turn-failed","error":"The isolated ACP worker panicked; its process was stopped"});
+                        }
+                    }
+                    // Unwinding drops FakeSession and requests shutdown. Keep driving its
+                    // supervisors and retaining the profile before publishing any terminal.
+                    runtime.block_on(crate::executor::drain(&runtime,Duration::from_secs(3),||{
+                        worker.shared.failed.store(true,Ordering::Release);
+                        worker.shared.cleanup_failed.store(true,Ordering::Release);
+                        worker.shared.drained.notify_all();
+                    }));
                 }
                 // Only after every session/transport supervisor is gone can a successor be admitted.
                 worker.done.store(true, Ordering::Release);
@@ -431,6 +453,7 @@ impl Drop for AcpFixture {
     }
 }
 struct Worker {
+    started: AtomicBool,
     shared: Arc<Shared>,
     _profile: Arc<IsolatedProfile>,
     chat: String,
@@ -461,6 +484,10 @@ impl Worker {
         mut answers: mpsc::Receiver<Reply>,
         mut stop: watch::Receiver<u8>,
     ) -> (bool, Value) {
+        #[cfg(test)]
+        if matches!(self.scenario, Scenario::PanicBeforeSpawn) {
+            panic!("fixed ACP startup panic");
+        }
         let mut options = FakeOptions {
             scenario: self.scenario.name().into(),
             ..Default::default()
@@ -496,13 +523,15 @@ impl Worker {
               Some(SessionEvent::Agent{turn_id,event})=>{
                if turn_id!=local{break;}
                if event["type"]=="session-started"{
-                if !started{started=true;self.shared.emit(ProviderEvent::Started{chat:self.chat.clone(),turn:self.turn,result:RawJson(json!({}))},true);
+                if !started{started=true;self.started.store(true,Ordering::Release);self.shared.emit(ProviderEvent::Started{chat:self.chat.clone(),turn:self.turn,result:RawJson(json!({}))},true);
                  if let Ok(Ok(info))=tokio::time::timeout(Duration::from_millis(100),session.inspect()).await{if let Some(pid)=info["pid"].as_u64(){let mut pids=self.shared.pids.lock().unwrap();if pids.len()==16{pids.remove(0);}pids.push((self.turn.0,pid as u32));}}
                 }
                 // Native ids cannot be persisted as resumable state: this fixture never reuses a process.
                 continue;
                }
-               if terminal(&event){end=event;break;}
+               #[cfg(test)]
+              if matches!(self.scenario,Scenario::PanicActive)&&event["text"]=="Working"{panic!("fixed ACP active panic");}
+              if terminal(&event){end=event;break;}
                if !self.emit(event,false){break;}
               },
               Some(SessionEvent::Permission{turn_id,request_id,call,..})=>{
@@ -523,6 +552,8 @@ impl Worker {
                // of the daemon RPC or its caller disconnecting; dropping it never retracts delivery.
                reply.receipt.entered=true;
                self.shared.answers_entered.fetch_add(1,Ordering::AcqRel);
+               #[cfg(test)]
+               if matches!(self.scenario,Scenario::PanicAnswer){panic!("fixed ACP answer panic");}
                let token=reply.request.clone();let shared=self.shared.clone();let chat=self.chat.clone();let turn=self.turn;
                answering=Some(Box::pin(async move{let result=receipt.wait().await;let outcome=match result{
                 Ok(Delivery::WrittenUnacknowledged)=>{shared.emit(ProviderEvent::Agent{chat,turn,event:RawJson(json!({"type":"permission-resolved","requestId":token,"decision":if reply.answer==Answer::AllowOnce{"allow"}else{"deny"}}))},true);AnswerOutcome::Accepted},
@@ -542,5 +573,118 @@ impl Worker {
         session.shutdown().await;
         drop(session);
         (started, end)
+    }
+}
+
+#[cfg(test)]
+mod panic_tests {
+    use super::*;
+    #[test]
+    fn panic_before_spawn_after_start_and_after_answer_settles_and_reaps() {
+        for scenario in [
+            Scenario::PanicBeforeSpawn,
+            Scenario::PanicActive,
+            Scenario::PanicAnswer,
+        ] {
+            let mut provider = AcpFixture::create(scenario).unwrap();
+            let monitor = provider.monitor();
+            let request = RawJson(
+                json!({"provider":"kiro","chatId":"fixture","cwd":provider.project(),"prompt":"fixture","permissionMode":"ask"}),
+            );
+            provider.start_turn(TurnId(1), &request).unwrap();
+            let until = std::time::Instant::now() + Duration::from_secs(5);
+            let mut events = Vec::new();
+            let mut answered = false;
+            loop {
+                events.extend(provider.take_events());
+                if matches!(scenario, Scenario::PanicAnswer) && !answered {
+                    if let Some(id) = events.iter().find_map(|event| match event {
+                        ProviderEvent::Agent {
+                            event: RawJson(v), ..
+                        } if v["type"] == "permission-request" => v["requestId"].as_str(),
+                        _ => None,
+                    }) {
+                        provider
+                            .respond_permission("fixture", TurnId(1), AnswerId(1), id, "allow")
+                            .unwrap();
+                        answered = true;
+                    }
+                }
+                if events
+                    .iter()
+                    .any(|event| matches!(event, ProviderEvent::Exited { .. }))
+                {
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < until,
+                    "{scenario:?}: {events:?}"
+                );
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| matches!(
+                        event,
+                        ProviderEvent::Exited {
+                            turn: TurnId(1),
+                            ..
+                        }
+                    ))
+                    .count(),
+                1
+            );
+            let starts = events
+                .iter()
+                .filter(|event| matches!(event, ProviderEvent::StartFailed { .. }))
+                .count();
+            let ends = events
+                .iter()
+                .filter(
+                    |event| matches!(event,ProviderEvent::Agent{event:RawJson(v),..}if terminal(v)),
+                )
+                .count();
+            if matches!(scenario, Scenario::PanicBeforeSpawn) {
+                assert_eq!((starts, ends), (1, 0));
+                assert!(monitor.pids().is_empty());
+            } else {
+                assert_eq!((starts, ends), (0, 1));
+                assert_eq!(monitor.pids().len(), 1);
+            }
+            if matches!(scenario, Scenario::PanicAnswer) {
+                assert_eq!(
+                    events
+                        .iter()
+                        .filter(|event| matches!(
+                            event,
+                            ProviderEvent::AnswerSettled {
+                                answer: AnswerId(1),
+                                outcome: AnswerOutcome::Uncertain(_),
+                                ..
+                            }
+                        ))
+                        .count(),
+                    1
+                );
+            }
+            for (_, pid) in monitor.pids() {
+                assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::ESRCH)
+                );
+            }
+            assert!(monitor.wait_stopped(Duration::from_secs(2)));
+            assert_eq!(monitor.workers(), 0);
+            assert!(
+                provider.start_turn(TurnId(2), &request).is_err(),
+                "panic seals further admission"
+            );
+            assert!(
+                provider.take_events().is_empty(),
+                "no duplicate terminal or answer later"
+            );
+        }
     }
 }

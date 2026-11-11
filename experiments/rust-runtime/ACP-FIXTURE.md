@@ -32,3 +32,5 @@ cargo clippy --manifest-path experiments/rust-runtime/Cargo.toml --features acp-
 ```
 
 Seven ACP integration tests include the five-scenario actual Node-client suite. Existing Claude/Codex/runtime suites remain enabled in the same feature build. This checkpoint does not replace the shared Node runtime, provider bootstrap, account routing, host policy or native session continuity.
+
+The private ACP worker now catches unwinds around its session future. Dropping that future requests session shutdown; the worker continues driving the private executor and retains its profile until transport supervisors exit. It then publishes exactly one failed terminal (or StartFailed if initialization never completed) and one Exited event, and seals further admission. A three-case injected-panic test covers before spawn, active streaming and after answer admission; the last case preserves one Uncertain answer receipt and does not replay it. The test checks every observed PID is reaped before the completion sequence is consumed. This catches unwinding panics in the worker future, not process aborts or allocation failures.
