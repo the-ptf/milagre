@@ -445,10 +445,12 @@ impl State {
             match self.host.states.current_whole_state(&self.project) {
                 Ok(Some(state)) => state,
                 Ok(None) => {
-                    return Err(RpcError::new(
-                        "PROJECT_NOT_READY",
-                        "The ready Project has no owned state",
-                    ))
+                    // A release can remove the slot and then fail, before the
+                    // host clears ready. Revoke that stale view without masking
+                    // the release error or dropping its LockStranded notice.
+                    let _ = self.host.require_project_ready(&self.project);
+                    self.sync_readiness();
+                    Value::Null
                 }
                 Err(error) => {
                     // Ownership loss remains recoverable by an explicit open,
@@ -668,13 +670,38 @@ impl State {
     }
     fn publish(&mut self, shared: &Shared, publication: &Publication<'_>) -> Result<(), RpcError> {
         self.sync_readiness();
+        let notices = self.host.take_notices();
+        let state_events = self.host.states.take_events();
+        // Audit does not require a hydrated snapshot or a working wire. In
+        // particular, shutdown can strand a lock after removing its state slot.
+        // Consume these once before either fallible publication boundary.
+        for notice in &notices {
+            match notice {
+                Notice::AnswerForgotten { .. } => record_forgotten_answer(shared),
+                Notice::LockStranded { .. } => {
+                    let _ = shared.stranded_lock_notices.try_update(
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                        |count| Some(count.saturating_add(1)),
+                    );
+                }
+                Notice::Failed { error, .. } | Notice::Gap { what: error, .. } => {
+                    record_failure(shared, error.clone());
+                }
+                _ => {}
+            }
+        }
+        for event in &state_events {
+            if let Event::SaveFailed { error, .. } = event {
+                record_failure(shared, error.clone());
+            }
+        }
         if shared.delivery_failed.load(Ordering::Acquire) {
             // The original delivery fault stays authoritative, even if a later
             // best-effort hidden-cache refresh cannot hydrate saved messages.
             let _ = self.cache(shared);
             return Err(delivery_failed());
         }
-        let notices = self.host.take_notices();
         for notice in &notices {
             if let Notice::ProjectReady { project } = notice {
                 if project == &self.project && self.host.is_project_ready(project) {
@@ -753,18 +780,10 @@ impl State {
                 // The original command already settled as unknown. Any rollback/state
                 // changes are published through the owner's ordinary notices, never a second reply.
                 Notice::AnswerResolved { .. } => {}
-                Notice::AnswerForgotten { .. } => record_forgotten_answer(shared),
-                Notice::LockStranded { .. } => {
-                    // Signal stranded ownership without retaining path/reason strings or any lock token.
-                    let _ = shared.stranded_lock_notices.try_update(
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                        |count| Some(count.saturating_add(1)),
-                    );
-                }
-                Notice::Failed { error, .. } | Notice::Gap { what: error, .. } => {
-                    record_failure(shared, error);
-                }
+                Notice::AnswerForgotten { .. }
+                | Notice::LockStranded { .. }
+                | Notice::Failed { .. }
+                | Notice::Gap { .. } => {} // audited before snapshot hydration
                 // Naming and sender-local queue replies are not implemented by this fixture.
                 Notice::NameChat { .. }
                 | Notice::QueueStarted { .. }
@@ -773,7 +792,7 @@ impl State {
                 | Notice::Started { .. } => {}
             }
         }
-        for event in self.host.states.take_events() {
+        for event in state_events {
             match event {
                 Event::Persistence { project, .. } | Event::Unloaded { project } => {
                     if project != self.project || !self.host.is_project_ready(&project) {
@@ -787,10 +806,7 @@ impl State {
                         state_queued = true;
                     }
                 }
-                Event::SaveFailed { error, .. } => {
-                    record_failure(shared, error);
-                }
-                Event::Saved { .. } => {}
+                Event::SaveFailed { .. } | Event::Saved { .. } => {}
             }
         }
         while let Some((channel, payload)) = self.pending.front() {
@@ -886,10 +902,14 @@ impl State {
         let closed = closed.map_err(convert);
         // Closing may produce stranded-lock or failure notices on every retry,
         // including the final one. Drain them before returning any close result.
-        if !shared.delivery_failed.load(Ordering::Acquire) {
-            self.publish_or_latch(shared, publication)?;
-        }
+        let already_failed = shared.delivery_failed.load(Ordering::Acquire);
+        let publication = self.publish_or_latch(shared, publication);
+        // Publication still drains audit and latches its own failure, but cannot
+        // replace the error that prevented the actual owner shutdown.
         closed?;
+        if !already_failed {
+            publication?;
+        }
         if self.host.quit_state() != QuitState::Done || !self.jobs.is_empty() {
             return Err(RpcError::new(
                 "QUIT_PENDING",
@@ -976,7 +996,10 @@ fn run(
                     }
                 }
                 if !(shutdown && shared.delivery_failed.load(Ordering::Acquire)) {
-                    state.publish_or_latch(&shared, publication)?;
+                    let published = state.publish_or_latch(&shared, publication);
+                    if !shutdown || result.is_ok() {
+                        published?;
+                    }
                 }
                 if state_read {
                     if let Ok(value) = &mut result {
@@ -2570,4 +2593,5 @@ mod job_tests {
         );
     }
     include!("actor_restore_tests.rs");
+    include!("actor_shutdown_tests.rs");
 }
