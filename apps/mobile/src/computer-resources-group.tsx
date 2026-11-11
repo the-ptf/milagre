@@ -2,7 +2,14 @@ import { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { ArrowRight01Icon, HardDriveIcon, RamMemoryIcon } from "@hugeicons/core-free-icons";
-import { RESOURCES_REFRESH_MS, UNREADABLE, resourceGauges, type ComputerResources, type ResourceGauge } from "@milagre/shared/computer-resources";
+import {
+  RESOURCES_REFRESH_MS,
+  UNREADABLE,
+  computerPlatformLabel,
+  resourceGauges,
+  type ComputerResources,
+  type ResourceGauge,
+} from "@milagre/shared/computer-resources";
 import { createClient } from "./client";
 import { relayRuntime } from "./relay-native";
 import { Group } from "./settings-list";
@@ -118,7 +125,7 @@ export function ComputerResourcesGroup({ host, online }: { host: SavedHost; onli
   const note = resourcesNote({ online, read: gauges !== null, unreadable: resources !== null && online && gauges === null, error, name: host.name });
   const open = () => router.push({ pathname: "/computer-usage", params: { id: host.id } });
   return (
-    <Group>
+    <Group title={resources?.platform ? computerPlatformLabel(resources.platform) : undefined}>
       {note !== null || !gauges
         ? [
             <Text key="note" style={{ color: colors.ink3, fontSize: type.subheadline, paddingVertical: 16 }}>
