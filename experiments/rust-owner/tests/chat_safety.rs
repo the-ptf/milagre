@@ -992,3 +992,60 @@ fn steering_is_gated_or_recorded_never_sent() {
         .to_string();
     assert!(error.contains("quitting"), "{error}");
 }
+
+/// Remote re-review P2-1: a turn end handled while a quit is checked waits; when the quit is refused (another turn
+/// still runs), that Chat's queue moves on.
+#[test]
+fn a_refused_quit_moves_deferred_queues_on() {
+    let mut copy = Copy::new(
+        json!({ "1": { "id": 1, "worktree_id": 1 }, "2": { "id": 2, "worktree_id": 1 } }),
+        json!([]),
+    );
+    let path = copy.path();
+    let other = format!("{path}#2");
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.send("long", "c9", json!({ "sessionId": 2 })).unwrap();
+    copy.host.pump();
+    copy.native();
+    copy.send("next", "c2", json!({})).unwrap();
+    assert_eq!(copy.started(), 2);
+    // Chat 1's end waits in the provider's events; Chat 2 keeps running.
+    let chat = copy.chat();
+    copy.kiro.emit(&chat, json!({ "type": "turn-completed" }));
+    let error = copy.host.shutdown(false).unwrap_err().to_string();
+    assert!(error.contains("suspend and resume"), "{error}");
+    assert_eq!(
+        copy.started(),
+        3,
+        "the queue behind the ended turn didn't move on"
+    );
+    assert!(copy.host.active_turn(&chat).is_some());
+    assert!(copy.host.active_turn(&other).is_some());
+    // The host runs on: sends are taken again.
+    copy.send("more", "c3", json!({})).unwrap();
+}
+
+/// Remote re-review P3: a forced close holds the queue it left (no auto-send once reopened), and a summary past the
+/// bound is refused before anything is shown.
+#[test]
+fn a_forced_close_holds_and_summaries_are_bounded() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    copy.native();
+    copy.send("two", "c2", json!({})).unwrap();
+    let project = copy.project.clone();
+    copy.host.forget(&project, true).unwrap();
+    copy.host.states.get(&project).unwrap();
+    assert_eq!(copy.session()["queueHeld"], true);
+
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    let before = copy.messages().len();
+    let summary = "x".repeat(milagre_owner_store::chat_host::MAX_ANSWER_SUMMARY + 1);
+    let request = json!({ "chatId": copy.chat(), "requestId": "q1", "answers": { "c": ["x"] }, "summary": summary });
+    let error = copy.host.answer_question(&request).unwrap_err().to_string();
+    assert!(error.contains("summary is longer"), "{error}");
+    assert_eq!(copy.messages().len(), before);
+}

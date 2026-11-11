@@ -506,6 +506,8 @@ pub struct Sent {
 
 const FORMER_WORKTREE: &str = "This Run's Worktree was removed because the Run left nothing in it. Start a new Chat to continue.";
 const PERMISSION_MODES: [&str; 3] = ["ask", "auto", "full"];
+/// Longest answers summary (UTF-16 code units) shown as the user's message: 20 questions of 10,000 plus labels.
+pub const MAX_ANSWER_SUMMARY: usize = 210_000;
 /// How long a handed-over answer may wait for its settlement before the host fails it.
 pub const ANSWER_GRACE_MS: i64 = 30_000;
 /// How long an interrupted turn gets to end by itself before the host forces it.
@@ -602,6 +604,8 @@ pub struct ChatHost {
     next_turn: u64,
     /// Steering: gated unless a conformance run records it (see [`SteeringMode`]).
     pub steering: SteeringMode,
+    /// Completed turns whose queue waited on a quit or close, replayed if the quit is refused.
+    deferred: Vec<(String, Value)>,
     /// Set from the start of `shutdown`: no queued message starts and no send is taken.
     quitting: bool,
     /// Projects a `forget` is closing: no queued message starts in them and no send to them is taken.
@@ -646,6 +650,7 @@ impl ChatHost {
             active: HashMap::new(),
             next_turn: 0,
             steering: SteeringMode::Gated,
+            deferred: Vec::new(),
             quitting: false,
             closing: HashSet::new(),
             stuck: BTreeMap::new(),
@@ -1992,9 +1997,15 @@ impl ChatHost {
     /// every turn end).
     fn after_turn(&mut self, chat: &str, event: &Value) -> Result<()> {
         let project = Self::project_path(agent_runs::project_of_key(chat));
-        // A quit or a closing Project leaves the queue as it is (Node's quitting): nothing starts under a close.
+        // Nothing starts under a quit or a closing Project. A completed turn's queue waits, and moves on if the quit is
+        // refused; a stopped or failed one holds as it would otherwise, so it doesn't send on its own once reopened.
         if self.quitting || self.closing.contains(&project) {
-            return Ok(());
+            self.send_next.remove(chat);
+            if event.get("type").and_then(Value::as_str) == Some("turn-completed") {
+                self.deferred.push((chat.to_string(), event.clone()));
+                return Ok(());
+            }
+            return self.hold_queue(chat);
         }
         let session_id = session_of_key(chat).unwrap_or(-1);
         let mut next = self.send_next.remove(chat);
@@ -2356,6 +2367,7 @@ impl ChatHost {
         self.release_waiters(Some(&key));
         let closed = self.states.forget(&key);
         self.closing.remove(&key);
+        self.deferred.retain(|(chat, _)| !in_project(chat));
         closed
     }
 
@@ -2436,6 +2448,16 @@ impl ChatHost {
         if let Some(chat) = running.first() {
             if !force {
                 self.quitting = false;
+                // The turn ends handled before the refusal move their queues on now.
+                for (deferred, event) in std::mem::take(&mut self.deferred) {
+                    if let Err(error) = self.after_turn(&deferred, &event) {
+                        self.notice(Notice::Failed {
+                            chat: deferred.clone(),
+                            what: "starting the next queued message".into(),
+                            error: error.to_string(),
+                        });
+                    }
+                }
                 return Err(gate(&format!(
                     "Quitting while a turn runs in {chat} (suspend and resume)"
                 )));
@@ -2670,6 +2692,12 @@ impl ChatHost {
             .get("summary")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty());
+        // Bounded before anything is shown: the summary becomes a saved message.
+        if summary.is_some_and(|summary| jsjson::utf16_len(summary) > MAX_ANSWER_SUMMARY) {
+            return Err(StoreError::Invalid(format!(
+                "The answers summary is longer than {MAX_ANSWER_SUMMARY} characters."
+            )));
+        }
         let open = chat_value.is_some_and(Value::is_string)
             && self
                 .states
@@ -2718,15 +2746,12 @@ impl ChatHost {
                 Ok(AnswerTicket::Pending(answer))
             }
             Ok(None) => {
-                if let Some(id) = recorded {
-                    self.take_back(&chat, id)?;
-                }
+                self.take_back_or_tell(&chat, recorded);
                 Ok(AnswerTicket::Settled(false))
             }
+            // The original error stands; a take-back that fails too is told, not swapped in.
             Err(error) => {
-                if let Some(id) = recorded {
-                    self.take_back(&chat, id)?;
-                }
+                self.take_back_or_tell(&chat, recorded);
                 Err(error)
             }
         }
@@ -2819,8 +2844,24 @@ impl ChatHost {
     }
 
     /// ChatHost.takeBack: removes a message again, such as answers that never reached the agent.
+    fn take_back_or_tell(&mut self, chat: &str, message: Option<f64>) {
+        if let Some(id) = message {
+            if let Err(error) = self.take_back(chat, id) {
+                self.notice(Notice::Failed {
+                    chat: chat.into(),
+                    what: "taking the answers back".into(),
+                    error: error.to_string(),
+                });
+            }
+        }
+    }
+
     fn take_back(&mut self, chat: &str, id: f64) -> Result<()> {
         let (project, session_id) = self.canonical_chat(chat)?;
+        // Never opens (and locks) a Project that was closed: its answers message went with it.
+        if !self.states.has(&project) {
+            return Ok(());
+        }
         let (_, changed) = self
             .states
             .update(&project, Some(&[session_id]), true, |latest| {
