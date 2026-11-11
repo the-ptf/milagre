@@ -5,6 +5,7 @@ const { once } = require("node:events");
 const fs = require("node:fs");
 const path = require("node:path");
 const readline = require("node:readline");
+const net = require("node:net");
 const { DatabaseSync } = require("node:sqlite");
 const { connect } = require("../../../apps/daemon/src/client.cjs");
 const { connectDesktopRuntime } = require("../../../apps/daemon/src/runtime-client.cjs");
@@ -25,7 +26,7 @@ async function fixture(test) {
   const lines = readline.createInterface({ input: child.stdout });
   let stderr = "";
   child.stderr.on("data", (chunk) => {
-    stderr += chunk;
+    stderr = (stderr + chunk).slice(-4096);
   });
   const timer = setTimeout(() => child.kill("SIGKILL"), 20000);
   let client, runtime, metadata;
@@ -75,7 +76,7 @@ async function fixture(test) {
       if (metadata?.profile) {
         probe = await connect({ dataDir: metadata.profile, timeoutMs: 1000 });
         const status = await probe.call("daemon:status");
-        owner = { sameProcess: status.pid === child.pid, closing: status.closing };
+        owner = { sameProcess: status.pid === child.pid, closing: status.closing, wire: status.diagnostics?.wire };
       }
     } catch (probeError) {
       owner = { error: probeError.code ?? probeError.message };
@@ -106,6 +107,35 @@ async function fixture(test) {
   }
 }
 async function run() {
+  await fixture(async ({ client, metadata }) => {
+    const status = await client.call("daemon:status");
+    const before = status.diagnostics.wire;
+    assert.deepEqual(Object.keys(before).sort(), ["admissionRejected", "disconnects", "errorReplyFailures", "listenerAcceptIo", "shutdowns"]);
+    assert.equal(Object.keys(before.disconnects).length, 14);
+    assert.ok(JSON.stringify(before).length < 1024, "wire audit has a constant-size schema");
+    assert.equal(before.disconnects.invalidFrame, 0);
+    const invalid = net.createConnection(status.socketPath);
+    try {
+      await once(invalid, "connect");
+      const closed = once(invalid, "close");
+      invalid.resume();
+      invalid.write("invalid-json\n");
+      await closed;
+      await until("first local close reason visible through surviving Node client", async () => {
+        const after = (await client.call("daemon:status")).diagnostics.wire;
+        return after.disconnects.invalidFrame === 1;
+      });
+    } finally {
+      invalid.destroy();
+    }
+    const after = await client.call("daemon:status");
+    assert.equal(after.dataDir, metadata.profile);
+    assert.equal(after.closing, false);
+    assert.equal(after.diagnostics.wire.disconnects.invalidFrame, 1);
+    assert.equal(after.diagnostics.wire.disconnects.peerEof, before.disconnects.peerEof, "reader teardown preserves malformed-frame cause");
+    assert.deepEqual(after.diagnostics.wire.shutdowns, { graceful: 0, forced: 0 });
+    await client.call("daemon:stop");
+  });
   await fixture(async ({ client, project, send }) => {
     await send(1, "fixture:blocked-start", "answers");
     const chatId = project + "#1";
