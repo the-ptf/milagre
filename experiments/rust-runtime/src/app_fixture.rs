@@ -277,6 +277,25 @@ mod tests {
             request["provider"] = json!("claude");
             assert!(bootstrap.validate_send(&request).is_err());
         }
+        let mut kiro = base.clone();
+        kiro["provider"] = json!("kiro");
+        kiro["replies"] = Value::Null;
+        bootstrap.validate_send(&kiro).unwrap();
+        for value in [
+            json!("verbose"),
+            json!("Concise"),
+            json!(""),
+            json!(2),
+            json!(true),
+            json!(["concise"]),
+            json!({}),
+        ] {
+            kiro["replies"] = value;
+            assert_eq!(
+                bootstrap.validate_send(&kiro).unwrap_err().code,
+                "FIXTURE_UNSUPPORTED"
+            );
+        }
         for (key, value) in [
             ("model", json!("real-model")),
             ("permissionMode", json!("full")),
