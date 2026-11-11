@@ -19,40 +19,57 @@ pub mod sidebar;
 #[cfg(test)]
 mod tests;
 
-use gpui::{AnyView, Context, Entity, StyleRefinement, Window, div, prelude::*, px};
+use gpui::{Context, Entity, Subscription, Window, div, prelude::*, px};
 
 use crate::theme::{ActiveTheme, Theme};
 use crate::workspace::chat::ChatView;
-use crate::workspace::panel::{PANEL_WIDTH, Panel};
+use crate::workspace::panel::dock;
+use crate::workspace::panel::{Panel, PanelEvent};
 use crate::workspace::sidebar::Sidebar;
 
 pub struct Workspace {
     pub sidebar: Entity<Sidebar>,
     pub chat: Entity<ChatView>,
     pub panel: Entity<Panel>,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl Workspace {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self { sidebar: cx.new(Sidebar::new), chat: cx.new(ChatView::new), panel: cx.new(Panel::new) }
+        dock::install_keys(cx);
+        let (sidebar, chat, panel) = (cx.new(Sidebar::new), cx.new(ChatView::new), cx.new(Panel::new));
+        // The panel's place in the window changed: lay the columns out again.
+        let layout = cx.subscribe(&panel, |_, _, _: &PanelEvent, cx| cx.notify());
+        let follow = cx.observe(&sidebar, |this, _, cx| this.follow_sidebar(cx));
+        Self { sidebar, chat, panel, _subscriptions: vec![layout, follow] }
+    }
+
+    /// A different Chat picked in the sidebar: the panel shows that Chat's tab and width. The sidebar does not
+    /// notify itself on a selection (only the two rows do, and every view above them re-renders), so `render`
+    /// calls this too; it is two reads when nothing changed.
+    fn follow_sidebar(&mut self, cx: &mut Context<Self>) {
+        let sidebar = self.sidebar.read(cx);
+        let key = sidebar.selected().and_then(|ix| sidebar.row(ix)).map(|row| row.key.clone());
+        if let Some(key) = key.filter(|key| self.panel.read(cx).chat() != key.as_ref()) {
+            self.panel.update(cx, |panel, cx| panel.set_chat(key, cx));
+        }
     }
 }
 
 impl Render for Workspace {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        div()
+        self.follow_sidebar(cx);
+        let theme = *cx.theme();
+        let columns = dock::layout(&self.panel, self.chat.clone(), cx);
+        dock::on_actions(div(), &self.panel)
             .flex()
             .flex_row()
             .size_full()
             .bg(theme.page)
             .text_color(theme.ink)
             .child(self.sidebar.clone())
-            .child(hairline(theme))
-            .child(self.chat.clone())
-            .child(hairline(theme))
-            // A cached view is laid out from this style alone, before it renders: it must say its size.
-            .child(AnyView::from(self.panel.clone()).cached(StyleRefinement::default().flex_none().w(px(PANEL_WIDTH)).h_full()))
+            .child(hairline(&theme))
+            .child(columns)
     }
 }
 

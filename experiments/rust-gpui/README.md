@@ -493,3 +493,25 @@ WP-22 (2026-11-11): the activity fold and the tool rows, in `workspace/chat/tran
   is fixed), file-link clicks on read and edit titles, tooltips on the marks.
 - Snapshot: `MILAGRE_GPUI_TRANSCRIPT_ACTIVITY=1` swaps the history for `fixture::activity_demo()` (a folded reply, an
   open one with every kind of row, a running tool); add `MILAGRE_GPUI_TRANSCRIPT_TOP=0` to open at its top.
+
+## Panel notes
+
+- Dock (`workspace/panel/dock.rs`): the Chat and the panel are one gpui-component `h_resizable` group; the panel's left edge drags
+  (min/default/max per kind from `panel-width.ts`: Changes, Terminal and PR 280/320/640, Browser 360/440/1400, Designs and Artifact
+  440/560/1400; the Chat keeps 420). The width is remembered per kind for the session; a double-click on the edge resets it (read by a
+  window-level listener, because the handle occludes hit-tested ones). Every layout change (open, close, expand, tab, Chat) makes a fresh
+  `ResizableState`, so the panel always opens at its remembered width. Expanded drops the group: the panel takes the width.
+- Shortcuts: `changes.toggle`, `terminal.toggle`, `browser.toggle`, `designs.toggle`, `artifacts.toggle` are bound from
+  `logic::keybindings` (`dock::install_keys`, once) and handled on the Workspace root; a shortcut hides the panel when its tab is the open one.
+- Per Chat: `Panel` keeps open/tab/expanded by Chat key. The sidebar does not notify itself on a selection, so `Workspace::render`
+  (which re-renders when a row does) calls `follow_sidebar`. Designs, Artifact and PR tabs show only for Chats that have content
+  (`panel/fixture.rs`, the seam for the daemon); Changes, Terminal, Browser always do.
+- Each tab body is a cached view (`size_full`): `ChangesView` or a `TabPlaceholder`. Typing in the composer renders neither the panel nor a body
+  (`dock_tests.rs`); a view mounted cached sees the first key after a mouse press as a refresh, so tests type once before measuring.
+- Changes (`panel/changes/`): `data.rs` panel-local input types over `logic::diff::git`; `fixture.rs` 13 files not committed, 3 on the
+  branch, 5 commits, patches whose counts are computed and tested against gpui-component's parser; `files.rs` flat list (<=10 files) and
+  folder tree with A/M/D/R badges and count columns; `diff.rs` gpui-component `Diff` under the list (unified/split from the two toolbar
+  buttons); `commits.rs` the Commits view. Snapshot seeds (never in tests): `MILAGRE_GPUI_PANEL_WIDTH`, `MILAGRE_GPUI_CHANGES_FILE`,
+  `MILAGRE_GPUI_CHANGES_LAYOUT=split`.
+- Diff colours are gpui-component's `success`/`danger` at 12%/30%: exact in dark, 3 to 9 units off in light. Split columns keep their content
+  width and scroll sideways, so at 640px only the left side shows.

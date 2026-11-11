@@ -38,6 +38,13 @@ fn six_tabs_in_order_each_with_icon_and_name(cx: &mut TestAppContext) {
 #[gpui::test]
 fn clicking_designs_activates_it(cx: &mut TestAppContext) {
     let (panel, cx) = mount(cx);
+    // At the Changes panel's 320px the tab list scrolls: bring the end of it into view first.
+    panel.read_with(cx, |panel, _| {
+        let scroll = panel.tabs_scroll();
+        scroll.set_offset(gpui::point(-scroll.max_offset().x, px(0.0)));
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
     let designs = cx.debug_bounds("panel-tab-Designs").expect("Designs is drawn");
     cx.simulate_click(designs.center(), Modifiers::none());
     assert_eq!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Designs);

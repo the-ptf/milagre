@@ -1,0 +1,223 @@
+//! Dock tests: widths, the resizable edge, shortcuts, per-Chat tab and width, and what a keystroke re-renders.
+
+use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
+
+use super::dock::MIN_CHAT_WIDTH;
+use super::{Panel, PanelTab};
+use crate::testing;
+
+fn mount(cx: &mut TestAppContext) -> (gpui::Entity<crate::workspace::Workspace>, &mut gpui::VisualTestContext) {
+    testing::mount_workspace(cx)
+}
+
+fn panel_left(cx: &mut gpui::VisualTestContext) -> gpui::Pixels {
+    let tabs = cx.debug_bounds("panel-header").expect("the panel header is drawn");
+    tabs.left()
+}
+
+fn window_width(cx: &mut gpui::VisualTestContext) -> gpui::Pixels {
+    cx.update(|window, _| window.viewport_size().width)
+}
+
+fn settle(cx: &mut gpui::VisualTestContext) {
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+}
+
+fn drag_edge(cx: &mut gpui::VisualTestContext, to_x: gpui::Pixels) {
+    let from = point(panel_left(cx) + px(1.0), px(300.0));
+    cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(point(from.x - px(10.0), from.y), Some(MouseButton::Left), Modifiers::none());
+    cx.simulate_mouse_move(point(to_x, from.y), Some(MouseButton::Left), Modifiers::none());
+    cx.simulate_mouse_up(point(to_x, from.y), MouseButton::Left, Modifiers::none());
+    settle(cx);
+}
+
+#[test]
+fn width_rules_are_the_desktops() {
+    let changes = PanelTab::Changes.width_rule();
+    assert_eq!((changes.min, changes.default, changes.max), (280.0, 320.0, 640.0));
+    let browser = PanelTab::Browser.width_rule();
+    assert_eq!((browser.min, browser.default, browser.max), (360.0, 440.0, 1400.0));
+    let designs = PanelTab::Designs.width_rule();
+    assert_eq!((designs.min, designs.default, designs.max), (440.0, 560.0, 1400.0));
+    assert_eq!(PanelTab::Artifact.width_rule(), designs);
+    assert_eq!(changes.clamp(100.0), 280.0);
+    assert_eq!(changes.clamp(900.0), 640.0);
+    assert_eq!(MIN_CHAT_WIDTH, 420.0);
+}
+
+#[gpui::test]
+fn the_panel_opens_at_its_default_width(cx: &mut TestAppContext) {
+    let (_workspace, cx) = mount(cx);
+    let width = window_width(cx);
+    assert_eq!(panel_left(cx), width - px(320.0));
+}
+
+#[gpui::test]
+fn dragging_the_left_edge_resizes_and_stops_at_the_maximum(cx: &mut TestAppContext) {
+    let (workspace, cx) = mount(cx);
+    let width = window_width(cx);
+    drag_edge(cx, width - px(420.0));
+    assert_eq!(panel_left(cx), width - px(420.0), "the edge follows the pointer");
+    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
+    assert_eq!(panel.read_with(cx, |p, _| p.width()), 420.0, "the drag's end is remembered");
+    drag_edge(cx, px(300.0));
+    assert_eq!(panel_left(cx), width - px(640.0), "stops at the Changes maximum");
+    assert_eq!(panel.read_with(cx, |p, _| p.width()), 640.0);
+}
+
+#[gpui::test]
+fn dragging_never_squeezes_the_chat_under_its_minimum(cx: &mut TestAppContext) {
+    let (_workspace, cx) = mount(cx);
+    let width = window_width(cx);
+    let chat = cx.debug_bounds("composer").map(|b| b.size.width);
+    drag_edge(cx, px(310.0));
+    let left = panel_left(cx);
+    let chat_width = left - px(305.0);
+    assert!(chat_width >= px(MIN_CHAT_WIDTH) - px(1.0), "Chat {chat_width:?} of window {width:?} ({chat:?})");
+}
+
+#[gpui::test]
+fn double_clicking_the_edge_resets_the_width(cx: &mut TestAppContext) {
+    let (workspace, cx) = mount(cx);
+    let width = window_width(cx);
+    drag_edge(cx, width - px(500.0));
+    assert_eq!(panel_left(cx), width - px(500.0));
+    let edge = point(panel_left(cx), px(300.0));
+    cx.simulate_event(gpui::MouseDownEvent {
+        position: edge,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 2,
+        first_mouse: false,
+    });
+    settle(cx);
+    assert_eq!(panel_left(cx), width - px(320.0), "back to the default");
+    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
+    assert_eq!(panel.read_with(cx, |p, _| p.width()), 320.0);
+}
+
+#[gpui::test]
+fn close_and_expand_buttons_change_the_layout(cx: &mut TestAppContext) {
+    let (workspace, cx) = mount(cx);
+    let width = window_width(cx);
+    let expand = cx.debug_bounds("panel-expand").expect("expand").center();
+    cx.simulate_click(expand, Modifiers::none());
+    settle(cx);
+    assert_eq!(panel_left(cx), px(305.0), "expanded, the panel fills the width beside the sidebar");
+    assert!(cx.debug_bounds("composer").is_none() || cx.debug_bounds("composer").is_some_and(|b| b.left() >= width));
+    let expand = cx.debug_bounds("panel-expand").expect("expand").center();
+    cx.simulate_click(expand, Modifiers::none());
+    settle(cx);
+    assert_eq!(panel_left(cx), width - px(320.0));
+    let close = cx.debug_bounds("panel-close").expect("close").center();
+    cx.simulate_click(close, Modifiers::none());
+    settle(cx);
+    assert!(cx.debug_bounds("panel-header").is_none(), "closed, the panel is not drawn");
+    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
+    assert!(!panel.read_with(cx, |p, _| p.is_open()));
+}
+
+#[gpui::test]
+fn the_desktops_shortcuts_show_and_hide_the_panel(cx: &mut TestAppContext) {
+    let (workspace, cx) = mount(cx);
+    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
+    let state = |cx: &mut gpui::VisualTestContext| panel.read_with(cx, |p: &Panel, _| (p.is_open(), p.active()));
+    assert_eq!(state(cx), (true, PanelTab::Changes));
+    cx.simulate_keystrokes("shift-cmd-d");
+    settle(cx);
+    assert_eq!(state(cx), (false, PanelTab::Changes), "changes.toggle hides the open Changes panel");
+    cx.simulate_keystrokes("shift-cmd-d");
+    settle(cx);
+    assert_eq!(state(cx), (true, PanelTab::Changes), "and shows it again");
+    cx.simulate_keystrokes("shift-cmd-b");
+    settle(cx);
+    assert_eq!(state(cx), (true, PanelTab::Browser), "browser.toggle switches to Browser");
+    assert_eq!(panel_left(cx), window_width(cx) - px(440.0), "at Browser's own default width");
+    cx.simulate_keystrokes("shift-cmd-b");
+    settle(cx);
+    assert!(!state(cx).0);
+}
+
+/// The Chat's tab and the panel's width come back when its row is picked again.
+#[gpui::test]
+fn each_chat_keeps_its_tab_and_the_panel_comes_back_to_it(cx: &mut TestAppContext) {
+    let (workspace, cx) = mount(cx);
+    let (sidebar, panel) = workspace.read_with(cx, |w, _| (w.sidebar.clone(), w.panel.clone()));
+    let first = panel.read_with(cx, |p, _| p.chat().to_string());
+    let browser = cx.debug_bounds("panel-tab-Browser").expect("Browser").center();
+    cx.simulate_click(browser, Modifiers::none());
+    settle(cx);
+    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Browser);
+    let row = cx.debug_bounds("chat-row-7").expect("row 7");
+    cx.simulate_click(row.center(), Modifiers::none());
+    settle(cx);
+    let second = panel.read_with(cx, |p, _| p.chat().to_string());
+    assert_ne!(first, second, "the panel follows the sidebar's selection");
+    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Changes, "another Chat starts on Changes");
+    let row = cx.debug_bounds("chat-row-6").expect("row 6");
+    cx.simulate_click(row.center(), Modifiers::none());
+    settle(cx);
+    assert_eq!(panel.read_with(cx, |p, _| p.chat().to_string()), first);
+    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Browser, "the first Chat's tab is restored");
+    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), Some(6));
+}
+
+/// Tabs a Chat has no content for are hidden (Designs, Artifact and PR); the rest stay.
+#[gpui::test]
+fn tabs_without_content_are_hidden(cx: &mut TestAppContext) {
+    let (workspace, cx) = mount(cx);
+    let (sidebar, panel) = workspace.read_with(cx, |w, _| (w.sidebar.clone(), w.panel.clone()));
+    assert_eq!(panel.read_with(cx, |p, _| p.visible_tabs().len()), 6, "the Chat on screen has everything");
+    let seeded = panel.read_with(cx, |p, _| p.chat().to_string());
+    // Find a visible row whose Chat has fewer than six tabs.
+    let mut found = None;
+    for ix in 0..12 {
+        let key = sidebar.read_with(cx, |s, _| s.row(ix).map(|r| r.key.to_string()));
+        let Some(key) = key else { continue };
+        if key != seeded && !super::fixture::content_for(&key, Some(&seeded)).has(PanelTab::Designs) {
+            found = Some(ix);
+            break;
+        }
+    }
+    let ix = found.expect("some fixture Chat has no designs");
+    let row = cx.debug_bounds(testing::leak(format!("chat-row-{ix}"))).expect("the row is drawn");
+    cx.simulate_click(row.center(), Modifiers::none());
+    settle(cx);
+    assert!(cx.debug_bounds("panel-tab-Designs").is_none(), "Designs is hidden");
+    assert!(cx.debug_bounds("panel-tab-Changes").is_some());
+    assert!(cx.debug_bounds("panel-tab-Terminal").is_some());
+    assert!(panel.read_with(cx, |p, _| p.visible_tabs().len()) < 6);
+}
+
+/// Typing in the composer re-renders the root, the sidebar and the Chat column, never the panel nor any tab body.
+#[gpui::test]
+fn typing_in_the_composer_renders_no_panel_view(cx: &mut TestAppContext) {
+    let (workspace, cx) = mount(cx);
+    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
+    let counts = |cx: &mut gpui::VisualTestContext| {
+        let changes = panel.read_with(cx, |p, _| p.changes().clone());
+        (panel.read_with(cx, |p, _| p.renders()), changes.read_with(cx, |c, _| c.renders()))
+    };
+    // GPUI refreshes every view once on the first key after the mouse; the rest of the typing is quiet.
+    cx.simulate_input("a");
+    cx.run_until_parked();
+    let before = counts(cx);
+    assert!(before.1 > 0, "the Changes body rendered once");
+    cx.simulate_input("hello");
+    cx.run_until_parked();
+    assert_eq!(counts(cx), before, "typing rebuilds neither the panel nor its Changes body");
+    // A tab click re-renders the panel (it shows the new tab) but not the Changes body it leaves.
+    let terminal = cx.debug_bounds("panel-tab-Terminal").expect("Terminal").center();
+    cx.simulate_click(terminal, Modifiers::none());
+    settle(cx);
+    assert!(counts(cx).0 > before.0);
+    cx.simulate_input("x"); // the first key after the mouse refreshes every view once
+    cx.run_until_parked();
+    let after_click = counts(cx);
+    cx.simulate_input("yz");
+    cx.run_until_parked();
+    assert_eq!(counts(cx), after_click, "nor does typing with another tab open");
+}

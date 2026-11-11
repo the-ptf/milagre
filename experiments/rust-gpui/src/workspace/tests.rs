@@ -16,7 +16,13 @@ fn clicking_a_panel_tab_makes_it_active(cx: &mut TestAppContext) {
     cx.simulate_click(terminal.center(), Modifiers::none());
     assert_eq!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Terminal);
 
-    // The PR tab is clipped at rest (the tab list scrolls), so click the last tab that is fully visible.
+    // At the Changes panel's 320px the tab list scrolls: bring the end of it into view, then click Artifact.
+    panel.read_with(cx, |panel, _| {
+        let scroll = panel.tabs_scroll();
+        scroll.set_offset(gpui::point(-scroll.max_offset().x, gpui::px(0.0)));
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
     let artifact = cx.debug_bounds("panel-tab-Artifact").expect("the Artifact tab is drawn");
     cx.simulate_click(artifact.center(), Modifiers::none());
     assert_eq!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Artifact);
