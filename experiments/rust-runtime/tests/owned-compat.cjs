@@ -224,7 +224,18 @@ async function run() {
   }
   assert.ok(observedLazyChats > 0);
   assert.equal(inboxError, "body?.slice is not a function");
-  await assert.rejects(runtime.invoke("chat:inbox"), { message: inboxError });
+  await assert.rejects(runtime.invoke("chat:inbox"), { code: "COMMAND_FAILED", message: inboxError });
+  const inboxWire = await raw(metadata.socket);
+  try {
+    // Exact wire shape excludes a partial result or paged capture from valid scopes.
+    assert.deepEqual(await inboxWire.call("inbox-refusal", "chat:inbox", [], true), {
+      v: 1,
+      id: "inbox-refusal",
+      error: { code: "COMMAND_FAILED", message: inboxError },
+    });
+  } finally {
+    inboxWire.socket.destroy();
+  }
   stage = "owned snapshots and explicit mutation refusals";
   const snapshot = await client.call("daemon:snapshot", [{ paged: true }]);
   assert.ok(snapshot.pageCount > 100);
