@@ -39,7 +39,17 @@ fn sanitized_git_never_runs_clean_filters_for_same_size_or_racy_edits() {
             git(&repo, &copy, &["init", "-q"]);
             let tracked = repo.join("tracked.txt");
             fs::write(&tracked, "before\n").unwrap();
-            let original_time = fs::metadata(&tracked).unwrap().modified().unwrap();
+            // An old, exact entry time makes the ordinary edit unambiguously stat-dirty.
+            // The restored-mtime variant below also stamps the index at this time, so
+            // native Git must re-hash it regardless of when setup crosses a clock tick.
+            let original_time =
+                std::time::UNIX_EPOCH + std::time::Duration::new(1_600_000_000, 123_456_789);
+            fs::File::options()
+                .write(true)
+                .open(&tracked)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(original_time))
+                .unwrap();
             git(&repo, &copy, &["add", "tracked.txt"]);
             git(&repo, &copy, &["commit", "-q", "-m", "fixture"]);
             git(
@@ -63,6 +73,12 @@ fn sanitized_git_never_runs_clean_filters_for_same_size_or_racy_edits() {
                 fs::File::options()
                     .write(true)
                     .open(&tracked)
+                    .unwrap()
+                    .set_times(fs::FileTimes::new().set_modified(original_time))
+                    .unwrap();
+                fs::File::options()
+                    .write(true)
+                    .open(repo.join(".git/index"))
                     .unwrap()
                     .set_times(fs::FileTimes::new().set_modified(original_time))
                     .unwrap();
