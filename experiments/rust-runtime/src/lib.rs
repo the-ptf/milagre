@@ -2,6 +2,7 @@
 //! No live profile, provider execution, Project mutation, or arbitrary Project folder access.
 pub mod actor;
 mod artifacts;
+pub mod content_fixture;
 mod copies;
 mod git;
 mod inbox;
@@ -64,7 +65,7 @@ pub struct ReadHandler {
     epoch: String,
     versions: Mutex<HashMap<String, (String, u64)>>,
     terminals: Option<terminals::TerminalService>,
-    artifacts: Option<artifacts::ArtifactService>,
+    artifacts: Option<Arc<artifacts::ArtifactService>>,
     git: Option<git::GitService>,
 }
 impl ReadHandler {
@@ -405,13 +406,25 @@ pub fn start_owned() -> Result<Server, RpcError> {
 }
 /// Private standalone Git fixture attached to one copied Project. No caller supplies paths.
 pub fn start_owned_git() -> Result<(Server, Value), RpcError> {
-    let (server, metadata) = start_mode_with_git(true, true)?;
-    Ok((server, metadata.expect("Git fixture requested")))
+    let started = start_mode_with_git(true, true, None)?;
+    Ok((
+        started.server,
+        started.git_metadata.expect("Git fixture requested"),
+    ))
 }
 fn start_mode(owned: bool) -> Result<Server, RpcError> {
-    Ok(start_mode_with_git(owned, false)?.0)
+    Ok(start_mode_with_git(owned, false, None)?.server)
 }
-fn start_mode_with_git(owned: bool, with_git: bool) -> Result<(Server, Option<Value>), RpcError> {
+struct Started {
+    server: Server,
+    git_metadata: Option<Value>,
+    content: Option<Arc<artifacts::ArtifactService>>,
+}
+fn start_mode_with_git(
+    owned: bool,
+    with_git: bool,
+    raster: Option<Arc<milagre_content_store::design::raster::RasterRenderer>>,
+) -> Result<Started, RpcError> {
     let profile = IsolatedProfile::create()?;
     // This profile has just been created empty in canonical /tmp. The policy is checked before
     // fixture copies exist, and there is no caller-supplied path or route to a live Project.
@@ -451,13 +464,15 @@ fn start_mode_with_git(owned: bool, with_git: bool) -> Result<(Server, Option<Va
         None
     };
     if let Some(isolation) = content_isolation {
-        handler.artifacts = Some(artifacts::ArtifactService::new(
+        handler.artifacts = Some(Arc::new(artifacts::ArtifactService::new(
             isolation,
             backend,
             handler.opened.clone(),
-        )?);
+            raster,
+        )?));
     }
     handler.terminals = Some(terminal_service);
+    let content = handler.artifacts.clone();
     let server = Server::bind(
         profile,
         Arc::new(handler),
@@ -468,5 +483,9 @@ fn start_mode_with_git(owned: bool, with_git: bool) -> Result<(Server, Option<Va
         },
     )?;
     *events.lock().unwrap() = Some(server.events());
-    Ok((server, git_metadata))
+    Ok(Started {
+        server,
+        git_metadata,
+        content,
+    })
 }

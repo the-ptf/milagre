@@ -1,9 +1,6 @@
 //! Saved Artifact reads and Design edits require verified ownership of isolated copies.
 use crate::ReadBackend;
-use milagre_content_store::{
-    design::{self, DesignKits},
-    ArtifactStore, Error as ContentError, SystemRuntime,
-};
+use milagre_content_store::{design::raster::RasterRenderer, Error as ContentError, SystemRuntime};
 use milagre_owner_store::{
     jsjson,
     ownership::{OwnerGuard, RustOwnerLock},
@@ -11,13 +8,14 @@ use milagre_owner_store::{
     Isolation,
 };
 use milagre_owner_wire::{RpcError, RpcResult};
+use milagre_tools::{Caller, ContentOwner, DesignScope, Dispatcher};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::Write,
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
-    path::Path,
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -35,7 +33,6 @@ pub const METHODS: &[&str] = &[
 struct Authority {
     guard: Mutex<OwnerGuard>,
     backend: Arc<dyn ReadBackend>,
-    scope: Mutex<Option<String>>,
     active: AtomicBool,
 }
 impl Authority {
@@ -50,17 +47,13 @@ impl Authority {
     }
     fn check(&self) -> Result<(), ContentError> {
         self.running()?;
-        verify_owner(&self.guard.lock().unwrap())?;
-        let scope = self.scope.lock().unwrap().clone().ok_or_else(|| {
-            ContentError::coded(
-                "OWNERSHIP_UNVERIFIED",
-                "Choose an owned fixture Chat before reading its Artifacts",
-            )
-        })?;
-        self.backend
-            .assert_owned(&scope)
-            .map_err(|error| ContentError::coded(&error.code, error.message))
+        if let Err(error) = verify_owner(&self.guard.lock().unwrap()) {
+            self.fail();
+            return Err(error);
+        }
+        Ok(())
     }
+
     fn fail(&self) {
         self.active.store(false, Ordering::Release);
     }
@@ -72,8 +65,8 @@ fn verify_owner(guard: &OwnerGuard) -> Result<(), ContentError> {
 }
 
 pub struct ArtifactService {
-    store: Mutex<Option<ArtifactStore>>,
-    kits: Mutex<Option<DesignKits>>,
+    owner: Mutex<Option<Arc<ContentOwner>>>,
+    raster: Option<Arc<RasterRenderer>>,
     authority: Arc<Authority>,
     isolation: Isolation,
     opened: Arc<Mutex<Vec<String>>>,
@@ -83,6 +76,7 @@ impl ArtifactService {
         isolation: Isolation,
         backend: Arc<dyn ReadBackend>,
         opened: Arc<Mutex<Vec<String>>>,
+        raster: Option<Arc<RasterRenderer>>,
     ) -> Result<Self, RpcError> {
         // Fixture bootstrap copies only recorded Node bytes before the content store has a writer.
         let alpha = backend
@@ -134,95 +128,124 @@ impl ArtifactService {
             .acquire(&isolation.root().join("artifact-owner.lock"))
             .map_err(|error| RpcError::new("CONTENT_OWNERSHIP", error.to_string()))?;
         Ok(Self {
-            store: Mutex::new(None),
-            kits: Mutex::new(None),
+            owner: Mutex::new(None),
+            raster,
             authority: Arc::new(Authority {
                 guard: Mutex::new(guard),
                 backend,
-                scope: Mutex::new(None),
                 active: AtomicBool::new(true),
             }),
             isolation,
             opened,
         })
     }
-    pub fn invoke(&self, method: &str, request: &Value) -> RpcResult {
-        self.authority.running().map_err(convert)?;
-        // Match the production scope rule: a real Chat in a Project this owner already has open.
-        let chat = request["chatId"].as_str().ok_or_else(invalid_chat)?;
-        let scope = match validate_chat(&self.authority.backend, &self.opened, chat) {
-            Ok(scope) => scope,
+    fn owner(&self) -> Result<Arc<ContentOwner>, ContentError> {
+        self.authority.check()?;
+        let mut owner = self.owner.lock().unwrap();
+        if let Some(owner) = owner.as_ref() {
+            return Ok(owner.clone());
+        }
+        let backend = self.authority.backend.clone();
+        let opened = self.opened.clone();
+        let authority = self.authority.clone();
+        let created = ContentOwner::open(
+            self.isolation.clone(),
+            PathBuf::from("artifacts"),
+            PathBuf::from("design-kits"),
+            Arc::new(move |chat| validate_chat(&backend, &opened, chat)),
+            Arc::new(move || authority.check()),
+            Arc::new(SystemRuntime),
+            self.raster.clone(),
+        )?;
+        *owner = Some(created.clone());
+        Ok(created)
+    }
+    fn caller(
+        &self,
+        chat: &str,
+        write: bool,
+        design_scope: DesignScope,
+        revocation: Option<Arc<AtomicBool>>,
+    ) -> Result<Caller, ContentError> {
+        self.authority.check()?;
+        let project = match validate_chat(&self.authority.backend, &self.opened, chat) {
+            Ok(project) => project,
             Err(error) => {
                 if fatal(&error) {
                     self.authority.fail();
                 }
-                return Err(convert(error));
+                return Err(error);
             }
         };
-        let mut store = self.store.lock().unwrap();
-        *self.authority.scope.lock().unwrap() = Some(scope);
-        let outcome = (|| {
-            self.authority.check()?;
-            if store.is_none() {
-                let backend = self.authority.backend.clone();
-                let opened = self.opened.clone();
-                let authority = self.authority.clone();
-                *store = Some(ArtifactStore::open(
-                    self.isolation.clone(),
-                    Path::new("artifacts"),
-                    Arc::new(move |chat| validate_chat(&backend, &opened, chat).map(|_| ())),
-                    Arc::new(move || authority.check()),
-                    Arc::new(SystemRuntime),
-                )?);
-            }
-            let store = store.as_mut().unwrap();
-            let result = match method {
-                "artifact:list" => store.list(request),
-                "artifact:get" => store.get(request),
-                "artifact:asset" => store.asset(request),
-                "artifact:comments" => store.comments(request),
-                "artifact:apply" => {
-                    let reader = |request: &Value| self.read_kit(request);
-                    let prepared = store.prepare_design_apply(request, &reader)?;
-                    store.commit_design(prepared, &reader, &design::render_html)
-                }
-                _ => {
+        let authority = self.authority.clone();
+        let opened = self.opened.clone();
+        let grant_chat = chat.to_owned();
+        Ok(Caller {
+            chat_id: chat.into(),
+            project_id: project.clone(),
+            roots: vec![PathBuf::from(project)],
+            read: true,
+            write,
+            html: true,
+            designs: true,
+            kits: true,
+            design_scope,
+            bundled_skills: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../packages/core/src/bundled-skills"),
+            assert_active: Arc::new(move || {
+                authority.check()?;
+                if revocation
+                    .as_ref()
+                    .is_some_and(|active| !active.load(Ordering::Acquire))
+                {
                     return Err(ContentError::coded(
-                        "COMMAND_FAILED",
-                        format!("Unknown command: {method}"),
-                    ))
+                        "GRANT_REVOKED",
+                        "This fixture tool grant was revoked",
+                    ));
                 }
-            }?;
-            self.authority.check()?;
-            Ok(result)
-        })();
-        if outcome.as_ref().is_err_and(fatal) {
+                if let Err(error) = validate_chat(&authority.backend, &opened, &grant_chat) {
+                    if fatal(&error) {
+                        authority.fail();
+                    }
+                    return Err(error);
+                }
+                Ok(())
+            }),
+        })
+    }
+    pub fn invoke(&self, method: &str, request: &Value) -> RpcResult {
+        self.authority.running().map_err(convert)?;
+        let chat = request["chatId"].as_str().ok_or_else(invalid_chat)?;
+        let caller = self
+            .caller(chat, true, DesignScope::All, None)
+            .map_err(convert)?;
+        let result = self
+            .owner()
+            .and_then(|owner| owner.renderer(&caller, method, request));
+        if result.as_ref().is_err_and(fatal) {
             self.authority.fail();
         }
-        outcome.map_err(convert)
+        result.map_err(convert)
     }
-    fn read_kit(&self, request: &Value) -> Result<Value, ContentError> {
-        self.authority.check()?;
-        let mut kits = self.kits.lock().unwrap();
-        if kits.is_none() {
-            let backend = self.authority.backend.clone();
-            let opened = self.opened.clone();
-            let authority = self.authority.clone();
-            *kits = Some(DesignKits::open(
-                self.isolation.clone(),
-                Path::new("design-kits"),
-                Arc::new(move |chat| validate_chat(&backend, &opened, chat)),
-                Arc::new(move || authority.check()),
-            )?);
-        }
-        let value = kits.as_mut().unwrap().read(request)?;
-        self.authority.check()?;
-        Ok(value)
+    pub fn tool_session(
+        &self,
+        chat: &str,
+        write: bool,
+        scope: DesignScope,
+        active: Arc<AtomicBool>,
+    ) -> Result<Dispatcher, RpcError> {
+        let caller = self
+            .caller(chat, write, scope, Some(active))
+            .map_err(convert)?;
+        self.owner()
+            .and_then(|owner| owner.session(caller))
+            .map_err(convert)
     }
     pub fn shutdown(&self) -> Result<(), RpcError> {
         self.authority.fail();
-        self.store.lock().unwrap().take();
-        self.kits.lock().unwrap().take();
+        if let Some(owner) = self.owner.lock().unwrap().take() {
+            owner.shutdown();
+        }
         self.authority
             .guard
             .lock()
@@ -231,6 +254,7 @@ impl ArtifactService {
             .map_err(|error| RpcError::new("OWNERSHIP_LOST", error.to_string()))
     }
 }
+
 fn invalid_chat() -> RpcError {
     RpcError::new(
         "COMMAND_FAILED",

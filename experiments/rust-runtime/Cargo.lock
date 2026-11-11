@@ -608,6 +608,7 @@ dependencies = [
  "milagre-owner-wire",
  "milagre-ports",
  "milagre-terminals",
+ "milagre-tools",
  "serde_json",
  "sha2",
  "tokio",
@@ -623,6 +624,17 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "milagre-tools"
+version = "0.1.0"
+dependencies = [
+ "milagre-content-store",
+ "milagre-owner-store",
+ "regex",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
