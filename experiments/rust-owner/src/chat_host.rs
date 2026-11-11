@@ -24,7 +24,8 @@
 //! runs change only with a kept fold, a failed turn end is kept and retried, interrupts that never end are forced by
 //! [`ChatHost::tick`], and failures of the host's own work come back as [`Notice::Failed`].
 //!
-//! Explicit gates (refused with [`gate`] errors, never approximated): steering a running turn, provider handoffs,
+//! Explicit gates (refused with [`gate`] errors, never approximated): steering a running turn (admission and save are
+//! ported behind [`SteeringMode`], whose `Recorded` mode is for conformance and calls no provider), provider handoffs,
 //! compaction, usage-limit continuations and account routing, Routines' messages, wake turns, `canStart`, images,
 //! handover briefs, Send now that would steer, answers that need unported policy (secrets, bug reports, setup reviews,
 //! images, Subchat cards), a turn the agent started by itself, quitting or closing a Project with turns running unless
@@ -445,6 +446,13 @@ pub enum Notice {
         answer: AnswerId,
         result: std::result::Result<bool, String>,
     },
+    /// A steering message was admitted and saved: what Node would hand SessionManager.startTurn for the running
+    /// `turn` ([`SteeringMode::Recorded`] only; no provider is called).
+    SteerRequested {
+        chat: String,
+        turn: TurnId,
+        request: Value,
+    },
     /// A turn's start resolved: what Node's `sent.started` resolves with.
     Started {
         chat: String,
@@ -469,12 +477,27 @@ enum QueuedStart {
     AlreadySaved,
 }
 
+/// Whether a message for a running turn whose provider can steer is refused or staged. No provider is ever asked to
+/// steer yet: the Provider call is a proposal (STEERING-HANDOFF.md) awaiting agreement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SteeringMode {
+    /// Refused with the "Steering a running turn" gate (production).
+    #[default]
+    Gated,
+    /// Conformance only: admitted and saved as Node does (the running turn's provider and model, the reply so far
+    /// split above the message, the run marked steered), then told as `Notice::SteerRequested` with the request Node
+    /// hands SessionManager.startTurn. Nothing reaches a provider and nothing settles it.
+    Recorded,
+}
+
 /// What a send answered.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sent {
     pub session_id: Value,
     pub duplicate: bool,
     pub queued: bool,
+    /// The message steers the running turn `turn` (only with [`SteeringMode::Recorded`]).
+    pub steering: bool,
     /// The turn the provider was asked to start; None when nothing started (a duplicate, a queued message that
     /// waits, or a provider that refused at once, whose `turn-failed` is already folded). Its start resolves later
     /// as [`Notice::Started`], or fails as `turn-failed`.
@@ -577,6 +600,8 @@ pub struct ChatHost {
     /// The turn running per Chat and its provider: what interrupts and stale-event checks go by.
     active: HashMap<String, (TurnId, String)>,
     next_turn: u64,
+    /// Steering: gated unless a conformance run records it (see [`SteeringMode`]).
+    pub steering: SteeringMode,
     /// Set from the start of `shutdown`: no queued message starts and no send is taken.
     quitting: bool,
     /// Projects a `forget` is closing: no queued message starts in them and no send to them is taken.
@@ -620,6 +645,7 @@ impl ChatHost {
             runs: Runs::new(),
             active: HashMap::new(),
             next_turn: 0,
+            steering: SteeringMode::Gated,
             quitting: false,
             closing: HashSet::new(),
             stuck: BTreeMap::new(),
@@ -831,6 +857,7 @@ impl ChatHost {
                     session_id: earlier.get("session_id").cloned().unwrap_or(Value::Null),
                     duplicate: true,
                     queued: false,
+                    steering: false,
                     turn: None,
                 });
             }
@@ -860,6 +887,10 @@ impl ChatHost {
         let mut run_model = model.clone().unwrap_or(Value::Null);
         let runs = self.runs.clone();
         let starting = self.starting.clone();
+        let steering_mode = self.steering;
+        let running_turns: HashSet<String> = self.active.keys().cloned().collect();
+        let mut steering = false;
+        let mut run_provider = provider.clone();
         let ids = &mut self.ids;
         let project_key = project_text.clone();
 
@@ -1114,14 +1145,35 @@ impl ChatHost {
                     }
                 }
                 if runs.contains_key(&chat) {
-                    return Err(gate(
-                        "Steering a running turn (send with delivery \"queue\" to queue it)",
-                    ));
+                    // Admitted only into the turn running here (its generation), never while gated.
+                    if steering_mode == SteeringMode::Gated || !running_turns.contains(&chat) {
+                        return Err(gate(
+                            "Steering a running turn (send with delivery \"queue\" to queue it)",
+                        ));
+                    }
+                    steering = true;
+                    // A message that steers keeps the running turn's provider and model, whatever was asked for.
+                    run_provider = session
+                        .get("provider")
+                        .and_then(Value::as_str)
+                        .unwrap_or(&provider)
+                        .to_string();
+                    let run_model_now = runs
+                        .get(&chat)
+                        .and_then(|run| run.get("model"))
+                        .filter(|model| jsjson::truthy(Some(model)))
+                        .cloned();
+                    let last_model = agent_runs::last_user_model(&with_session, session_id);
+                    run_model = run_model_now
+                        .or_else(|| jsjson::truthy(Some(&last_model)).then_some(last_model))
+                        .or_else(|| model.clone())
+                        .unwrap_or(Value::Null);
                 }
-                // handoffKind: the provider of the chat's last turn, and whether a restore is due.
+                // handoffKind: the provider of the chat's last turn, and whether a restore is due. A steer never
+                // hands off.
                 let messages: Vec<&MsgRef> =
                     session_messages(&with_session, &session_id_value).collect();
-                if !messages.is_empty() {
+                if !messages.is_empty() && !steering {
                     let divider = messages.iter().rev().find(|m| {
                         m.get("context")
                             .and_then(|c| c.get("kind"))
@@ -1157,7 +1209,9 @@ impl ChatHost {
                     }
                 }
                 original = Some(before_queue);
-                run_model = model.clone().unwrap_or(Value::Null);
+                if !steering {
+                    run_model = model.clone().unwrap_or(Value::Null);
+                }
                 let next_id = with_session
                     .get("next_id")
                     .and_then(Value::as_f64)
@@ -1198,7 +1252,7 @@ impl ChatHost {
                 ] {
                     next_session.shift_remove(key);
                 }
-                next_session.insert("provider".into(), json!(provider));
+                next_session.insert("provider".into(), json!(run_provider));
                 if let Some(mode) = request
                     .get("permissionMode")
                     .and_then(Value::as_str)
@@ -1231,7 +1285,7 @@ impl ChatHost {
                 Ok(Some(next))
             });
         if let Some((chat, ..)) = &target {
-            if staged.is_some() && saving.is_ok() {
+            if staged.is_some() && saving.is_ok() && !steering {
                 self.starting.insert(chat.clone(), provider.clone());
             }
         }
@@ -1241,6 +1295,7 @@ impl ChatHost {
                 session_id: session,
                 duplicate: true,
                 queued: false,
+                steering: false,
                 turn: None,
             });
         }
@@ -1360,7 +1415,7 @@ impl ChatHost {
             });
         }
         let mut turn = Map::new();
-        turn.insert("provider".into(), json!(provider));
+        turn.insert("provider".into(), json!(run_provider));
         turn.insert("model".into(), run_model.clone());
         for key in [
             "permissionMode",
@@ -1392,11 +1447,30 @@ impl ChatHost {
         if let Some(resume) = resume_id {
             start.insert("resumeId".into(), resume);
         }
+        if steering {
+            // Recorded only: what Node hands SessionManager.startTurn. The running turn goes on; nothing settles this.
+            let running = self
+                .active_turn(&chat)
+                .expect("admitted into the running turn");
+            self.notice(Notice::SteerRequested {
+                chat: chat.clone(),
+                turn: running,
+                request: Value::Object(start),
+            });
+            return Ok(Sent {
+                session_id: json!(session_id),
+                duplicate: false,
+                queued: false,
+                steering: true,
+                turn: Some(running),
+            });
+        }
         let turn = self.start_turn(&chat, &provider, &Value::Object(start));
         Ok(Sent {
             session_id: json!(session_id),
             duplicate: false,
             queued: false,
+            steering: false,
             turn,
         })
     }
@@ -1473,6 +1547,7 @@ impl ChatHost {
             session_id: json!(session_id),
             duplicate: false,
             queued: true,
+            steering: false,
             turn: None,
         })
     }

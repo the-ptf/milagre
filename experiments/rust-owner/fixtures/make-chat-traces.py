@@ -223,6 +223,33 @@ T.append({"name": "claude-suggestion", "start": START, "seed": seed, "steps": [
     {"op": "advance", "ms": 300},
     {"op": "snapshot"}]})
 
+T.append({"name": "claude-steering-save", "start": START, "seed": seed, "steps": [
+    {"op": "open"},
+    send("Refactor the parser", "st-1", provider="claude", effort="high"),
+    event("session-started", nativeId="native-st"),
+    event("turn-started", turnId="ts1"),
+    event("text-delta", text="Looking at the parser.\n"),
+    step("step-started", step={"id": "r1", "kind": "read", "title": "Read parser.ts", "file": "parser.ts"}),
+    step("step-completed", id="r1", status="done"),
+    step("step-started", step={"id": "r2", "kind": "shell", "title": "Run tests", "detail": "$ npm test\n"}),
+    {"op": "advance", "ms": 500},
+    # A steer: another model and provider asked for, the running turn's kept; the reply so far is split above it,
+    # the running step carries on at the start of the rest.
+    send("Also keep the old API", "st-2", provider="codex", model="model-b", effort="low"),
+    send("Also keep the old API", "st-2", provider="claude"),
+    event("text-delta", text="Sure, I'll keep it."),
+    # The first text after the steer, before the agent goes back to its tools, is its own reply.
+    step("step-started", step={"id": "r3", "kind": "edit", "title": "Edit parser.ts", "file": "parser.ts"}),
+    step("step-completed", id="r2", status="done", detail="$ npm test\n# pass 3\n# fail 0\n"),
+    step("step-completed", id="r3", status="done", detail="+a\n-b\n"),
+    # A steer with nothing streamed since: nothing to split.
+    send("And add a test", "st-3", provider="claude"),
+    send("Queue this one", "st-4", provider="claude", delivery="queue"),
+    event("text-delta", text="Done."),
+    event("turn-completed"),
+    {"op": "advance", "ms": 300},
+    {"op": "snapshot"}]})
+
 with open("fixtures/chat-traces.json", "w", encoding="ascii") as out:
     out.write(json.dumps(T, indent=2) + "\n")
 print(len(T), "traces,", sum(len(t["steps"]) for t in T), "steps")

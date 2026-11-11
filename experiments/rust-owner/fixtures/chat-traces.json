@@ -1527,5 +1527,213 @@
         "op": "snapshot"
       }
     ]
+  },
+  {
+    "name": "claude-steering-save",
+    "start": 1767225600000,
+    "seed": {
+      "next_id": 1,
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/milagre-chat-worktree",
+          "name": "main"
+        }
+      },
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "agent_name": "main",
+          "status": "Created",
+          "title": "Seeded"
+        }
+      },
+      "messages": []
+    },
+    "steps": [
+      {
+        "op": "open"
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "claude",
+          "model": "model-a",
+          "body": "Refactor the parser",
+          "clientMessageId": "st-1",
+          "effort": "high"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "session-started",
+          "nativeId": "native-st"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-started",
+          "turnId": "ts1"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "text-delta",
+          "text": "Looking at the parser.\n"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "step-started",
+          "step": {
+            "id": "r1",
+            "kind": "read",
+            "title": "Read parser.ts",
+            "file": "parser.ts"
+          }
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "step-completed",
+          "id": "r1",
+          "status": "done"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "step-started",
+          "step": {
+            "id": "r2",
+            "kind": "shell",
+            "title": "Run tests",
+            "detail": "$ npm test\n"
+          }
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 500
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "codex",
+          "model": "model-b",
+          "body": "Also keep the old API",
+          "clientMessageId": "st-2",
+          "effort": "low"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "claude",
+          "model": "model-a",
+          "body": "Also keep the old API",
+          "clientMessageId": "st-2"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "text-delta",
+          "text": "Sure, I'll keep it."
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "step-started",
+          "step": {
+            "id": "r3",
+            "kind": "edit",
+            "title": "Edit parser.ts",
+            "file": "parser.ts"
+          }
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "step-completed",
+          "id": "r2",
+          "status": "done",
+          "detail": "$ npm test\n# pass 3\n# fail 0\n"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "step-completed",
+          "id": "r3",
+          "status": "done",
+          "detail": "+a\n-b\n"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "claude",
+          "model": "model-a",
+          "body": "And add a test",
+          "clientMessageId": "st-3"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "claude",
+          "model": "model-a",
+          "body": "Queue this one",
+          "clientMessageId": "st-4",
+          "delivery": "queue"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "text-delta",
+          "text": "Done."
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "snapshot"
+      }
+    ]
   }
 ]

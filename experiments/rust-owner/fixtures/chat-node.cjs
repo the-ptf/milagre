@@ -75,6 +75,8 @@ async function run(tracesFile, name, dir) {
   let answers = [];
   let refuseAnswers = false;
   const sessions = new Set();
+  // A send into a running turn steers it: SessionManager resolves `{ steered: true }` for it.
+  let steerNext = false;
   // Turn ids count successful starts over the whole trace, as the Rust mock provider does.
   let startedTurns = 0;
   let m;
@@ -99,7 +101,9 @@ async function run(tracesFile, name, dir) {
           failNextStart = null;
           throw new Error(message);
         }
-        return { turnId: `turn-${++startedTurns}`, steered: false };
+        const steered = steerNext;
+        steerNext = false;
+        return { turnId: `turn-${++startedTurns}`, steered };
       },
       interrupt: async (id) => interrupts.push(clean(id)),
       publish: (_chatId, event, state, seq) => notices.push({ event: event.type, seq: seq ?? null, state: Boolean(state), payload: cleanValue(event) }),
@@ -148,7 +152,10 @@ async function run(tracesFile, name, dir) {
         break;
       case "send":
         result = await attempt(async () => {
+          steerNext = step.request.sessionId != null && Boolean(host.runs[chat(step.request.sessionId)]);
           const sent = await host.send({ ...step.request, projectPath: dir });
+          // A queued or duplicate send calls no startTurn: the flag must not reach a later start.
+          if (sent.queued || sent.duplicate) steerNext = false;
           if (sent.queued) void sent.started.then((value) => notices.push({ queuedStarted: cleanValue(value) }));
           const started = sent.duplicate ? null : sent.queued ? "waiting" : cleanValue(await sent.started);
           return { sessionId: sent.sessionId, duplicate: Boolean(sent.duplicate), queued: Boolean(sent.queued), started };

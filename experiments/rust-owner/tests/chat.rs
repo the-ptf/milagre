@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use milagre_owner_store::chat_host::{AnswerTicket, ChatHost, MockProvider, Notice, TurnId};
+use milagre_owner_store::chat_host::{
+    AnswerTicket, ChatHost, MockProvider, Notice, SteeringMode, TurnId,
+};
 use milagre_owner_store::isolation::{Isolation, Policy};
 use milagre_owner_store::jsjson;
 use milagre_owner_store::states::{ProjectStates, Timing};
@@ -41,6 +43,7 @@ fn host_for(
     ));
     host.register(Box::new(mock.clone()));
     host.register(Box::new(MockProvider::sharing("claude", mock)));
+    host.steering = SteeringMode::Recorded;
     let counter = counter.clone();
     host.set_ids(move || {
         let next = counter.fetch_add(1, Ordering::SeqCst) + 1;
@@ -89,6 +92,16 @@ impl Run {
                         Value::Null
                     } else if sent.queued {
                         json!("waiting")
+                    } else if sent.steering {
+                        // The runtime's dispatch, emulated as Node's mocked SessionManager answers a steer.
+                        let request = notices.iter().find_map(|notice| match notice {
+                            Notice::SteerRequested { request, .. } => Some(request.clone()),
+                            _ => None,
+                        });
+                        let mut mock = self.mock.state.lock().unwrap();
+                        mock.turns.extend(request);
+                        mock.next_turn += 1;
+                        json!({ "turnId": format!("turn-{}", mock.next_turn), "steered": true })
                     } else {
                         notices
                             .iter()
@@ -218,7 +231,12 @@ impl Run {
         taken.extend(self.host.take_notices());
         let notices: Vec<Value> = taken
             .into_iter()
-            .filter(|notice| !matches!(notice, Notice::Started { .. } | Notice::AnswerSettled { .. }))
+            .filter(|notice| {
+                !matches!(
+                    notice,
+                    Notice::Started { .. } | Notice::AnswerSettled { .. } | Notice::SteerRequested { .. }
+                )
+            })
             .map(|notice| match notice {
                 Notice::Event {
                     event,
@@ -237,7 +255,9 @@ impl Run {
                 }
                 Notice::Gap { what, .. } => json!({ "gap": what }),
                 Notice::Failed { what, error, .. } => json!({ "failed": what, "error": error }),
-                Notice::Started { .. } | Notice::AnswerSettled { .. } => unreachable!(),
+                Notice::Started { .. } | Notice::AnswerSettled { .. } | Notice::SteerRequested { .. } => {
+                    unreachable!()
+                }
             })
             .chain(late)
             .collect();

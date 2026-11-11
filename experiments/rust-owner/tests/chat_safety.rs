@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use milagre_owner_store::chat_host::{
     AnswerId, AnswerOutcome, AnswerTicket, ChatHost, MockProvider, Notice, ProviderError,
-    ProviderErrorKind, ProviderEvent, TurnId,
+    ProviderErrorKind, ProviderEvent, SteeringMode, TurnId,
 };
 use milagre_owner_store::isolation::{Isolation, Policy};
 use milagre_owner_store::ownership;
@@ -886,4 +886,109 @@ fn an_exit_fails_waiting_answers() {
         settlement(&mut copy, id),
         Some(Err("kiro-cli exited".into()))
     );
+}
+
+/// A Copy whose Chat runs on Claude (which can steer), with steering recorded.
+fn claude_copy(mode: SteeringMode) -> (Copy, MockProvider) {
+    let mut copy = Copy::plain();
+    let claude = MockProvider::sharing("claude", &copy.kiro);
+    copy.host.register(Box::new(claude.clone()));
+    copy.host.steering = mode;
+    copy.send("one", "c1", json!({ "provider": "claude" }))
+        .unwrap();
+    copy.host.pump();
+    let chat = copy.chat();
+    claude.emit(
+        &chat,
+        json!({ "type": "session-started", "nativeId": "native-c" }),
+    );
+    claude.emit(&chat, json!({ "type": "text-delta", "text": "Working." }));
+    assert!(copy.host.pump().is_empty());
+    (copy, claude)
+}
+
+/// Steering admission: production refuses it; recorded, a steer is saved and split as Node does, tells the request,
+/// keeps the running turn (no provider call, no new turn, same generation) and is refused while quitting or closing.
+#[test]
+fn steering_is_gated_or_recorded_never_sent() {
+    let (mut gated, _) = claude_copy(SteeringMode::Gated);
+    let error = gated
+        .send("steer", "c2", json!({ "provider": "claude" }))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Steering a running turn"), "{error}");
+
+    let (mut copy, claude) = claude_copy(SteeringMode::Recorded);
+    let chat = copy.chat();
+    let running = copy.host.active_turn(&chat).unwrap();
+    copy.host.take_notices();
+    let sent = copy
+        .send(
+            "steer",
+            "c2",
+            json!({ "provider": "codex", "model": "other" }),
+        )
+        .unwrap();
+    assert!(sent.steering && sent.turn == Some(running));
+    assert_eq!(copy.started(), 1, "a steer reached a provider");
+    assert_eq!(copy.host.active_turn(&chat), Some(running));
+    let notices = copy.host.take_notices();
+    let request = notices
+        .iter()
+        .find_map(|n| match n {
+            Notice::SteerRequested { turn, request, .. } if *turn == running => {
+                Some(request.clone())
+            }
+            _ => None,
+        })
+        .expect("the steer was told");
+    assert_eq!(request["provider"], "claude");
+    assert_eq!(request["model"], "m");
+    assert_eq!(request["prompt"], "steer");
+    // The reply so far sits above the steering message; the run goes on, steered.
+    let bodies: Vec<String> = copy
+        .messages()
+        .iter()
+        .map(|m| m["body"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(bodies, ["one", "Working.", "steer"]);
+    assert_eq!(copy.host.runs()[&chat]["steered"], true);
+    assert_eq!(copy.session()["provider"], "claude");
+    // The running turn's events still fold, and its end ends it.
+    claude.emit(&chat, json!({ "type": "text-delta", "text": "Steered." }));
+    claude.emit(&chat, json!({ "type": "turn-completed" }));
+    assert!(copy.host.pump().is_empty());
+    assert!(!copy.host.is_busy(&chat));
+    assert_eq!(copy.messages().last().unwrap()["body"], "Steered.");
+
+    // Send now into a turn that can steer stays gated.
+    copy.send("two", "c3", json!({ "provider": "claude" }))
+        .unwrap();
+    copy.host.pump();
+    let queued = copy
+        .send(
+            "three",
+            "c4",
+            json!({ "provider": "claude", "delivery": "queue" }),
+        )
+        .unwrap();
+    assert!(queued.queued);
+    let id = copy.session()["queued"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let error = copy
+        .host
+        .send_queued_now(&chat, &id)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("running turn that can steer"), "{error}");
+
+    // No steer while closing or quitting.
+    copy.host.shutdown(true).unwrap();
+    let error = copy
+        .send("late", "c5", json!({ "provider": "claude" }))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("quitting"), "{error}");
 }

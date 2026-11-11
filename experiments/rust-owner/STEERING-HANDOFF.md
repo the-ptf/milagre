@@ -22,21 +22,53 @@ escalation turn (`wakeTurns`), a Send-now pick being started, a queued message s
    interrupts.
 7. A person's message steered into a Routine's turn takes the turn over (`routineTurns`).
 
-**Rust owner today.** `split_run_for_steer`, the `steered` flag and the `step-started` split are ported and traced
-(the fold side). The send path refuses a steer with the "Steering a running turn" gate, and Send now into a turn that
-can steer is gated too.
+**Rust owner today.**
 
-**Needed.**
+- Fold side ported and traced: `split_run_for_steer`, the `steered` flag, the `step-started` split.
+- Admission and save ported behind `SteeringMode` (default `Gated`: production refuses every steer). With
+  `SteeringMode::Recorded` (conformance only) a steer is admitted into the running turn only (its generation), never
+  while quitting or closing. It keeps the running turn's provider and model, skips the handoff check and the start
+  bookkeeping, is saved and flushed, and `message-sent` splits the reply so far above it. Then
+  `Notice::SteerRequested { chat, turn, request }` carries exactly what Node hands SessionManager.startTurn. No provider
+  is called and nothing settles it. Trace `claude-steering-save` (Node's real ChatHost, its mocked SessionManager
+  answering `{ steered: true }`) covers: a steer with finished and running steps, another provider and model asked,
+  a duplicate, the first text after the steer split as its own reply, a steer with nothing new to split, and a queued
+  send during the turn. All of it matches step for step.
+- Still gated: Send now into a turn that can steer (`sendQueuedNow`'s `steerQueued` path), and any steer in
+  production.
 
-- A provider call distinct from a new turn: `steer(chat, turn, request) -> Result<(), ProviderError>`, nonblocking,
-  `turn` the running one, settling as `Steered { chat, turn, result }` or `SteerFailed { chat, turn, error }`.
-  Events keep the running `TurnId`. Decide whether `SteerFailed` ends the turn (Node) or only refuses the message (the
-  reply split is already saved, so Node's behavior loses nothing but ends the turn).
-- Admission: steer only into the active turn (generation check), never while quitting or closing, never into a
-  wake/escalation turn (Codex roles are immutable per session: see `POLICY-CONTRACT.md`), never while a compaction is
-  pending.
-- Traces: steer with text so far, steer with running steps, steered first text split, Send now steer, steer
-  rejected.
+**Proposed Provider API (not implemented: agree before the Provider shape changes).**
+
+```rust
+pub struct SteerId(pub u64); // host-assigned, one per steering message
+
+// Enqueue only. Err: refused at once (no live session for that turn); nothing was handed over.
+fn steer(&mut self, chat: &str, turn: TurnId, steer: SteerId, request: &Value) -> Result<(), ProviderError>;
+
+ProviderEvent::Steered { chat, turn, steer, result }        // the running turn took it: { turnId: <native>, steered: true }
+ProviderEvent::SteerFailed { chat, turn, steer, failure }   // exactly one of these two per SteerId
+enum SteerFailure { TurnEnded, Failed(ProviderError) }
+```
+
+- **Logical turn and native turns.** One host `TurnId` per run, from its `start_turn` to its single terminal event.
+  - A provider whose steer opens native turns inside the run maps each of them to the run's host `TurnId`, and emits
+    only one terminal: the native end after the last accepted steer. Claude may emit a result per user message, and
+    those intermediate results are not turn ends.
+  - A native turn that begins after the host turn's terminal is never mapped to it. It is an agent-started turn and
+    stays gated.
+  - The adapter proves the mapping by settling every steer of a turn before emitting that turn's terminal. The host
+    drops any `Steered`/`SteerFailed` that doesn't name the running turn and a pending `SteerId`.
+- **No optimistic success.** The sender's reply waits for `Steered` (as for answers, a `SteerTicket::Pending`), with a
+  deadline (`steer_grace_ms`); no settlement in time counts as `Failed`.
+- **`TurnEnded`.** The native turn ended before the message reached it. The message is already saved and split. The
+  host starts it as a new turn (a new `TurnId`) once the end is folded, as Node's SessionManager does with an idle
+  session, unless quitting or closing (then it stays saved and the sender hears `null`). A turn end folded while
+  steers are pending settles them `TurnEnded` too.
+- **`Failed(error)`.** Node folds `turn-failed` for the Chat, ending the running turn. **Decision needed:** keep that
+  parity (recommended first: the reply so far is saved), or refuse only the message.
+- **Admission (cancellable).** Only into the active turn; never while quitting or closing, into a wake or escalation
+  turn (Codex roles are immutable per session, `POLICY-CONTRACT.md`) or while a compaction is pending. Stop or a forced
+  end settles pending steers `TurnEnded` without starting them.
 
 ## Handoffs: switch and restore
 
