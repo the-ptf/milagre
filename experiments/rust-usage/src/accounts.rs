@@ -18,6 +18,7 @@ pub const CHANGED: &str = "usage:changed";
 pub type MetadataFuture<T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send>>;
 type BorrowedFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send + 'a>>;
 pub type AccountRead = Arc<dyn Fn(String, String) -> ReadFuture + Send + Sync>;
+pub type StoreLoad = Arc<dyn Fn(&Selection) -> Result<UsageStore, String> + Send + Sync>;
 pub type Selected = Arc<dyn Fn(Option<&str>) -> Selection + Send + Sync>;
 pub type Emit = Arc<dyn Fn(&str, Value) + Send + Sync>;
 /// IDs already resolved by rust-accounts for a validated scope. Kiro is always default.
@@ -103,13 +104,23 @@ pub struct UsageAccounts {
     options: UsageAccountsOptions,
     readers: Mutex<HashMap<Selection, Arc<UsageReader>>>,
     seeds: Mutex<HashMap<Selection, UsageStore>>,
+    load_store: Option<StoreLoad>,
     environment: Arc<tokio::sync::OnceCell<()>>,
     tasks: Supervisor,
 }
 impl UsageAccounts {
     pub fn new(options: UsageAccountsOptions, seeds: HashMap<Selection, UsageStore>) -> Arc<Self> {
+        Self::with_store_loader(options, seeds, None)
+    }
+    /// Optional trusted lazy loader for selections first encountered after startup. Errors remain retryable.
+    pub fn with_store_loader(
+        options: UsageAccountsOptions,
+        seeds: HashMap<Selection, UsageStore>,
+        load_store: Option<StoreLoad>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             options,
+            load_store,
             readers: Mutex::new(HashMap::new()),
             seeds: Mutex::new(seeds),
             environment: Arc::new(tokio::sync::OnceCell::new()),
@@ -124,37 +135,43 @@ impl UsageAccounts {
             })
             .await;
     }
-    fn reader(&self, selection: &Selection) -> Arc<UsageReader> {
+    fn reader(&self, selection: &Selection) -> Result<Arc<UsageReader>, String> {
         let mut readers = self.readers.lock().unwrap();
-        readers
-            .entry(selection.clone())
-            .or_insert_with(|| {
-                let selection = selection.clone();
-                let read = self.options.read.clone();
-                let environment = self.environment.clone();
-                let ready = self.options.ready.clone();
-                let seed = self.seeds.lock().unwrap().remove(&selection).unwrap_or_default();
-                UsageReader::new(
-                    seed,
-                    Arc::new(move |provider| {
-                        let id = selection.id(&provider).to_owned();
-                        read(provider, id)
-                    }),
-                    self.options.now.clone(),
-                    Arc::new(move || {
-                        let environment = environment.clone();
-                        let ready = ready.clone();
-                        Box::pin(async move {
-                            environment
-                                .get_or_init(|| async {
-                                    let _ = guarded(async { ready().await }).await;
-                                })
-                                .await;
+        if let Some(reader) = readers.get(selection) {
+            return Ok(reader.clone());
+        }
+        let seed = match self.seeds.lock().unwrap().remove(selection) {
+            Some(seed) => seed,
+            None => match &self.load_store {
+                Some(load) => guarded_sync(|| load(selection)).map_err(|_| "Usage cache loader panicked".to_owned())??,
+                None => UsageStore::default(),
+            },
+        };
+        let pinned = selection.clone();
+        let read = self.options.read.clone();
+        let environment = self.environment.clone();
+        let ready = self.options.ready.clone();
+        let reader = UsageReader::new(
+            seed,
+            Arc::new(move |provider| {
+                let id = pinned.id(&provider).to_owned();
+                read(provider, id)
+            }),
+            self.options.now.clone(),
+            Arc::new(move || {
+                let environment = environment.clone();
+                let ready = ready.clone();
+                Box::pin(async move {
+                    environment
+                        .get_or_init(|| async {
+                            let _ = guarded(async { ready().await }).await;
                         })
-                    }),
-                )
-            })
-            .clone()
+                        .await;
+                })
+            }),
+        );
+        readers.insert(selection.clone(), reader.clone());
+        Ok(reader)
     }
     async fn validate_scope(&self, value: &Value) -> Result<Option<String>, String> {
         if value.is_null() {
@@ -203,7 +220,7 @@ impl UsageAccounts {
             self.ready().await;
         }
         let selection = (self.options.selected)(scope.as_deref());
-        let reader = self.reader(&selection);
+        let reader = self.reader(&selection)?;
         let mut snapshot = if refresh { reader.read().await } else { reader.store_snapshot((self.options.now)()) };
         let identities = (self.options.list)().await?;
         snapshot["accountKey"] = json!(selection.account_key());
@@ -245,6 +262,7 @@ impl UsageAccounts {
                 let default = *default;
                 let reader = self.reader(&Selection::pinned(&account.provider, &account.id));
                 Box::pin(async move {
+                    let reader = reader?;
                     let result = if account.state == "ready" {
                         if refresh {
                             Some(reader.provider(&account.provider).await.map_err(str::to_owned)?)

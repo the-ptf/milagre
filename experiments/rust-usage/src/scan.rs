@@ -38,17 +38,15 @@ impl Default for ScanCache {
 }
 impl ScanCache {
     pub fn from_json(v: Value) -> Self {
-        serde_json::from_value::<Self>(v)
-            .ok()
-            .filter(|c| {
-                c.version == 3
-                    && c.files.values().all(|e| {
-                        e.carry.is_object()
-                            && e.sessions.values().all(Value::is_object)
-                            && ["claude", "codex"].contains(&e.provider.as_str())
-                    })
-            })
-            .unwrap_or_default()
+        Self::validated(v).unwrap_or_default()
+    }
+    pub(crate) fn validated(v: Value) -> Option<Self> {
+        serde_json::from_value::<Self>(v).ok().filter(|c| {
+            c.version == 3
+                && c.files.values().all(|e| {
+                    e.carry.is_object() && e.sessions.values().all(Value::is_object) && ["claude", "codex"].contains(&e.provider.as_str())
+                })
+        })
     }
     pub fn to_json(&self) -> Value {
         serde_json::to_value(self).expect("cache serializes")

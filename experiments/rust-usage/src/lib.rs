@@ -6,6 +6,7 @@ pub mod persistence;
 pub mod pricing;
 pub mod report;
 pub mod scan;
+pub mod service;
 pub mod store;
 mod supervisor;
 pub mod transcript;

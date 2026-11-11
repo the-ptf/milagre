@@ -16,7 +16,7 @@ indexmap = { version = "2", features = ["serde"] }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 jiff = { version = "0.2", default-features = false, features = ["std", "tzdb-bundle-always"] }
 regex = "1"
-tokio = { version = "1", features = ["sync", "rt", "macros"] }
+tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

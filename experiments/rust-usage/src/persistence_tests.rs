@@ -313,3 +313,67 @@ async fn unexpected_writer_panic_releases_lease_and_retains_dirty_data() {
     reopened.flush().await.unwrap();
     reopened.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn oversized_corrupt_and_invalid_shape_caches_are_bounded_and_diagnosed() {
+    let cap = TempCache::fresh().unwrap();
+    let owner = cap.open().unwrap();
+    let path = cap.test_directory().join("token-usage.json");
+    fs::File::create(&path).unwrap().set_len(MAX_CACHE_BYTES + 1).unwrap();
+    assert_eq!(owner.load_scan().err().unwrap().kind(), io::ErrorKind::InvalidData);
+    fs::write(&path, b"{").unwrap();
+    assert!(owner.load_scan().unwrap().files.is_empty());
+    fs::write(&path, b"{\"version\":2,\"files\":{}}").unwrap();
+    assert!(owner.load_scan().unwrap().files.is_empty());
+    assert_eq!(owner.diagnostics().len(), 3);
+    assert!(owner.diagnostics()[0].issue.contains("32 MiB"));
+    for _ in 0..40 {
+        owner.load_scan().unwrap();
+    }
+    assert_eq!(owner.diagnostics().len(), 3);
+    fs::write(&path, b"{\"version\":3,\"files\":{},\"finishedAt\":\"bad\"}").unwrap();
+    assert!(owner.load_scan().unwrap().finished_at.is_none());
+    let large = Pricing::from_json(json!({"fetchedAt":"2026-10-30T12:00:00Z","models":{"fixture":"x".repeat(MAX_CACHE_BYTES as usize)}}));
+    assert!(owner.save_pricing(&large).is_err());
+    assert_eq!(owner.dirty_count(), 0);
+    owner.shutdown().await.unwrap();
+}
+#[tokio::test]
+async fn cache_load_releases_state_lock_and_rechecks_latest_pending_value() {
+    let cap = TempCache::fresh().unwrap();
+    let owner = Arc::new(cap.open().unwrap());
+    let (tx, entered) = mpsc::channel();
+    let (resume, rx) = mpsc::channel();
+    *cap.0.disk.load_gate.lock().unwrap() = Some((tx, rx));
+    let reader = owner.clone();
+    let reading = std::thread::spawn(move || reader.load_scan());
+    entered.recv_timeout(Duration::from_secs(2)).unwrap();
+    let scan = ScanCache { finished_at: Some(123), ..ScanCache::default() };
+    owner.save_scan(&scan).unwrap();
+    resume.send(()).unwrap();
+    assert_eq!(reading.join().unwrap().unwrap().finished_at, Some(123));
+    owner.shutdown().await.unwrap();
+}
+#[tokio::test]
+async fn persistence_poison_recovery_allows_flush_close_and_reopen_without_losing_pending_values() {
+    let cap = TempCache::fresh().unwrap();
+    let owner = cap.open().unwrap();
+    let (started, resume) = gate(&cap);
+    owner.save_scan(&ScanCache::default()).unwrap();
+    let flush = owner.flush();
+    entered(started);
+    let shared = owner.shared.clone();
+    let _ = std::panic::catch_unwind(move || {
+        let _state = shared.state.lock().unwrap();
+        panic!("fixture state poison");
+    });
+    assert_eq!(owner.dirty_count(), 1);
+    resume.send(()).unwrap();
+    flush.await.unwrap();
+    owner.shutdown().await.unwrap();
+    assert_eq!(owner.dirty_count(), 0);
+    assert!(owner.save_scan(&ScanCache::default()).is_err());
+    let next = cap.open().unwrap();
+    assert_eq!(next.load_scan().unwrap().version, 3);
+    next.shutdown().await.unwrap();
+}

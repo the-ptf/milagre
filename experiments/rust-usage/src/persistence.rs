@@ -13,6 +13,33 @@ use std::{
 };
 use tokio::sync::watch;
 
+pub const MAX_CACHE_BYTES: u64 = 32 * 1024 * 1024;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CacheDiagnostic {
+    pub slot: String,
+    pub issue: String,
+}
+// All persistence mutexes guard owned maps/flags only. Recover poison so shutdown can retain snapshots.
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+fn validate_size(value: &Value) -> io::Result<()> {
+    struct Count(u64);
+    impl io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0 += bytes.len() as u64;
+            if self.0 > MAX_CACHE_BYTES {
+                Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds 32 MiB limit"))
+            } else {
+                Ok(bytes.len())
+            }
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    serde_json::to_writer(Count(0), value).map_err(io::Error::other)
+}
 type Outcome = Result<(), String>;
 type Reply = watch::Sender<Option<Outcome>>;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -44,25 +71,31 @@ impl Key {
 struct Capability {
     disk: disk::Directory,
     leased: AtomicBool,
-    retained: Mutex<BTreeMap<Key, Value>>,
+    retained: Mutex<BTreeMap<Key, Arc<Value>>>,
+    diagnostics: Mutex<Vec<CacheDiagnostic>>,
 }
 /// Created only by fresh(). Clones name the same temporary cache and cannot create a second writer.
 /// Keep this capability to reopen an owner. Dropping its final reference deletes only its own temp directory.
 #[derive(Clone)]
 pub struct TempCache(Arc<Capability>);
 impl TempCache {
+    #[cfg(all(test, unix))]
+    pub(crate) fn test_directory(&self) -> &std::path::Path {
+        self.0.disk._temp.path()
+    }
     pub fn fresh() -> io::Result<Self> {
         Ok(Self(Arc::new(Capability {
             disk: disk::Directory::fresh()?,
             leased: AtomicBool::new(false),
             retained: Mutex::new(BTreeMap::new()),
+            diagnostics: Mutex::new(Vec::new()),
         })))
     }
     pub fn open(&self) -> io::Result<CacheOwner> {
         if self.0.leased.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
             return Err(io::Error::new(io::ErrorKind::AlreadyExists, "temporary cache already has a writer"));
         }
-        let pending = self.0.retained.lock().unwrap().iter().map(|(k, v)| (k.clone(), Pending { version: 0, value: v.clone() })).collect();
+        let pending = lock(&self.0.retained).iter().map(|(k, v)| (k.clone(), Pending { version: 0, value: v.clone() })).collect();
         let shared = Arc::new(Shared { state: Mutex::new(State { pending, ..State::default() }), wake: Condvar::new() });
         let (closed, closed_rx) = watch::channel(None);
         let cap = self.0.clone();
@@ -70,8 +103,8 @@ impl TempCache {
         let spawn = std::thread::Builder::new().name("usage-cache-writer".into()).spawn(move || {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&cap, &thread_shared)))
                 .unwrap_or_else(|_| Err("cache writer panicked".into()));
-            let mut state = thread_shared.state.lock().unwrap_or_else(|e| e.into_inner());
-            *cap.retained.lock().unwrap() = state.pending.iter().map(|(k, v)| (k.clone(), v.value.clone())).collect();
+            let mut state = lock(&thread_shared.state);
+            *lock(&cap.retained) = state.pending.iter().map(|(k, v)| (k.clone(), v.value.clone())).collect();
             state.closing = true;
             for reply in state.waiters.drain(..) {
                 reply.send_replace(Some(outcome.clone()));
@@ -89,7 +122,7 @@ impl TempCache {
 #[derive(Clone)]
 struct Pending {
     version: u64,
-    value: Value,
+    value: Arc<Value>,
 }
 #[derive(Default)]
 struct State {
@@ -113,13 +146,14 @@ pub struct CacheOwner {
 }
 impl CacheOwner {
     fn stage(&self, key: Key, value: Value) -> io::Result<()> {
-        let mut state = self.shared.state.lock().unwrap();
+        validate_size(&value)?;
+        let mut state = lock(&self.shared.state);
         if state.closing {
             return Err(io::Error::new(io::ErrorKind::BrokenPipe, "cache owner is closing"));
         }
         state.version += 1;
         let version = state.version;
-        state.pending.insert(key, Pending { version, value });
+        state.pending.insert(key, Pending { version, value: Arc::new(value) });
         state.requested = true;
         self.shared.wake.notify_one();
         Ok(())
@@ -132,14 +166,17 @@ impl CacheOwner {
         // Validate every filename before staging anything.
         let entries =
             stores.iter().map(|(s, v)| Ok((Key::quota(s)?, UsageStore::from_json(v).to_json()))).collect::<io::Result<Vec<_>>>()?;
-        let mut state = self.shared.state.lock().unwrap();
+        for (_, value) in &entries {
+            validate_size(value)?;
+        }
+        let mut state = lock(&self.shared.state);
         if state.closing {
             return Err(io::Error::new(io::ErrorKind::BrokenPipe, "cache owner is closing"));
         }
         for (key, value) in entries {
             state.version += 1;
             let version = state.version;
-            state.pending.insert(key, Pending { version, value });
+            state.pending.insert(key, Pending { version, value: Arc::new(value) });
         }
         state.requested = true;
         self.shared.wake.notify_one();
@@ -151,35 +188,87 @@ impl CacheOwner {
     pub fn save_pricing(&self, prices: &Pricing) -> io::Result<()> {
         self.stage(Key::Pricing, prices.current().cloned().unwrap_or(Value::Null))
     }
+    fn diagnostic(&self, key: &Key, issue: &str) {
+        let diagnostic = CacheDiagnostic { slot: key.name().into(), issue: issue.into() };
+        let mut diagnostics = lock(&self.cap.diagnostics);
+        if diagnostics.contains(&diagnostic) {
+            return;
+        }
+        if diagnostics.len() == 32 {
+            diagnostics.remove(0);
+        }
+        diagnostics.push(diagnostic);
+    }
+    pub fn diagnostics(&self) -> Vec<CacheDiagnostic> {
+        lock(&self.cap.diagnostics).clone()
+    }
     fn load(&self, key: Key) -> io::Result<Value> {
-        let state = self.shared.state.lock().unwrap();
+        {
+            let state = lock(&self.shared.state);
+            if state.closing {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "cache owner is closing"));
+            }
+            if let Some(pending) = state.pending.get(&key) {
+                return Ok((*pending.value).clone());
+            }
+        }
+        // No state lock across filesystem reads or JSON parsing.
+        let loaded = self.cap.disk.load(key.name());
+        if let Err(error) = &loaded {
+            self.diagnostic(&key, &error.to_string());
+        }
+        let (value, malformed) = loaded?;
+        if malformed {
+            self.diagnostic(&key, "invalid JSON; empty cache used");
+        }
+        let state = lock(&self.shared.state);
         if state.closing {
             return Err(io::Error::new(io::ErrorKind::BrokenPipe, "cache owner is closing"));
         }
-        if let Some(pending) = state.pending.get(&key) {
-            return Ok(pending.value.clone());
-        }
-        // Hold the state lock to prevent staging while choosing a committed snapshot.
-        self.cap.disk.load(key.name())
+        Ok(state.pending.get(&key).map(|p| (*p.value).clone()).unwrap_or(value))
     }
     pub fn load_quota(&self, selection: &Selection) -> io::Result<UsageStore> {
-        Ok(UsageStore::from_json(&self.load(Key::quota(selection)?)?))
+        let key = Key::quota(selection)?;
+        let value = self.load(key.clone())?;
+        if !value.is_null() && !value.is_object() {
+            self.diagnostic(&key, "invalid quota cache; empty cache used");
+        }
+        let store = UsageStore::from_json(&value);
+        if crate::store::STORE_ORDER
+            .iter()
+            .any(|p| ["last", "blocked"].iter().any(|field| !value[*p][*field].is_null() && store.get(p)[*field].is_null()))
+        {
+            self.diagnostic(&key, "invalid quota fields discarded");
+        }
+        Ok(store)
     }
     pub fn load_scan(&self) -> io::Result<ScanCache> {
-        Ok(ScanCache::from_json(self.load(Key::Scan)?))
+        let value = self.load(Key::Scan)?;
+        let nonempty = !value.is_null();
+        let cache = ScanCache::validated(value);
+        if nonempty && cache.is_none() {
+            self.diagnostic(&Key::Scan, "invalid scanner cache; empty cache used");
+        }
+        Ok(cache.unwrap_or_default())
     }
     pub fn load_pricing(&self) -> io::Result<Pricing> {
-        Ok(Pricing::from_json(self.load(Key::Pricing)?))
+        let value = self.load(Key::Pricing)?;
+        let nonempty = !value.is_null();
+        let pricing = Pricing::from_json(value);
+        if nonempty && pricing.current().is_none() {
+            self.diagnostic(&Key::Pricing, "invalid pricing cache; empty cache used");
+        }
+        Ok(pricing)
     }
     pub fn dirty_count(&self) -> usize {
-        self.shared.state.lock().unwrap().pending.len()
+        lock(&self.shared.state).pending.len()
     }
     /// Completes after saving snapshots staged before this call. Later stages may still be pending.
     /// A failure retains the latest snapshot; an explicit flush or new stage retries it without a busy loop.
     pub fn flush(&self) -> impl std::future::Future<Output = Outcome> + Send + 'static {
         let (reply, rx) = watch::channel(None);
         {
-            let mut state = self.shared.state.lock().unwrap();
+            let mut state = lock(&self.shared.state);
             if state.closing {
                 reply.send_replace(Some(Err("cache owner is closing".into())));
             } else {
@@ -198,7 +287,7 @@ impl CacheOwner {
         wait(self.closed.clone())
     }
     fn seal(&self) {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = lock(&self.shared.state);
         if !state.closing {
             state.closing = true;
             state.requested = true;
@@ -225,13 +314,14 @@ async fn wait(mut rx: watch::Receiver<Option<Outcome>>) -> Outcome {
 fn run(cap: &Capability, shared: &Shared) -> Outcome {
     loop {
         let (batch, replies, closing) = {
-            let mut state = shared.state.lock().unwrap();
+            let mut state = lock(&shared.state);
             while !state.requested {
-                state = shared.wake.wait(state).unwrap();
+                state = shared.wake.wait(state).unwrap_or_else(|e| e.into_inner());
             }
             if !state.immediate {
                 // One bounded debounce interval coalesces bursts; notifications do not extend it indefinitely.
-                state = shared.wake.wait_timeout_while(state, Duration::from_millis(10), |s| !s.immediate).unwrap().0;
+                state =
+                    shared.wake.wait_timeout_while(state, Duration::from_millis(10), |s| !s.immediate).unwrap_or_else(|e| e.into_inner()).0;
             }
             state.requested = false;
             state.immediate = false;
@@ -241,7 +331,7 @@ fn run(cap: &Capability, shared: &Shared) -> Outcome {
         for (key, pending) in batch {
             match cap.disk.save(key.name(), &pending.value) {
                 Ok(()) => {
-                    let mut state = shared.state.lock().unwrap();
+                    let mut state = lock(&shared.state);
                     if state.pending.get(&key).is_some_and(|v| v.version == pending.version) {
                         state.pending.remove(&key);
                     }
@@ -273,6 +363,8 @@ mod disk {
         pub(super) gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
         #[cfg(test)]
         pub(super) attempts: std::sync::atomic::AtomicUsize,
+        #[cfg(test)]
+        pub(super) load_gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
         dir: File,
     }
     impl Directory {
@@ -289,6 +381,8 @@ mod disk {
                 gate: Mutex::new(None),
                 #[cfg(test)]
                 attempts: std::sync::atomic::AtomicUsize::new(0),
+                #[cfg(test)]
+                load_gate: Mutex::new(None),
             })
         }
         fn open(&self, name: &str, flags: i32) -> io::Result<File> {
@@ -302,18 +396,32 @@ mod disk {
                 Ok(unsafe { File::from_raw_fd(fd) })
             }
         }
-        pub fn load(&self, name: &str) -> io::Result<Value> {
-            let mut file = match self.open(name, libc::O_RDONLY) {
+        pub fn load(&self, name: &str) -> io::Result<(Value, bool)> {
+            #[cfg(test)]
+            if let Some((entered, resume)) = lock(&self.load_gate).take() {
+                let _ = entered.send(());
+                resume.recv_timeout(Duration::from_secs(5)).unwrap();
+            }
+            let file = match self.open(name, libc::O_RDONLY) {
                 Ok(f) => f,
-                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Value::Null),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Value::Null, false)),
                 Err(e) => return Err(e),
             };
             if !file.metadata()?.is_file() {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "cache is not a regular file"));
             }
+            if file.metadata()?.len() > MAX_CACHE_BYTES {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds 32 MiB limit"));
+            }
             let mut bytes = Vec::new();
-            file.read_to_end(&mut bytes)?;
-            Ok(serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+            file.take(MAX_CACHE_BYTES + 1).read_to_end(&mut bytes)?;
+            if bytes.len() as u64 > MAX_CACHE_BYTES {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds 32 MiB limit"));
+            }
+            Ok(match serde_json::from_slice(&bytes) {
+                Ok(v) => (v, false),
+                Err(_) => (Value::Null, true),
+            })
         }
         pub fn save(&self, name: &str, value: &Value) -> io::Result<()> {
             #[cfg(test)]
@@ -361,7 +469,7 @@ mod disk {
         pub fn fresh() -> io::Result<Self> {
             Err(io::Error::new(io::ErrorKind::Unsupported, "temporary atomic caches require Unix directory handles"))
         }
-        pub fn load(&self, _: &str) -> io::Result<Value> {
+        pub fn load(&self, _: &str) -> io::Result<(Value, bool)> {
             unreachable!()
         }
         pub fn save(&self, _: &str, _: &Value) -> io::Result<()> {

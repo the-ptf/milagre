@@ -109,6 +109,48 @@ never imply readiness. Readiness comes only from the trusted account snapshot. T
 synthetic-only; metadata-first creation and multi-file recovery remain account-service gaps. This crate does not
 invoke preparation, inspect its state or derive a profile directory; usage persistence remains isolated.
 
+## Isolated service facade
+
+`service::UsageService::open(&TempCache, ServiceOptions).await -> Result<Arc<_>, String>` combines the owners above.
+Options contain trusted `accounts: UsageAccountsOptions`, explicit `roots: Vec<CopiedRoot>`, `projects`,
+`fetch_catalog`, `home`, `worktree_root` and `default_time_zone`. The account clock and event sink are also used for
+token usage. No cross-crate account API changes are needed. No transport, root discovery or socket routing is added.
+Use a Tokio runtime with timers; this crate enables the `time` feature.
+
+- `handle(command, &argument).await` dispatches the four usage commands and `token-usage:read`. Usage arguments
+  are scope/null; token arguments are the existing request object. Scope validation and selected-ID capture remain
+  in `UsageAccounts`. Scan/pricing load before callbacks run. Quota loads lazily through additive
+  `UsageAccounts::with_store_loader`, so an account first selected after startup still rehydrates its own cache.
+  Lazy-loader errors/panics do not poison readers or memoize an empty store and can be retried.
+- Before invoking an injected provider reader, the facade rechecks the pinned ID against a fresh trusted account
+  snapshot. Removed and non-ready IDs return unavailable without invoking the reader or substituting another ID.
+  This is a deliberate stronger guard than Node's scoped path; the underlying `UsageAccounts` still preserves its
+  original Node behavior. A read already started keeps its captured identity. Removed-account readers and last-good
+  cached data remain available for Node's `Removed account` display and are not deleted from disk. Re-added or newly
+  ready accounts are checked again on the next read; readiness failures are not negatively cached by this guard.
+  Global environment readiness still uses Node's once-only catch behavior. Preparation is never treated as login.
+- Token reads use `TokenUsage`'s existing 30-second scan/attribution behavior. A dedicated scanner thread coalesces
+  scans over only the supplied copied roots and stages changed cache exports. It is not aborted mid-file. Pricing
+  starts from supplied `fetch_catalog` on demand and stages successful refreshes. Price-change events wait for cache
+  flush success, as Node does. `refresh_prices().await -> Result<bool, String>` explicitly waits for the same refresh
+  and backoff policy; callback failure/panic clears refresh state, keeps old prices, and allows a later retry.
+- `flush().await` waits for snapshots already staged, not arbitrary active provider/scan/catalog work.
+  `dirty_count()` and `cache_diagnostics()` expose persistence state. A supervised retry task starts at 100 ms and
+  doubles after failed flushes to a 5-second maximum; success/idle resets it. It retries while the service is open,
+  without restarting any provider callback. Cached quota commands do not stage new writes.
+- **Await `shutdown()` before releasing the service or stopping Tokio.** Calling it seals commands and suppresses
+  new event delivery immediately, even if its returned future is never polled. The retained shutdown task stops
+  retries, cancels/awaits command, account, token and pricing callbacks, waits for the scanner thread, exports every
+  final quota/scan/pricing state, then awaits cache shutdown. Completed provider results survive cancellation of
+  another provider or a command waiter. Failed final writes remain in the capability for a new service to retry.
+  Repeated shutdown calls observe the same result. Dropping the service alone does not promise final export or
+  callback cancellation; keeping Tokio alive through shutdown is part of the owner contract.
+
+Snapshot guards do not revoke an already-running read when metadata changes. Removed cache entries are retained
+for compatibility, so privacy-driven cache deletion needs a separate explicit API. Copied roots are fixed for the
+service lifetime; changing them requires closing and reopening the service. Blocking OS I/O cannot be forcibly
+cancelled; shutdown waits for its scanner/cache workers. Events are fully quiescent when shutdown completes.
+
 ## Temporary persistence API
 
 `persistence::TempCache::fresh() -> io::Result<TempCache>` is the only disk capability constructor. It creates a new
@@ -128,11 +170,21 @@ an exclusive writer lease; a second owner returns `AlreadyExists` until the firs
 - `load_quota(&Selection)`, `load_scan()` and `load_pricing()` rehydrate typed caches. Loads return pending latest
   data first, then committed disk data. Missing or invalid JSON becomes the existing empty cache state; I/O errors,
   symlinks and non-regular files return errors. Existing stricter scanner-shape validation still applies. Imported
-  scanner paths never authorize reads; callers must separately supply explicit copied transcript roots.
+  scanner paths never authorize reads; callers must separately supply explicit copied transcript roots. Reads and
+  staged saves are capped at `MAX_CACHE_BYTES` (32 MiB per file). Disk reads/JSON parsing occur outside the state
+  lock, then pending state is checked again. `diagnostics()` returns up to 32 deduplicated recent load issues
+  (slot and reason, never file contents), including malformed JSON, invalid shapes, size limits and I/O failures.
+  Malformed data still falls back to empty, matching Node; over-limit files return errors. Over-limit save snapshots
+  are rejected before staging and are not part of failed-write retention. This is a per-file limit, not a global
+  memory budget across all account selections.
 - `flush().await -> Result<(), String>` waits for snapshots staged before the call; later stages may remain pending.
   A single dedicated worker coalesces bursts over 10 ms. Versions prevent an older successful write from clearing a
   newer staged value. Failed snapshots remain dirty without automatic retry loops; a new save, flush or shutdown
   retries them. `dirty_count()` reports pending slots. Errors do not prevent other slots from being saved.
+  Worker batches/failed-state retention share immutable snapshots through `Arc`, avoiding deep copies per retry.
+  Persistence mutex poisoning is deliberately recovered: they guard only owned maps/flags, and close must retain
+  pending values even after a worker panic. The facade supplies the retry scheduler; standalone CacheOwner still
+  retries only on an explicit save/flush/shutdown.
 - `shutdown().await -> Result<(), String>` seals new saves immediately and attempts a final flush. Dropping or never
   polling the returned future does not cancel the worker. Drop also requests shutdown, but explicit shutdown is
   required to observe its result. Failed snapshots remain in the capability for the next owner to retry. A worker
@@ -185,8 +237,8 @@ Preserved Node behavior:
 
 ## Verification
 
-On macOS arm64: **42 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
-command traces**, account isolation, callback lifecycle and **11 persistence tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
+On macOS arm64: **56 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
+command traces**, account isolation, callback lifecycle and **14 persistence tests**, plus **11 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
 from Rust output. Codex is an EventEmitter fixture; Claude uses supplied synthetic credential text and a fake fetch.
 No provider process, keychain access or network transport is available to the fixture sandbox.
 
@@ -208,7 +260,11 @@ stubbed to throw if accessed. Command fixtures compare exactly. `tests/fixtures/
 Node disk implementations in guarded fresh temporary directories: three saved cache shapes, two process-local
 umasks, restart results and four malformed inputs. Scanner fixture warnings are fatal. Rust checks compare those
 outputs and cover actual filesystem failures, retry retention, coalescing, cancelled waits, worker panic, single-writer
-leases, temp cleanup, symlink/hard-link replacement and incremental scans after reopen.
+leases, temp cleanup, symlink/hard-link replacement and incremental scans after reopen. Service tests replay the
+first 16 existing command traces for available account IDs, then independently cover the stronger removed/non-ready
+account guard, startup rehydration, callback cancellation, final-export ordering, retries and diagnostics. Additional
+persistence checks cover oversized/sparse files, malformed shapes, poison recovery and a blocked disk read that does
+not prevent staging a newer value.
 Object keys and optional/null fields compare exactly; numeric values use a relative tolerance of `1e-12` because
 JavaScript has one numeric type and floating arithmetic may differ in the final bits.
 
