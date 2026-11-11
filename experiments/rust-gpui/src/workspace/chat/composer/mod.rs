@@ -28,7 +28,7 @@ mod bar;
 #[cfg(test)]
 mod bar_tests;
 mod chips;
-mod context;
+pub(crate) mod context;
 mod editor;
 mod external;
 mod history;

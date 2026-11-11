@@ -41,7 +41,7 @@ impl PanelTab {
     /// in the same column here.
     pub fn width_rule(self) -> WidthRule {
         match self {
-            PanelTab::Changes | PanelTab::Pr => WidthRule { min: 280.0, default: 320.0, max: 640.0 },
+            PanelTab::Changes | PanelTab::Pr | PanelTab::Details => WidthRule { min: 280.0, default: 320.0, max: 640.0 },
             PanelTab::Designs | PanelTab::Artifact => WidthRule { min: 440.0, default: 560.0, max: 1400.0 },
             PanelTab::Simulator => WidthRule { min: 320.0, default: 400.0, max: 800.0 },
         }

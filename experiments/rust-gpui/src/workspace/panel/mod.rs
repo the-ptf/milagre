@@ -12,6 +12,7 @@
 pub mod artifacts;
 pub mod changes;
 pub mod designs;
+pub mod details;
 pub mod diff;
 pub mod dock;
 pub mod fixture;
@@ -36,6 +37,7 @@ use gpui_component::resizable::ResizableState;
 use self::artifacts::ArtifactsView;
 use self::changes::ChangesView;
 use self::designs::DesignsView;
+use self::details::DetailsView;
 use self::fixture::ChatContent;
 use self::pr::{PrEvent, PrView};
 use self::simulator::{SimulatorEvent, SimulatorView};
@@ -53,6 +55,9 @@ pub enum PanelTab {
     Designs,
     Artifact,
     Pr,
+    /// The Chat's environment, context, Subchats, background tasks and links (not in `ALL`, which the desktop's
+    /// panel toggles list; Details is new). Always shown, after the PR.
+    Details,
     /// Shown only while the Chat has a simulator attached, after the others (not in `ALL`).
     Simulator,
 }
@@ -61,12 +66,17 @@ impl PanelTab {
     /// Terminals live in the drawer under the Chat (`panel/terminal/`), as on the desktop.
     pub const ALL: [PanelTab; 4] = [PanelTab::Changes, PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr];
 
+    /// Every tab the strip can show, in order.
+    pub const SHOWN: [PanelTab; 6] =
+        [PanelTab::Changes, PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr, PanelTab::Details, PanelTab::Simulator];
+
     pub fn label(self) -> &'static str {
         match self {
             PanelTab::Changes => "Changes",
             PanelTab::Designs => "Designs",
             PanelTab::Artifact => "Artifact",
             PanelTab::Pr => "PR",
+            PanelTab::Details => "Details",
             PanelTab::Simulator => "Simulator",
         }
     }
@@ -78,6 +88,7 @@ impl PanelTab {
             PanelTab::Designs => IconName::PaintBoard,
             PanelTab::Artifact => IconName::File01,
             PanelTab::Pr => IconName::GitPullRequest,
+            PanelTab::Details => IconName::InformationCircle,
             PanelTab::Simulator => IconName::Smartphone,
         }
     }
@@ -122,6 +133,7 @@ pub struct Panel {
     artifacts: Entity<ArtifactsView>,
     designs: Entity<DesignsView>,
     pr: Entity<PrView>,
+    details: Entity<DetailsView>,
     simulator: Entity<SimulatorView>,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
     renders: usize,
@@ -170,11 +182,13 @@ impl Panel {
                 cx.new(|cx| ArtifactsView::new(&panel, cx))
             },
             pr,
+            details: cx.new(DetailsView::new),
             designs: cx.new(DesignsView::new),
             simulator,
             renders: 0,
         };
         panel.load_simulator(cx);
+        panel.load_details(cx);
         panel.apply_env_seed(cx);
         panel
     }
@@ -184,6 +198,23 @@ impl Panel {
         let chat = self.chat.clone();
         self.simulator.update(cx, |view, cx| view.set_chat(chat, cx));
         self.content.simulator = self.simulator.read(cx).attached_count() > 0;
+    }
+
+    /// Shows this Chat's Details.
+    fn load_details(&mut self, cx: &mut Context<Self>) {
+        let (chat, pr) = (self.chat.clone(), self.content.pr);
+        let seeded = self.seeded.as_ref() == Some(&chat);
+        self.details.update(cx, |details, cx| details.set_chat(chat, pr, seeded, cx));
+    }
+
+    pub fn details(&self) -> &Entity<DetailsView> {
+        &self.details
+    }
+
+    /// Every Chat with its mark (the sidebar's `family_chats`), for the Details tab's Subchats. The Workspace sends
+    /// it as it does to the Chat column.
+    pub fn set_family(&mut self, chats: &[crate::workspace::chat::pills::bookmark::FamilyChat], cx: &mut Context<Self>) {
+        self.details.update(cx, |details, cx| details.set_family(chats, cx));
     }
 
     /// A device was attached or detached: the tab comes and goes with it.
@@ -212,10 +243,7 @@ impl Panel {
         if let Some(width) = std::env::var("MILAGRE_GPUI_PANEL_WIDTH").ok().and_then(|w| w.parse::<f32>().ok()) {
             self.set_width(width);
         }
-        if let Some(tab) = std::env::var("MILAGRE_GPUI_PANEL_TAB")
-            .ok()
-            .and_then(|n| PanelTab::ALL.into_iter().chain([PanelTab::Simulator]).find(|t| t.label() == n))
-        {
+        if let Some(tab) = std::env::var("MILAGRE_GPUI_PANEL_TAB").ok().and_then(|n| PanelTab::SHOWN.into_iter().find(|t| t.label() == n)) {
             self.state_mut().tab = tab;
         }
         if std::env::var("MILAGRE_GPUI_PANEL_EXPANDED").is_ok_and(|v| v == "1") {
@@ -253,7 +281,7 @@ impl Panel {
 
     /// The tabs the Chat on screen has, in order.
     pub fn visible_tabs(&self) -> Vec<PanelTab> {
-        PanelTab::ALL.into_iter().chain([PanelTab::Simulator]).filter(|tab| self.content.has(*tab)).collect()
+        PanelTab::SHOWN.into_iter().filter(|tab| self.content.has(*tab)).collect()
     }
 
     /// The open tab's width: dragged this session, else its default.
@@ -305,6 +333,7 @@ impl Panel {
             PanelTab::Artifact => Some(self.artifacts.clone().into()),
             PanelTab::Designs => Some(self.designs.clone().into()),
             PanelTab::Pr => Some(self.pr.clone().into()),
+            PanelTab::Details => Some(self.details.clone().into()),
             PanelTab::Simulator => Some(self.simulator.clone().into()),
         }
     }
@@ -346,6 +375,7 @@ impl Panel {
         self.chat = chat;
         self.content = fixture::content_for(&self.chat, self.seeded.as_deref());
         self.load_simulator(cx);
+        self.load_details(cx);
         // A tab this Chat has no content for falls back to Changes.
         if !self.content.has(self.state().tab) {
             self.state_mut().tab = PanelTab::Changes;

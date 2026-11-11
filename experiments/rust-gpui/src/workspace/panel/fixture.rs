@@ -26,6 +26,7 @@ impl ChatContent {
             PanelTab::Designs => self.designs,
             PanelTab::Artifact => self.artifacts,
             PanelTab::Pr => self.pr.is_some(),
+            PanelTab::Details => true,
             PanelTab::Simulator => self.simulator,
         }
     }

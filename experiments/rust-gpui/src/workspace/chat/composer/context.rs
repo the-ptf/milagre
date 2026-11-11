@@ -21,8 +21,8 @@ use crate::logic::usage::report::context_summary;
 use crate::theme::{ActiveTheme, CONTROL_SM, RADIUS_CONTROL, RADIUS_WINDOW, TEXT_11, TEXT_12, TextStepExt, Theme};
 
 /// `CONTEXT_DEFAULTS`: the percentages where Compact appears and where Milagre compacts by itself.
-const BUTTON_THRESHOLD: f32 = 70.0;
-const AUTO_THRESHOLD: f32 = 85.0;
+pub(crate) const BUTTON_THRESHOLD: f32 = 70.0;
+pub(crate) const AUTO_THRESHOLD: f32 = 85.0;
 /// `CONTEXT_GRADIENT_COLORS` and `CONTEXT_GRADIENT_STOPS` (`context-settings.mjs`): the bar's fixed gradient.
 const GRADIENT: [(u32, f32); 4] = [(0x78b1b1, 0.0), (0xe0c271, 0.55), (0xf1933e, 0.78), (0xcf4e3e, 1.0)];
 const CARD_WIDTH: f32 = 264.0;
@@ -215,10 +215,15 @@ fn card(
 
 /// `ContextBar`: the gradient track filled to `percent`, with the Compact and automatic thresholds above it.
 fn bar(theme: &Theme, percent: i64) -> impl IntoElement {
-    let fill = BAR_WIDTH * (percent as f32).clamp(0.0, 100.0) / 100.0;
+    bar_at(theme, percent, BAR_WIDTH)
+}
+
+/// [`bar`] at another width: the Details tab draws it across its own column.
+pub(crate) fn bar_at(theme: &Theme, percent: i64, bar_width: f32) -> impl IntoElement {
+    let fill = bar_width * (percent as f32).clamp(0.0, 100.0) / 100.0;
     let segments = GRADIENT.windows(2).map(|pair| {
         let ((from, at), (to, until)) = (pair[0], pair[1]);
-        div().absolute().top_0().bottom_0().left(px(BAR_WIDTH * at)).w(px(BAR_WIDTH * (until - at))).bg(linear_gradient(
+        div().absolute().top_0().bottom_0().left(px(bar_width * at)).w(px(bar_width * (until - at))).bg(linear_gradient(
             90.0,
             linear_color_stop(rgb(from), 0.0),
             linear_color_stop(rgb(to), 1.0),
@@ -228,7 +233,7 @@ fn bar(theme: &Theme, percent: i64) -> impl IntoElement {
         div()
             .absolute()
             .top_0()
-            .left(px(BAR_WIDTH * at / 100.0 - 16.0))
+            .left(px(bar_width * at / 100.0 - 16.0))
             .w(px(32.0))
             .flex()
             .flex_col()
@@ -250,7 +255,7 @@ fn bar(theme: &Theme, percent: i64) -> impl IntoElement {
                     .left_0()
                     .w(px(fill))
                     .overflow_hidden()
-                    .child(div().absolute().top_0().bottom_0().left_0().w(px(BAR_WIDTH)).children(segments)),
+                    .child(div().absolute().top_0().bottom_0().left_0().w(px(bar_width)).children(segments)),
             ),
         )
         .child(marker(BUTTON_THRESHOLD, theme.orange, theme.orange_ink))
