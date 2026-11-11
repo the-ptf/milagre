@@ -141,9 +141,13 @@ async function run() {
   assert.ok(!status.capabilities.includes("state-patches-v1"));
   assert.ok(!status.capabilities.includes("desktop-v1"));
   await assert.rejects(runtime.openProject(oracleRoot), { code: "ISOLATED_SCOPE_ONLY" });
+  let inboxError;
   const scopes = [];
+  const { inboxSnapshot } = await import("../../../packages/shared/src/attention.mjs");
   let observedLazyChats = 0;
-  for (const [name, { source, oracle }] of copies) {
+  // Compare valid inboxes first, then admit alpha and require whole-inbox refusal.
+  for (const name of ["legacy", "surrogates", "large", "alpha"]) {
+    const { source, oracle } = copies.get(name);
     stage = `${name} owned state and lazy message reads`;
     const open = await runtime.openProject(source);
     const current = await states.get(oracle);
@@ -205,11 +209,22 @@ async function run() {
     assert.deepEqual(reread.state, normalize(wholeState(await states.get(oracle))));
     assert.equal(reread.version, 1);
     assert.equal((await runtime.invoke("state:read", [source])).version, 1);
-    scopes.push({ path: source, name, state: await states.inboxState(oracle) });
+    if (name === "alpha") {
+      // Production summaries expose unread Chat 7's malformed object body. Node refuses the whole inbox.
+      await assert.rejects(states.inboxState(oracle), (error) => {
+        assert.equal(error.name, "TypeError");
+        assert.equal(error.message, "body?.slice is not a function");
+        inboxError = error.message;
+        return true;
+      });
+    } else {
+      scopes.push({ path: source, name, state: await states.inboxState(oracle) });
+      assert.deepEqual(await runtime.invoke("chat:inbox"), normalize(inboxSnapshot(scopes)));
+    }
   }
   assert.ok(observedLazyChats > 0);
-  const { inboxSnapshot } = await import("../../../packages/shared/src/attention.mjs");
-  assert.deepEqual(await runtime.invoke("chat:inbox"), normalize(inboxSnapshot(scopes)));
+  assert.equal(inboxError, "body?.slice is not a function");
+  await assert.rejects(runtime.invoke("chat:inbox"), { message: inboxError });
   stage = "owned snapshots and explicit mutation refusals";
   const snapshot = await client.call("daemon:snapshot", [{ paged: true }]);
   assert.ok(snapshot.pageCount > 100);
