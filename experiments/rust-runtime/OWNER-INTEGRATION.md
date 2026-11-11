@@ -49,7 +49,7 @@ Executable teardown uses `Server::finish` to wait for EOF/request references and
 ## Codex process bridge fixture
 
 `codex_fixture::CodexFixture` now implements this nonblocking provider boundary for the
-repository's Node fake app-server only. Fifteen integration tests cover process lifecycle,
+repository's Node fake app-server only. Sixteen integration tests cover process lifecycle,
 generations, bounded admission/events and a real ChatHost durable queue. No executable wires
 it by default. See [CODEX-FIXTURE.md](CODEX-FIXTURE.md) for the exact constructor restrictions,
 confirmed async answer settlement, unsupported owner behavior and validation scope.
@@ -65,3 +65,8 @@ actor returns `ANSWER_DELIVERY_UNKNOWN` on an uncertain settlement, ignores late
 for RPC purposes, and configures a combined 32-slot pending/uncertain capacity. Owner messages
 stay recorded across timeout or session closure. RawJson events/results are normalized only
 inside ChatHost, so adapters never double-escape native Unicode markers.
+
+Outbound fixture requests decode the owner codec before reaching Codex. Only text prompt/answer
+copies replace lone UTF-16 units with U+FFFD; their saved originals remain lossless. Opaque
+identities stay strict. A bounded Node-fake receive probe verifies actual provider payloads and
+an owner reopen verifies the original disk records.

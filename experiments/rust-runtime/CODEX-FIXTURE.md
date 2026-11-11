@@ -27,7 +27,12 @@ Native turn ids filter terminal events; duplicate ends are ignored. Startup fail
 Early cancellation drops the library's cancel-safe startup future. Started sessions explicitly
 await `close` and process reaping on their worker. Drop only signals workers; the owner actor
 never joins them. `FixtureMonitor::wait_stopped` is a blocking test helper, not an actor API.
-The profile remains alive through every worker and retained monitor.
+The profile remains alive through every worker and retained monitor. A cancelled startup's
+provider supervisor may still need to reap its process after the session future drops. The
+private executor keeps running until its spawned tasks drain, and only then releases the
+worker count/profile. A cleanup that does not drain remains visible as an active worker; the
+owner actor never waits on it. The regression checks PID absence immediately after monitor
+completion and passed 12 consecutive cancellation runs after fixing an observed teardown race.
 
 ## Bounds and refusal behavior
 
@@ -57,8 +62,11 @@ Closing the generation frees its slots while retaining uncertain messages as his
 
 Provider Agent events and Started results carry raw serde JSON in `RawJson`. ChatHost performs
 the only owner-codec normalization. The adapter no longer pre-encodes output. Owner input is
-decoded before passing it to Codex; real private-use/noncharacter text is preserved. Lone UTF-16
-units remain explicitly refused because the provider transport uses serde_json Unicode strings.
+decoded before passing it to Codex; real private-use/noncharacter text is preserved. Prompt and
+answer text replace lone UTF-16 units with U+FFFD only in the outbound native copy because the
+provider transport uses serde_json Unicode strings. Stored originals remain lossless. Session,
+request and question identities plus model/resume metadata remain strict: a lone unit is refused
+rather than replacing it and possibly aliasing another identity.
 
 Step, plan, subagent and other mapped events are forwarded unchanged. The owner now folds these event types, but this integration suite has not verified every event
 through the production UI. Provider policy/instruction/account assembly, live images/tools,
@@ -69,14 +77,14 @@ This checkpoint makes no real-provider compatibility claim.
 
 `cargo test --manifest-path experiments/rust-runtime/Cargo.toml --test codex_bridge`
 executes the actual repository Node fake, with an environment containing only private HOME,
-CODEX_HOME, the fixture scenario and LANG. Fifteen tests cover:
+CODEX_HOME, the fixture scenario and LANG. Sixteen tests cover:
 
 - Explicit resume, ordered text, sequential host generations and exactly one terminal event.
 - Slow/stubborn interrupt, cancelled initialize/thread start, crash and failed resume. Tests
   identify children by their private fixture cwd and verify process death, not just worker exit.
 - Immediate close followed by a replacement session, stale interrupt and old-generation exit.
 - Unsupported policy/image/instruction configurations, confirmed approval/question answers, session and
-  event-queue limits, terminal reserve, Unicode marker decoding and lone-unit refusal.
+  event-queue limits, terminal reserve, Unicode marker decoding and strict identity checks.
 - Actual ChatHost integration: durable first send, durable queued send, mapped replies and
   graceful idle shutdown. Question tickets wait for native settlement and unknown requests
   preserve saved state. The native fake creates no real model turn and consumes no credentials.
@@ -93,3 +101,9 @@ OS pipe. Tests also prove saved answer retention, blocked retry, combined slot e
 late confirmation without another RPC reply, and raw Unicode markers through the full owner.
 The production Node client suite fills all 32 uncertain slots, checks capacity refusal, closes
 the generation and proves a new generation can answer again.
+
+`QuestionInputProbe` queries the real Node fake's `fake/received` endpoint after sending the
+prompt and the answer. It retains only the selected latest native input/reply snapshot, capped
+at 4 MiB, and is never a production-provider option. The integration test compares both actual
+received payloads for U+10FFFE, plane-15/BMP private-use text, emoji and half-surrogates, then
+closes and reopens the Project to prove saved prompt/answer UTF-16 units were not rewritten.

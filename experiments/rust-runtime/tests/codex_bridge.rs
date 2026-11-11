@@ -109,14 +109,10 @@ fn cancelled_initialization_and_thread_start_do_not_pin_the_owner() {
         let pid = fixture_child(p.project());
         drop(p);
         assert!(monitor.wait_stopped(Duration::from_secs(3)));
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while alive(pid) {
-            assert!(
-                Instant::now() < deadline,
-                "cancelled startup left child {pid}"
-            );
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        assert!(
+            !alive(pid),
+            "worker reported stopped before cancelled child {pid} was reaped"
+        );
     }
 }
 #[test]
@@ -357,11 +353,11 @@ fn session_limit_is_bounded_and_one_hung_chat_does_not_block_another() {
 }
 
 #[test]
-fn owner_unicode_markers_are_decoded_and_lone_units_are_explicitly_refused() {
+fn owner_unicode_identities_are_decoded_and_lone_identity_units_are_refused() {
     let mut p = CodexFixture::create(Scenario::Reply).unwrap();
     let monitor = p.monitor();
     let mut req = request(&p, "chat");
-    req["prompt"] = milagre_owner_store::jsjson::parse(r#""half\ud800""#).unwrap();
+    req["resumeId"] = milagre_owner_store::jsjson::parse(r#""half\ud800""#).unwrap();
     assert!(p
         .start_turn(TurnId(1), &req)
         .unwrap_err()
@@ -722,4 +718,82 @@ fn delayed_receipt_keeps_history_blocks_retry_and_resolves_without_second_rpc_no
     assert_eq!(host.answers_in_flight(), 0);
     host.shutdown(false).unwrap();
     assert!(monitor.wait_stopped(Duration::from_secs(3)));
+}
+
+#[test]
+fn native_cli_receives_decoded_prompt_and_answers_while_disk_keeps_original_utf16() {
+    use milagre_owner_store::jsjson;
+    let p = CodexFixture::create(Scenario::QuestionInputProbe).unwrap();
+    let monitor = p.monitor();
+    let project = p.project().to_path_buf();
+    let isolation = p.isolation();
+    let mut host = ChatHost::new(ProjectStates::new(
+        isolation.clone(),
+        Timing::default(),
+        1000,
+    ));
+    host.register(Box::new(p));
+    let chat = agent_runs::chat_key(project.to_str().unwrap(), &json!(1));
+    let prefix = "prompt marker:\u{10fffe}\u{f0000} PUA:\u{e000} emoji:😀 halves:";
+    let mut prompt_units: Vec<u16> = prefix.encode_utf16().collect();
+    prompt_units.extend([0xd800, 0x20, 0xdc00]);
+    let prompt = jsjson::from_utf16(&prompt_units);
+    let native_prompt = String::from_utf16_lossy(&prompt_units);
+    host.send(&json!({"projectPath":project,"sessionId":1,"provider":"codex","body":prompt,"permissionMode":"ask","clientMessageId":"codec-input"})).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(host.pump().is_empty());
+        if host
+            .take_notices()
+            .iter()
+            .any(|n| matches!(n,Notice::Event{event,..}if event["type"]=="question-request"))
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        monitor.native_input_probe().unwrap()["input"][0]["text"],
+        native_prompt
+    );
+    let mut answer_units: Vec<u16> = "answer marker:\u{10fffe}\u{f0000} PUA:\u{e000} half:"
+        .encode_utf16()
+        .collect();
+    answer_units.extend([0xd83d, 0x21]);
+    let answer = jsjson::from_utf16(&answer_units);
+    let native_answer = String::from_utf16_lossy(&answer_units);
+    let AnswerTicket::Pending(id)=host.answer_question(&json!({"chatId":chat,"requestId":"srv-q","summary":answer,"answers":{"color":[answer]}})).unwrap() else {panic!("must await native receipt")};
+    loop {
+        assert!(host.pump().is_empty());
+        if host.take_notices().iter().any(|n|matches!(n,Notice::AnswerSettled{answer:known,result:AnswerResult::Accepted,..}if *known==id)){break}
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let probe = monitor.native_input_probe().unwrap();
+    assert_eq!(probe["input"][0]["text"], native_prompt);
+    assert_eq!(
+        probe["answer"]["result"]["answers"]["color"]["answers"][0],
+        native_answer
+    );
+    while host.is_busy(&chat) {
+        assert!(host.pump().is_empty());
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    host.shutdown(false).unwrap();
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+    let mut reopened = ProjectStates::new(isolation, Timing::default(), 2000);
+    let state = reopened.whole_state(&project).unwrap();
+    let messages = state["messages"].as_array().unwrap();
+    assert!(messages.iter().any(|m| m["role"] == "user"
+        && m["clientMessageId"] == "codec-input"
+        && m["body"]
+            .as_str()
+            .is_some_and(|s| jsjson::to_utf16(s) == prompt_units)));
+    assert!(messages.iter().any(|m| m["role"] == "user"
+        && m["body"]
+            .as_str()
+            .is_some_and(|s| jsjson::to_utf16(s) == answer_units)));
+    reopened.close().unwrap();
 }

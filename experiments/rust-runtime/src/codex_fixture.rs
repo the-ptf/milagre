@@ -45,6 +45,7 @@ pub enum Scenario {
     SlowStop,
     LateApproval,
     QuestionDelayedReceipt,
+    QuestionInputProbe,
     Steps,
 }
 impl Scenario {
@@ -62,6 +63,7 @@ impl Scenario {
             Self::SlowStop => "slow-stop",
             Self::LateApproval => "late-approval",
             Self::QuestionDelayedReceipt => "question",
+            Self::QuestionInputProbe => "question",
             Self::Steps => "steps",
         }
     }
@@ -93,6 +95,7 @@ struct Shared {
     answers: Mutex<HashSet<(String, AnswerId)>>,
     workers: Mutex<usize>,
     observations: Mutex<VecDeque<NativeObservation>>,
+    input_probe: Mutex<Option<Value>>,
     drained: Condvar,
 }
 impl Shared {
@@ -151,6 +154,11 @@ impl FixtureMonitor {
             .rev()
             .find(|v| v.0 == chat)
             .map(|v| (v.1, v.2.clone()))
+    }
+    /// Selected frames reported by the Node fake itself; only QuestionInputProbe records them.
+    /// At most one snapshot, capped at 4 MiB, is retained. Never enabled for a real provider.
+    pub fn native_input_probe(&self) -> Option<Value> {
+        self.shared.input_probe.lock().unwrap().clone()
     }
     pub fn workers(&self) -> usize {
         *self.shared.workers.lock().unwrap()
@@ -288,6 +296,7 @@ impl CodexFixture {
                 answers: Mutex::new(HashSet::new()),
                 workers: Mutex::new(0),
                 observations: Mutex::new(VecDeque::new()),
+                input_probe: Mutex::new(None),
                 drained: Condvar::new(),
             }),
             slots: HashMap::new(),
@@ -450,10 +459,17 @@ impl Provider for CodexFixture {
     }
     fn start_turn(&mut self, id: TurnId, request: &Value) -> Result<(), ProviderError> {
         let chat = self.validate(id, request)?;
-        let native_request: Value =
-            serde_json::from_str(&jsjson::to_string(request)).map_err(|_| {
-                refused("Lone UTF-16 units are not supported by the Codex fixture bridge")
-            })?;
+        // Text may contain a half-surrogate in stored JavaScript strings. serde_json's
+        // provider protocol needs Unicode, so replace only the outbound text copy.
+        // Identities remain strict: replacement could alias a different native session.
+        let prompt =
+            String::from_utf16_lossy(&jsjson::to_utf16(request["prompt"].as_str().unwrap()));
+        let mut metadata = request.clone();
+        metadata["prompt"] = Value::Null;
+        let mut native_request = RawJson::decode(&metadata)
+            .map_err(|_| refused("Lone UTF-16 units in provider identities are unsupported"))?
+            .0;
+        native_request["prompt"] = Value::String(prompt);
         self.slots
             .retain(|_, slot| !slot.done.load(Ordering::Acquire));
         let existing = self.slots.contains_key(&chat);
@@ -489,7 +505,15 @@ impl Provider for CodexFixture {
                         .build()
                     {
                         Ok(runtime) => {
-                            runtime.block_on(worker.run(rx, answers_rx, close_rx, interrupt_rx))
+                            runtime.block_on(async {
+                                worker.run(rx, answers_rx, close_rx, interrupt_rx).await;
+                                // Dropping a cancelled startup signals its process, but the
+                                // detached supervisor still owns wait/reaping. Keep this private
+                                // executor and profile alive until its tasks really drain.
+                                while runtime.metrics().num_alive_tasks() != 0 {
+                                    tokio::time::sleep(Duration::from_millis(2)).await;
+                                }
+                            });
                         }
                         Err(_) => {
                             // Construction can fail after synchronous admission. Settle that
@@ -598,9 +622,6 @@ impl Provider for CodexFixture {
         if answers.to_string().len() > REQUEST_BYTES {
             return Err(refused("Oversized fixture answer"));
         }
-        let answers: Value = serde_json::from_str(&jsjson::to_string(answers)).map_err(|_| {
-            refused("Lone UTF-16 units are not supported by the Codex fixture bridge")
-        })?;
         let outcome = if answers.is_null() {
             codex::approvals::QuestionOutcome::Dismissed
         } else {
@@ -616,15 +637,15 @@ impl Provider for CodexFixture {
                     .ok_or_else(|| refused("Invalid fixture answers"))?;
                 let mut strings = Vec::new();
                 for value in items {
-                    strings.push(
-                        value
-                            .as_str()
-                            .filter(|v| v.encode_utf16().count() <= 10000)
-                            .ok_or_else(|| refused("Invalid fixture answer text"))?
-                            .into(),
-                    );
+                    let text = value
+                        .as_str()
+                        .filter(|v| jsjson::utf16_len(v) <= 10000)
+                        .ok_or_else(|| refused("Invalid fixture answer text"))?;
+                    strings.push(String::from_utf16_lossy(&jsjson::to_utf16(text)));
                 }
-                values.push((id.clone(), strings));
+                let native_id = String::from_utf16(&jsjson::to_utf16(id))
+                    .map_err(|_| refused("Lone UTF-16 question identities are unsupported"))?;
+                values.push((native_id, strings));
             }
             codex::approvals::QuestionOutcome::Answered(values)
         };
@@ -692,7 +713,7 @@ impl Worker {
         );
     }
     async fn run(
-        self,
+        &self,
         mut commands: mpsc::Receiver<Start>,
         mut answers: mpsc::Receiver<Reply>,
         mut close: watch::Receiver<bool>,
@@ -798,6 +819,9 @@ impl Worker {
                     Some(Ok(outcome)) => {
                         native = outcome.turn_id.clone();
                         running = true;
+                        if matches!(self.scenario, Scenario::QuestionInputProbe) {
+                            tokio::select! {biased; _=close.changed()=>break, _=probe_inputs(&session,&self.shared,&self.chat)=>{}}
+                        }
                         if !self.shared.emit(
                             ProviderEvent::Started {
                                 chat: self.chat.clone(),
@@ -852,6 +876,7 @@ impl Worker {
                     if reply.turn!=latest {reply.guard.settle(AnswerOutcome::NotWaiting);} else {
                         let session=session.clone();
                         let delayed_receipt=matches!(self.scenario,Scenario::QuestionDelayedReceipt);
+                        let probe=matches!(self.scenario,Scenario::QuestionInputProbe).then(||(self.shared.clone(),self.chat.clone()));
                         reply_tasks.spawn(async move {
                             let mut guard=reply.guard;
                             guard.entered=true;
@@ -859,6 +884,7 @@ impl Worker {
                                 ReplyKind::Permission(decision)=>session.respond_to_permission(&reply.request_id,decision).await,
                                 ReplyKind::Question(outcome)=>session.answer_question(&reply.request_id,outcome).await,
                             };
+                            if let Some((shared,chat))=probe {probe_inputs(&session,&shared,&chat).await;}
                             // Deterministic fixture: the native frame is written before receipt
                             // publication is delayed. Cancellation here must retain uncertainty.
                             if delayed_receipt && matches!(result,Ok(true)) {tokio::time::sleep(Duration::from_millis(400)).await;}
@@ -881,5 +907,35 @@ impl Worker {
         }
         session.close().await;
         self.exit(latest);
+    }
+}
+
+/// This endpoint exists only in the checked-in Node fake. Record selected native frames,
+/// never the whole growing transcript or environment, and retain at most one bounded snapshot.
+async fn probe_inputs(session: &CodexSession, shared: &Shared, chat: &str) {
+    let Ok(result) = session
+        .client()
+        .rpc()
+        .request_with_timeout("fake/received", json!({}), Some(Duration::from_millis(500)))
+        .await
+    else {
+        return;
+    };
+    let Some(received) = result["received"].as_array() else {
+        return;
+    };
+    let input = received
+        .iter()
+        .rev()
+        .find(|frame| frame["method"] == "turn/start")
+        .map(|frame| frame["params"]["input"].clone());
+    let answer = received
+        .iter()
+        .rev()
+        .find(|frame| frame.get("method").is_none() && frame.get("result").is_some())
+        .cloned();
+    let selected = json!({"chat":chat,"input":input,"answer":answer});
+    if selected.to_string().len() <= BYTES {
+        *shared.input_probe.lock().unwrap() = Some(selected);
     }
 }
