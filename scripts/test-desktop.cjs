@@ -87,6 +87,34 @@ function packagedRaster(executable) {
   return path.join(resources, "app.asar/node_modules/@milagre/core/src/design-raster.cjs");
 }
 
+async function stopFixtureHost(client, profile) {
+  const started = Date.now();
+  const controller = new AbortController();
+  const closed = once(client, "close", { signal: controller.signal });
+  const timeout = setTimeout(() => controller.abort(new Error("Timed out: daemon transport close")), 31000);
+  try {
+    // The ownership lock is released before the transport closes. Wait for both the acknowledgment and close,
+    // so a replacement cannot accidentally attach to the host that is still stopping.
+    await Promise.all([client.call("daemon:stop"), closed]);
+    console.log(`PASS: daemon:stop acknowledged and transport closed (${Date.now() - started} ms)`);
+  } catch (error) {
+    let diagnostic;
+    try {
+      diagnostic = await require("@milagre/daemon/client").connect({ dataDir: profile, timeoutMs: 1000 });
+      const { pid, closing } = await diagnostic.call("daemon:status");
+      console.error("Host after failed stop:", { pid, closing, elapsedMs: Date.now() - started });
+    } catch (statusError) {
+      console.error("Host after failed stop:", statusError.message);
+    } finally {
+      diagnostic?.close();
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+  }
+}
+
 async function checkApp({ executable, args, profile, project, expectTheme, expectStartupError = false, onboarding, recoverOwnership }) {
   console.log(`CHECK: ${expectTheme ? "installed" : "source"} desktop${expectStartupError ? " ownership recovery" : onboarding ? " onboarding" : ""}`);
   const env = { ...process.env };
@@ -494,7 +522,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     })()`);
     const hostControl = await require("@milagre/daemon/client").connect({ dataDir: profile });
     try {
-      await hostControl.call("daemon:stop");
+      await stopFixtureHost(hostControl, profile);
     } finally {
       hostControl.close();
     }
@@ -511,7 +539,16 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         return error.code === "ENOENT";
       }
     }, "old host shutdown");
-    const restarted = await require("@milagre/daemon/bootstrap").ensureDaemon({ dataDir: profile, version: "0.1.0", cwd: project });
+    const resources = process.platform === "darwin" ? path.join(path.dirname(executable), "../Resources") : path.join(path.dirname(executable), "resources");
+    const restarted = await require("@milagre/daemon/bootstrap").ensureDaemon({
+      dataDir: profile,
+      version: "0.1.0",
+      cwd: project,
+      chatsHome: path.join(profile, "chats-home"),
+      executable,
+      // Restart the runtime being tested, including its installed asar, rather than the harness's external Node.
+      entry: args.length ? path.join(root, "apps/daemon/src/cli.cjs") : path.join(resources, "app.asar/node_modules/@milagre/daemon/src/cli.cjs"),
+    });
     restarted.close();
     await waitFor(() => evaluate('!document.querySelector("[data-host-disconnected]")'), "desktop reconnect without reload");
     assert.equal(await evaluate("document.querySelector('[data-prompt-editor]').value"), "Keep this unsent draft");
@@ -670,7 +707,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       const shared = await require("@milagre/daemon/client").connect({ dataDir: profile });
       try {
         assert.ok((await shared.call("daemon:status")).capabilities.includes("desktop-v1"));
-        await shared.call("daemon:stop");
+        await stopFixtureHost(shared, profile);
       } finally {
         shared.close();
       }
