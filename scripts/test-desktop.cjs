@@ -87,7 +87,7 @@ function packagedRaster(executable) {
   return path.join(resources, "app.asar/node_modules/@milagre/core/src/design-raster.cjs");
 }
 
-async function checkApp({ executable, args, profile, project, expectTheme, expectStartupError = false, onboarding, recoverOwnership }) {
+async function checkApp({ executable, args, profile, project, expectTheme, expectStartupError = false, onboarding, reducedMotion, recoverOwnership }) {
   console.log(`CHECK: ${expectTheme ? "installed" : "source"} desktop${expectStartupError ? " ownership recovery" : onboarding ? " onboarding" : ""}`);
   const env = { ...process.env };
   env.MILAGRE_CHATS_HOME = path.join(profile, "chats-home");
@@ -133,6 +133,10 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
       return result.result.value;
     };
+    if (reducedMotion) {
+      await connection.call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+      await connection.call("Page.reload");
+    }
     if (onboarding) {
       const shot = async (name) => {
         if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
@@ -147,6 +151,20 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         "first-launch intro",
       );
       assert.ok(await evaluate('!!document.querySelector("[data-onboarding-intro][data-playing]")'), "the intro plays once the splash has gone");
+      const simple = await evaluate('!!window.milagreLaunch.simpleIntro || matchMedia("(prefers-reduced-motion: reduce)").matches');
+      if (args.includes("--disable-gpu") || reducedMotion) assert.ok(simple, "software rendering and reduced motion use the simple intro");
+      assert.equal(await evaluate('document.querySelector("[data-onboarding-intro]").hasAttribute("data-simple")'), simple);
+      assert.equal(
+        await evaluate('!!document.querySelector("[data-onboarding-intro] feTurbulence")'),
+        !simple,
+        "only the accelerated intro mounts cloud filters",
+      );
+      if (simple) {
+        await waitFor(
+          () => evaluate('getComputedStyle(document.querySelector("[data-intro-begin]")).opacity === "1"'),
+          "static intro has a visible Begin button",
+        );
+      }
       await click("[data-intro-begin]");
       await waitFor(
         () => evaluate('document.querySelector("[data-onboarding]")?.dataset.step === "1" && !document.querySelector("[data-onboarding-intro]")'),
@@ -741,13 +759,20 @@ async function main() {
     const claudeHome = path.join(temporary, "claude-home");
     await fs.mkdir(path.join(claudeHome, "projects", "-notes"), { recursive: true });
     await fs.writeFile(path.join(claudeHome, "projects", "-notes", "session.jsonl"), `${JSON.stringify({ type: "user", cwd: plainFolder })}\n`);
-    await checkApp({
-      executable: require("electron"),
-      args: [path.join(root, "apps/desktop")],
-      profile: path.join(temporary, "fresh-profile"),
-      project: freshFolder,
-      onboarding: { claudeHome, codexHome: path.join(temporary, "codex-home"), plainFolder },
-    });
+    for (const mode of ["normal", "software", "reduced-motion"]) {
+      // A fresh install must not discover Projects from the developer's real ~/Developer or ~/.milagre/worktrees.
+      const freshProfile = path.join(temporary, `fresh-profile-${mode}`);
+      await fs.mkdir(freshProfile);
+      await fs.writeFile(path.join(freshProfile, "project-registry.json"), JSON.stringify({ scanned: true, projects: [] }));
+      await checkApp({
+        executable: require("electron"),
+        args: [path.join(root, "apps/desktop"), ...(mode === "software" ? ["--disable-gpu"] : [])],
+        profile: freshProfile,
+        project: freshFolder,
+        onboarding: { claudeHome, codexHome: path.join(temporary, "codex-home"), plainFolder },
+        reducedMotion: mode === "reduced-motion",
+      });
+    }
     await checkApp({ executable: require("electron"), args: [path.join(root, "apps/desktop")], profile, project, expectTheme: false });
     await checkDesignRaster({ executable: require("electron"), raster: path.join(root, "packages/core/src/design-raster.cjs"), label: "source" });
     const packagedIndex = process.argv.indexOf("--packaged");

@@ -116,6 +116,14 @@ async function startDesktop() {
   const { createFloatingInbox } = require("./floating-inbox.cjs");
   background.start();
   await app.whenReady();
+  // Decide before the first renderer paint: Dawn's full-window SVG filters can stall software rasterization.
+  // "complete" waits for GPU initialization; "basic" can still report the initial software defaults on a GPU Mac.
+  const simpleIntro = await app.getGPUInfo("complete").then(
+    (info) =>
+      /** @type {{ auxAttributes?: { softwareRendering?: boolean } }} */ (info).auxAttributes?.softwareRendering === true ||
+      !app.getGPUFeatureStatus().gpu_compositing?.startsWith("enabled"),
+    () => true,
+  );
   const preferences = require("./preferences.cjs").createPreferencesStore(path.join(app.getPath("userData"), "preferences.json"));
   const hiddenChats = require("./hidden-chats.cjs").createHiddenChats(preferences);
   /** @type {(() => void) | null} */
@@ -720,7 +728,11 @@ async function startDesktop() {
         nodeIntegration: false,
         // The Browser panel's pages; browser-guests.cjs locks each one down before it attaches.
         webviewTag: true,
-        additionalArguments: [`--milagre-window-controls=${chrome.controls}`, `--milagre-opened-projects-before=${hasOpenedProjectsBefore() ? 1 : 0}`],
+        additionalArguments: [
+          `--milagre-window-controls=${chrome.controls}`,
+          `--milagre-opened-projects-before=${hasOpenedProjectsBefore() ? 1 : 0}`,
+          `--milagre-simple-intro=${simpleIntro ? 1 : 0}`,
+        ],
       },
     });
     mainWindow = window;

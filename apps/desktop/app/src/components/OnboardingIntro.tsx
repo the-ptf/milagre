@@ -36,7 +36,7 @@ function CloudBank({
   top: number;
   bottom: number;
   shade: string;
-  filter: string;
+  filter?: string;
   className?: string;
 }) {
   const blobs = useMemo(() => {
@@ -51,7 +51,7 @@ function CloudBank({
   }, [seed, count, top, bottom]);
   return (
     <svg className={`onboarding-layer ${className ?? ""}`} viewBox={`0 0 ${SKY_W} ${SKY_H}`} preserveAspectRatio="none" aria-hidden>
-      <g filter={`url(#${filter})`}>
+      <g filter={filter ? `url(#${filter})` : undefined}>
         <g style={{ fill: shade }}>
           {blobs.map((blob) => (
             <ellipse key={blob.id} cx={blob.x} cy={blob.y + blob.ry * 0.35} rx={blob.rx} ry={blob.ry} />
@@ -73,12 +73,14 @@ function CloudFilters() {
   return (
     <svg width="0" height="0" className="absolute" aria-hidden>
       <defs>
-        <filter id="onboarding-cloudy" x="-50%" y="-80%" width="200%" height="260%">
+        {/* Only the sky plus the displacement/blur margin is visible. Object-relative bounds also include the
+            cloud banks' off-screen fill rectangle and rasterize millions of unnecessary noise pixels. */}
+        <filter id="onboarding-cloudy" filterUnits="userSpaceOnUse" x={-100} y={-100} width={SKY_W + 200} height={SKY_H + 200}>
           <feTurbulence type="fractalNoise" baseFrequency="0.011" numOctaves={4} seed={7} result="noise" />
           <feDisplacementMap in="SourceGraphic" in2="noise" scale={70} xChannelSelector="R" yChannelSelector="G" />
           <feGaussianBlur stdDeviation={5} />
         </filter>
-        <filter id="onboarding-cloudy-soft" x="-50%" y="-80%" width="200%" height="260%">
+        <filter id="onboarding-cloudy-soft" filterUnits="userSpaceOnUse" x={-100} y={-100} width={SKY_W + 200} height={SKY_H + 200}>
           <feTurbulence type="fractalNoise" baseFrequency="0.008" numOctaves={3} seed={3} result="noise" />
           <feDisplacementMap in="SourceGraphic" in2="noise" scale={90} xChannelSelector="R" yChannelSelector="G" />
           <feGaussianBlur stdDeviation={14} />
@@ -122,6 +124,8 @@ function tailAngle() {
  */
 export function OnboardingIntro({ onBegin, onDone }: { onBegin: () => void; onDone: () => void }) {
   const { phase } = useSplash();
+  // Do not mount the expensive filters even for one frame on a software renderer or under reduced motion.
+  const [simple] = useState(() => !!window.milagreLaunch?.simpleIntro || window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [leaving, setLeaving] = useState(false);
   const [angle, setAngle] = useState(tailAngle);
   useEffect(() => {
@@ -144,16 +148,17 @@ export function OnboardingIntro({ onBegin, onDone }: { onBegin: () => void; onDo
   return (
     <section
       data-onboarding-intro
+      data-simple={simple || undefined}
       data-playing={phase === "gone" || undefined}
       data-leaving={leaving || undefined}
       aria-labelledby="onboarding-intro-title"
       className="onboarding-intro"
       style={{ "--intro-tail-angle": `${angle}deg` } as CSSProperties}
       onAnimationEnd={(event) => {
-        if (event.animationName === "onboarding-intro-leave") onDone();
+        if (event.target === event.currentTarget && leaving) onDone();
       }}
     >
-      <CloudFilters />
+      {!simple && <CloudFilters />}
       <div className="onboarding-layer onboarding-intro-night" />
       <div className="onboarding-layer onboarding-intro-dawn" />
       <div className="onboarding-layer onboarding-intro-day" />
@@ -166,9 +171,17 @@ export function OnboardingIntro({ onBegin, onDone }: { onBegin: () => void; onDo
         top={SKY_H * 0.74}
         bottom={SKY_H * 0.9}
         shade="#e3d9ee"
-        filter="onboarding-cloudy-soft"
+        filter={simple ? undefined : "onboarding-cloudy-soft"}
       />
-      <CloudBank className="onboarding-intro-clouds" seed={9} count={10} top={SKY_H * 0.84} bottom={SKY_H * 0.97} shade="#efe2dc" filter="onboarding-cloudy" />
+      <CloudBank
+        className="onboarding-intro-clouds"
+        seed={9}
+        count={10}
+        top={SKY_H * 0.84}
+        bottom={SKY_H * 0.97}
+        shade="#efe2dc"
+        filter={simple ? undefined : "onboarding-cloudy"}
+      />
       <div className="onboarding-intro-halo" aria-hidden />
       <svg className="onboarding-intro-mark" viewBox="-4 -4 154 154" aria-hidden>
         <path className="onboarding-intro-leg" d={MARK_LEFT} />
