@@ -45,3 +45,11 @@ The Node client suite and four admission/provider-budget/publication unit tests 
 The actor now retains unsent wire events on publication failure, closes admission, and refuses cached snapshots until restart. Durable stop remains available. A failed stop keeps pumping provider lifecycle events so delayed cancellation can complete. `state:read` gets its revision after cache publication. Forced destruction after a failed stop is explicitly crash-equivalent, not a successful durable shutdown.
 
 Executable teardown uses `Server::finish` to wait for EOF/request references and actual temporary-profile destruction. A successful stop acknowledgment alone cannot guarantee background-thread destructors run before a Rust executable returns from `main`. `finish` does not remove arbitrary paths and returns a timeout if its retained fixture handles do not drain.
+
+## Codex process bridge fixture
+
+`codex_fixture::CodexFixture` now implements this nonblocking provider boundary for the
+repository's Node fake app-server only. Ten integration tests cover process lifecycle,
+generations, bounded admission/events and a real ChatHost durable queue. No executable wires
+it by default. See [CODEX-FIXTURE.md](CODEX-FIXTURE.md) for the exact constructor restrictions,
+async-answer refusal, unsupported owner behavior and validation scope.
