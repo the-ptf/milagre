@@ -181,6 +181,17 @@ const UNSUPPORTED_MUTATIONS: &[&str] = &[
     "artifact:add-comments",
 ];
 impl Handler for ReadHandler {
+    fn decode_request(&self, frame: &[u8]) -> Result<Value, RpcError> {
+        jsjson::parse_bytes(frame)
+            .map_err(|_| RpcError::new("INVALID_REQUEST", "Expected a JSON frame"))
+    }
+    fn encode_request_id(&self, id: &Value) -> Result<String, RpcError> {
+        Ok(jsjson::to_string(id))
+    }
+    fn string_len(&self, text: &str) -> usize {
+        jsjson::utf16_len(text)
+    }
+
     fn methods(&self) -> Vec<String> {
         let mut methods: Vec<String> = READ_METHODS
             .iter()
@@ -235,11 +246,6 @@ impl Handler for ReadHandler {
                 })?
                 .invoke_ports(method, args);
         }
-        // Wire arguments are ordinary serde Unicode. Storage uses an escaped internal representation
-        // for lone UTF-16 units and literal marker characters, so import incoming domain values once.
-        let imported = jsjson::parse(&Value::Array(args.to_vec()).to_string())
-            .map_err(|error| RpcError::new("INVALID_REQUEST", error))?;
-        let args = imported.as_array().expect("array encoded above");
         if artifacts::METHODS.contains(&method) {
             if let Some(artifacts) = &self.artifacts {
                 return artifacts.invoke(method, args.first().unwrap_or(&Value::Null));

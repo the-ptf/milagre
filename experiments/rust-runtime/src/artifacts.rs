@@ -277,7 +277,7 @@ fn convert(error: ContentError) -> RpcError {
             error.code
         },
         message: error.message,
-        details: error.issues,
+        details: error.issues.map(|issues| *issues),
     }
 }
 

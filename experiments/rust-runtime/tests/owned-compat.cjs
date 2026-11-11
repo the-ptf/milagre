@@ -4,6 +4,8 @@ const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 const fs = require("node:fs");
 const path = require("node:path");
+const net = require("node:net");
+const { wire } = require("../../../apps/daemon/src/protocol.cjs");
 const readline = require("node:readline");
 const { createHash } = require("node:crypto");
 const { connect } = require("../../../apps/daemon/src/client.cjs");
@@ -40,6 +42,83 @@ const deadline = setTimeout(() => {
 const copies = new Map();
 const digest = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 const normalize = (value) => JSON.parse(JSON.stringify(value));
+async function raw(socketPath) {
+  const socket = net.createConnection(socketPath);
+  await once(socket, "connect");
+  const messages = [];
+  let wake;
+  const protocol = wire(socket, {
+    onMessage: (message) => {
+      messages.push(message);
+      wake?.();
+    },
+    onInvalid: (error) => {
+      throw error;
+    },
+  });
+  const next = async () => {
+    while (!messages.length)
+      await new Promise((resolve) => {
+        wake = resolve;
+      });
+    wake = null;
+    return messages.shift();
+  };
+  return {
+    socket,
+    next,
+    call: async (id, method, args = [], pages = false) => {
+      protocol.send({ v: 1, id, method, args, pages });
+      return next();
+    },
+  };
+}
+async function unicodeWire(socketPath, project) {
+  const connection = await raw(socketPath);
+  try {
+    for (const id of ["\ud83d", "\ude00", "\ud83d\ude00", "\u{10fffe}", "\u{f003d}", "\u{10fffe}\u{f003d}", "\ud83d".repeat(128), "\u{10fffe}".repeat(64)]) {
+      assert.deepEqual(await connection.call(id, "designs:enabled:read"), { v: 1, id, result: { enabled: true } }, "request ID returns losslessly");
+      const failed = await connection.call(id, "not-a-method");
+      assert.equal(failed.id, id, "error envelope ID returns losslessly");
+      assert.equal(failed.error.code, "COMMAND_FAILED");
+    }
+    for (const id of ["\ud83d".repeat(129), "\u{10fffe}".repeat(65)]) {
+      const failed = await connection.call(id, "designs:enabled:read");
+      assert.equal(failed.id, null);
+      assert.equal(failed.error.code, "INVALID_REQUEST");
+    }
+    const id = "page-\ud83d-\u{10fffe}\u{f003d}";
+    const capture = await connection.call(id, "project:read", [project], true);
+    assert.equal(capture.id, id);
+    assert.ok(capture.pages.pageCount > 1);
+    const fragments = [];
+    for (let n = 0; n < capture.pages.pageCount; n++) {
+      const result = await connection.call(id, "daemon:result-page", [capture.pages.pageId, n]);
+      assert.equal(result.id, id);
+      fragments.push(result.result);
+    }
+    const restored = JSON.parse(fragments.join(""));
+    assert.equal(restored.state.sessions[1].title, "half \ud83d");
+    assert.ok(JSON.stringify(restored).includes("real \u{10fffe}"));
+  } finally {
+    connection.socket.destroy();
+  }
+  for (const frame of [
+    "[".repeat(129) + "0" + "]".repeat(129) + "\n",
+    "x".repeat(4097) + "\n",
+    '{"v":1,"id":"bad","method":"designs:enabled:read","args":["\\uNOPE"]}\n',
+  ]) {
+    const invalid = await raw(socketPath);
+    try {
+      invalid.socket.write(frame);
+      const reply = await invalid.next();
+      assert.equal(reply.id, null);
+      assert.equal(reply.error.code, frame.startsWith("x") ? "FRAME_TOO_LARGE" : "INVALID_REQUEST");
+    } finally {
+      invalid.socket.destroy();
+    }
+  }
+}
 async function run() {
   const [line] = await once(lines, "line");
   metadata = JSON.parse(line);
@@ -80,7 +159,7 @@ async function run() {
       await runtime.invoke("chat:all-messages", [source, { marks: true, withState: true }]),
       normalize(await states.messageMarks(oracle, { withState: true })),
     );
-    for (const query of ["needle", "question", "legacy", "🦀", "no-such-result"]) {
+    for (const query of ["needle", "question", "legacy", "🦀", "\ud83d", "\ude00", "\u{10fffe}", "\u{10fffe}\u{f003d}", "no-such-result"]) {
       const state = await states.get(oracle);
       const active = Object.values(state.sessions)
         .filter((chat) => !chat.archived)
@@ -101,7 +180,15 @@ async function run() {
       const loaded = await states.load(oracle, [chat.id]);
       assert.deepEqual(await runtime.invoke("chat:messages", [source, chat.id, options]), normalize(chatPage(loaded.messages, chat.id, options)));
     }
-    for (const identity of ["cm-1", "queued-1", "legacy-queued", "cm-real-10fffe\u{10fffe}"]) {
+    for (const identity of [
+      "cm-1",
+      "queued-1",
+      "legacy-queued",
+      "cm-\ud83d-lone",
+      "queued-\ude00",
+      "cm-real-10fffe\u{10fffe}",
+      "cm-\u{10fffe}\u{f003d}-lone",
+    ]) {
       const message = await states.findMessage(oracle, "clientMessageId", identity);
       const pending = Object.values((await states.get(oracle)).sessions).find((chat) => chat.queued?.some((item) => item.clientMessageId === identity));
       assert.deepEqual(
@@ -136,6 +223,8 @@ async function run() {
     assert.equal(digest(file), before);
     assert.equal(await runtime.invoke("chat:send-status", [source, "never-sent"]), null);
   }
+  stage = "lossless request IDs, pages and frame limits";
+  await unicodeWire(metadata.socket, copies.get("surrogates").source);
   stage = "owned terminal resolver";
   const chatId = `${copies.get("alpha").source}#1`;
   const terminal = await runtime.invoke("terminal:open", [{ chatId }]);
@@ -148,6 +237,14 @@ async function run() {
     output += read.data;
     after = read.offset;
   }
+  const nativeText = "lone:\ud83d marker:\u{10fffe}\u{f003d}";
+  await runtime.invoke("terminal:input", [{ terminalId: terminal.id, data: `printf '\\nNATIVE_%s\\n' '${nativeText}'\n` }]);
+  while (!output.includes(`NATIVE_${nativeText.toWellFormed()}\r\n`)) {
+    const read = await runtime.invoke("terminal:read", [{ terminalId: terminal.id, after }]);
+    output += read.data;
+    after = read.offset;
+  }
+  await assert.rejects(runtime.invoke("terminal:input", [{ terminalId: "bad\ud83d", data: "never sent" }]), { code: "UNSUPPORTED_UTF16_IDENTITY" });
   await runtime.invoke("terminal:close", [{ terminalId: terminal.id }]);
   console.log(
     `Owned Rust runtime conformance passed: 4 isolated Projects, ${observedLazyChats} lazy Chats, Node ProjectStates parity, search, subagents, inbox, pages, real PTY`,

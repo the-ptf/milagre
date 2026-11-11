@@ -1,7 +1,7 @@
 use crate::{
     pages::Pages,
     profile::assert_same_user,
-    protocol::{encode, read_frame, safe_integer, valid_id},
+    protocol::{read_frame_with, safe_integer, valid_id_with},
     IsolatedProfile, RpcError, RpcResult, MAX_FRAME_BYTES, MAX_PENDING, VERSION,
 };
 use hmac::{Hmac, Mac};
@@ -87,6 +87,18 @@ impl ClientContext {
 
 /// A future owner adapter implements this boundary. No Project or provider implementation is implied.
 pub trait Handler: Send + Sync + 'static {
+    /// Decode one bounded frame. The same representation must be used by encode_request_id,
+    /// encode_result and string_len. Default handlers use ordinary Unicode; an owner may use lossless UTF-16.
+    fn decode_request(&self, frame: &[u8]) -> Result<Value, RpcError> {
+        serde_json::from_slice(frame)
+            .map_err(|_| RpcError::new("INVALID_REQUEST", "Expected a JSON frame"))
+    }
+    fn encode_request_id(&self, id: &Value) -> Result<String, RpcError> {
+        Ok(id.to_string())
+    }
+    fn string_len(&self, string: &str) -> usize {
+        string.encode_utf16().count()
+    }
     fn methods(&self) -> Vec<String>;
     fn invoke(&self, method: &str, args: &[Value], context: &ClientContext) -> RpcResult;
     /// Called under the publication lock. Do not publish events from inside snapshot.
@@ -484,11 +496,12 @@ impl Client {
         }
         let reading = client.clone();
         let max_frame = inner.config.max_frame_bytes;
+        let codec = inner.handler.clone();
         thread::spawn(move || {
             let mut reader = BufReader::new(reader);
             let mut challenge = None;
             loop {
-                match read_frame(&mut reader, max_frame) {
+                match read_frame_with(&mut reader, max_frame, |frame| codec.decode_request(frame)) {
                     Ok(Some(request)) => {
                         if !reading.receive(request, &mut challenge) {
                             break;
@@ -572,10 +585,38 @@ impl Client {
             .inner
             .upgrade()
             .ok_or_else(|| RpcError::new("DAEMON_CLOSED", "Server is closed"))?;
-        self.send_encoded(&value["id"], encode(value, inner.config.max_frame_bytes)?)
+        // Envelopes and page fragments are ordinary Unicode. Only the echoed request
+        // id has the handler's internal string representation. Do not reinterpret a
+        // serialized page fragment, even when it contains a literal marker character.
+        let mut fields = value
+            .as_object()
+            .cloned()
+            .ok_or_else(|| RpcError::new("INVALID_RESPONSE", "Expected response envelope"))?;
+        let id = fields.remove("id").unwrap_or(Value::Null);
+        let mut text = serde_json::to_string(&fields)
+            .map_err(|e| RpcError::new("INVALID_RESPONSE", e.to_string()))?;
+        text.pop();
+        if !fields.is_empty() {
+            text.push(',');
+        }
+        text.push_str("\"id\":");
+        text.push_str(&inner.handler.encode_request_id(&id)?);
+        text.push_str("}\n");
+        if text.len() > inner.config.max_frame_bytes {
+            return Err(RpcError::new(
+                "FRAME_TOO_LARGE",
+                "Response exceeds the local daemon size limit",
+            ));
+        }
+        self.send_encoded(&id, text.into_bytes())
+    }
+    fn valid_id(&self, id: &Value) -> bool {
+        self.inner
+            .upgrade()
+            .is_some_and(|inner| valid_id_with(id, |s| inner.handler.string_len(s)))
     }
     fn send_encoded(&self, id: &Value, bytes: Vec<u8>) -> Result<(), RpcError> {
-        let release = if valid_id(id) {
+        let release = if self.valid_id(id) {
             let identity = request_identity(id);
             self.inflight
                 .lock()
@@ -607,7 +648,7 @@ impl Client {
         let Some(inner) = self.inner.upgrade() else {
             return false;
         };
-        let id = if valid_id(&request["id"]) {
+        let id = if self.valid_id(&request["id"]) {
             request["id"].clone()
         } else {
             Value::Null
@@ -665,7 +706,7 @@ impl Client {
         if id.is_null()
             || !request["method"]
                 .as_str()
-                .is_some_and(|method| method.encode_utf16().count() <= 128)
+                .is_some_and(|method| inner.handler.string_len(method) <= 128)
             || !request["args"].is_array()
         {
             self.fail(
@@ -877,7 +918,7 @@ impl Client {
         } else {
             let frame = format!(
                 "{{\"v\":{VERSION},\"id\":{},\"result\":{text}}}\n",
-                request["id"]
+                inner.handler.encode_request_id(&request["id"])?
             )
             .into_bytes();
             if frame.len() > inner.config.max_frame_bytes {

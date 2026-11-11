@@ -147,6 +147,18 @@ impl TerminalService {
         })
     }
     pub fn invoke(&self, method: &str, args: &[Value], client_id: u64) -> RpcResult {
+        let mut args = Value::Array(args.to_vec());
+        // node-pty writes data as UTF-8, replacing lone UTF-16 units. Other strings
+        // are identities/paths: never collapse a lone unit onto another valid identity.
+        if method == "terminal:input" {
+            if let Some(data) = args.get_mut(0).and_then(|arg| arg.get_mut("data")) {
+                if let Some(text) = data.as_str() {
+                    *data = Value::String(jsjson::js_string(&jsjson::to_sqlite_text(text)));
+                }
+            }
+        }
+        let args = ordinary_arguments(&args)?;
+        let args = args.as_array().expect("array converted above");
         self.runtime
             .block_on(wire::handle(
                 &self.terminals,
@@ -165,6 +177,8 @@ impl TerminalService {
             })
     }
     pub fn invoke_ports(&self, method: &str, args: &[Value]) -> RpcResult {
+        let args = ordinary_arguments(&Value::Array(args.to_vec()))?;
+        let args = args.as_array().expect("array converted above");
         let ports = self.ports.as_ref().ok_or_else(|| {
             RpcError::new(
                 "UNSUPPORTED_SERVICE",
@@ -202,4 +216,15 @@ impl Drop for TerminalService {
     fn drop(&mut self) {
         self.shutdown();
     }
+}
+
+// Decode literal marker characters once for Unicode-only native service crates.
+// serde rejects actual lone surrogates rather than conflating them with replacement characters.
+fn ordinary_arguments(args: &Value) -> RpcResult {
+    serde_json::from_str(&jsjson::to_string(args)).map_err(|_| {
+        RpcError::new(
+            "UNSUPPORTED_UTF16_IDENTITY",
+            "Native terminal and port identities must contain valid Unicode",
+        )
+    })
 }

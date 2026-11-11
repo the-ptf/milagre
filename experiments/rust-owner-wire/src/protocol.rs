@@ -44,7 +44,11 @@ impl From<io::Error> for RpcError {
     }
 }
 
-pub fn read_frame(reader: &mut impl BufRead, limit: usize) -> Result<Option<Value>, RpcError> {
+pub fn read_frame_with(
+    reader: &mut impl BufRead,
+    limit: usize,
+    decode: impl FnOnce(&[u8]) -> Result<Value, RpcError>,
+) -> Result<Option<Value>, RpcError> {
     let mut frame = Vec::new();
     loop {
         let buffer = reader.fill_buf()?;
@@ -69,26 +73,36 @@ pub fn read_frame(reader: &mut impl BufRead, limit: usize) -> Result<Option<Valu
             break;
         }
     }
-    serde_json::from_slice(&frame)
-        .map(Some)
-        .map_err(|_| RpcError::new("INVALID_REQUEST", "Expected a JSON frame"))
-}
-pub fn encode(value: &Value, limit: usize) -> Result<Vec<u8>, RpcError> {
-    let mut frame =
-        serde_json::to_vec(value).map_err(|e| RpcError::new("INVALID_RESPONSE", e.to_string()))?;
-    frame.push(b'\n');
-    if frame.len() > limit {
-        return Err(RpcError::new(
-            "FRAME_TOO_LARGE",
-            "Response exceeds the local daemon size limit",
-        ));
+    // Bound recursive parsers before calling an adapter's lossless JSON decoder.
+    // Ignore brackets in strings, including escaped quotes and backslashes.
+    let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
+    for byte in &frame {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if *byte == b'\\' {
+                escaped = true;
+            } else if *byte == b'"' {
+                quoted = false;
+            }
+        } else if *byte == b'"' {
+            quoted = true;
+        } else if matches!(byte, b'[' | b'{') {
+            depth += 1;
+            if depth > 128 {
+                return Err(RpcError::new(
+                    "INVALID_REQUEST",
+                    "JSON frame nesting exceeds 128 levels",
+                ));
+            }
+        } else if matches!(byte, b']' | b'}') {
+            depth = depth.saturating_sub(1);
+        }
     }
-    Ok(frame)
+    decode(&frame).map(Some)
 }
-pub fn valid_id(id: &Value) -> bool {
-    id.as_str()
-        .is_some_and(|id| id.encode_utf16().count() <= 128)
-        || safe_integer(id).is_some_and(|id| id > 0)
+pub fn valid_id_with(id: &Value, string_len: impl FnOnce(&str) -> usize) -> bool {
+    id.as_str().is_some_and(|id| string_len(id) <= 128) || safe_integer(id).is_some_and(|id| id > 0)
 }
 pub fn safe_integer(value: &Value) -> Option<u64> {
     value
@@ -109,6 +123,15 @@ pub fn page_size(limit: usize) -> usize {
 mod tests {
     use super::*;
     use std::io::Cursor;
+    fn read_frame(reader: &mut impl BufRead, limit: usize) -> Result<Option<Value>, RpcError> {
+        read_frame_with(reader, limit, |frame| {
+            serde_json::from_slice(frame)
+                .map_err(|_| RpcError::new("INVALID_REQUEST", "Expected a JSON frame"))
+        })
+    }
+    fn valid_id(id: &Value) -> bool {
+        valid_id_with(id, |s| s.encode_utf16().count())
+    }
     #[test]
     fn bounded_frames_and_javascript_ids() {
         let mut reader = Cursor::new(b"{\"v\":1}\n{\"v\":2}\n");
