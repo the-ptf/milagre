@@ -117,3 +117,5 @@ The private composition checkpoint adds phase-aware quiescence/abort, exact carr
 The [HTTP Claim/cancellation proposal](HTTP-CLAIM-PROPOSAL.md) specifies owner-only atomic admission, claim-based deadlines, retained cancellation/completion and explicit fixture response budgets. Its refinements are concluded. A [private synthetic state-machine checkpoint](HTTP-CLAIM-STATE.md) tests those transitions and resource ownership; Registry/supervisor integration, asynchronous HTTP and production authorization remain absent.
 
 A [private authority/joined-worker composition](HTTP-CLAIM-COMPOSITION.md) now exercises actual Registry claims and encrypted fixed responses. It uses real joins and scoped ciphertext credit return. It remains separate from supervisor dispatch and the full-body/network adapter.
+
+The proposed [fixed-Claim supervisor integration](FIXED-CLAIM-SUPERVISOR-PROPOSAL.md) narrows that next step to authority-owned executors, tracked synthetic delivery, prepaid status/output and fair bounded actor dispatch. It awaits agreement; its first implementation checkpoint adds only the private retained executor core, with no owner API, scheduler or network adapter.
