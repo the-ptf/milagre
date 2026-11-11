@@ -374,7 +374,10 @@ impl TranscriptJob {
             self.project.as_str(),
             Mode::from_raw_mode(0o700),
         ) {
-            Ok(()) | Err(rustix::io::Errno::EXIST) => {}
+            // A folder made here: its entry in the handovers folder is made durable before anything is written in it.
+            Ok(()) => rustix::fs::fsync(&*self.dir)
+                .map_err(|error| io(error, "fsync", self.folder.path()))?,
+            Err(rustix::io::Errno::EXIST) => {}
             Err(error) => return Err(io(error, "mkdir", &folder)),
         }
         let sub = rustix::fs::openat(
@@ -476,7 +479,8 @@ impl Drop for Completion {
 }
 
 /// A written temporary transcript, held through its folder's descriptor. Can't be cloned; the owner commits or
-/// discards it.
+/// discards it (the host never drops one unhandled: a failed discard keeps it, and its reservation, for the next try).
+#[must_use = "a staged transcript must be committed or discarded"]
 pub struct StagedTranscript {
     id: JobId,
     folder: RootPin,
@@ -516,15 +520,22 @@ impl StagedTranscript {
             lock: self.folder.path().to_path_buf(),
             why: why.into(),
         };
-        self.folder.check().map_err(lost)?;
         let sub = self.folder.path().join(&self.project);
-        let meta =
-            std::fs::symlink_metadata(&sub).map_err(|_| lost("the transcript folder is gone"))?;
-        if meta.file_type().is_symlink()
-            || Some((meta.dev(), meta.ino())) != identity(&self.dir).ok()
-        {
-            return Err(lost("the transcript folder was replaced"));
-        }
+        // The handovers folder still pinned, and its Project folder's path still the folder held.
+        let holds = || -> std::result::Result<(), &'static str> {
+            self.folder.check()?;
+            let meta =
+                std::fs::symlink_metadata(&sub).map_err(|_| "the transcript folder is gone")?;
+            if meta.file_type().is_symlink()
+                || Some((meta.dev(), meta.ino())) != identity(&self.dir).ok()
+            {
+                return Err("the transcript folder was replaced");
+            }
+            Ok(())
+        };
+        holds().map_err(lost)?;
+        #[cfg(feature = "test-fixtures")]
+        test_hooks::run_before_rename();
         rustix::fs::renameat(
             &*self.dir,
             self.temporary.as_str(),
@@ -533,6 +544,13 @@ impl StagedTranscript {
         )
         .map_err(|error| io(error, "rename", &path))?;
         rustix::fs::fsync(&*self.dir).map_err(|error| io(error, "fsync", &sub))?;
+        // Checked again after: a swap between the check and the rename moved the file with the folder held, so the
+        // path no longer names it. The caller treats this as possibly committed and never names the path.
+        holds().map_err(|_| {
+            lost(
+                "the transcript folder changed during the commit; where the file is now is unknown",
+            )
+        })?;
         Ok(path)
     }
 
@@ -557,6 +575,18 @@ pub mod test_hooks {
 
     thread_local! {
         static AFTER_CREATE: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+        static BEFORE_RENAME: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    }
+
+    /// Runs `hook` once, on this thread, between a commit's checks and its rename.
+    pub fn before_rename(hook: impl FnOnce() + 'static) {
+        BEFORE_RENAME.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+    }
+
+    pub(super) fn run_before_rename() {
+        if let Some(hook) = BEFORE_RENAME.with(|slot| slot.borrow_mut().take()) {
+            hook();
+        }
     }
 
     pub fn after_temporary_created(hook: impl FnOnce() + 'static) {

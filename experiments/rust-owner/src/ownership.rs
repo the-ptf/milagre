@@ -233,6 +233,21 @@ pub struct StrandedLock {
     pub why: String,
 }
 
+/// The longest `why` a [`StrandedLock`] keeps (bytes); longer text is cut at a character boundary.
+pub const MAX_STRANDED_WHY: usize = 4 << 10;
+
+fn cap_text(mut text: String) -> String {
+    if text.len() > MAX_STRANDED_WHY {
+        let mut end = MAX_STRANDED_WHY - 3;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        text.push('…');
+    }
+    text
+}
+
 /// At most this many [`StrandedLock`]s wait to be taken; past it they are counted, not kept.
 pub const MAX_STRANDED: usize = 64;
 
@@ -433,7 +448,7 @@ impl Drop for OwnerGuard {
             if let Some(sink) = &self.stranded {
                 sink.push(StrandedLock {
                     lock: self.lock.clone(),
-                    why,
+                    why: cap_text(why),
                 });
             }
         }

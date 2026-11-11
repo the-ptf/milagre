@@ -197,5 +197,15 @@ agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the n
   The job renders with a byte limit (`render_transcript_bounded`, checked per message), writes the file, and keeps
   only the brief's prompt (at most 256 KiB). A temporary name needs a random part from `/dev/urandom`; the job fails
   rather than use a predictable one.
+- **Commit and debt.** A commit checks the pin and the folder before the rename and again after it; a change in
+  between is an error ("where the file is now is unknown"), so the host never names a path that doesn't hold the
+  file and treats it as possibly committed. A folder the job makes is fsynced into the handovers folder before
+  anything is written in it (plain `fsync`; macOS `F_FULLFSYNC` for every durable save is separate work). A
+  temporary file that can't be removed stays the owner's debt, as agreed: its reservation and Project stay held and
+  the quit stays `QUIT_PENDING` until it goes; there is no force path that drops it. Two jobs may be out for one
+  Chat (a newer handoff before the older job reported); only the one of the handoff's current turn is committed,
+  the other is removed.
+- **Notices after a quit.** Stranded locks and job failures are put in the notices before `shutdown` returns (also
+  when it errs); the runtime takes the notices once more after the last `shutdown` call.
 - **Transcripts** go to `<copy>/.owner/handovers/<sha1(project)[..12]>/<session>.md` through `transcripts::TranscriptJob`
   (bounded, owned, one outcome per job, pinned folder descriptors; see the module docs).

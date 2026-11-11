@@ -319,3 +319,35 @@ fn the_owner_folder_is_never_a_project_and_never_a_link() {
     assert!(TranscriptJobs::new(&isolation).is_err());
     assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
 }
+
+/// A swap between the commit's checks and its rename: the rename stays in the folder held, nothing lands behind the
+/// link, and the commit reports an unknown location instead of naming a path that doesn't hold the file.
+#[test]
+fn a_swap_during_the_commit_is_reported_as_an_unknown_location() {
+    let mut s = setup();
+    s.jobs.job(&s.project, input(None)).unwrap().run();
+    let JobOutcome::Staged { staged, .. } = s.jobs.take_outcomes().remove(0) else {
+        panic!()
+    };
+    let folder = staged.path().parent().unwrap().to_path_buf();
+    let moved = s.base.path().join("moved");
+    let sentinel = s.base.path().join("sentinel");
+    std::fs::create_dir(&sentinel).unwrap();
+    let before = tree(&sentinel);
+    let (from, to, link) = (folder.clone(), moved.clone(), sentinel.clone());
+    test_hooks::before_rename(move || {
+        std::fs::rename(&from, &to).unwrap();
+        symlink(&link, &from).unwrap();
+    });
+    let error = staged.commit().unwrap_err().to_string();
+    assert!(error.contains("unknown"), "{error}");
+    assert_eq!(
+        tree(&sentinel),
+        before,
+        "the rename followed the swapped path"
+    );
+    assert!(
+        moved.join("7.md").exists(),
+        "the rename didn't stay in the folder held"
+    );
+}
