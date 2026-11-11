@@ -208,7 +208,12 @@ pub struct FixtureGuard {
 impl FixtureGuard {
     /// Spawn only the owned `app-fixture` beside this executable. No path or environment override.
     pub async fn launch() -> Result<Self> {
-        launcher::launch().await
+        launcher::launch(false).await
+    }
+    /// Fresh fixed fixture with three scripted turns already completed across two Chats.
+    /// No caller transcript, command, path or environment can be supplied.
+    pub async fn launch_populated() -> Result<Self> {
+        launcher::launch(true).await
     }
     pub fn info(&self) -> Option<&FixtureInfo> {
         self.authority.launcher.as_ref().map(|handle| &handle.info)

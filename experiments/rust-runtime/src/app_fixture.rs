@@ -28,7 +28,12 @@ pub const METHODS: &[&str] = &[
     "accounts:scopes",
 ];
 pub fn start() -> Result<(Server, Value), RpcError> {
-    crate::actor::start_app_fixture()
+    crate::actor::start_app_fixture(false)
+}
+/// The same fresh owner, with three completed scripted turns before socket admission.
+/// This fixed preset accepts no transcript, path, account or provider input.
+pub fn start_populated() -> Result<(Server, Value), RpcError> {
+    crate::actor::start_app_fixture(true)
 }
 pub(crate) fn generated(project: &Path) -> Value {
     // Replacement happens in parsed strings, never by interpolating JSON syntax.
@@ -88,6 +93,7 @@ fn require_recent_project(recent: &Value, project: &Path) -> Result<(), RpcError
     Ok(())
 }
 pub(crate) struct Bootstrap {
+    pub(crate) populate_transcript: bool,
     copy: RegistryCopy,
     _writer: Writer,
     snapshot: Snapshot,
@@ -132,6 +138,7 @@ impl Bootstrap {
         let recent = reader.recent().map_err(error)?;
         require_recent_project(&recent, project)?;
         Ok(Self {
+            populate_transcript: false,
             copy,
             _writer: writer,
             snapshot,

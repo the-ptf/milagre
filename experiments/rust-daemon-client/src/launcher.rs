@@ -240,6 +240,27 @@ struct Endpoint {
 }
 impl Endpoint {
     fn receipt(value: &Value, pid: u32) -> Result<Self> {
+        let actor_keys = [
+            "project",
+            "scriptedProvider",
+            "provider",
+            "tickMs",
+            "debounceMs",
+            "idleMs",
+            "interruptGraceMs",
+            "appFixture",
+            "handoff",
+            "steering",
+            "transcriptPreset",
+        ];
+        let actor_key_count = if value["actor"].get("transcriptPreset").is_some() {
+            if value["actor"]["transcriptPreset"] != "three-turns" {
+                return Err(invalid());
+            }
+            11
+        } else {
+            10
+        };
         if !keys(
             value,
             &[
@@ -263,21 +284,7 @@ impl Endpoint {
             || ["fixture", "scriptedOwner", "appFixture", "ownedCopies"]
                 .iter()
                 .any(|key| value[*key] != true)
-            || !keys(
-                &value["actor"],
-                &[
-                    "project",
-                    "scriptedProvider",
-                    "provider",
-                    "tickMs",
-                    "debounceMs",
-                    "idleMs",
-                    "interruptGraceMs",
-                    "appFixture",
-                    "handoff",
-                    "steering",
-                ],
-            )
+            || !keys(&value["actor"], &actor_keys[..actor_key_count])
             || value["actor"]["appFixture"] != true
             || value["actor"]["scriptedProvider"] != true
             || value["actor"]["provider"] != "kiro"
@@ -651,13 +658,14 @@ impl Handle {
         wait.await
     }
 }
-pub(crate) async fn launch() -> Result<FixtureGuard> {
+pub(crate) async fn launch(populated: bool) -> Result<FixtureGuard> {
     let (ready, wait) = reply::channel();
     thread::Builder::new()
         .name("milagre-fixture-owner".into())
         .spawn(move || {
             launch_worker(
                 ready,
+                populated,
                 #[cfg(test)]
                 None,
             )
@@ -670,13 +678,27 @@ struct AdmissionPause {
     admitted: mpsc::SyncSender<FixtureInfo>,
     release: mpsc::Receiver<()>,
 }
-fn launch_worker(ready: reply::Sender<FixtureGuard>, #[cfg(test)] pause: Option<AdmissionPause>) {
+fn preset_matches(receipt: &Value, populated: bool) -> bool {
+    match receipt["actor"].get("transcriptPreset") {
+        None => !populated,
+        Some(value) => populated && value == "three-turns",
+    }
+}
+fn launch_worker(
+    ready: reply::Sender<FixtureGuard>,
+    populated: bool,
+    #[cfg(test)] pause: Option<AdmissionPause>,
+) {
     let start = (|| {
         let executable = Executable::fixed()?;
         executable.check()?;
         let storage = Storage::create()?;
         let root = &storage.root.path;
-        let child = Command::new(&executable.file.real)
+        let mut command = Command::new(&executable.file.real);
+        if populated {
+            command.arg("--populated-transcript");
+        }
+        let child = command
             .env_clear()
             .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
             .env("HOME", root.join("home"))
@@ -723,6 +745,9 @@ fn launch_worker(ready: reply::Sender<FixtureGuard>, #[cfg(test)] pause: Option<
         let mut stdout = state.process.child.stdout.take().ok_or_else(invalid)?;
         let fd = stdout.as_raw_fd();
         let receipt = read_line(&mut stdout, fd, Instant::now() + RECEIPT_WAIT)?;
+        if !preset_matches(&receipt, populated) {
+            return Err(invalid());
+        }
         let endpoint = Endpoint::receipt(&receipt, state.process.id())?;
         if !matches!(state.probe(), Wait::Running) {
             return Err(invalid());

@@ -4,6 +4,14 @@
 
 This is a daemon service checkpoint. The desktop still connects to the installed Node owner. No fixture launch context, WebKit run, installation or production migration is included.
 
+## Optional populated transcript
+
+`app_fixture::start_populated()` or the fixed `--populated-transcript` binary switch creates the same fresh owner and completes three in-process Scripted turns before binding its socket. Chat 1 has two turns and Chat 2 has one. These use `ChatHost::send`, ordinary provider events, summary computation and a successful store flush, not hand-authored summaries or renderer rows. No caller transcript or other argument is accepted. The no-argument fixture keeps its empty starting Chats for native send/reload checks.
+
+Initialization has a two-second turn-poll deadline. This is not a timeout on synchronous filesystem setup or flush. The client still has its separate five-second receipt deadline. Startup faults refuse admission. Startup notices are audited and drained before binding: the initial snapshot contains the completed history, the run sequence starts at the maximum real owner sequence, and historical turn events are not replayed above a client's initial snapshot watermark. The receipt identifies the preset as `actor.transcriptPreset: "three-turns"` only for this mode.
+
+The deterministic owner test checks six messages, summaries 4/2 and empty startup queues before any actor thread exists. The shared-client real fixture check covers snapshot-first admission, timestamps, titles, outcomes, `before`/`turns`/`limit` paging, same-PID reconnect, zero client sends and complete shutdown cleanup. These are synthetic history/read checks; actual GPUI rendering and live event application require their own adapter checks.
+
 The app fixture now shares one native content writer between trusted tool calls and renderer reads/Design edits. [APP-CONTENT.md](APP-CONTENT.md) records the fixed saved content, command authority, tests and remaining gates. This adds no real provider execution or production profile admission.
 
 ## Added commands

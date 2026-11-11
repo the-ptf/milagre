@@ -1,4 +1,4 @@
-//! This binary accepts no path arguments and never connects to a live owner.
+//! Only a fixed transcript preset is optional. No paths or live owner are accepted.
 use std::{
     io::{self, Write},
     sync::Arc,
@@ -6,10 +6,14 @@ use std::{
     time::Duration,
 };
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if std::env::args().len() != 1 {
-        return Err("This isolated runtime accepts no arguments or existing profile path".into());
-    }
-    let (server, actor) = milagre_rust_runtime::app_fixture::start()?;
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let (server, actor) = if args.is_empty() {
+        milagre_rust_runtime::app_fixture::start()?
+    } else if args.len() == 1 && args[0] == "--populated-transcript" {
+        milagre_rust_runtime::app_fixture::start_populated()?
+    } else {
+        return Err("Only the fixed --populated-transcript preset is accepted; no paths".into());
+    };
     let server = Arc::new(server);
     println!(
         "{}",

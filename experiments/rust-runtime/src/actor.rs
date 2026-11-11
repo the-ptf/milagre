@@ -1076,7 +1076,7 @@ pub fn start() -> Result<(Server, Value), RpcError> {
 }
 
 #[cfg(feature = "app-fixture")]
-pub(crate) fn start_app_fixture() -> Result<(Server, Value), RpcError> {
+pub(crate) fn start_app_fixture(populated: bool) -> Result<(Server, Value), RpcError> {
     let profile = IsolatedProfile::create()?;
     let isolation = Isolation::create(profile.path(), &Policy::system()).map_err(convert)?;
     let project = isolation
@@ -1088,7 +1088,8 @@ pub(crate) fn start_app_fixture() -> Result<(Server, Value), RpcError> {
         project.join(".milagre/coordination.json"),
         fixture["seed"].to_string(),
     )?;
-    let bootstrap = crate::app_fixture::Bootstrap::new(isolation.clone(), &project)?;
+    let mut bootstrap = crate::app_fixture::Bootstrap::new(isolation.clone(), &project)?;
+    bootstrap.populate_transcript = populated;
     let content = crate::claude_content::SharedContent::new(isolation.clone(), project.clone())
         .map_err(|error| RpcError::new(error.code, error.message))?;
     let (server, mut metadata) = start_provider(
@@ -1103,6 +1104,9 @@ pub(crate) fn start_app_fixture() -> Result<(Server, Value), RpcError> {
     metadata["appFixture"] = json!(true);
     metadata["handoff"] = json!("gated");
     metadata["steering"] = json!("gated");
+    if populated {
+        metadata["transcriptPreset"] = json!("three-turns");
+    }
     Ok((server, metadata))
 }
 
@@ -1181,6 +1185,14 @@ fn start_provider(
     host.register(provider);
     // This fixed fixture Project is admitted by trusted setup, never a saved path.
     host.open_project(&project).map_err(convert)?;
+    #[cfg(feature = "app-fixture")]
+    let initial_run_seq = if bootstrap.as_ref().is_some_and(|b| b.populate_transcript) {
+        populate_transcript(&mut host, &project, epoch, started)?
+    } else {
+        0
+    };
+    #[cfg(not(feature = "app-fixture"))]
+    let initial_run_seq = 0;
     if let Some(content) = &content {
         content.opened(true);
         #[cfg(feature = "app-fixture")]
@@ -1243,7 +1255,7 @@ fn start_provider(
         opened: true,
         version: 0,
         last: Value::Null,
-        run_seq: 0,
+        run_seq: initial_run_seq,
         next_readiness_check: Instant::now(),
         pending: VecDeque::new(),
         answers: HashMap::new(),
@@ -1270,6 +1282,73 @@ fn start_provider(
     }));
     let metadata = json!({"project":actor.project,"scriptedProvider":provider_name == "kiro","provider":provider_name,"tickMs":20,"debounceMs":100,"idleMs":350,"interruptGraceMs":250});
     Ok((server, metadata))
+}
+
+/// Populate only the explicitly selected app preset through the real owner/provider fold.
+/// No client can connect until all turns finish and the owned stores flush successfully.
+#[cfg(feature = "app-fixture")]
+fn populate_transcript(
+    host: &mut ChatHost,
+    project: &std::path::Path,
+    epoch: i64,
+    started: Instant,
+) -> Result<u64, RpcError> {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    for (session, body) in [
+        (1, "Fixture history: first turn"),
+        (1, "Fixture history: second turn"),
+        (2, "Fixture history: another Chat"),
+    ] {
+        let request = json!({"projectPath": project, "sessionId": session,
+            "worktreeId": 1, "body": body, "provider": "kiro",
+            "model": "scripted", "permissionMode": "ask"});
+        let sent = host.send(&request).map_err(convert)?;
+        if sent.turn.is_none() || sent.queued || sent.duplicate {
+            return Err(RpcError::new(
+                "FIXTURE_POPULATION_FAILED",
+                "Scripted turn was not started",
+            ));
+        }
+        let chat = agent_runs::chat_key(&project.to_string_lossy(), &json!(session));
+        while host.active_turn(&chat).is_some() {
+            if Instant::now() >= deadline {
+                return Err(RpcError::new(
+                    "FIXTURE_POPULATION_FAILED",
+                    "Scripted history deadline expired",
+                ));
+            }
+            let errors = host.tick(epoch.saturating_add(started.elapsed().as_millis() as i64));
+            if let Some(error) = errors.into_iter().next() {
+                return Err(convert(error));
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+    host.states.flush(Some(project)).map_err(convert)?;
+    // Startup is represented in the initial snapshot, not streamed as new work
+    // after a snapshot-first client has accepted that already-completed state.
+    let mut run_seq = 0;
+    for notice in host.take_notices() {
+        match notice {
+            Notice::Event { seq: Some(seq), .. } => run_seq = run_seq.max(seq),
+            Notice::Failed { error, .. } | Notice::Gap { what: error, .. } => {
+                return Err(RpcError::new("FIXTURE_POPULATION_FAILED", error));
+            }
+            Notice::LockStranded { .. } => {
+                return Err(RpcError::new(
+                    "FIXTURE_POPULATION_FAILED",
+                    "Startup stranded an owner lock",
+                ));
+            }
+            _ => {}
+        }
+    }
+    for event in host.states.take_events() {
+        if let Event::SaveFailed { error, .. } = event {
+            return Err(RpcError::new("FIXTURE_POPULATION_FAILED", error));
+        }
+    }
+    Ok(run_seq)
 }
 
 #[derive(Default)]
@@ -1646,6 +1725,32 @@ mod tests {
             )
             .is_err());
         assert!(provider.events.len() <= 64);
+    }
+    #[cfg(feature = "app-fixture")]
+    #[test]
+    fn populated_history_is_audited_before_snapshot_admission() {
+        let profile = IsolatedProfile::create().unwrap();
+        let isolation = Isolation::create(profile.path(), &Policy::system()).unwrap();
+        let project = isolation.project(std::path::Path::new("fixture")).unwrap();
+        fs::create_dir(project.join(".milagre")).unwrap();
+        fs::write(
+            project.join(".milagre/coordination.json"),
+            crate::app_fixture::generated(&project)["seed"].to_string(),
+        )
+        .unwrap();
+        let mut host = ChatHost::new(ProjectStates::new(isolation, Timing::default(), 1000));
+        host.register(Box::new(Scripted::default()));
+        host.open_project(&project).unwrap();
+        let seq = populate_transcript(&mut host, &project, 1000, Instant::now()).unwrap();
+        assert!(seq > 0);
+        // Deterministic regression: no actor/timer can drain these on our behalf.
+        assert!(host.take_notices().is_empty());
+        assert!(host.states.take_events().is_empty());
+        let state = host.states.current_whole_state(&project).unwrap().unwrap();
+        assert_eq!(state["messages"].as_array().unwrap().len(), 6);
+        assert_eq!(state["sessions"]["1"]["summary"]["count"], 4);
+        assert_eq!(state["sessions"]["2"]["summary"]["count"], 2);
+        host.shutdown(false).unwrap();
     }
 }
 

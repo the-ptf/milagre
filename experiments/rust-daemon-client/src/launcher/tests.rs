@@ -332,6 +332,26 @@ fn receipt_requires_closed_shapes_and_versions_before_reading_paths() {
     assert!(!keys(&json!({"a":1,"extra":true}), &["a"]));
 }
 
+#[test]
+fn selected_transcript_preset_must_match_receipt() {
+    assert!(preset_matches(&json!({"actor":{}}), false));
+    assert!(!preset_matches(&json!({"actor":{}}), true));
+    for value in [
+        Value::Null,
+        json!(false),
+        json!(3),
+        json!("unknown"),
+        json!(["three-turns"]),
+    ] {
+        let receipt = json!({"actor":{"transcriptPreset":value}});
+        assert!(!preset_matches(&receipt, true));
+        assert!(!preset_matches(&receipt, false));
+    }
+    let populated = json!({"actor":{"transcriptPreset":"three-turns"}});
+    assert!(preset_matches(&populated, true));
+    assert!(!preset_matches(&populated, false));
+}
+
 fn wait_removed(info: &FixtureInfo) {
     let until = Instant::now() + Duration::from_secs(8);
     while [
@@ -583,6 +603,7 @@ fn owned_fixture_end_to_end() {
         let worker = thread::spawn(move || {
             launch_worker(
                 ready,
+                false,
                 Some(AdmissionPause {
                     admitted,
                     release: gate,
@@ -599,5 +620,141 @@ fn owned_fixture_end_to_end() {
             "OWNED_FIXTURE_CANCEL_EVIDENCE {}",
             json!({"pid":cancelled.pid,"profile":cancelled.profile,"socket":cancelled.socket,"launchRoot":cancelled.launch_root,"cancelledBeforePublication":true,"removedAfterCancellation":true})
         );
+        populated_fixture().await;
     });
+}
+
+async fn populated_fixture() {
+    let guard = FixtureGuard::launch_populated().await.unwrap();
+    let info = guard.info().unwrap().clone();
+    let project = guard.project().to_owned();
+    let (client, _, mut events) = Client::connect(guard.endpoint(), ClientOptions::default())
+        .await
+        .unwrap();
+    let first = client.runtime_snapshot().await.unwrap();
+    assert!(first.body["runs"]["seq"].as_u64().unwrap() > 0);
+    client.accept_snapshot(&first).await.unwrap();
+    client.project_current().await.unwrap();
+    while let Some(notice) = events.next().now_or_never() {
+        match notice {
+            Some(Notice::Event { channel, .. }) => assert_ne!(channel, "agent:event"),
+            other => panic!("Unexpected preset notification: {other:?}"),
+        }
+    }
+    client.open_view(&project).await.unwrap();
+    let state = client.state_read(&project).await.unwrap().state;
+    for (id, count, title) in [
+        ("1", 4, "Fixture history: first turn"),
+        ("2", 2, "Fixture history: another Chat"),
+    ] {
+        let summary = &state["sessions"][id]["summary"];
+        assert_eq!(summary["count"], count);
+        assert_eq!(summary["titleLine"], title);
+        assert_eq!(summary["lastModel"], "scripted");
+        assert_eq!(summary["lastOutcome"], "completed");
+        assert!(summary["firstAt"].as_i64().unwrap() > 0);
+        assert!(summary["lastAt"].as_i64().unwrap() >= summary["firstAt"].as_i64().unwrap());
+    }
+    assert!(
+        state["sessions"]["2"]["summary"]["lastAt"]
+            .as_i64()
+            .unwrap()
+            > state["sessions"]["1"]["summary"]["lastAt"]
+                .as_i64()
+                .unwrap()
+    );
+    assert!(client
+        .chat_runs()
+        .await
+        .unwrap()
+        .runs
+        .as_object()
+        .unwrap()
+        .is_empty());
+    let all = client
+        .chat_messages(&project, 1, ChatPageOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(all["total"], 4);
+    let messages = all["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 4);
+    assert_eq!(messages[1]["body"], "Scripted isolated reply");
+    let latest = client
+        .chat_messages(
+            &project,
+            1,
+            ChatPageOptions {
+                limit: Some(2),
+                ..ChatPageOptions::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        latest["messages"].as_array().unwrap().as_slice(),
+        &messages[2..]
+    );
+    assert_eq!(latest["hasMore"], true);
+    let earlier = client
+        .chat_messages(
+            &project,
+            1,
+            ChatPageOptions {
+                before: messages[2]["id"].as_u64(),
+                limit: Some(2),
+                ..ChatPageOptions::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        earlier["messages"].as_array().unwrap().as_slice(),
+        &messages[..2]
+    );
+    assert_eq!(earlier["hasMore"], false);
+    let turn = client
+        .chat_messages(
+            &project,
+            1,
+            ChatPageOptions {
+                turns: Some(1),
+                ..ChatPageOptions::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        turn["messages"].as_array().unwrap().as_slice(),
+        &messages[2..]
+    );
+    let snapshot = client.runtime_snapshot().await.unwrap();
+    client.accept_snapshot(&snapshot).await.unwrap();
+    client.disconnect();
+    let (again, hello, _events) = Client::connect(guard.endpoint(), ClientOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(hello.owner["pid"], info.pid);
+    again.open_view(&project).await.unwrap();
+    assert_eq!(
+        again
+            .chat_messages(&project, 1, ChatPageOptions::default())
+            .await
+            .unwrap(),
+        all
+    );
+    let ShutdownReport::Complete(cleanup) = guard.shutdown().await.unwrap() else {
+        panic!("populated fixture did not stop")
+    };
+    assert_eq!(cleanup.exit_code, Some(0));
+    assert!(
+        cleanup.stop_acknowledged
+            && cleanup.profile_removed
+            && cleanup.socket_removed
+            && cleanup.launch_storage_removed
+    );
+    wait_removed(&info);
+    println!(
+        "OWNED_FIXTURE_POPULATED_EVIDENCE {}",
+        json!({"pid":info.pid,"profile":info.profile,"socket":info.socket,"launchRoot":info.launch_root,"presetTurns":3,"clientSends":0,"chats":2,"messages":6,"pagingBefore":true,"pagingLimit":true,"pagingTurns":true,"reconnectSamePid":true,"cleanup": "Complete","snapshotFirst":true,"startupTurnEvents":0})
+    );
 }
