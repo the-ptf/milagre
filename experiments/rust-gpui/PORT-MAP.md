@@ -1403,7 +1403,7 @@ Parallel: after WP-18, run WP-19, WP-21 and WP-24 together. Then WP-20 (after WP
 - Depends on: WP-13, WP-29.
 - Verify: fixture `git:diff-files` and `git:history` results rendered; tree vectors.
 
-**WP-31 Diff view and line comments** · Opus · XL
+**WP-31 Diff view and line comments** · Opus · XL · **Lower priority (Victor, 2026-11-11): after the PR panel.**
 
 - Goal: the diff over the Chat with a virtualized row list, sticky file headers, unified, split and wrap, syntax runs
   with word marks, the pinned-file hold, large and binary states, selectable code, line comments (drag range, card,
@@ -1413,7 +1413,9 @@ Parallel: after WP-18, run WP-19, WP-21 and WP-24 together. Then WP-20 (after WP
 - `gpui-component`: the `diff` module is a candidate for the row view and selection (D8).
 - Verify: 10,000-line patch scroll timing; comment anchoring vectors from `lib/diff-comments.ts`.
 
-**WP-32 PR panel, review and Git actions** · Sonnet · L
+**WP-32 PR panel, review and Git actions** · Sonnet · L · **Priority over WP-31 (Victor, 2026-11-11).** Goes first: its files tab uses a
+plain read-only unified diff (no split, wrap or line comments) until WP-31 lands; review threads in the diff wait for
+WP-31.
 
 - Goal: PR header and merge actions with the ⋯ menu, checks bar, reviewer and label pickers with avatars (network
   images), description and comments through `github-markdown.ts`, files tab, review threads in the diff, review bar,
