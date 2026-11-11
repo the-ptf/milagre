@@ -274,7 +274,7 @@ async fn admission_and_output_budgets_preserve_terminal_for_every_accepted_turn(
     s.shutdown().await;
 }
 #[tokio::test]
-async fn abandoned_claimed_answer_stops_with_uncertain_delivery() {
+async fn stalled_write_still_closes_after_observer_drop() {
     let (s, mut events) = FakeSession::launch(options("blocked-answer")).unwrap();
     let turn = s.send("hello").unwrap();
     let id = loop {
@@ -476,4 +476,43 @@ async fn retained_byte_budgets_and_oversized_admission_fail_closed() {
         assert_eq!(seen.last().unwrap()["type"], "turn-failed");
         s.shutdown().await;
     }
+}
+
+#[tokio::test]
+async fn timed_out_or_dropped_receipt_preserves_current_and_queued_turns() {
+    let mut o = options("delayed-answer");
+    o.limits.cancel_grace = Duration::from_secs(2);
+    o.limits.permission_timeout = Duration::from_secs(2);
+    let (s, mut events) = FakeSession::launch(o).unwrap();
+    let first = s.send("first").unwrap();
+    let second = s.send("queued").unwrap();
+    for (index, turn) in [first, second].into_iter().enumerate() {
+        let id = loop {
+            if let SessionEvent::Permission { turn_id, request_id, .. } = next(&mut events).await {
+                assert_eq!(turn_id, turn);
+                break request_id;
+            }
+        };
+        if index == 0 {
+            assert!(tokio::time::timeout(Duration::from_millis(1), s.answer(turn, id.clone(), Answer::AllowOnce)).await.is_err());
+        } else {
+            // Drop synchronously before the actor can claim the admitted answer.
+            drop(s.admit_answer(turn, id.clone(), Answer::AllowOnce).unwrap());
+        }
+        assert!(matches!(next(&mut events).await, SessionEvent::PermissionClosed { delivery: Delivery::WrittenUnacknowledged, .. }));
+        assert_eq!(ended(&mut events, turn).await.last().unwrap()["type"], "turn-completed");
+        assert_eq!(s.answer(turn, id, Answer::AllowOnce).await, Err(SessionError::UnknownPermission));
+    }
+    // An unobserved, already-completed receipt is equally harmless.
+    let third = s.send("next").unwrap();
+    let id = loop {
+        if let SessionEvent::Permission { request_id, .. } = next(&mut events).await {
+            break request_id;
+        }
+    };
+    let receipt = s.admit_answer(third, id, Answer::AllowOnce).unwrap();
+    assert!(matches!(next(&mut events).await, SessionEvent::PermissionClosed { delivery: Delivery::WrittenUnacknowledged, .. }));
+    drop(receipt);
+    assert_eq!(ended(&mut events, third).await.last().unwrap()["type"], "turn-completed");
+    s.shutdown().await;
 }

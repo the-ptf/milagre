@@ -55,14 +55,15 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         return;
       }
       if (scenario === "reuse-permission") return permission(native);
-      if (scenario === "blocked-answer") {
+      if (scenario === "blocked-answer" || scenario === "delayed-answer") {
         send({
           id: "permission",
           method: "session/request_permission",
           params: { sessionId: native, toolCall: { toolCallId: "t" }, options: [{ kind: "allow_once", optionId: "x".repeat(200000) }] },
         });
         process.stdin.pause();
-        setInterval(() => {}, 1000);
+        if (scenario === "delayed-answer") setTimeout(() => process.stdin.resume(), 300);
+        else setInterval(() => {}, 1000);
         return;
       }
       if (scenario === "metadata-flood") {
@@ -122,7 +123,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       prompt = null;
       return result(id, {});
     default:
-      if (!method && scenario === "reuse-permission" && prompt) {
+      if (!method && ["reuse-permission", "delayed-answer"].includes(scenario) && prompt) {
         text(native, "answered");
         result(prompt, { stopReason: "end_turn" });
         prompt = null;

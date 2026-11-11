@@ -123,6 +123,16 @@ pub enum Answer {
     Deny,
     Cancelled,
 }
+/// Observes a session-owned answer. Dropping this receipt never cancels the admitted command.
+/// A missing receipt is not proof of non-delivery: observe PermissionClosed and never replay.
+pub struct AnswerReceipt {
+    receiver: oneshot::Receiver<Result<Delivery, SessionError>>,
+}
+impl AnswerReceipt {
+    pub async fn wait(self) -> Result<Delivery, SessionError> {
+        self.receiver.await.unwrap_or(Err(SessionError::UncertainDelivery))
+    }
+}
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionEvent {
     Agent {
@@ -257,6 +267,7 @@ impl FakeSession {
             "reply-then-permission",
             "multi-turn",
             "blocked-answer",
+            "delayed-answer",
             "error-after-text",
             "exit-after-text",
             "reuse-permission",
@@ -344,9 +355,9 @@ impl FakeSession {
         let epoch = self.handle.epoch.fetch_add(1, Ordering::AcqRel).saturating_add(1);
         let _ = self.handle.stops.send(epoch);
     }
-    /// Success confirms a pipe write only. If this future is dropped after the reply is claimed, the actor
-    /// stops the process when it observes that abandonment; delivery may already have occurred.
-    pub async fn answer(&self, turn: TurnId, id: RequestId, answer: Answer) -> Result<Delivery, SessionError> {
+    /// Admits a session-owned decision synchronously. Permission validity is checked by the actor;
+    /// admission does not promise delivery. The receipt is only an observer, never a cancellation token.
+    pub fn admit_answer(&self, turn: TurnId, id: RequestId, answer: Answer) -> Result<AnswerReceipt, SessionError> {
         if self.handle.closed.load(Ordering::Acquire) {
             return Err(SessionError::Closed);
         }
@@ -358,7 +369,12 @@ impl FakeSession {
             mpsc::error::TrySendError::Full(_) => SessionError::Busy,
             mpsc::error::TrySendError::Closed(_) => SessionError::Closed,
         })?;
-        rx.await.unwrap_or(Err(SessionError::Closed))
+        Ok(AnswerReceipt { receiver: rx })
+    }
+    /// Success confirms a pipe write only, never provider acknowledgement. Once polled and admitted,
+    /// dropping this future leaves the decision owned by the session. Do not replay a missing receipt.
+    pub async fn answer(&self, turn: TurnId, id: RequestId, answer: Answer) -> Result<Delivery, SessionError> {
+        self.admit_answer(turn, id, answer)?.wait().await
     }
     pub async fn inspect(&self) -> Result<Value, SessionError> {
         let (tx, rx) = oneshot::channel();
@@ -896,9 +912,6 @@ impl Actor {
                     let _ = reply.send(Err(SessionError::UnknownPermission));
                     return;
                 }
-                if reply.is_closed() {
-                    return;
-                }
                 let p = entry.unwrap();
                 p.claimed = true;
                 let options = p.params["options"].as_array().map(Vec::as_slice).unwrap_or(&[]);
@@ -923,10 +936,6 @@ impl Actor {
         let Some(work) = self.writes.pop_front() else {
             return;
         };
-        if work.reply.as_ref().is_some_and(oneshot::Sender::is_closed) {
-            self.fail("Permission answer abandoned; delivery uncertain.");
-            return;
-        }
         let rpc = self.rpc.as_ref().unwrap().clone();
         let id = work.id.clone();
         let result = work.result.clone();
@@ -944,8 +953,7 @@ impl Actor {
         let Some(w) = self.writing.take() else {
             return;
         };
-        let abandoned = w.work.reply.as_ref().is_some_and(oneshot::Sender::is_closed);
-        let delivery = if result.is_ok() && !abandoned { Delivery::WrittenUnacknowledged } else { Delivery::Uncertain };
+        let delivery = if result.is_ok() { Delivery::WrittenUnacknowledged } else { Delivery::Uncertain };
         if let Some(id) = w.work.id {
             if let Some(i) = self.permissions.iter().position(|p| p.id == id && Some(p.turn) == w.work.turn) {
                 let p = self.permissions.remove(i);
@@ -959,15 +967,11 @@ impl Actor {
             let _ = reply.send(if result.is_ok() { Ok(delivery) } else { Err(SessionError::UncertainDelivery) });
         }
         self.progress = Instant::now();
-        if result.is_err() || abandoned {
-            self.fail("Permission/control write failed or was abandoned; delivery uncertain.");
+        if result.is_err() {
+            self.fail("Permission/control write failed; delivery uncertain.");
         }
     }
     fn watchdog(&mut self) {
-        if self.writing.as_ref().is_some_and(|w| w.work.reply.as_ref().is_some_and(oneshot::Sender::is_closed)) {
-            self.fail("Permission answer abandoned; delivery uncertain.");
-            return;
-        }
         if self.active.is_none() {
             if self.queue.front().is_some_and(|t| t.queued_at.elapsed() >= self.options.limits.startup_timeout) {
                 self.fail("ACP idle stream did not become quiescent.");

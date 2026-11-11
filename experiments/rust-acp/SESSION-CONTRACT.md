@@ -29,7 +29,9 @@ its logical `TurnId`, translate process closure without a duplicate terminal, ch
 admission/backpressure behavior and provide its `tick(now)`, `shutdown(force)` and
 `forget(project, force)` semantics. The current fake actor owns a monotonic watchdog clock and a
 5 ms timer. `mapper_now_ms` can fix presentation timestamps for deterministic fixtures; it never
-controls watchdog deadlines. No owner trait or scheduler assumptions are encoded here.
+controls watchdog deadlines. No owner trait or scheduler assumptions are encoded here. The parent's runtime adapter deliberately
+uses one process per host TurnId; owner queue/handoff integration remains gated. This experimental
+fake queue neither changes that policy nor supplies a fake-host bypass.
 
 ## Permission delivery and cleanup
 
@@ -39,11 +41,18 @@ filesystem or terminal capability is advertised. A single auxiliary write future
 answers and cancellation; no task is spawned per request. IDs stay claimed until completion.
 
 `WrittenUnacknowledged` means the pipe write completed, not that the provider received or acted
-on it. `Uncertain` covers an abandoned claimed answer, a failed/stalled write or process loss
-while delivery may have started. Killing the process cannot retract a permission reply or prove
+on it. `Uncertain` covers a failed/stalled write or process loss while delivery may have started. Killing the process cannot retract a permission reply or prove
 non-execution. Never replay an uncertain answer. `NotSent` is used only for an unclaimed request
-that this session never attempted to answer. Dropping an answer future before the actor claims
-it leaves the request pending; its request watchdog remains in force.
+that this session never attempted to answer.
+
+`admit_answer` synchronously transfers the decision to the bounded session command queue and
+returns an `AnswerReceipt`. The actor still validates turn/request ownership before claiming it.
+Dropping the receipt before claim, during writing or after writing never cancels the command or
+kills the session. `answer(...).await` is a convenience wrapper: an unpolled future admits nothing;
+once admitted, timeout/drop only abandons observation. Receipt loss alone leaves delivery unknown
+to the caller; never replay it. `PermissionClosed` reports the session's write outcome independently.
+Failed/stalled writes still close the session. Explicit Stop, shutdown or prompt completion can
+invalidate an admitted decision before writing; admission is not a guarantee of delivery.
 
 Turn completion cancels unanswered requests and removes their local records before the terminal.
 It never starts a queued allow after observing the prompt's response. Completion/cancellation

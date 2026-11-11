@@ -74,7 +74,7 @@ launcher, bounded turn admission/streaming, create/load/resume, response-order b
 explicit permission answers/cleanup, cancellation, watchdogs and process-exit handling. It has
 no generic vendor launch constructor. Every policy except the fake Ask flow is refused before
 spawn. Twenty-one lifecycle tests include twelve actual Node session traces, forty-turn retention,
-stale/reused request IDs, abandoned answers, output/state budgets and timeout/exit races.
+stale/reused request IDs, dropped receipt observers, output/state budgets and timeout/exit races.
 
 [SESSION-CONTRACT.md](SESSION-CONTRACT.md) is the API proposal for parent/owner review before
 wiring. It describes local turn ownership, delivery uncertainty, budgets, Node differences and
@@ -169,7 +169,7 @@ node experiments/rust-acp/scripts/record-events.cjs --check
 node experiments/rust-acp/scripts/record-session.cjs --check
 ```
 
-This checkpoint passes 58 default Rust tests, or 79 with `--features fake-session`. The recorder executes repository Node ACP helpers and fake agents only. It captures 11 outgoing
+This checkpoint passes 58 default Rust tests, or 80 with `--features fake-session`. The recorder executes repository Node ACP helpers and fake agents only. It captures 11 outgoing
 frames, 12 envelope cases, 128 permission outcomes, 3 environment cases and 10 full fake-session
 traces (including Kiro tool shapes, load history, edits, questions, thought chunks and plans).
 Checkout-root path prefixes alone normalize to `/fixture`; source hashes detect drift. Rust
