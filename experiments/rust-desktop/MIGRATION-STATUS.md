@@ -55,7 +55,7 @@ Persistent Worktrees are under `/Users/victor/.milagre/worktrees/milagre-ade/`:
 | Usage11038                | `port-milagre-terminal-owner-to-o6rs`           | Combined isolated usage/cache service lifecycle.                                    |
 | Remote11150               | `port-milagre-rust-peer-and-fbnw`               | Reconnect flood resilience plus session revocation/idle deadlines.                  |
 | In-session runtime_resume | shared parent                                   | Fixture-only Claude adapter; owner slot fix integration when ready.                 |
-| In-session content_resume | shared parent                                   | Late worker receipt/health and post-commit failure wording.                         |
+| In-session content_resume | shared parent                                   | New isolated Project/Link registry foundation; existing tools reviewed.             |
 | In-session git_resume     | shared parent                                   | Journaled preparation retry/recovery with crash tests.                              |
 | Root                      | shared parent                                   | Integration, independent tests, progress/report; no overlapping agent source edits. |
 
@@ -89,3 +89,7 @@ Earlier full repository baseline passed7226 tests,18 skipped,660 files; typechec
 Task phase review; backend/native parity tasks remain in progress. Heartbeatf3fd7e41 is enabled every10min, expires November17. Keep it until genuine completion. Installed shell source matches440f06d1, signature passes, production hostPID55108 and RustPID16468 retain their original start times. Saved WebKit smoke passes at its recorded November10 timestamp; no new workflow exercise is claimed.
 
 Next gates: owner answer-slot/error encoding fixes and measured streaming optimization; Claude MCP/child-history lifetime; ACP session orchestration; recoverable account preparation; combined usage/cache lifecycle; remote reconnect resilience/revocation. Root must integrate and validate each, then qualify standalone ownership, existing-data upgrade/rollback, phone interoperability and equivalent-workload performance. The installed app still depends on the Node owner.
+
+## Held owner checkpoint
+
+Owner sourceed32aa05 fixes cross-turn answer-slot lifetime and changes outbound Provider arguments to RawJson, but is not integrated. Root found its recursive lossy conversion also affects opaque IDs and object keys, which can collapse distinct lone-surrogate identities to U+FFFD. The owner is revising the boundary to retain strict IDs/keys and replace only explicit free text; runtime has been notified of the forthcoming typed API. Error-code-only source8769c4f1 is independently integrated aseeca32fd; all67 root owner tests pass in `/tmp/milagre-rust-owner-errorcodes-root.log`.
