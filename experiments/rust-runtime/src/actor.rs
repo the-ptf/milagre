@@ -924,8 +924,11 @@ impl State {
         for chat in chats {
             self.host.interrupt(&chat).map_err(convert)?;
         }
-        if let Some(error) = self.host.pump().into_iter().next() {
-            return Err(convert(error));
+        // As on a normal tick and in ChatHost::shutdown, a refused late event is diagnostic, not a veto on
+        // closing. Deliver still refuses it without reopening or mutating its Project. Audit every error here;
+        // the actual owner shutdown below remains responsible for busy, save and ownership failures.
+        for error in self.host.pump() {
+            record_failure(shared, error.to_string());
         }
         // Keep cancellation state in the cached snapshot before close releases its slots.
         if !shared.delivery_failed.load(Ordering::Acquire) {
@@ -938,7 +941,7 @@ impl State {
             *shared.observed_quit.lock().unwrap() = Some(self.host.quit_state());
         }
         // Only the owner's actual busy gate, before shutdown starts, permits
-        // reopening. Earlier interrupt/pump errors never reach this branch.
+        // reopening. Diagnostic pump refusals never turn a failed save or release into a busy refusal.
         *refused = was_running
             && matches!(&closed, Err(milagre_owner_store::StoreError::Invalid(_)))
             && self.host.quit_state() == QuitState::Running;
@@ -1884,6 +1887,214 @@ mod publication_tests {
             _profile: profile.lease(),
         };
         (profile, state, shared)
+    }
+
+    fn shutdown_fixture() -> (
+        IsolatedProfile,
+        State,
+        Shared,
+        milagre_owner_store::chat_host::MockProvider,
+        TurnId,
+    ) {
+        let (profile, mut state, shared) = fixture();
+        fs::create_dir_all(state.project.join(".milagre")).unwrap();
+        fs::write(state.project.join(".milagre/coordination.json"), json!({
+            "next_id": 10, "worktrees": { "1": { "id": 1, "name": "main", "path": state.project } },
+            "sessions": { "1": { "id": 1, "worktree_id": 1 } }, "messages": []
+        }).to_string()).unwrap();
+        let provider = milagre_owner_store::chat_host::MockProvider::new("kiro");
+        state.host.register(Box::new(provider.clone()));
+        state.host.open_project(&state.project).unwrap();
+        let sent = state
+            .host
+            .send(&json!({ "projectPath": state.project, "sessionId": 1,
+            "provider": "kiro", "model": "fixture", "body": "synthetic first turn" }))
+            .unwrap();
+        assert!(state.host.pump().is_empty());
+        let chat = format!("{}#1", state.project.display());
+        provider.emit(&chat, json!({ "type": "turn-completed" }));
+        assert!(state.host.pump().is_empty());
+        state.host.states.flush(Some(&state.project)).unwrap();
+        state.host.take_notices();
+        state.host.states.take_events();
+        state.opened = true;
+        (profile, state, shared, provider, sent.turn.unwrap())
+    }
+
+    #[test]
+    fn shutdown_alone_drains_forgotten_and_foreign_events_as_refused_diagnostics() {
+        let (profile, mut state, shared, provider, turn) = shutdown_fixture();
+        let chat = format!("{}#1", state.project.display());
+        state
+            .call("project:forget", &[json!(state.project)])
+            .unwrap();
+        state.cache(&shared).unwrap();
+        let before = shared.snapshot.lock().unwrap().clone();
+        let version = state.version;
+        let coordination = state.project.join(".milagre/coordination.json");
+        let saved = fs::read(&coordination).unwrap();
+        let foreign = state.project.with_file_name("foreign-unopened");
+        // No actor thread or timer runs in this test. The shutdown below is the first and only drain of these
+        // captured cleanup events, followed by an unrelated refusal whose different message proves all are audited.
+        provider.emit_for(
+            &chat,
+            turn,
+            json!({ "type": "subagent-update", "agent": { "id": "child", "status": "completed" } }),
+        );
+        provider.emit_for(
+            &chat,
+            turn,
+            json!({ "type": "background-tasks", "tasks": [] }),
+        );
+        provider.push(ProviderEvent::Exited {
+            chat,
+            turn,
+            error: ProviderError::new(ProviderErrorKind::Exited, "captured worker closed"),
+        });
+        provider.emit_for(
+            &format!("{}#999", foreign.display()),
+            TurnId(999),
+            json!({ "type": "text-delta", "text": "must never be written" }),
+        );
+        assert_eq!(provider.state.lock().unwrap().events.len(), 4);
+        let server = Server::bind(profile, Arc::new(Empty), Config::default()).unwrap();
+        let mut refused = false;
+        let result = server
+            .events()
+            .transaction(|publication| state.shutdown(&shared, publication, false, &mut refused));
+        assert_eq!(result.unwrap(), Value::Null);
+        assert!(!refused);
+        assert_eq!(state.host.quit_state(), QuitState::Done);
+        assert_eq!(shared.observed_ticks.load(Ordering::Acquire), 0);
+        assert!(provider.state.lock().unwrap().events.is_empty());
+        assert!(shared
+            .failure
+            .lock()
+            .unwrap()
+            .as_deref()
+            .unwrap()
+            .contains(foreign.to_str().unwrap()));
+        assert!(!shared.delivery_failed.load(Ordering::Acquire));
+        assert_eq!(*shared.snapshot.lock().unwrap(), before);
+        assert_eq!(
+            state.version, version,
+            "refused events cannot publish state changes"
+        );
+        assert!(state.pending.is_empty());
+        assert_eq!(fs::read(coordination).unwrap(), saved);
+        assert!(!state.host.states.has(&state.project));
+        assert!(!state.host.is_project_ready(&state.project));
+        assert!(!state.project.join(".milagre/runtime.lock").exists());
+        assert!(!foreign.exists());
+        let rejected = state
+            .host
+            .deliver(ProviderEvent::Agent {
+                chat: format!("{}#1", foreign.display()),
+                turn,
+                event: RawJson(json!({ "type": "background-tasks", "tasks": [] })),
+            })
+            .unwrap_err();
+        assert_eq!(
+            rejected.code(),
+            Some("PROJECT_NOT_READY"),
+            "deliver remains strict after graceful shutdown"
+        );
+        server.shutdown().unwrap();
+    }
+
+    #[test]
+    fn shutdown_pump_diagnostics_cannot_hide_actual_save_failure_or_release_its_lock() {
+        let (profile, mut state, shared, provider, turn) = shutdown_fixture();
+        state
+            .host
+            .states
+            .update(&state.project, Some(&[]), true, |current| {
+                Some(current.with_field("unsaved", json!(true)))
+            })
+            .unwrap();
+        let coordination = state.project.join(".milagre/coordination.json");
+        let saved = coordination.with_extension("saved");
+        fs::rename(&coordination, &saved).unwrap();
+        fs::create_dir(&coordination).unwrap();
+        provider.emit_for(
+            &format!(
+                "{}#1",
+                state.project.with_file_name("foreign-unopened").display()
+            ),
+            turn,
+            json!({ "type": "background-tasks", "tasks": [] }),
+        );
+        let server = Server::bind(profile, Arc::new(Empty), Config::default()).unwrap();
+        let mut refused = false;
+        let error = server
+            .events()
+            .transaction(|publication| state.shutdown(&shared, publication, false, &mut refused))
+            .unwrap_err();
+        assert_ne!(
+            error.code, "PROJECT_NOT_READY",
+            "a refused provider event must not replace the save failure"
+        );
+        assert!(error.message.contains("coordination.json"), "{error:?}");
+        assert_eq!(state.host.quit_state(), QuitState::ClosePending);
+        assert!(!refused);
+        assert!(!shared.delivery_failed.load(Ordering::Acquire));
+        assert!(state.project.join(".milagre/runtime.lock").exists());
+        assert!(state.host.states.has(&state.project));
+        // Restore only this fixture's injected failure for disposal; the tested shutdown above failed once.
+        fs::remove_dir(&coordination).unwrap();
+        fs::rename(saved, coordination).unwrap();
+        state.host.shutdown(true).unwrap();
+        server.shutdown().unwrap();
+    }
+
+    #[test]
+    fn shutdown_pump_diagnostics_do_not_bypass_a_persistently_stuck_turn() {
+        let (profile, mut state, shared, provider, _) = shutdown_fixture();
+        let chat = format!("{}#1", state.project.display());
+        provider.emit(
+            &chat,
+            json!({ "type": "session-started", "nativeId": "synthetic-native" }),
+        );
+        assert!(state.host.pump().is_empty());
+        let turn = state
+            .host
+            .send(&json!({ "projectPath": state.project, "sessionId": 1,
+            "provider": "kiro", "model": "fixture", "body": "synthetic active turn" }))
+            .unwrap()
+            .turn
+            .unwrap();
+        assert!(state.host.pump().is_empty());
+        state
+            .host
+            .states
+            .set_commit_failure_for_tests(Some("persistent synthetic fold failure"));
+        provider.emit_for(&chat, turn, json!({ "type": "turn-completed" }));
+        let server = Server::bind(profile, Arc::new(Empty), Config::default()).unwrap();
+        let mut refused = false;
+        let error = server
+            .events()
+            .transaction(|publication| state.shutdown(&shared, publication, false, &mut refused))
+            .unwrap_err();
+        assert!(
+            error.message.contains("Quitting while a turn runs"),
+            "{error:?}"
+        );
+        assert!(refused);
+        assert_eq!(state.host.quit_state(), QuitState::Running);
+        assert_eq!(state.host.active_turn(&chat), Some(turn));
+        assert_eq!(state.host.stuck_ends(), [chat]);
+        assert!(state.project.join(".milagre/runtime.lock").exists());
+        assert!(shared
+            .failure
+            .lock()
+            .unwrap()
+            .as_deref()
+            .unwrap()
+            .contains("persistent synthetic fold failure"));
+        assert!(!shared.delivery_failed.load(Ordering::Acquire));
+        state.host.states.set_commit_failure_for_tests(None);
+        state.host.shutdown(true).unwrap();
+        server.shutdown().unwrap();
     }
 
     #[test]

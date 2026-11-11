@@ -26,6 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "ordinary" => Scenario::Ordinary,
             "modes" => Scenario::Modes,
             "live-modes" => Scenario::LiveModes,
+            "background-retention" => Scenario::BackgroundRetention,
             _ => return Err("Unknown fixture scenario".into()),
         },
         _ => return Err("Only one fixed fixture scenario is accepted".into()),
@@ -38,7 +39,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     io::stdout().flush()?;
     milagre_rust_runtime::actor::stop_on_stdin(Arc::downgrade(&server));
+    let retention_chat = format!("{}#1", actor["project"].as_str().unwrap_or_default());
+    let mut retention_pid = None;
+    let mut retention_stopped = false;
+    let mut retention_launches = 0;
     while !server.is_stopped() {
+        if matches!(scenario, Scenario::BackgroundRetention) {
+            if let Some(pid) = monitor.pid(&retention_chat) {
+                if retention_pid != Some(pid) {
+                    retention_pid = Some(pid);
+                    retention_launches += 1;
+                    println!("{}", json!({"retentionPid":pid}));
+                    io::stdout().flush()?;
+                }
+            }
+            if retention_launches == 2 && monitor.workers() == 0 && !retention_stopped {
+                retention_stopped = true;
+                println!("{}", json!({"retentionStopped":true}));
+                io::stdout().flush()?;
+            }
+        }
         thread::sleep(Duration::from_millis(10));
     }
     milagre_owner_wire::Server::finish(server)?;

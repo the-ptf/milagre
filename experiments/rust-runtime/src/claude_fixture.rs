@@ -3,6 +3,7 @@
 use crate::instructions::{self, Bundle, HostNetwork};
 use milagre_claude::{
     ordinary::{node_trace, OrdinaryLaunch, OrdinaryTurn},
+    session::IdleClose,
     ClaudeSession, LaunchOptions, SessionOptions,
 };
 use milagre_owner_store::{
@@ -20,7 +21,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-        Arc, Condvar, Mutex,
+        Arc, Condvar, Mutex, Weak,
     },
     time::Duration,
 };
@@ -55,6 +56,8 @@ pub enum Scenario {
     Modes,
     /// Ask -> Full -> Ask within one turn, then Auto -> Ask while idle, from the Node oracle.
     LiveModes,
+    /// Background children/tasks retain a session across TLDR changes until they settle.
+    BackgroundRetention,
     /// A native mode control that deliberately never acknowledges, for cancellation receipts.
     ModeStalled,
     /// A native mode control that refuses, for truthful failure receipts.
@@ -367,7 +370,13 @@ struct ModeChange {
     mode: String,
     guard: ModeGuard,
 }
+/// Paired once by the captured worker; no chat-key lookup can redirect an idle-close claim.
+struct SessionHandle {
+    session: Weak<ClaudeSession>,
+    runtime: tokio::runtime::Handle,
+}
 struct Slot {
+    session: Arc<Mutex<Option<SessionHandle>>>,
     content_scope: Arc<crate::claude_content::SessionContent>,
     start: mpsc::Sender<Start>,
     answers: mpsc::Sender<Reply>,
@@ -382,6 +391,7 @@ struct Slot {
     tldr: bool,
 }
 struct Worker {
+    session: Arc<Mutex<Option<SessionHandle>>>,
     content_scope: Arc<crate::claude_content::SessionContent>,
     shared: Arc<Shared>,
     _profile: Arc<IsolatedProfile>,
@@ -442,6 +452,7 @@ impl ClaudeFixture {
         let mut scripts = Vec::new();
         let bodies = match scenario {
             Scenario::Ordinary => ordinary_scripts(&trace)?,
+            Scenario::BackgroundRetention => background_retention_scripts(&trace)?,
             Scenario::Modes => vec![modes_script(&serde_json::from_str(MODES_TRACE)?)?],
             Scenario::LiveModes => {
                 vec![live_modes_script(&serde_json::from_str(LIVE_MODES_TRACE)?)?]
@@ -656,22 +667,43 @@ impl Provider for ClaudeFixture {
             .get(&chat)
             .filter(|slot| slot.tldr != turn.tldr_enabled && !slot.active.load(Ordering::Acquire))
         {
-            if *self.shared.workers.lock().unwrap() >= CHATS {
-                return Err(refused("The fixture Chat limit was reached"));
-            }
-            let current = slot.native_id.lock().unwrap().clone();
-            if let (Some(requested), Some(current)) = (native["resumeId"].as_str(), &current) {
-                if requested != current {
-                    return Err(refused(
-                        "Close the previous fixture session before resuming another native session",
-                    ));
+            let (session, runtime) = {
+                let captured = slot.session.lock().unwrap();
+                let captured = captured
+                    .as_ref()
+                    .ok_or_else(|| refused("The fixture session activity is unavailable"))?;
+                (
+                    captured
+                        .session
+                        .upgrade()
+                        .ok_or_else(|| refused("The fixture session activity is unavailable"))?,
+                    captured.runtime.clone(),
+                )
+            };
+            let admission = if *self.shared.workers.lock().unwrap() >= CHATS {
+                // Reuse needs no worker permit. An idle or unknown session is never closed when
+                // no replacement permit is available; no check-then-close race is introduced.
+                if session
+                    .busy_without_turn()
+                    .map_err(|_| refused("The fixture session activity is unavailable"))?
+                {
+                    IdleClose::Busy
+                } else {
+                    return Err(refused("The fixture Chat limit was reached"));
                 }
-            }
-            let slot = self.slots.remove(&chat).expect("checked above");
-            slot.content_scope.revoke();
-            slot.close.send_replace(true);
-            if let Some(current) = current {
-                native["resumeId"] = json!(current);
+            } else {
+                let _entered = runtime.enter();
+                session
+                    .close_if_idle(native["resumeId"].as_str())
+                    .map_err(|_| refused("The fixture session cannot safely be replaced"))?
+            };
+            if let IdleClose::Closing { native_id } = admission {
+                let slot = self.slots.remove(&chat).expect("captured above");
+                slot.content_scope.revoke();
+                slot.close.send_replace(true);
+                if let Some(current) = native_id {
+                    native["resumeId"] = json!(current);
+                }
             }
         }
         if !self.slots.contains_key(&chat) {
@@ -687,8 +719,10 @@ impl Provider for ClaudeFixture {
             let done = Arc::new(AtomicBool::new(false));
             let latest = Arc::new(AtomicU64::new(0));
             let native_id = Arc::new(Mutex::new(None));
+            let session = Arc::new(Mutex::new(None));
             let content_scope = crate::claude_content::SessionContent::new();
             let worker = Worker {
+                session: session.clone(),
                 content_scope: content_scope.clone(),
                 shared: self.shared.clone(),
                 _profile: self.profile.clone(),
@@ -747,6 +781,7 @@ impl Provider for ClaudeFixture {
             self.slots.insert(
                 chat.clone(),
                 Slot {
+                    session,
                     content_scope,
                     start,
                     answers,
@@ -1110,6 +1145,10 @@ impl Worker {
         }
         let (session, mut events) = ClaudeSession::new(options);
         let session = Arc::new(session);
+        *self.session.lock().unwrap() = Some(SessionHandle {
+            session: Arc::downgrade(&session),
+            runtime: tokio::runtime::Handle::current(),
+        });
         let mut replies = tokio::task::JoinSet::new();
         let mut mode_tasks = tokio::task::JoinSet::new();
         loop {
@@ -1338,6 +1377,47 @@ fn live_modes_script(trace: &Value) -> Result<Value, Box<dyn std::error::Error>>
         |_| vec![],
     )?);
     Ok(Value::Array(steps))
+}
+/// Two exact ordinary launches: the first keeps its original instructions through four turns
+/// with changing native activity; only the fully settled session is replaced for turn five.
+fn background_retention_scripts(trace: &Value) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    let child = |id: &str, background: bool| json!({"emit":{"type":"assistant","message":{"content":[{"type":"tool_use","id":id,"name":"Agent","input":{"description":"Retention child","run_in_background":background}}]}}});
+    let complete = |id: &str| json!({"emit":{"type":"system","subtype":"task_notification","tool_use_id":id,"task_id":format!("task-{id}"),"status":"completed"}});
+    let tasks = |id: Option<&str>| json!({"emit":{"type":"system","subtype":"background_tasks_changed","tasks":id.map(|id|vec![json!({"task_id":id,"task_type":"local_bash","description":"Retention command"})]).unwrap_or_default()}});
+    let mut scripts = Vec::new();
+    for (launch, turns) in [vec![1, 2, 3, 4], vec![5]].into_iter().enumerate() {
+        let query = &trace["queries"][launch];
+        let mut steps = node_trace::launch_steps(query)?;
+        // Normal reply style throughout. Both recorded launches initialize summarized thinking.
+        steps.extend(node_trace::control_steps(
+            &[query["controls"][0].clone()],
+            |_| vec![],
+        )?);
+        for turn in turns {
+            steps.extend([
+                json!({"expect":{"type":"user","fields":{"/message/content/0/text":format!("retention {turn}")}}}),
+                json!({"emit":{"type":"system","subtype":"init","session_id":"fixture-session"}}),
+            ]);
+            match turn {
+                1 => steps.extend([
+                    child("retained-child", true),
+                    tasks(Some("retained-command")),
+                ]),
+                2 => steps.push(complete("retained-child")),
+                3 => steps.extend([tasks(None), child("foreground-child", false)]),
+                4 => steps.push(complete("foreground-child")),
+                5 => steps.extend([child("closing-child", true), tasks(Some("closing-command"))]),
+                _ => unreachable!(),
+            }
+            steps.extend([
+                json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Claude fixture hello"}}}}),
+                json!({"emit":{"type":"result","subtype":"success","num_turns":1,"result":"done"}}),
+            ]);
+        }
+        steps.push(json!({"wait_eof":true}));
+        scripts.push(Value::Array(steps));
+    }
+    Ok(scripts)
 }
 fn script_for(scenario: Scenario, queue_release: &Path) -> Value {
     let mut steps = vec![json!({"expect":{"subtype":"initialize"}})];
@@ -1615,5 +1695,79 @@ mod mode_receipt_tests {
             fixture.take_events().is_empty(),
             "cleanup cannot duplicate a definitive receipt"
         );
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+    fn request(provider: &ClaudeFixture, chat: &str, turn: u64) -> RawJson {
+        RawJson(
+            json!({"provider":"claude","chatId":chat,"cwd":provider.project(),"prompt":format!("retention {turn}"),
+            "model":"sonnet","permissionMode":"ask","effort":"high","replies":"normal","tldrEnabled":turn==1}),
+        )
+    }
+    fn complete(provider: &mut ClaudeFixture, turn: u64) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let events = provider.take_events();
+            assert!(
+                !events
+                    .iter()
+                    .any(|event| matches!(event, ProviderEvent::StartFailed { .. })),
+                "{events:?}"
+            );
+            if events.iter().any(|event|matches!(event,ProviderEvent::Agent{turn:actual,event:RawJson(v),..} if actual.0==turn && v["type"]=="turn-completed")){return;}
+            assert!(
+                std::time::Instant::now() < deadline,
+                "turn {turn}: {events:?}"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+    #[test]
+    fn busy_session_reuses_its_worker_at_capacity() {
+        let mut provider = ClaudeFixture::create(Scenario::BackgroundRetention).unwrap();
+        // Every private Chat runs the same checked-in first-launch script in this capacity test.
+        provider.scripts.truncate(1);
+        for index in 0..CHATS {
+            let chat = format!("retention-{index}");
+            let request = request(&provider, &chat, 1);
+            provider
+                .start_turn(TurnId(index as u64 + 1), &request)
+                .unwrap();
+            complete(&mut provider, index as u64 + 1);
+        }
+        assert_eq!(provider.monitor().workers(), CHATS);
+        let pid = provider.monitor().pid("retention-0");
+        let request = request(&provider, "retention-0", 2);
+        provider.start_turn(TurnId(100), &request).unwrap();
+        complete(&mut provider, 100);
+        assert_eq!(provider.monitor().pid("retention-0"), pid);
+        provider.shutdown();
+        assert!(provider.monitor().wait_stopped(Duration::from_secs(3)));
+    }
+    #[test]
+    fn unavailable_captured_session_refuses_replacement_without_closing() {
+        let mut provider = ClaudeFixture::create(Scenario::BackgroundRetention).unwrap();
+        provider
+            .start_turn(TurnId(1), &request(&provider, "fixture", 1))
+            .unwrap();
+        complete(&mut provider, 1);
+        let pid = provider.monitor().pid("fixture");
+        let captured = provider.slots["fixture"].session.lock().unwrap().take();
+        assert!(provider
+            .start_turn(TurnId(2), &request(&provider, "fixture", 2))
+            .is_err());
+        assert_eq!(provider.monitor().pid("fixture"), pid);
+        assert_eq!(provider.monitor().workers(), 1);
+        *provider.slots["fixture"].session.lock().unwrap() = captured;
+        provider
+            .start_turn(TurnId(2), &request(&provider, "fixture", 2))
+            .unwrap();
+        complete(&mut provider, 2);
+        assert_eq!(provider.monitor().pid("fixture"), pid);
+        provider.shutdown();
+        assert!(provider.monitor().wait_stopped(Duration::from_secs(3)));
     }
 }

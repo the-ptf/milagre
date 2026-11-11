@@ -2,7 +2,7 @@
 
 `ClaudeFixture::create(Scenario)` implements the nonblocking owner Provider contract over `milagre_claude::ClaudeSession`. It creates a fresh private Project/profile and launches only the fixed Cargo sibling `runtime-fake-claude`, compiled directly from the checked-in rust-claude fixture source. It accepts no executable, external path, credentials, environment, role or MCP endpoint. `claude-runtime` exposes this fixture through the existing owner actor and a separate private wire profile. It cannot connect to the installed app or production daemon.
 
-Each Chat has a private executor and one Claude session, bounded to 16 workers, one queued start, eight queued answers and at most eight retained answer tasks per worker, 32 outstanding answer receipts globally and 256 ordinary events/4 MiB serialized payload plus bounded terminal/answer reserves. Completed slots are removed on subsequent admission. Provider methods only enqueue; synchronous Claude answer callbacks run on the worker. Close is bound to the captured slot and current host TurnId. Close detaches the captured slot immediately; its worker retains resources while reaping, and a later turn creates a fresh session and registration. A stale close cannot stop its replacement. Overlapping starts and implicit extra turns are refused; production steering is still gated.
+Each Chat has a private executor and one Claude session, bounded to 16 workers, one queued start, eight queued answers and at most eight retained answer tasks per worker, 32 outstanding answer receipts globally and 256 ordinary events/4 MiB serialized payload plus bounded terminal/answer reserves. Completed slots are removed on subsequent admission. Start and answer operations enqueue; synchronous Claude answer callbacks run on the worker. Automatic idle replacement also checks native mapper state and starts logical close under its lock; process cleanup stays asynchronous on the captured executor. Close is bound to the captured slot and current host TurnId. Close detaches the captured slot immediately; its worker retains resources while reaping, and a later turn creates a fresh session and registration. A stale close cannot stop its replacement. Overlapping starts and implicit extra turns are refused; production steering is still gated.
 
 Each admitted turn receives Started or StartFailed. A running turn emits one host terminal, then one generation-bound Exited when its session closes. Compact subagent settlement deltas from close are forwarded before the terminal/exit without replacing transcript history. The owner merges transcript rows by id. Normal shutdown and cancelled startup retain the executor, profile and worker permit until all supervisors finish reaping. A three-second deadline latches cleanup failure and closes admission; it never releases an unreaped child. The fixture executable reports `CLAUDE_CLEANUP_INCOMPLETE`, waits for cleanup, and exits with failure if that deadline was exceeded.
 
@@ -65,7 +65,7 @@ are retained in the earlier logs. No external process signals or cleanup scans w
 
 These checks use a fixed fake CLI. Real `acceptEdits`/`bypassPermissions`, the SDK-initialize
 versus private-file prompt difference, steering-carried mode changes, broader workspace grants,
-account routing, images and background-aware restart remain unverified or unported. The checked
+account routing and images remain unverified or unported. Background retention is covered below. The checked
 Rust API reports native errors where Node's session method swallows the control rejection.
 Existing void session callers keep their prior behavior. No provider or production host is enabled.
 
@@ -142,16 +142,48 @@ Every fixture session now gets Node's ordinary Chat launch. `src/instructions.rs
 
 `milagre_claude::ordinary::OrdinaryLaunch` installs the appended instructions (private `--append-system-prompt-file`), Node's `settingSources` `user,project,local`, QA agents and SubagentStart context (design section only when the attached manifest has `design_show`) and prompt suggestions. The session keeps adding the TODO-tools env flag, `{fastMode, ultracode}` settings file, effort, skip-permissions, partial messages, subagent text, PreToolUse hook, summarized thinking and reply style in Node's order. The fixture still adds `--no-session-persistence` and `--strict-mcp-config` as isolation-only restrictions that Node does not pass. SDK 0.3.288 sends the appended prompt in `initialize`; Rust sends the same bytes by file. A real CLI has not verified that equivalence.
 
-SessionManager fixes instructions per session. When a foreground-idle Chat's `tldrEnabled` changes, `start_turn` detaches that slot exactly like `close_chat` (content lease revoked, worker reaps on its own) and starts a fresh session resuming the old native id. A request naming a different resume id is refused before anything is closed. A running turn is never restarted; steering stays refused. The detached worker reports `Exited` only for its own last turn, which the owner ignores for the newer turn. Scope limit: Node's `currentEntry` also keeps the existing session (no restart) while it has active subagent children or background tasks (`busyWithoutTurn`, `backgroundCount`), and refuses a provider/folder switch with background work. This fixture does not track children or background tasks for that decision: the TLDR restart is tested only for foreground-idle sessions with no background work, and a session with background work would be restarted here where Node would keep it.
+SessionManager fixes instructions per session. A TLDR change now preserves a foreground-idle session while its native mapper represents any active child (initializing, running or waiting, including foreground and nested children) or background task. A terminal event does not erase that activity. Once all represented work settles, the next changed-TLDR turn atomically claims idle close and resumes a fresh process with the captured session's native id. A foreign resume id is refused before close. A running turn is never restarted; steering stays refused. The detached worker reports `Exited` only for its own last turn.
+
+The admission seam is `ClaudeSession::close_if_idle`: its existing state lock serializes the activity check with native lifecycle mapping and the close transition. Busy returns without changing state or queues. The fixture stores a paired weak session and executor handle in the exact worker slot and enters that captured executor before calling the method, so cleanup remains retained on the owning executor. No caller can submit busy flags. Missing handles, a closed/failed mapper or queue, and an expired retired-ID history refuse replacement. The latter is conservative: once bounded tombstones expire, omitted orphan launches make an idle proof unavailable even if the represented sets are empty. Explicit close remains available. At the 16-worker limit, a known busy session can still reuse its existing worker; an idle replacement is refused before anything closes.
+
+The mapper already bounds active children to 128 and the native background-task snapshot to its first 50 eligible entries. Ambient and local-agent task entries are filtered by the existing mapper; the manager oracle itself has no 50-entry cap. Full snapshots replace task activity, empty snapshots clear it, and child completion/cancellation releases activity. This proves retention of represented native events, not complete native liveness: work the CLI has not reported or Rust has not mapped cannot be observed. Implicit extra turns, provider/folder changes, account routing and broader workspace authority remain refused by this fixture.
+
+The fixed `background-retention` scenario completes five turns. Child plus task work survives turn 1; task-only activity retains turn 3; a foreground child retains turn 4. Once both settle, turn 5 starts a new process with TLDR off and `--resume=fixture-session`. That process starts another child and command, and explicit close settles both and reaps it. The native script asserts the actual ordinary Node launch bytes for TLDR on/off, independently of the manager retention oracle. Fixture-only stdout reports captured native PIDs and final supervisor cleanup; the new Node-client scenario uses no process scan or external signal.
+
+Evidence: `rust-claude/tests/retention.rs` keeps postterminal child events unread by the owner and still refuses idle close, checks the runtime/foreign-resume guards and post-close refusal, and awaits native reaping. The lower mapper predicate is compared with the actual Node oracle and crosses the bounded retirement-history threshold. `claude_bridge` compares the five native process decisions with the `background-retention` manager case, checks initial-start refusal and explicit cleanup, while private adapter tests cover all 16 workers and an unavailable captured session. The production daemon client verifies five saved prompts/replies, same PID through the first four turns, a new PID on turn 5 and explicit Project-forget cleanup. No real provider or application UI was used.
+
+The first full root client run found a real shutdown race: after forget, late child/task/Exited events are refused with `PROJECT_NOT_READY`. If shutdown drained those events before the periodic tick, its pre-pump returned the refusal instead of closing. The actor now records every pre-pump error through its existing bounded diagnostic path and proceeds to actual owner shutdown, matching the owner's and normal tick's policy. Delivery still refuses unknown/foreign events without reopening, writing or broadcasting. Three deterministic tests cover the no-tick late-event path, a real save failure retaining its lock, and a stuck terminal fold retaining its active turn. The existing stranded-lock regression also passes. Restoring the old pre-pump reproduces the failure. The client closes its renderer subscription before forget; active-subscription forget remains outside this scenario.
+
+Root acceptance: 157 Claude tests pass (one live test ignored), 84 default runtime tests pass, and all fifteen production Node-client scenarios pass. The retention run records PIDs `[80576,80576,80576,80576,80577]` and cleanup true. Strict Clippy/fmt, runtime all-feature/all-target compilation, targeted Oxlint/Oxfmt and all three fresh Node recorder checks pass. Independent source review closes the capacity-reuse and shutdown P2s. Ignoring native busy state makes the new bridge regression fail. No real provider was used and no app fixture was installed or rebuilt.
+
+Root logs: `/tmp/milagre-retention-root-claude-{tests,clippy,fmt}.log`,
+`/tmp/milagre-retention-root-runtime-{accepted,clippy-final,fmt-final}.log`,
+`/tmp/milagre-retention-root-{allfeatures-final,build-final,client-accepted}.log`,
+`/tmp/milagre-retention-root-{node-oracle,instructions,session-oracle,jslint,jsfmt}.log`.
+The failed full run and exact-RPC diagnostic remain in `client.log` and `traced-client.log`
+under that same prefix. Mutation evidence is `/tmp/milagre-retention-busy-mutant.log` and
+`/tmp/milagre-shutdown-old-prepump-mutation.log`; the restored implementations pass.
+
+Targeted checks:
+
+```
+cargo test --manifest-path experiments/rust-claude/Cargo.toml --test retention
+cargo test --manifest-path experiments/rust-runtime/Cargo.toml --lib retention_tests
+cargo test --manifest-path experiments/rust-runtime/Cargo.toml --test claude_bridge
+NODE_PATH=<checkout>/node_modules node experiments/rust-runtime/tests/claude-compat.cjs experiments/rust-runtime/target/debug/claude-runtime background-retention
+```
 
 ### Regenerating and checking the Node oracles
 
 ```
 NODE_PATH=<checkout>/node_modules node experiments/rust-runtime/fixtures/instructions-node.cjs --check
 NODE_PATH=<checkout>/node_modules node experiments/rust-claude/scripts/generate-session.cjs --check
+NODE_PATH=<checkout>/node_modules node experiments/rust-runtime/fixtures/session-retention-node.cjs --check
 ```
 
 `--check` rebuilds fresh output from the actual Node sources, writes nothing, and fails on any difference from the committed JSON in structure, values or key order (formatting is ignored, so the formatter-laid-out legacy `claude-session.json` is left as committed). The informational `node` version field is excluded and both values are printed. Each run asserts its fixed `/tmp/milagre-*-oracle` root is removed. Without `--check` the scripts rewrite the files.
+
+The retention recorder uses actual Node SessionManager methods with synthetic native sessions and no temporary workspace. Its 15 cases pin nine source hashes, including the recorder. Its Cargo tests verify provenance and recorded decisions; the explicit `--check` command reruns Node. Provider/folder/workspace-switch cases describe Node behavior outside this fixed-provider fixture's admitted scope. They do not establish native process parity or idle-timer expiration.
 
 ### Evidence
 
@@ -196,4 +228,4 @@ Admitted: `permissionMode` `ask`, `auto`, `full` (absent or null is Ask). For an
 
 - Direct mid-turn mode changes are covered by the Live permission changes section above. Mode changes carried by steering remain unreachable here. The Rust session's own Auto card resolution uses a canonical, `..`-refusing check where Node's `insideRoot` is lexical (stricter, unchanged).
 - Shared-Link and Worktree roots: read-only main checkouts (deny edits with the Worktree message), Link roots, late-root learning and `addDirectories` grants need registry authority the fixture lacks; such Chats stay refused.
-- Real CLI behavior of `acceptEdits`/`bypassPermissions`, images, roles, account routing, user MCP extras and background-aware retention remain open.
+- Real CLI behavior of `acceptEdits`/`bypassPermissions`, images, roles, account routing, user MCP extras and background activity not reported by the native CLI remain open.

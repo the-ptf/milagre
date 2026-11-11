@@ -213,10 +213,19 @@ pub enum SessionError {
     Closed,
     #[error("The agent session closed before this message was sent.")]
     ClosedBeforeSend,
+    #[error("The Claude session cannot be safely replaced.")]
+    ReplacementUnavailable,
     #[error("The permission-mode change was not admitted.")]
     ModeNotAdmitted,
     #[error("{0}")]
     Send(ClientError),
+}
+
+/// Atomic idle-replacement admission; the native id belongs to the exact session closed.
+#[derive(Debug, PartialEq, Eq)]
+pub enum IdleClose {
+    Busy,
+    Closing { native_id: Option<String> },
 }
 
 /// Opens once; waiters before or after see it open.
@@ -673,6 +682,48 @@ impl ClaudeSession {
 
     pub fn turn_active(&self) -> bool {
         self.inner.state.lock().unwrap().turn_active
+    }
+
+    /// Native mapper activity even when its events have not yet reached the owner. This is a
+    /// conservative known/unknown observation, not a claim to see unreported CLI work.
+    pub fn busy_without_turn(&self) -> Result<bool, SessionError> {
+        let state = self.inner.state.lock().unwrap();
+        if state.closed || self.inner.queue.closed() {
+            return Err(SessionError::Closed);
+        }
+        state.mapper.busy_without_turn().ok_or(SessionError::ReplacementUnavailable)
+    }
+
+    /// Claim replacement against the same state lock used by native lifecycle mapping. A busy
+    /// session is unchanged. Successful admission starts retained cleanup before releasing the
+    /// lock, so new background activity cannot slip between observing idle and closing.
+    /// Call within the captured session's Tokio executor; unavailable/failed activity refuses.
+    pub fn close_if_idle(&self, expected_resume: Option<&str>) -> Result<IdleClose, SessionError> {
+        tokio::runtime::Handle::try_current().map_err(|_| SessionError::ReplacementUnavailable)?;
+        let native_id = {
+            let mut state = self.inner.state.lock().unwrap();
+            if state.closed || self.inner.queue.closed() {
+                return Err(SessionError::Closed);
+            }
+            if expected_resume.is_some_and(|requested| state.mapper.session_id.as_deref().is_some_and(|id| requested != id)) {
+                return Err(SessionError::ReplacementUnavailable);
+            }
+            let busy = state.mapper.busy_without_turn().ok_or(SessionError::ReplacementUnavailable)?;
+            if state.turn_active || busy {
+                return Ok(IdleClose::Busy);
+            }
+            if state.client.is_none() || state.mapper.session_id.is_none() {
+                return Err(SessionError::ReplacementUnavailable);
+            }
+            let native_id = state.mapper.session_id.clone();
+            self.inner.stop_locked(&mut state);
+            native_id
+        };
+        // Lock order is access gate then state. stop_locked already closed state before this
+        // gate shuts, so a callback racing this gap still fails its closed-state entry check.
+        self.inner.access_gate.shut();
+        self.inner.access_slots.close();
+        Ok(IdleClose::Closing { native_id })
     }
 
     /// Start a turn, or steer the running one. A future dropped while the CLI is still starting closes

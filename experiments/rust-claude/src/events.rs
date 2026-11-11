@@ -361,6 +361,10 @@ impl ClaudeMapper {
     }
 
     /// What `finishTurn` clears: calls waiting for a result never get one, nor does cut-off thinking.
+    pub(crate) fn busy_without_turn(&self) -> Option<bool> {
+        self.subagents.busy_without_turn()
+    }
+
     pub fn end_turn(&mut self) {
         self.tools.clear();
         self.subagents.end_turn();

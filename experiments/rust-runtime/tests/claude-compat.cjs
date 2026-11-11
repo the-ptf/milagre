@@ -22,9 +22,12 @@ async function scenario(name) {
   const exit = once(child, "exit");
   const lines = readline.createInterface({ input: child.stdout });
   const reports = [];
+  const retention = { pids: [], stopped: false };
   lines.on("line", (line) => {
     const value = JSON.parse(line);
     if (value.designFeedback) reports.push(value.designFeedback);
+    if (value.retentionPid) retention.pids.push(value.retentionPid);
+    if (value.retentionStopped) retention.stopped = true;
   });
   let stderr = "",
     client,
@@ -54,6 +57,7 @@ async function scenario(name) {
     if (name === "ordinary") await ordinary({ client, events, project, child });
     else if (name === "modes") await modes({ client, events, project, child });
     else if (name === "live-modes") await liveModes({ client, events, project });
+    else if (name === "background-retention") await backgroundRetention({ client, runtime, events, project, retention });
     else {
       const body = name === "unicode" ? "native \u{10fffe} \ue123 \ud83d" : "fixture input";
       await client.call("chat:send", [
@@ -335,6 +339,54 @@ async function modes({ client, events, project, child }) {
   const snapshot = await client.call("project:snapshot", [project]);
   assert.equal(snapshot.state.sessions["1"].permissionMode, "ask", "the owner keeps the last turn's mode");
 }
+// Actual daemon client + real Rust mapper over the fixed native child. Diagnostics come from
+// that retained child's supervisor, so this scenario needs no process scan or external signals.
+async function backgroundRetention({ client, runtime, events, project, retention }) {
+  const oracle = require("../fixtures/session-retention-node.json");
+  const expected = oracle.cases
+    .find((entry) => entry.name === "background-retention")
+    .steps.filter((step) => step.action === "start")
+    .map((step) => step.snapshot.session);
+  const terminals = () => events.filter((event) => ["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type));
+  const pids = [];
+  for (let turn = 1; turn <= 5; turn++) {
+    await client.call("chat:send", [
+      {
+        projectPath: project,
+        sessionId: 1,
+        worktreeId: 1,
+        clientMessageId: `retention-${turn}`,
+        body: `retention ${turn}`,
+        provider: "claude",
+        model: "sonnet",
+        permissionMode: "ask",
+        effort: "high",
+        replies: "normal",
+        tldrEnabled: turn === 1,
+      },
+    ]);
+    await until(`retention turn ${turn}`, () => terminals().length === turn);
+    await until(`retention PID ${turn}`, () => retention.pids.length === (turn === 5 ? 2 : 1));
+    pids.push(retention.pids.at(-1));
+    assert.equal(terminals().at(-1).type, "turn-completed");
+  }
+  assert.deepEqual(
+    pids.map((pid) => (pid === pids[0] ? 1 : 2)),
+    expected,
+  );
+  assert.notEqual(pids[4], pids[0]);
+  const messages = await client.call("chat:messages", [project, 1]);
+  for (let turn = 1; turn <= 5; turn++) assert.equal(messages.messages.filter((message) => message.body === `retention ${turn}`).length, 1);
+  assert.equal(messages.messages.filter((message) => message.body === "Claude fixture hello").length, 5);
+  assert.ok(events.some((event) => event.type === "subagent-update" && event.agent.id === "foreground-child" && event.agent.status === "running"));
+  assert.ok(events.some((event) => event.type === "background-tasks" && event.tasks.some((task) => task.id === "closing-command")));
+  // Detach the renderer subscription before forgetting its private Project.
+  await runtime.close();
+  await client.call("project:forget", [project]);
+  await until("retention explicit-close cleanup", () => retention.stopped);
+  console.log(JSON.stringify({ retentionPids: pids, cleanup: retention.stopped }));
+}
+
 // Three composer-shaped sends (the desktop's agentRuns.send payload, default Settings first) through the
 // production Node client. The fake child asserts the Node-recorded launch options and control order
 // itself; this checks processes, generations and the saved transcript.
@@ -409,7 +461,7 @@ async function ordinary({ client, events, project, child }) {
   assert.equal(messages.messages.filter((m) => m.body === "Claude fixture hello").length, 3);
 }
 (async () => {
-  for (const name of [
+  const scenarios = [
     "reply",
     "permission",
     "question",
@@ -424,9 +476,12 @@ async function ordinary({ client, events, project, child }) {
     "ordinary",
     "modes",
     "live-modes",
-  ])
-    await scenario(name);
-  console.log("Claude owner Node client conformance passed (14 scenarios)");
+    "background-retention",
+  ];
+  const selected = process.argv[3] ? scenarios.filter((name) => name === process.argv[3]) : scenarios;
+  assert.ok(selected.length, "Unknown fixed fixture scenario");
+  for (const name of selected) await scenario(name);
+  console.log(`Claude owner Node client conformance passed (${selected.length} scenarios)`);
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

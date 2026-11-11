@@ -317,6 +317,16 @@ impl Subagents {
         }
         Ok(json!({"type":"subagent-update","agent":agent}))
     }
+    /// Read from the native mapper, never reconstructed from a consumer's possibly queued events.
+    /// Expired tombstones make orphan activity ambiguous, so they cannot prove idle replacement.
+    pub(crate) fn busy_without_turn(&self) -> Option<bool> {
+        if self.failed || self.require_explicit_launch {
+            None
+        } else {
+            Some(self.agents.values().any(active) || !self.background.is_empty())
+        }
+    }
+
     pub fn end_turn(&mut self) {
         self.foreground.clear();
     }
@@ -589,6 +599,33 @@ impl Subagents {
 #[cfg(test)]
 mod budget_tests {
     use super::*;
+    #[test]
+    fn bounded_mapper_activity_is_known_until_retirement_or_failure_makes_it_uncertain() {
+        let oracle: Value = serde_json::from_str(include_str!("../../rust-runtime/fixtures/session-retention-node.json")).unwrap();
+        for predicate in oracle["predicate"].as_array().unwrap() {
+            let mut agents = Subagents::default();
+            agents.update("child", json!({"status":predicate["status"]}), None, 1).unwrap();
+            assert_eq!(agents.busy_without_turn(), Some(predicate["active"].as_bool().unwrap()), "{predicate}");
+            agents.end_turn();
+            assert_eq!(agents.busy_without_turn(), Some(predicate["active"].as_bool().unwrap()));
+        }
+        let mut agents = Subagents::default();
+        agents.background_tasks(&[json!({"task_id":"one","task_type":"local_bash"}), json!({"task_id":"one","task_type":"local_bash"})], 1);
+        assert_eq!(agents.busy_without_turn(), Some(true));
+        agents.background_tasks(&[], 2);
+        assert_eq!(agents.busy_without_turn(), Some(false));
+        // Existing bounded retired history intentionally ignores ambiguous orphan launches.
+        // Once that proof expires, even an empty represented set must not authorize replacement.
+        for id in 0..=RETIRED_IDS {
+            agents.retire(0, &format!("retired-{id}"));
+        }
+        assert!(agents.require_explicit_launch);
+        assert_eq!(agents.busy_without_turn(), None);
+        let mut failed = Subagents::default();
+        failed.fail();
+        assert_eq!(failed.busy_without_turn(), None);
+    }
+
     #[test]
     fn oversized_unicode_display_and_task_payloads_stay_bounded() {
         let mut agents = Subagents::default();

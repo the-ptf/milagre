@@ -1,0 +1,4094 @@
+{
+  "schema": 1,
+  "generatedBy": "fixtures/session-retention-node.cjs",
+  "scope": "Actual Node SessionManager with explicit synthetic native-session double; no native execution or provider-lifecycle equivalence claim.",
+  "sources": {
+    "packages/core/src/agents/session-manager.cjs": "c371db28cb1158d0107b56ac1d54c0c22d6e44d90859a4a5c3e332129be39082",
+    "packages/core/src/agents/subagents.cjs": "20e194c99cca1a99fffe7479ec37778005fbc1e15dca8164569ab4ddcdc64a67",
+    "packages/core/src/agents/events.cjs": "0b388d25136979bdd9611f23fdd4fdb82f18ec6178306c8ecd5e17473f9b35c5",
+    "packages/core/src/agents/permissions.cjs": "b26d0da47f19465af7ee53f04064adc72eb1a3c493b5582e3e688a714f570e94",
+    "packages/shared/src/agent-runs.mjs": "bfda8a66cd891f1b0469431af9c78669a8db064c8cea5c3a60e818cdc8e0adb9",
+    "packages/shared/src/provider-capabilities.mjs": "8f9327b5aac8cd7b2d64964e8a6bf15ebd67d8029ed5b5b2044d2df1dbdc81cb",
+    "packages/shared/src/chat-activity.mjs": "48b6e4cb0bc77cf85d196ad4757972127d5555453febdcea6bdf491b8bc5e926",
+    "packages/shared/src/providers.mjs": "6fe9a1c1bd0940cb5872711ae3d52f820a75b1e01883f4e08afc6d331930ae80",
+    "experiments/rust-runtime/fixtures/session-retention-node.cjs": "29144df46e86e255b0177bf2e7b91332ce05be4fd1acdd03033a2e1b0e711e7e"
+  },
+  "predicate": [
+    {
+      "status": null,
+      "active": false
+    },
+    {
+      "status": "initializing",
+      "active": true
+    },
+    {
+      "status": "running",
+      "active": true
+    },
+    {
+      "status": "waiting",
+      "active": true
+    },
+    {
+      "status": "completed",
+      "active": false
+    },
+    {
+      "status": "failed",
+      "active": false
+    },
+    {
+      "status": "cancelled",
+      "active": false
+    },
+    {
+      "status": "unknown",
+      "active": false
+    },
+    {
+      "status": "stopped",
+      "active": false
+    }
+  ],
+  "capabilities": {
+    "claude": {
+      "backgroundSubagents": true
+    },
+    "codex": {
+      "backgroundSubagents": false
+    },
+    "kiro": {
+      "backgroundSubagents": false
+    },
+    "antigravity": {
+      "backgroundSubagents": false
+    },
+    "unknown": {
+      "backgroundSubagents": false
+    }
+  },
+  "cases": [
+    {
+      "name": "background-retention",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "running",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "background-tasks",
+            "tasks": [
+              {
+                "id": "task",
+                "kind": "local_bash",
+                "title": "Synthetic task",
+                "startedAt": 1
+              }
+            ]
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": ["task"],
+            "backgroundWork": 2,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": ["task"],
+            "backgroundWork": 2,
+            "forwarded": 4,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": false
+          },
+          "result": {
+            "turnId": "s1-t2",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": ["task"],
+            "backgroundWork": 2,
+            "forwarded": 5,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "completed",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": ["task"],
+            "backgroundWork": 1,
+            "forwarded": 6,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": ["task"],
+            "backgroundWork": 1,
+            "forwarded": 7,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": false
+          },
+          "result": {
+            "turnId": "s1-t3",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [3],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": ["task"],
+            "backgroundWork": 1,
+            "forwarded": 8,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "background-tasks",
+            "tasks": []
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [3],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 9,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "waiting",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [3],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 10,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [3],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 11,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": false
+          },
+          "result": {
+            "turnId": "s1-t4",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [4],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 12,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "completed",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [4],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 13,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [4],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 14,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": false
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": "native-1",
+            "starts": [4, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 15,
+            "closeNotifications": 1
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "initializing",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": "native-1",
+            "starts": [4, 1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 16,
+            "closeNotifications": 1
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "background-tasks",
+            "tasks": [
+              {
+                "id": "new-task",
+                "kind": "local_bash",
+                "title": "Synthetic new-task",
+                "startedAt": 1
+              }
+            ]
+          },
+          "result": null,
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": "native-1",
+            "starts": [4, 1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": ["new-task"],
+            "backgroundWork": 2,
+            "forwarded": 17,
+            "closeNotifications": 1
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": "native-1",
+            "starts": [4, 1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": ["new-task"],
+            "backgroundWork": 2,
+            "forwarded": 18,
+            "closeNotifications": 1
+          }
+        },
+        {
+          "action": "close",
+          "result": null,
+          "snapshot": {
+            "session": null,
+            "created": 2,
+            "closed": [1, 2],
+            "provider": null,
+            "tldrEnabled": null,
+            "resumeId": null,
+            "starts": [4, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 18,
+            "closeNotifications": 2
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": false,
+          "resumeId": "native-1"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "running",
+            "background": true
+          }
+        },
+        {
+          "type": "background-tasks",
+          "tasks": [
+            {
+              "id": "task",
+              "kind": "local_bash",
+              "title": "Synthetic task",
+              "startedAt": 1
+            }
+          ]
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s1-t2"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "completed",
+            "background": true
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s1-t3"
+        },
+        {
+          "type": "background-tasks",
+          "tasks": []
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "waiting",
+            "background": true
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s1-t4"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "completed",
+            "background": true
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "initializing",
+            "background": true
+          }
+        },
+        {
+          "type": "background-tasks",
+          "tasks": [
+            {
+              "id": "new-task",
+              "kind": "local_bash",
+              "title": "Synthetic new-task",
+              "startedAt": 1
+            }
+          ]
+        },
+        {
+          "type": "turn-completed"
+        }
+      ]
+    },
+    {
+      "name": "foreground-retains-tldr-on",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": false,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "running",
+              "background": false
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": true
+          },
+          "result": {
+            "turnId": "s1-t2",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 4,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "completed",
+              "background": false
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 5,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 6,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": true
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": "native-1",
+            "starts": [2, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 7,
+            "closeNotifications": 1
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": false,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": "native-1"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "running",
+            "background": false
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s1-t2"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "completed",
+            "background": false
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        }
+      ]
+    },
+    {
+      "name": "background-retention-tldr-on",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": false,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "running",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "background-tasks",
+            "tasks": [
+              {
+                "id": "task",
+                "kind": "local_bash",
+                "title": "Synthetic task",
+                "startedAt": 1
+              }
+            ]
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": ["task"],
+            "backgroundWork": 2,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": ["task"],
+            "backgroundWork": 2,
+            "forwarded": 4,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": true
+          },
+          "result": {
+            "turnId": "s1-t2",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": ["task"],
+            "backgroundWork": 2,
+            "forwarded": 5,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "completed",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": ["task"],
+            "backgroundWork": 1,
+            "forwarded": 6,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": ["task"],
+            "backgroundWork": 1,
+            "forwarded": 7,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": true
+          },
+          "result": {
+            "turnId": "s1-t3",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [3],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": ["task"],
+            "backgroundWork": 1,
+            "forwarded": 8,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "background-tasks",
+            "tasks": []
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [3],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 9,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": null,
+            "starts": [3],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 10,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": true,
+            "resumeId": "stale-request-native"
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": "native-1",
+            "starts": [3, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 11,
+            "closeNotifications": 1
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": false,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": "native-1"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "running",
+            "background": true
+          }
+        },
+        {
+          "type": "background-tasks",
+          "tasks": [
+            {
+              "id": "task",
+              "kind": "local_bash",
+              "title": "Synthetic task",
+              "startedAt": 1
+            }
+          ]
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s1-t2"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "completed",
+            "background": true
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s1-t3"
+        },
+        {
+          "type": "background-tasks",
+          "tasks": []
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        }
+      ]
+    },
+    {
+      "name": "running-turn-retains-tldr",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": false
+          },
+          "result": {
+            "turnId": "s1-t2",
+            "steered": true
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": false
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": "native-1",
+            "starts": [2, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 4,
+            "closeNotifications": 1
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": false,
+          "resumeId": "native-1"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s1-t2"
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        }
+      ]
+    },
+    {
+      "name": "duplicates-and-snapshot-replacement",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "initializing",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "initializing",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "waiting",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 4,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "nested",
+              "status": "running",
+              "background": false,
+              "parentId": "child"
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child", "nested"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 5,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "background-tasks",
+            "tasks": [
+              {
+                "id": "a",
+                "kind": "local_bash",
+                "title": "Synthetic a",
+                "startedAt": 1
+              },
+              {
+                "id": "a",
+                "kind": "local_bash",
+                "title": "Synthetic a",
+                "startedAt": 1
+              },
+              {
+                "id": "b",
+                "kind": "local_bash",
+                "title": "Synthetic b",
+                "startedAt": 1
+              }
+            ]
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child", "nested"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": ["a", "b"],
+            "backgroundWork": 3,
+            "forwarded": 6,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "background-tasks",
+            "tasks": [
+              {
+                "id": "b",
+                "kind": "local_bash",
+                "title": "Synthetic b",
+                "startedAt": 1
+              },
+              {
+                "id": "c",
+                "kind": "local_bash",
+                "title": "Synthetic c",
+                "startedAt": 1
+              }
+            ]
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child", "nested"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": ["b", "c"],
+            "backgroundWork": 3,
+            "forwarded": 7,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child", "nested"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": ["b", "c"],
+            "backgroundWork": 3,
+            "forwarded": 8,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child", "nested"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": ["b", "c"],
+            "backgroundWork": 3,
+            "forwarded": 9,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "completed",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["nested"],
+            "backgroundChildren": [],
+            "backgroundTasks": ["b", "c"],
+            "backgroundWork": 2,
+            "forwarded": 10,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "completed",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["nested"],
+            "backgroundChildren": [],
+            "backgroundTasks": ["b", "c"],
+            "backgroundWork": 2,
+            "forwarded": 11,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "nested",
+              "status": "failed",
+              "background": false,
+              "parentId": "child"
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": ["b", "c"],
+            "backgroundWork": 2,
+            "forwarded": 12,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "background-tasks",
+            "tasks": []
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 13,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "background-tasks",
+            "tasks": []
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 14,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": false
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": "native-1",
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 15,
+            "closeNotifications": 1
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": false,
+          "resumeId": "native-1"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "initializing",
+            "background": true
+          }
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "initializing",
+            "background": true
+          }
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "waiting",
+            "background": true
+          }
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "nested",
+            "status": "running",
+            "background": false,
+            "parentId": "child"
+          }
+        },
+        {
+          "type": "background-tasks",
+          "tasks": [
+            {
+              "id": "a",
+              "kind": "local_bash",
+              "title": "Synthetic a",
+              "startedAt": 1
+            },
+            {
+              "id": "a",
+              "kind": "local_bash",
+              "title": "Synthetic a",
+              "startedAt": 1
+            },
+            {
+              "id": "b",
+              "kind": "local_bash",
+              "title": "Synthetic b",
+              "startedAt": 1
+            }
+          ]
+        },
+        {
+          "type": "background-tasks",
+          "tasks": [
+            {
+              "id": "b",
+              "kind": "local_bash",
+              "title": "Synthetic b",
+              "startedAt": 1
+            },
+            {
+              "id": "c",
+              "kind": "local_bash",
+              "title": "Synthetic c",
+              "startedAt": 1
+            }
+          ]
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "completed",
+            "background": true
+          }
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "completed",
+            "background": true
+          }
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "nested",
+            "status": "failed",
+            "background": false,
+            "parentId": "child"
+          }
+        },
+        {
+          "type": "background-tasks",
+          "tasks": []
+        },
+        {
+          "type": "background-tasks",
+          "tasks": []
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        }
+      ]
+    },
+    {
+      "name": "partial-child-snapshot-boundary",
+      "boundaryNote": "SessionManager.forward consumes supplied snapshots, not patches. A terminal event omitting background does not clear backgroundChildren. Native child mappers normally emit merged snapshots; this case makes no native-mapper claim.",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "running",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "completed"
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 4,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "provider": "codex"
+          },
+          "result": {
+            "error": "A background task is still running in this Chat. Switching to Codex would stop it. Ask the agent to stop it, or send again once it finishes."
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 4,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "completed",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 5,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "provider": "codex",
+            "resumeId": "request-native"
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "codex",
+            "tldrEnabled": true,
+            "resumeId": "request-native",
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 6,
+            "closeNotifications": 1
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "codex",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": "request-native"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "running",
+            "background": true
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "completed"
+          }
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "completed",
+            "background": true
+          }
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        }
+      ]
+    },
+    {
+      "name": "stale-entry-events-ignored",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": false
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": "native-1",
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 3,
+            "closeNotifications": 1
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "old-child",
+              "status": "running",
+              "background": true
+            }
+          },
+          "session": 1,
+          "result": null,
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": "native-1",
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 3,
+            "closeNotifications": 1
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "background-tasks",
+            "tasks": [
+              {
+                "id": "old-task"
+              }
+            ]
+          },
+          "session": 1,
+          "result": null,
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": "native-1",
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 3,
+            "closeNotifications": 1
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "session": 1,
+          "result": null,
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": "native-1",
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 3,
+            "closeNotifications": 1
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": false,
+            "resumeId": "native-1",
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 4,
+            "closeNotifications": 1
+          }
+        },
+        {
+          "action": "close",
+          "result": null,
+          "snapshot": {
+            "session": null,
+            "created": 2,
+            "closed": [1, 2],
+            "provider": null,
+            "tldrEnabled": null,
+            "resumeId": null,
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 4,
+            "closeNotifications": 2
+          }
+        },
+        {
+          "action": "close",
+          "result": null,
+          "snapshot": {
+            "session": null,
+            "created": 2,
+            "closed": [1, 2],
+            "provider": null,
+            "tldrEnabled": null,
+            "resumeId": null,
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 4,
+            "closeNotifications": 2
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "closed-child",
+              "status": "waiting",
+              "background": true
+            }
+          },
+          "session": 2,
+          "result": null,
+          "snapshot": {
+            "session": null,
+            "created": 2,
+            "closed": [1, 2],
+            "provider": null,
+            "tldrEnabled": null,
+            "resumeId": null,
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 4,
+            "closeNotifications": 2
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": false,
+          "resumeId": "native-1"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        },
+        {
+          "type": "turn-completed"
+        }
+      ]
+    },
+    {
+      "name": "provider-without-background-capability",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "codex",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "codex",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "running",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "codex",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "background-tasks",
+            "tasks": [
+              {
+                "id": "ignored-task",
+                "kind": "local_bash",
+                "title": "Synthetic ignored-task",
+                "startedAt": 1
+              }
+            ]
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "codex",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "codex",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 4,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "tldrEnabled": false
+          },
+          "result": {
+            "turnId": "s1-t2",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "codex",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 5,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "codex",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 6,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "provider": "claude",
+            "resumeId": "request-native"
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": "request-native",
+            "starts": [2, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 7,
+            "closeNotifications": 1
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "codex",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": "request-native"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "running",
+            "background": true
+          }
+        },
+        {
+          "type": "background-tasks",
+          "tasks": [
+            {
+              "id": "ignored-task",
+              "kind": "local_bash",
+              "title": "Synthetic ignored-task",
+              "startedAt": 1
+            }
+          ]
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s1-t2"
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        }
+      ]
+    },
+    {
+      "name": "background-provider-switch",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "running",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "provider": "codex",
+            "resumeId": "request-native"
+          },
+          "result": {
+            "error": "A background task is still running in this Chat. Switching to Codex would stop it. Ask the agent to stop it, or send again once it finishes."
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "completed",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 4,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 5,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "provider": "codex",
+            "resumeId": "request-native"
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "codex",
+            "tldrEnabled": true,
+            "resumeId": "request-native",
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 6,
+            "closeNotifications": 1
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "codex",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": "request-native"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "running",
+            "background": true
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "completed",
+            "background": true
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        }
+      ]
+    },
+    {
+      "name": "background-folder-switch",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "running",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "cwd": "/fixture/other",
+            "resumeId": "request-native"
+          },
+          "result": {
+            "error": "A background task is still running in this Chat, and its agent can't move to another folder without stopping it. Ask the agent to stop it, or send again once it finishes."
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "completed",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 4,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 5,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "cwd": "/fixture/other",
+            "resumeId": "request-native"
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": "request-native",
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 6,
+            "closeNotifications": 1
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "claude",
+          "cwd": "/fixture/other",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": "request-native"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "running",
+            "background": true
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "completed",
+            "background": true
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        }
+      ]
+    },
+    {
+      "name": "background-workspace-switch",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "running",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "workspaceRoots": ["/fixture/new-link"],
+            "workspaceInstructions": "Changed fixture instructions.",
+            "resumeId": "request-native"
+          },
+          "result": {
+            "turnId": "s1-t2",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": ["child"],
+            "backgroundChildren": ["child"],
+            "backgroundTasks": [],
+            "backgroundWork": 1,
+            "forwarded": 4,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "completed",
+              "background": true
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 5,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 6,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "workspaceRoots": ["/fixture/new-link"],
+            "workspaceInstructions": "Changed fixture instructions.",
+            "resumeId": "request-native"
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": "request-native",
+            "starts": [2, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 7,
+            "closeNotifications": 1
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/new-link"],
+          "workspaceInstructions": "Changed fixture instructions.",
+          "tldrEnabled": true,
+          "resumeId": "request-native"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "running",
+            "background": true
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s1-t2"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "completed",
+            "background": true
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        }
+      ]
+    },
+    {
+      "name": "foreground-provider-switch",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "running",
+              "background": false
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "provider": "codex",
+            "resumeId": "request-native"
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "codex",
+            "tldrEnabled": true,
+            "resumeId": "request-native",
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 4,
+            "closeNotifications": 1
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "codex",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": "request-native"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "running",
+            "background": false
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        }
+      ]
+    },
+    {
+      "name": "foreground-folder-switch",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "running",
+              "background": false
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "cwd": "/fixture/other",
+            "resumeId": "request-native"
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": "request-native",
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 4,
+            "closeNotifications": 1
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "claude",
+          "cwd": "/fixture/other",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": "request-native"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "running",
+            "background": false
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        }
+      ]
+    },
+    {
+      "name": "foreground-workspace-switch",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/linked"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "subagent-update",
+            "agent": {
+              "id": "child",
+              "status": "running",
+              "background": false
+            }
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": ["child"],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "workspaceRoots": ["/fixture/new-link"],
+            "workspaceInstructions": "Changed fixture instructions.",
+            "resumeId": "request-native"
+          },
+          "result": {
+            "turnId": "s2-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 2,
+            "created": 2,
+            "closed": [1],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": "request-native",
+            "starts": [1, 1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 4,
+            "closeNotifications": 1
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/linked"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        },
+        {
+          "id": 2,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/new-link"],
+          "workspaceInstructions": "Changed fixture instructions.",
+          "tldrEnabled": true,
+          "resumeId": "request-native"
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "subagent-update",
+          "agent": {
+            "id": "child",
+            "status": "running",
+            "background": false
+          }
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s2-t1"
+        }
+      ]
+    },
+    {
+      "name": "workspace-root-order-is-not-a-switch",
+      "initial": {
+        "chatId": "/fixture/retention#1",
+        "provider": "claude",
+        "cwd": "/fixture/worktree",
+        "workspaceRoots": ["/fixture/z", "/fixture/a"],
+        "workspaceInstructions": "Fixture workspace instructions.",
+        "tldrEnabled": true,
+        "model": "fixture-model",
+        "permissionMode": "ask",
+        "prompt": "Synthetic turn"
+      },
+      "steps": [
+        {
+          "action": "start",
+          "request": {},
+          "result": {
+            "turnId": "s1-t1",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 1,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "event",
+          "event": {
+            "type": "turn-completed"
+          },
+          "result": null,
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [1],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 2,
+            "closeNotifications": 0
+          }
+        },
+        {
+          "action": "start",
+          "request": {
+            "workspaceRoots": ["/fixture/a", "/fixture/z", "/fixture/a"]
+          },
+          "result": {
+            "turnId": "s1-t2",
+            "steered": false
+          },
+          "snapshot": {
+            "session": 1,
+            "created": 1,
+            "closed": [],
+            "provider": "claude",
+            "tldrEnabled": true,
+            "resumeId": null,
+            "starts": [2],
+            "activeChildren": [],
+            "backgroundChildren": [],
+            "backgroundTasks": [],
+            "backgroundWork": 0,
+            "forwarded": 3,
+            "closeNotifications": 0
+          }
+        }
+      ],
+      "creations": [
+        {
+          "id": 1,
+          "provider": "claude",
+          "cwd": "/fixture/worktree",
+          "workspaceRoots": ["/fixture/z", "/fixture/a"],
+          "workspaceInstructions": "Fixture workspace instructions.",
+          "tldrEnabled": true,
+          "resumeId": null
+        }
+      ],
+      "forwarded": [
+        {
+          "type": "turn-started",
+          "turnId": "s1-t1"
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "s1-t2"
+        }
+      ]
+    }
+  ]
+}

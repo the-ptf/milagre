@@ -149,6 +149,9 @@ fn unsupported_configuration_is_refused_before_spawn() {
         ("effort", json!(5)),
         ("model", json!(null)),
         ("accountId", json!("work")),
+        ("busyWithoutTurn", json!(true)),
+        ("activeChildren", json!([])),
+        ("backgroundTasks", json!([])),
     ] {
         let mut req = request(&p);
         req[k] = v;
@@ -984,5 +987,87 @@ fn native_mode_failure_never_emits_an_applied_receipt() {
         }
     )));
     p.shutdown();
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+}
+
+#[test]
+fn background_activity_retains_tldr_until_settled_then_restarts_and_close_cleans_up() {
+    let oracle: Value =
+        serde_json::from_str(include_str!("../fixtures/session-retention-node.json")).unwrap();
+    let case = oracle["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| case["name"] == "background-retention")
+        .unwrap();
+    let expected: Vec<_> = case["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|step| step["action"] == "start")
+        .map(|step| step["snapshot"]["session"].as_u64().unwrap())
+        .collect();
+    let mut provider = ClaudeFixture::create(Scenario::BackgroundRetention).unwrap();
+    let monitor = provider.monitor();
+    let mut pids = Vec::new();
+    let mut all = Vec::new();
+    for turn in 1..=5 {
+        let mut req = request(&provider);
+        req["prompt"] = json!(format!("retention {turn}"));
+        req["effort"] = json!("high");
+        req["replies"] = json!("normal");
+        req["tldrEnabled"] = json!(turn == 1);
+        provider.start_turn(TurnId(turn), &RawJson(req)).unwrap();
+        let events = collect(&mut provider, |events| {
+            events.iter().any(|event| terminal(event) && matches!(event, ProviderEvent::Agent { turn: actual, .. } if actual.0 == turn))
+        });
+        assert!(events
+            .iter()
+            .all(|event| !matches!(event, ProviderEvent::StartFailed { .. })));
+        assert!(events.iter().all(|event| !matches!(event, ProviderEvent::Agent { event:RawJson(v), .. } if v["type"]=="turn-failed" || v["type"]=="turn-cancelled")));
+        all.extend(events);
+        pids.push(monitor.pid("fixture").unwrap());
+    }
+    let actual: Vec<_> = pids
+        .iter()
+        .map(|pid| if *pid == pids[0] { 1 } else { 2 })
+        .collect();
+    assert_eq!(
+        actual, expected,
+        "native reuse/replacement matches actual Node SessionManager decisions"
+    );
+    assert_ne!(pids[4], pids[0]);
+    assert!(ps_command(pids[4]).contains("--resume=fixture-session"));
+    assert!(all.iter().any(|event| matches!(event, ProviderEvent::Agent { event:RawJson(v), .. } if v["type"]=="subagent-update" && v["agent"]["id"]=="foreground-child" && v["agent"]["status"]=="running")));
+    provider.close_chat("fixture", TurnId(5)).unwrap();
+    let closed = collect(&mut provider, |events| {
+        events.iter().any(|event| {
+            matches!(
+                event,
+                ProviderEvent::Exited {
+                    turn: TurnId(5),
+                    ..
+                }
+            )
+        })
+    });
+    assert!(closed.iter().any(|event| matches!(event, ProviderEvent::Agent { event:RawJson(v), .. } if v["type"]=="subagent-update" && v["agent"]["id"]=="closing-child" && v["agent"]["status"]=="cancelled")));
+    assert!(closed.iter().any(|event| matches!(event, ProviderEvent::Agent { event:RawJson(v), .. } if v["type"]=="background-tasks" && v["tasks"]==json!([]))));
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+    assert!(!monitor.cleanup_failed());
+}
+
+#[test]
+fn changed_tldr_during_first_pending_start_cannot_replace_the_starting_worker() {
+    let mut provider = ClaudeFixture::create(Scenario::HangInitialize).unwrap();
+    let monitor = provider.monitor();
+    let mut req = request(&provider);
+    provider
+        .start_turn(TurnId(1), &RawJson(req.clone()))
+        .unwrap();
+    req["tldrEnabled"] = json!(false);
+    assert!(provider.start_turn(TurnId(2), &RawJson(req)).is_err());
+    assert_eq!(monitor.workers(), 1);
+    provider.shutdown();
     assert!(monitor.wait_stopped(Duration::from_secs(3)));
 }
