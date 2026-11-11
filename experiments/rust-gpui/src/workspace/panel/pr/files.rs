@@ -178,7 +178,12 @@ impl PrView {
                     cx.notify();
                 }
             }
-            DiffEvent::Refresh => {}
+            // Reads the PR again, and with it every patch of the open diff (a new loader: the diff keeps its folds).
+            DiffEvent::Refresh => {
+                this.load(cx);
+                this.sync_diff_threads(cx);
+                cx.notify();
+            }
         }));
         self.diff = Some(diff.clone());
         diff

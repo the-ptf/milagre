@@ -696,3 +696,56 @@ fn typing_in_a_picker_search_does_not_rebuild_the_header(cx: &mut TestAppContext
     cx.run_until_parked();
     assert_eq!(pr.read_with(cx, |pr, _| pr.renders()), before, "an idle PR panel does not redraw");
 }
+
+/// A bridge that counts its reads.
+struct Counting {
+    inner: FixtureBridge,
+    details: std::cell::Cell<u32>,
+    patches: std::cell::Cell<u32>,
+}
+
+impl super::bridge::PrBridge for Counting {
+    fn detail(&self, number: u32) -> Result<PullRequestDetail, String> {
+        self.details.set(self.details.get() + 1);
+        self.inner.detail(number)
+    }
+    fn write(&self, number: u32, write: &Write) -> Result<(), String> {
+        self.inner.write(number, write)
+    }
+    fn reviewer_candidates(&self) -> Vec<String> {
+        self.inner.reviewer_candidates()
+    }
+    fn repo_labels(&self) -> Vec<RepoLabel> {
+        self.inner.repo_labels()
+    }
+    fn file_patch(&self, number: u32, file: &PrFile) -> Option<crate::logic::diff::git::DiffFileResult> {
+        self.patches.set(self.patches.get() + 1);
+        self.inner.file_patch(number, file)
+    }
+}
+
+#[gpui::test]
+fn refresh_in_the_diff_bar_reads_the_pr_and_its_patches_again_and_keeps_the_file_open(cx: &mut TestAppContext) {
+    let bridge =
+        Rc::new(Counting { inner: FixtureBridge::forced(Variant::Ready), details: Default::default(), patches: Default::default() });
+    let shared = bridge.clone();
+    let (frame, cx) = testing::mount_in_root(cx, move |_, cx| {
+        let pr = cx.new(|_| PrView::with_bridge(shared));
+        pr.update(cx, |pr, cx| pr.set_chat("chat".into(), Some(412), 2, cx));
+        Frame { pr }
+    });
+    let pr = frame.read_with(cx, |frame, _| frame.pr.clone());
+    cx.run_until_parked();
+    click(cx, "pr-tab-files");
+    let header = "experiments/rust-gpui/src/workspace/panel/pr/header.rs";
+    click(cx, testing::leak(format!("pr-file-{header}")));
+    settle(cx);
+    let (details, patches) = (bridge.details.get(), bridge.patches.get());
+    assert!(patches > 0, "the open diff read its patches");
+    click(cx, "diff-refresh");
+    settle(cx);
+    assert!(bridge.details.get() > details, "the PR was read again");
+    assert!(bridge.patches.get() > patches, "and its patches too");
+    assert_eq!(pr.read_with(cx, |pr, _| pr.selected()).as_deref(), Some(header), "the file stays open");
+    assert!(drawn(cx, "diff-body"));
+}
