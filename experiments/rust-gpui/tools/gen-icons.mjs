@@ -68,6 +68,23 @@ const ICONS = [
   "React",
   "LeftToRightBlockQuote",
   "ArrowRightToLine",
+  // Settings nav, search and sections (settings/*.tsx)
+  "Notification01",
+  "Keyboard",
+  "UserCircle",
+  "ChartColumn",
+  "BookOpen01",
+  "Plug01",
+  "FolderTree",
+  "Connect",
+  "Smartphone",
+  "Laptop",
+  "Church",
+  "InformationCircle",
+  "Shield01",
+  "SecurityCheck",
+  "Clean",
+  "VolumeHigh",
 ];
 
 /** The stroke written into every icon file; `src/assets` replaces it for the 12px (1.6) and 18px (2) sizes. */
