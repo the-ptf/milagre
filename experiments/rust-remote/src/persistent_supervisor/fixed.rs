@@ -1,4 +1,9 @@
 //! Private owner admission and retained core lifecycle. No delivery pump.
+mod buckets;
+#[cfg(test)]
+mod fair_test;
+#[cfg(test)]
+pub(crate) use fair_test::FairTest;
 mod lifecycle;
 pub(super) mod peer;
 use super::*;
@@ -206,6 +211,7 @@ struct Pending {
     generation: u64,
     operation: Operation,
 }
+#[derive(Clone, Copy)]
 struct Submission {
     id: FixedId,
     outcome: FixedOutcome,
@@ -240,9 +246,6 @@ impl<T, const N: usize> Ring<T, N> {
         self.len -= 1;
         v
     }
-    fn contains(&self, id: FixedId, get: impl Fn(&T) -> FixedId) -> bool {
-        self.values.iter().flatten().any(|v| get(v) == id)
-    }
 }
 pub(super) struct State {
     pub(super) hub: Option<Arc<wake::WakeHub>>,
@@ -252,7 +255,7 @@ pub(super) struct State {
     rows: [Option<Row>; STATUS_SLOTS],
     operations: Ring<Pending, QUEUE_SLOTS>,
     replies: [Option<ReplyCell>; QUEUE_SLOTS],
-    submissions: Ring<Submission, QUEUE_SLOTS>,
+    submissions: buckets::Buckets,
     roster: [Option<peer::Descriptor>; 16],
     peers: [Option<peer::PeerCell>; 16],
     next_peer: u64,
@@ -279,7 +282,7 @@ impl State {
             rows: std::array::from_fn(|_| None),
             operations: Ring::default(),
             replies: std::array::from_fn(|_| None),
-            submissions: Ring::default(),
+            submissions: buckets::Buckets::default(),
             roster: std::array::from_fn(|_| None),
             peers: std::array::from_fn(|_| None),
             next_peer: 0,
@@ -328,7 +331,7 @@ impl State {
             if row.hidden
                 && matches!(row.phase, Phase::Terminal(_))
                 && row.ownership.disposed()
-                && !self.submissions.contains(row.id, |s| s.id)
+                && !self.submissions.contains(row.id)
                 && !self.replies.iter().flatten().any(
                     |r| matches!(&r.result, Some(Ok(PreparedReply::Attempt(id))) if *id == row.id),
                 )
@@ -445,23 +448,32 @@ impl FixedOwnerClient {
             return Err(SubmitRejection::Unavailable(refusal));
         }
         let device = row.device;
-        if fixed.submissions.len == QUEUE_SLOTS
-            || fixed
-                .submissions
-                .values
-                .iter()
-                .flatten()
-                .any(|s| fixed.row(s.id).is_some_and(|r| r.device == device))
-        {
+        if fixed.submissions.contains_device(device) {
             return Err(SubmitRejection::Full(attempt));
         }
+        let ticket = match fixed.submissions.admission() {
+            Ok(ticket) => ticket,
+            Err(buckets::Refusal::Full) => return Err(SubmitRejection::Full(attempt)),
+            Err(buckets::Refusal::Exhausted) => {
+                shared.fail(WorkerFault::BucketOverflow);
+                drop(q);
+                return Err(SubmitRejection::Unavailable(SubmitRefusal::Stopped));
+            }
+        };
         if !shared.running() {
             drop(q);
             return Err(SubmitRejection::Unavailable(SubmitRefusal::Stopped));
         }
         let id = attempt.id;
+        if !fixed
+            .submissions
+            .insert(ticket, device, Submission { id, outcome })
+        {
+            shared.fail(WorkerFault::InvalidExit);
+            drop(q);
+            return Err(SubmitRejection::Unavailable(SubmitRefusal::Stopped));
+        }
         fixed.row_mut(id).unwrap().phase = Phase::Queued;
-        fixed.submissions.push(Submission { id, outcome });
         attempt.armed = false;
         shared.notify_work();
         Ok(FixedReceipt { id })
@@ -690,14 +702,15 @@ impl Runtime {
                 row.phase = Phase::Terminal(Terminal::NotClaimed(terminal));
             }
         }
-        let len = fixed.submissions.len;
-        for _ in 0..len {
-            let submission = fixed.submissions.pop().unwrap();
-            if fixed
-                .row(submission.id)
-                .is_some_and(|r| r.phase == Phase::Queued)
-            {
-                fixed.submissions.push(submission);
+        for slot in 0..QUEUE_SLOTS {
+            let ticket = fixed.submissions.ticket(slot);
+            if let Some(entry) = fixed.submissions.get(ticket).copied() {
+                if !fixed
+                    .row(entry.submission.id)
+                    .is_some_and(|r| r.phase == Phase::Queued)
+                {
+                    fixed.submissions.take(ticket, entry.submission.id);
+                }
             }
         }
         fixed.reap();
@@ -951,7 +964,7 @@ impl FixedOwnerClient {
         q.fixed.as_ref().map_or((0, 0, 0, 0), |f| {
             (
                 f.rows.iter().flatten().count(),
-                f.submissions.len,
+                f.submissions.len(),
                 f.replies.iter().flatten().count(),
                 f.operations.len,
             )
@@ -990,7 +1003,7 @@ impl FixedOwnerClient {
 // Pin the separately compiled non-test layout without counting test barriers.
 #[cfg(all(not(test), target_os = "macos", target_pointer_width = "64"))]
 const _: () = {
-    assert!(std::mem::size_of::<State>() == 202_992);
+    assert!(std::mem::size_of::<State>() == 204_136);
     assert!(std::mem::size_of::<RuntimeFixed>() == 5768);
     assert!(std::mem::size_of::<Row>() == 376);
 };
@@ -1010,8 +1023,8 @@ mod layout_tests {
         ];
         #[cfg(target_pointer_width = "64")]
         {
-            assert_eq!(sizes, [235_776, 5768, 440, 56, 248, 40]);
-            assert_eq!(backing_bytes(), Some(245_640));
+            assert_eq!(sizes, [236_920, 5768, 440, 56, 248, 40]);
+            assert_eq!(backing_bytes(), Some(246_784));
         }
         assert!(sizes[2] <= STATUS_BYTES);
     }
@@ -1031,9 +1044,61 @@ pub(crate) struct ParkTest {
     pub actor: std::sync::OnceLock<std::thread::Thread>,
     pub before_operation_maintain: Option<Arc<executor::ExitGate>>,
     pub adoptions: std::sync::atomic::AtomicUsize,
+    pub fair: Option<Arc<FairTest>>,
 }
 #[cfg(test)]
 impl FixedOwnerClient {
+    pub(crate) fn raw_phase(&self, id: FixedId) -> (Phase, executor::Execution) {
+        let shared = self.0.upgrade().unwrap();
+        let q = shared.queues();
+        let row = q.fixed.as_ref().unwrap().row(id).unwrap();
+        (row.phase, row.execution)
+    }
+    pub(crate) fn exhaust_bucket(&self) {
+        let shared = self.0.upgrade().unwrap();
+        shared
+            .queues()
+            .fixed
+            .as_mut()
+            .unwrap()
+            .submissions
+            .exhaust_next_vacancy();
+    }
+    pub(crate) fn bucket_ticket(&self, id: FixedId) -> buckets::Ticket {
+        let shared = self.0.upgrade().unwrap();
+        let q = shared.queues();
+        let f = q.fixed.as_ref().unwrap();
+        (0..QUEUE_SLOTS)
+            .map(|slot| f.submissions.ticket(slot))
+            .find(|ticket| {
+                f.submissions
+                    .get(*ticket)
+                    .is_some_and(|e| e.submission.id == id)
+            })
+            .unwrap()
+    }
+    pub(crate) fn take_stale_bucket(&self, ticket: buckets::Ticket, id: FixedId) -> bool {
+        let shared = self.0.upgrade().unwrap();
+        let mut q = shared.queues();
+        q.fixed
+            .as_mut()
+            .unwrap()
+            .submissions
+            .take(ticket, id)
+            .is_some()
+    }
+    pub(crate) fn bucket_slot(&self, id: FixedId) -> usize {
+        let shared = self.0.upgrade().unwrap();
+        let q = shared.queues();
+        let f = q.fixed.as_ref().unwrap();
+        (0..QUEUE_SLOTS)
+            .find(|slot| {
+                f.submissions
+                    .get(f.submissions.ticket(*slot))
+                    .is_some_and(|e| e.submission.id == id)
+            })
+            .unwrap()
+    }
     pub(crate) fn park_test(&self, hooks: Arc<ParkTest>) {
         let shared = self.0.upgrade().unwrap();
         shared.queues().fixed.as_mut().unwrap().park_test = Some(hooks);

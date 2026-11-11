@@ -44,6 +44,7 @@ pub enum WorkerFault {
     Aborted,
     EventOverflow,
     WakeOverflow,
+    BucketOverflow,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StartFault {
@@ -272,6 +273,7 @@ impl Shared {
             4 => Some(WorkerFault::InvalidExit),
             5 => Some(WorkerFault::Aborted),
             7 => Some(WorkerFault::WakeOverflow),
+            8 => Some(WorkerFault::BucketOverflow),
             _ => Some(WorkerFault::EventOverflow),
         }
     }

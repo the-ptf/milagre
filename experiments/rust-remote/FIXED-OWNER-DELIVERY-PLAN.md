@@ -1,6 +1,6 @@
 # Private owner delivery, wakes and fair turns
 
-[Checked-wake implementation evidence](FIXED-OWNER-CHECKED-WAKES.md) records this checkpoint; rotating buckets remain separate.
+[Fair-turn implementation evidence](FIXED-OWNER-FAIR-TURNS.md) records the separate rotating-bucket checkpoint after [checked wakes](FIXED-OWNER-CHECKED-WAKES.md) at `c2e535a4`.
 
 [Increment 2B.2 implementation evidence](FIXED-OWNER-DELIVERY.md) records the shared commits, returned-credit completion and current validation boundary. Increment 2B.3 remains separately gated.
 

@@ -262,8 +262,8 @@ impl State {
             return false;
         }
         occupied.iter().any(Option::is_none)
-            && self.submissions.values.iter().flatten().any(|s| {
-                self.row(s.id).is_some_and(|r| {
+            && self.submissions.entries().any(|entry| {
+                self.row(entry.submission.id).is_some_and(|r| {
                     r.phase == Phase::Queued
                         && !r.cancel
                         && !occupied.iter().flatten().any(|device| *device == r.device)
@@ -379,33 +379,49 @@ impl Runtime {
             let Some(fixed) = q.fixed.as_mut() else {
                 return;
             };
-            if !fixed.can_start(&occupied) {
+            let ticket = fixed.submissions.visit();
+            let entry = fixed.submissions.get(ticket).copied();
+            #[cfg(test)]
+            if let Some(fair) = fixed.park_hooks().and_then(|h| h.fair.clone()) {
+                fair.record(ticket.slot, entry.map(|e| e.submission.id));
+            }
+            #[cfg(test)]
+            if fixed.pause_dispatch {
                 return;
             }
-            let mut selected = None;
-            for _ in 0..fixed.submissions.len {
-                let submission = fixed.submissions.pop().unwrap();
-                let Some(row) = fixed.row_mut(submission.id) else {
-                    continue;
-                };
-                if row.phase != Phase::Queued {
-                    continue;
-                }
-                if row.cancel
-                    || occupied
-                        .iter()
-                        .flatten()
-                        .any(|device| *device == row.device)
-                {
-                    fixed.submissions.push(submission);
-                    continue;
-                }
-                row.phase = Phase::Starting;
-                row.ownership = RowOwnership::Starting;
-                selected = Some((row.id, row.token.clone(), row.target, submission.outcome));
-                break;
+            let Some(entry) = entry else { return };
+            let Some(row) = fixed.row(entry.submission.id) else {
+                fixed.submissions.take(ticket, entry.submission.id);
+                return;
+            };
+            if row.phase != Phase::Queued {
+                fixed.submissions.take(ticket, entry.submission.id);
+                return;
             }
-            selected
+            if row.cancel
+                || occupied.iter().all(Option::is_some)
+                || occupied
+                    .iter()
+                    .flatten()
+                    .any(|device| *device == entry.device)
+            {
+                return;
+            }
+            let selected = (
+                row.id,
+                row.token.clone(),
+                row.target,
+                entry.submission.outcome,
+            );
+            // Exact ticket and row ID are checked before either row mutation or removal.
+            if fixed.submissions.take(ticket, row.id).is_none() {
+                shared.fail(WorkerFault::InvalidExit);
+                return;
+            }
+            let row = fixed.row_mut(selected.0).unwrap();
+            row.phase = Phase::Starting;
+            row.ownership = RowOwnership::Starting;
+            Some(selected)
         };
         let Some((id, token, target, outcome)) = selected else {
             return;

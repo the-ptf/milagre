@@ -930,27 +930,51 @@ impl Runtime {
             if !shared.running() {
                 break;
             }
+            #[cfg(test)]
+            let fair = shared
+                .queues()
+                .fixed
+                .as_ref()
+                .and_then(|f| f.park_hooks())
+                .and_then(|h| h.fair.clone());
+            #[cfg(test)]
+            if let Some(fair) = fair {
+                fair.before_round();
+            }
+            if !shared.running() {
+                break;
+            }
             if self.maintain(shared).is_err() {
                 shared.fail(WorkerFault::Clock);
                 break;
             }
-            let envelope = {
-                let mut q = shared.queues();
-                q.controls.pop_front().or_else(|| q.commands.pop_front())
-            };
-            if let Some(envelope) = envelope {
-                if self.maintain(shared).is_err() {
-                    envelope.reject();
-                    shared.fail(WorkerFault::Clock);
-                    break;
-                }
+            // Extract the ordinary envelope only after the control command resolves.
+            for control in [true, false] {
                 if !shared.running() {
-                    envelope.reject();
                     break;
                 }
-                let result = self.execute(shared, envelope.command);
-                drop(envelope.lease);
-                let _ = envelope.reply.try_send(result);
+                let envelope = {
+                    let mut q = shared.queues();
+                    if control {
+                        q.controls.pop_front()
+                    } else {
+                        q.commands.pop_front()
+                    }
+                };
+                if let Some(envelope) = envelope {
+                    if self.maintain(shared).is_err() {
+                        envelope.reject();
+                        shared.fail(WorkerFault::Clock);
+                        break;
+                    }
+                    if !shared.running() {
+                        envelope.reject();
+                        break;
+                    }
+                    let result = self.execute(shared, envelope.command);
+                    drop(envelope.lease);
+                    let _ = envelope.reply.try_send(result);
+                }
             }
             self.fixed_prepare_one(shared);
             self.fixed_start_one(shared);
