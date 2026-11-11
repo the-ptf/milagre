@@ -2088,6 +2088,12 @@ impl ChatHost {
         self.drive_jobs(false);
         self.drive_briefs(None);
         errors.extend(self.retry_stuck());
+        // Events waiting behind a kept end that now folded go next, before anything newer.
+        let held: Vec<PathBuf> = self.parked.keys().cloned().collect();
+        for project in held {
+            self.release_held(&project);
+        }
+        errors.append(&mut self.released_errors);
         for round in 0.. {
             // What a bounded pump left comes first, whether or not a provider sent more since.
             let mut events: Vec<ProviderEvent> = std::mem::take(&mut self.held_events);
@@ -2242,7 +2248,114 @@ impl ChatHost {
             }
             return self.require_ready(&project);
         }
+        // A Chat whose turn end is kept (its fold failed), or with events already waiting behind one: this one waits
+        // too, in order, so nothing the provider sent after that end is handled before it.
+        if self.stuck.contains_key(&chat) || self.held_for(&project, &chat) {
+            return self.hold_behind(project, event);
+        }
         self.handle(event)
+    }
+
+    /// The Chat of a provider event.
+    fn event_chat(event: &ProviderEvent) -> &str {
+        match event {
+            ProviderEvent::Started { chat, .. }
+            | ProviderEvent::StartFailed { chat, .. }
+            | ProviderEvent::Agent { chat, .. }
+            | ProviderEvent::Exited { chat, .. }
+            | ProviderEvent::AnswerSettled { chat, .. } => chat,
+        }
+    }
+
+    /// Whether events of `chat` wait behind its kept turn end in a ready Project.
+    fn held_for(&self, project: &Path, chat: &str) -> bool {
+        self.parked.get(project).is_some_and(|parked| {
+            parked
+                .events
+                .iter()
+                .any(|(event, _)| Self::event_chat(event) == chat)
+        })
+    }
+
+    /// Keeps an event of a ready Project behind its Chat's kept turn end, within the parked budget. Past it the event
+    /// is dropped and refused (the Project stays ready; the kept end still ends the turn when it folds).
+    fn hold_behind(&mut self, project: PathBuf, event: ProviderEvent) -> Result<()> {
+        let size = event_bytes(&event);
+        let (max_events, max_bytes) = self.parked_budget;
+        if self.parked_events >= max_events || self.parked_bytes + size > max_bytes {
+            return Err(StoreError::Invalid(format!(
+                "An agent event for {} was dropped: too many wait behind turn ends whose save keeps failing.",
+                Self::event_chat(&event)
+            )));
+        }
+        let parked = self.parked.entry(project).or_default();
+        parked.events.push_back((event, size));
+        parked.bytes += size;
+        self.parked_events += 1;
+        self.parked_bytes += size;
+        Ok(())
+    }
+
+    /// Keeps a refusal of a released event for the next `pump` (bounded, the rest counted).
+    fn released_error(&mut self, error: StoreError) {
+        if self.released_errors.len() < MAX_RELEASED_ERRORS {
+            self.released_errors.push(error);
+        } else {
+            self.released_uncounted += 1;
+        }
+    }
+
+    /// The kept turn ends of `project`'s Chats, folded again (a failure keeps them; refusals go to `released_errors`).
+    fn retry_stuck_in(&mut self, project: &Path) {
+        let chats: Vec<String> = self
+            .stuck
+            .keys()
+            .filter(|chat| Path::new(agent_runs::project_of_key(chat)) == project)
+            .cloned()
+            .collect();
+        for chat in chats {
+            if let Some((turn, event)) = self.stuck.remove(&chat) {
+                if let Err(error) = self.receive(&chat, turn, &event) {
+                    self.released_error(error);
+                }
+            }
+        }
+    }
+
+    /// Handles a ready Project's waiting events in order, except a Chat's whose turn end is still kept (they keep
+    /// waiting, in order, behind it). Called after an open and on every `pump`.
+    fn release_held(&mut self, project: &Path) {
+        if !self.ready.contains(project) {
+            return;
+        }
+        let Some(parked) = self.parked.get_mut(project) else {
+            return;
+        };
+        let events = std::mem::take(&mut parked.events);
+        let bytes = std::mem::take(&mut parked.bytes);
+        self.parked_events -= events.len();
+        self.parked_bytes -= bytes;
+        let mut waiting = std::collections::VecDeque::new();
+        let mut waiting_bytes = 0;
+        for (event, size) in events {
+            let chat = Self::event_chat(&event).to_string();
+            if self.stuck.contains_key(&chat) {
+                waiting.push_back((event, size));
+                waiting_bytes += size;
+                continue;
+            }
+            if let Err(error) = self.handle(event) {
+                self.released_error(error);
+            }
+        }
+        self.parked_events += waiting.len();
+        self.parked_bytes += waiting_bytes;
+        let parked = self.parked.entry(project.to_path_buf()).or_default();
+        parked.events.extend(waiting);
+        parked.bytes += waiting_bytes;
+        if parked.events.is_empty() && parked.lost.is_none() {
+            self.parked.remove(project);
+        }
     }
 
     /// Keeps a provider event of a Project loaded here but not ready, within the budget (`MAX_PARKED_EVENTS` events and
@@ -2294,21 +2407,22 @@ impl ChatHost {
     /// After an explicit open made `project` ready: its kept events are handled in the order they came (each once),
     /// then the turns an overflow lost are ended. What they refused or failed is returned by the next `pump`.
     fn release_parked(&mut self, project: &Path) {
-        let Some(parked) = self.parked.remove(project) else {
-            return;
-        };
-        self.parked_events -= parked.events.len();
-        self.parked_bytes -= parked.bytes;
-        for (event, _) in parked.events {
-            if let Err(error) = self.handle(event) {
-                if self.released_errors.len() < MAX_RELEASED_ERRORS {
-                    self.released_errors.push(error);
-                } else {
-                    self.released_uncounted += 1;
-                }
-            }
+        // Turn ends kept before readiness was lost come first: they arrived before anything parked.
+        self.retry_stuck_in(project);
+        self.release_held(project);
+        let lost = self
+            .parked
+            .get_mut(project)
+            .and_then(|parked| parked.lost.take())
+            .unwrap_or_default();
+        if self
+            .parked
+            .get(project)
+            .is_some_and(|parked| parked.events.is_empty())
+        {
+            self.parked.remove(project);
         }
-        for (chat, turn) in parked.lost.unwrap_or_default() {
+        for (chat, turn) in lost {
             // A real end kept after a failed fold is folded by `retry_stuck` instead.
             let kept = self
                 .stuck

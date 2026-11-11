@@ -799,3 +799,118 @@ fn the_byte_budget_counts_heap_not_json() {
     assert_eq!(c.host.pump().len(), 1, "a heap-heavy event was kept");
     assert_eq!(c.host.parked_for_tests(), (0, 0));
 }
+
+impl Copy {
+    /// The turn ends told, by type.
+    fn end_types(notices: &[Notice]) -> Vec<String> {
+        notices
+            .iter()
+            .filter_map(|notice| match notice {
+                Notice::Event { event, .. }
+                    if ["turn-completed", "turn-failed", "turn-cancelled"]
+                        .contains(&event["type"].as_str().unwrap_or("")) =>
+                {
+                    Some(event["type"].as_str().unwrap().to_string())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn exited(&self, turn: TurnId) {
+        self.kiro.push(ProviderEvent::Exited {
+            chat: self.chat(),
+            turn,
+            error: milagre_owner_store::chat_host::ProviderError::new(
+                milagre_owner_store::chat_host::ProviderErrorKind::Exited,
+                "bye",
+            ),
+        });
+    }
+
+    fn last_reply(&self) -> Value {
+        self.messages()
+            .into_iter()
+            .find(|m| m["role"] == json!("assistant"))
+            .unwrap()
+    }
+}
+
+/// A turn completion whose fold failed is kept; readiness is lost and the session's `Exited` is parked. On the open
+/// the kept completion folds first, so the turn ends once as completed (not failed by the later exit) and the queue
+/// moves on. If the retry fails again (at the open, then on a pump), the parked exit and any later event of that Chat
+/// keep waiting behind it, and the end that finally folds is still the completion, told once.
+#[test]
+fn a_kept_completion_folds_before_events_parked_after_it() {
+    for retry_fails in [false, true] {
+        let mut c = copy(false);
+        c.send("one").unwrap();
+        assert!(c.host.pump().is_empty());
+        let chat = c.chat();
+        // The session names itself, so the queued message resumes it (no restore).
+        c.kiro.emit(
+            &chat,
+            json!({ "type": "session-started", "nativeId": "native" }),
+        );
+        assert!(c.host.pump().is_empty());
+        assert!(c.send("two").unwrap().queued);
+        let turn = c.kiro.current(&chat).unwrap();
+        c.host.states.fail_next_commit("injected");
+        c.kiro.emit(&chat, json!({ "type": "turn-completed" }));
+        assert_eq!(c.host.pump().len(), 1);
+        assert_eq!(c.host.stuck_ends(), vec![chat.clone()]);
+        c.lose_readiness();
+        c.host.take_notices();
+        c.exited(turn);
+        assert!(c.host.pump().is_empty());
+        assert_eq!(c.host.parked_for_tests().0, 1);
+        let mut notices = Vec::new();
+        if retry_fails {
+            // The retry at the open fails: the exit stays parked behind the kept completion.
+            c.host.states.fail_next_commit("injected again");
+            c.host.open_project(&c.project).unwrap();
+            assert_eq!(
+                c.host.stuck_ends(),
+                vec![chat.clone()],
+                "the kept end was lost"
+            );
+            assert_eq!(
+                c.host.parked_for_tests().0,
+                1,
+                "the exit overtook the kept end"
+            );
+            assert!(c.host.is_busy(&chat));
+            // A later exit of the same session waits behind it too, and a pump whose retry fails again moves nothing.
+            c.exited(turn);
+            c.host.states.fail_next_commit("and again");
+            assert_eq!(
+                c.host.pump().len(),
+                2,
+                "the open's and the pump's failed retries"
+            );
+            assert_eq!(c.host.stuck_ends(), vec![chat.clone()]);
+            assert_eq!(c.host.parked_for_tests().0, 2);
+            assert_eq!(c.starts(), 1);
+            notices.extend(c.host.take_notices());
+            assert!(Copy::end_types(&notices).is_empty(), "{notices:?}");
+            assert!(c.host.pump().is_empty());
+        } else {
+            c.host.open_project(&c.project).unwrap();
+            assert!(c.host.pump().is_empty());
+        }
+        notices.extend(c.host.take_notices());
+        assert_eq!(
+            Copy::end_types(&notices),
+            vec!["turn-completed"],
+            "retry_fails {retry_fails}"
+        );
+        assert_eq!(c.last_reply()["outcome"], json!("completed"));
+        assert!(c.host.stuck_ends().is_empty());
+        assert_eq!(c.host.parked_for_tests(), (0, 0));
+        // The queue moved on once: "two" started as the next turn, and the old session's exit didn't touch it.
+        assert_eq!(c.starts(), 2, "retry_fails {retry_fails}");
+        assert!(c.host.is_busy(&chat));
+        assert!(c.host.pump().is_empty());
+        assert_eq!(Copy::end_types(&c.host.take_notices()).len(), 0);
+    }
+}
