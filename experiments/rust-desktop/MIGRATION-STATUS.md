@@ -6,6 +6,18 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+Auto/Full follow-up is implemented but **not accepted or committed**. Root reproduces
+140 Claude tests (one live test ignored), 69 default runtime tests, thirteen Node-client
+scenarios, all-feature compilation, strict Clippy/fmt and fresh recorder parity including
+61 workspace cases. Independent source review finds three blocking permission-callback
+regressions: a slow callback is not bound to its original turn/mode generation; cancellation
+refunds inbound capacity while blocking work survives; and callback panic becomes normal
+fallback, which can allow in Full. Existing passing tests do not cover those races.
+Claude is assigned bounded fixes and deterministic blocked-callback regressions before
+acceptance. General session changes make these relevant beyond the fake fixture. Logs:
+`/tmp/milagre-{claude,runtime}-modes-root-*.log` and
+`/tmp/milagre-modes-oracle-root-{instructions,session}.log`.
+
 Ordinary Claude assembly `991d730b` is accepted within the fixed native fake scope.
 Root passes 137 rust-claude tests (one live test ignored), 93 combined runtime tests,
 all twelve production Node-client fixture scenarios, strict all-target Clippy and fmt.
