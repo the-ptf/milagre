@@ -4,6 +4,7 @@ import { PrOverview } from "../../pr-overview";
 import { openPrPage, useCloseSheet, usePrRoute } from "../../pr-nav";
 import { PrPending } from "../../pr-pending";
 import { chatPullRequestChoices, prChoiceKey, showChatChanges } from "../../pr-chat";
+import { space } from "../../design-tokens";
 import { useStyles } from "../../ui";
 
 /** The PR sheet's first page: the PR the Chat's branch opened, and its other PRs in the ⋯ menu. */
@@ -17,8 +18,9 @@ export default function PullRequestSheet() {
   if (!valid || !client || !cwd) return <PrPending number={number} waiting={waiting} onClose={close} />;
   return (
     // Not collapsable: a form sheet lays out a ScrollView with at most one view beside it; a flattened root hands it every
-    // row, and a PR already read (the Chat reads it for its Review pill) opened to a blank sheet.
-    <View collapsable={false} style={[styles.screen, { paddingTop: 16 }]}>
+    // row, and a PR already read (the Chat reads it for its Review pill) opened to a blank sheet. 24 above the first row:
+    // its pill buttons sat cramped under the grabber at the 16 a centred sheet title uses.
+    <View collapsable={false} style={[styles.screen, { paddingTop: space.xxl }]}>
       <PrOverview
         key={`${cwd}#${number}`}
         client={client}
