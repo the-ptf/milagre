@@ -7,12 +7,11 @@ mod files;
 mod validation;
 
 pub use error::{Error, Result};
-use files::Dir;
+use files::{Dir, StoreLock};
 use milagre_owner_store::{isolation::MARKER, jsjson, Isolation};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
-    fs::File,
     io::{Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
     sync::Arc,
@@ -44,7 +43,7 @@ pub struct ArtifactStore {
     root: Dir,
     path: PathBuf,
     isolation: Isolation,
-    _lock: File,
+    _lock: StoreLock,
     validate: Validator,
     active: ActiveCheck,
     runtime: Arc<dyn Runtime>,

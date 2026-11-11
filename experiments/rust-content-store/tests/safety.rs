@@ -346,3 +346,22 @@ fn stored_fault_codes_remain_distinct_from_missing_assets_and_bad_requests() {
         "INVALID_CONTENT_STORAGE"
     );
 }
+
+#[test]
+fn inherited_store_descriptors_do_not_delay_release_or_unlock_another_generation() {
+    let temp = tempfile::tempdir().unwrap();
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_content-lock-lifetime-fixture"))
+        .arg(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(
+        report,
+        json!({"artifactStore":true,"designKits":true,"childDropPreservesParentLock":true,"releaseBeforeChildExit":true,"exactlyOneSuccessor":true,"lateChildDropPreservesSuccessorLock":true})
+    );
+}

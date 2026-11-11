@@ -1,10 +1,12 @@
 //! Project-owned, immutable Design kit snapshots in an admitted isolated copy.
 use super::*;
-use crate::{files::Dir, ActiveCheck};
+use crate::{
+    files::{Dir, StoreLock},
+    ActiveCheck,
+};
 use milagre_owner_store::{isolation::MARKER, Isolation};
 use sha2::{Digest, Sha256};
 use std::{
-    fs::File,
     path::{Component, Path},
     sync::Arc,
 };
@@ -12,7 +14,7 @@ use std::{
 pub type ProjectForChat = Arc<dyn Fn(&str) -> Result<String> + Send + Sync>;
 pub struct DesignKits {
     root: Dir,
-    _lock: File,
+    _lock: StoreLock,
     project_for_chat: ProjectForChat,
     active: ActiveCheck,
 }

@@ -8,6 +8,25 @@ use std::{
     path::{Component, Path},
 };
 
+/// One owning process controls this advisory lock. A fork/dup can retain the
+/// open-file description after File::drop, so release explicitly before close.
+/// Never unlock from a forked child's destructor: that would release the parent's
+/// still-live lease. This guard is deliberately neither Clone nor clonable by API.
+pub struct StoreLock {
+    file: File,
+    owner_pid: libc::pid_t,
+}
+impl Drop for StoreLock {
+    fn drop(&mut self) {
+        if unsafe { libc::getpid() } == self.owner_pid {
+            // A valid flock-acquired regular-file descriptor supports LOCK_UN.
+            // On an unexpected OS failure, File's close remains the fallback;
+            // retained duplicates then fail closed instead of admitting a writer.
+            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+}
+
 pub struct Dir(File);
 fn name(value: &str) -> Result<CString> {
     if value.is_empty() || value == "." || value == ".." || value.contains('/') {
@@ -205,7 +224,7 @@ impl Dir {
         entries.sort();
         Ok(entries)
     }
-    pub fn lock(&self) -> Result<File> {
+    pub fn lock(&self) -> Result<StoreLock> {
         let file = match self.create(".rust-content.lock") {
             Ok(file) => file,
             Err(_) => self.open(".rust-content.lock")?,
@@ -216,6 +235,37 @@ impl Dir {
                 "This isolated Artifact store already has a Rust writer.",
             ));
         }
-        Ok(file)
+        Ok(StoreLock {
+            file,
+            owner_pid: unsafe { libc::getpid() },
+        })
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+
+    #[test]
+    fn owner_drop_releases_lock_while_a_duplicated_descriptor_remains_open() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = std::fs::canonicalize(temp.path()).unwrap();
+        let root = Dir::open_absolute(&path).unwrap();
+        let owner = root.lock().unwrap();
+        let inherited = owner.file.try_clone().unwrap();
+        for file in [&owner.file, &inherited] {
+            let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFD) };
+            assert!(flags >= 0 && flags & libc::FD_CLOEXEC != 0);
+        }
+        assert_eq!(root.lock().err().unwrap().code, "STORE_OWNED");
+        drop(owner);
+        let successor = root
+            .lock()
+            .expect("Owner release must not wait for an inherited fd to close");
+        assert_eq!(root.lock().err().unwrap().code, "STORE_OWNED");
+        drop(inherited);
+        assert_eq!(root.lock().err().unwrap().code, "STORE_OWNED");
+        drop(successor);
+        root.lock().unwrap();
     }
 }
