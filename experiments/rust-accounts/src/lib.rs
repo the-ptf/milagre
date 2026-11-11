@@ -130,7 +130,10 @@ impl Accounts {
                 .ok_or_else(error)?;
             let id = a.get("id").and_then(Value::as_str).ok_or_else(error)?;
             let label = a.get("label").and_then(Value::as_str).ok_or_else(error)?;
-            if !PROVIDERS.contains(&provider) || !account_id(id) {
+            if !PROVIDERS.contains(&provider)
+                || !account_id(id)
+                || accounts.iter().any(|a: &Value| a["id"] == id)
+            {
                 return Err(error());
             }
             accounts.push(json!({"id":id,"provider":provider,"label":label}));
@@ -230,13 +233,19 @@ impl Accounts {
     pub fn environment_plan(
         &self,
         provider: &str,
-        id: Option<&str>,
+        selection: &Selection,
         context: &EnvironmentContext,
     ) -> Result<EnvironmentPlan> {
-        let id = match id {
-            Some(id) => id,
-            None => self.selected(provider, None)?,
-        };
+        self.environment_for_account(provider, selection.account_id(provider)?, context)
+    }
+    /// Explicit account operation, such as inspecting a selected row in Settings.
+    /// Session launches must use `environment_plan` with their captured Selection.
+    pub fn environment_for_account(
+        &self,
+        provider: &str,
+        id: &str,
+        context: &EnvironmentContext,
+    ) -> Result<EnvironmentPlan> {
         self.account(provider, id)?;
         let mut env = context.env.clone();
         let mut preparation = Vec::new();
@@ -248,7 +257,14 @@ impl Accounts {
             env.insert("GEMINI_HOME".into(), directory.clone());
             env.insert("AGY_ACP_FORCE_FILE_STORAGE".into(), "1".into());
             if id == "default" {
-                preparation.push(Preparation::AntigravityDefault { directory });
+                preparation.push(Preparation::AntigravityDefault {
+                    directory,
+                    root: Path::new(&context.data_dir)
+                        .join("accounts")
+                        .to_string_lossy()
+                        .into_owned(),
+                    home: context.home.clone(),
+                });
             }
         } else if id != "default" {
             let names: &[&str] = if provider == "codex" {
@@ -395,6 +411,8 @@ impl EnvironmentContext {
 pub enum Preparation {
     AntigravityDefault {
         directory: String,
+        root: String,
+        home: String,
     },
     InheritMcp {
         provider: String,

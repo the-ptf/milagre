@@ -31,7 +31,15 @@ fn actual_node_accounts_match_on_saved_metadata_scopes_and_environment() {
                     .selected(string(1).unwrap(), string(2))
                     .map(|s| json!(s)),
                 "environment" => accounts
-                    .environment_plan(string(1).unwrap(), string(2), &context)
+                    .environment_for_account(
+                        string(1).unwrap(),
+                        string(2).unwrap_or(
+                            accounts
+                                .selected(string(1).unwrap(), None)
+                                .unwrap_or("default"),
+                        ),
+                        &context,
+                    )
                     .and_then(|p| p.prepare(|_| Ok(())))
                     .map(|env| json!(env)),
                 "scope" => accounts.scope_snapshot(string(1).unwrap()),
@@ -64,7 +72,7 @@ fn plans_do_not_expose_credentials_until_preparation_succeeds_and_debug_is_redac
         env: [("ANTHROPIC_API_KEY".into(), "NEVER_PRINT_THIS".into())].into(),
     };
     let plan = accounts
-        .environment_plan("claude", Some(id), &context)
+        .environment_for_account("claude", id, &context)
         .unwrap();
     assert!(!format!("{context:?} {plan:?}").contains("NEVER_PRINT_THIS"));
     assert!(
@@ -77,7 +85,7 @@ fn plans_do_not_expose_credentials_until_preparation_succeeds_and_debug_is_redac
         "not implemented"
     );
     let plan = accounts
-        .environment_plan("antigravity", None, &context)
+        .environment_plan("antigravity", &accounts.pin(None).unwrap(), &context)
         .unwrap();
     assert!(matches!(
         &plan.preparation()[0],
@@ -99,4 +107,62 @@ fn pinned_accounts_and_removed_overrides_do_not_silently_switch() {
     assert!(removed
         .account("claude", pinned.account_id("claude").unwrap())
         .is_err());
+}
+
+#[test]
+fn duplicate_profile_ids_are_refused_across_and_within_providers() {
+    let id = "11111111-1111-4111-8111-111111111111";
+    for provider in ["claude", "codex"] {
+        let body = json!({"accounts":[{"id":id,"provider":"claude","label":"A"},{"id":id,"provider":provider,"label":"B"}],"selected":{}});
+        assert_eq!(
+            Accounts::parse(Some(&body.to_string())).unwrap_err().0,
+            milagre_accounts::READ_ERROR
+        );
+    }
+}
+
+#[test]
+fn launch_environment_requires_the_pin_and_rejects_removed_accounts() {
+    let id = "11111111-1111-4111-8111-111111111111";
+    let body = json!({"accounts":[{"id":id,"provider":"claude","label":"Project account"}],"selected":{},"scopes":{"/a":{"claude":id}}});
+    let accounts = Accounts::parse(Some(&body.to_string())).unwrap();
+    let pin = accounts.pin(Some("/a")).unwrap();
+    let context = EnvironmentContext {
+        data_dir: "/private/profile".into(),
+        home: "/private/home".into(),
+        cwd: "/private".into(),
+        env: Default::default(),
+    };
+    let env = accounts
+        .environment_plan("claude", &pin, &context)
+        .unwrap()
+        .prepare(|_| Ok(()))
+        .unwrap();
+    assert_eq!(
+        env["CLAUDE_CONFIG_DIR"],
+        format!("/private/profile/accounts/{id}")
+    );
+    let removed = Accounts::parse(Some(
+        &json!({"accounts":[],"selected":{},"scopes":{"/a":{"claude":id}}}).to_string(),
+    ))
+    .unwrap();
+    assert_eq!(
+        removed
+            .environment_plan("claude", &pin, &context)
+            .unwrap_err()
+            .0,
+        milagre_accounts::MISSING_ACCOUNT
+    );
+    let snapshot = removed.scope_snapshot("/a").unwrap();
+    let group = snapshot["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["provider"] == "claude")
+        .unwrap();
+    assert_eq!(group["effectiveId"], id);
+    assert_eq!(
+        group["accounts"].as_array().unwrap().last().unwrap()["missing"],
+        true
+    );
 }
