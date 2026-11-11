@@ -321,7 +321,9 @@ test("repository screenshots use GitHub's raw contents API and never forward cre
     const review = createPullRequestReview({
       exec: fakeGh(() => "gho_token\n").exec,
       fetch: async (to, init = {}) => {
-        requests.push([to, init]);
+        assert.ok(init.signal instanceof AbortSignal);
+        const { signal: _signal, ...options } = init;
+        requests.push([to, options]);
         if (redirect && to === api) return new Response(null, { status: 302, headers: { location: "https://storage.example/signed.png" } });
         return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "application/vnd.github.raw+json; charset=utf-8" } });
       },
@@ -340,7 +342,9 @@ test("renamed repositories keep authentication and raw media type only within th
   const review = createPullRequestReview({
     exec: fakeGh(() => "token").exec,
     fetch: async (to, init = {}) => {
-      requests.push([to, init]);
+      assert.ok(init.signal instanceof AbortSignal);
+      const { signal: _signal, ...options } = init;
+      requests.push([to, options]);
       if (requests.length === 1) return new Response(null, { status: 301, headers: { location: canonical } });
       return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "application/vnd.github.raw+json" } });
     },
@@ -370,7 +374,9 @@ test("repository images resolve qualified and slash-containing refs before readi
     const review = createPullRequestReview({
       exec,
       fetch: async (to, init) => {
-        requests.push([to, init]);
+        assert.ok(init.signal instanceof AbortSignal);
+        const { signal: _signal, ...options } = init;
+        requests.push([to, options]);
         return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "application/vnd.github.raw+json" } });
       },
     });
@@ -431,4 +437,58 @@ test("the PR diff needs real commit ids", async () => {
     ok: false,
     message: "This PR's commits aren't known yet. Refresh and try again.",
   });
+});
+
+test("PR image timeouts and aborts use the image failure message, including redirects and body reads", async () => {
+  const url = "https://github.com/user-attachments/assets/1a75943a-4133-4d9d-8fa3-99d4a0b689da";
+  for (const name of ["TimeoutError", "AbortError"]) {
+    for (const stage of ["initial", "redirect", "body"]) {
+      let calls = 0;
+      const review = createPullRequestReview({
+        exec: fakeGh(() => "token").exec,
+        fetch: async (_url, init) => {
+          assert.ok(init.signal instanceof AbortSignal);
+          if (stage === "redirect" && calls++ === 0) return new Response(null, { status: 302, headers: { location: "https://storage.example/shot.png" } });
+          const error = new DOMException("timed out", name);
+          if (stage !== "body") throw error;
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.error(error);
+              },
+            }),
+            { headers: { "content-type": "image/png" } },
+          );
+        },
+      });
+      assert.deepEqual(await review.image({ cwd: "/w", url }), { ok: false, message: "GitHub didn't send this image." });
+    }
+  }
+});
+
+test("PR images stop and cancel an oversized stream without trusting content-length", async () => {
+  const url = "https://github.com/user-attachments/assets/1a75943a-4133-4d9d-8fa3-99d4a0b689da";
+  for (const length of [null, "1"]) {
+    let cancelled = false;
+    let chunks = 0;
+    const stream = new ReadableStream(
+      {
+        pull(controller) {
+          chunks++;
+          controller.enqueue(new Uint8Array(1024 * 1024));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const review = createPullRequestReview({
+      exec: fakeGh(() => "token").exec,
+      fetch: async () => new Response(stream, { headers: { "content-type": "image/png", ...(length ? { "content-length": length } : {}) } }),
+    });
+    assert.deepEqual(await review.image({ cwd: "/w", url }), { ok: false, message: "This image is too large to show here." });
+    assert.equal(cancelled, true);
+    assert.equal(chunks, 16);
+  }
 });

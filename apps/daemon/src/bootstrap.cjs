@@ -71,6 +71,13 @@ async function stopStaleHost(client, timeoutMs) {
   }
 }
 
+// Keep one previous log; a host still exiting on Windows may hold it open, so rotation is best effort.
+function rotateLog(logPath, maxBytes) {
+  try {
+    if (fs.lstatSync(logPath).size > maxBytes) fs.renameSync(logPath, `${logPath}.1`);
+  } catch {}
+}
+
 // Only connection establishment is retried. A caller must never replay a command
 // that may already have reached the runtime.
 async function ensureDaemon({
@@ -105,6 +112,7 @@ async function ensureDaemon({
   const lockPath = path.join(dataDir, "runtime.lock");
   function launch() {
     if (fs.existsSync(logPath) && !fs.lstatSync(logPath).isFile()) throw new Error(`Daemon log must be a regular file: ${logPath}`);
+    rotateLog(logPath, 10 * 1024 * 1024);
     const log = fs.openSync(logPath, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW ?? 0), 0o600);
     try {
       const args = [entry, "serve", "--data-dir", dataDir, "--app-version", version, "--cwd", cwd];
@@ -143,4 +151,4 @@ async function ensureDaemon({
   throw new Error(`Milagre host could not start. Check ${logPath} and ${path.join(lockPath, "owner.json")}. Never remove a live owner's lock.`);
 }
 
-module.exports = { ensureDaemon, compatibleClient, HOST_GONE };
+module.exports = { ensureDaemon, compatibleClient, HOST_GONE, rotateLog };

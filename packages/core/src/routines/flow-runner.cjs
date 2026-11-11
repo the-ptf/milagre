@@ -36,9 +36,11 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
   // Work going on off the caller (an action, a Chat being made), so idle() can wait for it.
   const background = new Set();
   const track = (work) => {
-    background.add(work);
-    void work.finally(() => background.delete(work));
-    return work;
+    const task = Promise.resolve(work)
+      .catch((error) => console.warn("[routines] flow work failed", error))
+      .finally(() => background.delete(task));
+    background.add(task);
+    return task;
   };
 
   const update = (runId, change) => store.updateFlowRun(runId, change);
@@ -312,21 +314,23 @@ function createFlowRunner({ store, chats, actions = {}, now = Date.now, onChange
       await turnFailed(run.id, step, chatId, error?.busy ? "the Chat was busy" : errorText(error));
       return;
     }
-    Promise.resolve(started).then(
-      (result) => {
-        if (result?.turnId) turn.turnId ??= result.turnId;
-        if (result?.steered || !result?.turnId) {
+    track(
+      Promise.resolve(started).then(
+        (result) => {
+          if (result?.turnId) turn.turnId ??= result.turnId;
+          if (result?.steered || !result?.turnId) {
+            if (turns.get(chatId) !== turn) return null;
+            turns.delete(chatId);
+            return turnFailed(run.id, step, chatId, result?.steered ? "the Chat was busy" : "turn did not start");
+          }
+          return null;
+        },
+        (error) => {
           if (turns.get(chatId) !== turn) return null;
           turns.delete(chatId);
-          return turnFailed(run.id, step, chatId, result?.steered ? "the Chat was busy" : "turn did not start");
-        }
-        return null;
-      },
-      (error) => {
-        if (turns.get(chatId) !== turn) return null;
-        turns.delete(chatId);
-        return turnFailed(run.id, step, chatId, errorText(error));
-      },
+          return turnFailed(run.id, step, chatId, errorText(error));
+        },
+      ),
     );
   }
 

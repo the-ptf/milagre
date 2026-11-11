@@ -7,7 +7,34 @@ const net = require("node:net");
 const { once } = require("node:events");
 const { spawn } = require("node:child_process");
 const { socketPath, prepareSocketDirectory } = require("./paths.cjs");
-const { ensureDaemon } = require("./bootstrap.cjs");
+const { ensureDaemon, rotateLog } = require("./bootstrap.cjs");
+
+test("log rotation replaces the previous log only past the size limit", async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-log-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const log = path.join(dir, "daemon.log");
+  rotateLog(log, 3); // No previous log.
+  await fs.writeFile(log, "123");
+  await fs.writeFile(`${log}.1`, "old");
+  rotateLog(log, 3);
+  assert.equal(await fs.readFile(log, "utf8"), "123");
+  assert.equal(await fs.readFile(`${log}.1`, "utf8"), "old");
+  await fs.appendFile(log, "4");
+  rotateLog(log, 3);
+  assert.equal(await fs.readFile(`${log}.1`, "utf8"), "1234");
+  await assert.rejects(fs.stat(log), { code: "ENOENT" });
+});
+
+test("failed log rotation leaves the log available for appending", async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-log-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const log = path.join(dir, "daemon.log");
+  await fs.writeFile(log, "1234");
+  await fs.mkdir(`${log}.1`); // A directory cannot be replaced by a log file.
+  assert.doesNotThrow(() => rotateLog(log, 3));
+  await fs.appendFile(log, "5");
+  assert.equal(await fs.readFile(log, "utf8"), "12345");
+});
 
 // These stand in for a host with a bare socket; a Windows pipe answers only a host that passes its handshake (windows-transport.test.cjs).
 const NEEDS_UNIX_SOCKET = { skip: process.platform === "win32" && "a fake host can't pass the Windows pipe handshake" };

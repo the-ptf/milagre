@@ -152,7 +152,7 @@ function setup({ steps = pilot(), trigger = { kind: "linear", workspace: "milagr
     await settle();
   };
   const run = () => store.runs(routine.id)[0];
-  return { store, scheduler, routine, clock, calls, state, flowActions, settle, tick, turn, run, dir };
+  return { store, scheduler, routine, clock, calls, state, flowActions, chatAdapter, settle, tick, turn, run, dir };
 }
 
 test("the pilot runs end to end on the large path: approvals, a receipt, the review in its own Chat", async () => {
@@ -603,4 +603,53 @@ test("a schedule simulation can reuse completed fields even though its real Run 
   assert.equal(run.flow.state.a.output.ready, true);
   assert.match(run.flow.state.a.summary, /Saved fields/);
   assert.equal(ctx.calls.send.length, 1);
+});
+
+test("a tracked flow failure is handled and idle still resolves", async (t) => {
+  const ctx = setup();
+  t.after(() => fs.rmSync(ctx.dir, { recursive: true, force: true }));
+  ctx.scheduler.enqueueEvent(ctx.routine.id, issueEvent());
+  await ctx.tick();
+  const failure = new Error("state write failed");
+  const warnings = t.mock.method(console, "warn", () => {});
+  t.mock.method(ctx.store, "updateFlowRun", () => {
+    throw failure;
+  });
+  const rejections = [];
+  const unhandled = (error) => rejections.push(error);
+  process.on("unhandledRejection", unhandled);
+  t.after(() => process.off("unhandledRejection", unhandled));
+  await ctx.turn("chat1");
+  await ctx.scheduler.idle();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(rejections, []);
+  assert.ok(warnings.mock.calls.some(({ arguments: args }) => args[0] === "[routines] flow work failed" && args[1] === failure));
+});
+
+test("idle waits for turn startup and handles a failure while recording its rejection", async (t) => {
+  const ctx = setup();
+  t.after(() => fs.rmSync(ctx.dir, { recursive: true, force: true }));
+  let rejectStart;
+  const started = new Promise((_resolve, reject) => {
+    rejectStart = reject;
+  });
+  t.mock.method(ctx.chatAdapter, "send", async () => ({ started }));
+  const warnings = t.mock.method(console, "warn", () => {});
+  ctx.scheduler.enqueueEvent(ctx.routine.id, issueEvent());
+  await ctx.scheduler.tick();
+  let idle = false;
+  const waiting = ctx.scheduler.idle().then(() => {
+    idle = true;
+    return null;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(idle, false, "turn startup is tracked background work");
+  const failure = new Error("state write failed");
+  t.mock.method(ctx.store, "updateFlowRun", () => {
+    throw failure;
+  });
+  rejectStart(new Error("turn startup failed"));
+  await waiting;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(warnings.mock.calls.some(({ arguments: args }) => args[0] === "[routines] flow work failed" && args[1] === failure));
 });

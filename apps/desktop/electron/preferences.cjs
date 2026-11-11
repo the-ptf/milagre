@@ -13,7 +13,13 @@ function createPreferencesStore(/** @type {string} */ file) {
       if (typeof value === "string" || value === null) values[key] = value;
     }
   } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    if (error instanceof SyntaxError || (error instanceof Error && error.message === "Invalid preferences")) {
+      try {
+        fs.renameSync(file, `${file}.corrupt-${Date.now()}`);
+      } catch {}
+      console.warn("[preferences] corrupt preferences; starting with empty values:", file);
+      values = Object.create(null);
+    } else if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
   return {
     get(/** @type {string} */ key) {
