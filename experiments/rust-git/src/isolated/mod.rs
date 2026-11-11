@@ -30,6 +30,22 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(300);
 const MARKER: &str = ".milagre-isolated-git";
 #[derive(Clone)]
 pub struct IsolatedGit(Arc<Repository>);
+/// Read-only main-checkout view that retains its temporary owner and cannot use
+/// the caller's home, Git configuration, helper environment or hooks.
+pub struct IsolatedGitReader {
+    owner: IsolatedGit,
+    reader: crate::GitReader,
+}
+impl IsolatedGitReader {
+    pub async fn call(&self, method: &str, args: Value) -> Result<Value, GitError> {
+        let state = self.owner.0.lane.lock().await;
+        self.owner
+            .validate(self.owner.project_path(), &state)
+            .await?;
+        self.owner.helpers_safe(self.owner.project_path()).await?;
+        self.reader.call(method, args).await
+    }
+}
 struct Repository {
     directory: Option<TempDir>,
     root: PathBuf,
@@ -151,6 +167,22 @@ impl Drop for Repository {
 }
 
 impl IsolatedGit {
+    /// The reader admits only this capability's main checkout. It keeps the
+    /// repository alive and serializes queries with its mutations.
+    pub async fn reader(&self) -> Result<IsolatedGitReader, GitError> {
+        let state = self.0.lane.lock().await;
+        self.validate(self.project_path(), &state).await?;
+        self.helpers_safe(self.project_path()).await?;
+        let mut reader = crate::GitReader::new([self.project_path().to_owned()])?;
+        reader.git.isolated = Some(IsolatedEnvironment {
+            root: self.0.root.clone(),
+            hooks: PathBuf::from("/dev/null"),
+        });
+        Ok(IsolatedGitReader {
+            owner: self.clone(),
+            reader,
+        })
+    }
     /// Creates an empty `main` repository. No source repo, profile or existing path
     /// can be supplied. Fixture identity is local to this disposable repository.
     pub async fn create() -> Result<Self, GitError> {

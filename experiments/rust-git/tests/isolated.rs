@@ -825,3 +825,76 @@ async fn existing_tracking_refs_and_explicit_tracking_match_without_fetch() {
         "origin/main"
     );
 }
+
+#[tokio::test]
+async fn private_reader_keeps_owner_and_ignores_global_config() {
+    const FLAG: &str = "MILAGRE_GIT_PRIVATE_READ_FIXTURE";
+    if std::env::var_os(FLAG).is_none() {
+        // Keep process-wide environment changes out of the concurrent test runner.
+        let fixture = tempfile::tempdir().unwrap();
+        fs::write(fixture.path().join("ignored"), "ignored-by-global.txt\n").unwrap();
+        fs::write(
+            fixture.path().join(".gitconfig"),
+            format!(
+                "[core]\n excludesFile = {}\n",
+                fixture.path().join("ignored").display()
+            ),
+        )
+        .unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "private_reader_keeps_owner_and_ignores_global_config",
+                "--nocapture",
+            ])
+            .env(FLAG, "1")
+            .env("HOME", fixture.path())
+            .env("XDG_CONFIG_HOME", fixture.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let owner = repository().await;
+    let project = owner.project_path().to_owned();
+    let root = owner.root_path().to_owned();
+    write(
+        &project,
+        "ignored-by-global.txt",
+        "visible only with private config\n",
+    );
+    let args = json!({"cwd":project,"base":"main"});
+    let ordinary = milagre_git_read::GitReader::new([project.clone()]).unwrap();
+    assert_eq!(
+        ordinary.call("git:changes", args.clone()).await.unwrap()["files"],
+        json!([])
+    );
+    let reader = owner.reader().await.unwrap();
+    drop(owner);
+    assert!(project.exists(), "reader must retain its temporary owner");
+    let result = reader.call("git:changes", args.clone()).await.unwrap();
+    assert_eq!(result["files"][0]["path"], "ignored-by-global.txt");
+    assert_eq!(
+        reader
+            .call("git:commit", args.clone())
+            .await
+            .unwrap_err()
+            .kind,
+        "UNSUPPORTED_METHOD"
+    );
+    let marker = root.join(".milagre-isolated-git");
+    let saved = fs::read(&marker).unwrap();
+    fs::write(&marker, "changed").unwrap();
+    assert_eq!(
+        reader.call("git:changes", args).await.unwrap_err().kind,
+        "ISOLATED_GIT_SCOPE"
+    );
+    fs::write(marker, saved).unwrap();
+    drop(reader);
+    assert!(!root.exists());
+}

@@ -76,12 +76,15 @@ impl Drop for Cleanup {
 }
 
 /// Private: renderer input can select a query, never a command or executable.
-pub(crate) struct Runner;
+#[derive(Default)]
+pub(crate) struct Runner {
+    pub isolated: Option<IsolatedEnvironment>,
+}
 impl Runner {
     pub async fn run(&self, cwd: &Path, args: &[&str]) -> Outcome {
         // Node's analysisOnly profile: never execute repository-configured filters,
         // fsmonitor, textconv, diff helpers or hooks while servicing a read.
-        let filters = execute(
+        let filters = execute_profile(
             "git",
             cwd,
             &[
@@ -94,6 +97,8 @@ impl Runner {
             &[],
             READ_TIMEOUT,
             MAX_BUFFER,
+            None,
+            self.isolated.as_ref(),
         )
         .await;
         if !filters.ok && filters.code != Some(1) {
@@ -118,7 +123,17 @@ impl Runner {
                 ]
             })
             .collect();
-        execute("git", cwd, args, &config, READ_TIMEOUT, MAX_BUFFER).await
+        execute_profile(
+            "git",
+            cwd,
+            args,
+            &config,
+            READ_TIMEOUT,
+            MAX_BUFFER,
+            None,
+            self.isolated.as_ref(),
+        )
+        .await
     }
     pub async fn checked(&self, cwd: &Path, args: &[&str]) -> Result<String, GitError> {
         let result = self.run(cwd, args).await;
@@ -157,6 +172,7 @@ async fn drain<R: AsyncRead + Unpin>(
     }
 }
 
+#[cfg(test)]
 async fn execute(
     program: &str,
     cwd: &Path,

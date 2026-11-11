@@ -88,7 +88,7 @@ impl GitReader {
         }
         Ok(Self {
             roots: canonical,
-            git: Runner,
+            git: Runner::default(),
             catalogs: AsyncMutex::new(VecDeque::new()),
             stats: Mutex::new(VecDeque::new()),
         })
