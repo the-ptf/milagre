@@ -558,6 +558,11 @@ removes the stage; the log is `daemon-check/target/check-gpui-adapter.log`.
   (`node scripts/run-vectors.mjs tests/vectors/run-cases.json > tests/vectors/run-traces.json`); a plain test
   requires the Rust fold to match after every event. One normalized difference: where `capOutput` cuts an astral
   character in half, JavaScript keeps a lone surrogate a Rust string cannot hold; both sides compare it as U+FFFD.
+- `src/real/actions.rs`: the backend's `ScriptedActions` (`send`, `interrupt`) on the populated fixture, after an
+  explicit `project:open` and an accepted snapshot (before the open both refuse with `ISOLATED_SCOPE_ONLY`). Events are
+  awaited on the notifications with a bound, never on the action's future. A send streams through the live reducer
+  (run appears, text grows, run ends, summary count +2); a `fixture:blocked-start` send then `interrupt` gives
+  `turn-cancelled` and removes the run; the mounted transcript shows the new messages through the same manual seam.
 - `src/view.rs`: `open_on_select` (explicit `project:open`, then the Chat's first page) and `transcript_items`.
   The GPUI test swaps the Chat column's public `transcript` entity, because the base crate has no seam to give
   `ChatView` a Chat (title and Project label are private fixture text) and `Workspace` routes a selection only to

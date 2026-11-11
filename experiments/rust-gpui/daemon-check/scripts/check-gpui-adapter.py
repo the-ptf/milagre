@@ -28,10 +28,10 @@ import tempfile
 
 CRATE = Path(__file__).resolve().parents[1]
 GPUI = CRATE.parent
-CLIENT_COMMIT = "5eb6d63f9a73531a52a2de4ed8bea4e2c01cca39"
-CLIENT_TREE = "4246b9f3949ba47267bf1df78eecc8909ad86aaf"
+CLIENT_COMMIT = "9aa5deb343946458e85f17d8bc959141343a8d28"
+CLIENT_TREE = "2e265578e11a0b204ef58e13d9c4024b418b4f7d"
 CLIENT_PATH = "experiments/rust-daemon-client"
-EXPORT = GPUI / "target/daemon-client-5eb6d63f"
+EXPORT = GPUI / "target/daemon-client-9aa5deb3"
 FIXTURE_SHA256 = "0a909ce5aa8887a7cf3174a1c6f98d849a7bdd5bba3bfec5e48d3381cb20ca5c"
 FIXTURE_IN_BACKEND = "experiments/rust-runtime/target/debug/app-fixture"
 RUNNER = "milagre_gpui_daemon_check"

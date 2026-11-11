@@ -297,4 +297,5 @@ fn sidebar_mounts_from_the_adapter(cx: &mut TestAppContext) {
     println!("GPUI_ADAPTER_EVIDENCE sidebar scopes=1 project={path:?} chats=[1,2] listed_rows={rows}");
 }
 
+mod actions;
 mod populated;

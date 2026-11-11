@@ -1,5 +1,5 @@
 //! Off-by-default real-data stage of the GPUI port: [`DaemonAdapter`] implements the GPUI crate's `DataSource` on the
-//! backend's shared daemon client (`milagre-daemon-client`, frozen at 5eb6d63f), checked headless against the
+//! backend's shared daemon client (`milagre-daemon-client`, frozen at 9aa5deb3), checked headless against the
 //! backend's owned `app-fixture`. Nothing in the GPUI app depends on this crate; see `README.md` ("Daemon adapter")
 //! in the GPUI crate for how to export the client and run the checks.
 //!
