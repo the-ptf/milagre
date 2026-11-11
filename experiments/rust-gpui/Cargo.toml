@@ -1,0 +1,27 @@
+[package]
+name = "milagre-gpui-spike"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "GPUI spike: Milagre's desktop shell (sidebar, Chat, side panel) drawn with Zed's UI framework"
+
+[workspace]
+
+[[bin]]
+name = "milagre-gpui-spike"
+path = "src/main.rs"
+
+[dependencies]
+# Exact pin: the latest official crates.io release of Zed's GPUI. See README.md "GPUI version".
+# `runtime_shaders` compiles the Metal shaders when the app starts instead of at build time, so the
+# build does not need Xcode's separately downloaded Metal Toolchain (absent on this Mac).
+gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Already in GPUI's tree at this version; used by src/snapshot.rs to find the window's NSView.
+raw-window-handle = "0.6"
+
+[dev-dependencies]
+# `test-support` adds GPUI's headless test platform (`#[gpui::test]`, `TestAppContext`, `debug_selector`).
+gpui = { version = "=0.2.2", features = ["runtime_shaders", "test-support"] }
