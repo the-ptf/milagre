@@ -37,7 +37,7 @@ fn the_list_holds_500_rows_but_builds_only_the_visible_ones(cx: &mut TestAppCont
 fn arrow_keys_move_the_selection_and_scroll_it_into_view(cx: &mut TestAppContext) {
     let (sidebar, cx) = mount(cx);
     let handle = sidebar.read_with(cx, |s, _| s.focus_handle().clone());
-    cx.update(|window, _| window.focus(&handle));
+    cx.update(|window, cx| window.focus(&handle, cx));
     cx.simulate_keystrokes("down");
     assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), Some(2));
     cx.simulate_keystrokes("up up");

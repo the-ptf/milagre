@@ -93,14 +93,15 @@ fn allow_once_settles_the_approval(cx: &mut TestAppContext) {
     let (transcript, _, cx) = mount(cx);
     let allow = cx.debug_bounds("approval-allow-once").expect("Allow once drawn");
     assert_eq!(allow.size.height, crate::theme::CONTROL_SM);
+    let waiting = cx.debug_bounds("approval-waiting").expect("the waiting row is drawn");
     cx.simulate_click(allow.center(), Modifiers::none());
 
     let state = transcript
         .read_with(cx, |t, _| t.items().iter().rev().find_map(|item| if let Item::Approval(a) = item { Some(a.state) } else { None }));
     assert_eq!(state, Some(ApprovalState::Allowed));
-    // GPUI 0.2.2 never clears a frame's debug bounds, so a selector that was drawn once stays
-    // findable: check that the new line is drawn where the waiting row was, not that the buttons left.
-    let waiting = cx.debug_bounds("approval-waiting").expect("the waiting row was drawn");
+    // Debug bounds are per frame (GPUI 0.2.2 kept them forever; gpui-pre clears them each frame).
+    assert!(cx.debug_bounds("approval-waiting").is_none(), "the waiting row and its buttons are gone");
+    assert!(cx.debug_bounds("approval-allow-once").is_none());
     let resolved = cx.debug_bounds("approval-resolved").expect("the quiet Allowed line is drawn");
     assert_eq!(resolved.origin, waiting.origin, "it replaces the waiting row in place");
     assert_eq!(resolved.size.height, waiting.size.height);
@@ -229,8 +230,11 @@ fn dead_key_composition_replaces_the_marked_text(cx: &mut TestAppContext) {
 #[gpui::test]
 fn typing_does_not_re_render_the_transcript(cx: &mut TestAppContext) {
     let (transcript, _, cx) = mount(cx);
+    // The first key press switches GPUI's input modality from mouse to keyboard, which refreshes
+    // the whole window once (see `modality_switches_redraw_every_view_once`). Count after it.
+    cx.simulate_input("h");
     let before = transcript.read_with(cx, |t, _| t.item_renders());
-    cx.simulate_input("hello");
+    cx.simulate_input("ello");
     let after_typing = transcript.read_with(cx, |t, _| t.item_renders());
     assert_eq!(after_typing, before, "the transcript is a cached view; keystrokes reuse its last frame");
 
@@ -238,7 +242,7 @@ fn typing_does_not_re_render_the_transcript(cx: &mut TestAppContext) {
     transcript.update(cx, |t, cx| t.push(Item::Prose(appended), cx));
     cx.run_until_parked();
     let after_append = transcript.read_with(cx, |t, _| t.item_renders());
-    eprintln!("item renders: typing 5 keys {}, appending one item {}", after_typing - before, after_append - after_typing);
+    eprintln!("item renders: typing 4 keys {}, appending one item {}", after_typing - before, after_append - after_typing);
     assert!(after_append > after_typing, "the append is laid out");
     assert!(after_append - after_typing < 120, "an append re-lays only what is in view");
 }
@@ -274,4 +278,22 @@ fn clicking_in_the_input_places_the_caret(cx: &mut TestAppContext) {
     // 14px left padding, 12px top padding: the first character's left edge.
     cx.simulate_click(gpui::point(input.origin.x + px(14.0), input.origin.y + px(20.0)), Modifiers::none());
     assert_eq!(composer.read_with(cx, |c, _| c.selected_range()), 0..0);
+}
+
+/// GPUI behaviour worth knowing (gpui-pre 0.3.12, `Window::dispatch_event`): when input switches
+/// between mouse and keyboard, the window refreshes, and a refresh lays out every view again, cached
+/// or not (it exists for focus-visible styling). So the first key after using the mouse, and the
+/// first mouse move after typing, each rebuild the visible transcript once. Steady typing does not.
+#[gpui::test]
+fn modality_switches_redraw_every_view_once(cx: &mut TestAppContext) {
+    let (transcript, _, cx) = mount(cx);
+    let renders = |cx: &mut VisualTestContext| transcript.read_with(cx, |t, _| t.item_renders());
+    let mounted = renders(cx);
+    cx.simulate_input("a");
+    let first_key = renders(cx);
+    assert!(first_key > mounted, "the first key after the mouse refreshes the window");
+    cx.simulate_input("b");
+    assert_eq!(renders(cx), first_key, "the next key does not");
+    cx.simulate_mouse_move(gpui::point(px(700.0), px(30.0)), None, Modifiers::none());
+    assert!(renders(cx) > first_key, "the first mouse move after typing refreshes it again");
 }

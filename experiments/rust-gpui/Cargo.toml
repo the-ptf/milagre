@@ -13,10 +13,22 @@ name = "milagre-gpui-spike"
 path = "src/main.rs"
 
 [dependencies]
-# Exact pin: the latest official crates.io release of Zed's GPUI. See README.md "GPUI version".
-# `runtime_shaders` compiles the Metal shaders when the app starts instead of at build time, so the
-# build does not need Xcode's separately downloaded Metal Toolchain (absent on this Mac).
-gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
+# GPUI from `gpui-pre`: weekly crates.io snapshots of zed-industries/zed's own `gpui` crates (0.3.12 is
+# zed@d2a4fb6, 2026-11-08). Exact pins; see README.md "GPUI version decision". Imported under the
+# names upstream uses (`gpui`, `gpui_platform`), so moving to a zed git rev changes only this file.
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+# The platform (AppKit window, Metal renderer, CoreText) lives in its own crates upstream.
+# `font-kit` is the macOS text system (CoreText); without it gpui_macos falls back to a no-op text
+# system and draws no text at all. `runtime_shaders` compiles the Metal shaders when the app starts
+# instead of at build time, so the build does not need Xcode's separately downloaded Metal Toolchain
+# (absent on this Mac).
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders"] }
+# Longbridge's component library (Apache-2.0), built on the same gpui-pre snapshot: text input and
+# editor, selectable text and markdown, dock, resizable panels, scrollbars, menus, dialogs, tooltips.
+# Available to views; the spike's own sidebar, transcript and composer do not use it yet (README.md).
+gpui-component = "=0.9.1"
+# Lucide icons gpui-component's widgets load by path; our AssetSource falls back to it.
+gpui-kit-assets = "=0.9.1"
 # Transcript markdown (src/markdown.rs): CommonMark events, turned into GPUI blocks by hand.
 pulldown-cmark = { version = "0.13", default-features = false }
 # Composer caret movement and backspace by grapheme cluster, as GPUI's own `input` example does.
@@ -29,4 +41,4 @@ raw-window-handle = "0.6"
 
 [dev-dependencies]
 # `test-support` adds GPUI's headless test platform (`#[gpui::test]`, `TestAppContext`, `debug_selector`).
-gpui = { version = "=0.2.2", features = ["runtime_shaders", "test-support"] }
+gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }

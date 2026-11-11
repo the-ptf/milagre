@@ -69,20 +69,21 @@ fn clicking_the_clipped_pr_tab_scrolls_it_inside_the_list(cx: &mut TestAppContex
     let (panel, cx) = mount(cx);
     let list = cx.debug_bounds("panel-tab-list").expect("tab list is drawn");
     let before = panel.read_with(cx, |p, _| p.tabs_scroll().max_offset());
-    assert!(before.width > px(0.0), "the six tabs overflow the list");
+    assert!(before.x > px(0.0), "the six tabs overflow the list");
     // Wheel / trackpad horizontal scroll moves the list; nudge it so the PR tab's left part shows.
     let pr = cx.debug_bounds("panel-tab-PR").expect("PR is drawn");
     let nudge = (pr.left() - list.right()).max(px(0.0)) + px(20.0);
-    cx.simulate_event(gpui::ScrollWheelEvent {
+    cx.simulate_event(gpui::ScrollEvent {
         position: list.center(),
         delta: gpui::ScrollDelta::Pixels(gpui::point(-nudge, px(0.0))),
         modifiers: Modifiers::none(),
         touch_phase: gpui::TouchPhase::Moved,
+        source: gpui::ScrollSource::Pointer,
     });
     cx.run_until_parked();
     assert!(panel.read_with(cx, |p, _| p.tabs_scroll().offset().x) < px(0.0), "the wheel scrolled the list");
     let pr = cx.debug_bounds("panel-tab-PR").expect("PR is drawn");
-    assert!(pr.right() > list.right() || before.width <= nudge, "PR still partly clipped after the nudge");
+    assert!(pr.right() > list.right() || before.x <= nudge, "PR still partly clipped after the nudge");
     let click = gpui::point(pr.left() + px(4.0), pr.center().y);
     assert!(list.contains(&click), "click {click:?} list {list:?} pr {pr:?}");
     cx.simulate_click(click, Modifiers::none());

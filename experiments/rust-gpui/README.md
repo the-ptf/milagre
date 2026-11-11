@@ -22,30 +22,82 @@ lights come out grey.
 
 Needs Xcode's command line tools (for `bindgen`'s libclang). It does **not** need the Metal Toolchain: see below.
 
-## GPUI version
+## GPUI version decision
 
-`gpui = "=0.2.2"` from crates.io, with the `runtime_shaders` feature.
+**Decision (2026-11-11): `gpui-pre =0.3.12` (GPUI itself) with `gpui-pre-platform` (`font-kit`, `runtime_shaders`), plus
+`gpui-component =0.9.1` made available.** Imported under upstream's crate names (`gpui`, `gpui_platform`), so the fallback,
+a pinned `zed-industries/zed` git rev, is a `Cargo.toml` change with no code change.
 
-- 0.2.2 is the newest release the Zed team has published to crates.io (2025-10-22, owners `zed-industries`). It
-  built on rustc 1.99.1 / macOS arm64 with no patches, and the examples shipped inside the crate match its API, so
-  that is what this crate is written against. The brief preferred the official crates.io release if it works; it
-  does.
-- It is old. Zed has moved on for about 13 months since. Newer GPUI comes only as a git dependency on
-  `zed-industries/zed` pinned to a rev (clones the whole Zed repository), or as third-party snapshots: `gpui-pre`
-  (0.3.12, 2026-11-09, "snapshot of zed@d2a4fb6", published by the gpui-component author) and the `gpui-ce` community
-  fork. Upstream has since split platform code into separate crates, so moving later is real API churn, not a
-  version bump.
-- `runtime_shaders`: GPUI's build script otherwise runs `xcrun metal` to precompile its shaders, and since Xcode 26 the
-  Metal Toolchain is a separate download that is not installed on this Mac (`xcrun metal` says "missing Metal
-  Toolchain; use: xcodebuild -downloadComponent MetalToolchain"). With the feature, the shader source is compiled when
-  the app starts. The cost of that at launch was not measured.
+Why: `gpui-pre` is not a fork. Each release is a snapshot of Zed's own `gpui*` crates at one commit, published to
+crates.io; 0.3.12 is zed@d2a4fb6 (2026-11-08). Diffing it against that commit: `gpui_macos`, `gpui_apple` and
+`gpui_platform` are identical, and `gpui` differs in one file (`action.rs`: the `actions!` macro says `$crate::Action`
+instead of `gpui::Action`, needed for the renamed package). So we get upstream GPUI, the code Zed ships, without
+cloning the Zed repository, and the component library with the most users is built against exactly these snapshots.
+Staying on 0.2.2 keeps us on a year-old API with no macOS window move, no accessibility and no future. `gpui-ce` has
+real extras (backdrop blur, letter-spacing) but diverges from upstream with one crates.io owner and few users.
+
+Evidence. Hello-world window per option, cold `cargo build` (debug, crates already downloaded, Apple M5 Pro, rustc
+1.99.1, no Metal Toolchain installed), and each gap checked in the source:
+
+|                                         | a. `gpui` 0.2.2                                  | b. zed git rev                                                                                                   | c. `gpui-pre` 0.3.12 (+ gpui-component)                                                                | d. `gpui-ce` 0.3.0                                                   |
+| --------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| Builds here without the Metal Toolchain | yes (`runtime_shaders`)                          | yes (`gpui_platform/runtime_shaders`)                                                                            | yes (same feature)                                                                                     | yes (same feature)                                                   |
+| Cold build, crates compiled             | 20.4 s, 451                                      | 17.7 s, 308                                                                                                      | 17.0 s, 310 (31.4 s, 409 with gpui-component)                                                          | 25.7 s, 380                                                          |
+| Extra fetch                             | none                                             | first resolve 74 s; 522 MB git db + 671 MB checkouts (Zed, plus git deps wgpu, scap, oo7, font-kit, wasm_thread) | none (crates.io)                                                                                       | none (crates.io)                                                     |
+| Selectable static text                  | no                                               | no                                                                                                               | no in GPUI; yes in gpui-component (`SelectableText`, markdown `TextView`, window-wide `TextSelection`) | no                                                                   |
+| Per-span size / padding / radius        | no                                               | no (`TextRun` unchanged)                                                                                         | no in GPUI; gpui-component's `TextView` lays inline code out as a padded rounded chip                  | no (adds per-run `letter_spacing` only)                              |
+| Element backdrop blur                   | no                                               | no (window background blur only)                                                                                 | no                                                                                                     | **yes** (`backdrop_blur`, `blur`, `filter`)                          |
+| Letter-spacing                          | no                                               | no                                                                                                               | no                                                                                                     | **yes**                                                              |
+| macOS `start_window_move`               | no                                               | **yes** (+ `app_owns_titlebar_drag`)                                                                             | **yes** (same code)                                                                                    | yes                                                                  |
+| Colour space on the Metal layer         | never set                                        | opt-in Display P3 only (`WindowOptions::use_display_p3`)                                                         | same as b                                                                                              | same (opt-in P3)                                                     |
+| Accessibility                           | none                                             | AccessKit (`.role(...)`, macOS adapter)                                                                          | same as b                                                                                              | AccessKit                                                            |
+| API                                     | 2025-10                                          | current                                                                                                          | = b (one-line diff)                                                                                    | upstream plus its own additions                                      |
+| Licence                                 | Apache-2.0                                       | Apache-2.0 for every `gpui*` crate and its deps                                                                  | Apache-2.0; gpui-component, gpui-base, gpui-kit-assets Apache-2.0                                      | Apache-2.0                                                           |
+| Releases, maintainers                   | 0.2.0 to 0.2.2 in Oct 2025, none since; Zed team | Zed main, daily                                                                                                  | weekly since 2026-09-03 (13 versions); one owner, huacnlee (Longbridge, gpui-component's author)       | 0.2.2 2026-08, 0.3.0 2026-10; one crates.io owner; 1.6k GitHub stars |
+| Our code that broke                     | n/a                                              | same as c                                                                                                        | 7 library, 4 binary, 5 test compile errors, all mechanical (below)                                     | not ported                                                           |
+
+Licences, checked with `cargo metadata` over the macOS dependency graph of each probe: no GPL crate anywhere. MPL-2.0
+appears only in `cbindgen` (a build tool, not linked) and `option-ext` (via `dirs-sys`). Zed's higher-level crates are
+GPL-3.0-or-later and must never be added: `ui`, `markdown`, `editor`, `text`, `language`, `theme`, `component`,
+`ui_input`, `menu`, `picker`. The Apache-2.0 ones we use are `gpui`, `gpui_platform`, `gpui_macos`, `gpui_apple`,
+`gpui_macros`, `gpui_util`, `gpui_shared_string`, `collections`, `sum_tree`, `refineable`, `scheduler`, `http_client`.
+
+What changed in our code (gpui 0.2.2 to gpui-pre 0.3.12):
+
+- `Application::new()` is gone; the app starts with `gpui_platform::application()`. Platform code lives in
+  `gpui_macos`/`gpui_apple`, and **text needs the `font-kit` feature**: without it macOS uses a no-op text system and
+  draws no text at all, with only a log line.
+- `Window::focus(&handle, cx)`, `UniformList::track_scroll(&handle)`, `Menu::new(..).items(..)`,
+  `on_window_closed(|cx, window_id| ..)`, `ScrollWheelEvent` is `ScrollEvent` (with `source`),
+  `max_offset_for_scrollbar()` returns a `Point`, `WrappedLine` is no longer `Clone`, and async `cx.update` returns the
+  closure's value instead of a `Result`.
+- Tests: debug bounds are now per frame (0.2.2 kept every selector ever drawn), so tests can check that something left.
+- Text truncation (`truncate()`) now ends in "…".
+- Input modality: the first key after using the mouse, and the first mouse move after typing, refresh the whole
+  window, cached views included (`modality_switches_redraw_every_view_once` in `chat_tests.rs`).
+
+Risks: `gpui-pre` is ten weeks old and has one publisher; if it stops, pin the same zed commit as a git dependency
+(costs the 1.2 GB fetch above, nothing else). Upgrading means bumping `gpui-pre` and `gpui-component` together, since
+each gpui-component release pins one snapshot exactly.
 
 ### gpui-component
 
-Not added. Worth a look later for inputs, menus, scroll areas and a virtual list with variable heights, but it ties
-the GPUI choice: gpui-component 0.5.1 (2026-02) is the last release on crates.io `gpui ^0.2.2`; 0.6 onward pins
-`gpui-pre` snapshots (0.9.1 needs `gpui-pre =0.3.12`). Adopting a current gpui-component means adopting its GPUI
-snapshot too.
+Version 0.9.1 (repository `longbridge/gpui-kit`, Apache-2.0, ~20k GitHub stars). `gpui_component::init` runs at
+startup and in `tests.rs::gpui_component_widgets_mount`. What it offers for the pieces Milagre needs:
+
+| Need                       | gpui-component 0.9.1                                                                                                                             | Could replace                                                          |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Text input, editor         | `Input` (one line), `Textarea` (`auto_grow(min, max)`, soft wrap, placeholder, undo/redo, IME), `Editor` (code: highlighting, search, LSP hooks) | our composer's text field (`composer.rs`, ~600 lines)                  |
+| Selectable text, markdown  | `SelectableText`; markdown/HTML `TextView` with window-wide selection, inline code chips, streaming fade                                         | our markdown renderer (`markdown.rs`) and the selection we never built |
+| Tabs                       | `TabBar`, `Tab`                                                                                                                                  | panel tab strip (keep ours until its scroll behaviour is matched)      |
+| Resizable panels, dock     | `h_resizable`/`v_resizable`, `DockArea` with persisted layout                                                                                    | fixed 304/518 px columns                                               |
+| Scroll area with scrollbar | `Scrollbar`, `ScrollableMask`, overlay scrollbars                                                                                                | the missing scrollbars                                                 |
+| Popover, menu              | `Popover`, `PopupMenu`, `ContextMenu`, `DropdownMenu`                                                                                            | nothing yet (we have none)                                             |
+| Dialog, tooltip            | `Dialog`, `AlertDialog`, `Tooltip` (dialogs need `Root` as the window root)                                                                      | our `Tooltip` stub                                                     |
+| Webview                    | separate crate `gpui-webview` 0.9.1 (Apache-2.0) on `lb-wry` 0.53.3 (Apache-2.0 OR MIT, a wry fork)                                              | the Browser tab                                                        |
+
+Not adopted into our views yet: its widgets draw with its own theme (`gpui_component::Theme`), which would need to be
+fed from our tokens first.
 
 ## Layout
 
@@ -225,8 +277,8 @@ What was awkward:
 - `ui-monospace` (SF Mono) has no family name apps can load (`NSFontManager` lists Andale Mono, Menlo, PT Mono); code uses Menlo.
 - A hugging flex container whose children have negative margins measures 0px wide (the activity marks overlapped their text);
   fixed with an explicit width.
-- GPUI's test support never clears a frame's debug bounds, so `debug_bounds("x").is_none()` passes only for selectors that
-  were never drawn. Tests check state or new selectors instead. The test platform's text system is a no-op with fixed advances.
+- GPUI 0.2.2's test support never cleared a frame's debug bounds (gpui-pre does, per frame). The test platform's text system
+  is a no-op with fixed advances.
 - Code blocks scroll sideways (`overflow_x_scroll`, `restrict_scroll_to_axis` so vertical wheel deltas stay with the list);
   not tried with a real trackpad.
 - IME and dead keys go through `NSTextInputClient` (`setMarkedText`, `insertText`) into the composer's input handler, the same

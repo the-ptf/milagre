@@ -50,3 +50,26 @@ fn columns_have_their_fixed_widths(cx: &mut TestAppContext) {
     let window_width = cx.update(|window, _| window.viewport_size().width);
     assert_eq!(first_tab.origin.x, window_width - gpui::px(crate::panel::PANEL_WIDTH) + gpui::px(8.0));
 }
+
+/// gpui-component is available to views: its `init` runs in the headless test platform and one of
+/// its widgets lays out inside our window.
+#[gpui::test]
+fn gpui_component_widgets_mount(cx: &mut TestAppContext) {
+    use gpui::{Context, Window, div, prelude::*};
+    use gpui_component::button::Button;
+
+    struct Probe;
+    impl Render for Probe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(div().debug_selector(|| "component-button".into()).child(Button::new("probe").label("Probe")))
+        }
+    }
+
+    cx.update(|cx| {
+        cx.set_global(Theme::dark());
+        gpui_component::init(cx);
+    });
+    let (_probe, cx) = cx.add_window_view(|_, _| Probe);
+    let button = cx.debug_bounds("component-button").expect("the gpui-component Button is drawn");
+    assert!(button.size.height > gpui::px(0.0) && button.size.width > gpui::px(0.0), "it has a size: {button:?}");
+}

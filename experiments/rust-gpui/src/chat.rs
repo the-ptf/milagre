@@ -54,7 +54,7 @@ impl Render for ChatView {
         if !self.composer_focused_once {
             self.composer_focused_once = true;
             let handle = self.composer.focus_handle(cx);
-            window.defer(cx, move |window, _| window.focus(&handle));
+            window.defer(cx, move |window, cx| window.focus(&handle, cx));
         }
         let theme = *cx.theme();
         div()

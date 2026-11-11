@@ -556,7 +556,7 @@ impl Probe {
             wait(100).await;
             this.update(cx, |this, _| {
                 let top = this.list.logical_scroll_top();
-                let height = this.list.max_offset_for_scrollbar().height;
+                let height = this.list.max_offset_for_scrollbar().y;
                 eprintln!(
                     "timing: now at item {} of {}; scrollable height known to the list: {:.0} px",
                     top.item_ix,

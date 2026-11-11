@@ -138,7 +138,7 @@ impl Sidebar {
                 .when(selected, |el| el.bg(theme.hover2))
                 .when(!selected, |el| el.hover(move |style| style.bg(hover)))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    window.focus(&this.focus);
+                    window.focus(&this.focus, cx);
                     this.select(ix, cx);
                 }))
                 .child(project_tile(row, theme))
@@ -178,7 +178,7 @@ impl Render for Sidebar {
             .key_context("Sidebar")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, _| window.focus(&this.focus)))
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| window.focus(&this.focus, cx)))
             .flex()
             .flex_col()
             .flex_none()
@@ -204,10 +204,7 @@ impl Render for Sidebar {
                     .child(icon(Icon::Filter, theme.ink3)),
             )
             .child(
-                uniform_list("chat-list", self.rows.len(), cx.processor(Self::render_rows))
-                    .track_scroll(self.scroll.clone())
-                    .flex_1()
-                    .min_h_0(),
+                uniform_list("chat-list", self.rows.len(), cx.processor(Self::render_rows)).track_scroll(&self.scroll).flex_1().min_h_0(),
             )
             .child(bottom_group(&theme))
     }

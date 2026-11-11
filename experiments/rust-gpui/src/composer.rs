@@ -11,6 +11,7 @@
 //! movement, double-click word selection, caret blink, drag and drop, attachments.
 
 use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{
     App, AvailableSpace, Bounds, ClickEvent, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler, Entity,
@@ -317,7 +318,7 @@ impl Composer {
     }
 
     fn on_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         self.is_selecting = true;
         let offset = self.offset_for_window_point(event.position);
         if event.modifiers.shift { self.select_to(offset, cx) } else { self.move_to(offset, cx) }
@@ -616,7 +617,8 @@ fn icon_button(id: &'static str, kind: Glyph, theme: &Theme) -> impl IntoElement
 /// mouse hits, up/down and the IME's candidate window can use it.
 #[derive(Clone)]
 struct InputLayout {
-    lines: Vec<WrappedLine>,
+    /// Shared, because `WrappedLine` is not `Clone` and the layout is kept after paint.
+    lines: Rc<[WrappedLine]>,
     /// Byte offset where each hard line (between `\n`s) starts.
     starts: Vec<usize>,
     /// Top of each hard line, from the top of the text.
@@ -639,7 +641,7 @@ impl InputLayout {
             start += line.len() + 1;
             top += line_height * rows(line).len() as f32;
         }
-        Self { lines, starts, tops, line_height, bounds, scroll: px(0.0), placeholder }
+        Self { lines: lines.into(), starts, tops, line_height, bounds, scroll: px(0.0), placeholder }
     }
 
     fn content_height(&self) -> Pixels {

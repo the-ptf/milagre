@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui::{
-    App, Application, Bounds, KeyBinding, Menu, MenuItem, TitlebarOptions, WindowBounds, WindowHandle, WindowOptions, actions, point,
-    prelude::*, px, size,
+    App, Bounds, KeyBinding, Menu, MenuItem, TitlebarOptions, WindowBounds, WindowHandle, WindowOptions, actions, point, prelude::*, px,
+    size,
 };
 use milagre_gpui_spike::theme::Theme;
 use milagre_gpui_spike::workspace::Workspace;
@@ -22,14 +22,16 @@ const MIN_HEIGHT: f32 = 600.0;
 
 fn main() {
     let snapshot = std::env::var_os("MILAGRE_GPUI_SNAPSHOT").map(PathBuf::from);
-    Application::new().run(move |cx: &mut App| {
+    gpui_platform::application().run(move |cx: &mut App| {
         cx.set_global(Theme::from_env());
+        // gpui-component's globals, theme and key bindings, so its widgets can be used in any view.
+        gpui_component::init(cx);
 
         cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
-        cx.set_menus(vec![Menu { name: "Milagre GPUI spike".into(), items: vec![MenuItem::action("Quit", Quit)] }]);
+        cx.set_menus(vec![Menu::new("Milagre GPUI spike").items([MenuItem::action("Quit", Quit)])]);
         // Closing the last window quits the spike (the real app keeps running when its window hides).
-        cx.on_window_closed(|cx| {
+        cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {
                 cx.quit();
             }
@@ -74,7 +76,7 @@ fn snapshot_then_quit(window: WindowHandle<Workspace>, path: PathBuf, cx: &mut A
             Ok(Err(error)) => eprintln!("snapshot failed: {error}"),
             Err(error) => eprintln!("snapshot failed: window gone: {error}"),
         }
-        cx.update(|cx| cx.quit()).ok();
+        cx.update(|cx| cx.quit());
     })
     .detach();
 }
