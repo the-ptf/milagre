@@ -44,7 +44,12 @@ measurements.
 5. A pass needs owner-stop acknowledgment plus successful child exit, explicit
    shell Exit cleanup, successful shell exit, and both generated roots absent at
    0, 250, 1000 and 5000 ms afterward. Two installed preference files are hashed
-   read-only before/after; their unchanged flag is reported separately.
+   read-only before/after with mtime/ctime/device/inode and read-stability metadata.
+   Installed application PID/parent/start/executable metadata is captured with
+   `ps comm`, without argv/environment. Any content/metadata change or unstable
+   read is `environment-noisy`, always `unattributed`. Even unchanged hashes mean
+   only `no-change-observed` for these files, never filesystem isolation. The
+   fixture `passed` flag does not include a preference-isolation claim.
 
 ## Observed on November 11, 2026
 
@@ -96,13 +101,14 @@ independent and passed again in
 `/private/tmp/milagre-native-fixture-observer-KdGDtn/observer.json`.
 
 The added sequence opens real Settings > Models, turns off the actual TLDR
-checkbox, opens the real model picker, selects Kiro > Scripted Rust fixture,
-closes the picker, types through the composer's `beforeinput` handler and clicks
-the real Send button exactly once. It never calls `sendMessage` directly or
+checkbox, opens the production model picker, selects Kiro > Scripted Rust fixture,
+closes the picker, dispatches synthetic `beforeinput` through the composer and
+calls the Send button's DOM `click()` exactly once. These are synthetic DOM events
+through production components, not human keyboard/mouse or OS-level input. It never calls `sendMessage` directly or
 rewrites the renderer's request. The runtime's separately tested non-Claude
 `replies: "concise"` compatibility fix is required (`015983df`).
 
-The first accepted send is recorded in
+The first accepted send within an overall failed observer run is recorded in
 `/private/tmp/milagre-native-fixture-observer-krSHbh/observer.json`, with real PNGs
 in `/private/tmp/milagre-fixture-evidence-Uav9IX`. Model/Ask selection, Settings,
 one click, one `chat:send`, ordered agent events 1 through 5, streamed text and
@@ -111,8 +117,13 @@ exactly one `turn-completed` passed. Owner reads returned user 10 and assistant
 messages remained readable after the page reload.
 
 **The native lifecycle test fails:** the production sidebar still says "No Chats
-yet" and reload opens an empty composer instead of rendering the saved reply.
-The assertion is retained. Production `compactProjectState` calls
+yet" even after the owner returns both messages. Earlier probes exposed this
+through a reload timeout, but automatic selection restoration was not established
+as a production requirement. The strengthened phase 0 now requires exactly one
+listed sent-Chat row and fails at this listing defect. After a future fix, phase 1
+will require the listed row, observe automatic selection separately, dispatch a
+DOM click on that row, then require the reply. It does not require automatic
+selection restoration. Production `compactProjectState` calls
 `withChatSummaries`; the Rust owner's current `slim` only ports detail compaction.
 An existing zero-count summary suppresses the Chat in the production sidebar.
 No frontend summary fallback, fixture seed removal or direct Chat-open event is
@@ -134,8 +145,43 @@ The read result is labelled `ownerReadConfirmed`, not disk persistence. Missing
 `state.persistence` means no reported save error; it does not prove a completed
 save. The shell never reads the owner profile's SQLite files. Same-run durable
 disk evidence, queue/Stop behavior and real-provider turns remain separate work.
-The observer compares message identities across reload and requires zero send
-calls after reload when the lifecycle eventually passes. A native startup
+The observer preserves exact message/summary identity comparison across reload,
+requires exactly one listed sent-Chat row in both phases, one DOM row click after
+reload, and zero sends after reload when the lifecycle eventually passes. A native startup
 document probe after three seconds records bounded progress even if hidden
 WebKit timers suspend the JavaScript wait; the existing forty-second watchdog
 still fails and quits rather than reporting success.
+
+### Correction to the dTEZWF environment evidence
+
+`productionPreferencesUnchanged` is **false** in the final `dTEZWF` failing run.
+The Electron preference file stayed 43,661 bytes but its SHA-256 changed from
+`93d0a9e7c3e0b9c77d46bfd4d28875e5b0464cce2ddcd30990b93f9bb76aac4b` to
+`4336876a6580b4035a0d8461dfa803ce32ffb54564733803edc8218ec42d4739`.
+The installed Rust preference hash stayed unchanged. This observation was omitted
+from the original checkpoint report. It is environment-noisy and unattributed;
+no evidence identifies which process wrote the file. Running installed apps are
+possible concurrent writers, not proof of attribution. That run offers no
+preference-isolation assurance. Earlier `NxClI0`/`KdGDtn` unchanged hashes remain
+limited observations at those times, not a full filesystem-isolation result.
+
+New observers include file modification times and bounded installed-app process
+metadata. The classification has deterministic tests for changed bytes with and
+without live apps, same bytes with changed metadata, unstable reads, and missing
+process metadata. No logs include process arguments or environment values.
+
+Event checks currently prove strictly increasing sequence numbers, streamed text
+and one terminal, not full Node event-sequence equivalence. The observed sequence
+contains two `message-sent` events; this native probe does not explain or bless
+that duplication. Production Node oracle compaction must be corrected by the
+owner summary work, independently of this UI assertion fix.
+
+The strengthened probe was run in
+`/private/tmp/milagre-native-fixture-observer-ewMjQV/observer.json`. It now fails
+in phase 0 with `Sent Chat missing from sidebar: owner summary.count is 0 beside
+two messages`, recording zero sidebar rows beside the two owner-read messages.
+Phase 1 is not reached, so its row-click recovery path remains unverified until
+the owner fix. This run records stable preference metadata/hashes as
+`no-change-observed`, three live installed application processes, and
+`attribution: "unattributed", isolationClaim: false`. It does not erase or
+explain the changed preference hash in the earlier `dTEZWF` run.

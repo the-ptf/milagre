@@ -1,5 +1,6 @@
 // Fixed isolated binaries only. This never installs or discovers a live daemon.
 import assert from "node:assert/strict";
+import { installedApplications, preferenceObservation } from "./fixture-observation.mjs";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
@@ -39,12 +40,23 @@ async function fingerprints() {
       try {
         const info = await lstat(path);
         assert.ok(info.isFile() && info.size <= 1024 * 1024, "Preference observation bound");
+        const bytes = await readFile(path);
+        const after = await lstat(path);
         return {
           path,
           bytes: info.size,
-          sha256: createHash("sha256")
-            .update(await readFile(path))
-            .digest("hex"),
+          mtimeMs: info.mtimeMs,
+          ctimeMs: info.ctimeMs,
+          device: info.dev,
+          inode: info.ino,
+          readStable:
+            info.dev === after.dev &&
+            info.ino === after.ino &&
+            info.mtimeMs === after.mtimeMs &&
+            info.ctimeMs === after.ctimeMs &&
+            info.size === after.size &&
+            bytes.length === info.size,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
         };
       } catch (error) {
         if (error.code === "ENOENT") return { path, absent: true };
@@ -52,6 +64,15 @@ async function fingerprints() {
       }
     }),
   );
+}
+function liveApplications() {
+  const observedAt = new Date().toISOString();
+  try {
+    const listing = execFileSync("/bin/ps", ["-ww", "-axo", "pid=,ppid=,lstart=,comm="], { encoding: "utf8", timeout: 3000, maxBuffer: 4 * 1024 * 1024 });
+    return { observedAt, applications: installedApplications(listing), source: "ps executable names only; no argv or environment" };
+  } catch {
+    return { observedAt, applications: [], error: "Installed application process metadata unavailable" };
+  }
 }
 const binaries = await Promise.all(
   ["milagre-rust-fixture", "app-fixture"].map(async (name) => ({
@@ -66,6 +87,7 @@ const summary = {
   source: "isolated background WKWebView fixture, scripted Rust owner",
   root,
   binaries,
+  liveApplicationsBefore: liveApplications(),
   productionPreferencesBefore: await fingerprints(),
   runs: [],
   passed: false,
@@ -162,9 +184,14 @@ async function run(index) {
     assert.equal(sent.sendClicks, 1);
     assert.equal(sent.sendCalls, 1);
     assert.equal(sent.stage, "complete");
+    assert.equal(sent.sidebar.rowCount, 1);
+    assert.equal(sent.sidebar.sentRowCount, 1);
     assert.equal(reloaded.sendClicks, 0);
     assert.equal(reloaded.sendCalls, 0);
     assert.equal(reloaded.reloadSurvived, true);
+    assert.equal(reloaded.sidebar.rowCount, 1);
+    assert.equal(reloaded.sidebar.sentRowCount, 1);
+    assert.equal(reloaded.sidebarClicks, 1);
     assert.deepEqual(reloaded.transcript, sent.transcript);
   }
   for (const stage of entry.report.stages) {
@@ -181,14 +208,19 @@ try {
   await run(2);
   assert.notEqual(summary.runs[0].receipt.fixtureSmoke.profile, summary.runs[1].receipt.fixtureSmoke.profile);
   assert.notEqual(summary.runs[0].receipt.fixtureSmoke.shellRoot, summary.runs[1].receipt.fixtureSmoke.shellRoot);
-  summary.productionPreferencesAfter = await fingerprints();
-  summary.productionPreferencesUnchanged = JSON.stringify(summary.productionPreferencesBefore) === JSON.stringify(summary.productionPreferencesAfter);
   summary.passed = true;
 } catch (error) {
   summary.error = error.message;
   process.exitCode = 1;
 }
 summary.productionPreferencesAfter = await fingerprints();
-summary.productionPreferencesUnchanged = JSON.stringify(summary.productionPreferencesBefore) === JSON.stringify(summary.productionPreferencesAfter);
+summary.liveApplicationsAfter = liveApplications();
+summary.preferenceObservation = preferenceObservation(
+  summary.productionPreferencesBefore,
+  summary.productionPreferencesAfter,
+  summary.liveApplicationsBefore,
+  summary.liveApplicationsAfter,
+);
+summary.productionPreferencesUnchanged = summary.preferenceObservation.contentUnchanged;
 await save();
 process.stdout.write(`${JSON.stringify({ passed: summary.passed, report: join(root, "observer.json"), error: summary.error })}\n`);

@@ -1,12 +1,12 @@
 // oxlint-disable eslint/no-underscore-dangle -- Fixed fixture diagnostic globals.
-// Real production UI actions only. No direct send invocation and no request rewriting.
+// Synthetic DOM events through production components only. No direct send invocation and no request rewriting.
 window.__fixtureSendPhase = async (context, { bounded, wait }) => {
   const body = "Rust fixture native composer send";
   const reply = "Scripted isolated reply";
   const bridge = window.milagre;
   const trace = (window.__fixtureSendTrace = {
     phase: context.phase,
-    source: "production model picker, Settings checkbox, composer beforeinput and Send button",
+    source: "synthetic DOM clicks and beforeinput through production model picker, Settings and composer",
     body,
     reply,
     sendClicks: 0,
@@ -38,9 +38,25 @@ window.__fixtureSendPhase = async (context, { bounded, wait }) => {
       summary: state.state.sessions?.[users[0].session_id]?.summary ?? null,
     };
   };
+  const listedRow = () => {
+    const rows = [...document.querySelectorAll("[data-chat-id] button[data-row]")];
+    const sentRows = rows.filter((row) => row.closest("[data-chat-id]").dataset.chatId === String(trace.transcript.sessionId));
+    trace.sidebar = { rowCount: rows.length, sentRowCount: sentRows.length, ids: rows.map((row) => row.closest("[data-chat-id]").dataset.chatId) };
+    return rows.length === 1 && sentRows.length === 1 ? sentRows[0] : null;
+  };
+  const requireListed = async () => {
+    const row = listedRow();
+    if (!row && trace.transcript.summary?.count === 0) throw Error("Sent Chat missing from sidebar: owner summary.count is 0 beside two messages");
+    return row ?? (await wait(listedRow, "exactly one listed sent Chat"));
+  };
   if (context.phase === 1) {
     trace.transcript = await wait(read, "single transcript after renderer reload");
-    await wait(() => document.body.innerText.includes(reply), "assistant rendered after reload");
+    trace.stage = "sidebar-after-reload";
+    const row = await requireListed();
+    trace.automaticSelection = { selected: row.getAttribute("aria-current") === "page", replyVisible: document.body.innerText.includes(reply) };
+    row.click();
+    trace.sidebarClicks = 1;
+    await wait(() => row.getAttribute("aria-current") === "page" && document.body.innerText.includes(reply), "assistant rendered after clicking listed Chat");
     trace.sendCalls = window.__rustDiagnostics.calls.filter((item) => item.method === "chat:send").length;
     if (trace.sendCalls !== 0) throw Error("Renderer replayed a send after reload");
     trace.reloadSurvived = true;
@@ -95,7 +111,11 @@ window.__fixtureSendPhase = async (context, { bounded, wait }) => {
     );
     trace.sendOutcome = { error: call.error ?? null };
     if (call.error) throw Error(`Production renderer send refused: ${call.error}`);
+    trace.sendCalls = window.__rustDiagnostics.calls.slice(before).filter((item) => item.method === "chat:send").length;
+    if (trace.sendCalls !== 1) throw Error("Renderer made more than one send call");
     trace.transcript = await wait(read, "single owner transcript");
+    trace.stage = "sidebar-after-send";
+    await requireListed();
     await wait(() => document.body.innerText.includes(reply), "assistant in actual Chat UI");
     trace.sendCalls = window.__rustDiagnostics.calls.slice(before).filter((item) => item.method === "chat:send").length;
     if (trace.sendCalls !== 1) throw Error("Renderer made more than one send call");
