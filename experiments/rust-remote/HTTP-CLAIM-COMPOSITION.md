@@ -1,0 +1,39 @@
+# Private authority and joined-worker claim composition
+
+This checkpoint connects a bounded fixed-response fixture to actual `PersistentAuthority`, Registry work, authorization guards, channel encryption and shared budgets. It adds no public supervisor command, HTTP dependency, socket, arbitrary URL/closure, existing-profile constructor or mobile change. Construction uses an existing fresh synthetic authority capability. The standalone full-body claim model remains separate.
+
+## Scope and capabilities
+
+`policy::persistent::claim_worker::Prepared::new(&mut authority, WorkToken, Clock)` checks policy/Registry readiness and the actual token's identity, generation, state and assembly-time scheduling deadline. It reserves metadata from that session's existing connection/device/global budget. It borrows the authority exclusively. Dropping an unsubmitted Prepared returns that charge and leaves eligible work unclaimed.
+
+`Prepared::start(Outcome)` accepts only fixed synthetic Success, Unavailable, Timeout or a test panic. It reserves a 2 MiB thread stack allowance, 64 KiB fixed-output/scratch allowance and bounded bookkeeping before spawning a gated worker. Full returns the original Prepared, including its metadata lease; it neither claims the work nor invokes the fixture. Spawn or final claim refusal retains the original borrowed authority, and any already-created worker is cancelled and joined before the refusal returns. Other refusals are not permissions to replay an accepted operation.
+
+Only after reservation and spawn does Registry mint the non-Clone `Permit`. Its WorkToken retains the original registry/authority/boot/device epoch and carrier/work serial binding. Claimed jobs disappear from read-only DrainWork and reject ordinary finish, duplicate claim and MemoryHttp dispatch. Normal jobs keep their existing behavior. The assembly-plus-20,000 ms scheduling deadline does not reset on promotion. Claim uses one current clock sample for its 340,000 ms HTTP and 345,000 ms completion deadlines. Clock reads happen inside the exclusive authority operation.
+
+This first composition borrows one authority for one claim at a time. It requires an empty outbound queue and supports one encrypted response frame of at most 1,024 bytes. The exclusive borrow prevents competing output producers from consuming its reserved slot. These are private fixture restrictions, not the completed two-global/one-device asynchronous scheduler or 64 MiB HTTP adapter. Existing 64 MiB service budgets remain unchanged; the agreed 128 MiB fixture configuration and full-body model are not silently substituted into the service.
+
+## Begin, join and output evidence
+
+Begin checks the actual claim under Session's current authorization guard, then sets MayHaveRun and opens the worker gate under the cancellation mutex. Cancel before Begin leaves NotStarted and zero fixture invocations; after Begin, cancellation never restores that evidence. The worker runs only a fixed outcome and waits on an owned cancellation/completion signal. Its completion signal controls fixture timing and is not evidence of a join. `collect` refuses while completion is pending; it does not block the owner waiting for a timer or external event.
+
+`Joined` is private and constructed only by consuming `JoinHandle::join`. Executor reservation release follows the actual join. Worker panic is joined and calls `authority.abort_in_place`; the existing typed close failure retains the writer and cannot return Clean. Drop cancels and joins a worker waiting before Begin or after its synthetic invocation. No worker or reap thread detaches.
+
+A joined result records status 200, 502 or 504 independently of execution and delivery state. Fixed 502/504 bodies come from the existing Node-compatible response mapper. `may_send` checks authority and deadline again and marks MaySend under the same final authorization guard that seals the first response frame. It splits the final ciphertext lease from the pre-invocation reservation and transfers bytes plus lease through Registry's owned-output path. No post-invocation budget acquisition is needed for this fixed response.
+
+The private output slot returns an `OutputLoan`, which borrows the Claim and therefore the authority. Its bytes remain charged while held. Dropping the actual packet/lease constructs the non-Clone `ReturnedCredit`; no caller supplies an output-done boolean. Only this return plus a real Joined proof can satisfy the cleanup diagnostic. Returned means the in-memory reader returned ownership, not that a phone acknowledged delivery. Status remains observable after return. Unknown delivery, removal, completion expiry and idle expiry after MaySend preserve Unknown rather than reverting to None.
+
+A held output loan checks the current Registry authorization/idle/request deadline before exposing bytes and on return. Expired reads refuse, and the packet remains charged until its loan drops. A caller holding that scoped loan prevents mutable authority operations by construction. This is a trusted in-memory fixture boundary, not a production concurrent socket-reader API.
+
+`Claim` holds an exclusive mutable authority borrow until its joined, drained Drop completes. The authority cannot be consumed by `close_for_restart` while that borrow exists. This is a compile-time ownership boundary; there is no boolean clean/join assertion, force close or persistent Clean receipt in the composition. Existing supervisor retained-worker/CloseFailure semantics remain unchanged.
+
+## Tests and review follow-ups
+
+The separate receipt checkpoint `55ccc749` releases persistent rejected commands and ingress before publishing NotExecuted. Its barrier reproduces the old 1,024-byte retention and proves immediate reuse before the rejecting envelope scope ends.
+
+Ten new authority/worker tests use fresh marked synthetic profiles, synthetic pairing and encrypted in-memory requests. They cover decrypted 200/502/504 output, retained status, needed-minus-one/needed connection-budget admission with original-permit retry, global saturation after invocation, duplicate Registry dispatch refusal, removal before/after Begin and after MaySend, re-pair after a new approved window, joined worker panic with dirty retained writer, dropped blocked/running workers, held-output credit return, completion and idle expiry, and a real 340-second manual-clock timeout with ordinary encrypted keepalive requests. They do not enlarge the normal idle timeout to deliver 504.
+
+The standalone model also now retains HTTP status and requires an explicit MaySend transition before delivery. Two new model tests cover post-MaySend cancellation/expiry evidence and dropping an old prepared attempt after acknowledged slot reuse. Its boolean cleanup calls remain model-only; this composition uses actual JoinHandle and scoped packet ownership instead.
+
+Validation: 244 Rust tests, eight doctests, strict all-target Clippy, formatting, example builds and the existing seven Node reciprocal/source checks. No new Node oracle or phone test is claimed by this checkpoint.
+
+Remaining gates from the full linked review: moving the standalone model's 64 MiB allocation/free outside its mutex; short claim-to-Begin admission deadline; fair per-device work/submission admission; bounded retry/queueing on executor shortage; poisoned-model-lock regression; wiring scoped status observations and consuming prepared attempts into the persistent supervisor; multi-worker retained joins; wake/flush and readiness propagation after completion/promotion; general mailbox credit reservations across all producers; real HTTP internal-buffer accounting and cancellation; full-size adapter response budgets; and reserved-control/Disconnect saturation. No production profile, endpoint, credentials, host restart, live phone, mobile fingerprint or push is authorized.

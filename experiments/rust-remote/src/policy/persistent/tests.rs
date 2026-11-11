@@ -731,3 +731,6 @@ fn snapshot_dependent_record_limit_rejection_can_be_corrected() {
 
 #[path = "composition_tests.rs"]
 mod composition_tests;
+
+#[path = "claim_worker_tests.rs"]
+mod claim_worker_tests;

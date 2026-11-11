@@ -38,6 +38,7 @@ pub(crate) enum Evidence {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Delivery {
     None,
+    MaySend,
     Complete,
     Unknown,
 }
@@ -63,6 +64,7 @@ pub(crate) struct Observation {
     pub phase: Phase,
     pub execution: Evidence,
     pub delivery: Delivery,
+    pub status: Option<u16>,
 }
 struct Scope {
     _lease: Reservation,
@@ -249,6 +251,9 @@ impl Core {
         let s = self.slots[i].as_mut().unwrap();
         if !matches!(s.observation.phase, Phase::Terminal(_)) {
             s.observation.phase = Phase::Terminal(terminal);
+            if s.observation.delivery == Delivery::MaySend {
+                s.observation.delivery = Delivery::Unknown;
+            }
         }
         if let Some(r) = &mut s.resources {
             r.cancel_requested = true;
@@ -451,6 +456,7 @@ impl Machine {
                 phase: Phase::Prepared,
                 execution: Evidence::NotStarted,
                 delivery: Delivery::None,
+                status: None,
             },
             acknowledged: false,
             resources: None,
@@ -645,6 +651,7 @@ impl Machine {
         }
         if s.resources.as_mut().unwrap().body.append(bytes).is_err() {
             s.observation.phase = Phase::ResponseReady(502);
+            s.observation.status = Some(502);
             s.resources.as_mut().unwrap().cancel_requested = true;
             return Err(Fault::TooLarge);
         }
@@ -659,6 +666,24 @@ impl Machine {
             return Err(Fault::State);
         }
         s.observation.phase = Phase::ResponseReady(200);
+        s.observation.status = Some(200);
+        Ok(())
+    }
+    pub fn may_send(&self, id: &Id, now: u64) -> Result<()> {
+        self.tick(now)?;
+        let mut c = self.core()?;
+        let i = Self::index(&c, id)?;
+        let slot = c.slots[i].as_ref().unwrap();
+        if !matches!(slot.observation.phase, Phase::ResponseReady(_))
+            || slot.observation.delivery != Delivery::None
+        {
+            return Err(Fault::State);
+        }
+        let w = c.work_index(slot.work).ok_or(Fault::Stale)?;
+        if !c.current(c.works[w].as_ref().unwrap()) {
+            return Err(Fault::Stale);
+        }
+        c.slots[i].as_mut().unwrap().observation.delivery = Delivery::MaySend;
         Ok(())
     }
     pub fn deliver(&self, id: &Id, known: bool, now: u64) -> Result<()> {
@@ -666,7 +691,9 @@ impl Machine {
         let mut c = self.core()?;
         let i = Self::index(&c, id)?;
         let s = c.slots[i].as_mut().unwrap();
-        if !matches!(s.observation.phase, Phase::ResponseReady(_)) {
+        if !matches!(s.observation.phase, Phase::ResponseReady(_))
+            || s.observation.delivery != Delivery::MaySend
+        {
             return Err(Fault::State);
         }
         if !known {
@@ -738,12 +765,16 @@ impl Machine {
                     if now >= r.completion_deadline {
                         if !matches!(s.observation.phase, Phase::Terminal(_)) {
                             s.observation.phase = Phase::Terminal(Terminal::TimedOut);
+                            if s.observation.delivery == Delivery::MaySend {
+                                s.observation.delivery = Delivery::Unknown;
+                            }
                             r.cancel_requested = true;
                         }
                     } else if now >= r.http_deadline
                         && matches!(s.observation.phase, Phase::Claimed | Phase::Dispatching)
                     {
                         s.observation.phase = Phase::ResponseReady(504);
+                        s.observation.status = Some(504);
                         r.cancel_requested = true;
                     }
                 } else if !matches!(s.observation.phase, Phase::Terminal(_)) && scheduling_expired {

@@ -308,7 +308,15 @@ impl Session {
         self.permit = None;
     }
     pub fn seal_encoded(&mut self, bytes: &[u8]) -> crate::Result<Vec<u8>> {
+        self.seal_after(bytes, || Ok(()))
+    }
+    pub(crate) fn seal_after(
+        &mut self,
+        bytes: &[u8],
+        before: impl FnOnce() -> crate::Result<()>,
+    ) -> crate::Result<Vec<u8>> {
         self.access.clone().with(|| {
+            before()?;
             self.channel
                 .as_mut()
                 .ok_or(crate::Error::Unauthorized)?

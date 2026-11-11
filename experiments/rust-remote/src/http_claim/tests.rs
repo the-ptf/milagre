@@ -280,6 +280,7 @@ fn exact_connection_device_and_global_budget_threshold_precedes_invocation() {
         // All unreserved capacity is occupied. The prepaid timeout/delivery still progresses.
         m.tick(HTTP_MS).unwrap();
         assert_eq!(m.observe(&retry).unwrap().phase, Phase::ResponseReady(504));
+        m.may_send(&retry, HTTP_MS).unwrap();
         m.deliver(&retry, true, HTTP_MS).unwrap();
         drop(fill);
         finish(&m, &retry);
@@ -295,8 +296,10 @@ fn deadlines_are_claim_based_and_scheduling_is_not_extended_by_observation() {
     m.begin(&id, start + 100).unwrap();
     m.tick(start + HTTP_MS).unwrap();
     assert_eq!(m.observe(&id).unwrap().phase, Phase::ResponseReady(504));
+    m.may_send(&id, start + COMPLETION_MS - 1).unwrap();
     m.deliver(&id, true, start + COMPLETION_MS - 1).unwrap();
     assert_eq!(m.observe(&id).unwrap().delivery, Delivery::Complete);
+    assert_eq!(m.observe(&id).unwrap().status, Some(504));
     let (_, w) = work(&m, 2, start + COMPLETION_MS);
     let id = submit(&m, &w);
     m.tick(start + COMPLETION_MS + SCHEDULE_MS).unwrap();
@@ -376,6 +379,7 @@ fn full_response_uses_fixed_blocks_preserves_bytes_and_refuses_overflow_before_s
     assert_eq!(m.append(&id, &[1], 1), Err(Fault::TooLarge));
     assert_eq!(m.observe(&id).unwrap().phase, Phase::ResponseReady(502));
     assert_eq!(m.observe(&id).unwrap().delivery, Delivery::None);
+    m.may_send(&id, 1).unwrap();
     m.deliver(&id, true, 1).unwrap();
     finish(&m, &id);
 }
@@ -402,6 +406,7 @@ fn stale_callbacks_remove_repair_replacement_and_unknown_delivery_never_replay()
     let current = claim(&m, &fresh, 0);
     m.begin(&current, 0).unwrap();
     m.complete(&current, 0).unwrap();
+    m.may_send(&current, 0).unwrap();
     m.deliver(&current, false, 0).unwrap();
     assert!(m.cancellation_requested(&current).unwrap());
     assert_eq!(
@@ -558,6 +563,7 @@ fn exact_body_eof_success_and_http_deadline_cancel_signal_are_distinct() {
     m.tick(HTTP_MS).unwrap();
     assert_eq!(m.observe(&id).unwrap().phase, Phase::ResponseReady(200));
     assert!(!m.cancellation_requested(&id).unwrap());
+    m.may_send(&id, HTTP_MS).unwrap();
     m.deliver(&id, true, HTTP_MS).unwrap();
     let (_, w) = work(&m, 2, HTTP_MS);
     let timeout = claim(&m, &w, HTTP_MS);
@@ -598,4 +604,35 @@ fn acknowledged_cancelled_queue_entry_cannot_hide_the_next_eligible_claim() {
     assert_eq!(m.process_next(0).unwrap().unwrap().serial, second.serial);
     assert_eq!(m.observe(&second).unwrap().phase, Phase::Claimed);
     assert!(m.process_next(0).unwrap().is_none());
+}
+
+#[test]
+fn model_may_send_survives_expiry_and_cancel_as_unknown_with_status() {
+    for expire in [false, true] {
+        let (m, _) = fixture();
+        let (_, w) = work(&m, 1, 0);
+        let id = claim(&m, &w, 0);
+        m.begin(&id, 0).unwrap();
+        m.complete(&id, 0).unwrap();
+        assert_eq!(m.deliver(&id, true, 0), Err(Fault::State));
+        m.may_send(&id, 0).unwrap();
+        if expire {
+            m.tick(COMPLETION_MS).unwrap();
+        } else {
+            m.cancel(&id).unwrap();
+        }
+        assert_eq!(m.observe(&id).unwrap().status, Some(200));
+        assert_eq!(m.observe(&id).unwrap().delivery, Delivery::Unknown);
+    }
+}
+#[test]
+fn prepared_drop_after_ack_and_slot_reuse_cannot_remove_successor() {
+    let (m, _) = fixture();
+    let (_, w) = work(&m, 1, 0);
+    let old = m.prepare_claim(&w).unwrap();
+    m.cancel(&old.id()).unwrap();
+    m.ack_terminal(&old.id()).unwrap();
+    let next = m.prepare_claim(&w).unwrap();
+    drop(old);
+    assert_eq!(m.observe(&next.id()).unwrap().phase, Phase::Prepared);
 }

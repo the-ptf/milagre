@@ -1,5 +1,7 @@
 //! Fresh-capability restart under a retained synthetic broker. No existing-store
 //! constructor, worker launcher, network listener, or supervisor integration.
+#[allow(dead_code)]
+pub(crate) mod claim_worker;
 pub(crate) mod composition;
 use super::*;
 use crate::{

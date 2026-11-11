@@ -169,6 +169,8 @@ struct Bytes {
     _lease: Reservation,
 }
 struct Job {
+    assembled_at: u64,
+    claimed: bool,
     request: LeasedRequest,
     token: WorkToken,
     deadline: u64,
@@ -752,6 +754,8 @@ impl Registry {
                 a.jobs.insert(
                     id,
                     Job {
+                        assembled_at: now,
+                        claimed: false,
                         request,
                         token,
                         deadline,
@@ -804,6 +808,7 @@ impl Registry {
                 for job in a.jobs.values() {
                     let order = (entry.handle.generation, job.token.serial);
                     if job.token.status() == WorkStatus::InFlight
+                        && !job.claimed
                         && now < job.deadline
                         && cursor.is_none_or(|c| order > c.after)
                     {
@@ -824,7 +829,7 @@ impl Registry {
     fn work(&mut self, t: &WorkToken, now: u64) -> Result<&mut Active> {
         let a = self.active(&t.handle, now)?;
         let valid = a.jobs.get(&t.id).is_some_and(|j| {
-            j.token.serial == t.serial && j.token.status() == WorkStatus::InFlight
+            j.token.serial == t.serial && j.token.status() == WorkStatus::InFlight && !j.claimed
         });
         if !valid {
             return Err(RegistryError::Revoked);
@@ -981,3 +986,7 @@ impl Drop for Registry {
         self.retire();
     }
 }
+
+// Private fixed-response authority/worker composition. No public async dispatcher.
+#[allow(dead_code)]
+pub(crate) mod claim;
