@@ -5,19 +5,39 @@
 //! (`open_slot`), where every Chat's summary is made again from its messages and nothing is stamped (a stale seed
 //! such as `count: 0` is corrected there).
 //!
-//! Only the Chats whose messages changed are summarized again (messages compared by identity, then by value), so a
-//! change costs the Chats it touched. An unloaded Chat (messages not in the state) keeps its summary. `lastAt` and
-//! `firstAt` are stamped from the states clock when a Chat gets a message or a reply ends; a Link reaching a Chat
-//! (`worktree-linked` lines only) isn't activity.
+//! Only Chats whose messages may have changed, or that have no summary yet, are summarized again. An unloaded Chat
+//! (messages not in the state) keeps its summary. `lastAt` and `firstAt` are stamped from the states clock when a Chat
+//! gets a message or a reply ends; a Link reaching a Chat (`worktree-linked` lines only) isn't activity.
+//!
+//! Cost of one kept change (still linear in the loaded messages, as Node's `byChat` is; not "only the Chats touched"):
+//! - Messages and the state's other keys the same objects as before: nothing (one pointer check).
+//! - Messages the same, other keys changed: a value comparison of the sessions, then nothing unless a Chat has no
+//!   summary.
+//! - Messages changed: one pointer walk of both lists for their common prefix and suffix (the Chats with a message in
+//!   between are the touched ones), one walk of the loaded messages keeping only touched Chats' and summary-less
+//!   Chats' (a key built per message), one walk of the previous messages for touched Chats, a pass over every session,
+//!   and `summarizeChat` for the touched Chats only. A touched Chat's list is compared with its previous one by
+//!   identity, then by value.
+//! - Any summary changed: the state's other keys (every session's JSON, unrelated transcripts included) are copied
+//!   once, since they live in one shared map; only the changed sessions are rebuilt.
+//! - The first read (no previous state): every loaded Chat is summarized.
+//!
+//! Measured (release build, `tests/chat_summaries.rs` `measure_summary_overhead`: 900 loaded Chats, 3,600 messages,
+//! 45,000 steps, a 4 KB transcript on every session, about 3.6 MB of session JSON): appending one message to one Chat
+//! about 0.9-1.5 ms (2.2-3.9 ms before the touched-Chat walk and the single copy), of which the copy is about
+//! 0.5 ms; the same messages with another key changed about 0.3-0.4 ms; an unchanged state under 1 microsecond (was
+//! 0.3 ms); the first read 12-16 ms. Nothing is cached between changes, so nothing is retained.
 //!
 //! Sessions are compared by value where Node compares the object (`next.sessions === previous.sessions`): the same
-//! result unless a change replaced the sessions with an equal copy while some Chat had no summary.
+//! result unless a change replaced the sessions with an equal copy while a loaded Chat had no summary. After the first
+//! read every loaded Chat has one, and taking one away changes the sessions, so that case needs a summary-less loaded
+//! Chat that the first read didn't summarize.
 //!
 //! Deliberate differences, on malformed data only (where Node throws and the whole compaction is skipped): a body that
 //! isn't a string doesn't name the Chat, a session that isn't an object is left as is, and `sessions` that isn't an
 //! object leaves the state as is.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
 use regex::Regex;
@@ -333,12 +353,42 @@ fn only_link_lines(list: &[MsgRef], prior: &[MsgRef]) -> bool {
             .all(|message| context_kind(message.value()) == Some("worktree-linked"))
 }
 
-/// Messages by Chat (`String(message.session_id)`), in order.
-fn by_chat(messages: &[MsgRef]) -> HashMap<String, Vec<MsgRef>> {
+fn chat_key(message: &MsgRef) -> String {
+    jsjson::property_key(message.value().get("session_id"))
+}
+
+/// The Chats whose message list may differ between `previous` and `next`: those of the messages between the two
+/// lists' common prefix and common suffix (compared by identity). A Chat with no message there has, in both, the same
+/// messages (its prefix part, then its suffix part). One pointer walk, nothing kept.
+fn touched_chats(previous: &[MsgRef], next: &[MsgRef]) -> HashSet<String> {
+    let prefix = previous
+        .iter()
+        .zip(next)
+        .take_while(|(a, b)| Arc::ptr_eq(a, b))
+        .count();
+    let room = previous.len().min(next.len()) - prefix;
+    let suffix = previous
+        .iter()
+        .rev()
+        .zip(next.iter().rev())
+        .take(room)
+        .take_while(|(a, b)| Arc::ptr_eq(a, b))
+        .count();
+    previous[prefix..previous.len() - suffix]
+        .iter()
+        .chain(&next[prefix..next.len() - suffix])
+        .map(chat_key)
+        .collect()
+}
+
+/// Messages by Chat (`String(message.session_id)`), in order, for the Chats `wanted` picks.
+fn by_chat(messages: &[MsgRef], wanted: impl Fn(&str) -> bool) -> HashMap<String, Vec<MsgRef>> {
     let mut grouped: HashMap<String, Vec<MsgRef>> = HashMap::new();
     for message in messages {
-        let key = jsjson::property_key(message.value().get("session_id"));
-        grouped.entry(key).or_default().push(message.clone());
+        let key = chat_key(message);
+        if wanted(&key) {
+            grouped.entry(key).or_default().push(message.clone());
+        }
     }
     grouped
 }
@@ -357,17 +407,41 @@ pub fn with_chat_summaries(
     };
     let previous_sessions = previous.and_then(|previous| previous.rest.get("sessions"));
     if let Some(previous) = previous {
-        if next.same_messages(previous) && previous_sessions == next.rest.get("sessions") {
+        if next.same_messages(previous)
+            && (Arc::ptr_eq(&next.rest, &previous.rest)
+                || previous_sessions == next.rest.get("sessions"))
+        {
             return next;
         }
     }
-    let grouped = by_chat(messages);
     let messages_kept = previous.is_some_and(|previous| previous.same_messages(&next));
+    let unloaded: &BTreeSet<i64> = &next.unloaded;
+    let is_unloaded = |id: &str| id.parse::<i64>().is_ok_and(|chat| unloaded.contains(&chat));
+    // Which Chats can have changed (`None`: any, with no previous state to compare with).
+    let touched: Option<HashSet<String>> =
+        match previous.and_then(|previous| previous.messages.as_ref()) {
+            Some(_) if messages_kept => Some(HashSet::new()),
+            Some(before) => Some(touched_chats(before, messages)),
+            None => None,
+        };
+    // A Chat's messages are needed if they may have changed or it has no summary yet (and it is loaded).
+    let needs_list = |id: &str| {
+        !is_unloaded(id)
+            && (touched.as_ref().is_none_or(|touched| touched.contains(id))
+                || !sessions
+                    .get(id)
+                    .and_then(|session| session.get("summary"))
+                    .is_some_and(|summary| jsjson::truthy(Some(summary))))
+    };
+    let grouped = by_chat(messages, needs_list);
     let before = previous
         .filter(|_| !messages_kept)
         .and_then(|previous| previous.messages.as_ref())
-        .map(|messages| by_chat(messages));
-    let unloaded: &BTreeSet<i64> = &next.unloaded;
+        .map(|messages| {
+            by_chat(messages, |id| {
+                touched.as_ref().is_some_and(|touched| touched.contains(id))
+            })
+        });
     let empty: Vec<MsgRef> = Vec::new();
     let previous_summary = |id: &str| -> Option<Value> {
         previous_sessions?
@@ -376,7 +450,8 @@ pub fn with_chat_summaries(
             .filter(|s| !s.is_null())
             .cloned()
     };
-    let mut changed: Option<Map<String, Value>> = None;
+    // Changed sessions, written into the state once at the end (one copy of its other keys if shared).
+    let mut changed: Vec<(String, Value)> = Vec::new();
     for (id, session) in sessions {
         let Value::Object(fields) = session else {
             continue;
@@ -384,24 +459,33 @@ pub fn with_chat_summaries(
         let current = fields
             .get("summary")
             .filter(|summary| jsjson::truthy(Some(summary)));
-        if id.parse::<i64>().is_ok_and(|chat| unloaded.contains(&chat)) {
+        if is_unloaded(id) {
             if current.is_none() {
                 if let Some(kept) = previous_summary(id).filter(|kept| jsjson::truthy(Some(kept))) {
                     let mut fields = fields.clone();
                     fields.insert("summary".into(), kept);
-                    changed
-                        .get_or_insert_with(|| sessions.clone())
-                        .insert(id.clone(), Value::Object(fields));
+                    changed.push((id.clone(), Value::Object(fields)));
                 }
             }
             continue;
         }
-        let list = grouped.get(id).unwrap_or(&empty);
-        let prior = before
+        // Not touched: the same messages as before (by identity), so `sameList` holds.
+        let untouched = touched
             .as_ref()
-            .map(|before| before.get(id).unwrap_or(&empty));
-        if current.is_some() && (messages_kept || prior.is_some_and(|prior| same_list(list, prior)))
-        {
+            .is_some_and(|touched| !touched.contains(id.as_str()));
+        if current.is_some() && (messages_kept || untouched) {
+            continue;
+        }
+        let list = grouped.get(id).unwrap_or(&empty);
+        // An untouched Chat's messages before are the ones it has now.
+        let prior = if untouched {
+            Some(list)
+        } else {
+            before
+                .as_ref()
+                .map(|before| before.get(id).unwrap_or(&empty))
+        };
+        if current.is_some() && prior.is_some_and(|prior| same_list(list, prior)) {
             continue;
         }
         let mut summary = summarize_chat(list);
@@ -448,16 +532,16 @@ pub fn with_chat_summaries(
         }
         let mut fields = fields.clone();
         fields.insert("summary".into(), Value::Object(summary));
-        changed
-            .get_or_insert_with(|| sessions.clone())
-            .insert(id.clone(), Value::Object(fields));
+        changed.push((id.clone(), Value::Object(fields)));
     }
-    match changed {
-        Some(sessions) => {
-            let mut next = next;
-            Arc::make_mut(&mut next.rest).insert("sessions".into(), Value::Object(sessions));
-            next
+    if changed.is_empty() {
+        return next;
+    }
+    let mut next = next;
+    if let Some(Value::Object(sessions)) = Arc::make_mut(&mut next.rest).get_mut("sessions") {
+        for (id, session) in changed {
+            sessions.insert(id, session);
         }
-        None => next,
     }
+    next
 }

@@ -3755,7 +3755,10 @@ impl ChatHost {
         let key = key.to_path_buf();
         let project_text = key.display().to_string();
         let live: HashSet<String> = self.preparing.keys().cloned().collect();
-        // Only Chats whose summary has a divider preparing (or that have no summary) need their messages.
+        // Only Chats whose summary has a divider preparing (or that have no summary) need their messages. Unlike Node,
+        // which reuses the state the open just read (`known`), this reads it again (the same state, no I/O when
+        // loaded), and a session id that isn't an integer is left out (Node passes it on; no Chat has one). A stale
+        // summary without `openHandoff` hides a preparing divider here as in Node, until that Chat loads.
         let chats: Vec<crate::chat_db::ChatId> = self
             .states
             .get(&key)?
