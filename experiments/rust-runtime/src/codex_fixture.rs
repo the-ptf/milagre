@@ -351,11 +351,27 @@ impl Provider for CodexFixture {
             std::thread::Builder::new()
                 .name("codex-fixture".into())
                 .spawn(move || {
-                    if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                    match tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
                     {
-                        runtime.block_on(worker.run(rx, close_rx, interrupt_rx));
+                        Ok(runtime) => runtime.block_on(worker.run(rx, close_rx, interrupt_rx)),
+                        Err(_) => {
+                            // Construction can fail after synchronous admission. Settle that
+                            // accepted request instead of leaving the owner's starting run open.
+                            let mut rx = rx;
+                            if let Some(start) = rx.blocking_recv() {
+                                worker.shared.emit(
+                                    ProviderEvent::StartFailed {
+                                        chat: worker.chat.clone(),
+                                        turn: start.id,
+                                        error: failed(),
+                                    },
+                                    true,
+                                );
+                                worker.exit(start.id);
+                            }
+                        }
                     }
                 })
                 .map_err(|_| failed())?;
