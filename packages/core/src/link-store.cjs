@@ -64,11 +64,13 @@ function createLinkStore({ dataDir, active = () => true, lazyMessages = {}, pers
         // its Worktree is made); one not read yet this run is read from disk.
         const state = states.states.get(id) ?? (await states.get(id));
         // A deleted Link's kept Worktrees go back to their Projects, which list them like any other (link:delete).
-        if (state.deletedAt) continue;
+        if (state.deletedAt || state.releasedAt) continue;
         for (const session of Object.values(state.sessions))
-          for (const member of session.worktrees ?? []) owned.set(member.worktreePath, { linkId: id, sessionId: session.id });
+          for (const member of session.worktrees ?? [])
+            owned.set(member.worktreePath, { linkId: id, sessionId: session.id, ...(member.adopted ? { adopted: true } : {}) });
         for (const prep of Object.values(state.preparations))
-          for (const member of prep.members) owned.set(member.worktreePath, { linkId: id, sessionId: prep.chatId });
+          for (const member of prep.members)
+            owned.set(member.worktreePath, { linkId: id, sessionId: prep.chatId, ...(member.adopted ? { adopted: true } : {}) });
       }
       return owned;
     },

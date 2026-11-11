@@ -18,6 +18,7 @@ export type CanvasChat = {
   lastAt?: number;
   /** Its last reply failed. */
   failed: boolean;
+  readOnly?: boolean;
 };
 
 export type CanvasWorktree = {
@@ -61,6 +62,7 @@ export function canvasWorktrees(state: CoordinatorState | undefined, markOf: (se
       provider: session.provider,
       lastAt: summary.lastAt,
       failed: summary.lastOutcome === "failed",
+      ...(session.readOnlyReason ? { readOnly: true } : {}),
     };
     const list = chatsByWorktree.get(session.worktree_id);
     if (list) list.push(chat);
@@ -80,7 +82,8 @@ export function canvasWorktrees(state: CoordinatorState | undefined, markOf: (se
 export type CanvasTone = "accent" | "orange" | "red" | "ink3";
 
 /** The words under a chat's title: what it's doing now, or how long it has been quiet. */
-export function canvasStatus(chat: Pick<CanvasChat, "mark" | "lastAt" | "failed">, now: number): { label: string; tone: CanvasTone } {
+export function canvasStatus(chat: Pick<CanvasChat, "mark" | "lastAt" | "failed" | "readOnly">, now: number): { label: string; tone: CanvasTone } {
+  if (chat.readOnly) return { label: "Read-only history", tone: "ink3" };
   const ago = chat.lastAt === undefined ? undefined : activityAgo(chat.lastAt, now);
   const since = ago === undefined ? "" : ago === "now" ? " · just now" : ` · ${ago} ago`;
   switch (chat.mark) {

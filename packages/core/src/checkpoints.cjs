@@ -75,7 +75,13 @@ async function namesFor(root) {
   return (await git.text(root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])).split("\0").filter(Boolean);
 }
 /** `budget` caps the bytes one capture saves across a Chat's Worktrees; past it the largest files stay out. */
-function createCheckpoints({ directory, budget = 100 * 1024 * 1024, assertIdle = async () => {}, validateRoots = async () => {} }) {
+function createCheckpoints({
+  directory,
+  budget = 100 * 1024 * 1024,
+  assertIdle = async () => {},
+  validateRoots = async () => {},
+  assertWritable = async () => {},
+}) {
   const running = new Map(),
     previews = new Map(),
     // Each Worktree's file stamps from its last full scan, so the next one reads only the files that changed. Kept
@@ -253,6 +259,7 @@ function createCheckpoints({ directory, budget = 100 * 1024 * 1024, assertIdle =
       }),
     restore: (chatId, request = {}) =>
       serial(async () => {
+        await assertWritable(chatId);
         if (request.approved !== true) throw new Error("Confirm the restore after reviewing its preview");
         const preview = previews.get(request.token);
         if (!preview || preview.chatId !== chatId || Date.now() - preview.at > 10 * 60 * 1000) throw new Error("Preview again before restoring");
@@ -309,6 +316,7 @@ function createCheckpoints({ directory, budget = 100 * 1024 * 1024, assertIdle =
             const group = selected.filter((file) => file.key.startsWith(`${index}:`));
             if (!group.length) continue;
             // A helper pins its cwd and uses basename-only syscalls. Directory swaps cannot redirect a write outside the Worktree.
+            await assertWritable(chatId);
             const result = await fileOperation({
               op: "apply",
               root: before.identity.root,

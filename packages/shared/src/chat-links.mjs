@@ -2,6 +2,15 @@
 // already linked, the endpoints a new Link between two Chats gets, and the message "Link and ask" sends. Shared by
 // the desktop sidebar and the phone. Types: chat-links.d.mts.
 
+export const CHAT_MODE_COPY = {
+  shared: "Shared Chat",
+  separate: "Separate Chats",
+  shareDetail:
+    "One agent will edit both existing Worktrees, with one permission setting starting in Ask. Their branches and files stay in place. Existing Chats become read-only. All Chats must be idle. End their Heartbeats, including Babysit PR, first.",
+  separateDetail:
+    "Keep the shared conversation read-only and start new separate Chats in the same Worktrees. Each Chat has its own permissions. Files and branches stay in place.",
+};
+
 /** Whether one end of a Link stands for this Worktree: the Worktree itself, or its whole Project. */
 export function endpointCovers(endpoint, worktree) {
   if (!endpoint || !worktree || endpoint.project_id !== worktree.project_id) return false;
@@ -83,4 +92,38 @@ export function linkAskMessage(text, target) {
   const body = `${text.trim()}\n\nDestination: “${target.label}”${where ? ` (${where})` : ""}, in a linked Worktree.`;
   const prompt = `${body}\n\nThat Chat is ${target.chatRef} in the linked Worktree ${target.worktreePath}. If this needs changes there, make a Delegation to it with your Link tools (a Negotiation if the two sides must agree first); otherwise answer here.`;
   return { body, prompt };
+}
+
+/** Presentation and host validation share the same supported adoption boundary. */
+export function sharedChatEligibility(link, projects) {
+  if (!link?.a.worktree_path || !link.b.worktree_path) return "Choose a Link between two Worktrees.";
+  if (link.a.project_id === link.b.project_id) return "Shared Chat needs Worktrees from different Projects.";
+  for (const end of [link.a, link.b]) {
+    const project = projects.find((item) => item.id === end.project_id);
+    if (!project) return "A linked Project is unavailable.";
+    if (project.path === end.worktree_path) return "Create isolated Worktrees first. Main checkouts keep separate Chats.";
+  }
+  return null;
+}
+export function chatModeLabel(link) {
+  return link.chatModeTransition === "shared"
+    ? "Switching to shared Chat"
+    : link.chatModeTransition === "separate"
+      ? "Switching to separate Chats"
+      : link.sharedChat
+        ? CHAT_MODE_COPY.shared
+        : CHAT_MODE_COPY.separate;
+}
+export function chatModeActions(link, projects) {
+  if (link.chatModeTransition)
+    return [
+      { mode: link.chatModeTransition, label: "Finish switching" },
+      ...(link.chatModeTransition === "shared" ? [{ mode: "separate", label: "Return to separate Chats" }] : []),
+    ];
+  if (link.sharedChat) return [{ mode: "separate", label: "Use separate Chats" }];
+  return sharedChatEligibility(link, projects) ? [] : [{ mode: "shared", label: "Use shared Chat" }];
+}
+export function chatModeEndLabel(end, projects, branch) {
+  const project = projects.find((item) => item.id === end.project_id);
+  return `${project?.name ?? "Unavailable Project"} / ${branch || end.worktree_path?.split(/[\\/]/).at(-1) || "Worktree"}`;
 }

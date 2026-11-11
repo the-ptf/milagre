@@ -219,6 +219,7 @@ function createLinkWorkspaces({
     if (!validLinkId(operationId) || !Number.isSafeInteger(chatId) || chatId < 1) throw new Error("Invalid Link preparation request");
     const state = await store.get(link.id);
     refuseReleased(link.id, state);
+    if (link.canvasLinkId) throw new Error("This shared Chat uses the existing Worktrees selected on the canvas.");
     let prep = state.preparations[operationId] ?? Object.values(state.preparations).find((item) => item.chatId === chatId);
     if (prep?.chatId !== undefined && prep.chatId !== chatId) throw new Error("Preparation belongs to another Chat");
     if (prep && !unfinished(prep)) return result(prep);
@@ -258,6 +259,7 @@ function createLinkWorkspaces({
     return index;
   }
   async function addMember({ link, chatId, project: wanted }) {
+    if (link.canvasLinkId) throw new Error("This Chat owns only the existing Worktrees selected on the canvas.");
     const state = await store.get(link.id);
     refuseReleased(link.id, state);
     const prep = Object.values(state.preparations).find((item) => item.chatId === chatId);
@@ -288,6 +290,10 @@ function createLinkWorkspaces({
       kept = [];
     released.add(linkId);
     for (const member of members.values()) {
+      if (member.adopted) {
+        kept.push(member);
+        continue;
+      }
       const exists = await fs.lstat(member.worktreePath).then(
         () => true,
         () => false,

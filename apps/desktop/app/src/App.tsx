@@ -4150,7 +4150,8 @@ function App() {
                           showGit && selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined
                         }
                         isSending={isSending}
-                        sendBlocked={preparingHere || Boolean(selectedSession?.formerWorktree)}
+                        readOnlyHistory={!!selectedSession?.readOnlyReason}
+                        sendBlocked={preparingHere || Boolean(selectedSession?.formerWorktree || selectedSession?.readOnlyReason)}
                         offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
                         offlineTray={
                           offlineTray.shown && project ? (
@@ -4276,11 +4277,12 @@ function App() {
                         }}
                         newChatError={newChatError}
                         composerNote={
-                          selectedSession?.formerWorktree
+                          selectedSession?.readOnlyReason ??
+                          (selectedSession?.formerWorktree
                             ? RUN_WORKTREE_REMOVED_NOTE
                             : runPaneOpen && selectedSession?.routine?.hidden
                               ? RUN_CHAT_REPLY_NOTE
-                              : undefined
+                              : undefined)
                         }
                         findOpen={findOpen}
                         findSignal={findSignal}

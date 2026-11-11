@@ -42,7 +42,8 @@ function restoreLink(links, link, projects, active) {
 }
 
 function pruneLinks(links, projects, active) {
-  return links.filter((link) => canLink(link.a, link.b, projects, active));
+  // An adopted pair keeps its ownership and recovery entry until the user returns it to separate Chats.
+  return links.filter((link) => link.sharedChat || canLink(link.a, link.b, projects, active));
 }
 
 // Every Worktree the source reaches in one hop, each with the Link that reaches it (the first one, when several do) and

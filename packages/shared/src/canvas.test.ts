@@ -99,6 +99,7 @@ test("an older host's chats without a summary are read from their messages", () 
 
 test("status words say what a chat is doing, or how long it has been quiet", () => {
   const now = 10 * 60_000;
+  assert.deepEqual(canvasStatus({ mark: "idle", failed: false, readOnly: true }, now), { label: "Read-only history", tone: "ink3" });
   assert.deepEqual(canvasStatus({ mark: "waiting", failed: false }, now), { label: "Waiting for you", tone: "orange" });
   assert.deepEqual(canvasStatus({ mark: "question", failed: false }, now), { label: "Asking you", tone: "accent" });
   assert.deepEqual(canvasStatus({ mark: "delegated", failed: false }, now), { label: "Working on a Delegation", tone: "accent" });

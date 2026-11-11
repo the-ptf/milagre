@@ -112,3 +112,33 @@ test("Worktree creation is durably bracketed before upload, and its chosen Chat 
   assert.equal(creates, 1);
   assert.equal((f.requests.at(-1) as OutboxItem["request"]).sessionId, 9);
 });
+
+test("offline message becomes Needs attention after adoption, preserves text, and rejects a read-only recovery target", async () => {
+  const { createOutbox, outboxStatus } = await import("./outbox.mjs");
+  let saved: any = null;
+  let online = false;
+  const f = fixture();
+  const box = createOutbox({
+    storage: {
+      read: async () => saved,
+      write: async (next) => {
+        saved = structuredClone(next);
+      },
+    },
+    available: () => online,
+    deliver: (item, update) => deliverOutbox(item, update, f.transport),
+  });
+  await box.enqueue(item());
+  f.transport.open = async () => ({ sessions: { 4: { readOnlyReason: "Adopted" }, 5: { readOnlyReason: "Released history" }, 6: {} } });
+  online = true;
+  await box.flush();
+  assert.equal(outboxStatus(box.getSnapshot().items[0]), "Needs attention");
+  assert.equal(box.getSnapshot().items[0].request.body, "check these");
+  assert.deepEqual(f.requests, [], "no upload or send into the original Chat");
+  await box.recover("stable-id", { sessionId: 5, worktreeId: 2 });
+  assert.equal(box.getSnapshot().items[0].status, "failed");
+  assert.deepEqual(f.requests, [], "a read-only recovery target never receives it");
+  await box.recover("stable-id", { sessionId: 6, worktreeId: 2 });
+  assert.equal((f.requests.at(-1) as any).sessionId, 6);
+  assert.equal((f.requests.at(-1) as any).body, "check these");
+});

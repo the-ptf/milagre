@@ -36,12 +36,14 @@ const FILE_ICONS: Record<CheckpointFile["action"], IconData> = { replace: FileEd
  */
 export function UndoPanel({
   review,
+  readOnly = false,
   intent,
   onHighlight,
   onOpenFile,
   onClosed,
 }: {
   review: CheckpointReview;
+  readOnly?: boolean;
   intent: UndoIntent;
   /** The user message of the task in view, outlined in the transcript; null when none is. */
   onHighlight: (messageId: number | null) => void;
@@ -95,7 +97,7 @@ export function UndoPanel({
       tabIndex={-1}
       data-undo-panel={review.view}
       role="group"
-      aria-label={review.view === "list" ? "Undo a task's changes" : `${intent} changes`}
+      aria-label={readOnly ? "Checkpoint history" : review.view === "list" ? "Undo a task's changes" : `${intent} changes`}
       onKeyDown={onKeyDown}
       className="promptbar-surface mb-1.5 flex max-h-[min(420px,55vh)] flex-col overflow-hidden rounded-window border border-line-strong text-13 text-ink"
       style={{ animation: "fade-up var(--duration-base) var(--ease-enter) both" }}
@@ -104,7 +106,7 @@ export function UndoPanel({
         <>
           <header className="flex items-center gap-2 px-3 pt-2 pb-1.5 text-12 text-ink-2">
             <Icon icon={Undo02Icon} size={14} />
-            <span className="flex-1 font-medium">Undo a task's changes</span>
+            <span className="flex-1 font-medium">{readOnly ? "Checkpoint history" : "Undo a task's changes"}</span>
             <span className="flex items-center gap-1.5 text-11 text-ink-3">
               <ShortcutKeys shortcut="Enter" compact /> preview
               <ShortcutKeys shortcut="Esc" compact className="ml-1.5" /> close
@@ -145,7 +147,7 @@ export function UndoPanel({
             <span className="text-ink-2">
               <Icon icon={intent === "Redo" ? Redo02Icon : Undo02Icon} size={16} />
             </span>
-            <span className="shrink-0 font-medium text-ink-2">{intent} changes from</span>
+            <span className="shrink-0 font-medium text-ink-2">{readOnly ? "Checkpoint from" : `${intent} changes from`}</span>
             {preview && (
               <>
                 {tasks.length > 0 && intent === "Undo" ? (
@@ -193,6 +195,7 @@ export function UndoPanel({
                 <FileRow
                   key={file.key}
                   file={file}
+                  readOnly={readOnly}
                   intent={intent}
                   decision={review.decisions[file.key]}
                   disabled={review.pending}
@@ -207,6 +210,8 @@ export function UndoPanel({
               <InlineError size={12} className="min-w-0 flex-1">
                 {review.error}
               </InlineError>
+            ) : readOnly ? (
+              <p className="flex-1 text-12 text-ink-3">Read-only preview</p>
             ) : review.conflicts > 0 ? (
               <p className="flex min-w-0 flex-1 items-center gap-1.5 text-12 text-orange-ink">
                 <Icon icon={Alert02Icon} size={14} />
@@ -218,13 +223,15 @@ export function UndoPanel({
             <Button variant="ghost" onClick={close} disabled={review.pending}>
               Cancel
             </Button>
-            <Button
-              data-checkpoint-restore
-              disabled={review.pending || !review.resolved || review.restoreCount === 0}
-              onClick={() => void review.restore().then((result) => result && onClosed())}
-            >
-              {restoreLabel(review, intent)}
-            </Button>
+            {!readOnly && (
+              <Button
+                data-checkpoint-restore
+                disabled={review.pending || !review.resolved || review.restoreCount === 0}
+                onClick={() => void review.restore().then((result) => result && onClosed())}
+              >
+                {restoreLabel(review, intent)}
+              </Button>
+            )}
           </footer>
         </>
       )}
@@ -242,6 +249,7 @@ function restoreLabel(review: CheckpointReview, intent: UndoIntent) {
 
 function FileRow({
   file,
+  readOnly = false,
   intent,
   decision,
   disabled,
@@ -249,6 +257,7 @@ function FileRow({
   onOpen,
 }: {
   file: CheckpointFile;
+  readOnly?: boolean;
   intent: UndoIntent;
   decision: "keep" | "restore" | undefined;
   disabled: boolean;
@@ -279,7 +288,7 @@ function FileRow({
         </span>
       )}
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
-        {file.conflict ? (
+        {file.conflict && !readOnly ? (
           <Segmented
             label={`${name}: keep it or ${intent.toLowerCase()} it`}
             value={decision ?? null}
