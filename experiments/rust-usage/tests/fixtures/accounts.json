@@ -1,0 +1,1842 @@
+{
+  "initial": {
+    "scopes": ["/project", "milagre-link:12345678-1234-1234-1234-123456789abc"],
+    "selection": {
+      "claude": "work",
+      "codex": "default",
+      "antigravity": "default"
+    },
+    "identities": {
+      "providers": [
+        {
+          "provider": "claude",
+          "selectedId": "work",
+          "accounts": [
+            {
+              "provider": "claude",
+              "id": "default",
+              "label": "claude/default",
+              "state": "ready"
+            },
+            {
+              "provider": "claude",
+              "id": "work",
+              "label": "claude/work",
+              "state": "ready",
+              "email": "fixture@example.invalid"
+            },
+            {
+              "provider": "claude",
+              "id": "signed-out",
+              "label": "claude/signed-out",
+              "state": "signedOut"
+            },
+            {
+              "provider": "claude",
+              "id": "unknown",
+              "label": "claude/unknown",
+              "state": "unknown",
+              "message": "Waiting for fixture sign-in"
+            }
+          ]
+        },
+        {
+          "provider": "codex",
+          "selectedId": "default",
+          "accounts": [
+            {
+              "provider": "codex",
+              "id": "default",
+              "label": "codex/default",
+              "state": "ready"
+            },
+            {
+              "provider": "codex",
+              "id": "spare",
+              "label": "codex/spare",
+              "state": "ready"
+            }
+          ]
+        },
+        {
+          "provider": "antigravity",
+          "selectedId": "default",
+          "installed": false,
+          "accounts": [
+            {
+              "provider": "antigravity",
+              "id": "default",
+              "label": "antigravity/default",
+              "state": "ready"
+            }
+          ]
+        },
+        {
+          "provider": "kiro",
+          "selectedId": "default",
+          "accounts": [
+            {
+              "provider": "kiro",
+              "id": "default",
+              "label": "kiro/default",
+              "state": "ready"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "traces": [
+    {
+      "input": {
+        "command": "usage:cached",
+        "scope": "/project",
+        "now": 1793361601000
+      },
+      "expected": {
+        "result": {
+          "providers": [],
+          "accountKey": "work-default"
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:accounts:cached",
+        "now": 1793361602000
+      },
+      "expected": {
+        "result": {
+          "generatedAt": "2026-10-30T12:00:02.000Z",
+          "accountKey": "all:claude:default:ready,claude:signed-out:signedOut,claude:unknown:unknown,claude:work:ready,codex:default:ready,codex:spare:ready,kiro:default:ready",
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:02.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "default",
+                "label": "claude/default",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:02.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "work",
+                "label": "claude/work",
+                "state": "ready",
+                "default": true,
+                "email": "fixture@example.invalid"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:02.000Z",
+              "message": "Account is not signed in.",
+              "account": {
+                "id": "signed-out",
+                "label": "claude/signed-out",
+                "state": "signedOut"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:02.000Z",
+              "message": "Waiting for fixture sign-in",
+              "account": {
+                "id": "unknown",
+                "label": "claude/unknown",
+                "state": "unknown"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:02.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "default",
+                "label": "codex/default",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:02.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "spare",
+                "label": "codex/spare",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:02.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "default",
+                "label": "kiro/default",
+                "state": "ready",
+                "default": true
+              }
+            }
+          ]
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:read",
+        "scope": "/project",
+        "now": 1793361603000
+      },
+      "expected": {
+        "result": {
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 22,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:03.000Z",
+              "account": {
+                "id": "work",
+                "label": "claude/work",
+                "email": "fixture@example.invalid"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:03.000Z",
+              "account": {
+                "id": "default",
+                "label": "codex/default"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:03.000Z",
+              "account": {
+                "id": "default",
+                "label": "antigravity/default"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:03.000Z",
+              "account": {
+                "id": "default",
+                "label": "kiro/default"
+              }
+            }
+          ],
+          "accountKey": "work-default"
+        },
+        "error": null,
+        "reads": [
+          ["antigravity", "default"],
+          ["claude", "work"],
+          ["codex", "default"],
+          ["kiro", "default"]
+        ],
+        "events": [
+          [
+            "usage:changed",
+            {
+              "scopeKey": "/project"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "input": {
+        "command": "usage:cached",
+        "scope": "/project",
+        "now": 1793361604000
+      },
+      "expected": {
+        "result": {
+          "providers": [
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:03.000Z",
+              "account": {
+                "id": "default",
+                "label": "kiro/default"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:03.000Z",
+              "account": {
+                "id": "default",
+                "label": "antigravity/default"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 22,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:03.000Z",
+              "account": {
+                "id": "work",
+                "label": "claude/work",
+                "email": "fixture@example.invalid"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:03.000Z",
+              "account": {
+                "id": "default",
+                "label": "codex/default"
+              }
+            }
+          ],
+          "accountKey": "work-default"
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:accounts:cached",
+        "now": 1793361605000
+      },
+      "expected": {
+        "result": {
+          "generatedAt": "2026-10-30T12:00:05.000Z",
+          "accountKey": "all:claude:default:ready,claude:signed-out:signedOut,claude:unknown:unknown,claude:work:ready,codex:default:ready,codex:spare:ready,kiro:default:ready",
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:05.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "default",
+                "label": "claude/default",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 22,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:03.000Z",
+              "checkedAt": "2026-10-30T12:00:03.000Z",
+              "account": {
+                "id": "work",
+                "label": "claude/work",
+                "state": "ready",
+                "default": true,
+                "email": "fixture@example.invalid"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:05.000Z",
+              "message": "Account is not signed in.",
+              "account": {
+                "id": "signed-out",
+                "label": "claude/signed-out",
+                "state": "signedOut"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:05.000Z",
+              "message": "Waiting for fixture sign-in",
+              "account": {
+                "id": "unknown",
+                "label": "claude/unknown",
+                "state": "unknown"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:05.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "default",
+                "label": "codex/default",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:05.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "spare",
+                "label": "codex/spare",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:05.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "default",
+                "label": "kiro/default",
+                "state": "ready",
+                "default": true
+              }
+            }
+          ]
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:accounts:read",
+        "now": 1793361606000
+      },
+      "expected": {
+        "result": {
+          "generatedAt": "2026-10-30T12:00:06.000Z",
+          "accountKey": "all:claude:default:ready,claude:signed-out:signedOut,claude:unknown:unknown,claude:work:ready,codex:default:ready,codex:spare:ready,kiro:default:ready",
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "default",
+                "label": "claude/default",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 22,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "work",
+                "label": "claude/work",
+                "state": "ready",
+                "default": true,
+                "email": "fixture@example.invalid"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "message": "Account is not signed in.",
+              "account": {
+                "id": "signed-out",
+                "label": "claude/signed-out",
+                "state": "signedOut"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "message": "Waiting for fixture sign-in",
+              "account": {
+                "id": "unknown",
+                "label": "claude/unknown",
+                "state": "unknown"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "default",
+                "label": "codex/default",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "spare",
+                "label": "codex/spare",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "default",
+                "label": "kiro/default",
+                "state": "ready",
+                "default": true
+              }
+            }
+          ]
+        },
+        "error": null,
+        "reads": [
+          ["claude", "default"],
+          ["claude", "work"],
+          ["codex", "default"],
+          ["codex", "spare"],
+          ["kiro", "default"]
+        ],
+        "events": [["usage:changed", {}]]
+      }
+    },
+    {
+      "input": {
+        "command": "usage:accounts:cached",
+        "now": 1793361607000
+      },
+      "expected": {
+        "result": {
+          "generatedAt": "2026-10-30T12:00:07.000Z",
+          "accountKey": "all:claude:default:ready,claude:signed-out:signedOut,claude:unknown:unknown,claude:work:ready,codex:default:ready,codex:spare:ready,kiro:default:ready",
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "default",
+                "label": "claude/default",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 22,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "work",
+                "label": "claude/work",
+                "state": "ready",
+                "default": true,
+                "email": "fixture@example.invalid"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:07.000Z",
+              "message": "Account is not signed in.",
+              "account": {
+                "id": "signed-out",
+                "label": "claude/signed-out",
+                "state": "signedOut"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:07.000Z",
+              "message": "Waiting for fixture sign-in",
+              "account": {
+                "id": "unknown",
+                "label": "claude/unknown",
+                "state": "unknown"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "default",
+                "label": "codex/default",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "spare",
+                "label": "codex/spare",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "default",
+                "label": "kiro/default",
+                "state": "ready",
+                "default": true
+              }
+            }
+          ]
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:cached",
+        "scope": "/project",
+        "set": {
+          "selection": {
+            "claude": "default",
+            "codex": "spare",
+            "antigravity": "default"
+          }
+        },
+        "now": 1793361608000
+      },
+      "expected": {
+        "result": {
+          "providers": [
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "spare",
+                "label": "codex/spare"
+              }
+            }
+          ],
+          "accountKey": "default-spare"
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:read",
+        "scope": null,
+        "now": 1793361609000
+      },
+      "expected": {
+        "result": {
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "account": {
+                "id": "default",
+                "label": "claude/default"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "account": {
+                "id": "spare",
+                "label": "codex/spare"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "account": {
+                "id": "default",
+                "label": "antigravity/default"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "account": {
+                "id": "default",
+                "label": "kiro/default"
+              }
+            }
+          ],
+          "accountKey": "default-spare"
+        },
+        "error": null,
+        "reads": [
+          ["antigravity", "default"],
+          ["claude", "default"],
+          ["codex", "spare"],
+          ["kiro", "default"]
+        ],
+        "events": [["usage:changed", {}]]
+      }
+    },
+    {
+      "input": {
+        "command": "usage:accounts:cached",
+        "now": 1793361610000
+      },
+      "expected": {
+        "result": {
+          "generatedAt": "2026-10-30T12:00:10.000Z",
+          "accountKey": "all:claude:default:ready,claude:signed-out:signedOut,claude:unknown:unknown,claude:work:ready,codex:default:ready,codex:spare:ready,kiro:default:ready",
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "default",
+                "label": "claude/default",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 22,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "work",
+                "label": "claude/work",
+                "state": "ready",
+                "default": true,
+                "email": "fixture@example.invalid"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:10.000Z",
+              "message": "Account is not signed in.",
+              "account": {
+                "id": "signed-out",
+                "label": "claude/signed-out",
+                "state": "signedOut"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:10.000Z",
+              "message": "Waiting for fixture sign-in",
+              "account": {
+                "id": "unknown",
+                "label": "claude/unknown",
+                "state": "unknown"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "default",
+                "label": "codex/default",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "checkedAt": "2026-10-30T12:00:09.000Z",
+              "account": {
+                "id": "spare",
+                "label": "codex/spare",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "checkedAt": "2026-10-30T12:00:06.000Z",
+              "account": {
+                "id": "default",
+                "label": "kiro/default",
+                "state": "ready",
+                "default": true
+              }
+            }
+          ]
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:read",
+        "scope": "/project",
+        "set": {
+          "status": "error"
+        },
+        "now": 1793361611000
+      },
+      "expected": {
+        "result": {
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "message": "fixture failure",
+              "account": {
+                "id": "default",
+                "label": "claude/default"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "message": "fixture failure",
+              "account": {
+                "id": "spare",
+                "label": "codex/spare"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "message": "fixture failure",
+              "account": {
+                "id": "default",
+                "label": "antigravity/default"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "message": "fixture failure",
+              "account": {
+                "id": "default",
+                "label": "kiro/default"
+              }
+            }
+          ],
+          "accountKey": "default-spare"
+        },
+        "error": null,
+        "reads": [
+          ["antigravity", "default"],
+          ["claude", "default"],
+          ["codex", "spare"],
+          ["kiro", "default"]
+        ],
+        "events": [
+          [
+            "usage:changed",
+            {
+              "scopeKey": "/project"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "input": {
+        "command": "usage:cached",
+        "scope": "/project",
+        "now": 1793361612000
+      },
+      "expected": {
+        "result": {
+          "providers": [
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "account": {
+                "id": "default",
+                "label": "kiro/default"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "account": {
+                "id": "default",
+                "label": "antigravity/default"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "account": {
+                "id": "default",
+                "label": "claude/default"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "account": {
+                "id": "spare",
+                "label": "codex/spare"
+              }
+            }
+          ],
+          "accountKey": "default-spare"
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:accounts:read",
+        "now": 1793361613000
+      },
+      "expected": {
+        "result": {
+          "generatedAt": "2026-10-30T12:00:13.000Z",
+          "accountKey": "all:claude:default:ready,claude:signed-out:signedOut,claude:unknown:unknown,claude:work:ready,codex:default:ready,codex:spare:ready,kiro:default:ready",
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "message": "fixture failure",
+              "checkedAt": "2026-10-30T12:00:13.000Z",
+              "account": {
+                "id": "default",
+                "label": "claude/default",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 22,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "message": "fixture failure",
+              "checkedAt": "2026-10-30T12:00:13.000Z",
+              "account": {
+                "id": "work",
+                "label": "claude/work",
+                "state": "ready",
+                "default": true,
+                "email": "fixture@example.invalid"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:13.000Z",
+              "message": "Account is not signed in.",
+              "account": {
+                "id": "signed-out",
+                "label": "claude/signed-out",
+                "state": "signedOut"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:13.000Z",
+              "message": "Waiting for fixture sign-in",
+              "account": {
+                "id": "unknown",
+                "label": "claude/unknown",
+                "state": "unknown"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "message": "fixture failure",
+              "checkedAt": "2026-10-30T12:00:13.000Z",
+              "account": {
+                "id": "default",
+                "label": "codex/default",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "message": "fixture failure",
+              "checkedAt": "2026-10-30T12:00:13.000Z",
+              "account": {
+                "id": "spare",
+                "label": "codex/spare",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "message": "fixture failure",
+              "checkedAt": "2026-10-30T12:00:13.000Z",
+              "account": {
+                "id": "default",
+                "label": "kiro/default",
+                "state": "ready",
+                "default": true
+              }
+            }
+          ]
+        },
+        "error": null,
+        "reads": [
+          ["claude", "default"],
+          ["claude", "work"],
+          ["codex", "default"],
+          ["codex", "spare"],
+          ["kiro", "default"]
+        ],
+        "events": [["usage:changed", {}]]
+      }
+    },
+    {
+      "input": {
+        "command": "usage:cached",
+        "scope": "/deleted",
+        "now": 1793361614000
+      },
+      "expected": {
+        "result": null,
+        "error": "Project or Link is no longer available. Refresh and choose another.",
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:read",
+        "scope": "",
+        "now": 1793361615000
+      },
+      "expected": {
+        "result": null,
+        "error": "Choose a valid Project or Link.",
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:cached",
+        "scope": 4,
+        "now": 1793361616000
+      },
+      "expected": {
+        "result": null,
+        "error": "Choose a valid Project or Link.",
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:read",
+        "scope": "milagre-link:12345678-1234-1234-1234-123456789abc",
+        "set": {
+          "selection": {
+            "claude": "work",
+            "codex": "default",
+            "antigravity": "gravity"
+          }
+        },
+        "now": 1793361617000
+      },
+      "expected": {
+        "result": {
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "error",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:17.000Z",
+              "message": "fixture failure",
+              "account": {
+                "id": "work",
+                "label": "claude/work",
+                "email": "fixture@example.invalid"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "error",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:17.000Z",
+              "message": "fixture failure",
+              "account": {
+                "id": "default",
+                "label": "codex/default"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "error",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:17.000Z",
+              "message": "fixture failure",
+              "account": {
+                "id": "gravity",
+                "label": "Removed account"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "error",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:17.000Z",
+              "message": "fixture failure",
+              "account": {
+                "id": "default",
+                "label": "kiro/default"
+              }
+            }
+          ],
+          "accountKey": "work-default-gravity"
+        },
+        "error": null,
+        "reads": [
+          ["antigravity", "gravity"],
+          ["claude", "work"],
+          ["codex", "default"],
+          ["kiro", "default"]
+        ],
+        "events": [
+          [
+            "usage:changed",
+            {
+              "scopeKey": "milagre-link:12345678-1234-1234-1234-123456789abc"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "input": {
+        "command": "usage:accounts:cached",
+        "set": {
+          "identities": {
+            "providers": [
+              {
+                "provider": "claude",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "provider": "claude",
+                    "id": "default",
+                    "label": "claude/default",
+                    "state": "ready"
+                  },
+                  {
+                    "provider": "claude",
+                    "id": "signed-out",
+                    "label": "claude/signed-out",
+                    "state": "signedOut"
+                  },
+                  {
+                    "provider": "claude",
+                    "id": "unknown",
+                    "label": "claude/unknown",
+                    "state": "unknown",
+                    "message": "Waiting for fixture sign-in"
+                  }
+                ]
+              },
+              {
+                "provider": "codex",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "provider": "codex",
+                    "id": "default",
+                    "label": "codex/default",
+                    "state": "ready"
+                  },
+                  {
+                    "provider": "codex",
+                    "id": "spare",
+                    "label": "codex/spare",
+                    "state": "ready"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "installed": false,
+                "accounts": [
+                  {
+                    "provider": "antigravity",
+                    "id": "default",
+                    "label": "antigravity/default",
+                    "state": "ready"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "provider": "kiro",
+                    "id": "default",
+                    "label": "kiro/default",
+                    "state": "ready"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "now": 1793361618000
+      },
+      "expected": {
+        "result": {
+          "generatedAt": "2026-10-30T12:00:18.000Z",
+          "accountKey": "all:claude:default:ready,claude:signed-out:signedOut,claude:unknown:unknown,codex:default:ready,codex:spare:ready,kiro:default:ready",
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "message": "fixture failure",
+              "checkedAt": "2026-10-30T12:00:13.000Z",
+              "account": {
+                "id": "default",
+                "label": "claude/default",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:18.000Z",
+              "message": "Account is not signed in.",
+              "account": {
+                "id": "signed-out",
+                "label": "claude/signed-out",
+                "state": "signedOut"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:18.000Z",
+              "message": "Waiting for fixture sign-in",
+              "account": {
+                "id": "unknown",
+                "label": "claude/unknown",
+                "state": "unknown"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "message": "fixture failure",
+              "checkedAt": "2026-10-30T12:00:13.000Z",
+              "account": {
+                "id": "default",
+                "label": "codex/default",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:09.000Z",
+              "message": "fixture failure",
+              "checkedAt": "2026-10-30T12:00:13.000Z",
+              "account": {
+                "id": "spare",
+                "label": "codex/spare",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "error",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:06.000Z",
+              "message": "fixture failure",
+              "checkedAt": "2026-10-30T12:00:13.000Z",
+              "account": {
+                "id": "default",
+                "label": "kiro/default",
+                "state": "ready",
+                "default": true
+              }
+            }
+          ]
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:read",
+        "scope": "/project",
+        "now": 1793361619000
+      },
+      "expected": {
+        "result": {
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "error",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:19.000Z",
+              "message": "fixture failure",
+              "account": {
+                "id": "work",
+                "label": "Removed account"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "error",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:19.000Z",
+              "message": "fixture failure",
+              "account": {
+                "id": "default",
+                "label": "codex/default"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "error",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:19.000Z",
+              "message": "fixture failure",
+              "account": {
+                "id": "gravity",
+                "label": "Removed account"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "error",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:19.000Z",
+              "message": "fixture failure",
+              "account": {
+                "id": "default",
+                "label": "kiro/default"
+              }
+            }
+          ],
+          "accountKey": "work-default-gravity"
+        },
+        "error": null,
+        "reads": [
+          ["antigravity", "gravity"],
+          ["claude", "work"],
+          ["codex", "default"],
+          ["kiro", "default"]
+        ],
+        "events": [
+          [
+            "usage:changed",
+            {
+              "scopeKey": "/project"
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}

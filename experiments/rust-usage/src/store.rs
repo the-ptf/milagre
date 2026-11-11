@@ -141,10 +141,11 @@ impl UsageState {
 pub type ReadFuture = Pin<Box<dyn Future<Output = Result<Value, ()>> + Send>>;
 pub type ProviderRead = Arc<dyn Fn(String) -> ReadFuture + Send + Sync>;
 pub type Ready = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
-/// One detached task per provider means cancelling a caller cannot strand the shared read. The runtime injects readiness.
+/// One supervised task per provider means cancelling a caller cannot strand the shared read. The runtime injects readiness.
 pub struct UsageReader {
     state: Mutex<UsageState>,
-    pending: Mutex<HashMap<String, tokio::sync::watch::Receiver<Option<Value>>>>,
+    pending: Mutex<HashMap<String, crate::supervisor::Receiver<Value>>>,
+    tasks: crate::supervisor::Supervisor,
     read: ProviderRead,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
     ready: Ready,
@@ -155,6 +156,7 @@ impl UsageReader {
         Arc::new(Self {
             state: Mutex::new(UsageState::new(store)),
             pending: Mutex::new(HashMap::new()),
+            tasks: crate::supervisor::Supervisor::default(),
             read,
             now,
             ready,
@@ -165,49 +167,73 @@ impl UsageReader {
         if !READ_ORDER.contains(&p) {
             return Err("Unknown usage provider");
         }
-        let mut receiver = {
+        let receiver = {
             let mut pending = self.pending.lock().unwrap();
-            pending
-                .entry(p.into())
-                .or_insert_with(|| {
-                    let (tx, rx) = tokio::sync::watch::channel(None);
-                    let this = self.clone();
-                    let p = p.to_owned();
-                    tokio::spawn(async move {
-                        this.environment.get_or_init(|| (this.ready)()).await;
-                        let blocked = this.state.lock().unwrap().begin(&p, (this.now)());
+            if let Some(rx) = pending.get(p).filter(|rx| rx.borrow().is_none()) {
+                rx.clone()
+            } else {
+                let this = self.clone();
+                let provider = p.to_owned();
+                let rx = self
+                    .tasks
+                    .spawn(async move {
+                        this.environment
+                            .get_or_init(|| async {
+                                let _ = crate::supervisor::guarded(async { (this.ready)().await }).await;
+                            })
+                            .await;
+                        let now = (this.now)();
+                        let blocked = this.state.lock().unwrap().begin(&provider, now);
                         let was_blocked = blocked.is_some();
                         let result = match blocked {
                             Some(v) => v,
-                            None => (this.read)(p.clone())
+                            None => crate::supervisor::guarded(async { (this.read)(provider.clone()).await })
                                 .await
-                                .unwrap_or_else(|_| provider_result(&p, (this.now)(), "error", json!([]), Some("Couldn't read usage."))),
+                                .ok()
+                                .and_then(Result::ok)
+                                .unwrap_or_else(|| {
+                                    provider_result(&provider, (this.now)(), "error", json!([]), Some("Couldn't read usage."))
+                                }),
                         };
-                        let result = this.state.lock().unwrap().complete(&p, result, (this.now)(), was_blocked);
-                        let mut pending = this.pending.lock().unwrap();
-                        let _ = tx.send(Some(result));
-                        pending.remove(&p);
-                    });
-                    rx
-                })
-                .clone()
+                        let now = (this.now)();
+                        this.state.lock().unwrap().complete(&provider, result, now, was_blocked)
+                    })
+                    .map_err(|_| "Usage reader stopped")?;
+                pending.insert(p.into(), rx.clone());
+                rx
+            }
         };
-        loop {
-            if let Some(v) = receiver.borrow().clone() {
-                return Ok(v);
-            }
-            if receiver.changed().await.is_err() {
-                return Err("Usage reader stopped");
-            }
-        }
+        crate::supervisor::wait(receiver).await.map_err(|_| "Usage reader stopped")
     }
+    /// Reject future work, cancel callbacks and wait for their futures to be dropped.
+    pub async fn shutdown(&self) {
+        self.tasks.shutdown().await;
+        self.pending.lock().unwrap().clear();
+    }
+    pub fn in_flight(&self) -> usize {
+        self.tasks.active()
+    }
+    pub fn store_snapshot(&self, now: i64) -> Value {
+        self.state.lock().unwrap().store.snapshot(now)
+    }
+
     pub async fn read(self: &Arc<Self>) -> Value {
         let (a, b, c, d) =
             tokio::join!(self.provider("claude"), self.provider("codex"), self.provider("antigravity"), self.provider("kiro"));
-        json!({"providers":[a.unwrap(),b.unwrap(),c.unwrap(),d.unwrap()]})
+        let values = [a, b, c, d]
+            .into_iter()
+            .zip(READ_ORDER)
+            .map(|(result, p)| {
+                result.unwrap_or_else(|_| provider_result(p, (self.now)(), "error", json!([]), Some("Usage reader stopped")))
+            })
+            .collect::<Vec<_>>();
+        json!({"providers":values})
     }
     pub fn cached(&self, p: &str) -> Option<Value> {
-        self.state.lock().unwrap().cached(p, (self.now)())
+        {
+            let now = (self.now)();
+            self.state.lock().unwrap().cached(p, now)
+        }
     }
     pub fn checked_at(&self, p: &str) -> Option<String> {
         self.state.lock().unwrap().checked_at(p).map(str::to_owned)

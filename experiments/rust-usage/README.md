@@ -12,6 +12,7 @@ Not wired into the runtime. All changes are confined to this crate; terminal/por
 | `antigravity-usage.cjs`, `kiro-usage.cjs` | `gemini_windows`, `parse_kiro_usage`                                                             | OAuth refresh, Google project discovery, Kiro CLI/cleanup and its 5-minute/3-second background wrapper |
 | `token-usage-scan.cjs`                    | `Entry`, `Scanner`, version-3 `ScanCache`                                                        | Explicit copied transcript roots and persisted cache JSON                                              |
 | `token-usage-pricing.cjs`                 | `slim_prices`, `price_of`, `Pricing` refresh state                                               | Catalog transport, persistence and price-change event                                                  |
+| `runtime.cjs` usage commands              | `accounts::UsageAccounts` command envelopes, scope validation, account decoration and isolation  | Trusted account metadata/selection adapter and socket registration                                     |
 | `token-usage.cjs`                         | `build_report`, `owner::TokenUsage`                                                              | Read-only Project/Chats home/Link metadata, owner lifecycle                                            |
 
 `packages/core/src/runtime.cjs` registers:
@@ -24,15 +25,16 @@ Not wired into the runtime. All changes are confined to this crate; terminal/por
 - `token-usage:read(request)`: `TokenUsageReport`, including `refreshing`, `firstScan`, `pricing`.
   Changed scans or prices emit `token-usage:changed({})`.
 
-The Rust runtime must retain scope validation, selected-account capture, per-account reader/store isolation and
-account decoration. Cache keys remain `claudeId-codexId[-antigravityId]`; Kiro uses the connected default account.
-Those runtime/account functions are inventoried, **not implemented by this crate**. No socket handlers are registered.
+`accounts::UsageAccounts` implements those four usage commands through injected account metadata and readers.
+Wire `accountKey` remains `claudeId-codexId[-antigravityId]`; Kiro uses the connected default account.
+Internal caches use the structural `Selection` triple, so delimiter collisions cannot share another account's data.
+This corrects a latent Node cache-key ambiguity without changing the output key spelling. No socket handlers are registered.
 Desktop and mobile consume the same provider/report shapes (`packages/shared/src/model.ts`, `usage.ts`,
 `token-usage.ts`); this backend experiment changes neither client nor native fingerprint.
 
 ## Runtime API
 
-All JSON APIs use `serde_json::Value` to preserve missing fields, nulls and existing camelCase names.
+JSON response APIs use `serde_json::Value` to preserve missing fields, nulls and existing camelCase names.
 
 - `limits::{claude_windows, codex_windows, gemini_windows, parse_kiro_usage, claude_response, retry_after_ms}`:
   map supplied responses. `CodexUsage::new()`, `outgoing()`, `feed(bytes, now)`, `result()`, `fail(kind, now)`
@@ -45,7 +47,8 @@ All JSON APIs use `serde_json::Value` to preserve missing fields, nulls and exis
 - `UsageReader::new(store, read, now, ready) -> Arc<_>`; `provider(name).await`, `read().await`, `cached(name)`,
   `checked_at(name)`, `store_json()`. All four providers have independently coalesced reads. Readiness is shared
   once, cancellation of a caller does not cancel the shared read. Injected reads return `Err(())` for generic
-  failure; callbacks must not panic. No environment is loaded internally.
+  failure; synchronous and asynchronous callback panics become generic failures. `store_snapshot(now)` exposes
+  only the store's last-good data, as required by `usage:cached`. No environment is loaded internally.
 - `CopiedRoot::new("claude" | "codex", absolute_copy_path)`, `Scanner::new(roots, ScanCache)`;
   `scan(now) -> io::Result<bool>`, `rows()`, `finished()`, `scanned_at()`, `cache().to_json()`.
   Import with `ScanCache::from_json`. The owner should run this synchronous single-owner scanner on its blocking
@@ -60,7 +63,45 @@ All JSON APIs use `serde_json::Value` to preserve missing fields, nulls and exis
   complete token report envelope, starts at most one injected scan, emits changes, and caches attribution for 30s.
   Options inject `scan`, `projects`, `prices`, `pricing_status`, `emit`, `now`, `home`, `worktree_root`,
   `default_time_zone`. `ScanResult` carries the scanner's complete rows and changed flag. Price refresh events
-  remain the pricing owner's responsibility. The Tokio runtime owns these background tasks until shutdown.
+  remain the pricing owner's responsibility.
+- `UsageAccounts::new(UsageAccountsOptions, HashMap<Selection, UsageStore>) -> Arc<_>`;
+  `handle(command, &scope).await -> Result<Value, String>` accepts the four `accounts::COMMANDS` above.
+  Use JSON null for an omitted scope. `stores()` exports `(Selection, cache JSON)` pairs, including seeds not
+  yet used. Export order is unspecified. No filesystem read/write or account discovery occurs.
+
+`UsageReader`, `TokenUsage` and `UsageAccounts` provide `shutdown().await` and `in_flight()`. The owner must await
+shutdown before discarding them. Caller cancellation leaves shared work supervised; shutdown rejects new work,
+requests cancellation and waits for injected callback futures to drop. Cancelling shutdown does not lose task
+tracking; a later call can finish it. Panics clear in-flight/scan state and allow retry. Readiness rejection/panic is
+ignored once, matching Node's readiness catch. Event callback panics are contained. These guarantees cover
+cooperative futures owned by the crate, not synchronous blocking loops or tasks independently spawned by adapters.
+
+## Required trusted account API
+
+The runtime's rust-accounts adapter must supply these `UsageAccountsOptions` callbacks. Renderer input supplies
+only the scope string; it must never supply account snapshots, selected IDs, environment maps or readers.
+
+1. `scopes() -> MetadataFuture<Vec<String>>`: current authorized Project/Link keys, plus Chats home when present.
+   Optional null scope means computer defaults. Empty/non-string and removed scopes retain Node's exact errors.
+   Accounts commands ignore the scope argument, as Node does.
+2. `selected(Option<&str>) -> Selection`: synchronously resolve Claude, Codex and Antigravity IDs for the validated
+   scope. Capture happens after readiness for reads, immediately for cached commands. Kiro always uses `default`.
+3. `list() -> MetadataFuture<AccountSnapshot>`: ordered provider groups `{ provider, selectedId, installed?, accounts }`.
+   Accounts carry `{ provider, id, label, state, email?, message? }`; no credential/path/environment fields are needed.
+   Scoped responses decorate the captured IDs from a fresh list after reading; removed IDs retain their ID and
+   `Removed account` label. Accounts responses capture the list before reading, skip `installed: false`, query only
+   `state: ready`, preserve order, and flag `default` from each group's selected ID.
+4. `read(provider, pinned_id) -> ReadFuture`: resolve exactly that ID without consulting a mutable current selection.
+   Return the existing provider result or `Err(())`. All-account reads pin unrelated providers to `default`, matching
+   Node's independent cache combinations. The Kiro adapter still owns its shared 5-minute/3-second wrapper.
+5. `ready`, `now`, `emit`: shared environment readiness, millisecond clock, and event sink. Cached commands never
+   await readiness or emit changes. Scoped reads emit `usage:changed({scopeKey})`, or `{}` without a scope;
+   all-account reads emit `{}`. Optional `read_usage_override` retains Node's test/demo bypass after scope validation.
+
+Account metadata types are a narrow adapter contract, not a dependency on or implementation of rust-accounts.
+Persistence remains deliberately absent: seed/export caches are in memory only. A future disk owner must require
+an explicit fresh-temp capability in this experiment, use one writer and atomic replacement, retain failed writes,
+and supervise shutdown. No cache paths are inferred from account IDs.
 
 ## Scan and parity behavior
 
@@ -90,13 +131,14 @@ Preserved Node behavior:
 
 ## Verification
 
-On macOS arm64: **18 tests**, including 10 fixture replay suites with **109 Node cases**, plus 8 safety/concurrency
-checks. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
+On macOS arm64: **31 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
+command traces**, account isolation and callback lifecycle checks. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
 from Rust output. Codex is an EventEmitter fixture; Claude uses supplied synthetic credential text and a fake fetch.
 No provider process, keychain access or network transport is available to the fixture sandbox.
 
 ```sh
 TZ=UTC node experiments/rust-usage/scripts/generate-conformance.cjs
+TZ=UTC node experiments/rust-usage/scripts/generate-account-traces.cjs
 cargo test --offline --manifest-path experiments/rust-usage/Cargo.toml
 cargo clippy --offline --manifest-path experiments/rust-usage/Cargo.toml --all-targets -- -D warnings
 cargo fmt --manifest-path experiments/rust-usage/Cargo.toml --check
@@ -105,17 +147,22 @@ cargo fmt --manifest-path experiments/rust-usage/Cargo.toml --check
 The expected `Milagre couldn't refresh model prices: fixture` warning comes from the scripted failed-price case.
 `tests/fixtures/conformance.json` records window mapping, HTTP responses, Codex outgoing messages/results,
 transcript carry/rows, quota/store traces, backoff, price refresh boundaries, reports and physical incremental scans.
+`tests/fixtures/accounts.json` captures command envelopes, validation errors, provider calls and emitted events
+from the original runtime command bodies in a VM. Account metadata/readers are synthetic; cache persistence is
+stubbed to throw if accessed. Command fixtures compare exactly.
 Object keys and optional/null fields compare exactly; numeric values use a relative tolerance of `1e-12` because
 JavaScript has one numeric type and floating arithmetic may differ in the final bits.
 
 Safety checks cover shared readiness, cancellation, isolated provider failure, no-follow roots/files/ancestors,
 cache paths that cannot grant read access, malformed cache import, large lines, UTF-8 tails, duplicate roots,
 retained deleted files, recent-message eviction, pruning, Codex final-state stability, and token-owner scan/cache
-boundaries. All scan writes in tests are in fresh temporary directories, cleaned when tests finish.
+boundaries. Account tests cover selection changes during reads, removed identities, unrelated-default pinning,
+legacy key collisions, unused seed retention, cached/readiness separation, override behavior, shutdown cancellation,
+and synchronous/asynchronous callback panics. All scan writes in tests are in fresh temporary directories, cleaned when tests finish.
 
 ## Exact gaps and boundaries
 
-1. No live provider access, runtime routing/account decoration, profile discovery, account auto-switching,
+1. No live provider access, runtime routing, trusted account adapter, profile discovery, account auto-switching,
    metadata-store loading, cache persistence, SDK bridge, CLI supervision or network fetch. Use injected owners;
    this checkpoint does not claim an end-to-end live usage migration.
 2. Scanner is implemented for Unix and tested on macOS only. Windows scanning explicitly returns Unsupported.
@@ -131,4 +178,4 @@ boundaries. All scan writes in tests are in fresh temporary directories, cleaned
 5. Scanner errors opening missing/unreadable roots/files skip them; errors during an opened file read return Err
    (Node logs and continues). No write queue/idle flush exists because the crate never writes caches. Malformed
    scan-cache structure fails closed to empty, more strictly than Node's shallow cache validation. Background
-   callbacks must return errors rather than panic; shutdown/cancellation supervision belongs to the runtime.
+   task supervision is implemented; real provider transports and their process cleanup remain gated.
