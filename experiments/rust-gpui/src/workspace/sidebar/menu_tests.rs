@@ -415,15 +415,15 @@ fn escape_drops_a_rename_and_an_emptied_name_restores_the_generated_title(cx: &m
 }
 
 #[gpui::test]
-fn the_hover_card_opens_after_half_a_second_and_closes_after_its_grace(cx: &mut TestAppContext) {
+fn the_hover_card_opens_after_150ms_and_closes_after_its_grace(cx: &mut TestAppContext) {
     let (sidebar, cx) = mount(cx);
     let chat = key(&sidebar, cx, 2);
     let row = cx.debug_bounds("chat-row-2").unwrap();
     cx.simulate_mouse_move(row.center(), None, Modifiers::none());
-    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.executor().advance_clock(Duration::from_millis(100));
     cx.run_until_parked();
-    assert!(cx.debug_bounds("hover-card").is_none(), "not yet at 400ms");
-    cx.executor().advance_clock(Duration::from_millis(150));
+    assert!(cx.debug_bounds("hover-card").is_none(), "not yet at 100ms");
+    cx.executor().advance_clock(Duration::from_millis(60));
     cx.run_until_parked();
     assert_eq!(sidebar.read_with(cx, |s, _| s.card_key().map(str::to_owned)), Some(chat));
     let card = cx.debug_bounds("hover-card").expect("the card");

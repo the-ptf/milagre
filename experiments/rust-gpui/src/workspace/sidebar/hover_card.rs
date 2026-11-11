@@ -1,4 +1,4 @@
-//! The row's hover card (`ChatHoverCard` in `components/sidebar/ChatRow.tsx`): after the pointer rests 500ms on a
+//! The row's hover card (`ChatHoverCard` in `components/sidebar/ChatRow.tsx`): after the pointer rests 150ms on a
 //! row, a 256px card opens beside the sidebar with everything the row cannot say — state, PRs, diff, branch,
 //! Linear issue, folder, Links — read from the Project state already held, so it never waits on git. It stays
 //! while the pointer is on it (a 250ms grace to cross over) and opens upwards for rows low in the window.
@@ -20,7 +20,7 @@ use crate::theme::{ActiveTheme, RADIUS_CARD, RADIUS_INLINE, TEXT_11, TEXT_12, TE
 use crate::ui::{Icon, IconName, IconSize};
 
 /// How long the pointer rests on a row before the card opens (`HOVER_CARD_DELAY`).
-pub const OPEN_DELAY: Duration = Duration::from_millis(500);
+pub const OPEN_DELAY: Duration = Duration::from_millis(150);
 /// Time to cross from the row to the card before it closes (`HOVER_CARD_GRACE`).
 pub const CLOSE_GRACE: Duration = Duration::from_millis(250);
 pub const CARD_WIDTH: f32 = 256.0;
