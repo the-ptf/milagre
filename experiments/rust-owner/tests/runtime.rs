@@ -271,10 +271,27 @@ impl Run {
             }
             "close" => {
                 let outcome = self.states.close().map(|_| Value::Null);
+                let failed = outcome.is_err();
                 let result = self.attempt(outcome);
-                let out = json!({ "result": result, "events": self.events() });
-                self.fresh();
-                out
+                let mut out = Map::new();
+                out.insert("result".into(), result);
+                out.insert("events".into(), self.events());
+                if failed {
+                    // Kept as Node keeps it: closed, dirty, its lock still held.
+                    assert!(
+                        p.join(".milagre/runtime.lock").is_dir(),
+                        "a failed close released the lock"
+                    );
+                    let current = self.states.current(p);
+                    out.extend(self.view(current.as_ref()));
+                } else {
+                    assert!(
+                        !p.join(".milagre/runtime.lock").exists(),
+                        "a successful close kept the lock"
+                    );
+                    self.fresh();
+                }
+                Value::Object(out)
             }
             // The read commands go through `call`, the boundary a wire server dispatches to, with the daemon's arguments.
             "chatMessages" => {

@@ -581,6 +581,10 @@ impl ProjectStates {
     }
 
     /// close: no more changes; transient changes are saved with the rest, then every lock is released.
+    ///
+    /// As in Node, a close whose flush fails rejects and keeps everything: the states stay closed to new changes but
+    /// in memory, still dirty and owned (their locks held), so `retry` can save them and a later `close` finish.
+    /// Locks are released only once every Project saved.
     pub fn close(&mut self) -> Result<()> {
         self.closed = true;
         for key in self.order.clone() {
@@ -590,12 +594,21 @@ impl ProjectStates {
                 slot.transient = false;
             }
         }
-        let flushed = self.flush(None);
-        self.order.clear();
-        for (_, slot) in self.slots.drain() {
-            slot.owner.release()?;
+        self.flush(None)?;
+        let mut released = Ok(());
+        for key in std::mem::take(&mut self.order) {
+            if let Some(slot) = self.slots.remove(&key) {
+                if let Err(error) = slot.owner.release() {
+                    released = released.and(Err(error));
+                }
+            }
         }
-        flushed
+        released
+    }
+
+    /// Whether `close` has run (successfully or not): no change is taken any more.
+    pub fn is_closed(&self) -> bool {
+        self.closed
     }
 
     /// forget: saves a Project, then drops it (and its lock) as if it was never read.

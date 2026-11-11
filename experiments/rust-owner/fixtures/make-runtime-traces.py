@@ -95,6 +95,18 @@ T.append({"name": "debounce-and-crash", "start": START, "seed": seed, "steps": [
     {"op": "open"}, {"op": "sendStatus", "id": "cm-c"}, {"op": "sendStatus", "id": "cm-d"}, {"op": "snapshot"},
     {"op": "update", "chats": [1], "change": {"kind": "append", "messages": [m(15, 1, "user", "sent again", clientMessageId="cm-d")]}},
     {"op": "flush"}, {"op": "sendStatus", "id": "cm-d"}, {"op": "snapshot"}]})
+T.append({"name": "failed-close-then-retry", "start": START, "seed": seed, "steps": [
+    {"op": "open"},
+    {"op": "update", "chats": [1], "change": {"kind": "append", "messages": [m(12, 1, "user", "Saved only by the second close", clientMessageId="cm-close")]}},
+    {"op": "update", "chats": [1], "persist": False, "change": {"kind": "field", "key": "next_id", "value": 13}},
+    {"op": "block"},
+    {"op": "close"},
+    {"op": "update", "chats": [1], "change": {"kind": "edit", "id": 12, "patch": {"body": "refused: closed"}}},
+    {"op": "sendStatus", "id": "cm-close"},
+    {"op": "unblock"},
+    {"op": "retry"},
+    {"op": "close"},
+    {"op": "open"}, {"op": "sendStatus", "id": "cm-close"}, {"op": "snapshot"}]})
 T.append({"name": "unload-rules", "start": START, "seed": seed, "steps": [
     {"op": "load", "chats": [3]},
     {"op": "update", "chats": [], "change": {"kind": "edit", "id": 3, "patch": {"body": "Edited in an unloaded chat"}}},

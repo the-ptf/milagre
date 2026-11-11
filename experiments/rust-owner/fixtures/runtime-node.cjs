@@ -243,9 +243,10 @@ async function run(tracesFile, name, dir) {
           return null;
         });
         await settle();
-        result = { result, events };
+        // A close that failed keeps its states (closed, dirty): retry and another close go to the same instance.
+        result = { result, events, ...(result === null ? {} : view(states.states.get(dir))) };
         events = [];
-        make();
+        if (result.result === null) make();
         break;
       case "chatMessages":
         result = await attempt(async () => m.pages.chatPage((await states.load(dir, [step.chat])).messages, step.chat, step.options ?? {}));
