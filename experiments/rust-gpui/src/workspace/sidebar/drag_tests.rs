@@ -144,8 +144,10 @@ fn a_drop_on_the_middle_of_a_row_asks_for_a_link_and_creating_it_can_be_undone(c
 }
 
 #[gpui::test]
-fn dragging_a_row_onto_the_chat_lands_nowhere_and_escape_calls_a_drag_off(cx: &mut TestAppContext) {
+fn dragging_a_row_onto_the_chat_opens_it_beside_and_escape_calls_a_drag_off(cx: &mut TestAppContext) {
     let (workspace, sidebar, cx) = mount(cx);
+    let grid = workspace.read_with(cx, |w, _| w.grid.clone());
+    let moved = key(&sidebar, cx, 3);
     let from = at(cx, 3, 0.5);
     // The right part of the Chat column, left of the side panel.
     let panel = workspace.read_with(cx, |w, cx| {
@@ -154,20 +156,22 @@ fn dragging_a_row_onto_the_chat_lands_nowhere_and_escape_calls_a_drag_off(cx: &m
     });
     let size = cx.update(|window, _| window.viewport_size());
     let right = point(size.width - px(panel + 60.0), size.height / 2.0);
-    let before = pins(&sidebar, cx);
-    // Escape first.
+    // Escape first: nothing lands.
     drag_to(cx, from, right);
     assert!(sidebar.read_with(cx, |s, _| s.dragging().is_some()));
-    assert!(cx.debug_bounds("grid-drop").is_none(), "there is no drop overlay on the Chat view");
+    assert!(cx.debug_bounds("grid-drop").is_some(), "the drop overlay shows where it would land");
     cx.simulate_keystrokes("escape");
     cx.run_until_parked();
     assert!(sidebar.read_with(cx, |s, _| s.dragging().is_none()));
+    assert!(cx.debug_bounds("grid-drop").is_none());
     cx.simulate_mouse_up(right, MouseButton::Left, Modifiers::none());
     cx.run_until_parked();
-    // Then a release over the Chat view: the drag ends and nothing changes.
+    assert!(grid.read_with(cx, |g, _| g.split_keys().is_empty()), "the cancelled drag dropped nothing");
+    // Then the drop: the split opens with the dragged Chat after the open one.
     drag(cx, from, right);
-    assert!(sidebar.read_with(cx, |s, _| s.dragging().is_none()));
-    assert_eq!(pins(&sidebar, cx), before, "nothing was pinned or moved");
+    let split = grid.read_with(cx, |g, _| g.split_keys().to_vec());
+    assert_eq!(split.len(), 2, "the open Chat and the dropped one: {split:?}");
+    assert_eq!(split[1], moved);
 }
 
 #[gpui::test]

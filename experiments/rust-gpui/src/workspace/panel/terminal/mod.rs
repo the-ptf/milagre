@@ -52,6 +52,9 @@ pub const HEIGHT_MAX_SHARE: f32 = 0.75;
 pub const GAP: f32 = 8.0;
 /// The card's inset from the column's right and bottom edges (the desktop's `main` has `pr-3 pb-3`).
 pub const INSET: f32 = 12.0;
+/// The drawer's slide: it rises in `--duration-slow` and fades out in `--duration-base` (`TerminalSlide.tsx`).
+const DRAWER_SLIDE: super::slide::Timing =
+    super::slide::Timing { opening: crate::ui::ease::DURATION_SLOW, closing: crate::ui::ease::DURATION_BASE };
 /// The header's height (`h-9`) and padding (`px-1.5`), a tab's height (`h-7`) and widest (`max-w-[200px]`).
 pub const HEADER_HEIGHT: gpui::Pixels = px(36.0);
 const HEADER_PAD: gpui::Pixels = px(6.0);
@@ -128,11 +131,14 @@ pub fn on_actions<E: InteractiveElement>(element: E, drawer: &Entity<TerminalDra
 }
 
 /// The Chat column with the drawer under it when the Chat on screen has it open.
-pub fn column(chat: impl IntoElement, drawer: &Entity<TerminalDrawer>, window: &Window, cx: &App) -> AnyElement {
-    let (open, height) = {
+pub fn column(chat: impl IntoElement, drawer: &Entity<TerminalDrawer>, window: &Window, cx: &mut App) -> AnyElement {
+    let (open, height, key) = {
         let d = drawer.read(cx);
-        (d.is_open(), d.height)
+        (d.is_open(), d.height, d.chat.to_string())
     };
+    // It rises from the bottom edge and goes back down (`TerminalSlide.tsx`); a closing drawer stays under its cover.
+    let slide = super::slide::track("terminal", &key, open, super::slide::Edge::Bottom, DRAWER_SLIDE, cx);
+    let open = open || slide.held;
     let room = f32::from(window.viewport_size().height) * HEIGHT_MAX_SHARE;
     let slot = GAP + height.min(room).max(HEIGHT_MIN) + INSET;
     div()
@@ -143,7 +149,13 @@ pub fn column(chat: impl IntoElement, drawer: &Entity<TerminalDrawer>, window: &
         .child(div().flex_1().min_h_0().child(chat))
         .when(open, |el| {
             el.child(
-                div().flex_none().w_full().h(px(slot)).child(AnyView::from(drawer.clone()).cached(StyleRefinement::default().size_full())),
+                div()
+                    .relative()
+                    .flex_none()
+                    .w_full()
+                    .h(px(slot))
+                    .child(AnyView::from(drawer.clone()).cached(StyleRefinement::default().size_full()))
+                    .children(slide.cover),
             )
         })
         .into_any_element()

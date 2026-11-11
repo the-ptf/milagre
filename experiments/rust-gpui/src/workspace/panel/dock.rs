@@ -18,6 +18,9 @@ use crate::logic::keybindings::{GpuiOptions, default_keybindings, gpui_bindings}
 pub const MIN_CHAT_WIDTH: f32 = 420.0;
 /// How far either side of the panel's left edge a double-click counts as on the edge.
 const EDGE_GRAB: f32 = 4.0;
+/// The panel's slide each way (`DockSlide.tsx`: the slot's spring and the card's `--duration-slow` fade).
+const PANEL_SLIDE: super::slide::Timing =
+    super::slide::Timing { opening: crate::ui::ease::DURATION_SLOW, closing: crate::ui::ease::DURATION_SLOW };
 
 /// How wide a panel may be dragged and where it opens (`PANEL_WIDTHS`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -115,16 +118,14 @@ pub fn on_actions<E: InteractiveElement>(element: E, panel: &Entity<Panel>) -> E
 /// The columns right of the sidebar: the Chat, and the panel beside it when open. Open, they are one
 /// `h_resizable` group (the panel's left edge drags); expanded, the panel takes the whole width; closed, the Chat.
 pub fn layout(panel: &Entity<Panel>, chat: impl IntoElement + 'static, cx: &mut App) -> AnyElement {
-    let slide = super::slide::track(panel, cx);
     let (open, expanded, tab, width, state) = {
         let p = panel.read(cx);
         (p.is_open(), p.is_expanded(), p.active(), p.width(), p.resizable().clone())
     };
     // A closing panel stays laid out under its cover until the slide is done (`slide.rs`).
-    let (open, tab, width) = match slide.held {
-        Some((tab, width)) => (true, tab, width),
-        None => (open, tab, width),
-    };
+    let chat_key = panel.read(cx).chat().to_string();
+    let slide = super::slide::track("panel", &chat_key, open && !expanded, super::slide::Edge::Right, PANEL_SLIDE, cx);
+    let open = open || slide.held;
     let body = |panel: &Entity<Panel>| AnyView::from(panel.clone()).cached(StyleRefinement::default().size_full());
     if !open {
         return div().flex().flex_1().min_w_0().h_full().child(chat).into_any_element();

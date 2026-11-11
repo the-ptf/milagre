@@ -7,7 +7,7 @@ use gpui::{AnyElement, ClickEvent, Context, ElementId, IntoElement, ParentElemen
 use super::data::PortRow;
 use super::{PANEL_PAD, PillRow, scroll_body};
 use crate::theme::{ActiveTheme, RADIUS_CHIP, RADIUS_CONTROL, TEXT_13, TextStepExt, Theme, mono};
-use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, SpinnerRing, StatusPill};
+use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, Spinner, StatusPill};
 
 const ROW_HEIGHT: f32 = 34.0;
 const STOP_ALL: f32 = 44.0;
@@ -169,7 +169,7 @@ fn port_row(port: &PortRow, stopping: bool, theme: &Theme, cx: &mut Context<Pill
                 .items_center()
                 .justify_center()
                 .size(px(24.0))
-                .child(SpinnerRing::new().size(12.0))
+                .child(Spinner::new(SharedString::from(format!("port-stop-spinner-{number}"))))
                 .into_any_element()
         } else {
             div()

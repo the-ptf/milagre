@@ -105,7 +105,7 @@ pub fn icon(ix: usize, row: &ChatRow, item: &RailItem, cx: &gpui::App) -> gpui::
                     .rounded_full()
                     .bg(theme.surface)
                     .p(px(1.0))
-                    .child(crate::ui::SpinnerRing::new().size(10.0).color(theme.accent)),
+                    .child(crate::ui::Spinner::new(("rail-spinner", ix)).size(10.0).color(theme.accent)),
             )
         })
 }

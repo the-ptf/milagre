@@ -5,15 +5,20 @@
 //! names a version, opens its card once per version; Escape or a click on the pill toggles back to the pill; Dismiss
 //! hides it until the next version. Installing cannot be closed.
 //!
-//! Not built: the surface does not grow from the pill's size to the card's through a measured size (the desktop
-//! measures both faces and animates width, height and corners): the new face fades in instead. And the pill hangs from
-//! the Chat column's bottom left (the desktop's fallback without a Chat's composer to sit above); `NoticesLayer` places it.
+//! The swap morphs (`morph.ts`): the surface grows from the pill's measured size to the card's (or back), its corners
+//! from round to `RADIUS_WINDOW`, over `--duration-slow` on the enter curve at the Appearance "Motion" speed, while the
+//! new face fades in. Each face measures itself as it paints; the surface's size, corners, fill and shadow are drawn
+//! by a clip around the face for as long as the morph runs. The frames notify this view alone (it is one of its own),
+//! never the Chat column. The pill hangs from the Chat column's bottom left (the desktop's fallback without a Chat's
+//! composer to sit above); `NoticesLayer` places it, and the surface grows up and right from that corner.
 
-use std::time::Duration;
+use std::cell::Cell;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gpui::{
-    Animation, AnimationExt as _, App, Context, FocusHandle, Focusable, FontWeight, IntoElement, KeyDownEvent, Render, Task, Window, div,
-    prelude::*, px,
+    App, Context, FocusHandle, Focusable, FontWeight, IntoElement, KeyDownEvent, Pixels, Render, Size, Task, Window, canvas, div,
+    prelude::*, px, size,
 };
 
 use super::model::{AppUpdate, Presentation, UpdateStatus};
@@ -23,8 +28,6 @@ use crate::ui::{Button, ButtonVariant, Icon, IconButton, IconButtonSize, IconNam
 
 /// The card's width.
 pub const CARD_WIDTH: f32 = 360.0;
-/// The fade a face takes when the pill and the card swap.
-const FADE: Duration = Duration::from_millis(180);
 /// How long a fixture call takes, so "Restarting\u{2026}" is seen.
 const STEP: Duration = Duration::from_millis(300);
 
@@ -34,8 +37,10 @@ pub struct UpdateNotice {
     presentation: Presentation,
     request_error: String,
     pending: bool,
-    /// Bumped at each swap between pill and card, so the new face's fade starts over.
-    swaps: usize,
+    /// The morph between pill and card while it runs.
+    morph: Option<Morph>,
+    /// The face's size as last painted (the morph starts from it and grows to the new face's).
+    measured: Rc<Cell<Option<Size<Pixels>>>>,
     focus: FocusHandle,
     _task: Option<Task<()>>,
 }
@@ -48,7 +53,8 @@ impl UpdateNotice {
             presentation: Presentation::default(),
             request_error: String::new(),
             pending: false,
-            swaps: 0,
+            morph: None,
+            measured: Rc::default(),
             focus: cx.focus_handle(),
             _task: None,
         }
@@ -92,9 +98,12 @@ impl UpdateNotice {
 
     /// `milagre:show-update`: opens the card (from Settings' About or the pill) and takes focus.
     pub fn show(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let was_open = self.is_open();
         self.presentation.open = true;
         self.presentation.dismissed = false;
-        self.swaps += 1;
+        if !was_open {
+            self.begin_morph();
+        }
         window.focus(&self.focus, cx);
         cx.notify();
     }
@@ -112,7 +121,7 @@ impl UpdateNotice {
             return;
         }
         self.presentation.open = false;
-        self.swaps += 1;
+        self.begin_morph();
         cx.notify();
     }
 
@@ -124,7 +133,7 @@ impl UpdateNotice {
         }
         self.presentation.open = false;
         self.presentation.dismissed = true;
-        self.swaps += 1;
+        self.morph = None;
         cx.notify();
     }
 
@@ -157,6 +166,20 @@ impl UpdateNotice {
         }));
     }
 
+    /// Starts the size morph from the face on screen; nothing to morph from before it has painted, or with motion off.
+    fn begin_morph(&mut self) {
+        let duration = crate::ui::scaled(crate::ui::ease::DURATION_SLOW);
+        self.morph = match self.measured.get() {
+            Some(from) if !duration.is_zero() => Some(Morph { start: Instant::now(), duration, from, renders: 0 }),
+            _ => None,
+        };
+    }
+
+    /// How many frames the running morph has drawn, for the tests.
+    pub fn morph_frames(&self) -> Option<usize> {
+        self.morph.as_ref().map(|morph| morph.renders)
+    }
+
     fn on_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         if event.keystroke.key == "escape" && self.is_open() && !self.pending {
             self.close(cx);
@@ -171,8 +194,22 @@ impl Focusable for UpdateNotice {
     }
 }
 
+/// A swap between pill and card in progress.
+struct Morph {
+    start: Instant,
+    duration: Duration,
+    /// The old face's size.
+    from: Size<Pixels>,
+    renders: usize,
+}
+
+/// A face's corner radius at its size: the pill is round, the card `RADIUS_WINDOW`.
+fn corner(open: bool, height: Pixels) -> Pixels {
+    if open { RADIUS_WINDOW } else { height / 2.0 }
+}
+
 impl Render for UpdateNotice {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(state) = self.state.clone().filter(|state| self.presentation.visible(state)) else {
             return div().into_any_element();
         };
@@ -186,8 +223,9 @@ impl Render for UpdateNotice {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.on_key(event, cx)))
             .overflow_hidden()
-            .bg(theme.surface)
-            .text_color(theme.ink);
+            .text_color(theme.ink)
+            // While the morph runs the clip around the face draws the fill, corners and shadow.
+            .when(self.morph.is_none(), |surface| surface.bg(theme.surface));
         let face = if open {
             let busy = self.pending || state.installing() || state.downloading() || state.status == UpdateStatus::Checking;
             let error = if self.request_error.is_empty() { state.error.clone().unwrap_or_default() } else { self.request_error.clone() };
@@ -203,7 +241,7 @@ impl Render for UpdateNotice {
                 .w(px(CARD_WIDTH))
                 .p(px(20.0))
                 .rounded(RADIUS_WINDOW)
-                .shadow(theme.shadow_raised())
+                .when(self.morph.is_none(), |card| card.shadow(theme.shadow_raised()))
                 .child(
                     div()
                         .flex()
@@ -275,7 +313,7 @@ impl Render for UpdateNotice {
                 .px(px(12.0))
                 .py(px(8.0))
                 .rounded_full()
-                .shadow(theme.shadow_btn())
+                .when(self.morph.is_none(), |pill| pill.shadow(theme.shadow_btn()))
                 .text_step(TEXT_12)
                 .font_weight(FontWeight::MEDIUM)
                 .whitespace_nowrap()
@@ -287,11 +325,35 @@ impl Render for UpdateNotice {
                 .when(state.ready(), |pill| pill.child(div().size(px(6.0)).rounded_full().bg(theme.ink)))
                 .into_any_element()
         };
-        // The new face fades in; the first draw and a state change that swaps nothing do not.
-        let swaps = self.swaps;
-        if swaps == 0 || !crate::ui::motion() {
-            return face;
+        // Each face measures itself as it paints: where the next morph starts, and where this one is going.
+        let measured = self.measured.clone();
+        let measure = canvas(move |bounds, _, _| measured.set(Some(bounds.size)), |_, _, _, _| {}).absolute().size_full();
+        let face = div().relative().child(face).child(measure);
+        let Some(morph) = self.morph.as_mut() else { return face.into_any_element() };
+        morph.renders += 1;
+        let t = crate::ui::ease::progress(morph.start.elapsed(), morph.duration, crate::ui::ease::ease_out);
+        if t >= 1.0 {
+            // Landed: one more frame draws the face with its own fill and shadow.
+            self.morph = None;
+            window.request_animation_frame();
+            return face.into_any_element();
         }
-        div().child(face).with_animation(("update-swap", swaps), Animation::new(FADE), |el, delta| el.opacity(delta)).into_any_element()
+        window.request_animation_frame();
+        // The first frame has not measured the new face yet: it holds the old size.
+        let to = self.measured.get().unwrap_or(morph.from);
+        let lerp = |a: Pixels, b: Pixels| a + (b - a) * t;
+        let now = size(lerp(morph.from.width, to.width), lerp(morph.from.height, to.height));
+        let radius = lerp(corner(!open, morph.from.height), corner(open, to.height));
+        div()
+            .debug_selector(|| "update-morph".into())
+            .relative()
+            .w(now.width)
+            .h(now.height)
+            .overflow_hidden()
+            .rounded(radius)
+            .bg(theme.surface)
+            .shadow(if open { theme.shadow_raised() } else { theme.shadow_btn() })
+            .child(div().absolute().bottom_0().left_0().opacity(t).child(face))
+            .into_any_element()
     }
 }

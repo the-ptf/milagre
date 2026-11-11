@@ -3,6 +3,9 @@
 //!
 //! What a drag does, as the desktop's one list does it:
 //!
+//! - Any row dragged onto the Chat view joins the grid there, or opens beside the Chat on screen: the window asks
+//!   [`ChatGrid::hit`](crate::workspace::grid::ChatGrid::hit) where it would land, shows it and drops it
+//!   (`hooks.rs`).
 //! - A pinned row dragged within the Pinned rows reorders them (a line above or below the row under the pointer),
 //!   or, on the middle third of a row whose Chat can be linked, offers a Link between the two Chats' Worktrees: the
 //!   row is outlined and the drop opens the Create Link popover. A pinned row of another Project takes only the
@@ -20,6 +23,7 @@ use super::{ROW_INSET, Sidebar};
 use crate::logic::lists::chats::pin_order_at;
 use crate::theme::{ActiveTheme, HEADER_HEIGHT, RADIUS_CHIP, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_11, TextStepExt};
 use crate::ui::{Icon, IconName, IconSize};
+use crate::workspace::grid::GridDropTarget;
 
 /// The Pinned rows' top padding (`pt(4)` in `mod.rs`).
 const PINNED_PAD: f32 = 4.0;
@@ -116,6 +120,8 @@ pub(super) struct DragState {
     pub key: String,
     pub target: Option<DropTarget>,
     pub keyboard: bool,
+    /// Where on the Chat view it would land, past the sidebar.
+    pub grid: Option<GridDropTarget>,
 }
 
 impl Sidebar {
@@ -194,7 +200,7 @@ impl Sidebar {
     fn begin_drag(&mut self, key: &str, keyboard: bool, cx: &mut Context<Self>) {
         self.close_card();
         self.menu = None;
-        self.drag = Some(DragState { key: key.to_string(), target: None, keyboard });
+        self.drag = Some(DragState { key: key.to_string(), target: None, keyboard, grid: None });
         self.announcement = if keyboard {
             let label = self.row_title(key).unwrap_or_default();
             format!("Picked up {label}. Arrow keys move it, Space drops it, Escape cancels.")
@@ -222,6 +228,13 @@ impl Sidebar {
         let took = target.is_some();
         self.over(target, cx);
         took
+    }
+
+    /// Where on the Chat view the drag would land (the window's hook sets it).
+    pub fn set_drag_grid(&mut self, target: Option<GridDropTarget>) {
+        if let Some(drag) = &mut self.drag {
+            drag.grid = target;
+        }
     }
 
     fn over(&mut self, target: Option<DropTarget>, cx: &mut Context<Self>) {
@@ -340,10 +353,13 @@ impl Sidebar {
         }
     }
 
-    /// The drag ends here: a drop in the sidebar pins, reorders or opens the Create Link popover; anywhere else
-    /// nothing changes.
-    pub fn end_drag(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(drag) = self.finish_drag(cx) else { return };
+    /// The drag ends here. A drop on the Chat view comes back as its key and target for the window to drop on the
+    /// grid; a drop in the sidebar pins, reorders or opens the Create Link popover.
+    pub fn end_drag(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<(String, GridDropTarget)> {
+        let drag = self.finish_drag(cx)?;
+        if let Some(grid) = drag.grid.clone().filter(|_| drag.target.is_none()) {
+            return Some((drag.key, grid));
+        }
         let intent = self.intent_of(&drag);
         if drag.keyboard {
             self.announcement = match intent {
@@ -373,6 +389,7 @@ impl Sidebar {
                 self.select(ix, cx);
             }
         }
+        None
     }
 
     /// A drop's pin: this device's order for the Chat, recorded when it pins or unpins.

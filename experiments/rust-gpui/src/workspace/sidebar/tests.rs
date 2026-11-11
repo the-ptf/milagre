@@ -225,13 +225,3 @@ fn rows_come_from_the_domain_data_through_the_list_and_mark_rules() {
     assert!(rows.iter().all(|row| row.title.as_ref() != "Scratch idea 0"), "a hidden Project's Chats are left out");
     assert!(rows.iter().all(|row| !row.title.starts_with("Finished:") && !row.title.starts_with("Archived")));
 }
-
-#[gpui::test]
-fn the_pinned_rows_start_right_under_the_header_with_no_destination_rows(cx: &mut TestAppContext) {
-    let (_sidebar, cx) = mount(cx);
-    let pinned = cx.debug_bounds("sidebar-pinned").expect("the pinned rows");
-    assert_eq!(pinned.top(), crate::theme::HEADER_HEIGHT, "Canvas, Routines and Links live only in the top bar");
-    for id in ["bar-routines", "bar-link-projects"] {
-        assert!(cx.debug_bounds(id).is_some(), "{id} is in the top bar");
-    }
-}

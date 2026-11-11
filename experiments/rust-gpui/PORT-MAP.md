@@ -9,10 +9,7 @@ decision"); the GPUI facts below follow that move. Read-only analysis: nothing o
 **Scope decisions (Victor, 2026-11-11):** macOS only for now; Linux and Windows code paths (named pipes, Windows
 paths in markdown and file links, window-control modes, `daemon:authenticate`) are not ported or tested. The Canvas
 view (V-01, WP-47), the Browser panel (WP-35), Dictation (WP-53) and the floating inbox (WP-54) are not
-migrated. The web content host (WP-34) stays for Artifacts and HTML replies only. Also not ported (Victor, 2026-11-11): the
-Chat grid and split (V-02, the grid half of WP-48, ⌘⇧M, the sidebar's drag onto the Chat view), the corner's Artifact, Designs, PR and
-Changes toggles (the panel's tab strip has them), the Browser tab, and the sidebar's Canvas, Routines and Links rows (the top bar has
-them). The Link workspace stays.
+migrated. The web content host (WP-34) stays for Artifacts and HTML replies only.
 
 How to use it: section 1 is the summary. Section 2 lists every user-visible surface with an ID (`S-06`, `T-19`, …).
 Section 6 hands those IDs out to work packages. An agent given one package should read its package block, the surface
@@ -38,7 +35,7 @@ Path shorthand used in every table:
 | What                        | Count                                                                                                                                                                                                                                                                                                           |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Renderer source             | 415 TS/TSX files, about 81,000 lines without tests (237 `.tsx`). `App.tsx` is 4,523 lines, `styles.css` 2,372                                                                                                                                                                                                   |
-| Screens and views           | 13: Chat, Canvas, Routines (4 pages), Settings (in-window dialog: 18 sections plus a page per computer and per Project), Link workspace, Diff view, Design page editor, Onboarding, Dawn intro, Project chooser, Startup error, Floating inbox (4 OS windows)                                                   |
+| Screens and views           | 13: Chat, Chat grid and split, Canvas, Routines (4 pages), Settings (in-window dialog: 18 sections plus a page per computer and per Project), Link workspace, Diff view, Design page editor, Onboarding, Dawn intro, Project chooser, Startup error, Floating inbox (4 OS windows)                              |
 | Side panels                 | 7: Changes (Files and Commits), PR (a tab in Changes), Terminal (bottom drawer), Browser, Designs, Artifacts, Simulator                                                                                                                                                                                         |
 | Dialogs and sheets          | About 20 (Settings, command palette, Git actions, Worktree cleanup, Add computer, Add Project, Link Projects, Remove Project, Delete Link, computer allow prompt, release notes, handoff brief, quit error, attachment preview, MCP server sheet, design export, design share, media lightbox, discard prompts) |
 | Surface inventory rows      | 165 (section 2)                                                                                                                                                                                                                                                                                                 |
@@ -215,12 +212,12 @@ card, artifact cards, Heartbeat cards, the answer, a second activity fold, then 
 
 ### 2.6 Canvas, Chat grid and Link workspace
 
-| ID   | Surface                            | Source                                                                                                          | What it does                                                                                                                                            | Data                                                                                                                                  | Size | GPUI difficulty                   |
-| ---- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---- | --------------------------------- |
-| V-01 | Canvas (not migrated)              | `c/CanvasView.tsx`; `shared/canvas.ts`                                                                          | Project sections with Worktree cards and Chat rows; Link edges (smooth step, animated while Delegating); draw a Link between handles; zoom bar; filters | `canvas:snapshot`, `canvas:link-add`, `canvas:link-remove`, `project:position`, `canvas:worktree-position`, `linked:stop-negotiation` | XL   | drawing, drag and drop, animation |
-| V-02 | Chat grid and split (not migrated) | `c/ChatGrid.tsx`; `lib/chat-grid.ts`; `lib/grid-drop.ts`; `lib/subchat-split.ts`; `c/agents/TileFamilyMenu.tsx` | Tiles of active Chats; the focused tile owns the composer; drop overlay; split beside the parent                                                        | `chat:messages` per tile                                                                                                              | L    | drag and drop                     |
-| V-03 | Link workspace                     | `c/LinkWorkspace.tsx`                                                                                           | A shared Chat across Projects with member-aware Changes, its own palette and corner controls                                                            | `link:open`, `link:send`, `link:state`                                                                                                | L    |                                   |
-| V-04 | Run Chat beside its Routine        | `app/App.tsx:4040-4082`; `c/routines/RunChatHeader.tsx`                                                         | Routine page on the left (420px), Run Chat on the right                                                                                                 | routines                                                                                                                              | S    |                                   |
+| ID   | Surface                     | Source                                                                                                          | What it does                                                                                                                                            | Data                                                                                                                                  | Size | GPUI difficulty                   |
+| ---- | --------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---- | --------------------------------- |
+| V-01 | Canvas (not migrated)       | `c/CanvasView.tsx`; `shared/canvas.ts`                                                                          | Project sections with Worktree cards and Chat rows; Link edges (smooth step, animated while Delegating); draw a Link between handles; zoom bar; filters | `canvas:snapshot`, `canvas:link-add`, `canvas:link-remove`, `project:position`, `canvas:worktree-position`, `linked:stop-negotiation` | XL   | drawing, drag and drop, animation |
+| V-02 | Chat grid and split         | `c/ChatGrid.tsx`; `lib/chat-grid.ts`; `lib/grid-drop.ts`; `lib/subchat-split.ts`; `c/agents/TileFamilyMenu.tsx` | Tiles of active Chats; the focused tile owns the composer; drop overlay; split beside the parent                                                        | `chat:messages` per tile                                                                                                              | L    | drag and drop                     |
+| V-03 | Link workspace              | `c/LinkWorkspace.tsx`                                                                                           | A shared Chat across Projects with member-aware Changes, its own palette and corner controls                                                            | `link:open`, `link:send`, `link:state`                                                                                                | L    |                                   |
+| V-04 | Run Chat beside its Routine | `app/App.tsx:4040-4082`; `c/routines/RunChatHeader.tsx`                                                         | Routine page on the left (420px), Run Chat on the right                                                                                                 | routines                                                                                                                              | S    |                                   |
 
 ### 2.7 Routines
 
@@ -1063,64 +1060,64 @@ Where each package stands on `milagre/chat-tie0` (checked 2026-11-11, after the 
 hooks `a27dbe2d`, Appearance applied `b87927ab`). Everything runs on fixture data in the headless tests and the
 snapshot mode; nothing talks to the daemon in the app. "Partial" says what is missing.
 
-| WP    | Status   | Commit(s) and what is missing                                                                                                                                                                       |
-| ----- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| WP-01 | done     | `d1febf7b` (COMPONENT-FIT.md), Root as window root `f28c1b6c`                                                                                                                                       |
-| WP-02 | done     | tokens `50ad41a2`, component bridge `b44ef499`; fonts and sizes now follow Appearance (`b87927ab`)                                                                                                  |
-| WP-03 | done     | `6b6ca9e8`; the stand-in icons were replaced with the real ones in `3054f22a`                                                                                                                       |
-| WP-04 | partial  | `c4ad080e` (`DataSource`, `FixtureSource`), `094fa785` (off-by-default `DaemonAdapter`, `daemon-check/`); the app runs on the fixture                                                               |
-| WP-05 | partial  | `9a50ea52`, `801f9fee` (bounded live event fold behind the snapshot barrier); held states with patches and resync are not wired                                                                     |
-| WP-06 | partial  | `801f9fee` (runs reducer); per-Chat message windows and remote warm-up are not built                                                                                                                |
-| WP-07 | done     | `5e7e7557`, `6978ef44`                                                                                                                                                                              |
-| WP-08 | done     | `6978ef44` (popover, menu, select, dialog, tooltip, toast); dialogs and palette `a3eac5f5`                                                                                                          |
-| WP-09 | done     | `279dab5c` (text area on gpui-component's input), `6978ef44` (fields)                                                                                                                               |
-| WP-10 | partial  | scroll area, range slider, status pill in `5e7e7557` and `6978ef44`; the shared motion helper is per view, not a `motion/` module                                                                   |
-| WP-11 | done     | `259e5343`                                                                                                                                                                                          |
-| WP-12 | done     | `67ced21c`, `4f5a56a5`                                                                                                                                                                              |
-| WP-13 | done     | `167bccf2`                                                                                                                                                                                          |
-| WP-14 | done     | `67528e40`, `7f24f5c5`                                                                                                                                                                              |
-| WP-15 | done     | `67528e40` (Shiki colours, code blocks)                                                                                                                                                             |
-| WP-16 | done     | `58ba47ad`                                                                                                                                                                                          |
-| WP-17 | partial  | web host `abedf8a2`, updates and bundling `c289c2a7`, `platform/`; daemon-backed host calls (editors, clipboard, notify, audio) are fixtures                                                        |
-| WP-18 | done     | `34422055`; key bindings and menus live in `workspace/shell/keys.rs`                                                                                                                                |
-| WP-19 | done     | `6b6ca9e8`, `30488c9c`                                                                                                                                                                              |
-| WP-20 | done     | `0858cff2`                                                                                                                                                                                          |
-| WP-21 | done     | `7f24f5c5`, `27f5fd15`                                                                                                                                                                              |
-| WP-22 | done     | `456ecede`                                                                                                                                                                                          |
-| WP-23 | done     | `b7fafdce`                                                                                                                                                                                          |
-| WP-24 | done     | `279dab5c`                                                                                                                                                                                          |
-| WP-25 | done     | `b243bec6`                                                                                                                                                                                          |
-| WP-26 | done     | `2a404c2e`; the context card opens on hover and focus (`a27dbe2d`)                                                                                                                                  |
-| WP-27 | done     | `0b23fbbd`                                                                                                                                                                                          |
-| WP-28 | done     | `fd8af07a`                                                                                                                                                                                          |
-| WP-29 | done     | `b1e1aeab`; `simulator.toggle` is bound (`a27dbe2d`)                                                                                                                                                |
-| WP-30 | done     | `b1e1aeab`                                                                                                                                                                                          |
-| WP-31 | done     | `0b10316e`, over the Chat column `3ffdd6f4`, inside the expanded panel instead when it is expanded; Refresh re-reads the Worktree (`a27dbe2d`) and the PR's patches; line comments persist per Chat |
-| WP-32 | done     | `607b08a3`; the merge method persists per repository                                                                                                                                                |
-| WP-33 | partial  | `9b7c7a35`, `930ee7cf`; the local PTY is interim until the daemon PTY client                                                                                                                        |
-| WP-34 | done     | `abedf8a2`; the Artifact page hides under menus, popovers, the palette and dialogs (`a27dbe2d`)                                                                                                     |
-| WP-35 | not done | out of scope (Victor, 2026-11-11)                                                                                                                                                                   |
-| WP-36 | done     | `3697d72c`                                                                                                                                                                                          |
-| WP-37 | done     | `36866ca6`                                                                                                                                                                                          |
-| WP-38 | done     | `320544be`                                                                                                                                                                                          |
-| WP-39 | done     | `237be677`                                                                                                                                                                                          |
-| WP-40 | done     | `43abe37e`; the choices reach the real views in `b87927ab` (the Motion speed drives the panel and drawer slides, the update morph and the find bar)                                                                                           |
-| WP-41 | partial  | Keybindings `9820d1b1`; Voice settings are not built (Dictation is out of scope)                                                                                                                    |
-| WP-42 | done     | `56d7b984`                                                                                                                                                                                          |
-| WP-43 | done     | `a17ea3d2`                                                                                                                                                                                          |
-| WP-44 | done     | `70a56b6d`                                                                                                                                                                                          |
-| WP-45 | done     | `2c73ccd6`                                                                                                                                                                                          |
-| WP-46 | done     | `d9591bd5`                                                                                                                                                                                          |
-| WP-47 | not done | out of scope (Victor, 2026-11-11)                                                                                                                                                                   |
-| WP-48 | partial  | `6cd1876f`; the Chat grid and split are removed (Victor, 2026-11-11), the Link workspace stays                                                                                                      |
-| WP-49 | done     | `f2d41666`; the drag into the grid is removed with the grid                                                                                                                                         |
-| WP-50 | done     | `a3eac5f5`, `a84a501f`                                                                                                                                                                              |
-| WP-51 | partial  | `f43767ce`; shows when the data source has no Project (`a27dbe2d`); the Dawn intro and Welcome sky are not built                                                                                    |
-| WP-52 | done     | `f8c67f23`; Settings › About drives the card with `UpdateMachine` (`a27dbe2d`)                                                                                                                      |
-| WP-53 | not done | out of scope (Victor, 2026-11-11)                                                                                                                                                                   |
-| WP-54 | not done | out of scope (Victor, 2026-11-11)                                                                                                                                                                   |
-| WP-55 | done     | `4d6ef727`                                                                                                                                                                                          |
-| WP-56 | partial  | `c289c2a7`, `375613c0` (bundle script, update state machine); there is no update feed                                                                                                               |
+| WP    | Status   | Commit(s) and what is missing                                                                                                                |
+| ----- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| WP-01 | done     | `d1febf7b` (COMPONENT-FIT.md), Root as window root `f28c1b6c`                                                                                |
+| WP-02 | done     | tokens `50ad41a2`, component bridge `b44ef499`; fonts and sizes now follow Appearance (`b87927ab`)                                           |
+| WP-03 | done     | `6b6ca9e8`; the stand-in icons were replaced with the real ones in `3054f22a`                                                                |
+| WP-04 | partial  | `c4ad080e` (`DataSource`, `FixtureSource`), `094fa785` (off-by-default `DaemonAdapter`, `daemon-check/`); the app runs on the fixture        |
+| WP-05 | partial  | `9a50ea52`, `801f9fee` (bounded live event fold behind the snapshot barrier); held states with patches and resync are not wired              |
+| WP-06 | partial  | `801f9fee` (runs reducer); per-Chat message windows and remote warm-up are not built                                                         |
+| WP-07 | done     | `5e7e7557`, `6978ef44`                                                                                                                       |
+| WP-08 | done     | `6978ef44` (popover, menu, select, dialog, tooltip, toast); dialogs and palette `a3eac5f5`                                                   |
+| WP-09 | done     | `279dab5c` (text area on gpui-component's input), `6978ef44` (fields)                                                                        |
+| WP-10 | partial  | scroll area, range slider, status pill in `5e7e7557` and `6978ef44`; the shared motion helper is per view, not a `motion/` module            |
+| WP-11 | done     | `259e5343`                                                                                                                                   |
+| WP-12 | done     | `67ced21c`, `4f5a56a5`                                                                                                                       |
+| WP-13 | done     | `167bccf2`                                                                                                                                   |
+| WP-14 | done     | `67528e40`, `7f24f5c5`                                                                                                                       |
+| WP-15 | done     | `67528e40` (Shiki colours, code blocks)                                                                                                      |
+| WP-16 | done     | `58ba47ad`                                                                                                                                   |
+| WP-17 | partial  | web host `abedf8a2`, updates and bundling `c289c2a7`, `platform/`; daemon-backed host calls (editors, clipboard, notify, audio) are fixtures |
+| WP-18 | done     | `34422055`; key bindings and menus live in `workspace/shell/keys.rs`                                                                         |
+| WP-19 | done     | `6b6ca9e8`, `30488c9c`                                                                                                                       |
+| WP-20 | done     | `0858cff2`                                                                                                                                   |
+| WP-21 | done     | `7f24f5c5`, `27f5fd15`                                                                                                                       |
+| WP-22 | done     | `456ecede`                                                                                                                                   |
+| WP-23 | done     | `b7fafdce`                                                                                                                                   |
+| WP-24 | done     | `279dab5c`                                                                                                                                   |
+| WP-25 | done     | `b243bec6`                                                                                                                                   |
+| WP-26 | done     | `2a404c2e`; the context card opens on hover and focus (`a27dbe2d`)                                                                           |
+| WP-27 | done     | `0b23fbbd`                                                                                                                                   |
+| WP-28 | done     | `fd8af07a`                                                                                                                                   |
+| WP-29 | done     | `b1e1aeab`; `simulator.toggle` is bound (`a27dbe2d`)                                                                                         |
+| WP-30 | done     | `b1e1aeab`                                                                                                                                   |
+| WP-31 | done     | `0b10316e`, over the Chat column `3ffdd6f4`; Refresh re-reads the Worktree (`a27dbe2d`)                                                      |
+| WP-32 | done     | `607b08a3`                                                                                                                                   |
+| WP-33 | partial  | `9b7c7a35`, `930ee7cf`; the local PTY is interim until the daemon PTY client                                                                 |
+| WP-34 | done     | `abedf8a2`; the Artifact page hides under menus, popovers, the palette and dialogs (`a27dbe2d`)                                              |
+| WP-35 | not done | out of scope (Victor, 2026-11-11)                                                                                                            |
+| WP-36 | done     | `3697d72c`                                                                                                                                   |
+| WP-37 | done     | `36866ca6`                                                                                                                                   |
+| WP-38 | done     | `320544be`                                                                                                                                   |
+| WP-39 | done     | `237be677`                                                                                                                                   |
+| WP-40 | done     | `43abe37e`; the choices reach the real views in `b87927ab` (the Motion speed drives the panel and drawer slides, the update morph and the find bar)                                    |
+| WP-41 | partial  | Keybindings `9820d1b1`; Voice settings are not built (Dictation is out of scope)                                                             |
+| WP-42 | done     | `56d7b984`                                                                                                                                   |
+| WP-43 | done     | `a17ea3d2`                                                                                                                                   |
+| WP-44 | done     | `70a56b6d`                                                                                                                                   |
+| WP-45 | done     | `2c73ccd6`                                                                                                                                   |
+| WP-46 | done     | `d9591bd5`                                                                                                                                   |
+| WP-47 | not done | out of scope (Victor, 2026-11-11)                                                                                                            |
+| WP-48 | done     | `6cd1876f`                                                                                                                                   |
+| WP-49 | done     | `f2d41666`                                                                                                                                   |
+| WP-50 | done     | `a3eac5f5`, `a84a501f`                                                                                                                       |
+| WP-51 | partial  | `f43767ce`; shows when the data source has no Project (`a27dbe2d`); the Dawn intro and Welcome sky are not built                             |
+| WP-52 | done     | `f8c67f23`; Settings › About drives the card with `UpdateMachine` (`a27dbe2d`)                                                               |
+| WP-53 | not done | out of scope (Victor, 2026-11-11)                                                                                                            |
+| WP-54 | not done | out of scope (Victor, 2026-11-11)                                                                                                            |
+| WP-55 | done     | `4d6ef727`                                                                                                                                   |
+| WP-56 | partial  | `c289c2a7`, `375613c0` (bundle script, update state machine); there is no update feed                                                        |
 
 Where the code landed differs from the layout below in two places: onboarding is `src/onboarding/` and notices are
 `src/notices/` (both top level, not under `src/overlays/`).
@@ -1615,7 +1612,7 @@ WP-34 when needed; WP-38 any time after WP-14.
   corners via `PathBuilder`, dashed flow animation, drawing a Link between handles, filters, positions saved.
 - Depends on: WP-10, WP-18. Verify: layout vectors from `shared/canvas.ts`; hit testing of handles and edges.
 
-**WP-48 Chat grid, split and Link workspace** · Opus · L · **Chat grid and split out of scope (Victor, 2026-11-11): removed; the Link workspace stays.**
+**WP-48 Chat grid, split and Link workspace** · Opus · L
 
 - Surfaces: V-02, V-03. Owns: `src/workspace/grid/*`, `src/workspace/link/*`.
 - Goal: tiles with the focused tile owning the composer, drop targets, family split; the Link workspace with

@@ -11,6 +11,7 @@
 //! | `ScrollArea` | `scroll_area.rs` | `ScrollArea` |
 //! | `Tooltip` (stub) | `tooltip.rs` | `Tooltip` |
 //! | `SpinnerRing` | `spinner_ring.rs` | `SpinnerRing` |
+//! | `Spinner` (a turning ring in a view of its own) | `spinner.rs` | `SpinnerRing` |
 //! | `SectionLabel`, `ProjectAvatar` | `labels.rs` | `SectionLabel`, `ProjectAvatar` |
 //! | `Checkbox` | `checkbox.rs` | `Checkbox` |
 
@@ -18,6 +19,7 @@ mod button;
 mod checkbox;
 mod chip;
 mod dialog;
+pub mod ease;
 mod empty_state;
 mod field;
 mod focus;
@@ -42,12 +44,15 @@ mod select;
 pub mod selection;
 mod shortcut_keys;
 mod skeleton;
+mod spinner;
 mod spinner_ring;
 mod status_pill;
 mod tabs;
 mod toast;
 mod tooltip;
 
+#[cfg(test)]
+mod motion_tests;
 #[cfg(test)]
 mod primitives_tests;
 #[cfg(test)]
@@ -75,6 +80,7 @@ pub use segmented::{SegmentDot, Segmented, SegmentedOption, picked_fill};
 pub use select::{Select, SelectOption, SelectVariant};
 pub use shortcut_keys::{ShortcutKeys, parse_shortcut, shortcut_labels};
 pub use skeleton::Skeleton;
+pub use spinner::{Spinner, SpinnerView};
 pub use spinner_ring::SpinnerRing;
 pub use status_pill::{PillTone, StatusPill};
 pub use tabs::{Tab, TabOption, Tabs};
@@ -82,7 +88,29 @@ pub use toast::Toast;
 pub use tooltip::Tooltip;
 
 /// Whether looping animations run (spinners, the running mark). Off in the headless tests, so a test can
-/// count renders without animation frames adding to them; on in the app.
-pub const fn motion() -> bool {
-    !cfg!(test)
+/// count renders without animation frames adding to them (a test turns it on with [`set_test_motion`]); on in the
+/// app, whatever the Appearance "Motion" speed: as on the desktop, that speed is for panels, and a spinner still turns.
+pub fn motion() -> bool {
+    !cfg!(test) || TEST_MOTION.with(std::cell::Cell::get)
+}
+
+/// The Appearance "Motion" speed as a scale for opening and closing motion (panels, the update card, the terminal
+/// drawer, the find bar): 1 Normal, 0.6 Fast, 0 Off (everything lands at once). 0 wherever [`motion`] is off.
+pub fn motion_scale() -> f32 {
+    if motion() { crate::theme::live::chosen_motion_scale().max(0.0) } else { 0.0 }
+}
+
+/// A duration at the chosen [`motion_scale`]; zero when motion is off.
+pub fn scaled(duration: std::time::Duration) -> std::time::Duration {
+    duration.mul_f32(motion_scale())
+}
+
+thread_local! {
+    static TEST_MOTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Turns looping and opening motion on for this test's thread (each headless test runs on its own).
+#[cfg(test)]
+pub fn set_test_motion(on: bool) {
+    TEST_MOTION.with(|motion| motion.set(on));
 }

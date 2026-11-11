@@ -19,7 +19,7 @@ use crate::logic::plan::TaskStatus;
 use crate::theme::{ActiveTheme, RADIUS_CARD, RADIUS_CONTROL, RADIUS_INLINE, TEXT_11, TEXT_12, TEXT_13, TEXT_15, TextStepExt, Theme};
 use crate::ui::{
     Button, ButtonSize, ButtonVariant, EmptySize, EmptyState, Icon, IconButton, IconButtonSize, IconName, IconSize, ProviderLogo,
-    SectionLabel, SpinnerRing, StatusPill,
+    SectionLabel, Spinner, StatusPill,
 };
 
 const ROW_HEIGHT: f32 = 78.0;
@@ -89,7 +89,7 @@ impl PillRow {
             .flex()
             .items_center()
             .gap_2()
-            .when(list.running > 0, |el| el.pl_2().child(SpinnerRing::new().size(12.0).color(theme.ink3)))
+            .when(list.running > 0, |el| el.pl_2().child(Spinner::new("subagents-pill-spinner").color(theme.ink3)))
             .child(pill)
             .into_any_element()
     }
@@ -301,7 +301,7 @@ impl PillRow {
                                                 task.content.clone()
                                             }),
                                     )
-                                    .child(task_marker(task.status, &theme)),
+                                    .child(task_marker(&task.id, task.status, &theme)),
                             )
                             .when(doing && (said.is_some() || !now_line.is_empty()), |el| {
                                 el.child(
@@ -337,7 +337,7 @@ impl PillRow {
                                 .flex()
                                 .items_center()
                                 .gap_1p5()
-                                .child(SpinnerRing::new().size(12.0))
+                                .child(Spinner::new("subagent-now-spinner"))
                                 .child(SectionLabel::new(format!("Now \u{b7} step {}", agent.transcript.len()))),
                         )
                         .child(
@@ -548,10 +548,10 @@ fn step_number(value: usize, current: bool, theme: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-fn task_marker(status: TaskStatus, theme: &Theme) -> AnyElement {
+fn task_marker(id: &str, status: TaskStatus, theme: &Theme) -> AnyElement {
     let slot = div().mt_0p5().flex().flex_none().items_center().justify_center().size(px(16.0));
     match status {
-        TaskStatus::InProgress => slot.child(SpinnerRing::new().size(12.0)).into_any_element(),
+        TaskStatus::InProgress => slot.child(Spinner::new(SharedString::from(format!("agent-task-spinner-{id}")))).into_any_element(),
         TaskStatus::Completed => slot.child(Icon::new(IconName::Tick02).size(IconSize::S14).color(theme.ink3)).into_any_element(),
         TaskStatus::Pending => {
             slot.child(div().size(px(12.0)).rounded_full().border(px(1.5)).border_color(theme.line_strong)).into_any_element()
@@ -599,7 +599,7 @@ fn agent_row(agent: &Subagent, now: i64, archived_view: bool, theme: &Theme, cx:
     let archive_id = id.clone();
     let running = agent.status.active();
     let mark = if running {
-        SpinnerRing::new().size(12.0).into_any_element()
+        Spinner::new(SharedString::from(format!("agent-row-spinner-{}", agent.id))).into_any_element()
     } else if agent.status == AgentStatus::Failed {
         Icon::new(IconName::AlertCircle).size(IconSize::S14).color(theme.ink3).into_any_element()
     } else {

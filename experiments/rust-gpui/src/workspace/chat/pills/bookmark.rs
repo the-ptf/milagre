@@ -9,7 +9,8 @@
 //!
 //! The model is plain data (`FamilyChat`) and the two helpers that read it are `logic::lists::subchats`
 //! (`chat_bookmark`, `chat_family`). Not built: the Routine chip beside it and the bookmark reserve that keeps the
-//! chip clear (Routines are another package), the ⌘[ shortcut. The family menu has no "Open beside parent" or "Show all side by side": the Chat grid and the split are out of the port.
+//! chip clear (Routines are another package), the ⌘[ shortcut, "Open beside parent" and "Show all side by side"
+//! (the split view is WP-33: the rows emit `ChatEvent::Beside` and `ChatEvent::ShowAll`, which nothing handles yet).
 
 use gpui::{
     AnyElement, ClickEvent, Context, ElementId, FontWeight, IntoElement, MouseDownEvent, ParentElement, SharedString, Styled, div,
@@ -300,9 +301,31 @@ fn family_row(entry: &FamilyEntry, open: bool, theme: &Theme, cx: &mut Context<C
 }
 
 /// `FamilyMenu`: 320 wide, hung under the bookmark.
-pub fn family_menu_view(menu: &FamilyMenu, open_key: &str, theme: &Theme, cx: &mut Context<ChatView>) -> AnyElement {
+pub fn family_menu_view(menu: &FamilyMenu, open_key: &str, has_parent: bool, theme: &Theme, cx: &mut Context<ChatView>) -> AnyElement {
     let theme = *theme;
     let count = if menu.subchats.len() == 1 { "1 Subchat".to_string() } else { format!("{} Subchats", menu.subchats.len()) };
+    let action = |id: &'static str, icon: IconName, title: String, event: crate::workspace::chat::ChatEvent, cx: &mut Context<ChatView>| {
+        div()
+            .id(id)
+            .debug_selector(move || id.into())
+            .flex()
+            .items_center()
+            .gap_2()
+            .h(px(32.0))
+            .px_2()
+            .rounded(RADIUS_CONTROL)
+            .text_step(TEXT_13)
+            .text_color(theme.ink)
+            .cursor_pointer()
+            .hover(move |style| style.bg(theme.hover))
+            .child(div().w(px(16.0)).flex().flex_none().justify_center().child(Icon::new(icon).size(IconSize::S14).color(theme.ink2)))
+            .child(title)
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.close_family_menu(cx);
+                cx.emit(event.clone());
+            }))
+    };
+    let parent_key = menu.ancestors.last().map(|entry| entry.key.clone()).unwrap_or_default();
     div()
         .id("family-menu")
         .debug_selector(|| "family-menu".into())
@@ -321,5 +344,22 @@ pub fn family_menu_view(menu: &FamilyMenu, open_key: &str, theme: &Theme, cx: &m
         .children(menu.ancestors.iter().map(|entry| family_row(entry, false, &theme, cx)))
         .child(div().px_2().pt_1p5().pb_1().child(SectionLabel::new(count).menu()))
         .children(menu.subchats.iter().map(|entry| family_row(entry, entry.key == open_key, &theme, cx)))
+        .child(div().my_1().h(px(1.0)).bg(theme.line))
+        .when(has_parent, |el| {
+            el.child(action(
+                "family-beside",
+                IconName::LayoutTwoColumn,
+                "Open beside parent".into(),
+                crate::workspace::chat::ChatEvent::Beside(parent_key.clone()),
+                cx,
+            ))
+        })
+        .child(action(
+            "family-all",
+            IconName::GridView,
+            format!("Show all {} side by side", menu.size),
+            crate::workspace::chat::ChatEvent::ShowAll,
+            cx,
+        ))
         .into_any_element()
 }

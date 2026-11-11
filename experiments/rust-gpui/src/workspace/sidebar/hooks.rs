@@ -2,7 +2,7 @@
 //! the shell call, kept here so the shared root files only gain a line each.
 //!
 //! A row's drag is GPUI's own (`on_drag` on the row): the window hears every move of it (`on_drag_move`, which runs
-//! wherever the pointer is), asks the sidebar where it would land, and ends it on the
+//! wherever the pointer is), asks the sidebar first and the grid second where it would land, and ends it on the
 //! release anywhere in the window (a window-level mouse-up listener, so a release over an element that takes the
 //! pointer still drops) or on Escape.
 
@@ -51,19 +51,28 @@ impl Workspace {
         element
     }
 
-    /// A row is dragged to `at`: the sidebar's Pinned rows take it (the Link workspace and Routines have no drop).
+    /// A row is dragged to `at`: the sidebar's Pinned rows take it first, then the Chat view (unless the Link
+    /// workspace or Routines has the window).
     pub(crate) fn chat_drag_moved(&mut self, drag: &ChatDrag, at: Point<Pixels>, cx: &mut Context<Self>) {
-        self.sidebar.update(cx, |sidebar, cx| sidebar.drag_over(drag, at, cx));
+        let took = self.sidebar.update(cx, |sidebar, cx| sidebar.drag_over(drag, at, cx));
+        let grid = if took || self.link.is_some() || self.routines_open { None } else { self.grid.read(cx).hit(at, &drag.key) };
+        self.sidebar.update(cx, |sidebar, _| sidebar.set_drag_grid(grid.clone()));
+        self.grid.update(cx, |g, cx| g.show_drop(grid, cx));
     }
 
-    /// The release: in the sidebar it pins, reorders or asks for a Link; anywhere else nothing changes.
+    /// The release: on the Chat view the grid takes the Chat; in the sidebar it pins, reorders or asks for a Link.
     pub(crate) fn chat_dropped(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.sidebar.update(cx, |sidebar, cx| sidebar.end_drag(window, cx));
+        let landed = self.sidebar.update(cx, |sidebar, cx| sidebar.end_drag(window, cx));
+        self.grid.update(cx, |g, cx| g.show_drop(None, cx));
+        if let Some((key, target)) = landed {
+            self.grid.update(cx, |g, cx| g.drop_chat(&key, &target, cx));
+        }
         cx.notify();
     }
 
     pub(crate) fn cancel_chat_drag(&mut self, cx: &mut Context<Self>) {
         self.sidebar.update(cx, |sidebar, cx| sidebar.cancel_drag(cx));
+        self.grid.update(cx, |g, cx| g.show_drop(None, cx));
     }
 
     /// The top bar's Link Projects: the Link Projects dialog, and the new Link's workspace once it is made.

@@ -8,14 +8,16 @@
 //!
 //! Look: `surface`, `rounded-card`, `shadow-raised`, 4px gaps, 12px on the left and 4 elsewhere; the field 176
 //! wide in 13px ink with an `ink-3` placeholder; the count at least 72 wide in 12px `ink-3`, right aligned; three
-//! 24px icon buttons with tooltips. Not built: the bar's `fade-up` entrance, tabular figures in the count.
+//! 24px icon buttons with tooltips. It enters with `fade-up` (8px up and in, `--duration-base` on the enter curve, at the
+//! Appearance "Motion" speed): a bar is a new view each time it opens, so the animation runs once per opening, and its
+//! frames notify the bar alone. Not built: tabular figures in the count.
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyDownEvent, ListOffset, Pixels, SharedString,
-    Subscription, Window, canvas, div, prelude::*, px,
+    Animation, AnimationExt as _, AnyElement, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyDownEvent,
+    ListOffset, Pixels, SharedString, Subscription, Window, canvas, div, prelude::*, px,
 };
 use gpui_base::TextSelection;
 use gpui_component::Sizable as _;
@@ -122,6 +124,9 @@ impl Focusable for FindBar {
     }
 }
 
+/// How far below its place the bar starts its `fade-up`.
+const FADE_UP: f32 = 8.0;
+
 impl Render for FindBar {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = *cx.theme();
@@ -137,7 +142,7 @@ impl Render for FindBar {
             .px_0()
             .text_size(px(TEXT_13.size))
             .text_color(theme.ink);
-        div()
+        let bar = div()
             .debug_selector(|| "find-bar".into())
             .absolute()
             .top(px(BAR_TOP))
@@ -187,7 +192,15 @@ impl Render for FindBar {
                 FindBarEvent::Next,
                 cx,
             ))
-            .child(self.icon_button("find-close", IconName::Cancel01, Tooltip::new("Close"), false, FindBarEvent::Close, cx))
+            .child(self.icon_button("find-close", IconName::Cancel01, Tooltip::new("Close"), false, FindBarEvent::Close, cx));
+        let enter = crate::ui::scaled(crate::ui::ease::DURATION_BASE);
+        if enter.is_zero() {
+            return bar.into_any_element();
+        }
+        bar.with_animation("find-bar-fade-up", Animation::new(enter).with_easing(crate::ui::ease::ease_out), |bar, t| {
+            bar.opacity(t).top(px(BAR_TOP + FADE_UP * (1.0 - t)))
+        })
+        .into_any_element()
     }
 }
 

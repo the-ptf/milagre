@@ -370,7 +370,7 @@ fn a_subchat_shows_its_bookmark_and_the_family_menu_opens_it(cx: &mut TestAppCon
     click(cx, "bookmark-current");
     assert!(chat.read_with(cx, |c, _| c.family_menu_open()));
     assert!(cx.debug_bounds("family-menu").is_some());
-    assert!(cx.debug_bounds("family-beside").is_none() && cx.debug_bounds("family-all").is_none(), "the split entries are gone");
+    assert!(cx.debug_bounds("family-beside").is_some() && cx.debug_bounds("family-all").is_some());
     // Picking the parent opens it alone: the sidebar selection follows.
     click(cx, "bookmark-parent");
     let title = chat.read_with(cx, |c, _| c.title().to_string());

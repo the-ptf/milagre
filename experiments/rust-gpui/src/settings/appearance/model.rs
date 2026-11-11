@@ -208,6 +208,7 @@ impl AppearanceOptions {
             chat_width: self.chat_width_limit().map(|px| px as f32),
             simplified_icons: self.provider_icons == "simplified",
             compact_usage: self.sidebar_usage == "compact",
+            motion_scale: self.motion_scale(),
         }
     }
 }

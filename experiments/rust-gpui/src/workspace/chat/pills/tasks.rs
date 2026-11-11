@@ -8,7 +8,7 @@ use gpui::{AnyElement, ClickEvent, Context, ElementId, FontWeight, IntoElement, 
 use super::{HEADER, PANEL_PAD, PillRow, collapse_button, panel_header, phase, scroll_body};
 use crate::logic::plan::{ChatTask, TaskStatus, current_phase, task_counts};
 use crate::theme::{ActiveTheme, RADIUS_CONTROL, RADIUS_INLINE, TEXT_11, TEXT_13, TextStepExt, Theme};
-use crate::ui::{Icon, IconName, IconSize, SpinnerRing, StatusPill};
+use crate::ui::{Icon, IconName, IconSize, Spinner, StatusPill};
 
 /// One drawn row of the tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,10 +118,10 @@ impl PillRow {
     }
 }
 
-fn marker(status: TaskStatus, theme: &Theme) -> AnyElement {
+fn marker(id: &str, status: TaskStatus, theme: &Theme) -> AnyElement {
     let slot = div().mt_0p5().flex().flex_none().items_center().justify_center().size(px(16.0));
     match status {
-        TaskStatus::InProgress => slot.child(SpinnerRing::new().size(12.0)).into_any_element(),
+        TaskStatus::InProgress => slot.child(Spinner::new(SharedString::from(format!("task-spinner-{id}")))).into_any_element(),
         TaskStatus::Completed => slot.child(Icon::new(IconName::Tick02).size(IconSize::S14).color(theme.ink3)).into_any_element(),
         TaskStatus::Pending => {
             slot.child(div().size(px(12.0)).rounded_full().border(px(1.5)).border_color(theme.line_strong)).into_any_element()
@@ -189,6 +189,6 @@ fn task_row(line: &TaskLine, theme: &Theme, cx: &mut Context<PillRow>) -> AnyEle
                 .font_weight(FontWeight::NORMAL)
                 .child(line.text.clone()),
         )
-        .child(marker(line.status, theme))
+        .child(marker(&line.id, line.status, theme))
         .into_any_element()
 }

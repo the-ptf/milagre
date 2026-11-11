@@ -27,7 +27,7 @@ use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::marks::{ChatMark, MarkIcon, Tone, chat_mark_presentation};
 use crate::logic::prs::blockers::row_pull_requests;
 use crate::theme::{ActiveTheme, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_10, TEXT_12, TEXT_13, TextStepExt, Theme, hex, sidebar_step};
-use crate::ui::{Icon, IconName, IconSize, ProjectAvatar, SpinnerRing};
+use crate::ui::{Icon, IconName, IconSize, ProjectAvatar, Spinner};
 
 /// Horizontal inset of each row inside the sidebar.
 pub const ROW_INSET: f32 = 8.0;
@@ -362,9 +362,9 @@ pub(super) fn status_mark(ix: usize, row: &ChatRow, theme: &Theme) -> gpui::AnyE
     match presentation.icon {
         _ if mark == ChatMark::Idle => div().into_any_element(),
         MarkIcon::Spinner => {
-            let ring = SpinnerRing::new();
-            // The spin re-renders this row's view (cheap) and its ancestors, never the other rows.
-            if crate::ui::motion() { ring.animated(("chat-row-spinner", ix)).into_any_element() } else { ring.into_any_element() }
+            // The ring turns in a view of its own: a frame renders it and this row (its cached parent), never the
+            // other rows, the transcript or the panel (`ui::motion_tests`).
+            Spinner::new(("chat-row-spinner", ix)).into_any_element()
         }
         MarkIcon::Ring => background_ring(row.background, theme).into_any_element(),
         MarkIcon::ShieldAlert => glyph(IconName::ShieldAlert),

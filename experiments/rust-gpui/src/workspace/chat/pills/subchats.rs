@@ -12,7 +12,7 @@ use gpui::{
 use super::{PANEL_PAD, PillEvent, PillRow, scroll_body};
 use crate::logic::activity::subchat_states::{SubchatKind, SubchatRequest, SubchatState, sort_subchats, subchat_summary};
 use crate::theme::{ActiveTheme, RADIUS_CONTROL, TEXT_12, TEXT_13, TextStepExt, Theme};
-use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconName, IconSize, SpinnerRing};
+use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconName, IconSize, Spinner};
 
 /// `TONES[kind].fill`.
 pub fn fill(kind: SubchatKind, theme: &Theme) -> gpui::Rgba {
@@ -87,7 +87,7 @@ impl PillRow {
         let tone: gpui::Rgba = if summary.lead == Some(SubchatKind::NeedsYou) { theme.orange_ink } else { theme.ink2 };
         let rest: Vec<_> = summary.parts.iter().filter(|part| part.kind != SubchatKind::NeedsYou).cloned().collect();
         let lead = match summary.lead {
-            Some(SubchatKind::Working) => SpinnerRing::new().size(10.0).color(theme.accent).into_any_element(),
+            Some(SubchatKind::Working) => Spinner::new("subchats-pill-spinner").size(10.0).color(theme.accent).into_any_element(),
             Some(kind) => div().flex_none().size(px(8.0)).rounded_full().bg(fill(kind, &theme)).into_any_element(),
             None => div().flex_none().size(px(8.0)).rounded_full().bg(theme.ink4).into_any_element(),
         };
@@ -183,7 +183,9 @@ fn subchat_row(state: &SubchatState, theme: &Theme, cx: &mut Context<PillRow>) -
     };
     let mark = match icon(state.kind) {
         Some(icon) => Icon::new(icon).size(IconSize::S16).color(fill(state.kind, &theme)).into_any_element(),
-        None => SpinnerRing::new().size(14.0).color(theme.accent).into_any_element(),
+        None => {
+            Spinner::new(SharedString::from(format!("subchat-spinner-{}", state.key))).size(14.0).color(theme.accent).into_any_element()
+        }
     };
     let open_key = key.clone();
     let button = div()

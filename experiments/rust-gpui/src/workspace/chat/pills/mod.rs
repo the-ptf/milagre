@@ -5,9 +5,9 @@
 //!
 //! `PillRow` is one plain view (not cached: an open panel is taller than the row, and a cached view is laid out
 //! from its style alone). It re-renders when the Chat column does, which is cheap here, and every frame of a morph
-//! (`request_animation_frame`, only while one runs). Spinners in the pills and panels are the static arc, not the
-//! animated one: an animation would notify this view, and so the Chat column and the window, every frame for as long
-//! as it is shown (CONVENTIONS "Adding a view that does not repaint its siblings", rule 4).
+//! (`request_animation_frame`, only while one runs). Spinners in the pills and panels are `ui::Spinner`: each turns in
+//! a small view of its own, so a frame notifies that view, never this row or the Chat column (CONVENTIONS "Adding a
+//! view that does not repaint its siblings", rule 4).
 //!
 //! | File | What |
 //! | --- | --- |

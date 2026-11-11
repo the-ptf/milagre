@@ -36,6 +36,8 @@ pub struct LiveStyle {
     pub simplified_icons: bool,
     /// The sidebar's usage rows as marks with a bar (`sidebarUsage: "compact"`).
     pub compact_usage: bool,
+    /// How fast panels open and close (`--motion-scale`): 1 Normal, 0.6 Fast, 0 Off.
+    pub motion_scale: f32,
 }
 
 impl Default for LiveStyle {
@@ -49,6 +51,7 @@ impl Default for LiveStyle {
             chat_width: Some(DEFAULT_BOX),
             simplified_icons: false,
             compact_usage: false,
+            motion_scale: 1.0,
         }
     }
 }
@@ -117,4 +120,9 @@ pub fn simplified_icons() -> bool {
 
 pub fn compact_usage() -> bool {
     LIVE.with(|live| live.borrow().compact_usage)
+}
+
+/// The Appearance "Motion" speed as a duration scale; read through `ui::motion_scale`, which also stops it in tests.
+pub(crate) fn chosen_motion_scale() -> f32 {
+    LIVE.with(|live| live.borrow().motion_scale)
 }
