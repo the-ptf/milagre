@@ -3,6 +3,7 @@
 //! `FAKE_CLAUDE_SCRIPT` names a JSON file holding an array of steps, each an object with one key:
 //!   {"emit": <frame>}                  write one JSON line
 //!   {"emit_raw": "text"}               write text as is (no newline added)
+//!   {"emit_bytes": [255, 10]}           write exact bytes, including invalid UTF-8
 //!   {"emit_many": {"count": n, "frame": <frame>}}
 //!   {"emit_argv": true}                write {"type":"fake_argv","argv":[...],"env":{...}}
 //!   {"expect": {"type": t, "subtype": s, "echo": bool}}
@@ -51,9 +52,12 @@ impl Out {
     }
 
     fn raw(&mut self, text: &str) {
+        self.bytes(text.as_bytes());
+    }
+    fn bytes(&mut self, bytes: &[u8]) {
         if let Some(out) = self.0.as_mut() {
             let mut lock = out.lock();
-            if lock.write_all(text.as_bytes()).and_then(|_| lock.flush()).is_err() {
+            if lock.write_all(bytes).and_then(|_| lock.flush()).is_err() {
                 std::process::exit(4);
             }
         }
@@ -104,6 +108,13 @@ fn main() {
         match key.as_str() {
             "emit" => out.line(&arg),
             "emit_raw" => out.raw(arg.as_str().unwrap_or("")),
+            "emit_bytes" => out.bytes(
+                &arg.as_array()
+                    .expect("byte array")
+                    .iter()
+                    .map(|v| u8::try_from(v.as_u64().expect("byte")).expect("u8"))
+                    .collect::<Vec<_>>(),
+            ),
             "emit_many" => {
                 let count = arg["count"].as_u64().unwrap_or(0);
                 for index in 0..count {

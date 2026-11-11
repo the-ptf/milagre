@@ -40,6 +40,7 @@ async fn opaque_ids_keys_and_arguments_stay_strict_and_malformed_json_still_fail
     for line in [
         r#"{"type":"control_request","request_id":"same\ud800","request":{"subtype":"ping"}}"#,
         r#"{"type":"control_request","request_id":"same\udfff","request":{"subtype":"ping"}}"#,
+        r#"{"type":"control_request","request_id":"valid","result":"\ud800","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"private-value\udfff"}}}"#,
         r#"{"type":"system","subtype":"init","session_id":"same\ud800"}"#,
         r#"{"type":"assistant","message":{"content":[{"type":"text","text":"\ud800","same\udfff":1}]}}"#,
         r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"r","name":"Bash","input":{"command":"\ud800"}}]}}"#,
@@ -91,5 +92,64 @@ async fn half_emoji_output_does_not_end_a_healthy_chat_turn() {
     assert!(!session.is_closed());
     assert!(session.pid().is_some());
     session.close().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn non_utf8_banners_and_eof_tails_are_diagnostics_but_protocol_lines_stay_strict() {
+    for (bytes, tail, expected) in [
+        (b"banner \xff\n".to_vec(), false, "banner \u{fffd}"),
+        (b"banner \xf0\x9f".to_vec(), true, "banner \u{fffd}"),
+        (b"{\"result\":\"cut \xf0\x9f".to_vec(), true, "truncated"),
+        (b"{\"session_id\":\"same\xff\"}\n".to_vec(), false, "fatal"),
+    ] {
+        let mut script = vec![json!({"emit_bytes":bytes})];
+        if !tail {
+            script.push(json!({"emit":{"type":"still_healthy"}}));
+        }
+        script.push(json!({"exit":0}));
+        let (launch, dir) = fake("non-utf8", json!(script));
+        let (client, mut events) = ClaudeClient::spawn(&launch, Handlers::default(), quick_limits()).unwrap();
+        let trace = drain(&mut events).await;
+        let info = client.wait().await;
+        if expected == "fatal" {
+            assert!(matches!(info.reason, ExitReason::ProtocolViolation(_)), "{trace:?}");
+            assert!(!trace.iter().any(|e| matches!(e, ClaudeEvent::Message(_))));
+        } else {
+            assert_eq!(info.reason, ExitReason::Exited, "{trace:?}");
+            assert_eq!(info.code, Some(0));
+            if expected == "truncated" {
+                assert!(matches!(&trace[0], ClaudeEvent::Diagnostic(Diagnostic::TruncatedTail(_))));
+            } else {
+                assert!(matches!(&trace[0], ClaudeEvent::Diagnostic(Diagnostic::NonJsonLine(text)) if text == expected));
+            }
+            if !tail {
+                assert!(trace.iter().any(|e| matches!(e, ClaudeEvent::Message(v) if v["type"] == "still_healthy")));
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn full_diagnostic_lane_drops_repair_notice_without_blocking_control() {
+    let (launch, dir) = fake(
+        "full-diagnostic",
+        json!([
+            {"emit_raw":"banner\n"},
+            {"emit_raw":"{\"type\":\"keep_alive\",\"result\":\"\\ud800\"}\n"},
+            {"expect":{"subtype":"barrier"}}, {"reply":{}}, {"wait_eof":true}
+        ]),
+    );
+    let mut limits = quick_limits();
+    limits.event_capacity = 1;
+    let (client, mut events) = ClaudeClient::spawn(&launch, Handlers::default(), limits).unwrap();
+    client.control("barrier", Value::Null).await.unwrap();
+    // The queued banner occupies the only slot until after the repaired keep-alive/control reply.
+    assert!(matches!(events.recv().await, Some(ClaudeEvent::Diagnostic(Diagnostic::NonJsonLine(_)))));
+    client.end_input().await.unwrap();
+    let trace = drain(&mut events).await;
+    assert!(!trace.iter().any(|e| matches!(e, ClaudeEvent::Diagnostic(Diagnostic::TextReplaced { .. }))));
+    assert_eq!(client.wait().await.code, Some(0));
     std::fs::remove_dir_all(dir).unwrap();
 }

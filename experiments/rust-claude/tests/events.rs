@@ -1,5 +1,7 @@
 //! `ClaudeMapper` against `mapClaudeMessage` (events.cjs): each case replays Claude messages in order and
-//! compares the events of every message with what the Node mapper produced (scripts/generate-events.cjs).
+//! Inbound display-surrogate replacement intentionally differs from Node's retained UTF-16 units;
+//! `inbound_text.rs` tests that boundary before the Value-based mapper, with its recorded field table.
+//! This suite compares the events of every message with what the Node mapper produced (scripts/generate-events.cjs).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

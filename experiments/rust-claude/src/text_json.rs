@@ -5,25 +5,37 @@ enum At {
     Key(String),
     Index,
 }
+const PATHS: &[&[&str]] = &[
+    &["event", "delta", "text"],
+    &["event", "delta", "thinking"],
+    &["event", "content_block", "text"],
+    &["event", "content_block", "thinking"],
+    &["message", "content"],
+    &["message", "content", "*", "text"],
+    &["message", "content", "*", "thinking"],
+    &["message", "content", "*", "content"],
+    &["message", "content", "*", "content", "*", "text"],
+    &["result"],
+    &["errors", "*"],
+    &["tool_use_result", "stdout"],
+    &["tool_use_result", "stderr"],
+    &["tool_use_result", "output"],
+    &["tool_use_result", "content"],
+    &["tool_use_result", "file", "content"],
+    &["tool_use_result", "content", "*", "text"],
+    &["tool_use_result", "structuredPatch", "*", "lines", "*"],
+    &["tool_use_result", "oldString"],
+    &["tool_use_result", "newString"],
+    &["tool_use_result", "tasks", "*", "subject"],
+    &["event", "content_block", "content", "*", "text"],
+    &["description"],
+    &["summary"],
+    &["suggestion"],
+    &["error"],
+    &["patch", "description"],
+    &["tasks", "*", "description"],
+];
 fn display_text(path: &[At]) -> bool {
-    const PATHS: &[&[&str]] = &[
-        &["event", "delta", "text"],
-        &["event", "delta", "thinking"],
-        &["event", "content_block", "text"],
-        &["event", "content_block", "thinking"],
-        &["message", "content"],
-        &["message", "content", "*", "text"],
-        &["message", "content", "*", "thinking"],
-        &["message", "content", "*", "content"],
-        &["message", "content", "*", "content", "*", "text"],
-        &["result"],
-        &["errors", "*"],
-        &["tool_use_result", "stdout"],
-        &["tool_use_result", "stderr"],
-        &["tool_use_result", "output"],
-        &["tool_use_result", "content"],
-        &["tool_use_result", "file", "content"],
-    ];
     PATHS.iter().any(|expected| {
         path.len() == expected.len()
             && path.iter().zip(*expected).all(|(actual, want)| match actual {
@@ -63,31 +75,85 @@ fn repair_string(raw: &str) -> String {
     // Input was validated UTF-8 JSON; only equal-length ASCII escape sequences were changed.
     String::from_utf8(bytes).expect("validated JSON string")
 }
-pub(crate) fn parse(text: &str) -> Result<(Value, usize), String> {
-    // RawValue validates the whole syntax/depth, allowing JSON's lone surrogate escape syntax.
-    let raw: &RawValue = serde_json::from_str(text).map_err(|_| "invalid JSON syntax".to_owned())?;
-    let mut replacements = 0;
-    let value = normalize(raw, &mut vec![], &mut replacements, 0)?;
-    Ok((value, replacements))
+// Ordinary valid frames retain Limits.max_frame_bytes. Compatibility work is more constrained:
+// borrowed RawValue rescans child slices, so bound both input and cumulative subtree lengths.
+const MAX_FALLBACK_BYTES: usize = 1024 * 1024;
+const MAX_SCAN_BYTES: usize = 8 * 1024 * 1024;
+#[derive(Default)]
+struct Work {
+    scanned: usize,
+    replacements: usize,
+    failure: Option<String>,
 }
-fn normalize(raw: &RawValue, path: &mut Vec<At>, replacements: &mut usize, depth: usize) -> Result<Value, String> {
-    if depth >= 128 {
-        return Err("JSON nesting limit".into());
+impl Work {
+    fn fail(&mut self, path: &[At], reason: &str) -> String {
+        self.failure.get_or_insert_with(|| format!("{reason} at {}", diagnostic_path(path))).clone()
     }
+    fn charge(&mut self, bytes: usize, path: &[At]) -> Result<(), String> {
+        if bytes > MAX_SCAN_BYTES.saturating_sub(self.scanned) {
+            return Err(self.fail(path, "display-text fallback scan budget exceeded"));
+        }
+        self.scanned += bytes;
+        Ok(())
+    }
+}
+fn diagnostic_path(path: &[At]) -> String {
+    let mut out = String::new();
+    for item in path {
+        // Only fixed protocol labels may appear. User-controlled keys are never diagnostic content.
+        let label = match item {
+            At::Index => "*",
+            At::Key(key)
+                if PATHS.iter().flat_map(|path| path.iter()).any(|part| *part == key)
+                    || ["request", "request_id", "session_id", "input", "tool_use_id", "id", "name", "type", "partial_json"]
+                        .contains(&key.as_str()) =>
+            {
+                key
+            }
+            At::Key(_) => "<field>",
+        };
+        if out.len() + label.len() + 1 > 256 {
+            out.push_str("/...");
+            break;
+        }
+        out.push('/');
+        out.push_str(label);
+    }
+    if out.is_empty() {
+        out.push('/');
+    }
+    out
+}
+pub(crate) fn parse(text: &str) -> Result<(Value, usize), String> {
+    if text.len() > MAX_FALLBACK_BYTES {
+        return Err("display-text fallback input exceeds 1048576 bytes at /".into());
+    }
+    let raw: &RawValue = serde_json::from_str(text).map_err(|_| "invalid JSON syntax at /".to_owned())?;
+    let mut work = Work::default();
+    work.charge(text.len(), &[])?;
+    let value = normalize(raw, &mut vec![], &mut work, 0)?;
+    Ok((value, work.replacements))
+}
+fn normalize(raw: &RawValue, path: &mut Vec<At>, work: &mut Work, depth: usize) -> Result<Value, String> {
+    if depth >= 128 {
+        return Err(work.fail(path, "JSON nesting limit"));
+    }
+    work.charge(raw.get().len(), path)?;
     if raw.get().starts_with('"') {
         return match serde_json::from_str::<String>(raw.get()) {
             Ok(text) => Ok(text.into()),
             Err(_) if display_text(path) => {
-                let text = serde_json::from_str::<String>(&repair_string(raw.get())).map_err(|_| "invalid display text".to_owned())?;
-                *replacements += 1;
+                let text =
+                    serde_json::from_str::<String>(&repair_string(raw.get())).map_err(|_| work.fail(path, "invalid display text"))?;
+                work.replacements += 1;
                 Ok(text.into())
             }
-            Err(_) => Err("invalid UTF-16 in opaque or unsupported field".into()),
+            Err(_) => Err(work.fail(path, "invalid UTF-16 in opaque or unsupported field")),
         };
     }
     struct Container<'a> {
         path: &'a mut Vec<At>,
-        replacements: &'a mut usize,
+        work: &'a mut Work,
         depth: usize,
     }
     impl<'de> serde::de::Visitor<'de> for Container<'_> {
@@ -97,11 +163,12 @@ fn normalize(raw: &RawValue, path: &mut Vec<At>, replacements: &mut usize, depth
         }
         fn visit_map<M: serde::de::MapAccess<'de>>(self, mut map: M) -> Result<Value, M::Error> {
             let mut result = Map::new();
-            // String keys use serde's strict UTF-8 representation. Distinct invalid keys never alias.
-            while let Some(key) = map.next_key::<String>()? {
+            while let Some(key) =
+                map.next_key::<String>().map_err(|_| serde::de::Error::custom(self.work.fail(self.path, "invalid object key")))?
+            {
                 let raw = map.next_value::<&RawValue>()?;
                 self.path.push(At::Key(key.clone()));
-                let value = normalize(raw, self.path, self.replacements, self.depth + 1).map_err(serde::de::Error::custom)?;
+                let value = normalize(raw, self.path, self.work, self.depth + 1).map_err(serde::de::Error::custom)?;
                 self.path.pop();
                 result.insert(key, value);
             }
@@ -111,7 +178,7 @@ fn normalize(raw: &RawValue, path: &mut Vec<At>, replacements: &mut usize, depth
             let mut result = Vec::new();
             while let Some(raw) = seq.next_element::<&RawValue>()? {
                 self.path.push(At::Index);
-                let value = normalize(raw, self.path, self.replacements, self.depth + 1).map_err(serde::de::Error::custom)?;
+                let value = normalize(raw, self.path, self.work, self.depth + 1).map_err(serde::de::Error::custom)?;
                 self.path.pop();
                 result.push(value);
             }
@@ -119,12 +186,13 @@ fn normalize(raw: &RawValue, path: &mut Vec<At>, replacements: &mut usize, depth
         }
     }
     let mut parser = serde_json::Deserializer::from_str(raw.get());
-    let visitor = Container { path, replacements, depth };
-    match raw.get().as_bytes().first() {
-        Some(b'{') => serde::Deserializer::deserialize_map(&mut parser, visitor).map_err(|_| "invalid opaque key or field".into()),
-        Some(b'[') => serde::Deserializer::deserialize_seq(&mut parser, visitor).map_err(|_| "invalid opaque field".into()),
-        _ => serde_json::from_str(raw.get()).map_err(|_| "invalid JSON value".into()),
-    }
+    let visitor = Container { path, work, depth };
+    let result = match raw.get().as_bytes().first() {
+        Some(b'{') => serde::Deserializer::deserialize_map(&mut parser, visitor),
+        Some(b'[') => serde::Deserializer::deserialize_seq(&mut parser, visitor),
+        _ => serde_json::from_str(raw.get()),
+    };
+    result.map_err(|_| work.fail(path, "invalid JSON value"))
 }
 
 #[cfg(test)]
@@ -154,5 +222,90 @@ mod tests {
             assert!(parse(raw).is_err());
         }
         assert!(crate::frame::parse_line(b"{\"session_id\":\"\xff\"}").is_err());
+    }
+    #[test]
+    fn every_display_path_repairs_and_recorded_fields_have_an_explicit_policy() {
+        for path in PATHS {
+            let make = |leaf: Value| {
+                path.iter().rev().fold(leaf, |value, part| {
+                    if *part == "*" {
+                        Value::Array(vec![value])
+                    } else {
+                        let mut map = Map::new();
+                        map.insert((*part).into(), value);
+                        Value::Object(map)
+                    }
+                })
+            };
+            let input = serde_json::to_string(&make(Value::String("SURROGATE".into()))).unwrap().replace("SURROGATE", "\\ud800");
+            let (actual, count) = parse(&input).unwrap();
+            assert_eq!(count, 1, "{path:?}");
+            assert_eq!(actual, make(Value::String("\u{fffd}".into())));
+        }
+        let table: Value = serde_json::from_str(include_str!("../tests/fixtures/conformance/inbound-string-fields.json")).unwrap();
+        let fields = table["fields"].as_object().unwrap();
+        fn walk(value: &Value, path: &mut Vec<At>, fields: &Map<String, Value>) {
+            match value {
+                Value::String(_) => {
+                    let pointer = path
+                        .iter()
+                        .map(|p| match p {
+                            At::Key(k) => format!("/{k}"),
+                            At::Index => "/*".into(),
+                        })
+                        .collect::<String>();
+                    let recorded = fields.get(&pointer).unwrap_or_else(|| panic!("unclassified Node fixture field {pointer}"));
+                    assert_eq!(recorded.as_str().unwrap(), if display_text(path) { "display" } else { "strict" }, "{pointer}");
+                }
+                Value::Array(items) => {
+                    for item in items {
+                        path.push(At::Index);
+                        walk(item, path, fields);
+                        path.pop();
+                    }
+                }
+                Value::Object(items) => {
+                    for (key, item) in items {
+                        path.push(At::Key(key.clone()));
+                        walk(item, path, fields);
+                        path.pop();
+                    }
+                }
+                _ => {}
+            }
+        }
+        let fixture: Value = serde_json::from_str(include_str!("../tests/fixtures/conformance/claude-events.json")).unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            for step in case["steps"].as_array().unwrap() {
+                walk(&step["message"], &mut vec![], fields);
+            }
+        }
+    }
+    #[test]
+    fn strict_failures_report_only_bounded_schema_paths() {
+        let error = parse(
+            r#"{"result":"\ud800","type":"control_request","request_id":"valid","request":{"input":{"secret-key":"private-value\udfff"}}}"#,
+        )
+        .unwrap_err();
+        assert_eq!(error, "invalid UTF-16 in opaque or unsupported field at /request/input/<field>");
+        assert!(!error.contains("secret-key") && !error.contains("private-value"));
+        let key = parse(r#"{"result":"\ud800","message":{"private-key\ud800":0}}"#).unwrap_err();
+        assert_eq!(key, "invalid object key at /message");
+    }
+    #[test]
+    fn fallback_input_and_cumulative_scan_limits_are_deterministic() {
+        let prefix = r#"{"result":"\ud800","nested":""#;
+        let input = format!("{prefix}{}\"}}", "x".repeat(MAX_FALLBACK_BYTES - prefix.len() - 2));
+        assert_eq!(input.len(), MAX_FALLBACK_BYTES);
+        assert!(parse(&input).is_ok());
+        assert!(parse(&(input + " ")).unwrap_err().contains("input exceeds"));
+        let deep =
+            format!(r#"{{"result":"\ud800","nested":{}"{}"{}}}"#, "[".repeat(40), "x".repeat(MAX_FALLBACK_BYTES - 128), "]".repeat(40));
+        assert!(deep.len() <= MAX_FALLBACK_BYTES);
+        assert!(parse(&deep).unwrap_err().contains("scan budget exceeded"));
+        let mut work = Work::default();
+        work.charge(MAX_SCAN_BYTES, &[]).unwrap();
+        assert!(work.charge(1, &[]).is_err());
+        assert_eq!(work.scanned, MAX_SCAN_BYTES);
     }
 }

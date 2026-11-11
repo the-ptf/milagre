@@ -71,7 +71,16 @@ work/request memory and small protocol headers/indexes have separate bounds. Inc
 arguments and direct legacy Value-returning handler calls remain unsupported. Known inbound
 display-text fields replace lone surrogates with U+FFFD and emit a bounded count-only diagnostic;
 opaque identifiers/keys/arguments stay strict. Inbound display repair is lossy, while raw outbound
-MCP content remains lossless.
+MCP content remains lossless. The fallback is capped at 1 MiB input and 8 MiB cumulative subtree
+scan charges; larger/deeper surrogate-bearing messages can still cause an explicit protocol failure.
+The display-field inventory is based on curated Node trace shapes, not a complete live CLI corpus.
+
+Request-local denial for invalid Unicode in model-produced tool arguments is still unimplemented.
+A complete `control_request` containing such an argument stops the process even if its request id is
+valid. Safely recovering the id and sending a denial without normalizing executable arguments needs
+its own transport design and tests. Invalid keys/ids and unknown string fields remain strict; parsing
+failures report bounded schema paths without content. Non-JSON byte banners and incomplete EOF tails
+remain diagnostics rather than protocol failures.
 
 Analysis-only startup remains refused. Host read-only roles alone cannot restrict native Claude
 commands/settings/plugins; the full constrained launch policy must land before enabling them.

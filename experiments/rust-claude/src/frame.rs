@@ -39,7 +39,8 @@ fn preview(text: &str) -> String {
 
 /// Classify one complete line. `\r` and surrounding whitespace are meaningless on a complete line.
 pub fn parse_line(bytes: &[u8]) -> Result<Line, FrameError> {
-    let text = std::str::from_utf8(bytes).map_err(|_| FrameError::Corrupt("invalid UTF-8 bytes".into()))?;
+    // Banners/hook stdout are diagnostics, not protocol. Preserve their historical lossy preview.
+    let text = String::from_utf8_lossy(bytes);
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Ok(Line::Blank);
@@ -47,12 +48,15 @@ pub fn parse_line(bytes: &[u8]) -> Result<Line, FrameError> {
     if !trimmed.starts_with('{') {
         return Ok(Line::NonJson(preview(trimmed)));
     }
+    // Never let lossy conversion alias opaque identities in a protocol object.
+    std::str::from_utf8(bytes).map_err(|_| FrameError::Corrupt("invalid UTF-8 bytes at /".into()))?;
     match serde_json::from_str::<Value>(trimmed) {
         Ok(value @ Value::Object(_)) => Ok(Line::Json(value)),
-        Ok(_) => Err(FrameError::Corrupt(preview(trimmed))),
-        Err(error) => match crate::text_json::parse(trimmed) {
+        Ok(_) => Err(FrameError::Corrupt("expected protocol object at /".into())),
+        Err(_) => match crate::text_json::parse(trimmed) {
             Ok((value @ Value::Object(_), strings)) if strings > 0 => Ok(Line::JsonWithTextReplacement { value, strings }),
-            _ => Err(FrameError::Corrupt(format!("{error}: {}", preview(trimmed)))),
+            Err(error) => Err(FrameError::Corrupt(error)),
+            _ => Err(FrameError::Corrupt("invalid protocol object at /".into())),
         },
     }
 }

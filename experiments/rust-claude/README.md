@@ -205,16 +205,28 @@ FnPermission(move |request, mut cancel| Box::pin(async move {
 - **Framing**: NDJSON; frames split across reads; `\r` and blank lines ignored; non-JSON lines are a
   `Diagnostic` (as the Python SDK skips them); a `{` line that does not parse, or a frame over
   `max_frame_bytes` (checked while it grows), ends the process as `ProtocolViolation`. An EOF tail is
-  delivered when complete and reported as `TruncatedTail` otherwise.
+  delivered when complete; malformed JSON tails are reported as `TruncatedTail`. Non-JSON lines
+  and tails retain lossy, bounded previews even for invalid UTF-8 bytes. Strict UTF-8 applies only
+  to protocol JSON objects, so banners and hook stdout cannot terminate a healthy process.
   Valid JSON with lone UTF-16 surrogate escapes is accepted only in known display-text paths:
   text/thinking deltas and content blocks, user/assistant text and tool-result content, result/error
-  text, and stdout/stderr/output/file-content tool summaries. Each lone surrogate becomes U+FFFD;
+  text, stdout/stderr/output/file-content tool summaries, structured patch lines, returned old/new
+  strings, nested result text, task descriptions/summaries and suggestion text. Each lone surrogate becomes U+FFFD;
   valid pairs, literal escaped backslashes, real U+10FFFE and PUA remain unchanged. A count-only
   `Diagnostic::TextReplaced { strings }` is emitted through the bounded best-effort diagnostic lane.
   Opaque ids, session ids, object keys, tool arguments and unknown fields stay strict, including
   invalid UTF-8 bytes. The fallback validates syntax before repair, never expands raw escape
-  buffers, limits nesting to 128 levels and shares the input frame and event queue budgets.
+  buffers, and limits nesting to 128 levels. The compatibility fallback accepts at most 1 MiB of
+  input and charges at most 8 MiB of cumulative raw subtree lengths, which bounds repeated container
+  scanning. Crossing either bound returns an explicit protocol failure. Ordinary valid frames retain
+  `Limits.max_frame_bytes`; event queue budgets still apply. Strict fallback failures report bounded
+  schema paths without values: array positions use `*`, unknown keys use `<field>`, and invalid keys
+  report their containing object. Malformed syntax reports `/` without a raw content preview.
   This is intentionally lossy for affected inbound display text; raw outbound MCP remains exact.
+  [The recorded string-field table](tests/fixtures/conformance/inbound-string-fields.json) classifies
+  all 91 string paths in the curated Node message fixtures as display or strict. Tests reject new
+  unclassified paths and exercise every allowlisted path. These fixtures are synthetic Node mapper
+  conformance evidence, not real CLI captures; no live provider was used to expand this table.
 - **Correlation**: ids `req_<n>_<hex>`, never reused; responses match in any order; error responses
   become `ClientError::Control { subtype, message, raw }`; at most `max_pending_requests` in flight
   (`TooManyPending`); per-request timeout (`Timeout`) also sends `control_cancel_request` for that id;
