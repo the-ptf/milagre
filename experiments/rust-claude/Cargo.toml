@@ -1,0 +1,33 @@
+[package]
+name = "milagre-claude"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Claude Code CLI stream-json control transport for Milagre's Rust backend (no Node SDK sidecar)."
+license = "MIT"
+
+# Standalone: not a member of any other Rust workspace in the repo.
+[workspace]
+
+[lib]
+name = "milagre_claude"
+path = "src/lib.rs"
+
+# Deterministic stand-in for the Claude Code CLI, driven by a JSON script. Integration tests only.
+[[bin]]
+name = "fake-claude"
+path = "src/bin/fake_claude.rs"
+test = false
+doc = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+tokio = { version = "1.47", features = ["process", "io-util", "sync", "time", "rt", "macros"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1.47", features = ["process", "io-util", "sync", "time", "rt", "rt-multi-thread", "macros"] }
