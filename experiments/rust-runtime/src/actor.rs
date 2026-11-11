@@ -1386,7 +1386,7 @@ mod job_tests {
                 project,
                 &format!("{}#{session}", project.display()),
                 TranscriptSource {
-                    state: &state,
+                    state: (&state).into(),
                     session,
                     before: None,
                     provider: Some("kiro"),
@@ -1409,10 +1409,10 @@ mod job_tests {
         for id in 1..=5 {
             sessions.insert(
                 id.to_string(),
-                json!({"id":id,"worktree_id":1,"title":"Jobs"}),
+                json!({"id":id,"worktree_id":1,"title":"Jobs","provider":"kiro"}),
             );
         }
-        fs::write(project.join(".milagre/coordination.json"), json!({"next_id":10,"worktrees":{"1":{"id":1,"path":project}},"sessions":sessions,"messages":[{"id":1,"session_id":1,"role":"user","body":"Transcript input"}]}).to_string()).unwrap();
+        fs::write(project.join(".milagre/coordination.json"), json!({"next_id":10,"worktrees":{"1":{"id":1,"path":project}},"sessions":sessions,"messages":[{"id":1,"session_id":1,"role":"user","body":"Transcript input"},{"id":2,"session_id":1,"role":"assistant","body":"Prior reply","outcome":"completed"}]}).to_string()).unwrap();
         let mut host = ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0));
         host.states.get(&project).unwrap();
         (profile, project, host)
@@ -1538,7 +1538,7 @@ mod job_tests {
                 &project,
                 &format!("{}#5", project.display()),
                 TranscriptSource {
-                    state: &state,
+                    state: (&state).into(),
                     session: 5,
                     before: None,
                     provider: None,
@@ -1644,6 +1644,92 @@ mod job_tests {
         gate.release();
         shutdown_pending(&server, Duration::from_secs(3)).unwrap();
         assert!(server.is_stopped());
+        drop(actor);
+        Server::finish(server).unwrap();
+    }
+
+    #[test]
+    fn real_restore_send_is_cancelled_by_fixture_quit_without_start_or_replay() {
+        use milagre_owner_store::chat_host::{HandoffMode, MockProvider};
+        let (profile, project, mut host) = seeded();
+        assert_eq!(host.handoff, HandoffMode::Gated);
+        host.handoff = HandoffMode::Restore; // Opt-in only in this cfg(test) fixture.
+        let provider = MockProvider::new("kiro");
+        host.register(Box::new(provider.clone()));
+        let (workers, gate, entered) = workers(0);
+        let (server, actor) = running(profile, &project, host, workers);
+        let _release = ReleaseOnDrop(gate.clone());
+        let node = std::process::Command::new("node")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/jobs-stop-compat.cjs"
+            ))
+            .arg(server.profile_path())
+            .arg(&project)
+            .arg("restore")
+            .output()
+            .unwrap();
+        assert!(
+            node.status.success(),
+            "{}",
+            String::from_utf8_lossy(&node.stderr)
+        );
+        entered.recv_timeout(Duration::from_secs(2)).unwrap();
+        let snapshot = actor.shared.snapshot.lock().unwrap().clone();
+        assert!(snapshot["runs"]["runs"]
+            .get(format!("{}#1", project.display()))
+            .is_none());
+        let messages = snapshot["projects"][0]["state"]["messages"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|message| message["clientMessageId"] == "restore-stop")
+                .count(),
+            1
+        );
+        let divider = messages
+            .iter()
+            .find(|message| message["context"]["kind"] == "handoff")
+            .unwrap();
+        assert_eq!(divider["context"]["status"], "failed");
+        assert!(
+            provider.state.lock().unwrap().turns.is_empty(),
+            "no native turn started while transcript was held"
+        );
+        assert!(!server.is_stopped());
+        gate.release();
+        shutdown_pending(&server, Duration::from_secs(3)).unwrap();
+        assert!(
+            provider.state.lock().unwrap().turns.is_empty(),
+            "late transcript result cannot start or replay the cancelled restore"
+        );
+        assert!(
+            provider.state.lock().unwrap().closed.is_empty(),
+            "never-started restore has no native session to close"
+        );
+        assert!(server.is_stopped());
+        use milagre_owner_store::{ProjectRepository, ProjectStore};
+        let saved = ProjectStore::new(project.clone())
+            .read_project_state()
+            .unwrap()
+            .state;
+        let messages = saved["messages"].as_array().unwrap();
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|message| message["clientMessageId"] == "restore-stop")
+                .count(),
+            1
+        );
+        assert_eq!(
+            messages
+                .iter()
+                .find(|message| message["context"]["kind"] == "handoff")
+                .unwrap()["context"]["status"],
+            "failed"
+        );
         drop(actor);
         Server::finish(server).unwrap();
     }
