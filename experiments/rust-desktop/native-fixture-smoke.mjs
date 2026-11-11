@@ -1,6 +1,6 @@
 // Fixed isolated binaries only. This never installs or discovers a live daemon.
 import assert from "node:assert/strict";
-import { installedApplications, preferenceObservation, fixtureFailure } from "./fixture-observation.mjs";
+import { installedApplications, preferenceObservation, preferenceFingerprint, fixtureFailure } from "./fixture-observation.mjs";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
@@ -35,35 +35,7 @@ const watched = [
   join(homedir(), "Library/Application Support/com.milagre.rust-poc/preferences.json"),
 ];
 async function fingerprints() {
-  return Promise.all(
-    watched.map(async (path) => {
-      try {
-        const info = await lstat(path);
-        assert.ok(info.isFile() && info.size <= 1024 * 1024, "Preference observation bound");
-        const bytes = await readFile(path);
-        const after = await lstat(path);
-        return {
-          path,
-          bytes: info.size,
-          mtimeMs: info.mtimeMs,
-          ctimeMs: info.ctimeMs,
-          device: info.dev,
-          inode: info.ino,
-          readStable:
-            info.dev === after.dev &&
-            info.ino === after.ino &&
-            info.mtimeMs === after.mtimeMs &&
-            info.ctimeMs === after.ctimeMs &&
-            info.size === after.size &&
-            bytes.length === info.size,
-          sha256: createHash("sha256").update(bytes).digest("hex"),
-        };
-      } catch (error) {
-        if (error.code === "ENOENT") return { path, absent: true };
-        throw error;
-      }
-    }),
-  );
+  return Promise.all(watched.map((path) => preferenceFingerprint(path)));
 }
 function liveApplications() {
   const observedAt = new Date().toISOString();
@@ -201,6 +173,8 @@ async function run(index) {
     assert.equal(reloaded.reloadSurvived, true);
     assert.equal(reloaded.sidebar.rowCount, 1);
     assert.equal(reloaded.sidebar.sentRowCount, 1);
+    assert.equal(reloaded.newChatClicks, 1);
+    assert.deepEqual(reloaded.beforeSidebarClick, { selected: false, replyVisible: false });
     assert.equal(reloaded.sidebarClicks, 1);
     assert.deepEqual(reloaded.transcript, sent.transcript);
   }

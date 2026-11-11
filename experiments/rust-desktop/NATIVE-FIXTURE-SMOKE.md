@@ -60,7 +60,7 @@ markers; the second process inherited none; the real outbox `state` record staye
 unchanged. All four PNGs are 2880 x 1800 pixels for a 1440 x 900 CSS viewport.
 Both processes exited zero, owner-stop/Exit cleanup succeeded, and neither private
 root reappeared during the five-second observation. Electron's and the installed
-Rust shell's preference hashes were unchanged. PNGs were visually inspected.
+Rust shell's preference hashes had no change observed for those two files at those times, with no writer attribution or filesystem-isolation claim. PNGs were visually inspected.
 
 The captures are in `/private/tmp/milagre-fixture-evidence-Bj6yMX` and
 `/private/tmp/milagre-fixture-evidence-jycFGX`. Each has `before-reload.png`,
@@ -204,7 +204,7 @@ summary had `count: 2`, the exact prompt title, matching message IDs/timestamps,
 `clientMessageIds`. The entire recorded transcript/summary matched across reload.
 Phase 1 clicked the real listed row through a synthetic DOM event and rendered
 the reply with zero send calls. Automatic selection and reply visibility were
-also observed before that click, but are not required by the test.
+also observed before that click, but are not required by the test. Because the reply was already visible, that run did not prove the click was necessary to reopen the Chat; the stricter leave-and-reopen checkpoint below addresses this.
 
 The native PNGs and reports are in
 `/private/tmp/milagre-fixture-evidence-HzdRMm` and
@@ -243,3 +243,37 @@ JavaScript lint/format and `git diff --check` pass. Logs are
 `/tmp/milagre-desktop-default-final-tests.log`, and
 `/tmp/milagre-desktop-send-final-clippy.log`. These desktop checks do not cover the
 separate runtime owned-read oracle failure reported during this checkpoint.
+
+## Leave-and-reopen validates the sidebar click
+
+The earlier cTjQ8F pass observed the reply already visible after reload, so its
+row click was not necessary for the following assertion. The stricter probe now
+records that automatic selection, clicks the production `New chat` button,
+requires the sent Chat to be unselected and its reply absent, then re-queries and
+clicks the listed Chat. The reply must become visible again with zero send calls.
+The external observer requires one New chat click, the explicit false/false
+pre-click state, and one sidebar click. The probe does not invoke bridge commands
+or change renderer state directly to select either view.
+
+Two fresh native runs passed this sequence in
+`/private/tmp/milagre-native-fixture-observer-FXjY5u/observer.json` after rebuilding
+the owner with inbox fix `33a183a6`. Their report/PNG directories are
+`/private/tmp/milagre-fixture-evidence-Rn8VC9` and
+`/private/tmp/milagre-fixture-evidence-l1TPwO`. Both phase-1 reports record
+`beforeSidebarClick: { selected: false, replyVisible: false }`, one sidebar click,
+and zero sends. Both preserve the same two owner messages and summary across
+reload. The Rn8VC9 native after-reload PNG was visually inspected.
+Both exits are zero; owner Stop and explicit Exit cleanup succeed. Generated
+roots remain absent through actual 5000 ms observations. Preference metadata and
+contents had no observed change across the two files; attribution remains unknown
+and `isolationClaim: false`.
+
+Preference fingerprinting is now a shared observer helper. A deterministic test
+uses a real temporary file, writes new content after the read but before the
+second `lstat`, and verifies `readStable: false` despite the returned read bytes
+matching the earlier observation. This tests concurrent change detection, not
+writer attribution or comprehensive filesystem isolation. Six helper tests,
+27 fixture tests (one ignored), strict fixture all-target Clippy, JS lint and
+format checks pass. Logs: `/tmp/milagre-native-click-{observer,tests,clippy}.log`.
+The default shell and production renderer source are unchanged. No fixture was
+installed, no live provider or production host was used, and nothing was pushed.

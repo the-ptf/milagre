@@ -1,4 +1,36 @@
 // Read-only observation labels. A difference never identifies its writer.
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { lstat, readFile } from "node:fs/promises";
+
+// File operations are injectable only for deterministic concurrent-writer tests.
+export async function preferenceFingerprint(path, files = { lstat, readFile }) {
+  try {
+    const info = await files.lstat(path);
+    assert.ok(info.isFile() && info.size <= 1024 * 1024, "Preference observation bound");
+    const bytes = await files.readFile(path);
+    const after = await files.lstat(path);
+    return {
+      path,
+      bytes: info.size,
+      mtimeMs: info.mtimeMs,
+      ctimeMs: info.ctimeMs,
+      device: info.dev,
+      inode: info.ino,
+      readStable:
+        info.dev === after.dev &&
+        info.ino === after.ino &&
+        info.mtimeMs === after.mtimeMs &&
+        info.ctimeMs === after.ctimeMs &&
+        info.size === after.size &&
+        bytes.length === info.size,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
+  } catch (error) {
+    if (error.code === "ENOENT") return { path, absent: true };
+    throw error;
+  }
+}
 export function installedApplications(listing) {
   const result = [];
   for (const line of listing.split("\n")) {

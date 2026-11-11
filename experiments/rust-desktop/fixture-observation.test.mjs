@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { installedApplications, preferenceObservation, fixtureFailure } from "./fixture-observation.mjs";
+import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { installedApplications, preferenceObservation, preferenceFingerprint, fixtureFailure } from "./fixture-observation.mjs";
 
 test("live app metadata includes only installed executable identities, not fixture or command arguments", () => {
   const result = installedApplications(`16468 1 Tue Nov 10 23:32:28 2026 /Users/test/Applications/Milagre Rust.app/Contents/MacOS/milagre-rust
@@ -64,4 +67,28 @@ test("failure summary surfaces the native stage and separates timeout terminatio
   assert.equal(killed.signal, "SIGKILL");
   assert.equal(killed.timedOut, true);
   assert.equal(fixtureFailure({ status: { code: 0 }, report: { passed: false } }).reason, "native report did not pass");
+});
+
+test("preference read detects a real file changing between its two metadata checks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "milagre-observation-test-"));
+  const path = join(root, "preferences.json");
+  try {
+    await writeFile(path, "{}");
+    const stable = await preferenceFingerprint(path);
+    assert.equal(stable.readStable, true);
+    const changed = await preferenceFingerprint(path, {
+      lstat,
+      readFile: async (name) => {
+        const bytes = await readFile(name);
+        await writeFile(name, '{"changed":true}');
+        return bytes;
+      },
+    });
+    assert.equal(changed.sha256, stable.sha256, "returned bytes still match the first observation");
+    assert.equal(changed.readStable, false, "metadata detects the concurrent write despite equal read bytes");
+    assert.equal(preferenceObservation([stable], [changed], absent, absent).status, "environment-noisy");
+    assert.deepEqual(await preferenceFingerprint(join(root, "missing")), { path: join(root, "missing"), absent: true });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

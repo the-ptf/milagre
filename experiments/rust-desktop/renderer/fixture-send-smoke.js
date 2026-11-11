@@ -64,7 +64,20 @@ window.__fixtureSendPhase = async (context, { bounded, wait }) => {
     trace.stage = "sidebar-after-reload";
     const row = await requireListed();
     trace.automaticSelection = { selected: row.getAttribute("aria-current") === "page", replyVisible: document.body.innerText.includes(reply) };
-    row.click();
+    trace.stage = "leave-chat-after-reload";
+    const newChat = await wait(() => button("New chat"), "production New chat button");
+    newChat.click();
+    trace.newChatClicks = 1;
+    await wait(() => {
+      const sent = listedRow();
+      return sent && sent.getAttribute("aria-current") !== "page" && !document.body.innerText.includes(reply);
+    }, "sent Chat unselected and its reply absent after New chat");
+    trace.beforeSidebarClick = {
+      selected: listedRow()?.getAttribute("aria-current") === "page",
+      replyVisible: document.body.innerText.includes(reply),
+    };
+    trace.stage = "reopen-chat-after-reload";
+    (await requireListed()).click();
     trace.sidebarClicks = 1;
     await wait(
       () => listedRow()?.getAttribute("aria-current") === "page" && document.body.innerText.includes(reply),
