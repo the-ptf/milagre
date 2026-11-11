@@ -15,7 +15,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, MutexGuard, OnceLock,
+        Arc, Mutex, MutexGuard, OnceLock, Weak,
     },
 };
 
@@ -87,6 +87,13 @@ pub struct ContentOwner {
     active: Arc<AtomicBool>,
     fault: Mutex<Option<String>>,
     wakes: Mutex<BTreeSet<String>>,
+}
+/// Renderer authority minted only by its owning ContentOwner. MCP Caller values
+/// and session handles cannot be converted into this capability.
+#[derive(Clone)]
+pub struct RendererScope {
+    owner: Weak<ContentOwner>,
+    caller: Caller,
 }
 pub struct Dispatcher {
     caller: Caller,
@@ -192,7 +199,7 @@ impl ContentOwner {
     fn caller_check(&self, caller: &Caller) -> Result<()> {
         self.isolated(|| {
             self.check()?;
-            (caller.assert_active)()?;
+            (caller.assert_active)().map_err(caller_error)?;
             if (self.project_for_chat)(&caller.chat_id)? != caller.project_id {
                 return Err(Error::new("Chat outside the caller's Project scope."));
             }
@@ -255,7 +262,7 @@ impl ContentOwner {
                     ));
                 }
                 global()?;
-                caller_guard()?;
+                caller_guard().map_err(caller_error)?;
                 if project(&chat)? != expected {
                     return Err(Error::new("Chat outside the caller's Project scope."));
                 }
@@ -275,24 +282,48 @@ impl ContentOwner {
         }
         result
     }
-    /// Existing renderer routes share the same store lane. The renderer receives
-    /// full resource scope from the owner, never from MCP arguments.
-    pub fn renderer(&self, caller: &Caller, method: &str, request: &Value) -> Result<Value> {
-        if request["chatId"].as_str() != Some(&caller.chat_id) {
-            return Err(Error::new("Chat outside the caller's scope."));
-        }
-        if !caller.html || !caller.designs || !matches!(caller.design_scope, DesignScope::All) {
-            return Err(Error::new(
-                "Renderer calls need the owner's full content scope.",
+    pub fn renderer_scope(
+        self: &Arc<Self>,
+        chat_id: &str,
+        expected_project: &str,
+        guard: ActiveCheck,
+    ) -> Result<RendererScope> {
+        let caller = normalize_caller(
+            &self.isolation,
+            Caller {
+                chat_id: chat_id.into(),
+                project_id: expected_project.into(),
+                roots: vec![],
+                read: true,
+                write: true,
+                html: true,
+                designs: true,
+                kits: true,
+                design_scope: DesignScope::All,
+                bundled_skills: self.isolation.root().into(),
+                assert_active: guard,
+            },
+        )?;
+        let _lane = self.lock_state(&self.stores);
+        self.caller_check(&caller)?;
+        Ok(RendererScope {
+            owner: Arc::downgrade(self),
+            caller,
+        })
+    }
+    /// Existing renderer routes require a capability minted by this exact owner.
+    pub fn renderer(&self, scope: &RendererScope, method: &str, request: &Value) -> Result<Value> {
+        if !std::ptr::eq(scope.owner.as_ptr(), self) {
+            return Err(Error::coded(
+                "CALLER_SCOPE_ERROR",
+                "Renderer scope belongs to another content owner.",
             ));
         }
-        if if method == "artifact:apply" {
-            !caller.write
-        } else {
-            !caller.read
-        } {
-            return Err(Error::new(
-                "The caller does not grant this content capability.",
+        let caller = &scope.caller;
+        if request["chatId"].as_str() != Some(&caller.chat_id) {
+            return Err(Error::coded(
+                "CALLER_SCOPE_ERROR",
+                "Chat outside the renderer's scope.",
             ));
         }
         self.with_stores(caller, |store, kits| match method {
@@ -341,6 +372,9 @@ fn fatal(error: &Error) -> bool {
     ]
     .contains(&error.code.as_str())
 }
+fn caller_error(error: Error) -> Error {
+    Error::coded("CALLER_SCOPE_ERROR", error.message)
+}
 fn normalize_caller(isolation: &Isolation, mut caller: Caller) -> Result<Caller> {
     if caller.chat_id.is_empty()
         || caller.project_id.is_empty()
@@ -351,7 +385,7 @@ fn normalize_caller(isolation: &Isolation, mut caller: Caller) -> Result<Caller>
         ));
     }
     for root in &mut caller.roots {
-        let canonical = std::fs::canonicalize(&*root)?;
+        let canonical = std::fs::canonicalize(&*root).map_err(|e| caller_error(e.into()))?;
         if !canonical.starts_with(isolation.root())
             || canonical == isolation.root()
             || !canonical.is_dir()
@@ -365,15 +399,14 @@ fn normalize_caller(isolation: &Isolation, mut caller: Caller) -> Result<Caller>
     let previous = caller.assert_active.clone();
     let roots = caller.roots.clone();
     caller.assert_active = Arc::new(move || {
-        previous()?;
-        for root in &roots {
-            if std::fs::canonicalize(root)? != *root {
-                return Err(Error::new(
-                    "An admitted Tool Worktree changed its location.",
-                ));
+        (||{
+            previous()?;
+            for root in &roots {
+                let canonical=std::fs::canonicalize(root)?;
+                if canonical!=*root||!std::fs::metadata(&canonical)?.is_dir(){return Err(Error::new("An admitted Tool Worktree changed its location or is no longer a directory."));}
             }
-        }
-        Ok(())
+            Ok(())
+        })().map_err(caller_error)
     });
     Ok(caller)
 }

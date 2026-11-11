@@ -81,13 +81,13 @@ async fn two_chats_share_one_writer_and_renderer_mcp_version_conflicts_serialize
     assert_eq!(one_result.unwrap()["isError"], false);
     assert_eq!(two_result.unwrap()["isError"], false);
     for (caller, title) in [(&a, "One"), (&b, "Two")] {
-        let read = owner
-            .renderer(
-                caller,
-                "artifact:get",
-                &json!({"chatId":caller.chat_id,"id":"screen","format":"design"}),
-            )
-            .unwrap();
+        let read = render(
+            &owner,
+            caller,
+            "artifact:get",
+            &json!({"chatId":caller.chat_id,"id":"screen","format":"design"}),
+        )
+        .unwrap();
         assert_eq!(read["title"], title);
         assert_eq!(read["version"], 1);
     }
@@ -101,7 +101,7 @@ async fn two_chats_share_one_writer_and_renderer_mcp_version_conflicts_serialize
         async move {
             let mut request = edit("Renderer");
             request["chatId"] = json!(caller.chat_id);
-            owner.renderer(&caller, "artifact:apply", &request)
+            render(&owner, &caller, "artifact:apply", &request)
         }
     });
     let (mcp, renderer) = tokio::join!(mcp, renderer);
@@ -109,23 +109,23 @@ async fn two_chats_share_one_writer_and_renderer_mcp_version_conflicts_serialize
     let renderer = renderer.unwrap();
     assert_ne!(mcp["isError"] == false, renderer.is_ok());
     assert_eq!(
-        owner
-            .renderer(
-                &a,
-                "artifact:get",
-                &json!({"chatId":a.chat_id,"id":"screen","format":"design"})
-            )
-            .unwrap()["version"],
+        render(
+            &owner,
+            &a,
+            "artifact:get",
+            &json!({"chatId":a.chat_id,"id":"screen","format":"design"})
+        )
+        .unwrap()["version"],
         2
     );
     assert_eq!(
-        owner
-            .renderer(
-                &b,
-                "artifact:get",
-                &json!({"chatId":b.chat_id,"id":"screen","format":"design"})
-            )
-            .unwrap()["version"],
+        render(
+            &owner,
+            &b,
+            "artifact:get",
+            &json!({"chatId":b.chat_id,"id":"screen","format":"design"})
+        )
+        .unwrap()["version"],
         1
     );
     let kit = json!({"expectedVersion":0,"kit":{"title":"Shared","colors":{},"textStyles":{},"spacing":{},"radii":{}}});
@@ -150,9 +150,7 @@ async fn grants_projects_and_owner_identity_do_not_cross_sessions() {
     let mut crossed = a.clone();
     crossed.project_id = "/beta".into();
     assert!(owner.session(crossed).is_err());
-    assert!(owner
-        .renderer(&a, "artifact:list", &json!({"chatId":b.chat_id}))
-        .is_err());
+    assert!(render(&owner, &a, "artifact:list", &json!({"chatId":b.chat_id})).is_err());
     assert_eq!(
         one.call("artifact_list", &json!({"chatId":b.chat_id}))
             .await["isError"],
@@ -171,9 +169,7 @@ async fn grants_projects_and_owner_identity_do_not_cross_sessions() {
     );
     live.store(false, Ordering::SeqCst);
     assert!(two.list().is_err());
-    assert!(owner
-        .renderer(&b, "artifact:list", &json!({"chatId":b.chat_id}))
-        .is_err());
+    assert!(render(&owner, &b, "artifact:list", &json!({"chatId":b.chat_id})).is_err());
 }
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -205,13 +201,13 @@ async fn revocation_during_png_hides_reply_without_undoing_commit_or_blocking_re
     }
     assert!(entered.exists());
     let desktop = caller::independent(&caller);
-    let read = owner
-        .renderer(
-            &desktop,
-            "artifact:get",
-            &json!({"chatId":desktop.chat_id,"id":"screen","format":"design"}),
-        )
-        .unwrap();
+    let read = render(
+        &owner,
+        &desktop,
+        "artifact:get",
+        &json!({"chatId":desktop.chat_id,"id":"screen","format":"design"}),
+    )
+    .unwrap();
     assert_eq!(read["version"], 1);
     grant.store(false, Ordering::SeqCst);
     std::fs::write(release, "").unwrap();
@@ -220,13 +216,13 @@ async fn revocation_during_png_hides_reply_without_undoing_commit_or_blocking_re
     assert_eq!(response["content"].as_array().unwrap().len(), 1);
     assert_eq!(response["content"][0]["text"], "Caller revoked");
     assert_eq!(
-        owner
-            .renderer(
-                &desktop,
-                "artifact:get",
-                &json!({"chatId":desktop.chat_id,"id":"screen","format":"design"})
-            )
-            .unwrap()["version"],
+        render(
+            &owner,
+            &desktop,
+            "artifact:get",
+            &json!({"chatId":desktop.chat_id,"id":"screen","format":"design"})
+        )
+        .unwrap()["version"],
         1
     );
 }
@@ -259,9 +255,13 @@ async fn shutdown_releases_store_locks_even_with_retained_sessions() {
     original.shutdown();
     assert!(retained.list().is_err());
     assert!(original.session(caller.clone()).is_err());
-    assert!(original
-        .renderer(&caller, "artifact:list", &json!({"chatId":caller.chat_id}))
-        .is_err());
+    assert!(render(
+        &original,
+        &caller,
+        "artifact:list",
+        &json!({"chatId":caller.chat_id})
+    )
+    .is_err());
     let replacement = owner(isolation, None, live);
     let session = replacement.session(caller).unwrap();
     let list = session.call("artifact_list", &json!({})).await;
@@ -315,13 +315,13 @@ async fn revocation_inside_design_commit_rolls_back_and_restores_the_owner_guard
     );
     assert!(!granted.load(Ordering::SeqCst));
     assert!(!html.exists());
-    let read = owner
-        .renderer(
-            &desktop,
-            "artifact:get",
-            &json!({"chatId":desktop.chat_id,"id":"screen","format":"design"}),
-        )
-        .unwrap();
+    let read = render(
+        &owner,
+        &desktop,
+        "artifact:get",
+        &json!({"chatId":desktop.chat_id,"id":"screen","format":"design"}),
+    )
+    .unwrap();
     assert_eq!(read["version"], 1);
     assert_eq!(read["document"]["nodes"][0]["text"], "Hello");
     assert_eq!(
@@ -378,4 +378,145 @@ async fn kit_commit_uses_the_call_grant_and_does_not_leak_it_to_another_session(
         regular.call("design_kit_save", &kit).await["isError"],
         false
     );
+}
+
+fn render(
+    owner: &Arc<ContentOwner>,
+    caller: &Caller,
+    method: &str,
+    request: &Value,
+) -> milagre_content_store::Result<Value> {
+    let scope = owner.renderer_scope(
+        &caller.chat_id,
+        &caller.project_id,
+        caller.assert_active.clone(),
+    )?;
+    owner.renderer(&scope, method, request)
+}
+#[tokio::test]
+async fn renderer_capability_is_bound_to_owner_chat_project_and_revocation() {
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let live = Arc::new(AtomicBool::new(true));
+    let owner = owner(isolation.clone(), None, live.clone());
+    let grant = Arc::new(AtomicBool::new(true));
+    let renderer = owner
+        .renderer_scope(
+            "/alpha#1",
+            "/alpha",
+            Arc::new({
+                let grant = grant.clone();
+                move || {
+                    if grant.load(Ordering::SeqCst) {
+                        Ok(())
+                    } else {
+                        Err(Error::new("Renderer revoked"))
+                    }
+                }
+            }),
+        )
+        .unwrap();
+    assert!(owner
+        .renderer_scope("/alpha#1", "/beta", Arc::new(|| Ok(())))
+        .is_err());
+    assert!(owner
+        .renderer_scope("/missing#1", "/alpha", Arc::new(|| Ok(())))
+        .is_err());
+    assert!(owner
+        .renderer(&renderer, "artifact:list", &json!({"chatId":"/alpha#2"}))
+        .is_err());
+    assert!(owner
+        .renderer(&renderer, "artifact:list", &json!({"chatId":"/alpha#1"}))
+        .is_ok());
+    grant.store(false, Ordering::SeqCst);
+    assert!(owner
+        .renderer(&renderer, "artifact:list", &json!({"chatId":"/alpha#1"}))
+        .is_err());
+    assert!(owner.storage_fault().is_none());
+    owner.shutdown();
+    let replacement = super_owner(isolation, live);
+    assert!(replacement
+        .renderer(&renderer, "artifact:list", &json!({"chatId":"/alpha#1"}))
+        .is_err());
+    let fresh = replacement
+        .renderer_scope("/alpha#1", "/alpha", Arc::new(|| Ok(())))
+        .unwrap();
+    assert!(replacement
+        .renderer(&fresh, "artifact:list", &json!({"chatId":"/alpha#1"}))
+        .is_ok());
+}
+fn super_owner(isolation: Isolation, live: Arc<AtomicBool>) -> Arc<ContentOwner> {
+    owner(isolation, None, live)
+}
+#[cfg(unix)]
+#[tokio::test]
+async fn caller_root_and_lease_io_failures_during_commit_do_not_fault_other_chats() {
+    for root_io in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+        let root = temp.path().join("worktree");
+        std::fs::create_dir(&root).unwrap();
+        let live = Arc::new(AtomicBool::new(true));
+        let owner = owner(isolation, None, live.clone());
+        let regular = caller("/alpha#1", live.clone());
+        let baseline = owner.session(regular.clone()).unwrap();
+        assert_eq!(
+            baseline.call("design_show", &show("Original")).await["isError"],
+            false
+        );
+        let html = temp
+            .path()
+            .join("artifacts")
+            .join(milagre_content_store::chat_hash("/alpha#1"))
+            .join("screen/v2.html");
+        let tripped = Arc::new(AtomicBool::new(false));
+        let mut restricted = regular.clone();
+        restricted.roots = vec![root.clone()];
+        restricted.assert_active = Arc::new({
+            let tripped = tripped.clone();
+            let root = root.clone();
+            move || {
+                if html.exists() && !tripped.swap(true, Ordering::SeqCst) && root_io {
+                    std::fs::remove_dir(&root)?;
+                    std::os::unix::fs::symlink(&root, &root)?;
+                }
+                if !root_io && tripped.load(Ordering::SeqCst) {
+                    Err(Error::coded("IO_ERROR", "fixture caller lease I/O failure"))
+                } else {
+                    Ok(())
+                }
+            }
+        });
+        let session = owner.session(restricted).unwrap();
+        assert_eq!(
+            session.call("design_apply", &edit("must roll back")).await["isError"],
+            true
+        );
+        assert!(tripped.load(Ordering::SeqCst));
+        assert!(owner.storage_fault().is_none());
+        let scope = owner
+            .renderer_scope("/alpha#1", "/alpha", Arc::new(|| Ok(())))
+            .unwrap();
+        assert_eq!(
+            owner
+                .renderer(
+                    &scope,
+                    "artifact:get",
+                    &json!({"chatId":"/alpha#1","id":"screen","format":"design"})
+                )
+                .unwrap()["version"],
+            1
+        );
+        let other = owner.session(caller("/alpha#2", live)).unwrap();
+        assert_eq!(
+            other.call("design_show", &show("Other Chat")).await["isError"],
+            false
+        );
+        assert_eq!(
+            baseline
+                .call("design_apply", &edit("Allowed independent lease"))
+                .await["isError"],
+            false
+        );
+    }
 }

@@ -58,16 +58,24 @@ fn panic_inside_operation_latches_fault_without_resuming_mutations() {
         .is_err());
     assert!(owner.session(caller.clone()).is_err());
     assert!(retained.list().is_err());
-    assert!(owner
-        .renderer(&caller, "artifact:list", &json!({"chatId":caller.chat_id}))
-        .is_err());
+    assert!(render(
+        &owner,
+        &caller,
+        "artifact:list",
+        &json!({"chatId":caller.chat_id})
+    )
+    .is_err());
     owner.shutdown();
     owner.shutdown();
     assert!(owner.lock_state(&owner.stores).is_none());
     let replacement = open(isolation, Arc::new(|| Ok(())));
-    let saved = replacement
-        .renderer(&caller, "artifact:list", &json!({"chatId":caller.chat_id}))
-        .unwrap();
+    let saved = render(
+        &replacement,
+        &caller,
+        "artifact:list",
+        &json!({"chatId":caller.chat_id}),
+    )
+    .unwrap();
     assert_eq!(saved[0]["title"], "Committed before panic");
     assert!(retained.list().is_err());
 }
@@ -133,4 +141,18 @@ fn panicking_authority_callbacks_are_isolated_and_permanently_fault_the_owner() 
     panic_now.store(false, Ordering::Release);
     assert!(session.list().is_err());
     owner.shutdown();
+}
+
+fn render(
+    owner: &Arc<ContentOwner>,
+    caller: &Caller,
+    method: &str,
+    request: &Value,
+) -> milagre_content_store::Result<Value> {
+    let scope = owner.renderer_scope(
+        &caller.chat_id,
+        &caller.project_id,
+        caller.assert_active.clone(),
+    )?;
+    owner.renderer(&scope, method, request)
 }
