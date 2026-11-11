@@ -17,7 +17,7 @@
 //! the bridge; a failure takes the change back and says why under the header.
 //!
 //! Not built (the desktop has them): the Link Chat variant (a Project avatar beside the repository), the 30 s poll,
-//! the merge method remembered across launches (it lasts the session), avatars from GitHub (initials stand in), the
+//! avatars from GitHub (initials stand in), the
 //! header's narrow-width label swaps (the container queries). "Fix in Chat" and "N files not in the PR yet" are
 //! [`PrEvent`]s the window answers.
 
@@ -50,6 +50,7 @@ use crate::logic::files::github_markdown::github_html_to_markdown;
 use crate::theme::{ActiveTheme, TEXT_12, TextStepExt};
 use crate::ui::{EmptySize, EmptyState, IconName, ScrollArea, SpinnerRing};
 use crate::workspace::panel::diff::DiffView;
+use crate::workspace::shell::persist::{self, JsonFile};
 
 /// What the PR tab asks of the rest of the window.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,6 +122,8 @@ pub struct PrView {
     states: HashMap<u32, ViewState>,
     /// The merge method last picked in each repository (the session's, the desktop saves it).
     methods: HashMap<String, MergeMethod>,
+    /// Where the methods are kept across launches (`merge-methods.json`); `None` in snapshots and tests.
+    methods_file: Option<JsonFile>,
     confirming: Option<Confirm>,
     _confirm_timer: Option<Task<()>>,
     busy: Option<&'static str>,
@@ -148,6 +151,19 @@ impl PrView {
     }
 
     pub fn with_bridge(bridge: Rc<dyn PrBridge>) -> Self {
+        Self::new_inner(bridge).kept_in(persist::file("merge-methods.json"))
+    }
+
+    /// Keeps the merge methods in `file`, loading what it holds (the repository's key to `squash`, `merge`, `rebase`).
+    pub fn kept_in(mut self, file: Option<JsonFile>) -> Self {
+        if let Some(serde_json::Value::Object(saved)) = file.as_ref().and_then(JsonFile::read) {
+            self.methods = saved.iter().filter_map(|(repo, key)| Some((repo.clone(), MergeMethod::from_key(key.as_str()?)?))).collect();
+        }
+        self.methods_file = file;
+        self
+    }
+
+    fn new_inner(bridge: Rc<dyn PrBridge>) -> Self {
         Self {
             chat: SharedString::default(),
             number: None,
@@ -157,6 +173,7 @@ impl PrView {
             local_files: 0,
             states: HashMap::new(),
             methods: HashMap::new(),
+            methods_file: None,
             confirming: None,
             _confirm_timer: None,
             busy: None,
@@ -318,6 +335,9 @@ impl PrView {
     pub fn set_method(&mut self, method: MergeMethod, cx: &mut Context<Self>) {
         if let Some(repo) = self.detail.as_ref().and_then(|pr| repo_of(&pr.url)) {
             self.methods.insert(repo, method);
+            if let Some(file) = &self.methods_file {
+                file.write(&serde_json::Value::Object(self.methods.iter().map(|(repo, m)| (repo.clone(), m.key().into())).collect()));
+            }
         }
         cx.notify();
     }

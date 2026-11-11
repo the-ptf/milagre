@@ -749,3 +749,24 @@ fn refresh_in_the_diff_bar_reads_the_pr_and_its_patches_again_and_keeps_the_file
     assert_eq!(pr.read_with(cx, |pr, _| pr.selected()).as_deref(), Some(header), "the file stays open");
     assert!(drawn(cx, "diff-body"));
 }
+
+fn launch(cx: &mut TestAppContext, bridge: Rc<FixtureBridge>, file: super::JsonFile) -> (Entity<Frame>, &mut VisualTestContext) {
+    testing::mount_in_root(cx, move |_, cx| {
+        let pr = cx.new(|_| PrView::with_bridge(bridge).kept_in(Some(file)));
+        pr.update(cx, |pr, cx| pr.set_chat("chat".into(), Some(412), 2, cx));
+        Frame { pr }
+    })
+}
+
+#[gpui::test]
+fn the_merge_method_is_remembered_per_repository_across_launches(cx: &mut TestAppContext) {
+    let file = crate::workspace::shell::persist::test_file("merge-methods");
+    let bridge = Rc::new(FixtureBridge::forced(Variant::Ready));
+    let (frame, vcx) = launch(cx, bridge.clone(), file.clone());
+    let pr = frame.read_with(vcx, |frame, _| frame.pr.clone());
+    assert_eq!(pr.read_with(vcx, |pr, _| pr.method()), MergeMethod::Squash);
+    pr.update(vcx, |pr, cx| pr.set_method(MergeMethod::Rebase, cx));
+    let (frame, vcx) = launch(cx, bridge, file);
+    let pr = frame.read_with(vcx, |frame, _| frame.pr.clone());
+    assert_eq!(pr.read_with(vcx, |pr, _| pr.method()), MergeMethod::Rebase, "the next launch keeps it");
+}
