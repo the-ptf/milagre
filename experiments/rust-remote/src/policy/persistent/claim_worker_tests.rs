@@ -492,3 +492,117 @@ fn unused_prepaid_credit_is_released_without_inventing_a_packet_receipt() {
     });
     clean(a);
 }
+
+#[test]
+fn late_first_claim_inspection_expires_work_and_frees_its_inflight_slot() {
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(StoreLimits::default());
+    let mut a = resume(
+        &mut p,
+        PersistentLimits {
+            registry: registry::Limits {
+                inflight: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    a.open_pairing(1).unwrap();
+    let (h, mut channel, _) = pair(&mut a, 1, 4, 1);
+    let expired = request(&mut a, &h, &mut channel, 1, 2).remove(0);
+    assert!(request(&mut a, &h, &mut channel, 2, 10_002).is_empty());
+    let queued = a.registry.as_mut().unwrap().work_token(&h, 2).unwrap();
+    let pool = a.global_pool().unwrap();
+    let before = pool.used();
+    let (manual, clock) = clock();
+    manual.advance_to(20_002).unwrap();
+    assert!(matches!(
+        Prepared::new(&mut a, expired.clone(), clock.clone()),
+        Err(Fault::Expired)
+    ));
+    assert_eq!(expired.status(), WorkStatus::TimedOut);
+    assert_eq!(queued.status(), WorkStatus::InFlight);
+    assert!(pool.used() < before);
+    let ready = a.drain_work(None, 64, 20_002).unwrap();
+    assert_eq!(ready.tokens.len(), 1);
+    assert_eq!(ready.tokens[0].id(), 2);
+    assert!(matches!(
+        Prepared::new(&mut a, expired, clock),
+        Err(Fault::Expired)
+    ));
+    assert!(!a
+        .take_output(&h, 20_002, |_| panic!("no fabricated response"))
+        .unwrap());
+    clean(a);
+}
+#[test]
+fn dropped_preparation_arms_periodic_expiry_and_reinspection_never_renews_it() {
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(StoreLimits::default());
+    let mut a = resume(
+        &mut p,
+        PersistentLimits {
+            registry: registry::Limits {
+                inflight: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    a.open_pairing(1).unwrap();
+    let (h, mut channel, _) = pair(&mut a, 1, 4, 1);
+    let work = request(&mut a, &h, &mut channel, 1, 2).remove(0);
+    let (manual, clock) = clock();
+    drop(Prepared::new(&mut a, work.clone(), clock.clone()).unwrap());
+    assert_eq!(work.status(), WorkStatus::InFlight);
+    assert!(request(&mut a, &h, &mut channel, 2, 10_002).is_empty());
+    manual.advance_to(15_002).unwrap();
+    drop(Prepared::new(&mut a, work.clone(), clock).unwrap());
+    let started = a.tick(20_002).unwrap(); // No later claim attempt or callback required.
+    assert_eq!(work.status(), WorkStatus::TimedOut);
+    assert_eq!(started.len(), 1);
+    assert_eq!(started[0].id(), 2);
+    clean(a);
+}
+#[test]
+fn held_prepared_permit_past_scheduling_deadline_returns_expired_without_invocation() {
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(StoreLimits::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    let (h, mut channel, _) = pair(&mut a, 1, 4, 1);
+    let work = request(&mut a, &h, &mut channel, 1, 2).remove(0);
+    let pool = a.global_pool().unwrap();
+    let before = pool.used();
+    let (manual, clock) = clock();
+    let prepared = Prepared::new(&mut a, work.clone(), clock).unwrap();
+    manual.advance_to(20_002).unwrap();
+    let rejected =
+        match prepared.with_claim(Outcome::Success, |_| panic!("expired claim cannot invoke")) {
+            Err(e) => e,
+            Ok(_) => panic!("must expire"),
+        };
+    assert_eq!(rejected.fault, Fault::Expired);
+    assert_eq!(work.status(), WorkStatus::TimedOut);
+    drop(rejected.permit);
+    assert!(pool.used() < before);
+    assert!(a.drain_work(None, 64, 20_002).unwrap().tokens.is_empty());
+    clean(a);
+}
+#[test]
+fn claim_at_last_millisecond_of_ready_window_still_executes_once() {
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(StoreLimits::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    let (h, mut channel, _) = pair(&mut a, 1, 4, 1);
+    let work = request(&mut a, &h, &mut channel, 1, 2).remove(0);
+    let (manual, clock) = clock();
+    manual.advance_to(20_001).unwrap();
+    with_claim(&mut a, work, clock, Outcome::Success, |claim| {
+        finish_worker(claim);
+        assert_eq!(claim.invocations(), 1);
+        assert_eq!(claim.observe().status, Some(200));
+    });
+    clean(a);
+}

@@ -229,6 +229,12 @@ fn refused(error: registry::RegistryError) -> Fault {
         _ => Fault::Stale,
     }
 }
+fn admission_refused(error: registry::claim::AdmissionError) -> Fault {
+    match error {
+        registry::claim::AdmissionError::Expired => Fault::Expired,
+        registry::claim::AdmissionError::Registry(error) => refused(error),
+    }
+}
 impl<'a> Prepared<'a> {
     pub fn new(
         authority: &'a mut PersistentAuthority,
@@ -241,7 +247,7 @@ impl<'a> Prepared<'a> {
             .as_mut()
             .unwrap()
             .inspect_claim(&token, clock.now())
-            .map_err(refused)?;
+            .map_err(admission_refused)?;
         let metadata = budget.reserve(METADATA).map_err(|_| Fault::Full)?;
         Ok(Self {
             authority,
@@ -277,7 +283,7 @@ impl<'a> Prepared<'a> {
             Ok(b) => b,
             Err(e) => {
                 return Err(Rejected {
-                    fault: refused(e),
+                    fault: admission_refused(e),
                     permit: self,
                 })
             }
@@ -378,7 +384,7 @@ impl<'a> Prepared<'a> {
             Err(e) => {
                 drop(worker);
                 return Err(Rejected {
-                    fault: refused(e),
+                    fault: admission_refused(e),
                     permit: self,
                 });
             }

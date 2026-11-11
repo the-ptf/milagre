@@ -1,6 +1,21 @@
 //! Exclusive work permit for the private fixed-response worker fixture.
 use super::*;
 pub(crate) const FIXTURE_FRAME: usize = 1024;
+#[derive(Debug)]
+pub(crate) enum AdmissionError {
+    Expired,
+    Registry(RegistryError),
+}
+impl From<RegistryError> for AdmissionError {
+    fn from(error: RegistryError) -> Self {
+        Self::Registry(error)
+    }
+}
+impl From<Error> for AdmissionError {
+    fn from(error: Error) -> Self {
+        Self::Registry(error.into())
+    }
+}
 /// Constructed only after authoritative claim validation. Never Clone.
 pub(crate) struct Permit {
     token: WorkToken,
@@ -18,19 +33,39 @@ impl Registry {
         &mut self,
         token: &WorkToken,
         now: u64,
-    ) -> Result<ConnectionBudget> {
+    ) -> std::result::Result<ConnectionBudget, AdmissionError> {
         let limits = self.limits;
-        let a = self.work(token, now)?;
-        let job = &a.jobs[&token.id];
+        let a = self.active(&token.handle, now)?;
+        let Some(job) = a.jobs.get(&token.id) else {
+            return Err(if token.status() == WorkStatus::TimedOut {
+                AdmissionError::Expired
+            } else {
+                RegistryError::Revoked.into()
+            });
+        };
+        if job.token.serial != token.serial
+            || job.token.status() != WorkStatus::InFlight
+            || job.claimed
+        {
+            return Err(RegistryError::Revoked.into());
+        }
         let scheduling = job
             .assembled_at
             .checked_add(20_000)
             .ok_or(Error::Exhausted)?;
-        if now >= scheduling {
-            return Err(RegistryError::Revoked);
+        if now >= scheduling || now >= job.deadline {
+            a.remove_job(token.id, WorkStatus::TimedOut);
+            let failed = a.promote(now, limits).is_err();
+            if failed {
+                self.close(&token.handle, CloseReason::Protocol);
+            }
+            return Err(AdmissionError::Expired);
         }
-        // The mutable authority borrow prevents all other producers until output return.
-        // Fixed-response fixture only: no reservation claim for streaming/full-size HTTP.
+        // Opt this candidate into periodic Ready expiry. Reinspection cannot renew it.
+        // Uninspected legacy MemoryHttp jobs retain their existing promotion lifetime.
+        let job = a.jobs.get_mut(&token.id).unwrap();
+        job.deadline = job.deadline.min(scheduling);
+        // The scoped authority owner prevents all other producers until output return.
         if !a.outbound.is_empty()
             || limits.outbound_bytes < FIXTURE_FRAME
             || limits.outbound_frames == 0
@@ -39,7 +74,11 @@ impl Registry {
         }
         a.session.with_access(|| Ok(a.budget())).map_err(Into::into)
     }
-    pub(crate) fn claim_work(&mut self, token: &WorkToken, now: u64) -> Result<Permit> {
+    pub(crate) fn claim_work(
+        &mut self,
+        token: &WorkToken,
+        now: u64,
+    ) -> std::result::Result<Permit, AdmissionError> {
         self.inspect_claim(token, now)?;
         let deadline = now.checked_add(345_000).ok_or(Error::Exhausted)?;
         let a = self.work(token, now)?;

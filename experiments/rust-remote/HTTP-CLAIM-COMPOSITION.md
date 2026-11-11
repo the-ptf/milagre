@@ -34,7 +34,7 @@ Ten new authority/worker tests use fresh marked synthetic profiles, synthetic pa
 
 The standalone model also now retains HTTP status and requires an explicit MaySend transition before delivery. Two new model tests cover post-MaySend cancellation/expiry evidence and dropping an old prepared attempt after acknowledged slot reuse. Its boolean cleanup calls remain model-only; this composition uses actual JoinHandle and scoped packet ownership instead.
 
-Validation: 244 Rust tests, eight doctests, strict all-target Clippy, formatting, example builds and the existing seven Node reciprocal/source checks. No new Node oracle or phone test is claimed by this checkpoint.
+Original composition validation: 244 Rust tests, eight doctests, strict all-target Clippy, formatting, example builds and the existing seven Node reciprocal/source checks. No new Node oracle or phone test is claimed by this checkpoint.
 
 Remaining gates from the full linked review: moving the standalone model's 64 MiB allocation/free outside its mutex; short claim-to-Begin admission deadline; fair per-device work/submission admission; bounded retry/queueing on executor shortage; poisoned-model-lock regression; wiring scoped status observations and consuming prepared attempts into the persistent supervisor; multi-worker retained joins; wake/flush and readiness propagation after completion/promotion; general mailbox credit reservations across all producers; real HTTP internal-buffer accounting and cancellation; full-size adapter response budgets; and reserved-control/Disconnect saturation. No production profile, endpoint, credentials, host restart, live phone, mobile fingerprint or push is authorized.
 
@@ -45,3 +45,11 @@ The public-to-crate entry is now `with_claim`, which retains worker ownership ou
 ## Packet-return evidence safety checkpoint
 
 The packet owns the only sender for its per-claim receipt channel. The channel is allocated before Begin under prepaid resources; 2 KiB of metadata charge retains the bounded channel/signal after output and executor leases release. A unit test verifies the receiver remains empty while bytes and the whole charge are owned, and sees a receipt only after both are destroyed. Cancellation before packet creation releases unused prepayment without inventing a receipt. Loan discard, scoped forget and unwind paths remain covered. Cancellation or expiry after MaySend remains conservatively Unknown; ordinary unread loan return is explicitly Discarded.
+
+## Ready expiry safety checkpoint
+
+Private claim admission now distinguishes `AdmissionError::Expired`/`Fault::Expired` from generation or authorization refusal. Inspection at or after assembly plus 20,000 ms removes the exact unclaimed job as TimedOut, releases its in-flight slot/body charge, and promotes eligible queued work. A still-current token already timed out by Registry tick also reports Expired. Superseded or revoked bindings remain Stale.
+
+Successful inspection shortens that candidate's deadline to the original scheduling boundary, so the existing periodic Registry tick also expires it if a Prepared permit is dropped or held. Reinspection never renews it. Actual claim replaces it with the agreed claim-relative completion deadline. This opt-in change leaves uninspected legacy MemoryHttp work on its existing lifetime. No scheduler, automatic retry or 429 response encoder is added; scheduling expiry is terminal state/resource cleanup, not a new phone-response compatibility claim.
+
+Four regressions cover first inspection at equality, queued promotion and charge release, periodic expiry after dropped/repeated preparation, held-permit expiry without invoking the callback, and successful execution one millisecond before equality. The safety chain adds three retention tests, three packet/receipt tests and four expiry tests to the original 244-test baseline.
