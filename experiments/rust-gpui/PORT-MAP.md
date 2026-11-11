@@ -6,6 +6,10 @@ and how to split the work into packages that separate agents can take without co
 written the crate moved from `gpui` 0.2.2 to `gpui-pre` 0.3.12 with `gpui-component` 0.9.1 (README "GPUI version
 decision"); the GPUI facts below follow that move. Read-only analysis: nothing outside this file was changed.
 
+**Scope decisions (Victor, 2026-11-11):** macOS only for now; Linux and Windows code paths (named pipes, Windows
+paths in markdown and file links, window-control modes, `daemon:authenticate`) are not ported or tested. The Canvas
+view (V-01, WP-47) is not migrated.
+
 How to use it: section 1 is the summary. Section 2 lists every user-visible surface with an ID (`S-06`, `T-19`, …).
 Section 6 hands those IDs out to work packages. An agent given one package should read its package block, the surface
 rows it names, the matching part of section 4 (host calls) and section 5 (logic to port).
@@ -1713,4 +1717,4 @@ Open questions:
   rely on it); GPUI has no direct equivalent, retained entities are the likely mapping.
 - GPUI facts beyond the checks in section 3 (for example text-run sizes, the cost of `runtime_shaders` at launch, and
   child-view compositing with wry) are unverified.
-- Linux and Windows specifics beyond the window-control modes.
+- Linux and Windows: out of scope for now (macOS only).
