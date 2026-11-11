@@ -2,7 +2,7 @@
 
 [Increment 2B.1 implementation evidence](FIXED-OWNER-PEER-SETUP.md) records charged peer setup and fixed requests. It leaves Ready retained without response delivery; 2B.2 and 2B.3 remain separate.
 
-Status: root reviewed and agreed increment 2B.1 only. Its charged private peer setup may be implemented; 2B.2 delivery and 2B.3 wake/fairness code wait for separate review. Baseline is stage 2A at `18229be6`: 335 Rust tests, 9 doctests, strict Clippy/fmt and seven Node checks; independent source review found no P1/P2. This makes the remaining [owner-pump proposal](FIXED-OWNER-PUMP-PROPOSAL.md) concrete while preserving [lifecycle ownership](FIXED-OWNER-LIFECYCLE.md) and the [tracked-output contract](TRACKED-OUTPUT-CONTRACT.md).
+Status: increment 2B.1 is implemented and validated at `fd467e61` (346 Rust tests, nine doctests, strict Clippy/fmt, examples and seven Node checks). Root and independent source review now agree increment 2B.2 under the five obligations below. Increment 2B.3 wake/fairness code still waits for separate review. Baseline is stage 2A at `18229be6`: 335 Rust tests, 9 doctests, strict Clippy/fmt and seven Node checks; independent source review found no P1/P2. This makes the remaining [owner-pump proposal](FIXED-OWNER-PUMP-PROPOSAL.md) concrete while preserving [lifecycle ownership](FIXED-OWNER-LIFECYCLE.md) and the [tracked-output contract](TRACKED-OUTPUT-CONTRACT.md).
 
 Use three separately reviewable increments: charged private peer setup; real owner delivery/completion on existing ticks; then completion wakes and fair turns. All remain inside the fresh synthetic fixture. There is no public executor, network/HTTP adapter, existing profile, real phone, provider, mobile or GUI work. Remote remains independent of both frontend candidates.
 
@@ -35,6 +35,14 @@ The peer allowance covers measured Channel/metadata and bounded encoding/crypto 
 This increment does not deliver output: both peer-owned and existing peerless fixture targets still stop at Ready. Test setup/refund, original-pool needed-minus-one/exact boundaries, 16 combined peer slots across replacement, same-transfer Full retry, abandoned/timeout replies, fixed request counters, malformed/mismatched peer failure and ordinary-carrier isolation.
 
 ## 2B.2: deliver once, commit completion only from real returned credit
+
+Implementation obligations from the independent 2B.2 review:
+
+1. Enforce owned MaySend, acceptance and Completed checks inside the shared core/evidence paths whenever `entry.owner` is present, not only in the actor pump. Poll, cancel and maintenance can also reconcile output.
+2. Replace the existing no-op `claim_barrier` at completion with the actual row/core Completed transaction. Sample the service clock after acquiring the queue lock and before committing. Keep `end_claim` and grant/resource destruction outside these locks.
+3. `Packet::verify` may mint private peer acceptance only after real decrypt/compare, plaintext destruction and the concrete owned acceptance commit. No caller boolean or independently callable mark-accepted method is evidence.
+4. A prepaid consume-attempt flag returns AwaitingReturn for delayed credit without a second mailbox take or decrypt. The legacy direct `consume_fixed` may map pending back to State, but must not cancel or replay it.
+5. Preserve Failed/Expired/Stale causes deliberately and include Completed in exact disposal. Cover both sides of each commit, delayed return after cancellation and acknowledgment between Completed and disposal. Existing Completed cancellation immunity and retained RowOwnership must remain intact.
 
 Enable automatic delivery only for an exact actor-owned peer binding. Existing peerless stage 2A fixtures retain Ready, preserving their independent coverage. Each round considers at most the two retained entries, emits at most once per entry and attempts verification at most once. The actor owns the Channel throughout. Existing direct authority APIs retain their behavior and tests.
 
@@ -78,4 +86,4 @@ Use deterministic barriers for generation change before the final check and afte
 
 Each increment retains all current Rust/doctest, scoped Claim, direct packet/verifier, stage 1 and stage 2A suites; run strict all-target Clippy/fmt, examples and seven Node checks. Pin updated tested layouts and actual original-pool refunds. Source review precedes enabling the next increment. Expected source seams are private supervisor fixed/service/wake modules, retained-core owner/output, Registry claim barriers and tracked Packet return; no unrelated frontend or production source is needed.
 
-The first implementation checkpoint after agreement is 2B.1 only. This document proposes the original-budget descriptor bridge, combined peer ledger, pending-return distinction and final Completed commit explicitly so root can review them before any code changes.
+The next implementation checkpoint is 2B.2 only, with the reviewed shared-path commit and returned-credit obligations above. Increment 2B.3 remains a separate decision. Neither agreement enables production authority or real HTTP/phone access.
