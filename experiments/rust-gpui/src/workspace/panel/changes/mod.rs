@@ -4,7 +4,7 @@
 //!   the branches `logic::diff::git::comparison_options` lists) beside the current branch, and the Files /
 //!   Commits segmented control.
 //! - Files: the list "Not committed" and the list "On this branch", each flat up to ten files and the folder
-//!   tree beyond (`files.rs`); a click opens the diff view under the lists (`workspace::panel::diff`, WP-31) with
+//!   tree beyond (`files.rs`); a click opens the diff view over the Chat column (`workspace::panel::diff`, WP-31) with
 //!   every file of that list, scrolled to the one picked; the list marks the file whose header is pinned.
 //! - Commits: the commits since the base; a click opens one with its files (`commits.rs`), and a file of it opens
 //!   the commit's files in the diff view, read-only.
@@ -28,8 +28,8 @@ mod tests;
 use std::collections::{HashMap, HashSet};
 
 use gpui::{
-    AnyElement, AnyView, ClickEvent, Context, Entity, EventEmitter, FontWeight, ScrollHandle, SharedString, StyleRefinement, Subscription,
-    Window, div, prelude::*, px, relative,
+    AnyElement, ClickEvent, Context, Entity, EventEmitter, FontWeight, ScrollHandle, SharedString, Subscription, Window, div, prelude::*,
+    px,
 };
 
 use self::data::{ChangesData, Section, WorktreeChanges};
@@ -112,8 +112,6 @@ struct ViewState {
     open_commit: Option<String>,
 }
 
-/// The share of the body the lists keep while a diff is open.
-const LIST_SHARE: f32 = 0.42;
 const HEADER_PAD: f32 = 12.0;
 
 pub struct ChangesView {
@@ -594,21 +592,11 @@ impl Render for ChangesView {
         };
         let header = self.header(&changes, cx);
         let rows = self.rows(&changes, &theme, cx);
-        let has_diff = self.diff_open.is_some();
-        // The diff is its own cached view: what changes in it (a scroll, a drag) never rebuilds the lists.
-        let diff = self.diff_view().map(|diff| {
-            div()
-                .debug_selector(|| "diff-pane".to_string())
-                .flex_1()
-                .min_h_0()
-                .border_t_1()
-                .border_color(theme.line)
-                .child(AnyView::from(diff).cached(StyleRefinement::default().size_full()))
-        });
+        // The diff opens over the Chat column (`diff::over_chat`); the lists keep the whole body.
         let list =
-            div().relative().min_h_0().when(has_diff, |el| el.flex_none().h(relative(LIST_SHARE))).when(!has_diff, |el| el.flex_1()).child(
+            div().relative().min_h_0().flex_1().child(
                 ScrollArea::new("changes-list", &self.list_scroll).child(div().flex().flex_col().w_full().py(px(6.0)).children(rows)),
             );
-        root.child(header).child(div().flex().flex_col().flex_1().min_h_0().child(list).children(diff))
+        root.child(header).child(div().flex().flex_col().flex_1().min_h_0().child(list))
     }
 }

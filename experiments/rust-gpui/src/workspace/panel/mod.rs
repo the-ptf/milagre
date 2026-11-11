@@ -278,6 +278,19 @@ impl Panel {
         &self.changes
     }
 
+    /// The diff the window draws over the Chat column: the shown tab's (Changes, or the PR's Files), while the panel
+    /// is open beside the Chat.
+    pub fn diff_over_chat(&self, cx: &gpui::App) -> Option<diff::over_chat::OpenDiff> {
+        if !self.is_open() || self.is_expanded() {
+            return None;
+        }
+        match self.active() {
+            PanelTab::Changes => self.changes.read(cx).diff_view().map(diff::over_chat::OpenDiff::Changes),
+            PanelTab::Pr => self.pr.read(cx).diff_over_chat().then(|| diff::over_chat::OpenDiff::Pr(self.pr.clone())),
+            _ => None,
+        }
+    }
+
     pub fn body_view(&self, tab: PanelTab) -> Option<AnyView> {
         match tab {
             PanelTab::Changes => Some(self.changes.clone().into()),

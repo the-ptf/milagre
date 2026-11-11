@@ -183,6 +183,7 @@ impl Render for Workspace {
             div().flex().flex_1().min_w_0().h_full().child(self.routines.clone()).into_any_element()
         } else {
             let body = self.chat_body(window, cx);
+            let body = self.diff_over_chat(body, window, cx);
             let column = self.chat_column(terminal::column(body, &self.terminals, window, cx), cx);
             dock::layout(&self.panel, self.grid_corner(column, cx), cx)
         };

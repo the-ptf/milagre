@@ -254,6 +254,8 @@ pub struct DiffView {
     pub(super) focus: FocusHandle,
     pub(super) stats: std::cell::Cell<DiffStats>,
     pub(super) seeded: bool,
+    /// Shown over the Chat column (`over_chat.rs`): Back's label (the Chat's title) and the bar's insets.
+    pub(super) over_chat: Option<super::over_chat::OverChat>,
 }
 
 impl EventEmitter<DiffEvent> for DiffView {}
@@ -290,6 +292,7 @@ impl DiffView {
             focus: cx.focus_handle(),
             stats: std::cell::Cell::new(DiffStats::default()),
             seeded: false,
+            over_chat: None,
         }
     }
 

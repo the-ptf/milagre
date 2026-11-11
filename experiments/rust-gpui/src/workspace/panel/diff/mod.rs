@@ -26,13 +26,14 @@
 //!   (`ui::selection`) serialises Markdown and has no API for other text yet, so this is the diff's own.
 //! - Comments are kept per Chat in memory (the desktop's `localStorage`), so they last the session.
 //!
-//! Where it is mounted: under the panel's file list (the desktop puts it over the Chat column, with the Chat's title
-//! as Back's label). Moving it over the Chat is a hook in `workspace/mod.rs` and the Chat column, outside this package.
+//! Where it is mounted: over the Chat column, as the desktop does, with the Chat's title as Back's label
+//! (`over_chat.rs`). The Changes panel and the PR panel's Files tab keep their lists and open it; the window draws it.
 
 mod bar;
 mod cards;
 pub mod comments;
 pub mod highlight;
+pub mod over_chat;
 mod render;
 pub mod rows;
 mod view;

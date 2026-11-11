@@ -224,6 +224,19 @@ impl PrView {
     }
 
     /// The picked file's diff (the diff view, its own cached view) and the review bar over its bottom.
+    /// The open diff and the review bar, as the window draws them over the Chat column.
+    pub fn diff_over_chat_pane(
+        &mut self,
+        over: crate::workspace::panel::diff::over_chat::OverChat,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let (Some(pr), Some(diff)) = (self.detail.clone(), self.diff_view()) else { return div().into_any_element() };
+        diff.update(cx, |diff, cx| diff.set_over_chat(Some(over), cx));
+        self.sync_diff_threads(cx);
+        self.diff_pane(&pr, window, cx)
+    }
+
     pub(super) fn diff_pane(&self, pr: &PullRequestDetail, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = *cx.theme();
         let Some(diff) = self.diff_view() else { return div().into_any_element() };
@@ -234,9 +247,9 @@ impl PrView {
             .flex()
             .flex_col()
             .flex_1()
+            .size_full()
             .min_h_0()
-            .border_t_1()
-            .border_color(theme.line)
+            .bg(theme.page)
             .child(div().flex_1().min_h_0().child(AnyView::from(diff).cached(StyleRefinement::default().size_full())))
             .children(bar)
             .into_any_element()

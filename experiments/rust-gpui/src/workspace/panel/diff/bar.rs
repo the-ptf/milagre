@@ -95,7 +95,11 @@ impl DiffView {
     }
 
     pub(super) fn bar(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let label = self.source.as_ref().map(|s| s.back_label.clone()).unwrap_or_default();
+        let label = match &self.over_chat {
+            Some(over) => over.label.clone(),
+            None => self.source.as_ref().map(|s| s.back_label.clone()).unwrap_or_default(),
+        };
+        let (leading, trailing) = self.over_chat.as_ref().map_or((px(12.0), px(12.0)), |over| (over.leading, over.trailing));
         let back_label: SharedString = if label.is_empty() { "Back".into() } else { label.clone() };
         let count = self.sendable().len();
         let hover = theme.hover;
@@ -185,7 +189,8 @@ impl DiffView {
             .justify_between()
             .gap(px(8.0))
             .h(px(BAR_H))
-            .px(px(12.0))
+            .pl(leading)
+            .pr(trailing)
             .mb(px(BAR_GAP))
             .child(div().flex().min_w_0().items_center().gap(px(8.0)).child(back).children(send).when(count == 0, |el| el.child(div())))
             .child(toolbar)

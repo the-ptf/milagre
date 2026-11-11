@@ -252,14 +252,17 @@ fn the_fixtures_counts_come_from_their_patches_and_every_variant_has_its_state()
 
 // --- the view ---------------------------------------------------------------------------------------------
 
-/// The 340px column the panel gives the tab.
+/// The 340px column the panel gives the tab, and beside it the Chat column, where the window draws the open diff
+/// (`diff::over_chat`).
 struct Frame {
     pr: Entity<PrView>,
 }
 
 impl Render for Frame {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div().w(px(340.0)).h(px(760.0)).child(self.pr.clone())
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let over = crate::workspace::panel::diff::over_chat::OverChat { label: "Chat".into(), leading: px(16.0), trailing: px(16.0) };
+        let diff = self.pr.read(cx).diff_over_chat().then(|| self.pr.update(cx, |pr, cx| pr.diff_over_chat_pane(over, window, cx)));
+        div().flex().child(div().w(px(340.0)).h(px(760.0)).child(self.pr.clone())).child(div().w(px(700.0)).h(px(760.0)).children(diff))
     }
 }
 

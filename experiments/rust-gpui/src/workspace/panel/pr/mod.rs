@@ -7,8 +7,8 @@
 //! - Checks bar and the Summary / Files switch (`tabs.rs`).
 //! - Summary (`summary.rs`): reviewers and labels with their pickers (`properties.rs`), then Description (GitHub's
 //!   HTML through `github_html_to_markdown`), Checks and Comments, each a folding section.
-//! - Files (`files.rs`): the PR's files as the folder tree; a click opens the diff view under the list
-//!   (`workspace::panel::diff`, WP-31) with every file of the PR, scrolled to the one picked, its review threads
+//! - Files (`files.rs`): the PR's files as the folder tree; a click opens the diff view over the Chat column
+//!   (`workspace::panel::diff`, WP-31; the window draws it through `diff::over_chat`) with every file of the PR, scrolled to the one picked, its review threads
 //!   under their lines and the review bar over its bottom (`review.rs`). A line comment there goes to the viewer's
 //!   pending review ("Add to review") or waits for the Chat ("Send to Chat", then "Send N comments").
 //!
@@ -39,9 +39,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui::{
-    AnyElement, Context, Entity, EventEmitter, ScrollHandle, SharedString, Subscription, Task, Window, div, prelude::*, px, relative,
-};
+use gpui::{AnyElement, Context, Entity, EventEmitter, ScrollHandle, SharedString, Subscription, Task, Window, div, prelude::*, px};
 use gpui_base::TextViewState;
 
 use self::bridge::{PrBridge, Write, apply};
@@ -66,8 +64,6 @@ impl EventEmitter<PrEvent> for PrView {}
 
 /// The merge button asks twice: the first press arms it, and it disarms after this long.
 pub const CONFIRM_FOR: Duration = Duration::from_secs(4);
-/// The share of the body the header, tabs and file tree keep while a diff is open.
-const LIST_SHARE: f32 = 0.42;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum PrTab {
@@ -342,6 +338,11 @@ impl PrView {
         cx.notify();
     }
 
+    /// Whether the Files tab has a file open: its diff shows over the Chat column.
+    pub fn diff_over_chat(&self) -> bool {
+        self.state().tab == PrTab::Files && self.diff_open.is_some() && self.detail.is_some()
+    }
+
     /// The diff view while it is open.
     pub fn diff_view(&self) -> Option<Entity<DiffView>> {
         self.diff_open.as_ref().and(self.diff.clone())
@@ -504,7 +505,6 @@ impl Render for PrView {
         let root = div().id("pr-view").debug_selector(|| "pr-root".to_string()).flex().flex_col().size_full().text_color(theme.ink);
         let Some(pr) = self.detail.clone() else { return root.child(self.notice(&theme)) };
         let state = self.state();
-        let diff_open = state.tab == PrTab::Files && self.diff_open.is_some();
         let content = match state.tab {
             PrTab::Summary => self.summary(&pr, &state, window, cx),
             PrTab::Files => self.files(&pr, &state, cx),
@@ -518,17 +518,9 @@ impl Render for PrView {
             .child(div().flex_none().h(px(1.0)).bg(theme.line))
             .child(self.tabs(&pr, state.tab, cx))
             .child(content);
-        let list = div()
-            .relative()
-            .min_h_0()
-            .when(diff_open, |el| el.flex_none().h(relative(LIST_SHARE)))
-            .when(!diff_open, |el| el.flex_1())
-            .child(ScrollArea::new("pr-scroll", &self.scroll).child(column));
-        if diff_open {
-            self.sync_diff_threads(cx);
-        }
-        let pane = diff_open.then(|| self.diff_pane(&pr, window, cx));
-        root.child(list).children(pane)
+        // The diff opens over the Chat column (`diff::over_chat`); the list keeps the whole body.
+        let list = div().relative().min_h_0().flex_1().child(ScrollArea::new("pr-scroll", &self.scroll).child(column));
+        root.child(list)
     }
 }
 

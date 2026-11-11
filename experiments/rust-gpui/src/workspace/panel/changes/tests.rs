@@ -107,13 +107,14 @@ fn the_files_view_draws_the_folder_tree_and_folders_collapse(cx: &mut TestAppCon
 #[gpui::test]
 fn selecting_a_file_shows_its_diff_and_the_layout_buttons_switch_modes(cx: &mut TestAppContext) {
     let (changes, cx) = mount(cx);
-    assert!(cx.debug_bounds("diff-pane").is_none());
+    assert!(cx.debug_bounds("diff-over-chat").is_none());
     click(cx, format!("file-u-{PANEL}"));
     assert_eq!(changes.read_with(cx, |c, _| c.selected().map(|s| s.path.clone())), Some(PANEL.to_string()));
-    assert!(cx.debug_bounds("diff-pane").is_some(), "the diff opens under the list");
+    assert!(cx.debug_bounds("diff-over-chat").is_some(), "the diff opens over the Chat column");
     let body = cx.debug_bounds("diff-body").expect("the diff body");
     let list = cx.debug_bounds("changes-list").expect("the list");
-    assert!(body.top() > list.bottom() - gpui::px(2.0), "below the list");
+    assert!(body.right() <= list.left() + gpui::px(2.0), "left of the panel's list, in the Chat column");
+    assert!(list.size.height > body.size.height * 0.8, "the list keeps the panel's whole body");
     let mode = |cx: &mut VisualTestContext| {
         let view = changes.read_with(cx, |c, _| c.diff_view());
         view.map(|view| view.read_with(cx, |v, _| v.layout()))
@@ -131,14 +132,14 @@ fn selecting_a_file_shows_its_diff_and_the_layout_buttons_switch_modes(cx: &mut 
     assert_eq!(mode(cx), Some(DiffLayout::Unified), "the diff bar's toolbar switches it too");
     assert_eq!(changes.read_with(cx, |c, cx| c.layout(cx)), Layout::Unified);
     click(cx, "diff-back".to_string());
-    assert!(cx.debug_bounds("diff-pane").is_none());
+    assert!(cx.debug_bounds("diff-over-chat").is_none());
 }
 
 #[gpui::test]
 fn a_binary_file_says_so_instead_of_drawing_a_diff(cx: &mut TestAppContext) {
     let (changes, cx) = mount(cx);
     click(cx, "file-u-apps/desktop/app/public/milagre-mark.png".to_string());
-    assert!(cx.debug_bounds("diff-pane").is_some());
+    assert!(cx.debug_bounds("diff-over-chat").is_some());
     assert!(cx.debug_bounds("diff-message-apps/desktop/app/public/milagre-mark.png").is_some(), "the binary file says so in the diff");
     assert!(changes.read_with(cx, |c, _| c.selected().is_some()));
 }
@@ -163,7 +164,7 @@ fn the_commits_view_lists_commits_and_opens_one_with_its_files(cx: &mut TestAppC
     assert!(cx.debug_bounds("diff-body").is_some(), "a commit's file shows its diff");
     click(cx, "commit-7a8b9c0d".to_string());
     assert!(cx.debug_bounds("commit-detail").is_none(), "a second click closes the commit");
-    assert!(cx.debug_bounds("diff-pane").is_none(), "and its diff goes with it");
+    assert!(cx.debug_bounds("diff-over-chat").is_none(), "and its diff goes with it");
 }
 
 #[test]
@@ -222,4 +223,22 @@ fn the_comparison_picker_lists_automatic_and_the_branches(cx: &mut TestAppContex
     assert_eq!(changes.read_with(cx, |c, _| c.comparison().to_string()), "refs/heads/develop");
     let branch = cx.debug_bounds("current-branch").expect("the current branch is drawn");
     assert!(branch.size.width > gpui::px(40.0));
+}
+
+#[gpui::test]
+fn the_diff_shows_over_the_chat_with_back_named_after_it_and_goes_with_the_panel(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    let changes = workspace.read_with(cx, |w, cx| w.panel.read(cx).changes().clone());
+    click(cx, format!("file-u-{PANEL}"));
+    let title = workspace.read_with(cx, |w, cx| w.chat.read(cx).title().to_string());
+    let diff = changes.read_with(cx, |c, _| c.diff_view()).expect("open");
+    assert_eq!(diff.read_with(cx, |d, _| d.over_chat().map(|o| o.label.to_string())), Some(title));
+    // The bar keeps clear of the corner's toggles over the Chat column.
+    let toolbar = cx.debug_bounds("diff-toolbar").expect("the toolbar");
+    let corner = cx.debug_bounds("corner-toggles").expect("the corner");
+    assert!(toolbar.right() <= corner.left(), "{toolbar:?} left of {corner:?}");
+    // Hiding the panel takes the diff away.
+    workspace.update(cx, |w, cx| w.panel.update(cx, |p, cx| p.close(cx)));
+    settle(cx);
+    assert!(cx.debug_bounds("diff-over-chat").is_none());
 }
