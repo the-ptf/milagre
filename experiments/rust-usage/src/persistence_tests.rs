@@ -429,3 +429,71 @@ async fn missing_corrupt_and_rejected_pending_caches_do_not_consume_load_budget(
     drop((missing, malformed));
     owner.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn paused_load_does_not_block_store_drop_and_settles_against_current_owners() {
+    for same_slot in [false, true] {
+        let cap = TempCache::fresh().unwrap();
+        let owner = Arc::new(cap.open().unwrap());
+        let a = Selection::default();
+        let b = if same_slot { a.clone() } else { Selection { claude: "other".into(), ..Selection::default() } };
+        fs::write(quota_path(&cap, &a), b"{}").unwrap();
+        let budget = Arc::new(LoadBudget::new(2048));
+        let store = owner.load_quota_budgeted(&a, &budget).unwrap();
+        let next_bytes = format!("{}{{}}", " ".repeat(1000));
+        fs::write(quota_path(&cap, &b), &next_bytes).unwrap();
+        let (entered, resume) = cap.test_block_load();
+        let reading = {
+            let owner = owner.clone();
+            let budget = budget.clone();
+            std::thread::spawn(move || owner.load_quota_budgeted(&b, &budget))
+        };
+        entered.recv_timeout(Duration::from_secs(2)).unwrap();
+        let (dropped, observed) = mpsc::channel();
+        let b = budget.clone();
+        let dropping = std::thread::spawn(move || {
+            drop(store);
+            dropped.send(b.used_bytes()).unwrap();
+        });
+        let during_read = observed.recv_timeout(Duration::from_secs(1));
+        // Always release the fixture worker, including when the assertion would fail.
+        resume.send(()).unwrap();
+        let next = reading.join().unwrap().unwrap();
+        dropping.join().unwrap();
+        assert_eq!(during_read.unwrap(), if same_slot { 2048 } else { 2046 });
+        assert_eq!(budget.used_bytes(), next_bytes.len() as u64);
+        drop(next);
+        assert_eq!(budget.used_bytes(), 0);
+        assert!(lock(&budget.state).slots.is_empty());
+        owner.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn load_reservation_rolls_back_on_failure_and_panic_and_missing_slots_do_not_accumulate() {
+    let cap = TempCache::fresh().unwrap();
+    let owner = cap.open().unwrap();
+    let budget = LoadBudget::new(8);
+    let selection = Selection::default();
+    fs::write(quota_path(&cap, &selection), b"          {}").unwrap();
+    let error = owner.load_quota_budgeted(&selection, &budget).unwrap_err();
+    assert!(error.to_string().contains("8 bytes"));
+    assert_eq!(budget.used_bytes(), 0);
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _reservation = budget.reserve("fixture");
+        assert_eq!(budget.used_bytes(), 8);
+        panic!("fixture load panic");
+    }))
+    .is_err());
+    assert_eq!(budget.used_bytes(), 0);
+    for i in 0..1000 {
+        let selection = Selection { claude: format!("missing-{i}"), ..Selection::default() };
+        drop(owner.load_quota_budgeted(&selection, &budget).unwrap());
+    }
+    {
+        let state = lock(&budget.state);
+        assert!(state.slots.is_empty());
+        assert!(state.reservation.is_none());
+    }
+    owner.shutdown().await.unwrap();
+}

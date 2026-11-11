@@ -124,16 +124,20 @@ Use a Tokio runtime with timers; this crate enables the `time` feature.
   Startup and quota disk/JSON loads run on tracked blocking workers; cancelling their callers does not release the
   cache lease while a worker is running. A per-selection async gate coalesces first loads.
   `open_with_limits(..., ServiceLimits { cache_load_bytes })` overrides the default 64 MiB aggregate input-byte
-  load budget shared across scan, pricing and quota slots. Loads serialize under the budget on blocking workers.
+  load budget shared across scan, pricing and quota slots. Loads serialize through a separate gate on blocking
+  workers. Capacity is reserved under a short budget lock before reading; disk I/O, parsing and copying happen
+  outside that lock. Success settles against current store ownership; errors/panics release the reservation.
+  Store destruction and budget inspection never acquire the loading gate.
   Disk loads charge actual bytes read, including whitespace, without a second serialization buffer. Pending snapshots
   use a bounded counting writer before cloning. Missing/malformed JSON consumes no retained charge. Quota charges
   follow loaded stores and their clones; abandoned blocking results release their charge. Concurrent loads of one
-  slot share its maximum charge until the last store drops. The two fixed scan/pricing slots stay reserved for the
-  service lifetime. Removed-account readers still own their stores and retain their charges for Node compatibility.
+  slot share its maximum charge until the last store drops, even if the largest loaded store drops first.
+  This conservative high-water rule avoids weakening the input bound while smaller owners remain. The two fixed
+  scan/pricing slots stay reserved for the service lifetime. Removed-account readers still own their stores and retain their charges for Node compatibility.
   A new selection that exceeds the budget returns an error from `handle` with its remaining byte allowance and
   records a slot diagnostic; it is never memoized as empty. Existing readers remain usable. `loaded_cache_bytes()`
-  reports charges. This bounds rehydration input, not allocator overhead, live callback output or total in-memory
-  report state. Cache eviction and production UI presentation of errors remain owner work.
+  reports retained charges plus any active load reservation. This bounds rehydration input, not allocator overhead,
+  live callback output or total in-memory report state. Cache eviction and production UI presentation of errors remain owner work.
   Lazy-loader errors/panics do not poison readers or memoize an empty store and can be retried.
 - Before invoking an injected provider reader, the facade rechecks the pinned ID against a fresh trusted account
   snapshot. Removed and non-ready IDs return unavailable without invoking the reader or substituting another ID.
@@ -168,7 +172,12 @@ Use a Tokio runtime with timers; this crate enables the `time` feature.
   The finalizer stops retries, cancels/awaits command/account/token/pricing callbacks, waits for blocking loads and
   the scanner to exit, exports all final state on a blocking worker, then closes the cache. Completed quota results
   survive cancellation of other providers. Each final export has its own panic/error boundary. Scanner and pricing
-  mutex poison is recovered independently with diagnostics; a failed account export cannot skip either. Failed final
+  mutex poison is recovered independently with diagnostics; a failed account export cannot skip either.
+  Recovery at scan start, pricing start/read/completion/cancellation, and final export discards possibly partial
+  state and clears poison. Scanner roots stay pinned to the supplied copies; offsets/rows/completion are reset
+  and the next successful scan replaces prior token rows, including when empty. Pricing becomes unavailable
+  until the injected trusted catalog reader succeeds. Recovery never treats the poisoned data as valid. A
+  shutdown before rebuilding persists empty recovered caches; it cannot restore lost deleted-file history. Failed final
   writes remain in the capability for reopen/retry. Interrupted scans report `Scanner stopped`, without a fault
   diagnostic. Token-owner cancellation is distinct from a callback panic.
   Drop requests the same cleanup when a Tokio runtime is available, without exposing its result; it is a fallback,
@@ -275,8 +284,8 @@ Preserved Node behavior:
 
 ## Verification
 
-On macOS arm64: **71 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
-command traces**, account isolation, callback lifecycle and **16 persistence tests**, plus **24 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
+On macOS arm64: **76 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
+command traces**, account isolation, callback lifecycle and **18 persistence tests**, plus **27 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
 from Rust output. Codex is an EventEmitter fixture; Claude uses supplied synthetic credential text and a fake fetch.
 No provider process, keychain access or network transport is available to the fixture sandbox.
 

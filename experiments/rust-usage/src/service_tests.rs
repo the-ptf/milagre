@@ -703,7 +703,7 @@ async fn final_export_recovers_scanner_and_pricing_poison_independently() {
     service.refresh_prices().await.unwrap();
     service.scan.scanner.lock().unwrap().scan(NOW).unwrap();
     let expected_quota = service.accounts.stores();
-    let expected_prices = service.prices.pricing.lock().unwrap().current().cloned();
+    assert!(service.prices.pricing.lock().unwrap().current().is_some());
     service.flush().await.unwrap();
     // Remove only this fresh fixture's committed files, so reopen proves final export saved every state.
     for entry in fs::read_dir(cap.test_directory()).unwrap() {
@@ -722,13 +722,13 @@ async fn final_export_recovers_scanner_and_pricing_poison_independently() {
         .is_err());
     }
     assert_eq!(service.shutdown().await, ShutdownReport::Complete(Ok(())));
-    assert_eq!(service.cache_diagnostics().iter().filter(|d| d.issue.contains("recovered poisoned state")).count(), 2);
+    assert_eq!(service.cache_diagnostics().iter().filter(|d| d.issue.contains("poisoned") && d.issue.contains("discarded")).count(), 2);
     let cache = cap.open().unwrap();
     for (selection, value) in expected_quota {
         assert_eq!(cache.load_quota(&selection).unwrap().to_json(), value);
     }
-    assert_eq!(cache.load_scan().unwrap().finished_at, Some(NOW));
-    assert_eq!(cache.load_pricing().unwrap().current().cloned(), expected_prices);
+    assert_eq!(cache.load_scan().unwrap().finished_at, None);
+    assert!(cache.load_pricing().unwrap().current().is_none());
     cache.shutdown().await.unwrap();
 }
 
@@ -799,5 +799,91 @@ async fn default_shutdown_reports_pending_and_retains_lease_until_worker_exits()
     resume.send(()).unwrap();
     assert_eq!(scanning.await.unwrap_err(), "Scanner stopped");
     assert_eq!(service.shutdown().await, ShutdownReport::Complete(Ok(())));
+    cap.open().unwrap().shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn scanner_recovers_after_caught_panic_by_rescanning_only_supplied_roots() {
+    let cap = TempCache::fresh().unwrap();
+    let copy = tempfile::tempdir().unwrap();
+    let transcript = copy.path().join("fixture.jsonl");
+    let fixture: Value = serde_json::from_str(include_str!("../tests/fixtures/persistence.json")).unwrap();
+    fs::write(&transcript, fixture["line"].as_str().unwrap()).unwrap();
+    let mut options = Harness::new().options();
+    options.roots = vec![CopiedRoot::new("claude", fs::canonicalize(copy.path()).unwrap()).unwrap()];
+    let service = UsageService::open(&cap, options).await.unwrap();
+    let (before, _) = service.scan.start(NOW).unwrap().await.unwrap();
+    assert_eq!(before.as_array().unwrap().len(), 1);
+    assert!(guarded_sync(|| {
+        let _guard = service.scan.scanner.lock().unwrap();
+        panic!("fixture interrupted scanner mutation");
+    })
+    .is_err());
+    fs::remove_file(&transcript).unwrap();
+    let (after, changed) = service.scan.start(NOW + 1).unwrap().await.unwrap();
+    assert!(changed, "reset must replace the token owner's previously retained rows");
+    assert_eq!(after, json!([]), "poisoned rows cannot survive as retained deleted-file rows");
+    assert!(!service.scan.scanner.is_poisoned());
+    assert!(service.cache_diagnostics().iter().any(|d| d.slot == "scanner" && d.issue.contains("discarded")));
+    fs::write(&transcript, fixture["line"].as_str().unwrap()).unwrap();
+    let (rescanned, _) = service.scan.start(NOW + 2).unwrap().await.unwrap();
+    assert_eq!(rescanned, before, "recovery keeps the explicitly supplied root");
+    stop(&service).await;
+}
+
+#[tokio::test]
+async fn pricing_reads_and_start_recover_poison_without_serving_partial_catalog() {
+    let cap = TempCache::fresh().unwrap();
+    let h = Harness::new();
+    let service = UsageService::open(&cap, h.options()).await.unwrap();
+    assert!(service.refresh_prices().await.unwrap());
+    for access in ["models", "status", "start"] {
+        assert!(guarded_sync(|| {
+            let mut pricing = service.prices.pricing.lock().unwrap();
+            pricing.complete(Some(&json!({"claude-partial":{"input_cost_per_token":999,"output_cost_per_token":999}})), NOW);
+            panic!("fixture interrupted pricing mutation");
+        })
+        .is_err());
+        match access {
+            "models" => assert_eq!(service.prices.models(), Value::Null),
+            "status" => assert_eq!(service.prices.status(), json!({"status":"unavailable"})),
+            _ => {}
+        }
+        assert!(service.refresh_prices().await.unwrap(), "poison recovery permits a fresh trusted fetch");
+        assert!(!service.prices.pricing.is_poisoned());
+        assert!(service.prices.models().get("claude-partial").is_none());
+        assert!(service.prices.models().get("claude-fixture").is_some());
+    }
+    assert_eq!(h.fetches.load(Ordering::SeqCst), 4);
+    assert!(service.cache_diagnostics().iter().any(|d| d.slot == "pricing" && d.issue.contains("discarded")));
+    stop(&service).await;
+}
+
+#[tokio::test]
+async fn cancelling_pending_price_callback_recovers_poison_in_reset_guard() {
+    let cap = TempCache::fresh().unwrap();
+    let started = Arc::new(tokio::sync::Semaphore::new(0));
+    let signal = started.clone();
+    let mut options = Harness::new().options();
+    options.fetch_catalog = Arc::new(move || {
+        let signal = signal.clone();
+        Box::pin(async move {
+            signal.add_permits(1);
+            std::future::pending().await
+        })
+    });
+    let service = UsageService::open(&cap, options).await.unwrap();
+    let s = service.clone();
+    let refreshing = tokio::spawn(async move { s.refresh_prices().await });
+    started.acquire().await.unwrap().forget();
+    assert!(guarded_sync(|| {
+        let _guard = service.prices.pricing.lock().unwrap();
+        panic!("fixture poisoned pending price state");
+    })
+    .is_err());
+    stop(&service).await;
+    assert!(refreshing.await.unwrap().is_err());
+    assert!(!service.prices.pricing.is_poisoned());
+    assert!(service.cache_diagnostics().iter().any(|d| d.slot == "pricing" && d.issue.contains("discarded")));
     cap.open().unwrap().shutdown().await.unwrap();
 }

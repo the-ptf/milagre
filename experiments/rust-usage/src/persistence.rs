@@ -35,7 +35,10 @@ fn encoded_size(value: &Value, limit: u64) -> io::Result<u64> {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
             self.bytes += bytes.len() as u64;
             if self.bytes > self.limit {
-                Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds load byte limit (at most 32 MiB)"))
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("cache exceeds load byte limit ({} bytes; maximum 32 MiB)", self.limit),
+                ))
             } else {
                 Ok(bytes.len())
             }
@@ -54,29 +57,77 @@ fn encoded_size(value: &Value, limit: u64) -> io::Result<u64> {
 /// Serialize loads under this budget on a blocking worker, never on an async runtime thread.
 pub struct LoadBudget {
     limit: u64,
-    used: Arc<Mutex<BTreeMap<String, (u64, usize)>>>,
+    state: Arc<Mutex<LoadState>>,
+    // Only blocking loaders acquire this gate. Store destruction never waits for disk I/O.
+    loading: Mutex<()>,
+}
+#[derive(Debug, Default)]
+struct LoadState {
+    slots: BTreeMap<String, (u64, usize)>,
+    reservation: Option<(String, u64)>,
+}
+impl LoadState {
+    fn charged(&self) -> u64 {
+        let retained: u64 = self.slots.values().map(|v| v.0).sum();
+        match &self.reservation {
+            Some((slot, capacity)) => retained + capacity.saturating_sub(self.slots.get(slot).map_or(0, |v| v.0)),
+            None => retained,
+        }
+    }
 }
 impl LoadBudget {
     pub fn new(limit: u64) -> Self {
-        Self { limit, used: Arc::new(Mutex::new(BTreeMap::new())) }
+        Self { limit, state: Arc::new(Mutex::new(LoadState::default())), loading: Mutex::new(()) }
     }
+    /// Includes the capacity reserved by an in-flight load until it settles or rolls back.
     pub fn used_bytes(&self) -> u64 {
-        lock(&self.used).values().map(|v| v.0).sum()
+        lock(&self.state).charged()
+    }
+    fn reserve(&self, slot: &str) -> LoadReservation<'_> {
+        let serial = lock(&self.loading);
+        let mut state = lock(&self.state);
+        let previous = state.slots.get(slot).map_or(0, |v| v.0);
+        let capacity = self.limit.saturating_sub(state.charged().saturating_sub(previous)).min(MAX_CACHE_BYTES);
+        state.reservation = Some((slot.to_owned(), capacity));
+        LoadReservation { budget: self, slot: slot.to_owned(), capacity, _serial: serial }
+    }
+}
+struct LoadReservation<'a> {
+    budget: &'a LoadBudget,
+    slot: String,
+    capacity: u64,
+    _serial: std::sync::MutexGuard<'a, ()>,
+}
+impl LoadReservation<'_> {
+    fn settle(&self, bytes: u64, scoped: bool) -> Option<Arc<LoadCharge>> {
+        debug_assert!(bytes <= self.capacity);
+        let mut state = lock(&self.budget.state);
+        // Charges may have dropped during the read; consult current ownership, not the pre-read count.
+        let (previous, owners) = state.slots.get(&self.slot).copied().unwrap_or_default();
+        state.slots.insert(self.slot.clone(), (bytes.max(previous), owners + usize::from(scoped)));
+        state.reservation = None;
+        scoped.then(|| Arc::new(LoadCharge { state: self.budget.state.clone(), slot: self.slot.clone() }))
+    }
+}
+impl Drop for LoadReservation<'_> {
+    fn drop(&mut self) {
+        // Also runs on I/O failure or panic, before another loader can acquire the serial gate.
+        lock(&self.budget.state).reservation = None;
     }
 }
 /// A quota charge follows the loaded store, including clones and cancelled blocking-job results.
 #[derive(Debug)]
 pub(crate) struct LoadCharge {
-    used: Arc<Mutex<BTreeMap<String, (u64, usize)>>>,
+    state: Arc<Mutex<LoadState>>,
     slot: String,
 }
 impl Drop for LoadCharge {
     fn drop(&mut self) {
-        let mut slots = lock(&self.used);
-        if let Some((_, owners)) = slots.get_mut(&self.slot) {
+        let mut state = lock(&self.state);
+        if let Some((_, owners)) = state.slots.get_mut(&self.slot) {
             *owners -= 1;
             if *owners == 0 {
-                slots.remove(&self.slot);
+                state.slots.remove(&self.slot);
             }
         }
     }
@@ -306,17 +357,14 @@ impl CacheOwner {
         self.load_with_limit(key, MAX_CACHE_BYTES).map(|v| v.0)
     }
     fn load_budgeted(&self, key: Key, budget: &LoadBudget) -> io::Result<(Value, Option<Arc<LoadCharge>>)> {
-        let mut slots = lock(&budget.used);
-        let (previous, owners) = slots.get(key.name()).copied().unwrap_or_default();
-        let available = budget.limit.saturating_sub(slots.values().map(|v| v.0).sum::<u64>().saturating_sub(previous)).min(MAX_CACHE_BYTES);
+        let reservation = budget.reserve(key.name());
+        let available = reservation.capacity;
         let (value, bytes) = self.load_with_limit(key.clone(), available).map_err(|error| {
             let message = format!("cache rehydration failed (available {available} bytes): {error}");
             self.diagnostic(&key, &message);
             io::Error::new(error.kind(), message)
         })?;
-        let scoped = matches!(key, Key::Quota(_));
-        slots.insert(key.name().to_owned(), (bytes.max(previous), owners + usize::from(scoped)));
-        let charge = scoped.then(|| Arc::new(LoadCharge { used: budget.used.clone(), slot: key.name().to_owned() }));
+        let charge = reservation.settle(bytes, matches!(key, Key::Quota(_)));
         Ok((value, charge))
     }
     fn load_with_limit(&self, key: Key, limit: u64) -> io::Result<(Value, u64)> {
@@ -570,12 +618,18 @@ mod disk {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "cache is not a regular file"));
             }
             if file.metadata()?.len() > limit {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds load byte limit (at most 32 MiB)"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("cache exceeds load byte limit ({limit} bytes; maximum 32 MiB)"),
+                ));
             }
             let mut bytes = Vec::new();
             file.take(limit + 1).read_to_end(&mut bytes)?;
             if bytes.len() as u64 > limit {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds load byte limit (at most 32 MiB)"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("cache exceeds load byte limit ({limit} bytes; maximum 32 MiB)"),
+                ));
             }
             Ok(match serde_json::from_slice(&bytes) {
                 Ok(v) => (v, false, bytes.len() as u64),

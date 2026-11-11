@@ -105,6 +105,11 @@ impl Scanner {
     pub fn new(roots: Vec<CopiedRoot>, cache: ScanCache) -> Self {
         Self { roots, cache, scanned_at: 0 }
     }
+    /// A panic may have interrupted offsets or aggregation. Keep only the caller-authorized roots.
+    pub(crate) fn reset_after_panic(&mut self) {
+        self.cache = ScanCache::default();
+        self.scanned_at = 0;
+    }
     pub fn rows(&self) -> Value {
         rows(&self.cache.files)
     }

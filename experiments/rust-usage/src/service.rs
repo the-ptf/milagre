@@ -348,17 +348,11 @@ async fn finalize(
         let mut errors = Vec::new();
         export_state(&disk, "accounts", &mut errors, || disk.save_accounts(&accounts.stores()));
         export_state(&disk, "scanner", &mut errors, || {
-            let scanner = scan.scanner.lock().unwrap_or_else(|poison| {
-                disk.record_diagnostic("scanner", "recovered poisoned state during final export");
-                poison.into_inner()
-            });
+            let (scanner, _) = recover_scanner(&scan.scanner, &disk);
             disk.save_scan(scanner.cache())
         });
         export_state(&disk, "pricing", &mut errors, || {
-            let pricing = prices.pricing.lock().unwrap_or_else(|poison| {
-                disk.record_diagnostic("pricing", "recovered poisoned state during final export");
-                poison.into_inner()
-            });
+            let pricing = prices.lock_pricing();
             disk.save_pricing(&pricing)
         });
         errors
@@ -463,6 +457,18 @@ struct ScanOwner {
     #[cfg(test)]
     gate: ScanGate,
 }
+fn recover_scanner<'a>(scanner: &'a Mutex<Scanner>, cache: &CacheOwner) -> (std::sync::MutexGuard<'a, Scanner>, bool) {
+    match scanner.lock() {
+        Ok(scanner) => (scanner, false),
+        Err(poison) => {
+            let mut guard = poison.into_inner();
+            guard.reset_after_panic();
+            cache.record_diagnostic("scanner", "poisoned scanner state discarded; copied roots require rescan");
+            scanner.clear_poison();
+            (guard, true)
+        }
+    }
+}
 impl ScanOwner {
     fn start(&self, now: i64) -> ResultValue<impl std::future::Future<Output = ResultValue<(Value, bool)>> + Send + 'static> {
         let mut state = self.state.lock().unwrap();
@@ -487,7 +493,7 @@ impl ScanOwner {
                         let _ = entered.send(());
                         resume.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
                     }
-                    let mut scanner = scanner.lock().unwrap();
+                    let (mut scanner, recovered) = recover_scanner(&scanner, &cache);
                     let changed = scanner.scan_cancellable(now, &cancel).map_err(|e| {
                         if e.kind() == std::io::ErrorKind::Interrupted {
                             "Scanner stopped".to_owned()
@@ -495,6 +501,7 @@ impl ScanOwner {
                             e.to_string()
                         }
                     })?;
+                    let changed = changed || recovered;
                     if changed {
                         if let Err(error) = cache.save_scan(scanner.cache()) {
                             cache.record_diagnostic("scanner", &error.to_string());
@@ -543,18 +550,27 @@ impl PriceReset {
 impl Drop for PriceReset {
     fn drop(&mut self) {
         if !self.done {
-            self.owner.pricing.lock().unwrap().complete(None, self.now);
+            self.owner.lock_pricing().complete(None, self.now);
         }
     }
 }
 impl PriceOwner {
+    fn lock_pricing(&self) -> std::sync::MutexGuard<'_, Pricing> {
+        self.pricing.lock().unwrap_or_else(|poison| {
+            let mut pricing = poison.into_inner();
+            *pricing = Pricing::default();
+            self.cache.record_diagnostic("pricing", "poisoned pricing state discarded; fresh catalog required");
+            self.pricing.clear_poison();
+            pricing
+        })
+    }
     fn start(self: &Arc<Self>) -> ResultValue<Option<supervisor::Receiver<ResultValue<bool>>>> {
         let now = (self.now)();
         let mut pending = self.pending.lock().unwrap();
         if let Some(rx) = pending.as_ref().filter(|rx| rx.borrow().is_none()) {
             return Ok(Some(rx.clone()));
         }
-        if !self.pricing.lock().unwrap().begin_refresh(now) {
+        if !self.lock_pricing().begin_refresh(now) {
             return Ok(None);
         }
         let mut reset = PriceReset { owner: self.clone(), now, done: false };
@@ -565,7 +581,7 @@ impl PriceOwner {
                 let catalog = guarded(async { (this.fetch)().await }).await.ok().and_then(Result::ok);
                 let now = (this.now)();
                 let changed = {
-                    let mut pricing = this.pricing.lock().unwrap();
+                    let mut pricing = this.lock_pricing();
                     let changed = pricing.complete(catalog.as_ref(), now);
                     reset.finish();
                     if changed {
@@ -587,11 +603,11 @@ impl PriceOwner {
         Ok(Some(rx))
     }
     fn models(&self) -> Value {
-        self.pricing.lock().unwrap().current().map(|s| s["models"].clone()).unwrap_or(Value::Null)
+        self.lock_pricing().current().map(|s| s["models"].clone()).unwrap_or(Value::Null)
     }
     fn status(&self) -> Value {
         let now = (self.now)();
-        self.pricing.lock().unwrap().status(now)
+        self.lock_pricing().status(now)
     }
 }
 
