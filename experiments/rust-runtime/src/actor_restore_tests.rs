@@ -713,11 +713,25 @@ mod successful_restore {
             .write_all(b"stream\n")
             .unwrap();
         assert_eq!(child.line(&receive), "queued");
+        let injections = actor.shared.injected_commits.load(Ordering::Acquire);
         actor.shared.fail_commits.store(true, Ordering::Release);
-        provider.emit(&chat, json!({"type":"turn-completed"}));
-        until("retained completion", || {
-            actor.shared.stuck_ends.load(Ordering::Acquire) == 1
+        // The flag alone is not admission: an already-running tick may have read it.
+        // Publish the terminal only after the actor installed the persistent fault.
+        until("persistent commit fault installed", || {
+            actor.shared.injected_commits.load(Ordering::Acquire) > injections
         });
+        let before_end = actor.shared.snapshot.lock().unwrap()["runs"]["seq"].clone();
+        provider.emit(&chat, json!({"type":"turn-completed"}));
+        until("retained completion and observed fold error", || {
+            actor.shared.stuck_ends.load(Ordering::Acquire) == 1
+                && actor.shared.failure.lock().unwrap().as_deref()
+                    == Some("fixed retained-completion fold failure")
+        });
+        assert_eq!(
+            actor.shared.snapshot.lock().unwrap()["runs"]["seq"],
+            before_end,
+            "failed terminal fold publishes no agent frame"
+        );
         lose_readiness(&store, &actor);
         let exited = || ProviderEvent::Exited {
             chat: chat.clone(),
