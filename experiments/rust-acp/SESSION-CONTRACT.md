@@ -10,6 +10,11 @@ The process starts lazily on the first accepted turn. No owner/runtime crate is 
 
 - `send(text) -> Result<TurnId, SessionError>` admits one bounded text-only turn synchronously.
   It queues behind the active turn; it never steers. Rejection owns no turn and emits no terminal.
+  `PromptTooLarge` rejects an oversized encoded JSON frame before reserving a slot or ID; it
+  leaves accepted turns intact. Admission counts escaped text plus the protocol envelope, the
+  widest integer RPC ID and the worst-case escaped 4,096-byte native ID (not yet known at startup).
+  This conservative limit can reject text that would fit with a shorter native ID. The 512 KiB
+  frame budget is independent of the aggregate command allocation budget (`Busy`).
   Every accepted ID gets exactly one terminal, including queued turns discarded by Stop. This
   differs deliberately from Node's queued-send cancellation return without a terminal event.
 - `SessionEvent::Agent { turn_id, event }` wraps the mapper/Node lifecycle event. Each turn keeps
@@ -74,6 +79,22 @@ is emitted once; a subsequent answer is refused even if another turn later reuse
 | Initialize / create / resume / load            | 120 seconds each                                              |
 | Absolute turn / idle progress / permission age | 30 minutes / 120 seconds / 10 minutes                         |
 | Cancellation or final permission cleanup       | 3 seconds                                                     |
+
+Every numeric budget must be at least 1. Configuration is refused before actor/process creation
+when any value exceeds these ceilings:
+
+| Budget                                  | Maximum         |
+| --------------------------------------- | --------------- |
+| Admitted turns / commands / permissions | 64 / 256 / 256  |
+| Command bytes / permission bytes        | 16 MiB each     |
+| Output events / output bytes            | 65,536 / 64 MiB |
+| Mapper bytes / thinking bytes           | 64 MiB / 8 MiB  |
+| Open calls / cached diff paths          | 4,096 each      |
+
+All five deadlines must be greater than zero and at most 24 hours. Command bytes must also fit
+the platform semaphore and u32 permit count. Budgets are independent; small nonzero limits are
+valid for fault injection but may fail closed during ordinary traffic. Zero does not disable a
+limit, and no implicit clamping occurs. These are experimental caps, not production tuning.
 
 There is one actor task plus the transport's four tasks, at most one primary RPC future and one
 auxiliary write/request future. Commands never wait for channel capacity; admission returns Busy.

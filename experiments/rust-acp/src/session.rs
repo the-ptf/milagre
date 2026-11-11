@@ -10,10 +10,43 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch, OwnedSemaphorePermit, Semaphore};
 use tokio::time::Instant;
+
+const SESSION_FRAME_BYTES: usize = 512 * 1024;
+const MAX_NATIVE_ID_BYTES: usize = 4096;
+
+// Reserve the largest possible escaped native ID before it is known (startup is lazy).
+// Derive the envelope from the actual protocol builder so future field changes count too.
+fn prompt_envelope_bytes() -> usize {
+    static BYTES: OnceLock<usize> = OnceLock::new();
+    *BYTES.get_or_init(|| {
+        let params = protocol::prompt(&"\0".repeat(MAX_NATIVE_ID_BYTES), &[json!({"type":"text","text":""})]);
+        serde_json::to_vec(&protocol::request_frame(i64::MIN, "session/prompt", &params)).unwrap().len() - 2
+    })
+}
+fn prompt_fits_frame(text: &str) -> bool {
+    if text.len() > SESSION_FRAME_BYTES {
+        return false;
+    }
+    // Count the serializer's escaped string bytes without allocating another prompt/frame.
+    struct Budget(usize);
+    impl std::io::Write for Budget {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.checked_sub(bytes.len()).ok_or_else(|| std::io::Error::other("prompt frame budget exceeded"))?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let Some(remaining) = SESSION_FRAME_BYTES.checked_sub(prompt_envelope_bytes()) else {
+        return false;
+    };
+    serde_json::to_writer(&mut Budget(remaining), text).is_ok()
+}
 
 type RequestFuture = Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send>>;
 type WriteFuture = Pin<Box<dyn Future<Output = Result<(), RpcError>> + Send>>;
@@ -75,6 +108,29 @@ impl Default for SessionLimits {
         }
     }
 }
+impl SessionLimits {
+    fn valid(&self) -> bool {
+        const MIB: usize = 1024 * 1024;
+        let budgets = [
+            (self.admitted_turns, 64),
+            (self.command_count, 256),
+            (self.command_bytes, 16 * MIB),
+            (self.output.max_events, 65_536),
+            (self.output.max_bytes, 64 * MIB),
+            (self.mapper_bytes, 64 * MIB),
+            (self.open_calls, 4096),
+            (self.cached_diff_paths, 4096),
+            (self.thinking_bytes, 8 * MIB),
+            (self.permissions, 256),
+            (self.permission_bytes, 16 * MIB),
+        ];
+        budgets.iter().all(|(value, cap)| (1..=*cap).contains(value))
+            && self.command_bytes <= Semaphore::MAX_PERMITS.min(u32::MAX as usize)
+            && [self.startup_timeout, self.turn_timeout, self.idle_timeout, self.permission_timeout, self.cancel_grace]
+                .iter()
+                .all(|d| !d.is_zero() && *d <= Duration::from_secs(86_400))
+    }
+}
 #[derive(Debug, Clone)]
 pub struct FakeOptions {
     /// Only a fixed list of repository fake scenarios is accepted.
@@ -102,6 +158,8 @@ pub enum SessionError {
     Closed,
     #[error("Session admission budget exceeded.")]
     Busy,
+    #[error("Prompt exceeds the encoded ACP frame admission limit.")]
+    PromptTooLarge,
     #[error("Unsupported ACP policy: guards are not implemented.")]
     UnsupportedPolicy,
     #[error("Invalid fake session configuration.")]
@@ -213,20 +271,11 @@ impl FakeSession {
         if options.policy != Policy::Ask {
             return Err(SessionError::UnsupportedPolicy);
         }
-        if matches!(&options.open, OpenSession::Load(id)|OpenSession::Resume(id) if id.is_empty() || id.len()>4096) {
+        if matches!(&options.open, OpenSession::Load(id)|OpenSession::Resume(id) if id.is_empty() || id.len()>MAX_NATIVE_ID_BYTES) {
             return Err(SessionError::Configuration);
         }
         let l = &options.limits;
-        if l.admitted_turns == 0
-            || l.admitted_turns > 64
-            || l.command_count == 0
-            || l.command_count > 256
-            || l.command_bytes > u32::MAX as usize
-            || l.permissions > 256
-            || [l.startup_timeout, l.turn_timeout, l.idle_timeout, l.permission_timeout, l.cancel_grace]
-                .iter()
-                .any(|d| d.is_zero() || *d > Duration::from_secs(86_400))
-        {
+        if !l.valid() {
             return Err(SessionError::Configuration);
         }
         let normal = [
@@ -291,7 +340,7 @@ impl FakeSession {
             .owned_server_methods(["session/request_permission"]);
         spawn.response_boundaries = true;
         // Bound individual session inputs before mapping; image handling is a later checkpoint.
-        spawn.limits.max_frame_bytes = 512 * 1024;
+        spawn.limits.max_frame_bytes = SESSION_FRAME_BYTES;
         spawn.limits.max_open_server_requests = l.permissions.max(1);
         spawn.limits.write_timeout = l.cancel_grace;
         let (tx, rx) = mpsc::channel(l.command_count);
@@ -319,6 +368,9 @@ impl FakeSession {
     pub fn send(&self, text: &str) -> Result<TurnId, SessionError> {
         if self.handle.closed.load(Ordering::Acquire) {
             return Err(SessionError::Closed);
+        }
+        if !prompt_fits_frame(text) {
+            return Err(SessionError::PromptTooLarge);
         }
         if text.len() > self.handle.bytes.available_permits() {
             return Err(SessionError::Busy);
@@ -604,7 +656,7 @@ impl Actor {
                 }
                 "session/new" | "session/load" | "session/resume" => {
                     let id = value["sessionId"].as_str().filter(|s| !s.is_empty()).map(str::to_owned).or_else(|| self.native.clone());
-                    let Some(id) = id.filter(|s| s.len() <= 4096) else {
+                    let Some(id) = id.filter(|s| s.len() <= MAX_NATIVE_ID_BYTES) else {
                         self.fail("ACP did not return a valid session ID.");
                         return;
                     };
@@ -1082,5 +1134,23 @@ impl Actor {
         }
         self.reserved(SessionEvent::Closed { last_turn: self.last });
         let _ = self.done.send(true);
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    #[test]
+    fn frame_admission_matches_worst_case_protocol_encoding_at_boundary() {
+        let allowed = SESSION_FRAME_BYTES - prompt_envelope_bytes() - 2;
+        let native = "\0".repeat(MAX_NATIVE_ID_BYTES);
+        for text in ["x".repeat(allowed), "\0".repeat(allowed / 6), "\"\\\n\t😀".repeat(10000)] {
+            assert!(prompt_fits_frame(&text));
+            let frame =
+                protocol::request_frame(i64::MIN, "session/prompt", &protocol::prompt(&native, &[json!({"type":"text","text":text})]));
+            assert!(serde_json::to_vec(&frame).unwrap().len() <= SESSION_FRAME_BYTES);
+        }
+        assert!(!prompt_fits_frame(&"x".repeat(allowed + 1)));
+        assert!(!prompt_fits_frame(&"\0".repeat(allowed / 6 + 1)));
     }
 }

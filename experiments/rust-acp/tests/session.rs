@@ -470,7 +470,7 @@ async fn retained_byte_budgets_and_oversized_admission_fail_closed() {
         o.limits.mapper_bytes = 16 * 1024;
         o.limits.permission_bytes = 4096;
         let (s, mut events) = FakeSession::launch(o).unwrap();
-        assert_eq!(s.send(&"x".repeat(2 * 1024 * 1024)), Err(SessionError::Busy));
+        assert_eq!(s.send(&"x".repeat(2 * 1024 * 1024)), Err(SessionError::PromptTooLarge));
         let id = s.send("hello").unwrap();
         let seen = ended(&mut events, id).await;
         assert_eq!(seen.last().unwrap()["type"], "turn-failed");
@@ -515,4 +515,83 @@ async fn timed_out_or_dropped_receipt_preserves_current_and_queued_turns() {
     drop(receipt);
     assert_eq!(ended(&mut events, third).await.last().unwrap()["type"], "turn-completed");
     s.shutdown().await;
+}
+
+#[tokio::test]
+async fn oversized_encoded_prompt_is_rejected_without_disturbing_admitted_turns() {
+    let (s, mut events) = FakeSession::launch(options("reuse-permission")).unwrap();
+    let first = s.send("active").unwrap();
+    let mut request = loop {
+        if let SessionEvent::Permission { request_id, .. } = next(&mut events).await {
+            break request_id;
+        }
+    };
+    let second = s.send("queued").unwrap();
+    for text in ["x".repeat(600 * 1024), "\0".repeat(100 * 1024), "\"".repeat(300 * 1024)] {
+        assert_eq!(s.send(&text), Err(SessionError::PromptTooLarge));
+    }
+    for (i, turn) in [first, second].into_iter().enumerate() {
+        if i != 0 {
+            request = loop {
+                if let SessionEvent::Permission { request_id, .. } = next(&mut events).await {
+                    break request_id;
+                }
+            };
+        }
+        assert_eq!(s.answer(turn, request.clone(), Answer::Deny).await, Ok(Delivery::WrittenUnacknowledged));
+        assert_eq!(ended(&mut events, turn).await.last().unwrap()["type"], "turn-completed");
+    }
+    let third = s.send("still healthy").unwrap();
+    assert_eq!(third.0, second.0 + 1);
+    s.cancel();
+    ended(&mut events, third).await;
+    s.shutdown().await;
+}
+
+#[tokio::test]
+async fn every_session_limit_has_a_nonzero_floor_and_bounded_ceiling() {
+    type Field = (fn(&mut SessionLimits) -> &mut usize, usize);
+    let fields: [Field; 11] = [
+        (|l| &mut l.admitted_turns, 64),
+        (|l| &mut l.command_count, 256),
+        (|l| &mut l.command_bytes, 16 * 1024 * 1024),
+        (|l| &mut l.output.max_events, 65_536),
+        (|l| &mut l.output.max_bytes, 64 * 1024 * 1024),
+        (|l| &mut l.mapper_bytes, 64 * 1024 * 1024),
+        (|l| &mut l.open_calls, 4096),
+        (|l| &mut l.cached_diff_paths, 4096),
+        (|l| &mut l.thinking_bytes, 8 * 1024 * 1024),
+        (|l| &mut l.permissions, 256),
+        (|l| &mut l.permission_bytes, 16 * 1024 * 1024),
+    ];
+    for (field, max) in fields {
+        for invalid in [0, max + 1, usize::MAX] {
+            let mut o = options("reply");
+            *field(&mut o.limits) = invalid;
+            assert!(matches!(FakeSession::launch(o), Err(SessionError::Configuration)));
+        }
+    }
+    for value_is_max in [false, true] {
+        let mut o = options("reply");
+        for (field, max) in fields {
+            *field(&mut o.limits) = if value_is_max { max } else { 1 };
+        }
+        let (s, _) = FakeSession::launch(o).unwrap();
+        assert!(s.inspect().await.unwrap()["pid"].is_null());
+        s.shutdown().await;
+    }
+    let durations: [fn(&mut SessionLimits) -> &mut Duration; 5] = [
+        |l| &mut l.startup_timeout,
+        |l| &mut l.turn_timeout,
+        |l| &mut l.idle_timeout,
+        |l| &mut l.permission_timeout,
+        |l| &mut l.cancel_grace,
+    ];
+    for field in durations {
+        for invalid in [Duration::ZERO, Duration::from_secs(86_400) + Duration::from_nanos(1), Duration::MAX] {
+            let mut o = options("reply");
+            *field(&mut o.limits) = invalid;
+            assert!(matches!(FakeSession::launch(o), Err(SessionError::Configuration)));
+        }
+    }
 }

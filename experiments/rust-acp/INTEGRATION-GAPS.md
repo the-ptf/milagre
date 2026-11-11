@@ -108,8 +108,9 @@ choose production watchdog policy and integrate its clock/turn attribution befor
 Server methods default to unowned and receive `-32601`. A future permission/question/filesystem/
 terminal dispatcher must explicitly claim methods it implements. Claimed requests have count
 bounds at the raw layer. The fake session adds answer-age deadlines and closed-request cleanup;
-real host dispatch and policy remain owner integration gaps. Permission
-reply cancellation or failure has uncertain delivery: even process kill cannot prove a completed
+real host dispatch and policy remain owner integration gaps. The fake session owns admitted answer
+writes independently of receipt observers; dropping a receipt never cancels the command. Missing
+receipts must not be replayed. Explicit session cancellation or write failure has uncertain delivery: even process kill cannot prove a completed
 reply was not delivered or a tool did not run. No automatic retry or definitive non-execution claim.
 
 Provider `_meta` and mapper Routine/heartbeat references remain untrusted display data. The owner
@@ -118,3 +119,9 @@ Raw transport's 8 MiB frame ceiling and 16 MiB parsed-event budget are independe
 inline images exceed the latter because raw+params are both retained. The fake session caps frames
 at 512 KiB and accepts text-only input; real image transport still needs a compatible limit/copy
 design. Unowned methods now emit a bounded rejection diagnostic as well as a queued `-32601`.
+
+The session now rejects oversized encoded prompts before admission and validates every limit's
+floor/ceiling (see SESSION-CONTRACT.md). Performance follow-ups remain: the fake actor's 5 ms
+watchdog interval wakes idle sessions, and mapper budget checks walk retained state per update.
+Production timing and incremental accounting still need a separate checkpoint. The parent's
+runtime adapter uses one process per host TurnId; owner queue/handoff integration remains gated.
