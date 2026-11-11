@@ -7,6 +7,8 @@ import { ProjectIcon } from "./project-icon";
 import { lineHeight, radius, type } from "./design-tokens";
 import { Field, InlineError, PillButton, RowCheckbox, pressStyle, useStyles } from "./ui";
 import { createStylesHook, useTheme, type Palette } from "./theme";
+import { subprojectsLayout } from "@milagre/shared/chat-display";
+import { useChatList } from "./chat-display-setting";
 import type { SubprojectScan } from "@milagre/shared/project-list";
 
 type Found = { path: string; name: string };
@@ -219,6 +221,7 @@ function SubprojectsForm({ scan, onBack, onOpen }: { scan: SubprojectScan; onBac
   const [selected, setSelected] = useState<string[]>(() => scan.children.filter((child) => child.chosen).map((child) => child.path));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [chatList, setChatList] = useChatList();
   const name = scan.folder.split("/").findLast(Boolean) ?? scan.folder;
   const chosen = scan.children.map((child) => child.path).filter((path) => selected.includes(path));
   const toggle = (path: string) => setSelected((current) => (current.includes(path) ? current.filter((item) => item !== path) : [...current, path]));
@@ -233,6 +236,9 @@ function SubprojectsForm({ scan, onBack, onOpen }: { scan: SubprojectScan; onBac
       }
       const opened = await client.call<{ path: string }>("project:open", [scan.folder]);
       await client.call("project:set-subprojects", [opened.path, chosen]);
+      // The Sub-projects layout is what draws a Parent Project: it comes on with the first one.
+      const layout = subprojectsLayout(chatList);
+      if (layout && chosen.length) setChatList(layout);
       onOpen(opened.path);
     } catch (e) {
       setError((e as Error).message);

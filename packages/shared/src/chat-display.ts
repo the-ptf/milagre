@@ -71,10 +71,15 @@ export const CHAT_LIST_HINT = "How the sidebar lists your Chats.";
 
 /** The label of a Chat list value. */
 export function chatListLabel(value: ChatList): string {
-  return CHAT_LIST_MODES.find((mode) => mode.id === value)?.label ?? "Sub-projects";
+  return CHAT_LIST_MODES.find((mode) => mode.id === value)?.label ?? "One list";
 }
 
-/** A saved choice; anything else (nothing chosen yet) is Sub-projects, so Parent Projects show their Sub-projects. */
+/** A saved choice; anything else is One list. Adding a Parent Project switches to Sub-projects (subprojectsLayout). */
 export function parseChatList(value: unknown): ChatList {
-  return value === "list" || value === "grouped" ? value : "tree";
+  return value === "grouped" || value === "tree" ? value : "list";
+}
+
+/** The layout to switch to once a Parent Project is made: Sub-projects, which draws it, unless that is already on. */
+export function subprojectsLayout(current: ChatList): ChatList | null {
+  return current === "tree" ? null : "tree";
 }

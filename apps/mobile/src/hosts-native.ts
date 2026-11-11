@@ -144,7 +144,7 @@ export async function readChatList(): Promise<ChatList> {
   try {
     return parseChatList(await SecureStore.getItemAsync(chatListKey));
   } catch {
-    return "tree";
+    return "list";
   }
 }
 export async function saveChatList(mode: ChatList) {

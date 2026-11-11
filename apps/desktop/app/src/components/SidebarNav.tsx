@@ -60,6 +60,7 @@ import { useEvent } from "../lib/stable";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { projectMenuActions, type ProjectMenuKey } from "@/lib/reveal";
 import { projectRows, stableOrder, type RecentProject, type SubprojectScan } from "@/lib/project-list";
+import { subprojectsLayout } from "@milagre/shared/chat-display";
 import { projectTree, worktreeGroups } from "@milagre/shared/project-list";
 import { WorktreeHeading } from "./sidebar/WorktreeHeading";
 import { ChatRow, type ChatRowActions, type RowComputer, type SidebarRecent } from "./sidebar/ChatRow";
@@ -2017,6 +2018,9 @@ export default memo(function SidebarNav({
           onSave={async (paths) => {
             const list = await bridgeForKey(editingSubprojects.folder).setSubprojects(editingSubprojects.folder, paths);
             if (Array.isArray(list)) setRecentProjects(list);
+            // A Project that becomes a Parent Project shows as one: the Sub-projects layout comes on.
+            const layout = subprojectsLayout(chatList);
+            if (layout && paths.length) updateSettings({ chatList: layout });
             window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
             setEditingSubprojects(null);
           }}

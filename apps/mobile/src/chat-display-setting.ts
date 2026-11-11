@@ -71,7 +71,7 @@ export const useShowContextSize = phoneSetting(true, readShowContextSize, saveSh
 export const useCompactButtonDisplay = phoneSetting<CompactButtonDisplay>("threshold", readCompactButtonDisplay, saveCompactButtonDisplay);
 
 /** Settings › Chat › Chat list: the sidebar's One list, or a group per Project that folds. */
-export const useChatList = phoneSetting<ChatList>("tree", readChatList, saveChatList);
+export const useChatList = phoneSetting<ChatList>("list", readChatList, saveChatList);
 
 /** Desktop's Dictation language: what the mic listens for, a language code or "auto". */
 export const useDictationLanguage = phoneSetting<string>("auto", readDictationLanguage, saveDictationLanguage);

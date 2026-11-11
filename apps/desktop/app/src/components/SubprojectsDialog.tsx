@@ -4,6 +4,8 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import type { OpenProject } from "../model";
 import { bridgeFor } from "../lib/computer-bridge";
 import { RECENT_PROJECTS_CHANGED, type SubprojectScan } from "../lib/project-list";
+import { updateSettings, useSettings } from "../lib/settings";
+import { subprojectsLayout } from "@milagre/shared/chat-display";
 import { Button } from "./primitives/Button";
 import { Checkbox } from "./primitives/Checkbox";
 import { Dialog } from "./primitives/Dialog";
@@ -127,6 +129,7 @@ export function SubprojectsDialog({
  */
 export function useOpenFolder(onOpened: (project: OpenProject) => void, onCancel?: () => void) {
   const [scan, setScan] = useState<SubprojectScan | null>(null);
+  const { chatList } = useSettings();
   const bridge = bridgeFor(null);
   async function open(folder: string) {
     const found = await bridge.scanSubprojects(folder).catch(() => null);
@@ -146,6 +149,9 @@ export function useOpenFolder(onOpened: (project: OpenProject) => void, onCancel
       onSave={async (paths) => {
         const opened = await bridge.openProjectAt(scan.folder);
         await bridge.setSubprojects(opened.path, paths);
+        // The Sub-projects layout is what draws a Parent Project: it comes on with the first one.
+        const layout = subprojectsLayout(chatList);
+        if (layout && paths.length) updateSettings({ chatList: layout });
         window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
         onOpened(opened);
       }}

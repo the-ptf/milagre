@@ -525,7 +525,7 @@ const NavigationBody = memo(function NavigationBody({
   const beside = useBesideChat();
   const [savedChatList] = useChatList();
   // The chooser must list Projects and Links even when they have no Chats yet.
-  const chatList = currentPath ? savedChatList : "tree";
+  const chatList = currentPath ? savedChatList : "grouped";
   const [query, setQuery] = useState("");
   const needle = query.trim().toLowerCase();
   const searching = !!needle;
