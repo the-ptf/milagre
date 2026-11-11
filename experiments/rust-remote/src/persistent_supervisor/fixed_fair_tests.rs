@@ -2,6 +2,13 @@ use super::*;
 use crate::persistent::fixed_executor::Hooks as CoreHooks;
 use std::collections::VecDeque;
 
+struct ReleaseExit(Arc<ExitGate>);
+impl Drop for ReleaseExit {
+    fn drop(&mut self) {
+        self.0.release();
+    }
+}
+
 struct Rounds {
     shared: Arc<Shared>,
     hooks: Arc<fixed::FairTest>,
@@ -10,17 +17,18 @@ struct Rounds {
 impl Rounds {
     fn new(s: &PersistentSupervisor, fixed: &FixedOwnerClient) -> Self {
         let hooks = Arc::new(fixed::FairTest::default());
+        let guard = Self {
+            shared: s.shared.clone(),
+            hooks: hooks.clone(),
+            armed: true,
+        };
         fixed.park_test(Arc::new(fixed::ParkTest {
             fair: Some(hooks.clone()),
             ..Default::default()
         }));
         wait(|| hooks.entered() > 0);
         hooks.visits.lock().unwrap().clear();
-        Self {
-            shared: s.shared.clone(),
-            hooks,
-            armed: true,
-        }
+        guard
     }
     fn step(&self) {
         let entered = self.hooks.entered();
@@ -317,4 +325,149 @@ fn control_stop_or_unwind_keeps_second_ordinary_envelope_in_its_owned_queue() {
             finish(s);
         }
     }
+}
+
+#[test]
+fn replacement_under_full_buckets_keeps_both_old_workers_until_join_and_visits_every_neighbor() {
+    let _disk = crate::synthetic_store::testing_lock();
+    let (s, owner, fixed, _) = fixture();
+    let mut retained = Vec::new();
+    // Keep two real threads at their exit barriers. Replacing their carriers must
+    // not turn terminal status into permission to reuse either executor slot.
+    fixed.pause_dispatch(false);
+    for n in 0..2 {
+        let (h, memory, mut peer) = phone(&owner, n + 1, n as u8 + 4);
+        adopted(&fixed, &h);
+        work(&owner, &h, &mut peer, n as i64 + 1);
+        let token = tokens(&owner)
+            .into_iter()
+            .find(|t| t.handle().same(&h))
+            .unwrap();
+        let attempt = prepared(&fixed, &token);
+        let id = attempt.id();
+        let gate = Arc::new(ExitGate::default());
+        let release = ReleaseExit(gate.clone());
+        fixed.configure(
+            id,
+            TestHooks {
+                core: CoreHooks {
+                    exit: Some(gate.clone()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        fixed.submit(attempt, FixedOutcome::Success).unwrap();
+        wait(|| gate.entered());
+        retained.push((id, fixed.probe(id), memory, release));
+    }
+    let mut pending = Vec::new();
+    for n in 0..16 {
+        let (h, memory, mut peer) = phone(&owner, n + 1, n as u8 + 4);
+        adopted(&fixed, &h);
+        work(&owner, &h, &mut peer, 100 + n as i64);
+        let token = tokens(&owner)
+            .into_iter()
+            .find(|t| t.handle().same(&h))
+            .unwrap();
+        let id = fixed
+            .submit(prepared(&fixed, &token), FixedOutcome::Success)
+            .unwrap()
+            .id();
+        pending.push((id, memory));
+    }
+    assert_eq!(fixed.counts().1, 16);
+    for (id, probe, memory, _) in &retained {
+        assert!(memory.is_closed());
+        assert_eq!(probe.calls(), 1);
+        assert_eq!(probe.joins(), 0);
+        assert!(matches!(
+            fixed.observe(*id),
+            Observation::Present {
+                phase: Phase::Terminal(_),
+                cleanup_pending: true,
+                ..
+            }
+        ));
+    }
+    let neighbors: Vec<_> = pending[1..]
+        .iter()
+        .map(|(id, _)| (*id, fixed.bucket_ticket(*id)))
+        .collect();
+    for generation in 0..3 {
+        let old = pending[0].0;
+        let old_ticket = fixed.bucket_ticket(old);
+        let (h, memory, mut peer) = phone(&owner, 1, 4);
+        assert!(pending[0].1.is_closed());
+        adopted(&fixed, &h);
+        work(&owner, &h, &mut peer, 200 + generation);
+        let token = tokens(&owner)
+            .into_iter()
+            .find(|t| t.handle().same(&h))
+            .unwrap();
+        let id = fixed
+            .submit(prepared(&fixed, &token), FixedOutcome::Success)
+            .unwrap()
+            .id();
+        pending[0] = (id, memory);
+        let ticket = fixed.bucket_ticket(id);
+        assert_eq!(
+            ticket.slot, old_ticket.slot,
+            "only the replaced bucket is vacant"
+        );
+        assert_ne!(ticket, old_ticket);
+        assert!(!fixed.take_stale_bucket(old_ticket, old));
+        assert!(!fixed.take_stale_bucket(old_ticket, id));
+        assert_eq!(fixed.counts().1, 16);
+        let rounds = Rounds::new(&s, &fixed);
+        for _ in 0..16 {
+            let ordinary = owner.submit(C::HostPublicKey).unwrap();
+            let control = drain_command(&owner);
+            rounds.step();
+            assert!(matches!(
+                ordinary.wait(WAIT).unwrap(),
+                Reply::HostPublicKey(_)
+            ));
+            assert!(matches!(control.wait(WAIT).unwrap(), Reply::Work(_)));
+            assert_eq!(fixed.counts().1, 16);
+            for (neighbor, original) in &neighbors {
+                assert_eq!(fixed.bucket_ticket(*neighbor), *original);
+                assert_eq!(
+                    fixed.raw_phase(*neighbor),
+                    (Phase::Queued, Execution::NotStarted)
+                );
+            }
+            for (_, probe, _, _) in &retained {
+                assert_eq!(probe.joins(), 0);
+            }
+        }
+        let visits = rounds.hooks.visits.lock().unwrap().clone();
+        assert_eq!(visits.len(), 16);
+        let slots: std::collections::HashSet<_> = visits.iter().map(|v| v.0).collect();
+        assert_eq!(slots.len(), 16);
+        for (queued, _) in &pending {
+            assert_eq!(visits.iter().filter(|v| v.1 == Some(*queued)).count(), 1);
+        }
+        rounds.finish();
+    }
+    // Free one exact old generation. An unrelated current carrier can now run;
+    // the other old worker remains retained until its own barrier is released.
+    let (_, first_probe, _, release) = retained.remove(0);
+    drop(release);
+    wait(|| first_probe.joins() == 1);
+    wait(|| {
+        pending[2..].iter().any(|(id, _)| {
+            matches!(
+                fixed.observe(*id),
+                Observation::Present {
+                    execution: Execution::MayHaveRun,
+                    ..
+                }
+            )
+        })
+    });
+    assert_eq!(retained[0].1.joins(), 0);
+    assert!(pending.iter().all(|(_, memory)| !memory.is_closed()));
+    drop(retained);
+    finish(s);
 }
