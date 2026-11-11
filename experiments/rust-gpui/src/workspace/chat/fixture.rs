@@ -8,8 +8,7 @@
 
 use gpui::SharedString;
 
-use crate::workspace::chat::markdown;
-use crate::workspace::chat::transcript::{Activity, Approval, ApprovalState, Item, Tool, ToolKind};
+use crate::workspace::chat::transcript::{Activity, Approval, ApprovalState, Item, Prose, Tool, ToolKind};
 
 /// Items in the default transcript.
 pub const HISTORY_ITEMS: usize = 2000;
@@ -31,7 +30,7 @@ pub fn first_screen() -> Vec<Item> {
             summary: "Thought for 12s · read 6 files · ran 2 commands".into(),
             duration: "41s".into(),
         }),
-        Item::Prose(markdown::parse(
+        Item::Prose(Prose::new(
             "The hang is in the Dawn intro. On Linux the compositor never fires `transitionend` for the star layer, so \
              **Begin** stays disabled. I'm adding a timer fallback and a check for it.",
         )),
@@ -118,10 +117,10 @@ fn push_turn(turn: usize, rng: &mut Rng, items: &mut Vec<Item>) {
     }
 
     let source = if turn % 4 == 1 { LONG_ANSWERS[rng.below(LONG_ANSWERS.len())] } else { rng.pick(SHORT_ANSWERS) };
-    items.push(Item::Prose(markdown::parse(source)));
+    items.push(Item::Prose(Prose::new(source)));
     if rng.below(3) == 0 {
         items.push(Item::Tool(tool(rng)));
-        items.push(Item::Prose(markdown::parse(rng.pick(SHORT_ANSWERS))));
+        items.push(Item::Prose(Prose::new(rng.pick(SHORT_ANSWERS))));
     }
 }
 
@@ -205,7 +204,7 @@ const SHORT_ANSWERS: &[&str] = &[
 ];
 
 // Raw strings, so code indentation and nested list indentation survive.
-const LONG_ANSWERS: &[&str] = &[
+pub(crate) const LONG_ANSWERS: &[&str] = &[
     r#"I found the cause. The composer keeps its draft in component state, and the Chat view is **remounted** on every switch, so the state goes with it.
 
 Here is what I changed:
@@ -287,4 +286,31 @@ npm run build:linux -- --x64 --arm64
 ```
 
 I'd start with packaging and links, since everything else degrades without breaking."#,
+    r#"## Why the intro hangs on Linux
+
+The star layer waits for `transitionend`, which some compositors never send. The fix is in `apps/desktop/app/src/intro/Dawn.tsx:42`, with the timing in `src/theme/metrics.rs`; `npm test` covers it.
+
+### What fires where
+
+| Platform | Fires `transitionend` | Fallback needed |
+| -------- | --------------------- | --------------- |
+| macOS    | yes                   | no              |
+| Windows  | yes                   | no              |
+| Linux    | sometimes             | yes             |
+
+1. Start a **1.2 s** timer when the star mounts.
+2. Clear it when `transitionend` arrives first.
+3. Call `onReady` from whichever comes first.
+
+```ts
+useEffect(() => {
+  const fallback = window.setTimeout(onReady, 1200); // compositors that never fire it
+  node?.addEventListener("transitionend", onReady, { once: true });
+  return () => window.clearTimeout(fallback);
+}, [onReady]);
+```
+
+> Wayland needs a check by hand: the test runner uses X11.
+
+See [the compositor notes](https://milagre.cloud/design) for the rest."#,
 ];

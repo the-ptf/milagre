@@ -349,3 +349,77 @@ What was awkward:
 - IME and dead keys go through `NSTextInputClient` (`setMarkedText`, `insertText`) into the composer's input handler, the same
   path Zed's editor uses. The test drives that handler's methods directly; nobody typed Option+E, A on the real window.
 - Not built in the composer: undo, word movement, double-click selection, caret blink, drag and drop, attachments.
+
+## Markdown notes
+
+Assistant answers and user messages are gpui-base's rich text view (`TextView`, markdown-rs with GFM) inside
+`ui::markdown::Markdown`, one `TextViewState` per message, selectable across blocks and messages through `Root`'s
+window selection (2026-11-11, WP-14, WP-15, WP-16).
+
+| File                                     | What                                                                                     |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `ui/markdown/mod.rs`                     | Style from theme tokens, extensions (file chips, image links, raw HTML), `Markdown`      |
+| `ui/markdown/stream.rs`                  | `splitStreamingBlocks`, `closeOpenMarkdown`, `isMarkdownFence` with both TS test vectors |
+| `ui/markdown/files.rs`                   | `fileLinkTarget` (inline code that names a file) with its vectors                        |
+| `ui/markdown/fences.rs`                  | Fence routing, the 40 desktop language ids, placeholders, code block label and Copy      |
+| `ui/markdown/highlight.rs`               | Shiki buckets onto gpui-component's syntect names; installs the `HighlightTheme`         |
+| `workspace/chat/transcript_selection.rs` | Selection ends per item, the keeper element that keeps them mounted                      |
+
+Rules of `apps/desktop/app/src/components/markdown`, one by one:
+
+| Rule                                                                     | State                                                                                                    |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Chat size 14 at 1.6, headings 18/16/15/14 at 1.35, semibold, ink         | Done (`text_view_style`, size is a parameter for the user scale)                                         |
+| Paragraph and list spacing (0.5em), quote (2px `line-strong`, `ink-2`)   | Done; heading gaps are gpui-base's collapsing section gaps, not the exact 1.25em/0.4em                   |
+| List markers `ink-3`, ordered digits                                     | Done by gpui-base; the `--marker-digits` gutter is not measured                                          |
+| Tables: 12px, `line` borders, `inset` head, scroll sideways              | Done; cells never wrap (`overflow-wrap: normal`); the body takes gpui-base's surface fill                |
+| Rule, task lists (disabled, accent ticks)                                | Done by gpui-base                                                                                        |
+| Links `accent-ink`; web, file (`localFileLink`), other                   | Done (`LinkTarget`); web and other open with the system; file viewer, Browser panel, ⌘-click: not ported |
+| Remote links rewritten to the computer's address (`useReachableHref`)    | Not done (no remote computers yet)                                                                       |
+| Autolinks (GFM literals and `<url>`)                                     | Done by gpui-base's GFM parse                                                                            |
+| Inline code chip (`CODE_CHIP`: `hover-2`, 4px radius, 0.875em mono)      | Done (`hover-2`, as `Markdown.tsx`; its comment explains why not `field`)                                |
+| Inline code naming a file is a chip that opens it, copies as its text    | Done (`FileChipPlugin`); opening goes to the link handler (editor not ported)                            |
+| Images show as links (alt, else source, else "image"); loaded images     | Link: done (`ImageLinkPlugin`). Loaded images and the lightbox: not done                                 |
+| Raw HTML as text                                                         | Done for block HTML and lone tags; a paired inline tag (`<b>x</b>`) is a mark in gpui-base: not done     |
+| Fence `markdown`/`md`: nested markdown                                   | Done (a nested text view; copied whole it gives its source)                                              |
+| Fence `mermaid`                                                          | Placeholder block naming `pele`, with the source                                                         |
+| Fence `openui`                                                           | Placeholder block naming `@openuidev/lang-core`, with the source                                         |
+| Code block: inset, `line`, 8px radius, mono 12 at 1.6, scrolls sideways  | Done; label and Copy sit in the top-right of a 36px band (gpui-base has no header row)                   |
+| Copy with a tick for 1.5 s                                               | Done; shows while the pointer is over the message (gpui-base gives the block no hover group)             |
+| Shiki colours (`diff` fence uses the diff grammar, lines in text colour) | Done through syntect (`highlight.rs`); names are coarser than scopes, see its doc comment                |
+| Highlight only the 40 desktop languages, 40,000-char cap, near viewport  | Near viewport: done (only drawn items). The other two: not done (gpui-component owns the highlighter)    |
+| Re-highlight a streaming block after a 120 ms pause                      | Not done: the live block is highlighted on each 50 ms batch                                              |
+| `splitStreamingBlocks`, `closeOpenMarkdown`, 50 ms throttle              | Done (`Transcript::stream`): finished blocks append, only the live block parses again                    |
+| Parsed-body cache (500 entries)                                          | Equivalent: a message keeps its parse while within 150 items of the screen                               |
+| User messages as typed text                                              | Done (`plain_text_source` escapes markdown); chips, quotes, fences of `PromptText`: not done             |
+
+Selection. One drag selects across paragraphs, lists, tables, code blocks and messages (gpui-base). The gap the fit
+check found (`gap_selection_is_dropped_when_the_anchor_message_unmounts`: the list drops the message the drag began in
+and gpui-base clears the whole selection) is closed by keeping the ends mounted: the transcript follows which items
+hold the anchor and the cursor (`SelectionTracker`, gpui-base's participant rule at item level), and `Keeper`, painted
+after the list, draws each end item the list did not draw, at the list's width, just outside its bounds, clipped away.
+Its participant stays registered, so the selection, its highlight and the end's offset survive a drag past 50 items
+and scrolling far away (`transcript_tests.rs`). ⌘C over a selection across items is the transcript's: the selected
+part of the two ends plus the whole text of every message between, mounted or not, joined as gpui-base joins
+participants; with everything mounted it equals gpui-base's own copy (tested). Left: messages between the ends that
+are off screen paint no highlight until they come back; a kept item paints after the list, so gpui-base's own
+ordering of it is wrong (only its copy reads that, and the transcript replaces it); a partial selection inside a
+nested `markdown` fence is not in the transcript's copy; tool rows and approvals are not selectable, as in the desktop.
+
+Copy parity is by reading the React code, not by running Electron: the desktop has no copy handler, so Chromium
+serialises the DOM selection. Two differences to check at the Mac: Chromium leaves `user-select: none` content out of a
+copy, and a file chip is a `<button>` there, so Electron likely copies a selection without the chip's text where this
+port includes it (as the brief asks); and Chromium's newlines between blocks may differ from gpui-base's.
+
+Measured in `transcript_tests.rs` (test platform, 2,000-item fixture, `cargo test --release -- --test-threads=1`,
+Apple M5 Pro; debug in brackets):
+
+| What                              | Result                                                                      |
+| --------------------------------- | --------------------------------------------------------------------------- |
+| Open 2,000 items                  | 68 item builds, 10 texts parsed, 8 ms to the first frame (debug 56 ms)      |
+| One streamed append (1,049 chars) | 2 texts parsed (the appended block, the live block), 28 item builds, 2.5 ms |
+| Drag over 50 items (140 steps)    | 1,904 item builds (13.6 a step), 166 ms in all (debug 7.0 s)                |
+
+Assertions on `debug_bounds` only hold in debug builds; run the release measurement for the numbers, not the
+pass. `MILAGRE_GPUI_TRANSCRIPT_TOP=<item>|rich` opens scrolled to an item (or the last answer with a table) and
+`MILAGRE_GPUI_TRANSCRIPT_SELECT=1` drags a selection over that answer, for snapshots.

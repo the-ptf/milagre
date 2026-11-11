@@ -9,45 +9,13 @@ use gpui::{ClipboardItem, Entity, EntityInputHandler as _, Focusable as _, Modif
 use crate::testing::{self, leak};
 use crate::workspace::chat::ChatView;
 use crate::workspace::chat::composer::Composer;
-use crate::workspace::chat::markdown::{self, Block, SpanStyle};
-use crate::workspace::chat::transcript::{ApprovalState, COLUMN_WIDTH, Item, Transcript};
+use crate::workspace::chat::transcript::{ApprovalState, COLUMN_WIDTH, Item, Prose, Transcript};
 
 fn mount(cx: &mut TestAppContext) -> (Entity<Transcript>, Entity<Composer>, &mut VisualTestContext) {
     let (workspace, cx) = testing::mount_workspace(cx);
     let chat: Entity<ChatView> = workspace.read_with(cx, |workspace, _| workspace.chat.clone());
     let (transcript, composer) = chat.read_with(cx, |chat, _| (chat.transcript.clone(), chat.composer.clone()));
     (transcript, composer, cx)
-}
-
-#[test]
-fn markdown_sample_has_the_expected_blocks() {
-    let blocks =
-        markdown::parse("Run **cargo test** and check `ListState`:\n\n- first item\n- second with `code`\n\n```rust\nfn main() {}\n```\n");
-    let [Block::Paragraph(intro), Block::List { start: None, items }, Block::Code { lang, text }] = blocks.as_slice() else {
-        panic!("paragraph, list, code block: {blocks:#?}");
-    };
-
-    assert_eq!(intro.text.as_ref(), "Run cargo test and check ListState:");
-    let styled: Vec<(&str, SpanStyle)> = intro.spans.iter().map(|s| (&intro.text[s.range.clone()], s.style)).collect();
-    let plain = SpanStyle::default();
-    assert_eq!(
-        styled,
-        vec![
-            ("Run ", plain),
-            ("cargo test", SpanStyle { bold: true, ..plain }),
-            (" and check ", plain),
-            ("ListState", SpanStyle { code: true, ..plain }),
-            (":", plain),
-        ]
-    );
-
-    assert_eq!(items.len(), 2);
-    let [Block::Paragraph(second)] = items[1].as_slice() else { panic!("tight item is one paragraph: {:?}", items[1]) };
-    assert_eq!(second.text.as_ref(), "second with code");
-    assert!(second.spans.last().is_some_and(|s| s.style.code));
-
-    assert_eq!(lang.as_ref().map(|lang| lang.as_ref()), Some("rust"));
-    assert_eq!(text.as_ref(), "fn main() {}");
 }
 
 #[gpui::test]
@@ -231,7 +199,7 @@ fn typing_does_not_re_render_the_transcript(cx: &mut TestAppContext) {
     let after_typing = transcript.read_with(cx, |t, _| t.item_renders());
     assert_eq!(after_typing, before, "the transcript is a cached view; keystrokes reuse its last frame");
 
-    let appended = crate::workspace::chat::markdown::parse("One more **answer** with `code`.");
+    let appended = Prose::new("One more **answer** with `code`.");
     transcript.update(cx, |t, cx| t.push(Item::Prose(appended), cx));
     cx.run_until_parked();
     let after_append = transcript.read_with(cx, |t, _| t.item_renders());
@@ -249,9 +217,8 @@ fn activity_marks_take_their_width(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn clicking_a_link_in_prose_opens_it(cx: &mut TestAppContext) {
-    testing::init(cx);
-    let items = vec![Item::Prose(markdown::parse("[Open the docs](https://milagre.cloud/docs) for the list API."))];
-    let (_, cx) = cx.add_window_view(|_, cx| Transcript::with_items(items, cx));
+    let items = vec![Item::Prose(Prose::new("[Open the docs](https://milagre.cloud/docs) for the list API."))];
+    let (_, cx) = testing::mount_in_root(cx, |_, cx| Transcript::with_items(items, cx));
     let item = cx.debug_bounds("transcript-item-0").expect("the one item is drawn");
     // The column is centred in the item; the link is the paragraph's first words, below the 8px gap.
     let column_left = item.center().x - px(COLUMN_WIDTH / 2.0);

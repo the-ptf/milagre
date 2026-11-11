@@ -9,12 +9,14 @@
 
 pub mod composer;
 pub mod fixture;
-pub mod markdown;
 pub mod running;
 pub mod transcript;
+pub mod transcript_selection;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transcript_tests;
 
 use gpui::{
     AnyView, Context, Entity, FocusHandle, Focusable, FontWeight, SharedString, StyleRefinement, Subscription, Window, div, prelude::*, px,
