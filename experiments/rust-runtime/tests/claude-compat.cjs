@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 const fs = require("node:fs");
+const { PNG } = require("pngjs");
 const readline = require("node:readline");
 const { connect } = require("../../../apps/daemon/src/client.cjs");
 const { connectDesktopRuntime } = require("../../../apps/daemon/src/runtime-client.cjs");
@@ -19,6 +20,11 @@ async function scenario(name) {
   const child = spawn(process.argv[2], [name], { stdio: ["pipe", "pipe", "pipe"] });
   const exit = once(child, "exit");
   const lines = readline.createInterface({ input: child.stdout });
+  const reports = [];
+  lines.on("line", (line) => {
+    const value = JSON.parse(line);
+    if (value.designFeedback) reports.push(value.designFeedback);
+  });
   let stderr = "",
     client,
     runtime,
@@ -95,6 +101,26 @@ async function scenario(name) {
         assert.equal(events.filter((e) => e.type === "session-started").length, 1, "queue reuses the same native session");
       }
     }
+    if (name === "design") {
+      const page = await runtime.invoke("artifact:get", [{ chatId, id: "native-screen", format: "design" }]);
+      assert.equal(page.version, 2);
+      assert.equal(page.document.nodes.find((node) => node.id === "paint").fill, "#0000ff");
+      const changed = await runtime.invoke("artifact:apply", [
+        { chatId, id: "native-screen", expectedVersion: 2, operations: [{ op: "update", id: "paint", patch: { fill: "#00ff00" } }] },
+      ]);
+      assert.equal(changed.version, 3);
+      const latest = await runtime.invoke("artifact:get", [{ chatId, id: "native-screen", format: "design" }]);
+      assert.equal(latest.document.nodes.find((node) => node.id === "paint").fill, "#00ff00");
+      const saved = await client.call("chat:messages", [project, 1, { withDetails: true }]);
+      const steps = saved.messages.flatMap((message) => message.steps || []);
+      for (const tool of ["design_show", "design_apply"]) {
+        const step = steps.find((step) => step.tool === tool);
+        assert.ok(step, JSON.stringify(saved));
+        assert.equal(step.kind, "artifact");
+        assert.equal(step.artifact.id, "native-screen");
+      }
+      assert.ok(!steps.some((step) => step.kind === "image"), "MCP PNG is model feedback; image persistence is not wired");
+    }
     if (name === "content") {
       const listed = await runtime.invoke("artifact:list", [{ chatId }]);
       assert.equal(listed.length, 1);
@@ -119,11 +145,31 @@ async function scenario(name) {
     assert.equal(code, 0, name + ": " + stderr);
     assert.equal(fs.existsSync(metadata.profile), false);
     assert.equal(fs.existsSync(metadata.actor.project), false);
+    if (name === "design") {
+      await until("actual MCP PNG feedback", () => reports.length === 1);
+      assert.equal(reports[0].length, 2);
+      const expected = [
+        [255, 0, 0, 255],
+        [0, 0, 255, 255],
+      ];
+      for (let i = 0; i < 2; i++) {
+        const feedback = reports[0][i];
+        assert.equal(feedback.isError, false);
+        const image = feedback.content.find((block) => block.type === "image");
+        assert.equal(image.mimeType, "image/png");
+        const png = PNG.sync.read(Buffer.from(image.data, "base64"));
+        assert.equal(png.width, 240);
+        assert.equal(png.height, 240);
+        assert.deepEqual([...png.data.subarray((120 * 240 + 120) * 4, (120 * 240 + 120) * 4 + 4)], expected[i]);
+        const saved = JSON.parse(feedback.content[0].text.split("\n")[0]);
+        assert.equal(saved.version, i + 1);
+      }
+    }
   }
 }
 (async () => {
-  for (const name of ["reply", "permission", "question", "stop", "crash", "unicode", "content", "queue"]) await scenario(name);
-  console.log("Claude owner Node client conformance passed (8 scenarios)");
+  for (const name of ["reply", "permission", "question", "stop", "crash", "unicode", "content", "queue", "design"]) await scenario(name);
+  console.log("Claude owner Node client conformance passed (9 scenarios)");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

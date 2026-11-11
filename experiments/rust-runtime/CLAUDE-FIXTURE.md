@@ -14,7 +14,7 @@ RawJson provider events enter the owner codec once. The owner supplies native Ra
 
 Nine `claude_bridge` integration tests use the fixed native fake process. They cover sequential turns/process reuse, permission/question receipts, Stop, crash, cancelled initialization, refused policy/image configuration, cancellation after callback delivery, stale close, initial resume and conflicting identity refusal, drop/reaping, and compact subagent transcript retention through the real owner reducer.
 
-The production Node daemon client and desktop runtime client run eight fresh fixture scenarios: reply/text, permission, question, Stop, crash, Unicode, shared native MCP content and queued turns. Both prompt and question-answer Unicode frames are asserted inside the fake CLI. Marker/PUA output survives the provider-to-owner boundary once; saved prompt text retains its original lone surrogate. Every fixture verifies both temporary profiles disappear after successful shutdown.
+The production Node daemon client and desktop runtime client run nine fresh fixture scenarios: reply/text, permission, question, Stop, crash, Unicode, shared native MCP content, queued turns and native Designs. Both prompt and question-answer Unicode frames are asserted inside the fake CLI. Marker/PUA output survives the provider-to-owner boundary once; saved prompt text retains its original lone surrogate. Every fixture verifies both temporary profiles disappear after successful shutdown.
 
 This checkpoint does not replace the shared Node runtime, prove real-provider compatibility, wire account/tool policy, or install any app. Broader session/resume lifecycle coverage remains follow-up work.
 
@@ -26,8 +26,18 @@ Authority callbacks read only immutable fixture Chat-to-Project mappings and ato
 
 The native fake sends a real `mcp_message` for artifact_show and checks its control response. Production Node desktop-runtime RPCs then list/read that exact saved HTML, see an empty sibling Chat, refuse an unknown Chat and refuse a forgotten scope. A separate guard test verifies duplicate-writer refusal, immutable Chat grants, retained-grant revocation after reopen, exact read-only launch manifest, and lock release with retained dispatcher handles. No new daemon MCP endpoint exists.
 
-Content dispatch uses its existing bounded asynchronous executor. Dropped queued work is cancelled; a lost reply after execution begins remains conservatively uncertain. This first bridge supplies no per-call receipt to InProcessMcp and never automatically replays a mutation. Native Design/PNG feedback and whole-host advisor/babysit policy are not yet covered through this Claude route. Existing separate renderer/MCP Design tests still run unchanged.
+Content dispatch uses its existing bounded asynchronous executor. Dropped queued work is cancelled; a lost reply after execution begins remains conservatively uncertain. This first bridge supplies no per-call receipt to InProcessMcp and never automatically replays a mutation. Whole-host advisor/babysit policy is not yet covered through this Claude route. Existing separate renderer/MCP Design tests still run unchanged.
 
 The queued-turn Node-client scenario records the second message in Project state while the first turn runs. It then observes two terminal events, two persisted assistant replies, one copy of the queued input and one native session initialization. The wire send response keeps Node's `{sessionId}` shape; queue state is verified from the Project snapshot.
 
 A 1,024-attempt answer-burst regression consumes settlements during admission, checks every accepted AnswerId settles exactly once, and observes that retained answer tasks never exceed eight. This cap includes completed JoinSet entries waiting to be consumed.
+
+## Native Design and PNG checkpoint
+
+The fixed `Design` scenario uses the existing compiled `milagre-design-raster` sibling. Its path is derived by the trusted fixture constructor, never supplied by a caller. One RasterRenderer is attached to the same shared ContentOwner. The native fake issues design_show and design_apply over `mcp_message`, checks successful PNG feedback responses, then emits ordinary native tool completion frames.
+
+The production Node-client test decodes both actual MCP-output PNGs with the existing pngjs dependency. They are 240 by 240 pixels with exactly red and blue center pixels; their saved metadata reports versions 1 and 2. Renderer RPCs read the same blue version 2, edit it to green version 3 and read that saved result. The real owner reducer persists both artifact tool steps and their native-screen references.
+
+Feedback observation is fixture-only: at most eight replies of at most 512 KiB each are retained, and the fixed Design executable prints them after successful provider cleanup. No daemon command, live profile capture or new provider constructor is added. The CLI fake verifies the actual response envelope and image block; decoded pixels come from the corresponding native MCP output bytes.
+
+Automatic MCP PNG-to-transcript image persistence remains unsupported here. Claude's image persistence path handles matched successful Read results and requires an owner image store; this fixture does not install that store. The test asserts no image step is invented. The PNG is model tool feedback, while the transcript records ordinary artifact steps. No real Claude account or application UI was used for this evidence.

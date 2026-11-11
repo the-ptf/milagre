@@ -37,6 +37,7 @@ pub enum Scenario {
     Subagent,
     Unicode,
     Content,
+    Design,
     Queue,
 }
 fn refused(text: &str) -> ProviderError {
@@ -97,10 +98,18 @@ impl Shared {
 }
 #[derive(Clone)]
 pub struct FixtureMonitor {
+    content: Option<Arc<crate::claude_content::SharedContent>>,
     shared: Arc<Shared>,
     _profile: Arc<IsolatedProfile>,
 }
 impl FixtureMonitor {
+    /// Bounded actual MCP PNG replies from the fixed private Design scenario.
+    pub fn design_feedback(&self) -> Vec<Value> {
+        self.content
+            .as_ref()
+            .map(|content| content.feedback())
+            .unwrap_or_default()
+    }
     pub fn peak_reply_tasks(&self) -> usize {
         self.shared.peak_reply_tasks.load(Ordering::Acquire)
     }
@@ -245,7 +254,17 @@ impl ClaudeFixture {
         let program = dir.join("runtime-fake-claude").canonicalize()?;
         let script = profile.path().join("claude-script.json");
         std::fs::write(&script, script_for(scenario).to_string())?;
-        let content = if matches!(scenario, Scenario::Content) {
+        let content = if matches!(scenario, Scenario::Design) {
+            let helper = dir.join("milagre-design-raster").canonicalize()?;
+            let raster = Arc::new(milagre_content_store::design::raster::RasterRenderer::new(
+                helper,
+            )?);
+            Some(crate::claude_content::SharedContent::with_raster(
+                isolation.clone(),
+                project.clone(),
+                Some(raster),
+            )?)
+        } else if matches!(scenario, Scenario::Content) {
             Some(crate::claude_content::SharedContent::new(
                 isolation.clone(),
                 project.clone(),
@@ -286,6 +305,7 @@ impl ClaudeFixture {
     }
     pub fn monitor(&self) -> FixtureMonitor {
         FixtureMonitor {
+            content: self.content.clone(),
             shared: self.shared.clone(),
             _profile: self.profile.clone(),
         }
@@ -855,6 +875,7 @@ fn script_for(scenario: Scenario) -> Value {
         match scenario {
    Scenario::Permission=>steps.extend([json!({"request":{"id":"p1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo fixture"}}}}),json!({"expect":{"type":"control_response","fields":{"/response/request_id":"p1"}}})]),
    Scenario::Question|Scenario::QuestionDelayedReceipt|Scenario::Unicode=>steps.extend([json!({"request":{"id":"q1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A","description":"First"},{"label":"B","description":"Second"}]}]}}}}),json!({"expect":{"type":"control_response","fields":{"/response/request_id":"q1"}}})]),
+   Scenario::Design => { steps.extend(design_steps()); },
    Scenario::Queue => { steps.push(json!({"sleep_ms":200})); },
    Scenario::Content => {
     steps.extend([
@@ -890,4 +911,22 @@ fn script_for(scenario: Scenario) -> Value {
         }
     }
     json!(steps)
+}
+
+fn design_steps() -> Vec<Value> {
+    let show = json!({"id":"native-screen","title":"Native Design","document":{"schemaVersion":1,"width":240,"height":240,"nodes":[{"id":"paint","type":"frame","width":240,"height":240,"fill":"#ff0000"}]}});
+    let apply = json!({"id":"native-screen","expectedVersion":1,"operations":[{"op":"update","id":"paint","patch":{"fill":"#0000ff"}}]});
+    let mut steps = Vec::new();
+    for (number, name, args) in [(1, "design_show", show), (2, "design_apply", apply)] {
+        let tool = format!("mcp__milagre__{name}");
+        let id = format!("design-tool-{number}");
+        steps.push(json!({"emit":{"type":"assistant","message":{"content":[{"type":"tool_use","id":id,"name":tool,"input":args}]}}}));
+        steps.push(json!({"request":{"id":id,"request":{"subtype":"mcp_message","server_name":"milagre","message":{"jsonrpc":"2.0","id":number,"method":"tools/call","params":{"name":name,"arguments":args}}}}}));
+        steps.push(json!({"expect":{"type":"control_response","fields":{"/response/response/mcp_response/id":number,"/response/response/mcp_response/result/isError":false,"/response/response/mcp_response/result/content/1/type":"image","/response/response/mcp_response/result/content/1/mimeType":"image/png"}}}));
+        // Native CLI fixture reports a normal tool completion after consuming its real MCP response.
+        // PNG itself remains model feedback; no fabricated transcript-image event is emitted.
+        let text=json!({"id":"native-screen","title":"Native Design","version":number,"format":"design"}).to_string();
+        steps.push(json!({"emit":{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":id,"content":[{"type":"text","text":text}]}]}}}));
+    }
+    steps
 }

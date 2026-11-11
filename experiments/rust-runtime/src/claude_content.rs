@@ -3,7 +3,7 @@ use milagre_claude::{
     mcp::{DispatchError, FnDispatch, InProcessMcp, McpLimits, McpRegistration, McpTool},
     SessionOptions,
 };
-use milagre_content_store::{ActiveCheck, Error, SystemRuntime};
+use milagre_content_store::{design::raster::RasterRenderer, ActiveCheck, Error, SystemRuntime};
 use milagre_owner_store::Isolation;
 use milagre_owner_wire::{RpcError, RpcResult};
 use milagre_tools::{Caller, ContentOwner, DesignScope, Dispatcher};
@@ -12,7 +12,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -22,6 +22,7 @@ pub(crate) struct SharedContent {
     active: Arc<AtomicBool>,
     opened: Arc<AtomicBool>,
     generation: Arc<AtomicU64>,
+    feedback: Arc<Mutex<Vec<Value>>>,
 }
 fn guard(active: Arc<AtomicBool>, opened: Option<Arc<AtomicBool>>) -> ActiveCheck {
     Arc::new(move || {
@@ -39,6 +40,13 @@ fn guard(active: Arc<AtomicBool>, opened: Option<Arc<AtomicBool>>) -> ActiveChec
 }
 impl SharedContent {
     pub(crate) fn new(isolation: Isolation, project: PathBuf) -> Result<Arc<Self>, Error> {
+        Self::with_raster(isolation, project, None)
+    }
+    pub(crate) fn with_raster(
+        isolation: Isolation,
+        project: PathBuf,
+        raster: Option<Arc<RasterRenderer>>,
+    ) -> Result<Arc<Self>, Error> {
         let project = project.to_string_lossy().into_owned();
         let active = Arc::new(AtomicBool::new(true));
         let opened = Arc::new(AtomicBool::new(false));
@@ -61,7 +69,7 @@ impl SharedContent {
             }),
             guard(active.clone(), None),
             Arc::new(SystemRuntime),
-            None,
+            raster,
         )?;
         Ok(Arc::new(Self {
             owner,
@@ -69,7 +77,12 @@ impl SharedContent {
             active,
             opened,
             generation: Arc::new(AtomicU64::new(0)),
+            feedback: Arc::new(Mutex::new(Vec::new())),
         }))
+    }
+    /// Fixed synthetic content only: retain at most eight PNG feedback replies, each <=512KiB.
+    pub(crate) fn feedback(&self) -> Vec<Value> {
+        self.feedback.lock().unwrap().clone()
     }
     pub(crate) fn opened(&self, value: bool) {
         if !value {
@@ -140,13 +153,24 @@ impl SharedContent {
             })
             .collect();
         let router = InProcessMcp::new();
+        let feedback = self.feedback.clone();
         let registration=router.register("milagre",manifest,Arc::new(FnDispatch(move|frame:Vec<u8>,mut cancel:milagre_claude::CancelSignal|{
             let dispatcher=dispatcher.clone();
+            let feedback=feedback.clone();
             Box::pin(async move{
                 if cancel.reason().is_some(){return Err(DispatchError::Unavailable);}
                 // Dispatcher offloads parsing/storage, owns accepted calls, and cancels queued
                 // work on drop. A lost in-flight mutation reply stays conservatively uncertain.
-                tokio::select!{biased;_=cancel.cancelled()=>Err(DispatchError::Unavailable),result=dispatcher.dispatch(&frame)=>Ok(result)}
+                tokio::select!{biased;_=cancel.cancelled()=>Err(DispatchError::Unavailable),result=dispatcher.dispatch(&frame)=>{
+                    if let Some(bytes)=result.as_ref().filter(|b|b.len()<=512*1024) {
+                        if let Ok(reply)=serde_json::from_slice::<Value>(bytes) {
+                            if reply["result"]["content"].as_array().is_some_and(|blocks|blocks.iter().any(|block|block["type"]=="image"&&block["mimeType"]=="image/png")) {
+                                let mut kept=feedback.lock().unwrap();if kept.len()<8 {kept.push(reply["result"].clone());}
+                            }
+                        }
+                    }
+                    Ok(result)
+                }}
             }) as milagre_claude::BoxFuture<Result<Option<Vec<u8>>,DispatchError>>
         })),McpLimits::default()).map_err(|_|Error::coded("FIXTURE_MCP_FAILED","Could not register the private content scope"))?;
         registration.attach(options).map_err(|_| {

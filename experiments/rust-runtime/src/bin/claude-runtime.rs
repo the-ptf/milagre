@@ -20,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "unicode" => Scenario::Unicode,
             "content" => Scenario::Content,
             "queue" => Scenario::Queue,
+            "design" => Scenario::Design,
             _ => return Err("Unknown fixture scenario".into()),
         },
         _ => return Err("Only one fixed fixture scenario is accepted".into()),
@@ -48,6 +49,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             thread::sleep(Duration::from_millis(20));
         }
         return Err("CLAUDE_CLEANUP_DEADLINE_EXCEEDED".into());
+    }
+    if matches!(scenario, Scenario::Design) {
+        println!("{}", json!({"designFeedback":monitor.design_feedback()}));
     }
     Ok(())
 }
