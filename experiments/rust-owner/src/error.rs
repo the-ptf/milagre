@@ -43,6 +43,12 @@ pub enum StoreError {
     },
     /// ownership.cjs release: the lock's owner record holds another token.
     OwnershipChanged(PathBuf),
+    /// A write or content callback found this process no longer owns the Project (see OwnerGuard::verify). Nothing
+    /// was written.
+    OwnershipLost {
+        lock: PathBuf,
+        why: String,
+    },
     /// A write outside an isolated copy, or an isolated copy that isn't safe to write (see isolation.rs).
     NotIsolated(String),
 }
@@ -172,6 +178,11 @@ impl fmt::Display for StoreError {
                 write!(f, "Milagre ownership changed: {}", lock.display())
             }
             StoreError::NotIsolated(message) => write!(f, "{message}"),
+            StoreError::OwnershipLost { lock, why } => write!(
+                f,
+                "This process no longer owns the Project ({why}: {}); nothing was written.",
+                lock.display()
+            ),
         }
     }
 }

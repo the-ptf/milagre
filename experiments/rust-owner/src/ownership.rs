@@ -230,6 +230,46 @@ impl OwnerGuard {
         &self.token
     }
 
+    /// Whether this process still owns the lock: not released, the lock a real folder (not a link), its
+    /// `owner.json` a regular file naming this process with this guard's token. Errors say what is wrong with the lock,
+    /// never the token.
+    pub fn verify(&self) -> crate::Result<()> {
+        let lost = |why: &str| crate::StoreError::OwnershipLost {
+            lock: self.lock.clone(),
+            why: why.into(),
+        };
+        if self.released {
+            return Err(lost("the lock was released"));
+        }
+        match std::fs::symlink_metadata(&self.lock) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err(lost("the lock is a symbolic link"))
+            }
+            Ok(meta) if !meta.is_dir() => return Err(lost("the lock isn't a folder")),
+            Ok(_) => {}
+            Err(_) => return Err(lost("the lock is gone")),
+        }
+        let file = self.lock.join("owner.json");
+        match std::fs::symlink_metadata(&file) {
+            Ok(meta) if !meta.is_file() => {
+                return Err(lost("its owner record isn't a regular file"))
+            }
+            Ok(_) => {}
+            Err(_) => return Err(lost("its owner record is gone")),
+        }
+        let owner = std::fs::read(&file)
+            .ok()
+            .and_then(|bytes| crate::jsjson::parse_bytes(&bytes).ok())
+            .ok_or_else(|| lost("its owner record can't be read"))?;
+        if owner.get("token").and_then(Value::as_str) != Some(self.token.as_str()) {
+            return Err(lost("another owner's record replaced ours"));
+        }
+        if owner.get("pid").and_then(Value::as_u64) != Some(u64::from(std::process::id())) {
+            return Err(lost("its owner record names another process"));
+        }
+        Ok(())
+    }
+
     /// ownership.cjs release: removes the record and the lock when the record still holds our token. A record already
     /// gone counts as released (the empty lock stays for an operator); another token is an error and nothing is removed.
     pub fn release(&mut self) -> crate::Result<()> {

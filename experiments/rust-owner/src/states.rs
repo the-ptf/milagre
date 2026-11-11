@@ -162,6 +162,17 @@ impl ProjectStates {
             .is_ok_and(|key| self.slots.contains_key(&key))
     }
 
+    /// Whether these states still own an open Project: for a content callback (a sidecar, an artifact) about to write
+    /// next to the Project's state. Fails when it isn't open here or its lock was released, removed or replaced
+    /// (see OwnerGuard::verify); the error never carries the lock's token.
+    pub fn assert_owned(&self, project: &Path) -> Result<()> {
+        let key = self.key(project)?;
+        let slot = self.slots.get(&key).ok_or_else(|| {
+            StoreError::Invalid(format!("{} isn't open in these states.", key.display()))
+        })?;
+        slot.owner.verify_owned()
+    }
+
     /// The state a Project holds in memory now, if it is open (no read, no load).
     pub fn current(&self, project: &Path) -> Option<ProjectState> {
         let key = self.isolation.resolve(project).ok()?;

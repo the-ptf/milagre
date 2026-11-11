@@ -103,6 +103,37 @@ impl OwnedProject {
         self.messages.saved.as_ref().map(to_rows)
     }
 
+    /// Whether this process still owns the Project, checked before every write: the lock is ours
+    /// ([`OwnerGuard::verify`]) and the files a save writes lead nowhere else (`.milagre` a real folder, `chats.db` and
+    /// `coordination.json` neither symbolic links nor hard-linked files). The full walk of `.milagre` ran at open
+    /// ([`crate::isolation::Isolation::check_contents`]); this is the cheap check repeated per write.
+    pub fn verify_owned(&self) -> Result<()> {
+        self.guard.verify()?;
+        let lost = |why: &str| StoreError::OwnershipLost {
+            lock: self.guard.path().to_path_buf(),
+            why: why.into(),
+        };
+        let metadata = self.root().join(".milagre");
+        match std::fs::symlink_metadata(&metadata) {
+            Ok(meta) if !meta.is_dir() || meta.file_type().is_symlink() => {
+                return Err(lost(".milagre isn't a real folder"))
+            }
+            Ok(_) => {}
+            Err(_) => return Err(lost(".milagre is gone")),
+        }
+        for name in ["chats.db", "chats.db-journal", "coordination.json"] {
+            if let Ok(meta) = std::fs::symlink_metadata(metadata.join(name)) {
+                use std::os::unix::fs::MetadataExt;
+                // A link would send the write elsewhere. Anything else in the way (a folder) fails the write itself, as
+                // in Node.
+                if meta.file_type().is_symlink() || (meta.is_file() && meta.nlink() > 1) {
+                    return Err(lost(&format!("{name} isn't a plain file of this Project")));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Releases the owner lock (ownership.cjs release).
     pub fn release(mut self) -> Result<()> {
         self.guard.release()
@@ -156,6 +187,7 @@ impl OwnedProject {
     /// into place, so a reader never sees half of it and an existing file is checked, never replaced.
     fn write_content(&self, folder: &str, bytes: &[u8], extension: &str) -> Result<PathBuf> {
         use std::os::unix::fs::OpenOptionsExt;
+        self.verify_owned()?;
         let directory = self.content_directory(folder)?;
         let name = format!("{}.{extension}", sha256_hex(bytes));
         let file = directory.join(&name);
@@ -496,6 +528,7 @@ impl OwnedProject {
     /// Writes coordination.json through `coordination.json.<pid>.<n>.tmp` and a rename; the temporary file is removed
     /// when anything fails.
     fn write_state_file(&self, contents: &str, durable: bool) -> Result<()> {
+        self.verify_owned()?;
         let file = state_file(self.root());
         let directory = file.parent().expect("inside .milagre").to_path_buf();
         std::fs::create_dir_all(&directory)
@@ -627,6 +660,7 @@ impl OwnedProject {
         options: &WriteOptions,
         same: Same,
     ) -> Result<(SavedMsgs, WriteStats)> {
+        self.verify_owned()?;
         let connection = self.store.chats().open_writable(true)?.expect("created");
         connection.execute_batch(&format!(
             "PRAGMA synchronous = {}",
@@ -826,6 +860,8 @@ impl OwnedProject {
         options: &SaveOptions,
         same: Same,
     ) -> Result<SaveReport> {
+        // Before anything is migrated, compacted or written.
+        self.verify_owned()?;
         let messages = state.messages.as_ref().map(|messages| messages.as_slice());
         let migrated = messages.map(|messages| self.migrate_images(messages));
         let (compacted, details_wrote) = match &migrated {
@@ -952,6 +988,7 @@ impl OwnedProject {
     /// readProjectState as the owner runs it, keeping the messages shared with the saved rows (as Node's are): a hot
     /// journal is rolled back, the detail sidecars compaction moved are written.
     pub fn load_shared(&mut self) -> Result<(ProjectState, ProjectStateRead)> {
+        self.verify_owned()?;
         self.messages.saved = None;
         let read = ProjectRepository::read_project_state_uncompacted(&self.store)?;
         let mut state = ProjectState::from_value(&read.state);
