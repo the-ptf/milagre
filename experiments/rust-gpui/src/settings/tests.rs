@@ -109,11 +109,12 @@ fn settings_nav_switches_between_simple_sections_and_placeholders(cx: &mut TestA
     assert!(cx.debug_bounds("settings-section-appearance").is_some());
     assert!(cx.debug_bounds("settings-placeholder-WP-40").is_none());
 
-    // Voice and Keybindings are WP-41 placeholders.
+    // Voice is a WP-41 placeholder (dictation is out of the port); Keybindings is a page.
     click(cx, "settings-nav-voice");
     assert!(cx.debug_bounds("settings-placeholder-WP-41").is_some());
     click(cx, "settings-nav-keybindings");
-    assert!(cx.debug_bounds("settings-placeholder-WP-41").is_some());
+    assert!(cx.debug_bounds("settings-section-keybindings").is_some());
+    assert!(cx.debug_bounds("settings-placeholder-WP-41").is_none());
 
     // Accounts and Usage are WP-42 pages.
     click(cx, "settings-nav-accounts");

@@ -17,6 +17,7 @@ pub mod devices;
 pub mod general;
 pub mod group;
 pub mod integrations;
+pub mod keybindings;
 pub mod mcp;
 pub mod models;
 pub mod nav;
@@ -59,6 +60,7 @@ pub fn init(cx: &mut App) {
     appearance::init(cx);
     accounts::init(cx);
     devices::init(cx);
+    keybindings::init(cx);
     projects::init(cx);
     cx.bind_keys([KeyBinding::new("cmd-,", ToggleSettings, None), KeyBinding::new("cmd-f", FindInSettings, Some("SettingsModal"))]);
 }
@@ -82,6 +84,7 @@ pub struct SettingsModal {
     accounts: Entity<accounts::AccountsView>,
     usage: Entity<accounts::UsageView>,
     devices: Entity<devices::DevicesView>,
+    keybindings: Entity<keybindings::KeybindingsView>,
     project: Entity<projects::ProjectView>,
     tools: mcp::ToolSections,
 }
@@ -130,6 +133,7 @@ impl SettingsModal {
             accounts: cx.new(accounts::AccountsView::new),
             usage: cx.new(|cx| accounts::UsageView::new(weak.clone(), cx)),
             devices: cx.new(devices::DevicesView::new),
+            keybindings: cx.new(keybindings::KeybindingsView::new),
             project: cx.new(|cx| projects::ProjectView::new(weak, cx)),
             tools: mcp::ToolSections::new(cx),
         }
@@ -395,6 +399,7 @@ impl Render for SettingsModal {
             Some(body) => body,
             None => match devices::section_body(&selected, highlighted.as_deref(), &self.devices, cx)
                 .or_else(|| projects::section_body(&selected, highlighted.as_deref(), &self.project, cx))
+                .or_else(|| keybindings::section_body(&selected, highlighted.as_deref(), &this_mac_name, &computers, &self.keybindings, cx))
                 .or_else(|| mcp::section_body(&selected, highlighted.as_deref(), &self.projects, &self.tools, cx))
             {
                 Some(body) => body,
