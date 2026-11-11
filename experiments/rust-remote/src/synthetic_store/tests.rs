@@ -1021,3 +1021,32 @@ fn quiescence_abort_and_drop_do_not_write_and_terminal_fault_keeps_both_locks() 
         p.destroy().unwrap();
     }
 }
+
+#[test]
+fn persistent_supervisor_drop_joins_and_leaves_running_snapshot_unchanged() {
+    use crate::{
+        persistent_supervisor::PersistentSupervisor,
+        supervisor::{Clock, Limits},
+    };
+    let _disk = testing_lock();
+    let mut observer = profile();
+    // Test-only duplicate of this newly created capability for post-Drop assertions.
+    // There is no public Clone/import constructor.
+    let owned = SyntheticProfile {
+        core: observer.core.clone(),
+        cleanup: None,
+        deleted: 0,
+        directory_unlinked: false,
+        before_destroy_unlink: None,
+    };
+    let service = PersistentSupervisor::start(owned, Limits::default(), Clock::monotonic())
+        .unwrap_or_else(|_| panic!("start"));
+    let running = saved(&observer);
+    both_locks_are_held(&observer.core.root);
+    drop(service);
+    assert_eq!(saved(&observer), running);
+    let writer = observer.acquire_writer().unwrap();
+    assert_eq!(writer.diagnostics().fault, Some(StoreFault::DirtyRun));
+    writer.release();
+    observer.destroy().unwrap();
+}

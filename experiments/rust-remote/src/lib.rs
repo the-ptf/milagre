@@ -11,6 +11,8 @@ pub mod phone;
 pub mod policy;
 #[cfg(unix)]
 pub use policy::persistent;
+#[cfg(unix)]
+pub mod persistent_supervisor;
 mod raw_json;
 pub mod registry;
 pub mod supervisor;

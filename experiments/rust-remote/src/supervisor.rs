@@ -99,7 +99,7 @@ impl Clock {
     pub fn monotonic() -> Self {
         Self::Monotonic(Instant::now())
     }
-    fn now(&self) -> u64 {
+    pub(crate) fn now(&self) -> u64 {
         match self {
             Self::Manual(c) => c.0.load(Ordering::SeqCst),
             Self::Monotonic(t) => t.elapsed().as_millis().min(u64::MAX as u128) as u64,

@@ -348,6 +348,12 @@ pub struct WriterLease {
     last: Option<Stamp>,
 }
 impl SyntheticProfile {
+    /// Internal service reservations use this capability's existing accounting pool.
+    /// No data read or writer acquisition is performed here.
+    pub(crate) fn service_pool(&self) -> Result<GlobalBudget> {
+        self.core.pid()?;
+        Ok(self.core.global.clone())
+    }
     pub fn create(limits: StoreLimits, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self> {
         if !cfg!(target_os = "macos") {
             return Err(StoreFault::Unsupported);
