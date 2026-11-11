@@ -117,6 +117,87 @@ Runtime actor: keep the client's command reply for a `Pending` ticket and answer
 `Notice::AnswerResolved` is for the Chat only: the reply was sent already. `ChatHost::call` returns
 `{ "pendingAnswer": id }` for these two commands. Never reply `true` before settlement.
 
+## Permission mode: asynchronous, generation-bound update
+
+`agent:set-permission-mode` takes `{ chatId, mode }`, with `mode` exactly `ask`, `auto` or `full`. It requires the
+canonical Chat key of an open, ready Project and refuses while the owner or Project is closing. The owner never
+opens a Project as a side effect of this command or its receipt.
+
+```rust
+fn set_mode(&mut self, chat: &str, turn: TurnId, change: ModeChangeId, mode: &str) -> Result<(), ProviderError>;
+ProviderEvent::ModeSettled { chat, change: ModeChangeId, outcome: ModeOutcome }
+
+enum ModeTicket { Settled, Pending(ModeChangeId) }
+enum ModeOutcome { Applied, Failed(ProviderError), Uncertain(ProviderError) }
+enum ModeResult { Applied, Failed(String), Uncertain(String) }
+Notice::ModeSettled { chat, change: ModeChangeId, result: ModeResult }
+Notice::ModeResolved { chat, change: ModeChangeId, result: ModeResult }
+```
+
+- `set_mode` enqueues only. The adapter binds the work to the supplied session generation, including when the
+  session is idle, and verifies it again when the work enters the session. It must never find a replacement session
+  by Chat key and apply old work to it. `Ok(())` from this method is only admission; `ModeOutcome::Applied` confirms
+  the adapter took the update. An unimplemented adapter returns an explicit unsupported error by default.
+  `ModeOutcome::Failed` means the update operation ended with an error, not proof of no local policy change: Node
+  sessions can update local policy before a native update fails. `ModeOutcome::Uncertain` means it is unknown whether
+  the operation ended or took effect (for example, cancellation after session entry): authority must remain held.
+  The adapter may follow an uncertain outcome with one definitive receipt, or close that generation.
+- Node's `ChatHost.setPermissionMode` waits for `SessionManager.setPermissionMode`, then attempts to note the
+  preference whatever the live update says. Rust follows that order: no saved mode or successful command response
+  before a definitive receipt. A live error wins over a note error. An immediate adapter refusal also attempts the
+  note and returns the live error. No live generation means a synchronous note and `ModeTicket::Settled`, as Node's
+  optional session call resolves without a session. A deleted Chat is never recreated.
+- The note changes the latest turn's saved settings before its state update, as Node does even when that update
+  fails. It changes `AgentSession.permissionMode` without loading Chat messages, and broadcasts only on a state
+  change. Queued entries keep their captured `entry.turn.permissionMode`; when a queued message later starts, its
+  own mode is sent and saved again. The visible run's original `permissionMode` is not rewritten.
+- **Generation hardening beyond Node:** a late receipt still saves the intended Chat preference, but changes the
+  latest turn settings only if the captured generation is still current. A newer active turn keeps its own settings.
+  An ordinary turn end retains the session generation and does not cancel or release the pending update.
+- At most one update per Chat may be pending or uncertain (`MODE_CHANGE_PENDING`); the global capacity is
+  `mode_capacity` (default `MODE_CAPACITY`, 256; full: `MODES_AT_CAPACITY`). Admission is checked before any provider
+  call or mutation. Operation ids never wrap: exhausting their counter refuses before any provider call.
+  There is no replacement, silent queue or replay of rejected requests.
+- On `ModeOutcome::Uncertain`, or at `mode_grace_ms` (default `MODE_GRACE_MS`, 30 seconds), the owner emits
+  `ModeSettled::Uncertain` once. The runtime
+  rejects the awaiting command with `MODE_DELIVERY_UNKNOWN`. No preference is noted yet, and the slot and Chat's
+  authority remain held. A late definitive receipt notes the preference, releases the slot and emits `ModeResolved`,
+  which is informational and must never answer the original command again.
+- A logical session close (forced end, forget or quit) tells an unanswered command `Uncertain` once but retains
+  authority and capacity until a definitive receipt or actual `Exited`. A refused `close_chat` and an asynchronously
+  accepted close both retain the slot. A logical close does not note the preference. The actual exit releases its
+  own generation's authority and attempts the note only while that operation still owns the Project.
+- Forget and quit revoke preference-write authority but retain disposal ownership with the host. An exact captured
+  definitive receipt or `Exited` may release that retained admission even after the Project was forgotten, without
+  reading, writing, broadcasting, acquiring a lock or reopening anything. If the Project reopened meanwhile, the old
+  receipt still cannot write its preference there. Further unknown receipts retain the slot. Receipts after release,
+  duplicates and other-Chat receipts are dropped. An old session's exit cannot clear a newer generation's update.
+  A newer replacement session's exit likewise cannot release an older worker's admission: `Exited` matches the
+  captured `TurnId` exactly, never by numeric ordering. If one retained worker advances through multiple turn ids,
+  its adapter must emit a definitive failed mode receipt for each still-uncertain operation belonging to that worker
+  when its cleanup finishes. The operation's `ModeChangeId` proves that ownership even if its worker's final
+  `Exited.turn` names a later turn. A receipt that proves cleanup says the operation ended, not that it never applied.
+- Readiness failures park mode receipts under the same event/byte budget as other provider events; mode deadlines
+  also wait for readiness. An explicit successful open releases a parked receipt once, after `ProjectReady`.
+- Disposing parked events at forget/quit or event-budget overflow still consumes exact terminal cleanup proof:
+  a definitive mode receipt matches both Chat and operation id; an exit matches the captured turn exactly. It releases
+  admission without any preference write, state access, broadcast or event replay. If the command has not answered,
+  it fails explicitly because the preference was not saved (a native failure's message comes first). A command
+  already told unknown receives no second reply. Unknown outcomes and mismatched receipts never release admission.
+  This includes an overflow's retained events, incoming event, later events of an already-overflowed Project, and
+  events that cannot fit behind a kept turn end. The encoded event is inspected directly, never encoded again.
+
+Runtime: `ChatHost::set_permission_mode` returns `ModeTicket`; `ChatHost::call` returns `null` or
+`{ "pendingMode": id }`. Keep the command reply for `Pending` until `ModeSettled`: `Applied` resolves `null`,
+`Failed` rejects with its message, `Uncertain` rejects with `MODE_DELIVERY_UNKNOWN`. `ModeResolved` only informs the
+Chat. Provider chat keys and errors are raw and encoded exactly once at entry, as with answers.
+
+The real Node oracle (`fixtures/permission-mode-node.cjs`, `tests/permission_mode_oracle.rs`) executes actual
+`ChatHost`, `SessionManager` and `ProjectStates` methods against scripted session callbacks. It compares saved
+settings, latest turn settings, queue preservation, broadcasts, delayed settlement and error precedence. This is
+owner-contract evidence, not live CLI equivalence. `tests/permission_mode.rs` checks the additional generation,
+deadline, capacity, close and readiness rules without a live provider.
+
 ## JSON boundary
 
 - Provider JSON is raw: `ProviderEvent::Agent { event: RawJson }` and `Started { result: RawJson }` carry plain

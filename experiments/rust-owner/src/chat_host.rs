@@ -225,13 +225,18 @@ fn event_bytes(event: &ProviderEvent) -> usize {
             AnswerOutcome::Failed(error) | AnswerOutcome::Uncertain(error) => message(error),
             _ => 0,
         },
+        ProviderEvent::ModeSettled { outcome, .. } => match outcome {
+            ModeOutcome::Applied => 0,
+            ModeOutcome::Failed(error) | ModeOutcome::Uncertain(error) => message(error),
+        },
     };
     let chat = match event {
         ProviderEvent::Started { chat, .. }
         | ProviderEvent::StartFailed { chat, .. }
         | ProviderEvent::Agent { chat, .. }
         | ProviderEvent::Exited { chat, .. }
-        | ProviderEvent::AnswerSettled { chat, .. } => chat.len() + ALLOCATION,
+        | ProviderEvent::AnswerSettled { chat, .. }
+        | ProviderEvent::ModeSettled { chat, .. } => chat.len() + ALLOCATION,
     };
     std::mem::size_of::<(ProviderEvent, usize)>() + chat + body
 }
@@ -287,6 +292,53 @@ pub enum ProviderEvent {
         answer: AnswerId,
         outcome: AnswerOutcome,
     },
+    /// The session accepted its permission-mode update, or the update failed. Enqueueing alone isn't acceptance.
+    ModeSettled {
+        chat: String,
+        change: ModeChangeId,
+        outcome: ModeOutcome,
+    },
+}
+
+/// One generation-bound permission-mode update handed to an adapter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ModeChangeId(pub u64);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModeTicket {
+    Settled,
+    Pending(ModeChangeId),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModeResult {
+    Applied,
+    Failed(String),
+    /// No receipt yet. The pending authority remains held until a receipt or session close.
+    Uncertain(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModeOutcome {
+    Applied,
+    /// The update operation ended with an error; local policy may already have changed, as in Node.
+    Failed(ProviderError),
+    /// The adapter cannot prove the update ended. Retain authority until a definitive receipt or session close.
+    Uncertain(ProviderError),
+}
+
+pub const MODE_DELIVERY_UNKNOWN: &str = "MODE_DELIVERY_UNKNOWN";
+pub const MODE_CAPACITY: usize = 256;
+pub const MODE_GRACE_MS: i64 = 30_000;
+
+struct PendingMode {
+    chat: String,
+    turn: TurnId,
+    mode: String,
+    due: i64,
+    told: bool,
+    /// Forget/quit revoked this operation's right to note preferences. Keep its admission until actual cleanup.
+    revoked: bool,
 }
 
 /// The host's name for one answer it handed to a provider.
@@ -384,6 +436,20 @@ pub trait Provider: Send {
         request_id: &str,
         answers: &RawJson,
     ) -> std::result::Result<(), ProviderError>;
+    /// Queue an update for exactly this generation, including an idle retained session. Settle only after the
+    /// adapter took the update; an old queued task must never discover and mutate a newer session by Chat alone.
+    fn set_mode(
+        &mut self,
+        _chat: &str,
+        _turn: TurnId,
+        _change: ModeChangeId,
+        _mode: &str,
+    ) -> std::result::Result<(), ProviderError> {
+        Err(ProviderError::new(
+            ProviderErrorKind::Refused,
+            "Changing permission mode isn't supported by this provider adapter yet.",
+        ))
+    }
     fn close_chat(&mut self, chat: &str, turn: TurnId) -> std::result::Result<(), ProviderError>;
     fn shutdown(&mut self);
     fn take_events(&mut self) -> Vec<ProviderEvent>;
@@ -421,6 +487,10 @@ pub struct MockState {
     pub uncertain_next_answer: Option<String>,
     /// The next start is refused at once (`Err` from `start_turn`).
     pub refuse_next_start: Option<String>,
+    pub modes: Vec<Value>,
+    pub hold_modes: bool,
+    pub fail_next_mode: Option<String>,
+    pub fail_next_close: Option<String>,
 }
 
 impl MockState {
@@ -588,8 +658,38 @@ impl Provider for MockProvider {
         state.settle(chat, answer);
         Ok(())
     }
+    fn set_mode(
+        &mut self,
+        chat: &str,
+        turn: TurnId,
+        change: ModeChangeId,
+        mode: &str,
+    ) -> std::result::Result<(), ProviderError> {
+        let mut state = self.state.lock().unwrap();
+        state
+            .modes
+            .push(json!({ "chat": chat, "turn": turn.0, "change": change.0, "mode": mode }));
+        if !state.hold_modes {
+            let outcome = state
+                .fail_next_mode
+                .take()
+                .map_or(ModeOutcome::Applied, |message| {
+                    ModeOutcome::Failed(ProviderError::new(ProviderErrorKind::Refused, message))
+                });
+            state.events.push(ProviderEvent::ModeSettled {
+                chat: chat.into(),
+                change,
+                outcome,
+            });
+        }
+        Ok(())
+    }
     fn close_chat(&mut self, chat: &str, _turn: TurnId) -> std::result::Result<(), ProviderError> {
-        self.state.lock().unwrap().closed.push(chat.into());
+        let mut state = self.state.lock().unwrap();
+        if let Some(message) = state.fail_next_close.take() {
+            return Err(ProviderError::new(ProviderErrorKind::Other, message));
+        }
+        state.closed.push(chat.into());
         Ok(())
     }
     fn shutdown(&mut self) {
@@ -641,6 +741,17 @@ pub enum Notice {
         chat: String,
         answer: AnswerId,
         result: AnswerResult,
+    },
+    ModeSettled {
+        chat: String,
+        change: ModeChangeId,
+        result: ModeResult,
+    },
+    /// A definitive receipt after an unknown result. Informational only: never answer the command twice.
+    ModeResolved {
+        chat: String,
+        change: ModeChangeId,
+        result: ModeResult,
     },
     /// An answer released from an ended turn dropped from the bounded history (the oldest first): a late settlement of
     /// it is no longer taken; its answers message stays as shown. Its delivery stays unknown.
@@ -902,6 +1013,10 @@ pub struct ChatHost {
     dropped_notices: u64,
     next_answer: u64,
     pending_answers: BTreeMap<AnswerId, PendingAnswer>,
+    next_mode: u64,
+    pending_modes: BTreeMap<ModeChangeId, PendingMode>,
+    pub mode_capacity: usize,
+    pub mode_grace_ms: i64,
     /// Answers told `Uncertain`, kept until a definitive settlement or their session generation closes; each blocks a
     /// retry of its request in that generation and holds a slot of `answer_capacity`.
     uncertain_answers: BTreeMap<AnswerId, PendingAnswer>,
@@ -979,6 +1094,10 @@ impl ChatHost {
             dropped_notices: 0,
             next_answer: 0,
             pending_answers: BTreeMap::new(),
+            next_mode: 0,
+            pending_modes: BTreeMap::new(),
+            mode_capacity: MODE_CAPACITY,
+            mode_grace_ms: MODE_GRACE_MS,
             uncertain_answers: BTreeMap::new(),
             historical_answers: BTreeMap::new(),
             answer_history: MAX_HISTORICAL_ANSWERS,
@@ -1103,6 +1222,16 @@ impl ChatHost {
     /// The turn running in a Chat, if any.
     pub fn active_turn(&self, chat: &str) -> Option<TurnId> {
         self.active.get(chat).map(|(turn, _)| *turn)
+    }
+
+    /// Node's turnSettings: settings of the latest turn, without its prompt or private guard.
+    pub fn turn_settings(&self, chat: &str) -> Option<Value> {
+        let mut settings = self.turns.get(chat)?.clone();
+        if let Some(fields) = settings.as_object_mut() {
+            fields.remove("prompt");
+            fields.remove("guard");
+        }
+        Some(settings)
     }
 
     /// Keeps the states' busy Chats (never unloaded by a sweep) equal to Node's isBusy: a run, or a turn starting.
@@ -2180,6 +2309,28 @@ impl ChatHost {
             );
             let _ = self.settle_answer(&chat, answer, AnswerOutcome::Uncertain(error));
         }
+        let late: Vec<ModeChangeId> = self
+            .pending_modes
+            .iter()
+            .filter(|(_, pending)| {
+                !pending.told
+                    && pending.due <= now
+                    && self.require_ready_chat(&pending.chat).is_ok()
+            })
+            .map(|(change, _)| *change)
+            .collect();
+        for change in late {
+            let pending = self.pending_modes.get_mut(&change).expect("present");
+            pending.told = true;
+            let chat = pending.chat.clone();
+            self.notice(Notice::ModeSettled {
+                chat,
+                change,
+                result: ModeResult::Uncertain(
+                    "The agent hasn't confirmed the permission mode.".into(),
+                ),
+            });
+        }
         errors
     }
 
@@ -2237,15 +2388,52 @@ impl ChatHost {
                 answer,
                 outcome,
             },
+            ProviderEvent::ModeSettled {
+                chat,
+                change,
+                outcome,
+            } => ProviderEvent::ModeSettled {
+                chat: jsjson::js_string(&chat),
+                change,
+                outcome,
+            },
         };
         let chat = match &event {
             ProviderEvent::Started { chat, .. }
             | ProviderEvent::StartFailed { chat, .. }
             | ProviderEvent::Agent { chat, .. }
             | ProviderEvent::Exited { chat, .. }
-            | ProviderEvent::AnswerSettled { chat, .. } => chat.clone(),
+            | ProviderEvent::AnswerSettled { chat, .. }
+            | ProviderEvent::ModeSettled { chat, .. } => chat.clone(),
         };
         let project = PathBuf::from(agent_runs::project_of_key(&chat));
+        // Forget/quit can revoke a Project before an adapter finishes closing. These exact captured receipts may
+        // release retained admission without touching the Project, even after it was forgotten. They never replay
+        // a preference into a reopened Project or acquire a new lock.
+        match &event {
+            ProviderEvent::ModeSettled {
+                change, outcome, ..
+            } if self
+                .pending_modes
+                .get(change)
+                .is_some_and(|pending| pending.chat == chat && pending.revoked) =>
+            {
+                if !matches!(outcome, ModeOutcome::Uncertain(_)) {
+                    self.pending_modes.remove(change);
+                }
+                return Ok(());
+            }
+            ProviderEvent::Exited { turn, .. } => {
+                let before = self.pending_modes.len();
+                self.pending_modes.retain(|_, pending| {
+                    !(pending.revoked && pending.chat == chat && pending.turn == *turn)
+                });
+                if self.pending_modes.len() != before && !self.ready.contains(&project) {
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
         if !self.ready.contains(&project) {
             // Loaded here but not ready: kept, in order, until an explicit open makes it ready. Never opened, or
             // forgotten: refused and dropped, never loading or reopening it.
@@ -2269,7 +2457,8 @@ impl ChatHost {
             | ProviderEvent::StartFailed { chat, .. }
             | ProviderEvent::Agent { chat, .. }
             | ProviderEvent::Exited { chat, .. }
-            | ProviderEvent::AnswerSettled { chat, .. } => chat,
+            | ProviderEvent::AnswerSettled { chat, .. }
+            | ProviderEvent::ModeSettled { chat, .. } => chat,
         }
     }
 
@@ -2289,6 +2478,7 @@ impl ChatHost {
         let size = event_bytes(&event);
         let (max_events, max_bytes) = self.parked_budget;
         if self.parked_events >= max_events || self.parked_bytes + size > max_bytes {
+            self.discard_mode_cleanup(&event);
             return Err(StoreError::Invalid(format!(
                 "An agent event for {} was dropped: too many wait behind turn ends whose save keeps failing.",
                 Self::event_chat(&event)
@@ -2375,6 +2565,7 @@ impl ChatHost {
         let fits = self.parked_events < max_events && self.parked_bytes + size <= max_bytes;
         let parked = self.parked.entry(project.clone()).or_default();
         if parked.lost.is_some() {
+            self.discard_mode_cleanup(&event);
             return Err(StoreError::ProjectNotReady(format!(
                 "An agent event for {} was dropped: its events since it stopped being ready were already lost.",
                 project.display()
@@ -2393,7 +2584,10 @@ impl ChatHost {
         );
         self.parked_events -= dropped.len();
         self.parked_bytes -= bytes;
-        drop(dropped);
+        for (discarded, _) in dropped {
+            self.discard_mode_cleanup(&discarded);
+        }
+        self.discard_mode_cleanup(&event);
         let lost: BTreeMap<String, TurnId> = self
             .active
             .iter()
@@ -2444,7 +2638,63 @@ impl ChatHost {
         }
     }
 
-    /// Drops what is kept for `project` (forgotten or closed): its late events are never handled.
+    /// Disposing an event must not lose definitive per-operation cleanup proof already drained from the adapter.
+    /// These events' chat keys are already encoded. Never call deliver, note a preference, or replay state here.
+    fn discard_mode_cleanup(&mut self, event: &ProviderEvent) {
+        let (chat, changes, failure) = match event {
+            ProviderEvent::ModeSettled {
+                chat,
+                change,
+                outcome,
+            } => {
+                if matches!(outcome, ModeOutcome::Uncertain(_)) {
+                    return;
+                }
+                if !self
+                    .pending_modes
+                    .get(change)
+                    .is_some_and(|pending| pending.chat == *chat)
+                {
+                    return;
+                }
+                let failure = match outcome {
+                    ModeOutcome::Failed(error) => jsjson::js_string(&format!(
+                        "{} The permission-mode preference wasn't saved because its receipt was discarded.", error.message)),
+                    _ => "The permission-mode preference wasn't saved because its receipt was discarded.".into(),
+                };
+                (chat, vec![*change], failure)
+            }
+            ProviderEvent::Exited { chat, turn, .. } => {
+                let changes = self
+                    .pending_modes
+                    .iter()
+                    .filter(|(_, pending)| pending.chat == *chat && pending.turn == *turn)
+                    .map(|(change, _)| *change)
+                    .collect();
+                (
+                    chat,
+                    changes,
+                    "The permission-mode preference wasn't saved before its session exited.".into(),
+                )
+            }
+            _ => return,
+        };
+        for change in changes {
+            let pending = self
+                .pending_modes
+                .remove(&change)
+                .expect("matched captured operation");
+            if !pending.told {
+                self.notice(Notice::ModeSettled {
+                    chat: chat.clone(),
+                    change,
+                    result: ModeResult::Failed(failure.clone()),
+                });
+            }
+        }
+    }
+
+    /// Drops what is kept for `project` (forgotten or closed). Only exact terminal mode cleanup is consumed.
     fn drop_parked(&mut self, project: Option<&Path>) {
         let keys: Vec<PathBuf> = match project {
             Some(project) => vec![project.to_path_buf()],
@@ -2454,6 +2704,9 @@ impl ChatHost {
             if let Some(parked) = self.parked.remove(&key) {
                 self.parked_events -= parked.events.len();
                 self.parked_bytes -= parked.bytes;
+                for (event, _) in parked.events {
+                    self.discard_mode_cleanup(&event);
+                }
             }
         }
     }
@@ -2504,10 +2757,16 @@ impl ChatHost {
                 answer,
                 outcome,
             } => self.settle_answer(&chat, answer, outcome),
+            ProviderEvent::ModeSettled {
+                chat,
+                change,
+                outcome,
+            } => self.settle_mode(&chat, change, outcome),
             ProviderEvent::Exited { chat, turn, error } => {
                 // That session is gone (whether it ran a turn or idled): its answers first (with its reason), then its
                 // turn; a newer turn is untouched.
                 self.fail_answers(&chat, Some(turn), &error.message);
+                self.close_modes(&chat, Some(turn), &error.message);
                 let message = jsjson::js_string(&error.message);
                 let mut result = Ok(());
                 if self.active_turn(&chat) == Some(turn) {
@@ -2678,6 +2937,12 @@ impl ChatHost {
     /// Ends a turn whose session is closed: `turn-failed` with `message`; if even that fold fails the run is let go
     /// in memory and that is told. Its answers settle as a closed session's.
     fn end_closed(&mut self, chat: &str, turn: TurnId, message: &str) {
+        self.uncertain_modes(
+            chat,
+            Some(turn),
+            "The agent's session closed before confirming the permission mode.",
+            false,
+        );
         let event = json!({ "type": "turn-failed", "message": message, "notice": true });
         if let Err(error) = self.receive(chat, turn, &event) {
             self.stuck.remove(chat);
@@ -3208,6 +3473,12 @@ impl ChatHost {
             .into_iter()
             .collect();
         for chat in chats {
+            self.uncertain_modes(
+                &chat,
+                None,
+                "The agent's session closed before confirming the permission mode.",
+                true,
+            );
             let provider = self
                 .turns
                 .get(&chat)
@@ -4541,6 +4812,19 @@ impl ChatHost {
             provider.shutdown();
         }
         self.providers_shut_down = true;
+        let mode_chats: Vec<String> = self
+            .pending_modes
+            .values()
+            .map(|pending| pending.chat.clone())
+            .collect();
+        for chat in mode_chats {
+            self.uncertain_modes(
+                &chat,
+                None,
+                "Milagre quit before the agent confirmed the permission mode.",
+                true,
+            );
+        }
         let waiting: Vec<String> = self
             .pending_answers
             .values()
@@ -4589,6 +4873,221 @@ impl ChatHost {
     /// it settles `false` at once, as Node's do.
     fn session_of(&self, chat: &str) -> Option<(TurnId, String)> {
         self.active.get(chat).cloned()
+    }
+
+    /// Composer mode change: await the live session's update, then note the preference even when it failed.
+    /// An idle retained session is still live; a missing session only notes the preference (Node's optional call).
+    pub fn set_permission_mode(&mut self, request: &Value) -> Result<ModeTicket> {
+        let mode = request
+            .get("mode")
+            .and_then(Value::as_str)
+            .filter(|mode| PERMISSION_MODES.contains(mode))
+            .ok_or_else(|| {
+                StoreError::Invalid(format!(
+                    "Unknown permission mode: {}",
+                    jsjson::property_key(request.get("mode"))
+                ))
+            })?;
+        let chat = request
+            .get("chatId")
+            .and_then(Value::as_str)
+            .filter(|chat| session_of_key(chat).is_some())
+            .ok_or_else(|| StoreError::Invalid("Choose a Chat.".into()))?;
+        let project = PathBuf::from(agent_runs::project_of_key(chat));
+        if self.quitting || self.closing.contains(&project) {
+            return Err(StoreError::OwnerClosing(
+                "The Chat's owner is closing.".into(),
+            ));
+        }
+        self.require_project_ready(&project)?;
+        let (_, session) = self.canonical_chat(chat)?;
+        if chat != chat_key(agent_runs::project_of_key(chat), &json!(session)) {
+            return Err(StoreError::Invalid(format!(
+                "{chat} isn't how this Chat is named."
+            )));
+        }
+        let wire_chat = outbound_identity(chat)?;
+        if self
+            .pending_modes
+            .values()
+            .any(|pending| pending.chat == chat)
+        {
+            return Err(StoreError::ModeChangePending(
+                "A permission-mode update is still waiting for this Chat's agent.".into(),
+            ));
+        }
+        let generation = self.latest.get(chat).copied();
+        let provider = self
+            .turns
+            .get(chat)
+            .and_then(|turn| turn.get("provider"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let Some((turn, provider)) = generation.zip(provider) else {
+            self.note_mode(chat, generation, mode)?;
+            return Ok(ModeTicket::Settled);
+        };
+        if self.pending_modes.len() >= self.mode_capacity {
+            return Err(StoreError::ModesAtCapacity(
+                "Too many permission-mode updates are waiting for their agents.".into(),
+            ));
+        }
+        self.next_mode = self.next_mode.checked_add(1).ok_or_else(|| {
+            StoreError::Invalid("Permission-mode operation identities are exhausted.".into())
+        })?;
+        let change = ModeChangeId(self.next_mode);
+        let accepted = self.provider(&provider).and_then(|adapter| {
+            adapter
+                .set_mode(&wire_chat, turn, change, mode)
+                .map_err(|error| StoreError::Invalid(jsjson::js_string(&error.message)))
+        });
+        if let Err(live_error) = accepted {
+            // Node always attempts the note; the live error takes precedence over a note failure.
+            let _ = self.note_mode(chat, Some(turn), mode);
+            return Err(live_error);
+        }
+        self.pending_modes.insert(
+            change,
+            PendingMode {
+                chat: chat.into(),
+                turn,
+                mode: mode.into(),
+                due: self.states.now().saturating_add(self.mode_grace_ms),
+                told: false,
+                revoked: false,
+            },
+        );
+        Ok(ModeTicket::Pending(change))
+    }
+
+    /// Note only settings of the captured generation. Persist the Chat preference even if a newer turn started;
+    /// unlike Node's unguarded turn map, a late callback cannot rewrite that newer turn's active settings.
+    fn note_mode(&mut self, chat: &str, generation: Option<TurnId>, mode: &str) -> Result<()> {
+        self.require_ready_chat(chat)?;
+        if self.latest.get(chat).copied() == generation {
+            if let Some(turn) = self.turns.get_mut(chat).and_then(Value::as_object_mut) {
+                turn.insert("permissionMode".into(), json!(mode));
+            }
+        }
+        let project = PathBuf::from(agent_runs::project_of_key(chat));
+        let session_id = session_of_key(chat).expect("validated Chat");
+        let (_, changed) = self.states.update(&project, Some(&[]), true, |latest| {
+            let mut session = agent_runs_session(latest, session_id)?;
+            if session.get("permissionMode").and_then(Value::as_str) == Some(mode) {
+                return None;
+            }
+            session.insert("permissionMode".into(), json!(mode));
+            Some(agent_runs::with_session(latest, session_id, session))
+        })?;
+        if changed {
+            self.broadcast(&project);
+        }
+        Ok(())
+    }
+
+    fn settle_mode(
+        &mut self,
+        chat: &str,
+        change: ModeChangeId,
+        outcome: ModeOutcome,
+    ) -> Result<()> {
+        if !self
+            .pending_modes
+            .get(&change)
+            .is_some_and(|pending| pending.chat == chat)
+        {
+            return Err(StoreError::Invalid(
+                "A late or unknown permission-mode receipt was dropped.".into(),
+            ));
+        }
+        if let ModeOutcome::Uncertain(error) = outcome {
+            let pending = self.pending_modes.get_mut(&change).expect("checked");
+            if !pending.told {
+                pending.told = true;
+                self.notice(Notice::ModeSettled {
+                    chat: chat.into(),
+                    change,
+                    result: ModeResult::Uncertain(jsjson::js_string(&error.message)),
+                });
+            }
+            return Ok(());
+        }
+        let pending = self.pending_modes.remove(&change).expect("checked");
+        let noted = if pending.revoked {
+            Ok(())
+        } else {
+            self.note_mode(chat, Some(pending.turn), &pending.mode)
+        };
+        let result = match outcome {
+            ModeOutcome::Failed(error) => ModeResult::Failed(jsjson::js_string(&error.message)),
+            ModeOutcome::Applied => match noted {
+                Ok(()) => ModeResult::Applied,
+                Err(error) => ModeResult::Failed(error.to_string()),
+            },
+            ModeOutcome::Uncertain(_) => unreachable!("handled before release"),
+        };
+        if pending.told {
+            self.notice(Notice::ModeResolved {
+                chat: chat.into(),
+                change,
+                result,
+            });
+        } else {
+            self.notice(Notice::ModeSettled {
+                chat: chat.into(),
+                change,
+                result,
+            });
+        }
+        Ok(())
+    }
+
+    /// A logical close is not proof of cleanup. Failed close requests and asynchronous accepted closes both retain
+    /// capacity and Chat authority until a definitive receipt or actual Exited. Forget/quit revoke preference writes.
+    fn uncertain_modes(&mut self, chat: &str, upto: Option<TurnId>, message: &str, revoke: bool) {
+        let mut notices = Vec::new();
+        for (change, pending) in &mut self.pending_modes {
+            if pending.chat != chat || !upto.is_none_or(|turn| pending.turn == turn) {
+                continue;
+            }
+            pending.revoked |= revoke;
+            if !pending.told {
+                pending.told = true;
+                notices.push(Notice::ModeSettled {
+                    chat: chat.into(),
+                    change: *change,
+                    result: ModeResult::Uncertain(jsjson::js_string(message)),
+                });
+            }
+        }
+        for notice in notices {
+            self.notice(notice);
+        }
+    }
+
+    /// An actual provider Exited releases unknown mode authority. An ordinary turn end or close request does not.
+    fn close_modes(&mut self, chat: &str, upto: Option<TurnId>, message: &str) {
+        let closed: Vec<ModeChangeId> = self
+            .pending_modes
+            .iter()
+            .filter(|(_, pending)| {
+                pending.chat == chat && upto.is_none_or(|turn| pending.turn == turn)
+            })
+            .map(|(change, _)| *change)
+            .collect();
+        for change in closed {
+            let pending = self.pending_modes.remove(&change).expect("present");
+            if !pending.revoked {
+                let _ = self.note_mode(chat, Some(pending.turn), &pending.mode);
+            }
+            if !pending.told {
+                self.notice(Notice::ModeSettled {
+                    chat: chat.into(),
+                    change,
+                    result: ModeResult::Uncertain(jsjson::js_string(message)),
+                });
+            }
+        }
     }
 
     /// agent:respond-permission (runtime.cjs respondPermission, SessionManager.respondToPermission): the user's
@@ -5132,6 +5631,13 @@ impl ChatHost {
             // Pending: the wire server keeps the client's reply until `Notice::AnswerSettled { answer }`.
             "agent:respond-permission" => self.respond_permission(&arg(0)).map(ticket_value),
             "agent:answer-question" => self.answer_question(&arg(0)).map(ticket_value),
+            "agent:set-permission-mode" => {
+                self.set_permission_mode(&arg(0))
+                    .map(|ticket| match ticket {
+                        ModeTicket::Settled => Value::Null,
+                        ModeTicket::Pending(change) => json!({ "pendingMode": change.0 }),
+                    })
+            }
             // Reads serve a ready Project only: never one loaded but not ready (its state may not be published, or
             // its root no longer trusted), and they never load or reopen one.
             other => {

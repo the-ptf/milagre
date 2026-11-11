@@ -213,6 +213,8 @@ pub enum SessionError {
     Closed,
     #[error("The agent session closed before this message was sent.")]
     ClosedBeforeSend,
+    #[error("The permission-mode change was not admitted.")]
+    ModeNotAdmitted,
     #[error("{0}")]
     Send(ClientError),
 }
@@ -700,10 +702,23 @@ impl ClaudeSession {
     }
 
     pub async fn set_permission_mode(&self, mode: &str) {
+        let _ = self.set_permission_mode_checked_if(mode, || true).await;
+    }
+
+    /// Confirms local policy and, for a running process, native control acknowledgement (or an
+    /// already-current native mode). Unlike the Node-compatible void method, native failure is returned.
+    pub async fn set_permission_mode_checked(&self, mode: &str) -> Result<(), SessionError> {
+        self.set_permission_mode_checked_if(mode, || true).await
+    }
+
+    /// `admit` runs once, after operation/delivery waits, under the state lock immediately before
+    /// the first policy mutation. A retained owner can reject an obsolete generation here and
+    /// mark actual entry for cancellation receipts. It must not call back into this session.
+    pub async fn set_permission_mode_checked_if(&self, mode: &str, admit: impl FnOnce() -> bool) -> Result<(), SessionError> {
         let _operation = self.inner.operations.lock().await;
         let delivery = self.inner.state.lock().unwrap().delivery_ready.clone();
         delivery.wait().await;
-        self.inner.set_permission_mode(mode).await
+        self.inner.set_permission_mode_checked_if(mode, admit).await
     }
 
     /// `respondToPermission`: "allow", "allow-for-chat" or "deny". False when the card is gone.
@@ -1266,14 +1281,21 @@ impl Inner {
     }
 
     async fn set_permission_mode(self: &Arc<Self>, mode: &str) {
+        let _ = self.set_permission_mode_checked_if(mode, || true).await;
+    }
+
+    async fn set_permission_mode_checked_if(self: &Arc<Self>, mode: &str, admit: impl FnOnce() -> bool) -> Result<(), SessionError> {
         if self.options.analysis_only {
-            return;
+            return Err(SessionError::UnsupportedAnalysis);
         }
         // Snapshot identities under lock; filesystem work runs on the blocking pool.
         let candidates = {
             let mut state = self.state.lock().unwrap();
             if state.closed || self.queue.closed() {
-                return;
+                return Err(SessionError::Closed);
+            }
+            if !admit() {
+                return Err(SessionError::ModeNotAdmitted);
             }
             state.permission_mode = mode.into();
             state.mode_epoch += 1;
@@ -1283,12 +1305,12 @@ impl Inner {
             let cwd = self.options.launch.cwd.clone();
             let mut status = self.queue.status.subscribe();
             if *status.borrow() != 0 {
-                return;
+                return Err(SessionError::Closed);
             }
             let check = tokio::task::spawn_blocking(move || {
                 candidates.into_iter().filter(|(_, _, files)| inside_root(cwd.as_deref(), files)).collect::<Vec<_>>()
             });
-            tokio::select! { result = check => result.unwrap_or_default(), _ = status.changed() => return }
+            tokio::select! { result = check => result.unwrap_or_default(), _ = status.changed() => return Err(SessionError::Closed) }
         } else if mode == "full" {
             candidates
         } else {
@@ -1297,7 +1319,7 @@ impl Inner {
         let (client, native) = {
             let mut state = self.state.lock().unwrap();
             if state.closed || self.queue.closed() || state.permission_mode != mode {
-                return;
+                return Err(SessionError::Closed);
             }
             for (id, token, _) in allowed {
                 if state.permissions.iter().any(|p| p.id == id && p.token == token) {
@@ -1306,7 +1328,7 @@ impl Inner {
             }
             let native = self.native_mode(mode);
             if state.client.is_none() || state.mode.as_deref() == Some(native) {
-                return;
+                return Ok(());
             }
             state.mode = None;
             (state.client.clone().unwrap(), native)
@@ -1314,11 +1336,14 @@ impl Inner {
         match client.set_permission_mode(native).await {
             Ok(_) => {
                 let mut state = self.state.lock().unwrap();
-                if !state.closed && state.permission_mode == mode {
+                if !state.closed && !self.queue.closed() && state.permission_mode == mode {
                     state.mode = Some(native.into());
+                    Ok(())
+                } else {
+                    Err(SessionError::Closed)
                 }
             }
-            Err(_) => {
+            Err(error) => {
                 let mut state = self.state.lock().unwrap();
                 if !state.closed && !self.queue.closed() {
                     self.finish_turn(
@@ -1327,6 +1352,7 @@ impl Inner {
                     );
                     self.stop_locked(&mut state);
                 }
+                Err(SessionError::Send(error))
             }
         }
     }

@@ -795,3 +795,194 @@ fn pending_auto_card_is_revoked_by_close_and_late_answers_are_refused() {
     assert!(m.wait_stopped(Duration::from_secs(3)));
     assert!(!alive(pid));
 }
+
+fn mode_settled(events: &[ProviderEvent], id: u64) -> bool {
+    events
+        .iter()
+        .any(|event| matches!(event, ProviderEvent::ModeSettled { change, .. } if change.0 == id))
+}
+
+/// The actual Node oracle's cards and native mode controls through one retained session. Enqueue
+/// both active changes together: the adapter must serialize Full then Ask before the next prompt.
+#[test]
+fn live_modes_match_node_with_ordered_receipts_and_retained_idle_session() {
+    use milagre_owner_store::chat_host::{ModeChangeId, ModeOutcome};
+    let trace: Value = serde_json::from_str(include_str!(
+        "../../rust-claude/tests/fixtures/conformance/claude-live-modes.json"
+    ))
+    .unwrap();
+    let mut p = ClaudeFixture::create(Scenario::LiveModes).unwrap();
+    let monitor = p.monitor();
+    let mut req = trace["request"].clone();
+    req.as_object_mut()
+        .unwrap()
+        .extend(trace["turn"].as_object().unwrap().clone());
+    req["cwd"] = json!(p.project());
+    req["chatId"] = json!("fixture");
+    p.start_turn(TurnId(1), &RawJson(req)).unwrap();
+    let mut all = collect(&mut p, |events| !cards(events).is_empty());
+    let pid = monitor.pid("fixture").unwrap();
+    p.set_mode("fixture", TurnId(1), ModeChangeId(1), "full")
+        .unwrap();
+    p.set_mode("fixture", TurnId(1), ModeChangeId(2), "ask")
+        .unwrap();
+    all.extend(collect(&mut p, |events| {
+        mode_settled(events, 1)
+            && mode_settled(events, 2)
+            && cards(events)
+                .iter()
+                .any(|event| event["requestId"] == "live-1")
+    }));
+    assert!(
+        !all.iter().any(terminal),
+        "mode changes leave this turn running"
+    );
+    assert_eq!(cards(&all), trace["cards"].as_array().unwrap()[..3]);
+    p.respond_permission("fixture", TurnId(1), AnswerId(1), "live-1", "deny")
+        .unwrap();
+    all.extend(collect(&mut p, |events| events.iter().any(terminal)));
+    for (id, mode) in [(3, "auto"), (4, "ask")] {
+        p.set_mode("fixture", TurnId(1), ModeChangeId(id), mode)
+            .unwrap();
+        all.extend(collect(&mut p, |events| mode_settled(events, id)));
+    }
+    assert_eq!(json!(cards(&all)), trace["cards"]);
+    let receipts: Vec<_> = all
+        .iter()
+        .filter_map(|event| match event {
+            ProviderEvent::ModeSettled {
+                change, outcome, ..
+            } => {
+                assert!(matches!(outcome, ModeOutcome::Applied), "{outcome:?}");
+                Some(change.0)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(receipts, [1, 2, 3, 4]);
+    assert_eq!(monitor.pid("fixture"), Some(pid));
+    p.close_chat("fixture", TurnId(1)).unwrap();
+    assert!(p
+        .set_mode("fixture", TurnId(1), ModeChangeId(5), "full")
+        .is_err());
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+    assert!(!alive(pid));
+}
+
+#[test]
+fn mode_lane_is_bounded_and_close_distinguishes_queued_from_entered() {
+    use milagre_owner_store::chat_host::{ModeChangeId, ModeOutcome, ProviderErrorKind};
+    let mut p = ClaudeFixture::create(Scenario::ModeStalled).unwrap();
+    let monitor = p.monitor();
+    p.start_turn(TurnId(1), &RawJson(request(&p))).unwrap();
+    collect(&mut p, |events| {
+        events
+            .iter()
+            .any(|event| matches!(event, ProviderEvent::Started { .. }))
+    });
+    assert!(p
+        .set_mode("fixture", TurnId(2), ModeChangeId(100), "full")
+        .is_err());
+    assert!(p
+        .set_mode("fixture", TurnId(1), ModeChangeId(100), "invalid")
+        .is_err());
+    p.set_mode("fixture", TurnId(1), ModeChangeId(1), "full")
+        .unwrap();
+    collect(&mut p, |events| {
+        events.iter().any(|event| matches!(event, ProviderEvent::Agent { event: RawJson(v), .. } if v["text"] == "mode entered"))
+    });
+    assert!(p
+        .set_mode("fixture", TurnId(1), ModeChangeId(1), "ask")
+        .is_err());
+    for id in 2..=9 {
+        p.set_mode("fixture", TurnId(1), ModeChangeId(id), "ask")
+            .unwrap();
+    }
+    assert!(p
+        .set_mode("fixture", TurnId(1), ModeChangeId(10), "ask")
+        .is_err());
+    let before = Instant::now();
+    p.close_chat("fixture", TurnId(1)).unwrap();
+    assert!(
+        before.elapsed() < Duration::from_millis(100),
+        "close admission stays nonblocking"
+    );
+    let events = collect(&mut p, |events| {
+        events.iter().any(|event| {
+            matches!(
+                event,
+                ProviderEvent::Exited {
+                    turn: TurnId(1),
+                    ..
+                }
+            )
+        })
+    });
+    let mut settled = std::collections::HashMap::<u64, Vec<&ModeOutcome>>::new();
+    for event in &events {
+        if let ProviderEvent::ModeSettled {
+            change, outcome, ..
+        } = event
+        {
+            settled.entry(change.0).or_default().push(outcome);
+        }
+    }
+    assert_eq!(settled.len(), 9);
+    assert!(matches!(
+        settled[&1].as_slice(),
+        [ModeOutcome::Uncertain(_), ModeOutcome::Failed(_)]
+    ));
+    for id in 2..=9 {
+        assert!(
+            matches!(settled[&id].as_slice(), [ModeOutcome::Failed(error)] if error.kind == ProviderErrorKind::Refused)
+        );
+    }
+    let final_receipt = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                ProviderEvent::ModeSettled {
+                    change: ModeChangeId(1),
+                    outcome: ModeOutcome::Failed(_),
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    let exit = events
+        .iter()
+        .position(|event| matches!(event, ProviderEvent::Exited { .. }))
+        .unwrap();
+    assert!(
+        final_receipt < exit,
+        "definitive cleanup settles the exact operation before Exited"
+    );
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+    assert!(!monitor.cleanup_failed());
+}
+
+#[test]
+fn native_mode_failure_never_emits_an_applied_receipt() {
+    use milagre_owner_store::chat_host::{ModeChangeId, ModeOutcome};
+    let mut p = ClaudeFixture::create(Scenario::ModeRejected).unwrap();
+    let monitor = p.monitor();
+    p.start_turn(TurnId(1), &RawJson(request(&p))).unwrap();
+    collect(&mut p, |events| {
+        events
+            .iter()
+            .any(|event| matches!(event, ProviderEvent::Started { .. }))
+    });
+    p.set_mode("fixture", TurnId(1), ModeChangeId(1), "full")
+        .unwrap();
+    let events = collect(&mut p, |events| mode_settled(events, 1));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        ProviderEvent::ModeSettled {
+            outcome: ModeOutcome::Failed(_),
+            ..
+        }
+    )));
+    p.shutdown();
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+}

@@ -10,6 +10,65 @@ Permission/question replies use the owner's asynchronous AnswerId contract. Acce
 
 RawJson provider events enter the owner codec once. The owner supplies native RawJson requests and answers; the adapter does not decode them again. Outbound prompt/answer text preserves literal noncharacters and private-use characters, replacing lone UTF-16 units with U+FFFD only in the native CLI copy. Stored originals remain lossless. Request/question identities, keys and model/resume metadata stay strict. Ordinary Ask, Auto and Full turns with typed model, effort, `ultracode`, `fastMode`, `replies` (`concise`/`normal`), `tldrEnabled` and initial resume are admitted (see Ordinary launch below). Mistyped values, unknown modes (Node coerces them to Ask), a missing model, images, roles, account routing, arbitrary launch configuration, user MCP extras and caller-selected MCP are refused. Initial resume is checked on the actual fake process argv; a reused session refuses a different native identity until closed.
 
+## Live permission changes
+
+The Claude fixture alone advertises `agent:set-permission-mode`. It requires an explicit
+Project open on that connection and a Chat in the generated Project. Scripted/Kiro, Codex,
+ACP, the app fixture and the shared client's public capabilities are unchanged.
+
+The actor retains the RPC reply while the owner waits for a generation-bound mode receipt.
+The adapter queues bounded work and checks its captured generation again after the session's
+operation/delivery waits. A completed native rejection is an error, never a successful RPC.
+After completion, the owner notes the Chat preference even on a live error, following Node's
+error priority. A success is `null`, published after the kept preference; it does not claim a
+direct disk read or an independently observed durable flush. Missing Chats are not created.
+Queued sends keep their original settings. A late old-generation receipt can note the saved
+preference but cannot rewrite a newer turn's active settings.
+
+Only one pending mode change per Chat is admitted. Timeout or cancellation after entry reports
+`MODE_DELIVERY_UNKNOWN` once and retains admission. A close request is not cleanup evidence.
+The adapter's captured-worker identity distinguishes a replacement session from an older
+session still closing. After its mode tasks finish and its session closes/reaps, exact operation
+receipts settle remaining uncertainty; a failure receipt means the operation ended with an
+error, not proof that it had no earlier effects. Late settlement produces no second RPC reply.
+Two reserved events per mode cover uncertainty followed by cleanup. Forget/quit revoke writes.
+The owner contract and deliberate deviations are in
+[PROVIDER-CONTRACT.md](../rust-owner/PROVIDER-CONTRACT.md#permission-mode-asynchronous-generation-bound-update).
+
+`claude-live-modes.json` records the actual Node ClaudeSession behavior. The native fake checks
+its control frames and answers during one Ask turn: Full resolves the first Bash card, Ask
+restores prompting for the second, and an explicit denial finishes the turn. Auto then Ask
+changes the retained idle session. `tests/claude-compat.cjs` drives this as the fourteenth
+production Node-client fixture scenario and compares cards/events, saved preferences and
+transcript. It also refuses missing-view, foreign-scope and invalid-mode requests. The separate
+receipt tests exercise native rejection, delayed admission, close and captured-worker cleanup.
+
+Root validation: 154 Claude tests pass (one live test ignored), 74 default runtime tests pass,
+and all fourteen Node-client scenarios pass. Root also passes nineteen owner lifecycle tests
+plus the actual Node owner oracle; the implementation agent's full owner run passes 211 tests
+with two ignored. Strict Clippy/fmt pass for the affected Rust crates, and runtime all-feature/
+all-target compilation passes. Fresh non-writing Node recorders match the instruction, ordinary,
+initial-mode and live-mode cases. Targeted JS lint has zero errors and six existing recorder
+shadow warnings; formatting passes. Independent source review closes the premature-release,
+replacement-session and discarded-receipt P2s. The last fix consumes exact terminal cleanup
+proof during forget/quit and buffer overflow without state writes, reopening or replay.
+
+Root logs: `/tmp/milagre-live-modes-root-claude-{tests,clippy,fmt}.log`,
+`/tmp/milagre-live-modes-root-runtime-{accepted,allfeatures-final,clippy-final,fmt-final}.log`,
+`/tmp/milagre-live-modes-root-owner-{accepted,clippy-final,fmt-final}.log`,
+`/tmp/milagre-live-modes-root-node-accepted.log`, and
+`/tmp/milagre-live-modes-root-{instructions,oracle-final,jslint-final,jsfmt}.log`.
+The initial full runtime attempt omitted `NODE_PATH` and failed five Node-dependent tests with
+`MODULE_NOT_FOUND`; the configured rerun passed. An initial lint invocation looked for ESLint,
+which this repository does not use; final JS checks use its Oxlint/Oxfmt. These setup failures
+are retained in the earlier logs. No external process signals or cleanup scans were used.
+
+These checks use a fixed fake CLI. Real `acceptEdits`/`bypassPermissions`, the SDK-initialize
+versus private-file prompt difference, steering-carried mode changes, broader workspace grants,
+account routing, images and background-aware restart remain unverified or unported. The checked
+Rust API reports native errors where Node's session method swallows the control rejection.
+Existing void session callers keep their prior behavior. No provider or production host is enabled.
+
 ## Evidence
 
 Ordinary-turn root acceptance: 137 rust-claude tests pass (one live test remains
@@ -135,6 +194,6 @@ Admitted: `permissionMode` `ask`, `auto`, `full` (absent or null is Ask). For an
 
 ### Remaining gates
 
-- Mid-turn mode switches: the owner `Provider` trait has no mode method, so Node's `setPermissionMode` during a turn, answering waiting cards on a switch to Auto/Full, and mode changes carried by steering are unreachable here. Proposal: a `Provider::set_mode(chat, TurnId, mode)` in `chat_host.rs`, generation-bound like `interrupt`, owned by the owner checkpoint. The Rust session's own Auto card resolution uses a canonical, `..`-refusing check where Node's `insideRoot` is lexical (stricter, unchanged).
+- Direct mid-turn mode changes are covered by the Live permission changes section above. Mode changes carried by steering remain unreachable here. The Rust session's own Auto card resolution uses a canonical, `..`-refusing check where Node's `insideRoot` is lexical (stricter, unchanged).
 - Shared-Link and Worktree roots: read-only main checkouts (deny edits with the Worktree message), Link roots, late-root learning and `addDirectories` grants need registry authority the fixture lacks; such Chats stay refused.
 - Real CLI behavior of `acceptEdits`/`bypassPermissions`, images, roles, account routing, user MCP extras and background-aware retention remain open.

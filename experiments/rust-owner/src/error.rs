@@ -55,6 +55,10 @@ pub enum StoreError {
     AnswerDeliveryUnknown(String),
     /// Every answer slot is taken (`ANSWERS_AT_CAPACITY`): nothing was shown or handed over.
     AnswersAtCapacity(String),
+    /// A previous mode update still holds this Chat's authority (`MODE_CHANGE_PENDING`).
+    ModeChangePending(String),
+    /// No mode-update slot is available (`MODES_AT_CAPACITY`).
+    ModesAtCapacity(String),
     /// Every transcript job reservation is taken (`TRANSCRIPTS_AT_CAPACITY`): the handoff send was refused before
     /// anything was staged, saved or shown.
     TranscriptsAtCapacity(String),
@@ -119,6 +123,8 @@ impl StoreError {
             StoreError::Io { code, .. } => *code,
             StoreError::AnswerDeliveryUnknown(_) => Some("ANSWER_DELIVERY_UNKNOWN"),
             StoreError::AnswersAtCapacity(_) => Some("ANSWERS_AT_CAPACITY"),
+            StoreError::ModeChangePending(_) => Some("MODE_CHANGE_PENDING"),
+            StoreError::ModesAtCapacity(_) => Some("MODES_AT_CAPACITY"),
             StoreError::TranscriptsAtCapacity(_) => Some("TRANSCRIPTS_AT_CAPACITY"),
             StoreError::QuitPending(_) => Some("QUIT_PENDING"),
             StoreError::OwnerClosing(_) => Some("OWNER_CLOSING"),
@@ -205,6 +211,8 @@ impl fmt::Display for StoreError {
             StoreError::NotIsolated(message) => write!(f, "{message}"),
             StoreError::AnswerDeliveryUnknown(message) => write!(f, "{message}"),
             StoreError::AnswersAtCapacity(message)
+            | StoreError::ModeChangePending(message)
+            | StoreError::ModesAtCapacity(message)
             | StoreError::TranscriptsAtCapacity(message)
             | StoreError::QuitPending(message)
             | StoreError::OwnerClosing(message)

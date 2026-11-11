@@ -2,8 +2,8 @@
 use milagre_owner_store::{
     agent_runs,
     chat_host::{
-        AnswerId, AnswerOutcome, AnswerResult, ChatHost, Notice, Provider, ProviderError,
-        ProviderErrorKind, ProviderEvent, QuitState, TurnId,
+        AnswerId, AnswerOutcome, AnswerResult, ChatHost, ModeChangeId, ModeResult, Notice,
+        Provider, ProviderError, ProviderErrorKind, ProviderEvent, QuitState, TurnId,
     },
     jsjson::{self, RawJson},
     states::{Event, ProjectStates, Timing},
@@ -32,6 +32,7 @@ const READINESS_CHECK: Duration = Duration::from_millis(250);
 const QUEUE: usize = 64;
 const BYTES: usize = 8 * 1024 * 1024;
 const DESIGN_SETTINGS: &[&str] = &["designs:enabled:read", "designs:enabled:save"];
+const CLAUDE_METHODS: &[&str] = &["agent:set-permission-mode"];
 const METHODS: &[&str] = &[
     "project:open",
     "project:switch",
@@ -114,6 +115,7 @@ struct Actor {
     project: String,
     content: bool,
     app_fixture: bool,
+    claude_modes: bool,
 }
 impl Actor {
     fn call(&self, command: Command) -> RpcResult {
@@ -188,6 +190,15 @@ impl Handler for Actor {
             .iter()
             .copied()
             .chain(
+                if self.claude_modes {
+                    CLAUDE_METHODS
+                } else {
+                    &[]
+                }
+                .iter()
+                .copied(),
+            )
+            .chain(
                 if self.content {
                     crate::artifacts::METHODS
                 } else {
@@ -211,6 +222,7 @@ impl Handler for Actor {
     }
     fn invoke(&self, method: &str, args: &[Value], context: &ClientContext) -> RpcResult {
         if !METHODS.contains(&method)
+            && !(self.claude_modes && CLAUDE_METHODS.contains(&method))
             && !app_methods(self.app_fixture).contains(&method)
             && !(self.content
                 && (crate::artifacts::METHODS.contains(&method)
@@ -385,7 +397,8 @@ struct State {
     next_readiness_check: Instant,
     pending: VecDeque<(String, Value)>,
     answers: HashMap<AnswerId, SyncSender<RpcResult>>,
-    settled_answers: Vec<(SyncSender<RpcResult>, RpcResult)>,
+    modes: HashMap<ModeChangeId, SyncSender<RpcResult>>,
+    settled_replies: Vec<(SyncSender<RpcResult>, RpcResult)>,
     // Drop after jobs join and the host releases its locks, even on forced teardown.
     #[cfg(feature = "app-fixture")]
     bootstrap: Option<crate::app_fixture::Bootstrap>,
@@ -602,7 +615,13 @@ impl State {
                 }
                 self.host.call(method, args).map_err(convert)
             }
-            "agent:respond-permission" | "agent:answer-question" => {
+            "agent:respond-permission" | "agent:answer-question" | "agent:set-permission-mode" => {
+                if method == "agent:set-permission-mode" && self.provider != "claude" {
+                    return Err(RpcError::new(
+                        "UNSUPPORTED_MUTATION",
+                        "Live permission changes require the Claude fixture",
+                    ));
+                }
                 let chat = args
                     .first()
                     .and_then(|v| v["chatId"].as_str())
@@ -760,7 +779,7 @@ impl State {
                 }
                 Notice::AnswerSettled { answer, result, .. } => {
                     if let Some(reply) = self.answers.remove(&answer) {
-                        self.settled_answers.push((
+                        self.settled_replies.push((
                             reply,
                             match result {
                                 AnswerResult::Accepted => Ok(Value::Bool(true)),
@@ -780,6 +799,27 @@ impl State {
                 // The original command already settled as unknown. Any rollback/state
                 // changes are published through the owner's ordinary notices, never a second reply.
                 Notice::AnswerResolved { .. } => {}
+                Notice::ModeSettled { change, result, .. } => {
+                    if let Some(reply) = self.modes.remove(&change) {
+                        self.settled_replies.push((
+                            reply,
+                            match result {
+                                ModeResult::Applied => Ok(Value::Null),
+                                ModeResult::Failed(message) => Err(RpcError::new(
+                                    "MODE_CHANGE_FAILED",
+                                    String::from_utf16_lossy(&jsjson::to_utf16(&message)),
+                                )),
+                                ModeResult::Uncertain(_) => Err(RpcError::new(
+                                    "MODE_DELIVERY_UNKNOWN",
+                                    "The agent has not confirmed the permission change.",
+                                )),
+                            },
+                        ));
+                    }
+                }
+                // The original uncertain command already replied. A late receipt only
+                // publishes the saved preference through ordinary owner notices.
+                Notice::ModeResolved { .. } => {}
                 Notice::AnswerForgotten { .. }
                 | Notice::LockStranded { .. }
                 | Notice::Failed { .. }
@@ -822,7 +862,7 @@ impl State {
             self.pending.pop_front();
         }
         self.cache_run_sequence(shared);
-        for (reply, result) in self.settled_answers.drain(..) {
+        for (reply, result) in self.settled_replies.drain(..) {
             let _ = reply.send(result);
         }
         Ok(())
@@ -863,7 +903,10 @@ impl State {
             for (_, reply) in self.answers.drain() {
                 let _ = reply.send(Err(delivery_failed()));
             }
-            for (reply, _) in self.settled_answers.drain(..) {
+            for (_, reply) in self.modes.drain() {
+                let _ = reply.send(Err(delivery_failed()));
+            }
+            for (reply, _) in self.settled_replies.drain(..) {
                 let _ = reply.send(Err(delivery_failed()));
             }
         })
@@ -970,6 +1013,7 @@ fn run(
             let mut refused = false;
             let mut reply = Some(request.reply);
             let answer_call = matches!(&request.command,Command::Call(method,_) if matches!(method.as_str(),"agent:respond-permission"|"agent:answer-question"));
+            let mode_call = matches!(&request.command,Command::Call(method,_) if method == "agent:set-permission-mode");
             let result = sink.transaction(|publication| {
                 let mut result = match request.command {
                     Command::Call(method, args) => {
@@ -992,6 +1036,13 @@ fn run(
                     if let Ok(value) = &result {
                         if let Some(id) = value["pendingAnswer"].as_u64() {
                             state.answers.insert(AnswerId(id), reply.take().unwrap());
+                        }
+                    }
+                }
+                if mode_call {
+                    if let Ok(value) = &result {
+                        if let Some(id) = value["pendingMode"].as_u64() {
+                            state.modes.insert(ModeChangeId(id), reply.take().unwrap());
                         }
                     }
                 }
@@ -1234,6 +1285,7 @@ fn start_provider(
         thread: Mutex::new(None),
         project: project.to_string_lossy().into_owned(),
         content: content.is_some(),
+        claude_modes: provider_name == "claude",
         app_fixture: {
             #[cfg(feature = "app-fixture")]
             {
@@ -1259,7 +1311,8 @@ fn start_provider(
         next_readiness_check: Instant::now(),
         pending: VecDeque::new(),
         answers: HashMap::new(),
-        settled_answers: Vec::new(),
+        modes: HashMap::new(),
+        settled_replies: Vec::new(),
         #[cfg(feature = "app-fixture")]
         bootstrap,
         _profile: profile_lease,
@@ -1586,9 +1639,23 @@ mod tests {
                 project: "fixture".into(),
                 content: false,
                 app_fixture: false,
+                claude_modes: false,
             },
             receive,
         )
+    }
+    #[test]
+    fn live_permission_capability_is_explicitly_claude_only() {
+        let (mut actor, _receive) = dormant();
+        assert!(!actor
+            .methods()
+            .iter()
+            .any(|method| method == CLAUDE_METHODS[0]));
+        actor.claude_modes = true;
+        assert!(actor
+            .methods()
+            .iter()
+            .any(|method| method == CLAUDE_METHODS[0]));
     }
     #[test]
     fn admission_never_waits_for_full_or_oversized_queue() {
@@ -1810,7 +1877,8 @@ mod publication_tests {
             next_readiness_check: Instant::now(),
             pending: VecDeque::new(),
             answers: HashMap::new(),
-            settled_answers: Vec::new(),
+            modes: HashMap::new(),
+            settled_replies: Vec::new(),
             #[cfg(feature = "app-fixture")]
             bootstrap: None,
             _profile: profile.lease(),
@@ -1882,6 +1950,10 @@ mod publication_tests {
     #[test]
     fn failed_publication_retains_unsent_events_and_closes_admission() {
         let (profile, mut state, shared) = fixture();
+        let (pending_mode, pending_mode_result) = mpsc::sync_channel(1);
+        state.modes.insert(ModeChangeId(1), pending_mode);
+        let (settled_mode, settled_mode_result) = mpsc::sync_channel(1);
+        state.settled_replies.push((settled_mode, Ok(Value::Null)));
         state.pending.push_back((
             "agent:event".into(),
             json!({"seq":7,"event":{"type":"text","text":"published"}}),
@@ -1907,6 +1979,18 @@ mod publication_tests {
             .transaction(|publication| state.publish_or_latch(&shared, publication))
             .unwrap_err();
         assert_eq!(failed.code, "FRAME_TOO_LARGE");
+        for result in [&pending_mode_result, &settled_mode_result] {
+            assert_eq!(
+                result.try_recv().unwrap().unwrap_err().code,
+                "OWNER_EVENT_FAILED"
+            );
+            assert!(matches!(
+                result.try_recv(),
+                Err(mpsc::TryRecvError::Disconnected)
+            ));
+        }
+        assert!(state.modes.is_empty());
+        assert!(state.settled_replies.is_empty());
         assert_eq!(
             state.run_seq, 7,
             "failed and unsent events do not advance the watermark"
@@ -2095,6 +2179,7 @@ mod job_tests {
             project: project.to_string_lossy().into(),
             content: content.is_some(),
             app_fixture: false,
+            claude_modes: false,
         });
         let profile_lease = profile.lease();
         let mut state = State {
@@ -2110,7 +2195,8 @@ mod job_tests {
             next_readiness_check: Instant::now(),
             pending: VecDeque::new(),
             answers: HashMap::new(),
-            settled_answers: vec![],
+            modes: HashMap::new(),
+            settled_replies: vec![],
             #[cfg(feature = "app-fixture")]
             bootstrap: None,
             _profile: profile_lease,

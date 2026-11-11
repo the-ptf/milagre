@@ -7,7 +7,8 @@ use milagre_claude::{
 };
 use milagre_owner_store::{
     chat_host::{
-        AnswerId, AnswerOutcome, Provider, ProviderError, ProviderErrorKind, ProviderEvent, TurnId,
+        AnswerId, AnswerOutcome, ModeChangeId, ModeOutcome, Provider, ProviderError,
+        ProviderErrorKind, ProviderEvent, TurnId,
     },
     jsjson::RawJson,
     Isolation, Policy,
@@ -27,6 +28,7 @@ use tokio::sync::{mpsc, watch};
 
 const CHATS: usize = 16;
 const ANSWERS: usize = 32;
+const MODES: usize = 32;
 const EVENTS: usize = 256;
 const BYTES: usize = 4 * 1024 * 1024;
 #[derive(Clone, Copy, Debug)]
@@ -51,6 +53,12 @@ pub enum Scenario {
     /// Full, Auto and Ask turns in one process, checked against the recorded Node launch mode,
     /// mode-switch order and each `can_use_tool` answer.
     Modes,
+    /// Ask -> Full -> Ask within one turn, then Auto -> Ask while idle, from the Node oracle.
+    LiveModes,
+    /// A native mode control that deliberately never acknowledges, for cancellation receipts.
+    ModeStalled,
+    /// A native mode control that refuses, for truthful failure receipts.
+    ModeRejected,
 }
 /// The Node ordinary trace (actual SessionManager/ClaudeSession over an explicit synthetic
 /// bundle, `rust-claude/scripts/generate-session.cjs`). Its bundle and host are this fixture's
@@ -60,6 +68,8 @@ const ORDINARY_TRACE: &str =
 /// The Node permission-mode trace (same explicit bundle and host), `generate-session.cjs`.
 const MODES_TRACE: &str =
     include_str!("../../rust-claude/tests/fixtures/conformance/claude-modes.json");
+const LIVE_MODES_TRACE: &str =
+    include_str!("../../rust-claude/tests/fixtures/conformance/claude-live-modes.json");
 /// Explicit ordinary instruction inputs. Nothing is discovered from the install or host.
 struct OrdinaryFacts {
     bundle: Bundle,
@@ -121,6 +131,10 @@ struct Queue {
     events: VecDeque<ProviderEvent>,
     bytes: usize,
 }
+struct RetainedMode {
+    worker: Arc<AtomicBool>,
+    uncertain: bool,
+}
 struct Shared {
     queue: Mutex<Queue>,
     failed: AtomicBool,
@@ -129,9 +143,35 @@ struct Shared {
     workers: Mutex<usize>,
     drained: Condvar,
     pending: Mutex<HashSet<(String, AnswerId)>>,
+    pending_modes: Mutex<HashMap<(String, ModeChangeId), RetainedMode>>,
     pids: Mutex<HashMap<String, u32>>,
 }
 impl Shared {
+    /// Called only after this captured session has closed and reaped its process. Failed means
+    /// the operation has definitively ended with an error, not that it had no earlier effects.
+    fn settle_closed_modes(&self, worker: &Arc<AtomicBool>) {
+        let completed: Vec<_> = self
+            .pending_modes
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .filter_map(|(id, retained)| {
+                if retained.uncertain && Arc::ptr_eq(&retained.worker, worker) {
+                    retained.uncertain = false;
+                    Some(id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (chat, change) in completed {
+            self.emit(ProviderEvent::ModeSettled {
+                chat, change,
+                outcome: ModeOutcome::Failed(ProviderError::new(ProviderErrorKind::Other,
+                    "The Claude session ended before confirming the permission-mode change. Earlier effects may have occurred.")),
+            }, true);
+        }
+    }
     fn emit(&self, event: ProviderEvent, reserved: bool) -> bool {
         let size = match &event {
             ProviderEvent::Agent { event, .. } => event.0.to_string().len() + 1024,
@@ -142,7 +182,7 @@ impl Shared {
             && (self.failed.load(Ordering::Acquire)
                 || q.events.len() >= EVENTS
                 || q.bytes.saturating_add(size) > BYTES))
-            || q.events.len() >= EVENTS + CHATS * 3 + ANSWERS
+            || q.events.len() >= EVENTS + CHATS * 3 + ANSWERS + MODES * 2
         {
             self.failed.store(true, Ordering::Release);
             return false;
@@ -251,10 +291,87 @@ impl Drop for ReplyGuard {
         }
     }
 }
+/// Admission remains reserved until its receipt is drained, including cancelled work.
+struct ModeGuard {
+    shared: Arc<Shared>,
+    chat: String,
+    id: Option<ModeChangeId>,
+    entered: bool,
+}
+impl ModeGuard {
+    fn settle(mut self, outcome: ModeOutcome) {
+        if let Some(change) = self.id.take() {
+            self.shared.emit(
+                ProviderEvent::ModeSettled {
+                    chat: self.chat.clone(),
+                    change,
+                    outcome,
+                },
+                true,
+            );
+        }
+    }
+    fn refuse(mut self) {
+        if let Some(change) = self.id.take() {
+            self.shared
+                .pending_modes
+                .lock()
+                .unwrap()
+                .remove(&(self.chat.clone(), change));
+        }
+    }
+    fn error(&self) -> ProviderError {
+        if self.entered {
+            ProviderError::new(
+                ProviderErrorKind::Other,
+                "Claude has not confirmed the permission-mode change.",
+            )
+        } else {
+            refused(
+                "The fixture session generation closed before the permission-mode change entered",
+            )
+        }
+    }
+}
+impl Drop for ModeGuard {
+    fn drop(&mut self) {
+        if let Some(change) = self.id.take() {
+            if self.entered {
+                if let Some(retained) = self
+                    .shared
+                    .pending_modes
+                    .lock()
+                    .unwrap()
+                    .get_mut(&(self.chat.clone(), change))
+                {
+                    retained.uncertain = true;
+                }
+            }
+            self.shared.emit(
+                ProviderEvent::ModeSettled {
+                    chat: self.chat.clone(),
+                    change,
+                    outcome: if self.entered {
+                        ModeOutcome::Uncertain(self.error())
+                    } else {
+                        ModeOutcome::Failed(self.error())
+                    },
+                },
+                true,
+            );
+        }
+    }
+}
+struct ModeChange {
+    turn: TurnId,
+    mode: String,
+    guard: ModeGuard,
+}
 struct Slot {
     content_scope: Arc<crate::claude_content::SessionContent>,
     start: mpsc::Sender<Start>,
     answers: mpsc::Sender<Reply>,
+    modes: mpsc::Sender<ModeChange>,
     close: watch::Sender<bool>,
     interrupt: watch::Sender<u64>,
     active: Arc<AtomicBool>,
@@ -275,6 +392,7 @@ struct Worker {
     scenario: Scenario,
     active: Arc<AtomicBool>,
     done: Arc<AtomicBool>,
+    latest: Arc<AtomicU64>,
     native_id: Arc<Mutex<Option<String>>>,
     content: Option<Arc<crate::claude_content::SharedContent>>,
     facts: Arc<OrdinaryFacts>,
@@ -325,6 +443,9 @@ impl ClaudeFixture {
         let bodies = match scenario {
             Scenario::Ordinary => ordinary_scripts(&trace)?,
             Scenario::Modes => vec![modes_script(&serde_json::from_str(MODES_TRACE)?)?],
+            Scenario::LiveModes => {
+                vec![live_modes_script(&serde_json::from_str(LIVE_MODES_TRACE)?)?]
+            }
             _ => vec![script_for(scenario, &profile.path().join("queue-release"))],
         };
         for (index, body) in bodies.into_iter().enumerate() {
@@ -374,6 +495,7 @@ impl ClaudeFixture {
                 workers: Mutex::new(0),
                 drained: Condvar::new(),
                 pending: Mutex::new(HashSet::new()),
+                pending_modes: Mutex::new(HashMap::new()),
                 pids: Mutex::new(HashMap::new()),
             }),
             slots: HashMap::new(),
@@ -558,6 +680,7 @@ impl Provider for ClaudeFixture {
             }
             let (start, rx) = mpsc::channel(1);
             let (answers, answers_rx) = mpsc::channel(8);
+            let (modes, modes_rx) = mpsc::channel(8);
             let (close, close_rx) = watch::channel(false);
             let (interrupt, interrupt_rx) = watch::channel(0);
             let active = Arc::new(AtomicBool::new(false));
@@ -578,6 +701,7 @@ impl Provider for ClaudeFixture {
                 tldr: turn.tldr_enabled,
                 active: active.clone(),
                 done: done.clone(),
+                latest: latest.clone(),
                 native_id: native_id.clone(),
                 content: self.content.clone(),
             };
@@ -590,7 +714,9 @@ impl Provider for ClaudeFixture {
                         .build()
                     {
                         Ok(runtime) => runtime.block_on(async {
-                            worker.run(rx, answers_rx, close_rx, interrupt_rx).await;
+                            worker
+                                .run(rx, answers_rx, modes_rx, close_rx, interrupt_rx)
+                                .await;
                             crate::executor::drain(&runtime, Duration::from_secs(3), || {
                                 worker.shared.failed.store(true, Ordering::Release);
                                 let _n = worker.shared.workers.lock().unwrap();
@@ -601,6 +727,7 @@ impl Provider for ClaudeFixture {
                         }),
                         Err(_) => {
                             drop(answers_rx);
+                            drop(modes_rx);
                             let mut rx = rx;
                             if let Some(start) = rx.blocking_recv() {
                                 worker.shared.emit(
@@ -623,6 +750,7 @@ impl Provider for ClaudeFixture {
                     content_scope,
                     start,
                     answers,
+                    modes,
                     close,
                     interrupt,
                     active,
@@ -668,6 +796,56 @@ impl Provider for ClaudeFixture {
         {
             slot.active.store(false, Ordering::Release);
             return Err(failed());
+        }
+        Ok(())
+    }
+    fn set_mode(
+        &mut self,
+        chat: &str,
+        turn: TurnId,
+        change: ModeChangeId,
+        mode: &str,
+    ) -> Result<(), ProviderError> {
+        self.open()?;
+        if !["ask", "auto", "full"].contains(&mode) {
+            return Err(refused(
+                "Only the ask, auto and full permission modes are implemented",
+            ));
+        }
+        let slot = self
+            .slots
+            .get(chat)
+            .filter(|slot| {
+                !slot.done.load(Ordering::Acquire)
+                    && !*slot.close.borrow()
+                    && slot.latest.load(Ordering::Acquire) == turn.0
+            })
+            .ok_or_else(|| refused("The fixture session generation is gone"))?;
+        let mut pending = self.shared.pending_modes.lock().unwrap();
+        if pending.len() >= MODES || pending.contains_key(&(chat.into(), change)) {
+            return Err(refused("The fixture mode lane is full or duplicated"));
+        }
+        pending.insert(
+            (chat.into(), change),
+            RetainedMode {
+                worker: slot.done.clone(),
+                uncertain: false,
+            },
+        );
+        drop(pending);
+        let command = ModeChange {
+            turn,
+            mode: mode.into(),
+            guard: ModeGuard {
+                shared: self.shared.clone(),
+                chat: chat.into(),
+                id: Some(change),
+                entered: false,
+            },
+        };
+        if let Err(error) = slot.modes.try_send(command) {
+            error.into_inner().guard.refuse();
+            return Err(refused("The fixture mode lane is full or closed"));
         }
         Ok(())
     }
@@ -778,6 +956,19 @@ impl Provider for ClaudeFixture {
                 pending.remove(&(chat.clone(), *answer));
             }
         }
+        let mut pending_modes = self.shared.pending_modes.lock().unwrap();
+        for event in &events {
+            if let ProviderEvent::ModeSettled {
+                chat,
+                change,
+                outcome,
+            } = event
+            {
+                if !matches!(outcome, ModeOutcome::Uncertain(_)) {
+                    pending_modes.remove(&(chat.clone(), *change));
+                }
+            }
+        }
         events
     }
 }
@@ -848,6 +1039,7 @@ impl Worker {
         &self,
         mut starts: mpsc::Receiver<Start>,
         mut answers: mpsc::Receiver<Reply>,
+        mut modes: mpsc::Receiver<ModeChange>,
         mut close: watch::Receiver<bool>,
         mut interrupt: watch::Receiver<u64>,
     ) {
@@ -919,6 +1111,7 @@ impl Worker {
         let (session, mut events) = ClaudeSession::new(options);
         let session = Arc::new(session);
         let mut replies = tokio::task::JoinSet::new();
+        let mut mode_tasks = tokio::task::JoinSet::new();
         loop {
             if *close.borrow() || self.shared.failed.load(Ordering::Acquire) {
                 break;
@@ -979,6 +1172,27 @@ impl Worker {
               self.shared.peak_reply_tasks.fetch_max(replies.len(),Ordering::AcqRel);
              },
              _=replies.join_next(),if !replies.is_empty()=>{},
+             command=modes.recv(), if mode_tasks.is_empty()=>if let Some(mut command)=command{
+                if command.turn != latest || self.latest.load(Ordering::Acquire) != command.turn.0 { drop(command); continue; }
+                let session=session.clone();
+                let generation=self.latest.clone();
+                let close=close.clone();
+                mode_tasks.spawn(async move {
+                    let result=session.set_permission_mode_checked_if(&command.mode, || {
+                        if generation.load(Ordering::Acquire) != command.turn.0 || *close.borrow() { return false; }
+                        command.guard.entered=true;
+                        true
+                    }).await;
+                    let outcome=match result {
+                        Ok(())=>ModeOutcome::Applied,
+                        Err(_)=>ModeOutcome::Failed(if command.guard.entered {
+                            ProviderError::new(ProviderErrorKind::Other, "Claude could not apply the requested permission mode.")
+                        } else { command.guard.error() }),
+                    };
+                    command.guard.settle(outcome);
+                });
+             },
+             _=mode_tasks.join_next(),if !mode_tasks.is_empty()=>{},
              start=starts.recv()=>match start{Some(start)=>pending=Some(start),None=>break}
             }
         }
@@ -992,6 +1206,12 @@ impl Worker {
                 true,
             );
         }
+        modes.close();
+        while let Ok(command) = modes.try_recv() {
+            drop(command);
+        }
+        mode_tasks.abort_all();
+        while mode_tasks.join_next().await.is_some() {}
         answers.close();
         while let Ok(reply) = answers.try_recv() {
             drop(reply);
@@ -999,6 +1219,10 @@ impl Worker {
         replies.abort_all();
         while replies.join_next().await.is_some() {}
         session.close().await;
+        // Finish exact operations for this worker, including those from an earlier turn. A newer
+        // replacement's Exited must never release these reservations. The definitive receipts
+        // follow actual native cleanup and precede this worker's final Exited event.
+        self.shared.settle_closed_modes(&self.done);
         // Close settles background children with compact transcript patches. Preserve
         // those deltas before the final host terminal and process-exit notification.
         while let Some(event) = events.try_recv() {
@@ -1077,6 +1301,44 @@ fn modes_script(trace: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     })?);
     Ok(Value::Array(steps))
 }
+/// Same-turn and idle controls from the actual Node live-mode trace. Mode control and released
+/// permission response use independent native lanes; only their pair, not an invented order, is asserted.
+fn live_modes_script(trace: &Value) -> Result<Value, Box<dyn std::error::Error>> {
+    let query = &trace["queries"][0];
+    let controls = query["controls"].as_array().ok_or("trace controls")?;
+    let user = controls
+        .iter()
+        .position(|c| c.get("user").is_some())
+        .ok_or("trace user")?;
+    let permissions = trace["permissions"].as_array().ok_or("trace permissions")?;
+    let request = |p: &Value| json!({"request":{"id":p["request"]["requestId"],"request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"},"tool_use_id":p["request"]["toolUseID"]}}});
+    let mut steps = node_trace::launch_steps(query)?;
+    steps.extend(node_trace::control_steps(&controls[..=user], |_| {
+        vec![
+            json!({"emit":{"type":"system","subtype":"init","session_id":"fixture-session"}}),
+            request(&permissions[0]),
+        ]
+    })?);
+    steps.push(json!({"expect_pair":[
+        {"/type":"control_request","/request/subtype":"set_permission_mode","/request/mode":controls[user+1]["setPermissionMode"][0]},
+        {"/type":"control_response","/response/request_id":permissions[0]["request"]["requestId"],"/response/response":permissions[0]["result"]}
+    ]}));
+    steps.extend(node_trace::control_steps(
+        &controls[user + 2..user + 3],
+        |_| vec![],
+    )?);
+    steps.push(request(&permissions[1]));
+    steps.extend([
+        json!({"expect":{"type":"control_response","fields":{"/response/request_id":permissions[1]["request"]["requestId"],"/response/response":permissions[1]["result"]}}}),
+        json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Claude fixture hello"}}}}),
+        json!({"emit":{"type":"result","subtype":"success","num_turns":1,"result":"done"}}),
+    ]);
+    steps.extend(node_trace::control_steps(
+        &controls[user + 3..],
+        |_| vec![],
+    )?);
+    Ok(Value::Array(steps))
+}
 fn script_for(scenario: Scenario, queue_release: &Path) -> Value {
     let mut steps = vec![json!({"expect":{"subtype":"initialize"}})];
     if matches!(scenario, Scenario::HangInitialize) {
@@ -1094,6 +1356,13 @@ fn script_for(scenario: Scenario, queue_release: &Path) -> Value {
             json!({"emit":{"type":"system","subtype":"init","session_id":"fixture-session"}}),
         ]);
         match scenario {
+   Scenario::ModeStalled | Scenario::ModeRejected => {
+    steps.push(json!({"expect":{"subtype":"set_permission_mode","fields":{"/request/mode":"bypassPermissions"}}}));
+    steps.push(json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"mode entered"}}}}));
+    if matches!(scenario, Scenario::ModeRejected) { steps.push(json!({"reply_error":"mode refused by native fixture"})); }
+    steps.push(json!({"wait_eof":true}));
+    break;
+   },
    Scenario::Permission=>steps.extend([json!({"request":{"id":"p1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo fixture"}}}}),json!({"expect":{"type":"control_response","fields":{"/response/request_id":"p1"}}})]),
    Scenario::Question|Scenario::QuestionDelayedReceipt|Scenario::Unicode=>steps.extend([json!({"request":{"id":"q1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A","description":"First"},{"label":"B","description":"Second"}]}]}}}}),json!({"expect":{"type":"control_response","fields":{"/response/request_id":"q1"}}})]),
    Scenario::AnswerSaturation => {
@@ -1265,5 +1534,86 @@ mod content_close_tests {
         provider.shutdown();
         assert!(provider.monitor().wait_stopped(Duration::from_secs(3)));
         content.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod mode_receipt_tests {
+    use super::*;
+
+    /// A replacement worker's cleanup must never refund an older worker's uncertain operation,
+    /// even when their chat identity is identical. Completed and unentered operations settle once.
+    #[test]
+    fn captured_worker_cleanup_settles_only_its_uncertain_mode_ids() {
+        let mut fixture = ClaudeFixture::create(Scenario::Reply).unwrap();
+        let older = Arc::new(AtomicBool::new(false));
+        let replacement = Arc::new(AtomicBool::new(false));
+        let admit = |id, worker: &Arc<AtomicBool>, entered| {
+            fixture.shared.pending_modes.lock().unwrap().insert(
+                ("fixture".into(), ModeChangeId(id)),
+                RetainedMode {
+                    worker: worker.clone(),
+                    uncertain: false,
+                },
+            );
+            ModeGuard {
+                shared: fixture.shared.clone(),
+                chat: "fixture".into(),
+                id: Some(ModeChangeId(id)),
+                entered,
+            }
+        };
+        drop(admit(1, &older, true));
+        drop(admit(2, &replacement, true));
+        drop(admit(3, &older, false));
+        admit(4, &older, true).settle(ModeOutcome::Applied);
+        assert_eq!(fixture.take_events().len(), 4);
+        assert_eq!(
+            fixture.shared.pending_modes.lock().unwrap().len(),
+            2,
+            "uncertainty retains admission"
+        );
+
+        fixture.shared.settle_closed_modes(&replacement);
+        let events = fixture.take_events();
+        assert!(matches!(
+            events.as_slice(),
+            [ProviderEvent::ModeSettled {
+                change: ModeChangeId(2),
+                outcome: ModeOutcome::Failed(_),
+                ..
+            }]
+        ));
+        assert!(fixture
+            .shared
+            .pending_modes
+            .lock()
+            .unwrap()
+            .contains_key(&("fixture".into(), ModeChangeId(1))));
+        older.store(true, Ordering::Release);
+        assert!(fixture.take_events().is_empty());
+        assert_eq!(
+            fixture.shared.pending_modes.lock().unwrap().len(),
+            1,
+            "a done flag cannot silently refund an uncertain receipt"
+        );
+
+        fixture.shared.settle_closed_modes(&older);
+        let events = fixture.take_events();
+        assert!(matches!(
+            events.as_slice(),
+            [ProviderEvent::ModeSettled {
+                change: ModeChangeId(1),
+                outcome: ModeOutcome::Failed(_),
+                ..
+            }]
+        ));
+        assert!(fixture.shared.pending_modes.lock().unwrap().is_empty());
+        fixture.shared.settle_closed_modes(&older);
+        fixture.shared.settle_closed_modes(&replacement);
+        assert!(
+            fixture.take_events().is_empty(),
+            "cleanup cannot duplicate a definitive receipt"
+        );
     }
 }

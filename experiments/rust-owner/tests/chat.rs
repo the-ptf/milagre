@@ -381,6 +381,9 @@ impl Run {
                 Notice::Failed { what, error, .. } => json!({ "failed": what, "error": error }),
                 Notice::AnswerForgotten { answer, .. } => json!({ "answerForgotten": answer.0 }),
                 Notice::LockStranded { lock, why } => json!({ "lockStranded": lock, "why": why }),
+                Notice::ModeSettled { .. } | Notice::ModeResolved { .. } => {
+                    panic!("permission modes aren't part of these traces")
+                }
                 Notice::Started { .. } | Notice::AnswerSettled { .. } | Notice::AnswerResolved { .. } | Notice::SteerRequested { .. } | Notice::ProjectReady { .. } => {
                     unreachable!()
                 }

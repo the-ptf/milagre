@@ -45,11 +45,15 @@ async function scenario(name) {
     client.on("event", (event) => {
       if (event.channel === "agent:event") events.push(event.payload.event);
     });
+    if (name === "live-modes") {
+      await assert.rejects(client.call("agent:set-permission-mode", [{ chatId: project + "#1", mode: "full" }]), { code: "ISOLATED_SCOPE_ONLY" });
+    }
     await client.call("project:open", [project]);
     await runtime.openProject(project);
     const chatId = project + "#1";
     if (name === "ordinary") await ordinary({ client, events, project, child });
     else if (name === "modes") await modes({ client, events, project, child });
+    else if (name === "live-modes") await liveModes({ client, events, project });
     else {
       const body = name === "unicode" ? "native \u{10fffe} \ue123 \ud83d" : "fixture input";
       await client.call("chat:send", [
@@ -219,13 +223,71 @@ async function scenario(name) {
     }
   }
 }
+// One active turn changes Ask -> Full -> Ask, followed by idle Auto -> Ask on the same session.
+// The fixed native child checks actual Node controls and answers; receipts must arrive after owner publication.
+async function liveModes({ client, events, project }) {
+  const trace = require("../../rust-claude/tests/fixtures/conformance/claude-live-modes.json");
+  const chatId = project + "#1";
+  const change = (mode, target = chatId) => client.call("agent:set-permission-mode", [{ chatId: target, mode }]);
+  const state = async () => (await client.call("project:snapshot", [project])).state;
+  await assert.rejects(change("full", project + "/foreign#1"), {
+    code: "ISOLATED_SCOPE_ONLY",
+  });
+  for (const mode of ["yolo", 1, null, {}, true]) await assert.rejects(change(mode));
+  assert.equal((await state()).sessions[1].permissionMode, undefined);
+  assert.equal(await change("full", project + "#2"), null, "idle Chat without provider still saves preference");
+  assert.equal((await state()).sessions[2].permissionMode, "full");
+  assert.equal(await change("ask", project + "#999"), null);
+  assert.equal((await state()).sessions[999], undefined, "no missing Chat is created");
+  const { cwd: _cwd, chatId: _chatId, ...settings } = trace.request;
+  const { prompt, ...turn } = trace.turn;
+  await client.call("chat:send", [
+    {
+      ...settings,
+      ...turn,
+      projectPath: project,
+      sessionId: 1,
+      body: prompt,
+      clientMessageId: "live-modes-1",
+    },
+  ]);
+  await until("first live permission", () => events.some((e) => e.type === "permission-request" && e.requestId === "live-0"));
+  assert.equal(await change("full"), null, "no pending-mode receipt escapes the wire");
+  assert.equal((await state()).sessions[1].permissionMode, "full", "success follows preference publication");
+  await until("Full resolves waiting card", () => events.some((e) => e.type === "permission-resolved" && e.requestId === "live-0"));
+  assert.equal(events.filter((e) => e.type === "turn-completed").length, 0, "mode change keeps the current turn running");
+  assert.equal(await change("ask"), null);
+  assert.equal((await state()).sessions[1].permissionMode, "ask");
+  await until("downgrade requires second card", () => events.some((e) => e.type === "permission-request" && e.requestId === "live-1"));
+  assert.equal(await client.call("agent:respond-permission", [{ chatId, requestId: "live-1", decision: "deny" }]), true);
+  await until("live turn completed", () => events.some((e) => e.type === "turn-completed"));
+  for (const mode of ["auto", "ask"]) {
+    assert.equal(await change(mode), null, "retained idle session takes mode changes");
+    assert.equal((await state()).sessions[1].permissionMode, mode);
+  }
+  assert.deepEqual(
+    events.filter((e) => ["permission-request", "permission-resolved"].includes(e.type)),
+    trace.cards,
+  );
+  assert.deepEqual(
+    events.filter((e) => ["turn-started", "session-started", "turn-completed", "turn-failed", "turn-cancelled"].includes(e.type)).map((e) => e.type),
+    trace.events,
+  );
+  const messages = await client.call("chat:messages", [project, 1]);
+  assert.equal(messages.messages.filter((m) => m.body === prompt).length, 1);
+  assert.equal(messages.messages.filter((m) => m.body === "Claude fixture hello").length, 1);
+}
 // Full, Auto and Ask sends in the composer's shape. The fake child asserts Node's launch mode, mode-switch order and
 // each can_use_tool answer; this answers the Auto and Ask cards through the production client.
 async function modes({ client, events, project, child }) {
   const trace = require("../../rust-claude/tests/fixtures/conformance/claude-modes.json");
   const chatId = project + "#1";
   const terminals = () => events.filter((e) => ["turn-completed", "turn-failed", "turn-cancelled"].includes(e.type));
-  const nativePids = () => execFileSync("pgrep", ["-P", String(child.pid)], { encoding: "utf8" }).trim().split("\n").map(Number);
+  const nativePids = () =>
+    execFileSync("pgrep", ["-P", String(child.pid)], { encoding: "utf8" })
+      .trim()
+      .split("\n")
+      .map(Number);
   const answers = { full: null, auto: "allow", ask: "deny" };
   const pids = [];
   for (const [index, turn] of trace.turns.entries()) {
@@ -253,15 +315,21 @@ async function modes({ client, events, project, child }) {
     if (decision) {
       const before = events.filter((e) => e.type === "permission-request").length;
       await until("card " + index, () => events.filter((e) => e.type === "permission-request").length === before + 1);
-      const card = events.filter((e) => e.type === "permission-request").at(-1);
+      const card = events.findLast((e) => e.type === "permission-request");
       assert.equal(await client.call("agent:respond-permission", [{ chatId, requestId: card.requestId, decision }]), true);
     }
     await until("modes turn " + (index + 1), () => terminals().length === index + 1);
     pids.push(...nativePids());
   }
-  assert.deepEqual(terminals().map((e) => e.type), ["turn-completed", "turn-completed", "turn-completed"]);
+  assert.deepEqual(
+    terminals().map((e) => e.type),
+    ["turn-completed", "turn-completed", "turn-completed"],
+  );
   assert.equal(new Set(pids).size, 1, "mode changes keep one native process: " + pids);
-  assert.deepEqual(events.filter((e) => e.type.startsWith("permission-")), trace.cards);
+  assert.deepEqual(
+    events.filter((e) => e.type.startsWith("permission-")),
+    trace.cards,
+  );
   const argv = execFileSync("ps", ["-p", String(pids[0]), "-o", "command="], { encoding: "utf8" });
   assert.ok(argv.includes("--permission-mode bypassPermissions"), argv);
   const snapshot = await client.call("project:snapshot", [project]);
@@ -274,7 +342,11 @@ async function ordinary({ client, events, project, child }) {
   const trace = require("../../rust-claude/tests/fixtures/conformance/claude-ordinary.json");
   const terminals = () => events.filter((e) => ["turn-completed", "turn-failed", "turn-cancelled"].includes(e.type));
   // Every native child of the fixture owner; the old generation may still be exiting.
-  const nativePids = () => execFileSync("pgrep", ["-P", String(child.pid)], { encoding: "utf8" }).trim().split("\n").map(Number);
+  const nativePids = () =>
+    execFileSync("pgrep", ["-P", String(child.pid)], { encoding: "utf8" })
+      .trim()
+      .split("\n")
+      .map(Number);
   const pids = [];
   let overlap = false;
   for (const [index, turn] of trace.turns.entries()) {
@@ -337,9 +409,24 @@ async function ordinary({ client, events, project, child }) {
   assert.equal(messages.messages.filter((m) => m.body === "Claude fixture hello").length, 3);
 }
 (async () => {
-  for (const name of ["reply", "permission", "question", "stop", "crash", "unicode", "content", "queue", "design", "content-allow", "content-deny", "ordinary", "modes"])
+  for (const name of [
+    "reply",
+    "permission",
+    "question",
+    "stop",
+    "crash",
+    "unicode",
+    "content",
+    "queue",
+    "design",
+    "content-allow",
+    "content-deny",
+    "ordinary",
+    "modes",
+    "live-modes",
+  ])
     await scenario(name);
-  console.log("Claude owner Node client conformance passed (13 scenarios)");
+  console.log("Claude owner Node client conformance passed (14 scenarios)");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

@@ -25,6 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "design" => Scenario::Design,
             "ordinary" => Scenario::Ordinary,
             "modes" => Scenario::Modes,
+            "live-modes" => Scenario::LiveModes,
             _ => return Err("Unknown fixture scenario".into()),
         },
         _ => return Err("Only one fixed fixture scenario is accepted".into()),
