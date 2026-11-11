@@ -136,6 +136,10 @@ struct Preparing {
     told_saving: bool,
     /// The changed files the transcript job found (for the minimal brief).
     changed_files: Vec<String>,
+    /// Settled while its Project wasn't ready (applied once it is ready again, never before): the brief's reply
+    /// (`Some(None)`: failed or late), or why the handoff can't go on.
+    held_brief: Option<Option<String>>,
+    held_failure: Option<String>,
 }
 
 /// A transcript job out: whose it is, whether its handoff was cancelled (its result is then only cleaned up), and a
@@ -146,8 +150,67 @@ struct JobSlot {
     turn: TurnId,
     cancelled: bool,
     cleanup: Option<StagedTranscript>,
+    /// A staged transcript that came back while its Project wasn't ready: committed once it is (if still current),
+    /// only cleaned up if the handoff stopped meanwhile.
+    held: Option<HeldStaged>,
     /// A cleanup failure was told (once per job).
     told: bool,
+}
+
+struct HeldStaged {
+    staged: StagedTranscript,
+    brief_prompt: Option<handover::BriefRequest>,
+    changed_files: Vec<String>,
+}
+
+/// The most provider events kept for Projects that are loaded but not ready, and their bytes (all such Projects
+/// together). Past either, the Project's kept events are dropped and its running turns end once it opens again.
+pub const MAX_PARKED_EVENTS: usize = 4096;
+pub const MAX_PARKED_BYTES: usize = 16 << 20;
+
+/// One not-ready Project's provider events, in arrival order, each with its counted size.
+#[derive(Default)]
+struct Parked {
+    events: std::collections::VecDeque<(ProviderEvent, usize)>,
+    bytes: usize,
+    /// Overflowed: the turns that ran then (their sessions closed at once, ended once the Project is ready); nothing
+    /// more is kept for it.
+    lost: Option<BTreeMap<String, TurnId>>,
+}
+
+/// What one provider event costs to keep (its chat key, its JSON as written, its messages, plus a fixed overhead).
+fn event_bytes(event: &ProviderEvent) -> usize {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let json = |value: &Value| {
+        let mut count = Count(0);
+        let _ = serde_json::to_writer(&mut count, value);
+        count.0
+    };
+    let (chat, body) = match event {
+        ProviderEvent::Started { chat, result, .. } => (chat, json(&result.0)),
+        ProviderEvent::Agent { chat, event, .. } => (chat, json(&event.0)),
+        ProviderEvent::StartFailed { chat, error, .. }
+        | ProviderEvent::Exited { chat, error, .. } => (chat, error.message.len()),
+        ProviderEvent::AnswerSettled { chat, outcome, .. } => (
+            chat,
+            match outcome {
+                AnswerOutcome::Failed(error) | AnswerOutcome::Uncertain(error) => {
+                    error.message.len()
+                }
+                _ => 0,
+            },
+        ),
+    };
+    64 + chat.len() + body
 }
 
 /// Where a quit stands (see [`ChatHost::shutdown`]).
@@ -788,6 +851,15 @@ pub struct ChatHost {
     /// failed after loading, or a repeat open's checks failed): their locks and state are kept, new work refused.
     ready: HashSet<PathBuf>,
     not_ready: HashSet<PathBuf>,
+    /// Provider events for Projects loaded here but not ready (see `park`), and their totals and budget.
+    parked: BTreeMap<PathBuf, Parked>,
+    parked_events: usize,
+    parked_bytes: usize,
+    parked_budget: (usize, usize),
+    /// What releasing parked events refused or failed: returned by the next `pump`.
+    released_errors: Vec<StoreError>,
+    /// Projects whose recovery changed state an open couldn't publish (its save failed): published once one succeeds.
+    unpublished: HashSet<PathBuf>,
     /// Handoffs being prepared, by Chat: the turn reserved for each (its generation) and what is ready so far.
     preparing: HashMap<String, Preparing>,
     /// The transcript jobs (opened on first use) and the ones not yet taken by the runtime.
@@ -864,6 +936,12 @@ impl ChatHost {
             held_events: Vec::new(),
             ready: HashSet::new(),
             not_ready: HashSet::new(),
+            parked: BTreeMap::new(),
+            parked_events: 0,
+            parked_bytes: 0,
+            parked_budget: (MAX_PARKED_EVENTS, MAX_PARKED_BYTES),
+            released_errors: Vec::new(),
+            unpublished: HashSet::new(),
             preparing: HashMap::new(),
             transcripts: None,
             ready_jobs: std::collections::VecDeque::new(),
@@ -1881,6 +1959,16 @@ impl ChatHost {
         request: &Value,
         turn: TurnId,
     ) -> Option<TurnId> {
+        // Nothing starts in a Project that isn't ready: the turn ends unstarted (its end kept until it is ready).
+        if self.require_ready_chat(chat).is_err() {
+            self.fail_turn(
+                chat,
+                turn,
+                "Its Project isn't ready here, so the turn didn't start.",
+                "a turn that couldn't start",
+            );
+            return None;
+        }
         let outcome = match self.providers.get_mut(provider) {
             Some(adapter) => match outbound_request(request) {
                 Ok(request) => adapter.start_turn(turn, &request),
@@ -1964,9 +2052,10 @@ impl ChatHost {
     /// (a turn end can start a queued message, whose start answers with more events). Returns what was refused or
     /// failed; each is also left as it was (a refused event folds nothing).
     pub fn pump(&mut self) -> Vec<StoreError> {
+        let mut errors = std::mem::take(&mut self.released_errors);
         self.drive_jobs(false);
         self.drive_briefs(None);
-        let mut errors = self.retry_stuck();
+        errors.extend(self.retry_stuck());
         for round in 0.. {
             // What a bounded pump left comes first, whether or not a provider sent more since.
             let mut events: Vec<ProviderEvent> = std::mem::take(&mut self.held_events);
@@ -2013,10 +2102,11 @@ impl ChatHost {
         for chat in saving {
             self.start_prepared(&chat);
         }
+        // A Project that isn't ready folds nothing: its deadlines and answers wait until it is ready again.
         let overdue: Vec<(String, TurnId)> = self
             .deadlines
             .iter()
-            .filter(|(_, (_, at))| *at <= now)
+            .filter(|(chat, (_, at))| *at <= now && self.require_ready_chat(chat).is_ok())
             .map(|(chat, (turn, _))| (chat.clone(), *turn))
             .collect();
         for (chat, turn) in overdue {
@@ -2033,7 +2123,9 @@ impl ChatHost {
         let late: Vec<(AnswerId, String)> = self
             .pending_answers
             .iter()
-            .filter(|(_, pending)| pending.due <= now)
+            .filter(|(_, pending)| {
+                pending.due <= now && self.require_ready_chat(&pending.chat).is_ok()
+            })
             .map(|(answer, pending)| (*answer, pending.chat.clone()))
             .collect();
         for (answer, chat) in late {
@@ -2048,9 +2140,12 @@ impl ChatHost {
     }
 
     /// Folds the turn ends kept after a failed fold again; one that fails again stays kept while its turn runs.
+    /// Ends kept for a Project that isn't ready stay kept, untried, until it is ready again.
     pub fn retry_stuck(&mut self) -> Vec<StoreError> {
-        let stuck: Vec<(String, (TurnId, Value))> =
-            std::mem::take(&mut self.stuck).into_iter().collect();
+        let (stuck, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.stuck)
+            .into_iter()
+            .partition(|(chat, _)| self.require_ready_chat(chat).is_ok());
+        self.stuck.extend(waiting);
         let mut errors = Vec::new();
         for (chat, (turn, event)) in stuck {
             if let Err(error) = self.receive(&chat, turn, &event) {
@@ -2099,7 +2194,6 @@ impl ChatHost {
                 outcome,
             },
         };
-        // A Project that isn't ready takes no provider event: refused and dropped, never loading or reopening it.
         let chat = match &event {
             ProviderEvent::Started { chat, .. }
             | ProviderEvent::StartFailed { chat, .. }
@@ -2107,7 +2201,121 @@ impl ChatHost {
             | ProviderEvent::Exited { chat, .. }
             | ProviderEvent::AnswerSettled { chat, .. } => chat.clone(),
         };
-        self.require_ready_chat(&chat)?;
+        let project = PathBuf::from(agent_runs::project_of_key(&chat));
+        if !self.ready.contains(&project) {
+            // Loaded here but not ready: kept, in order, until an explicit open makes it ready. Never opened, or
+            // forgotten: refused and dropped, never loading or reopening it.
+            if self.not_ready.contains(&project) && self.states.has(&project) {
+                return self.park(project, event);
+            }
+            return self.require_ready(&project);
+        }
+        self.handle(event)
+    }
+
+    /// Keeps a provider event of a Project loaded here but not ready, within the budget (`MAX_PARKED_EVENTS` events and
+    /// `MAX_PARKED_BYTES` bytes, all such Projects together). Past it the Project fails closed: everything kept for it
+    /// is dropped, the sessions of the turns running in it are closed at once (nothing they did is replayed), nothing
+    /// more is kept for it, and once it opens again those turns end `turn-failed` and their answers settle as an ended
+    /// turn's do (`Uncertain`, their messages kept). Nothing is folded or saved until then.
+    fn park(&mut self, project: PathBuf, event: ProviderEvent) -> Result<()> {
+        let size = event_bytes(&event);
+        let (max_events, max_bytes) = self.parked_budget;
+        let fits = self.parked_events < max_events && self.parked_bytes + size <= max_bytes;
+        let parked = self.parked.entry(project.clone()).or_default();
+        if parked.lost.is_some() {
+            return Err(StoreError::ProjectNotReady(format!(
+                "An agent event for {} was dropped: its events since it stopped being ready were already lost.",
+                project.display()
+            )));
+        }
+        if fits {
+            parked.events.push_back((event, size));
+            parked.bytes += size;
+            self.parked_events += 1;
+            self.parked_bytes += size;
+            return Ok(());
+        }
+        let (dropped, bytes) = (
+            std::mem::take(&mut parked.events),
+            std::mem::take(&mut parked.bytes),
+        );
+        self.parked_events -= dropped.len();
+        self.parked_bytes -= bytes;
+        drop(dropped);
+        let lost: BTreeMap<String, TurnId> = self
+            .active
+            .iter()
+            .filter(|(chat, _)| Path::new(agent_runs::project_of_key(chat)) == project)
+            .map(|(chat, (turn, _))| (chat.clone(), *turn))
+            .collect();
+        for chat in lost.keys() {
+            self.close_session(chat);
+        }
+        self.parked.entry(project.clone()).or_default().lost = Some(lost);
+        Err(StoreError::ProjectNotReady(format!(
+            "Milagre couldn't keep more agent events for {} while it isn't ready: its running turns end once it opens again.",
+            project.display()
+        )))
+    }
+
+    /// After an explicit open made `project` ready: its kept events are handled in the order they came (each once),
+    /// then the turns an overflow lost are ended. What they refused or failed is returned by the next `pump`.
+    fn release_parked(&mut self, project: &Path) {
+        let Some(parked) = self.parked.remove(project) else {
+            return;
+        };
+        self.parked_events -= parked.events.len();
+        self.parked_bytes -= parked.bytes;
+        for (event, _) in parked.events {
+            if let Err(error) = self.handle(event) {
+                self.released_errors.push(error);
+            }
+        }
+        for (chat, turn) in parked.lost.unwrap_or_default() {
+            // A real end kept after a failed fold is folded by `retry_stuck` instead.
+            let kept = self
+                .stuck
+                .get(&chat)
+                .is_some_and(|(stuck, _)| *stuck == turn);
+            if !kept && self.active_turn(&chat) == Some(turn) {
+                self.end_closed(
+                    &chat,
+                    turn,
+                    "Milagre couldn't keep this turn's agent events while its Project wasn't ready, so it ended the turn.",
+                );
+            }
+        }
+    }
+
+    /// Drops what is kept for `project` (forgotten or closed): its late events are never handled.
+    fn drop_parked(&mut self, project: Option<&Path>) {
+        let keys: Vec<PathBuf> = match project {
+            Some(project) => vec![project.to_path_buf()],
+            None => self.parked.keys().cloned().collect(),
+        };
+        for key in keys {
+            if let Some(parked) = self.parked.remove(&key) {
+                self.parked_events -= parked.events.len();
+                self.parked_bytes -= parked.bytes;
+            }
+        }
+    }
+
+    /// The parked events' budget (events, bytes), for tests.
+    #[cfg(feature = "test-fixtures")]
+    pub fn set_parked_budget_for_tests(&mut self, events: usize, bytes: usize) {
+        self.parked_budget = (events, bytes);
+    }
+
+    /// The events and bytes kept for not-ready Projects, for tests.
+    #[cfg(feature = "test-fixtures")]
+    pub fn parked_for_tests(&self) -> (usize, usize) {
+        (self.parked_events, self.parked_bytes)
+    }
+
+    /// Handles one provider event of a ready Project.
+    fn handle(&mut self, event: ProviderEvent) -> Result<()> {
         match event {
             ProviderEvent::Started { chat, turn, result } => {
                 if self.active_turn(&chat) != Some(turn) {
@@ -2207,7 +2415,10 @@ impl ChatHost {
         let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
         let terminal = is_turn_end(event);
         let running = self.active_turn(chat);
-        let checked = self.admit(chat, turn, kind, running);
+        // A Project that isn't ready folds nothing (a refused turn end of the running turn is kept, below).
+        let checked = self
+            .require_ready_chat(chat)
+            .and_then(|()| self.admit(chat, turn, kind, running));
         let folded = checked.and_then(|_| {
             let had_run = self.runs.contains_key(chat);
             self.fold(chat, event)
@@ -2286,7 +2497,13 @@ impl ChatHost {
     /// (nonblocking), its turn fails with `message`, and anything that session still sends is dropped. If even the
     /// fold fails, the run is let go in memory (the user message stays saved) and that is told.
     fn force_end(&mut self, chat: &str, turn: TurnId, message: &str) {
-        if let Some((_, provider)) = self.active.get(chat).cloned() {
+        self.close_session(chat);
+        self.end_closed(chat, turn, message);
+    }
+
+    /// Closes the running turn's provider session (nonblocking); a failure is told.
+    fn close_session(&mut self, chat: &str) {
+        if let Some((turn, provider)) = self.active.get(chat).cloned() {
             if let Some(adapter) = self.providers.get_mut(&provider) {
                 let closed = outbound_identity(chat).map_err(|error| {
                     ProviderError::new(ProviderErrorKind::Refused, error.to_string())
@@ -2300,6 +2517,11 @@ impl ChatHost {
                 }
             }
         }
+    }
+
+    /// Ends a turn whose session is closed: `turn-failed` with `message`; if even that fold fails the run is let go
+    /// in memory and that is told. Its answers settle as a closed session's.
+    fn end_closed(&mut self, chat: &str, turn: TurnId, message: &str) {
         let event = json!({ "type": "turn-failed", "message": message, "notice": true });
         if let Err(error) = self.receive(chat, turn, &event) {
             self.stuck.remove(chat);
@@ -2789,6 +3011,10 @@ impl ChatHost {
     /// nothing to do (SessionManager.interrupt without a session).
     pub fn interrupt(&mut self, chat: &str) -> Result<()> {
         self.canonical_chat(chat)?;
+        // Cancelling a handoff writes its divider: not while its Project isn't ready.
+        if self.preparing.contains_key(chat) {
+            self.require_ready_chat(chat)?;
+        }
         if self.cancel_handoff(chat) {
             return Ok(());
         }
@@ -2912,6 +3138,9 @@ impl ChatHost {
             // Forgotten: only an explicit open_project makes it ready again.
             self.ready.remove(&key);
             self.not_ready.remove(&key);
+            self.states.pause(&key, false);
+            self.unpublished.remove(&key);
+            self.drop_parked(Some(&key));
         }
         self.closing.remove(&key);
         self.deferred.retain(|(chat, _)| !in_project(chat));
@@ -3027,6 +3256,8 @@ impl ChatHost {
                 saving: false,
                 told_saving: false,
                 changed_files: Vec::new(),
+                held_brief: None,
+                held_failure: None,
             },
         );
         self.sync_busy();
@@ -3129,6 +3360,10 @@ impl ChatHost {
             return;
         };
         let project = preparing.project.clone();
+        // Not ready: nothing saved or started; an explicit open retries it.
+        if !self.ready.contains(&project) {
+            return;
+        }
         if let Err(error) = self.states.flush(Some(&project)) {
             // Told once: the same save is tried again on every tick until it holds or the handoff is stopped.
             let preparing = self.preparing.get_mut(chat).expect("checked above");
@@ -3222,7 +3457,8 @@ impl ChatHost {
     }
 
     /// Opens a Project for this host: the only way it becomes ready, and required before any send, queued start,
-    /// Send now, answer or provider event for it (refused `PROJECT_NOT_READY` until then).
+    /// Send now or answer for it (refused `PROJECT_NOT_READY` until then). Provider events of a loaded Project that
+    /// isn't ready are kept (see `park`) and handled once, in order, when this succeeds; then held handoff steps go on.
     ///
     /// Quitting, or the Project closing: `OWNER_CLOSING`, nothing changes. Otherwise its states are loaded (a failure
     /// there releases as before), ownership and its root are verified, it is marked not ready, the handover store is
@@ -3246,24 +3482,54 @@ impl ChatHost {
             return self.require_project_ready(&key);
         }
         self.states.get(&key)?;
-        self.not_ready.insert(key.clone());
+        self.set_ready(&key, false);
         self.states.assert_owned(&key)?;
         self.open_transcripts()?;
         if let Some(jobs) = &self.transcripts {
             jobs.validate()?;
         }
-        let recovered = self.recover_handoffs(&key)?;
+        if self.recover_handoffs(&key)? {
+            // Kept until an open succeeds, so a failed save here doesn't lose the publication.
+            self.unpublished.insert(key.clone());
+        }
         self.states.flush(Some(&key))?;
-        self.not_ready.remove(&key);
-        self.ready.insert(key.clone());
+        self.set_ready(&key, true);
         self.notice(Notice::ProjectReady {
             project: key.clone(),
         });
         // What recovery changed is published now that the Project is ready (Node broadcasts it as it recovers).
-        if recovered {
+        if self.unpublished.remove(&key) {
             self.broadcast(&key);
         }
+        // What waited on readiness goes on, once: provider events in the order they came, then held handoff steps.
+        self.release_parked(&key);
+        self.resume_preparations(&key);
         Ok(())
+    }
+
+    /// The handoff steps of `project` that settled while it wasn't ready, applied now that it is: a held failure,
+    /// a held brief, a done divider still to save and start; held transcripts are committed by `drive_jobs`.
+    fn resume_preparations(&mut self, project: &Path) {
+        self.drive_jobs(false);
+        let chats: Vec<String> = self
+            .preparing
+            .iter()
+            .filter(|(_, p)| p.project == project)
+            .map(|(chat, _)| chat.clone())
+            .collect();
+        for chat in chats {
+            let Some(preparing) = self.preparing.get_mut(&chat) else {
+                continue;
+            };
+            let turn = preparing.turn;
+            if let Some(why) = preparing.held_failure.take() {
+                self.abandon_preparation(&chat, turn, &why);
+            } else if let Some(reply) = preparing.held_brief.take() {
+                self.brief_settled(&chat, turn, reply);
+            } else if preparing.saving {
+                self.start_prepared(&chat);
+            }
+        }
     }
 
     /// Whether a Project is open and ready here (see [`ChatHost::open_project`]): a pure lookup, no I/O, never loads
@@ -3286,11 +3552,22 @@ impl ChatHost {
                 None => Ok(()),
             });
         if let Err(error) = checked {
-            self.ready.remove(project);
-            self.not_ready.insert(project.to_path_buf());
+            self.set_ready(project, false);
             return Err(error);
         }
         Ok(())
+    }
+
+    /// Moves a loaded Project to ready or not ready; the states' clock writes and unloads nothing of a not-ready one.
+    fn set_ready(&mut self, key: &Path, ready: bool) {
+        if ready {
+            self.not_ready.remove(key);
+            self.ready.insert(key.to_path_buf());
+        } else {
+            self.ready.remove(key);
+            self.not_ready.insert(key.to_path_buf());
+        }
+        self.states.pause(key, !ready);
     }
 
     /// Refused `PROJECT_NOT_READY` unless the Project of `project` is ready.
@@ -3387,6 +3664,7 @@ impl ChatHost {
                 turn,
                 cancelled: false,
                 cleanup: None,
+                held: None,
                 told: false,
             },
         );
@@ -3405,6 +3683,23 @@ impl ChatHost {
         };
         for outcome in outcomes {
             self.job_outcome(outcome);
+        }
+        // Transcripts held while their Project wasn't ready: committed once it is, cleaned up once they're stale.
+        let held: Vec<JobId> = self
+            .job_slots
+            .iter()
+            .filter(|(_, slot)| slot.held.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in held {
+            let Some(held) = self
+                .job_slots
+                .get_mut(&id)
+                .and_then(|slot| slot.held.take())
+            else {
+                continue;
+            };
+            self.staged_outcome(id, held);
         }
         if retry_cleanups {
             let waiting: Vec<JobId> = self
@@ -3425,12 +3720,9 @@ impl ChatHost {
         }
     }
 
-    fn job_outcome(&mut self, outcome: JobOutcome) {
-        let id = outcome.id();
-        let Some(slot) = self.job_slots.get(&id) else {
-            // Each job reports once and its slot lives until then: nothing else can report.
-            return;
-        };
+    /// Whose a job is and whether its outcome still counts (its handoff current, nothing closing).
+    fn job_current(&self, id: JobId) -> Option<(String, TurnId, PathBuf, bool)> {
+        let slot = self.job_slots.get(&id)?;
         let (chat, turn, project) = (slot.chat.clone(), slot.turn, slot.project.clone());
         let current = !slot.cancelled
             && !self.quitting
@@ -3439,37 +3731,69 @@ impl ChatHost {
                 .preparing
                 .get(&chat)
                 .is_some_and(|preparing| preparing.turn == turn);
+        Some((chat, turn, project, current))
+    }
+
+    /// A staged transcript: committed if its handoff is current and its Project ready, kept in its slot while the
+    /// Project isn't ready (its cleanup still goes on once it is stale), else cleaned up.
+    fn staged_outcome(&mut self, id: JobId, held: HeldStaged) {
+        let Some((chat, turn, project, current)) = self.job_current(id) else {
+            return;
+        };
+        if !current {
+            self.clean_up(id, held.staged);
+            return;
+        }
+        if !self.ready.contains(&project) {
+            if let Some(slot) = self.job_slots.get_mut(&id) {
+                slot.held = Some(held);
+            }
+            return;
+        }
+        // The generation and the Project are checked here, on the actor, right before the one rename.
+        match self
+            .states
+            .assert_owned(&project)
+            .and_then(|()| held.staged.commit())
+        {
+            Ok(path) => {
+                self.end_job(id);
+                if let Some(preparing) = self.preparing.get_mut(&chat) {
+                    preparing.changed_files = held.changed_files;
+                }
+                self.transcript_ready(&chat, turn, path, held.brief_prompt);
+            }
+            Err(error) => {
+                // It may be renamed already: never renamed, rendered or written again. The handoff ends.
+                self.clean_up(id, held.staged);
+                self.abandon_preparation(
+                    &chat,
+                    turn,
+                    &format!("The handoff transcript couldn't be saved: {error}"),
+                );
+            }
+        }
+    }
+
+    fn job_outcome(&mut self, outcome: JobOutcome) {
+        let id = outcome.id();
+        // Each job reports once and its slot lives until then: nothing else can report.
+        let Some((chat, turn, _, current)) = self.job_current(id) else {
+            return;
+        };
         match outcome {
             JobOutcome::Staged {
                 staged,
                 brief_prompt,
                 changed_files,
-            } if current => {
-                // The generation and the Project are checked here, on the actor, right before the one rename.
-                match self
-                    .states
-                    .assert_owned(&project)
-                    .and_then(|()| staged.commit())
-                {
-                    Ok(path) => {
-                        self.end_job(id);
-                        if let Some(preparing) = self.preparing.get_mut(&chat) {
-                            preparing.changed_files = changed_files;
-                        }
-                        self.transcript_ready(&chat, turn, path, brief_prompt);
-                    }
-                    Err(error) => {
-                        // It may be renamed already: never renamed, rendered or written again. The handoff ends.
-                        self.clean_up(id, staged);
-                        self.abandon_preparation(
-                            &chat,
-                            turn,
-                            &format!("The handoff transcript couldn't be saved: {error}"),
-                        );
-                    }
-                }
-            }
-            JobOutcome::Staged { staged, .. } => self.clean_up(id, staged),
+            } => self.staged_outcome(
+                id,
+                HeldStaged {
+                    staged,
+                    brief_prompt,
+                    changed_files,
+                },
+            ),
             JobOutcome::Failed {
                 error, leftover, ..
             } => {
@@ -3636,10 +3960,23 @@ impl ChatHost {
 
     /// The brief of the handoff `turn` prepares: the model's reply read as Node reads it, else the minimal brief.
     fn brief_settled(&mut self, chat: &str, turn: TurnId, reply: Option<String>) {
-        let Some(preparing) = self.preparing.get_mut(chat).filter(|p| p.turn == turn) else {
+        let ready = |project: &Path| self.ready.contains(project);
+        let Some(project) = self
+            .preparing
+            .get(chat)
+            .filter(|p| p.turn == turn)
+            .map(|p| p.project.clone())
+        else {
             return;
         };
+        let ready = ready(&project);
+        let preparing = self.preparing.get_mut(chat).expect("checked above");
         preparing.brief_id = None;
+        if !ready {
+            // Kept until an explicit open: nothing is written while the Project isn't ready.
+            preparing.held_brief = Some(reply);
+            return;
+        }
         let file = preparing
             .transcript
             .as_ref()
@@ -3673,10 +4010,18 @@ impl ChatHost {
 
     /// A handoff of `turn` that won't start: forgotten, and told. Nothing of it is retried.
     fn abandon_preparation(&mut self, chat: &str, turn: TurnId, why: &str) {
-        let Some(preparing) = self.preparing.remove(chat) else {
+        let Some(mut preparing) = self.preparing.remove(chat) else {
             return;
         };
         if preparing.turn != turn {
+            self.preparing.insert(chat.to_string(), preparing);
+            return;
+        }
+        if !self.ready.contains(&preparing.project) {
+            // Kept until an explicit open: the divider fails and the turn ends only once the Project is ready.
+            preparing
+                .held_failure
+                .get_or_insert_with(|| why.to_string());
             self.preparing.insert(chat.to_string(), preparing);
             return;
         }
@@ -3853,6 +4198,8 @@ impl ChatHost {
                 saving: false,
                 told_saving: false,
                 changed_files: Vec::new(),
+                held_brief: None,
+                held_failure: None,
             },
         );
         let job = match self.reserve_transcript(project, chat, turn, source) {
@@ -3956,7 +4303,7 @@ impl ChatHost {
             // now still hears it with one last take of the notices.
             self.tell_stranded();
             closed?;
-            self.closed = true;
+            self.closed();
             return Ok(());
         }
         // From here no queued message starts and no send is taken, not even from the events handled below.
@@ -4034,8 +4381,17 @@ impl ChatHost {
         let closed = self.states.close();
         self.tell_stranded();
         closed?;
-        self.closed = true;
+        self.closed();
         Ok(())
+    }
+
+    /// The quit completed: nothing is ready, kept or published any more.
+    fn closed(&mut self) {
+        self.closed = true;
+        self.ready.clear();
+        self.not_ready.clear();
+        self.unpublished.clear();
+        self.drop_parked(None);
     }
 
     /// chat:send-status with nothing in flight (sends here finish before the next call).
@@ -4564,6 +4920,7 @@ impl ChatHost {
                     .map(PathBuf::from)
                     .filter(|path| self.states.has(path))
                     .ok_or(StoreError::BadSendStatus)?;
+                self.require_ready(&project)?;
                 self.send_status(&project, &arg(1))
             }
             "agent:interrupt" => {
@@ -4590,7 +4947,16 @@ impl ChatHost {
             // Pending: the wire server keeps the client's reply until `Notice::AnswerSettled { answer }`.
             "agent:respond-permission" => self.respond_permission(&arg(0)).map(ticket_value),
             "agent:answer-question" => self.answer_question(&arg(0)).map(ticket_value),
-            other => self.states.call(other, args),
+            // Reads serve a ready Project only: never one loaded but not ready (its state may not be published, or
+            // its root no longer trusted), and they never load or reopen one.
+            other => {
+                if let Some(project) = arg(0).as_str() {
+                    if self.states.has(Path::new(project)) {
+                        self.require_ready(Path::new(project))?;
+                    }
+                }
+                self.states.call(other, args)
+            }
         }
     }
 }

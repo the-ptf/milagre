@@ -100,7 +100,7 @@ fn a_failed_recovery_save_keeps_the_project_not_ready_until_a_retry() {
         "the lock wasn't kept"
     );
     assert_eq!(c.ready_notices(), 0);
-    // Not ready: a send, a queued send, an answer and a provider event are all refused; nothing is saved or started.
+    // Not ready: a send and an answer are refused, a provider event is kept (not handled); nothing is saved or started.
     let before = c.saved();
     assert_eq!(c.send("c1").unwrap_err().code(), Some("PROJECT_NOT_READY"));
     let answer = c
@@ -112,7 +112,8 @@ fn a_failed_recovery_save_keeps_the_project_not_ready_until_a_retry() {
         turn: TurnId(1),
         event: RawJson(json!({ "type": "text-delta", "text": "late" })),
     });
-    assert_eq!(event.unwrap_err().code(), Some("PROJECT_NOT_READY"));
+    event.unwrap();
+    assert_eq!(c.host.parked_for_tests().0, 1);
     assert_eq!(c.saved(), before);
     assert!(c.kiro.state.lock().unwrap().turns.is_empty());
     assert!(
@@ -125,6 +126,15 @@ fn a_failed_recovery_save_keeps_the_project_not_ready_until_a_retry() {
     // The retry recovers, saves durably and tells ProjectReady once (with the recovery's broadcast after it).
     c.host.open_project(&c.project).unwrap();
     assert!(c.host.is_project_ready(&c.project));
+    // The kept event is handled once, after the open (nothing runs, so it is refused as late, returned by the pump).
+    assert_eq!(c.host.parked_for_tests(), (0, 0));
+    let released = c.host.pump();
+    assert_eq!(released.len(), 1, "{released:?}");
+    assert!(
+        released[0].to_string().contains("nothing runs"),
+        "{released:?}"
+    );
+    assert!(c.host.pump().is_empty());
     let notices = c.host.take_notices();
     assert_eq!(
         notices

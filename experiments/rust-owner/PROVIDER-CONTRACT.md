@@ -262,7 +262,7 @@ agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the n
 
 `ChatHost::open_project(&mut self, project: &Path) -> Result<()>` is the only way a Project becomes ready, and it
 is required before every send, queued start, Send now, queue removal, answer and provider event for it (refused
-`PROJECT_NOT_READY`, nothing saved or started; provider events are dropped). Steps: refuse while quitting or while
+`PROJECT_NOT_READY`, nothing saved or started; provider events are kept or dropped, see below). Steps: refuse while quitting or while
 the Project is closing (`OWNER_CLOSING`, nothing changes); load its states (a failure there releases as before);
 verify ownership and the root; mark it not ready; open the handover store (lease and sweep; another owner holds it:
 `HANDOVER_STORE_BUSY`); recover dividers left preparing (this host's live preparations skipped, never cancelled);
@@ -276,5 +276,20 @@ loading keeps its locks and state and leaves it not ready; calling `open_project
 - `ChatHost::require_project_ready(&mut self, project: &Path) -> Result<()>`: `PROJECT_NOT_READY` unless ready;
   otherwise the same checks as the fast path, a failure making it not ready. Never recovers, loads or reopens.
 - A completed `forget` makes it not ready; only an explicit `open_project` reopens it. Late events never do.
+- A completed quit (`shutdown` returning `Ok`) leaves no Project ready.
+- Not ready but loaded (an open failed after loading, or a readiness check failed): provider events are kept in
+  arrival order (`Started`, `StartFailed`, agent events, `Exited`, `AnswerSettled`, each with its turn), at most
+  `MAX_PARKED_EVENTS` (4096) events and `MAX_PARKED_BYTES` (16 MiB) for all such Projects together. The next
+  successful `open_project` handles them once, in order, after `ProjectReady`; what they refuse comes back from the
+  next `pump`. Never opened, or forgotten: dropped (`PROJECT_NOT_READY`), never loading or reopening it.
+- Past the budget the Project fails closed: what was kept for it is dropped (nothing is replayed), the provider
+  sessions of its running turns are closed at once, later events for it are dropped, and once `open_project` succeeds
+  those turns end `turn-failed` once and their answers settle as an ended turn's (`Uncertain`, messages kept). A turn
+  end kept after a failed fold is folded instead of being ended this way.
+- While not ready nothing is folded, saved or started: kept turn ends (`retry_stuck`), interrupt and answer
+  deadlines, handoff transcripts (committed once ready; cleaned up if the handoff stops), briefs, done-divider saves,
+  turn starts, Stop of a preparing handoff, the public `receive` and the states clock (debounced saves, idle unloads)
+  all wait. Reads (`call` on a loaded Project) are refused `PROJECT_NOT_READY`. What recovery changed but couldn't
+  publish is published by the open that succeeds.
 - Errors: `StoreError::OwnerClosing` (`OWNER_CLOSING`), `StoreError::HandoverStoreBusy` (`HANDOVER_STORE_BUSY`),
   `StoreError::ProjectNotReady` (`PROJECT_NOT_READY`). Load, ownership, store and save failures keep their own types.

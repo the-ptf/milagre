@@ -104,6 +104,9 @@ pub struct ProjectStates {
     sweep_min_age: Duration,
     /// Locks a dropped Project could not release (its root no longer holds): left on disk, told by `take_stranded`.
     stranded: crate::ownership::StrandedLocks,
+    /// Projects the host holds as not ready: the clock writes none of their debounced saves and unloads none of their
+    /// Chats (explicit flushes, such as the open that makes one ready, still write).
+    paused: HashSet<PathBuf>,
 }
 
 fn without_key(state: &ProjectState, key: &str) -> ProjectState {
@@ -137,6 +140,7 @@ impl ProjectStates {
             sweep_next: None,
             closed: false,
             busy: HashSet::new(),
+            paused: HashSet::new(),
             events: Vec::new(),
             sweep_min_age: Duration::from_secs(60),
             stranded: Default::default(),
@@ -534,11 +538,21 @@ impl ProjectStates {
 
     /// Moves the clock to `now`, running the saves and sweeps that fall due on the way, each at its own time.
     /// A failed save is reported in the events (as Node logs it) and stays dirty.
+    /// Pauses (or resumes) the clock's work on one Project: see `paused`.
+    pub(crate) fn pause(&mut self, key: &Path, paused: bool) {
+        if paused {
+            self.paused.insert(key.to_path_buf());
+        } else {
+            self.paused.remove(key);
+        }
+    }
+
     pub fn advance(&mut self, now: i64) {
         loop {
             let next_save = self
                 .order
                 .iter()
+                .filter(|key| !self.paused.contains(*key))
                 .filter_map(|key| self.slots[key].timer.map(|at| (at, key.clone())))
                 .min_by_key(|(at, _)| *at);
             let next_sweep = self.sweep_next.filter(|_| !self.closed);
@@ -576,6 +590,9 @@ impl ProjectStates {
             return Ok(());
         }
         for key in self.order.clone() {
+            if self.paused.contains(&key) {
+                continue;
+            }
             let now = self.now;
             let idle_ms = self.timing.idle_ms;
             let slot = &self.slots[&key];
