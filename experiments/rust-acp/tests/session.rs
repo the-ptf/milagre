@@ -655,3 +655,87 @@ async fn stop_distinguishes_in_flight_answer_from_claimed_queued_answer() {
     assert!(events.recv().await.is_none());
     s.shutdown().await;
 }
+
+async fn received_prompts(s: &FakeSession, count: u64) -> Value {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let snapshot = s.inspect().await.unwrap();
+            if snapshot["receivedPromptCount"] == count {
+                return snapshot;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("fixed native child did not acknowledge prompt receipt")
+}
+fn assert_native_receipt(receipt: &Value, sequence: u64, native: &str, body: &str) {
+    use sha2::{Digest, Sha256};
+    assert_eq!(receipt["sequence"], sequence);
+    assert_eq!(receipt["textBytes"], body.len());
+    assert_eq!(receipt["textSha256"], format!("{:x}", Sha256::digest(body.as_bytes())));
+    assert_eq!(receipt["text"], if body.len() <= 4096 { json!(body) } else { Value::Null });
+    let frame = milagre_acp::protocol::request_frame(
+        receipt["requestId"].as_i64().unwrap(),
+        "session/prompt",
+        &milagre_acp::protocol::prompt(native, &[json!({"type":"text","text":body})]),
+    );
+    let bytes = serde_json::to_vec(&frame).unwrap();
+    assert_eq!(receipt["frameBytes"], bytes.len());
+    assert_eq!(receipt["frameSha256"], format!("{:x}", Sha256::digest(&bytes)));
+}
+#[tokio::test]
+async fn native_receipts_follow_child_consumption_not_turn_admission() {
+    let (s, mut events) = FakeSession::launch(options("prompt-receipts-held")).unwrap();
+    let before = s.inspect().await.unwrap();
+    assert_eq!(before["receivedPromptCount"], 0);
+    assert_eq!(before["receivedPrompts"], json!([]));
+    assert!(before["pid"].is_null());
+    let ordinary = "First ordinary prompt.\nQuotes: \" \\ and UTF-8: café 😀\0";
+    let restore = "<restore>\nPrevious assistant: café 😀\n</restore>\n<user>second request</user>";
+    let first = s.send(ordinary).unwrap();
+    let second = s.send(restore).unwrap();
+    let snapshot = received_prompts(&s, 1).await;
+    assert_eq!(snapshot["receivedPrompts"].as_array().unwrap().len(), 1);
+    assert_native_receipt(&snapshot["receivedPrompts"][0], 1, "fault-session", ordinary);
+    // The native child holds the first response. The accepted second turn is not a receipt.
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    assert_eq!(s.inspect().await.unwrap()["receivedPromptCount"], 1);
+    s.finish_fake().await.unwrap();
+    assert_eq!(ended(&mut events, first).await.last().unwrap()["type"], "turn-completed");
+    let snapshot = received_prompts(&s, 2).await;
+    assert_native_receipt(&snapshot["receivedPrompts"][1], 2, "fault-session", restore);
+    s.finish_fake().await.unwrap();
+    assert_eq!(ended(&mut events, second).await.last().unwrap()["type"], "turn-completed");
+    // Inspection is a snapshot, not a request for a synthetic echo or another native prompt.
+    assert_eq!(s.inspect().await.unwrap()["receivedPrompts"], snapshot["receivedPrompts"]);
+    s.shutdown().await;
+}
+#[tokio::test]
+async fn native_prompt_receipts_bound_history_and_complete_text_by_utf8_bytes() {
+    let mut o = options("prompt-receipts");
+    o.open = OpenSession::Load("saved-fixture-id".into());
+    let (s, mut events) = FakeSession::launch(o).unwrap();
+    for sequence in 1u64..=12 {
+        let body = match sequence {
+            1 => "😀".repeat(1024), // Exactly 4 KiB, complete text retained.
+            2 => "😀".repeat(1025), // UTF-8 byte limit, not characters/UTF-16 units.
+            3 => "x".repeat(400_000),
+            _ => format!("prompt {sequence}"),
+        };
+        let turn = s.send(&body).unwrap();
+        assert_eq!(ended(&mut events, turn).await.last().unwrap()["type"], "turn-completed");
+        let snapshot = s.inspect().await.unwrap();
+        assert_eq!(snapshot["receivedPromptCount"], sequence);
+        let receipts = snapshot["receivedPrompts"].as_array().unwrap();
+        assert_eq!(receipts.len(), (sequence as usize).min(8));
+        assert_eq!(receipts[0]["sequence"], sequence.saturating_sub(7).max(1));
+        assert_native_receipt(receipts.last().unwrap(), sequence, "saved-fixture-id", &body);
+    }
+    s.shutdown().await;
+    let (s, mut events) = FakeSession::launch(options("reply")).unwrap();
+    let turn = s.send("no receipt hook in ordinary scenarios").unwrap();
+    ended(&mut events, turn).await;
+    assert_eq!(s.inspect().await.unwrap()["receivedPromptCount"], 0);
+    s.shutdown().await;
+}

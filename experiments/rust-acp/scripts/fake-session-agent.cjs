@@ -1,5 +1,6 @@
 // Lifecycle fault injector. No filesystem, vendor SDK, network, account or profile access.
 const { createInterface } = require("node:readline");
+const { createHash } = require("node:crypto");
 const scenario = process.env.FAKE_SCENARIO;
 const send = (frame) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...frame }) + "\n");
 const result = (id, value) => send({ id, result: value });
@@ -44,6 +45,29 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       prompt = id;
       native = params.sessionId;
       turns++;
+      if (["prompt-receipts", "prompt-receipts-held"].includes(scenario)) {
+        // Receipt is generated only after this complete native stdin line has been parsed.
+        // No prompt history is retained in Node. Hash the exact line (without LF), and decoded text.
+        if (params.prompt?.length !== 1 || params.prompt[0]?.type !== "text" || typeof params.prompt[0]?.text !== "string") {
+          return send({ id, error: { code: -32602, message: "fake receipt requires one text block" } });
+        }
+        const body = params.prompt[0].text;
+        const textBytes = Buffer.byteLength(body, "utf8");
+        const digest = (value) => createHash("sha256").update(value, "utf8").digest("hex");
+        send({
+          method: "fake/prompt-received",
+          params: {
+            sequence: turns,
+            requestId: id,
+            frameBytes: Buffer.byteLength(line, "utf8"),
+            frameSha256: digest(line),
+            textBytes,
+            textSha256: digest(body),
+            text: textBytes <= 4096 ? body : null,
+          },
+        });
+        if (scenario === "prompt-receipts-held") return;
+      }
       if (scenario === "error-after-text") {
         text(native, "before error");
         send({ id, error: { code: -32000, message: "fixture error" } });

@@ -169,7 +169,7 @@ node experiments/rust-acp/scripts/record-events.cjs --check
 node experiments/rust-acp/scripts/record-session.cjs --check
 ```
 
-This checkpoint passes 58 default Rust tests, or 84 with `--features fake-session`. The recorder executes repository Node ACP helpers and fake agents only. It captures 11 outgoing
+This checkpoint passes 58 default Rust tests, or 86 with `--features fake-session`. The recorder executes repository Node ACP helpers and fake agents only. It captures 11 outgoing
 frames, 12 envelope cases, 128 permission outcomes, 3 environment cases and 10 full fake-session
 traces (including Kiro tool shapes, load history, edits, questions, thought chunks and plans).
 Checkout-root path prefixes alone normalize to `/fixture`; source hashes detect drift. Rust

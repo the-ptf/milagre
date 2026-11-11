@@ -17,6 +17,38 @@ use tokio::time::Instant;
 
 const SESSION_FRAME_BYTES: usize = 512 * 1024;
 const MAX_NATIVE_ID_BYTES: usize = 4096;
+const RECEIVED_PROMPT_LIMIT: usize = 8;
+const RECEIVED_PROMPT_TEXT_BYTES: usize = 4096;
+const RECEIVED_PROMPT_WEIGHT: usize = 8192;
+
+/// Only deserialized from the fixed child's post-parse notification, never from send admission.
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReceivedPrompt {
+    sequence: u64,
+    request_id: u64,
+    frame_bytes: usize,
+    frame_sha256: String,
+    text_bytes: usize,
+    text_sha256: String,
+    text: Option<String>,
+}
+impl ReceivedPrompt {
+    fn valid(&self, previous: u64) -> bool {
+        let digest = |s: &str| s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        Some(self.sequence) == previous.checked_add(1)
+            && self.sequence <= 9_007_199_254_740_991
+            && (1..=9_007_199_254_740_991).contains(&self.request_id)
+            && (1..=SESSION_FRAME_BYTES).contains(&self.frame_bytes)
+            && self.text_bytes <= self.frame_bytes
+            && digest(&self.frame_sha256)
+            && digest(&self.text_sha256)
+            && match &self.text {
+                Some(text) => text.len() == self.text_bytes && text.len() <= RECEIVED_PROMPT_TEXT_BYTES,
+                None => self.text_bytes > RECEIVED_PROMPT_TEXT_BYTES,
+            }
+    }
+}
 
 // Reserve the largest possible escaped native ID before it is known (startup is lazy).
 // Derive the envelope from the actual protocol builder so future field changes count too.
@@ -317,6 +349,8 @@ impl FakeSession {
             "multi-turn",
             "blocked-answer",
             "blocked-two-answers",
+            "prompt-receipts",
+            "prompt-receipts-held",
             "delayed-answer",
             "error-after-text",
             "exit-after-text",
@@ -492,6 +526,8 @@ struct Actor {
     state: AcpEventState,
     native: Option<String>,
     capabilities: Value,
+    received_prompt_count: u64,
+    received_prompts: VecDeque<Value>,
     ready: bool,
     permissions: Vec<Permission>,
     writes: VecDeque<Write>,
@@ -540,6 +576,8 @@ impl Actor {
             state: AcpEventState::default(),
             native,
             capabilities: json!({}),
+            received_prompt_count: 0,
+            received_prompts: VecDeque::new(),
             ready: false,
             permissions: vec![],
             writes: VecDeque::new(),
@@ -829,6 +867,30 @@ impl Actor {
         }
     }
     fn notification(&mut self, method: &str, params: &Value) {
+        if method == "fake/prompt-received" {
+            if !["prompt-receipts", "prompt-receipts-held"].contains(&self.options.scenario.as_str()) {
+                return;
+            }
+            if value_weight(params) > RECEIVED_PROMPT_WEIGHT {
+                self.fail("Fake prompt receipt exceeds inspection budget.");
+                return;
+            }
+            let receipt = serde_json::from_value::<ReceivedPrompt>(params.clone());
+            let Ok(receipt) = receipt else {
+                self.fail("Invalid fake prompt receipt.");
+                return;
+            };
+            if !receipt.valid(self.received_prompt_count) {
+                self.fail("Invalid fake prompt receipt bounds or sequence.");
+                return;
+            }
+            self.received_prompt_count = receipt.sequence;
+            if self.received_prompts.len() == RECEIVED_PROMPT_LIMIT {
+                self.received_prompts.pop_front();
+            }
+            self.received_prompts.push_back(serde_json::to_value(receipt).unwrap());
+            return;
+        }
         if method != "session/update" || !self.ready || self.terminal.is_some() {
             return;
         }
@@ -941,7 +1003,7 @@ impl Actor {
         match cmd {
             Command::Send(turn) => self.queue.push_back(turn),
             Command::Inspect(reply) => {
-                let _=reply.send(json!({"nativeId":self.native,"capabilities":self.capabilities,"state":self.state.snapshot(),"stateBytes":self.state.retained_weight(),"permissions":self.permissions.len(),"ready":self.ready,"writingPermission":self.writing.as_ref().and_then(|w|w.work.id.as_ref()).map(RequestId::to_value),"queuedPermissionWrites":self.writes.iter().filter_map(|w|w.id.as_ref().map(RequestId::to_value)).collect::<Vec<_>>(),"pid":self.rpc.as_ref().and_then(AcpRpc::pid)}));
+                let _=reply.send(json!({"nativeId":self.native,"capabilities":self.capabilities,"receivedPromptCount":self.received_prompt_count,"receivedPrompts":self.received_prompts,"state":self.state.snapshot(),"stateBytes":self.state.retained_weight(),"permissions":self.permissions.len(),"ready":self.ready,"writingPermission":self.writing.as_ref().and_then(|w|w.work.id.as_ref()).map(RequestId::to_value),"queuedPermissionWrites":self.writes.iter().filter_map(|w|w.id.as_ref().map(RequestId::to_value)).collect::<Vec<_>>(),"pid":self.rpc.as_ref().and_then(AcpRpc::pid)}));
             }
             Command::FinishFake(reply) => {
                 let Some(rpc) = self.rpc.clone() else {

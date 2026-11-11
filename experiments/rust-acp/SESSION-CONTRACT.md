@@ -171,3 +171,60 @@ not mutation hooks or authorization. Wait for `writingPermission == "permission"
 Expected outcomes: first receipt `UncertainDelivery`, second receipt `Closed`; closure events
 `Uncertain` and `NotSent` respectively, followed by one cancelled terminal and session closure.
 This hook stays behind `fake-session` and adds no configurable script/path constructor.
+
+## Native prompt receipt hook
+
+Select fixed scenario `prompt-receipts` in `FakeOptions` for ordinary automatic completion, or
+`prompt-receipts-held` to hold each prompt response until the existing `finish_fake().await`.
+Both run the repository Node child through the real ACP transport. There is no configurable
+script, provider constructor, extra host capability or production accessor.
+
+`FakeSession::inspect().await` includes these fields (empty/zero in other scenarios):
+
+```json
+{
+  "receivedPromptCount": 2,
+  "receivedPrompts": [
+    {
+      "sequence": 2,
+      "requestId": 4,
+      "frameBytes": 123,
+      "frameSha256": "64 lowercase hex characters",
+      "textBytes": 5,
+      "textSha256": "64 lowercase hex characters",
+      "text": "hello"
+    }
+  ]
+}
+```
+
+The example numbers/digests are schematic. Each record originates in `fake/prompt-received`,
+emitted by Node **after its stdin line handler parses a complete `session/prompt` request**.
+Rust admission and write completion never create records. The child hashes its received UTF-8
+JSON line, excluding the line-ending LF, without reserializing it (`frameBytes`, `frameSha256`).
+It separately hashes the exact UTF-8 bytes of the single decoded text block (`textBytes`,
+`textSha256`). Escapes, whitespace, NUL and non-ASCII prompt content are preserved in that text
+hash. Digests use SHA-256, not a prefix or approximate match. A receipt proves fake-child parsing,
+not provider execution, interpretation of Restore instructions or any authorization.
+
+Limits: count and sequence are per process, starting at zero/one, at most 9,007,199,254,740,991.
+Only the latest eight records are retained, oldest first, across completed turns; Node retains no
+receipt history. Complete `text` is present for at most 4,096 UTF-8 bytes, otherwise null (never a
+truncated prefix). Each receipt has at most an 8 KiB conservative allocation charge before
+retention, for at most 64 KiB total receipt charge, independently of mapper state. Frame lengths
+remain bounded by the 512 KiB transport limit. Schema, sequential count, integer ID, byte-length
+and lowercase digest-shape violations close this fake session. The existing transport bounds
+also apply to notifications before inspection. Inspection only copies the bounded snapshot.
+
+For the runtime Restore assertion, select `prompt-receipts`, finish each turn, then compare the
+first and second records with the expected ordinary and framed Restore prompts. Assert
+`receivedPromptCount`, `sequence`, `textBytes`, `textSha256`, and complete `text` where present.
+For a full wire assertion, reconstruct `protocol::request_frame(requestId, "session/prompt",
+protocol::prompt(nativeId, [text block]))`, serialize it without LF and compare its byte length
+and SHA-256 too. Inspect before shutdown. A new process resets the receipt history; inspect each
+session independently if the adapter intentionally creates one process per host TurnId.
+
+The held-response regression admits two turns, observes only one native receipt while the first
+response is held, releases that response, then verifies the second exact payload and wire digest.
+A separate test covers automatic completion, saved-session load, UTF-8 text limits, a 400,000-byte
+prompt and eviction after twelve turns. These are fixture assertions, not owner/runtime wiring.
