@@ -120,13 +120,15 @@ fallback. Analysis, Babysit and Escalation cannot be lifted by Full mode or stee
 advisors and arbitrary extra parameters return `UnsupportedPolicy`. This is an adapter contract;
 host MCP dispatch must enforce the same constraints independently.
 
+See [IMAGE-CONTRACT.md](IMAGE-CONTRACT.md) for opt-in output storage, private input preparation,
+inline ordering, cleanup, budgets and the Claude-compatible `ToolImageStore` boundary.
+
 ## Not ported yet (owner or later work)
 
 See [the owner integration inventory](INTEGRATION-GAPS.md) for policy, MCP and image contracts,
 proposed boundaries and acceptance checks.
 
-- Host I/O: `images` turn input files, `saveGeneratedImage`, `toolImageEvents` (tool images as
-  image steps), `sessionInstructions` text.
+- Host media-store wiring, output retention/serving and unavailable-media UI; `sessionInstructions` text.
 - The production babysit shell classifier, host MCP guard service, mutable per-turn role changes,
   `WorkspaceAccess.answer` auto-answers and read-only/dynamically acquired roots.
   Auto allows an edit without a card only when `workspace::inside_workspace` (a port of Node's

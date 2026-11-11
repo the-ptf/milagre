@@ -1,4 +1,4 @@
-//! One Codex thread and its turns: codex-provider.cjs `CodexSession` without host I/O. It starts or
+//! One Codex thread and its turns: codex-provider.cjs `CodexSession` with opt-in host image I/O. It starts or
 //! resumes the thread, starts / steers / interrupts turns, maps notifications to Milagre agent events
 //! (events.rs), routes server requests into Milagre permission and question requests with
 //! `PendingPermissions` / `PendingQuestions` semantics, and polls native subagent threads.
@@ -8,7 +8,7 @@
 //! `event`. Raw notifications are forwarded only with [`SessionOptions::forward_raw_notifications`].
 //!
 //! Host/owner work still required: the babysit CommandClassifier, host MCP dispatch guards,
-//! WorkspaceAccess read-only/dynamic roots, MCP extras discovery, image storage and instructions.
+//! WorkspaceAccess read-only/dynamic roots, MCP extras discovery, image retention/serving and instructions.
 //! Session roles, constrained bootstrap and disabled-server-preserving retries live here.
 
 use crate::codex::approvals::{self, Decision, QuestionOutcome};
@@ -18,6 +18,7 @@ use crate::codex::guard::{self, CommandClassifier, LinkedTools, SessionRole};
 use crate::codex::protocol::{methods, CodexPolicy, PermissionMode, RequestId};
 use crate::codex::rpc::{signal_name, ExitInfo, Notification, RpcError, ServerEvent, ServerRequest};
 use crate::codex::subagents::{active as subagent_active, settle_subagents};
+use crate::images::{self, ImageBudget, ImageStore, PreparedImages};
 use crate::queue::{self, EventReceiver, EventSender, QueueLimits};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -30,6 +31,10 @@ use tokio::sync::watch;
 #[derive(Debug, Clone)]
 pub struct SessionOptions {
     pub connect: ConnectOptions,
+    /// Opt-in host output persistence, compatible with Claude ToolImageStore.
+    pub image_store: Option<ImageStore>,
+    /// Maximum wait for a blocking store batch. At most one batch runs per session.
+    pub image_save_timeout: Duration,
     pub cwd: String,
     /// Other roots the session owns; edits inside them are allowed without a card in Auto.
     pub workspace_roots: Vec<String>,
@@ -65,6 +70,8 @@ impl SessionOptions {
     pub fn new(connect: ConnectOptions, cwd: impl Into<String>) -> Self {
         SessionOptions {
             connect,
+            image_store: None,
+            image_save_timeout: Duration::from_secs(2),
             cwd: cwd.into(),
             workspace_roots: Vec::new(),
             resume_thread_id: None,
@@ -99,6 +106,8 @@ pub struct ThreadSettings {
 #[derive(Debug, Clone)]
 pub struct TurnSettings {
     pub input: Vec<Value>,
+    /// Retained through the turn. Use with_images to set both input and ownership.
+    pub input_images: Option<PreparedImages>,
     pub model: Option<String>,
     pub effort: Option<String>,
     pub policy: CodexPolicy,
@@ -126,6 +135,8 @@ pub enum SessionError {
     Rpc(#[from] RpcError),
     #[error("Unsupported Codex policy: {0}")]
     UnsupportedPolicy(String),
+    #[error("Input image budget exceeded.")]
+    ImageBudget,
     #[error("No turn is running.")]
     NoTurn,
     #[error("The agent session closed before this message was sent.")]
@@ -208,6 +219,9 @@ struct State {
     refused: HashMap<String, (String, String)>,
     escalation_items: std::collections::HashSet<String>,
     linked_tools_available: bool,
+    input_images: Vec<PreparedImages>,
+    input_budget: ImageBudget,
+    output_budget: ImageBudget,
 }
 
 /// Per subagent thread: what the last poll saw (codex-provider.cjs `childHistory`).
@@ -223,6 +237,7 @@ struct ChildHistory {
 
 struct Inner {
     client: CodexClient,
+    image_worker: Arc<tokio::sync::Semaphore>,
     options: SessionOptions,
     state: Mutex<State>,
     mapper: Mutex<CodexEventState>,
@@ -262,6 +277,7 @@ impl CodexSession {
         let mapper = CodexEventState::new(options.resume_thread_id.clone());
         let inner = Arc::new(Inner {
             client,
+            image_worker: Arc::new(tokio::sync::Semaphore::new(1)),
             options,
             state: Mutex::new(State::default()),
             mapper: Mutex::new(mapper),
@@ -462,7 +478,7 @@ impl CodexSession {
         if let Some(mode) = turn.permission_mode {
             self.set_permission_mode(mode).await;
         }
-        self.steer(turn.input.clone()).await
+        self.steer_images(turn.input.clone(), turn.input_images.as_ref()).await
     }
 
     /// Starts a turn (a running one is steered instead, as [`CodexSession::send`]). Returns the
@@ -481,6 +497,9 @@ impl CodexSession {
             if state.turn_active {
                 true
             } else {
+                state.input_budget = ImageBudget::default();
+                retain_images(&mut state, turn.input_images.as_ref())?;
+                state.output_budget = ImageBudget::default();
                 state.turn_active = true;
                 state.turn_generation = state.turn_generation.wrapping_add(1);
                 state.escalation_items.clear();
@@ -561,14 +580,21 @@ impl CodexSession {
     /// message is the user's reply. A server error means the turn already ended ([`CodexSession::send`]
     /// then starts the next one).
     pub async fn steer(&self, input: Vec<Value>) -> Result<(), SessionError> {
+        self.steer_images(input, None).await
+    }
+
+    async fn steer_images(&self, input: Vec<Value>, images: Option<&PreparedImages>) -> Result<(), SessionError> {
         let (thread_id, turn_id) = {
-            let state = self.inner.state.lock().unwrap();
+            let mut state = self.inner.state.lock().unwrap();
             if !state.turn_active || state.cancel_requested {
                 return Err(SessionError::NoTurn);
             }
             let mapper = self.inner.mapper.lock().unwrap();
             match (&mapper.thread_id, &mapper.turn_id) {
-                (Some(thread), Some(turn)) => (thread.clone(), turn.clone()),
+                (Some(thread), Some(turn)) => {
+                    retain_images(&mut state, images)?;
+                    (thread.clone(), turn.clone())
+                }
                 _ => return Err(SessionError::NoTurn),
             }
         };
@@ -812,14 +838,16 @@ impl Inner {
     /// Ends the running turn once (codex-provider.cjs `finishTurn`): cancels open requests, clears
     /// per-turn state, then emits the events, the terminal one as `TurnEnded`.
     async fn finish_turn(&self, events: Vec<Value>, crashed: bool) {
-        {
+        let images = {
             let mut state = self.state.lock().unwrap();
             if !state.turn_active {
                 return;
             }
             state.turn_active = false;
             state.file_changes.clear();
-        }
+            std::mem::take(&mut state.input_images)
+        };
+        drop(images);
         self.cancel_all().await;
         let turn_id = {
             let mut mapper = self.mapper.lock().unwrap();
@@ -1262,11 +1290,19 @@ impl Inner {
                 }
             }
         }
-        let (events, recheck) = {
+        let (mut events, recheck) = {
             let mut mapper = self.mapper.lock().unwrap();
             let events = map_codex_notification(method, params, &mut mapper);
             (events, mapper.recheck_pending())
         };
+        if method == "item/completed" {
+            if let Some(item) = params.get("item") {
+                let id = crate::codex::js::js_string(item.get("id"));
+                if events.iter().any(|e| e["type"] == "step-completed" && e["id"] == id) {
+                    self.save_images(item, &mut events).await;
+                }
+            }
+        }
         if recheck || events.iter().any(|e| e["type"] == "subagent-update") {
             self.schedule_subagents();
         }
@@ -1291,6 +1327,32 @@ impl Inner {
             tokio::spawn(async move {
                 client.close().await;
             });
+        }
+    }
+
+    async fn save_images(&self, item: &Value, events: &mut Vec<Value>) {
+        let Some(store) = self.options.image_store.clone() else { return };
+        let Ok(permit) = self.image_worker.clone().try_acquire_owned() else { return };
+        let (generation, jobs) = {
+            let mut state = self.state.lock().unwrap();
+            if !state.turn_active || state.cancel_requested || state.closed {
+                return;
+            }
+            (state.turn_generation, images::image_jobs(item, &mut state.output_budget))
+        };
+        if jobs.is_empty() {
+            return;
+        }
+        // The callback cannot retain the session/process. On timeout the permit stays with it,
+        // preventing unbounded detached blocking work even when a host callback never returns.
+        let worker = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            images::save_jobs(jobs, store.0.as_ref())
+        });
+        let Ok(Ok(saved)) = tokio::time::timeout(self.options.image_save_timeout, worker).await else { return };
+        let state = self.state.lock().unwrap();
+        if state.turn_active && state.turn_generation == generation && !state.cancel_requested && !state.closed {
+            images::apply_saved(events, saved);
         }
     }
 
@@ -1588,12 +1650,30 @@ async fn read_latest_child_turn(client: &CodexClient, thread_id: &str) -> Result
     }
 }
 
-/// `turn/start` input from a prompt and image paths (codex-provider.cjs `turnInput` without the
-/// inline-image splitting of `promptImageBlocks`).
+/// Node promptImageBlocks ordering for existing host-owned paths. Does not manage their lifetime.
 pub fn prompt_input(prompt: &str, image_paths: &[String]) -> Vec<Value> {
-    let mut input = vec![crate::codex::protocol::text_input(prompt)];
-    input.extend(image_paths.iter().map(|path| crate::codex::protocol::local_image_input(path)));
-    input
+    images::prompt_input(prompt, image_paths)
+}
+
+impl TurnSettings {
+    pub fn with_images(mut self, images: PreparedImages) -> Self {
+        self.input = images.input().to_vec();
+        self.input_images = Some(images);
+        self
+    }
+}
+
+fn retain_images(state: &mut State, images: Option<&PreparedImages>) -> Result<(), SessionError> {
+    if let Some(images) = images {
+        if images.paths().is_empty() {
+            return Ok(());
+        }
+        if !state.input_budget.reserve(images.paths().len(), images.byte_len()) {
+            return Err(SessionError::ImageBudget);
+        }
+        state.input_images.push(images.clone());
+    }
+    Ok(())
 }
 
 /// Default `ThreadSettings` for a Chat: Milagre's `THREAD_CONFIG`.
@@ -1611,6 +1691,7 @@ pub fn chat_thread(model: Option<String>, policy: CodexPolicy) -> ThreadSettings
 pub fn turn(input: Vec<Value>, model: Option<String>, policy: CodexPolicy) -> TurnSettings {
     TurnSettings {
         input,
+        input_images: None,
         model,
         effort: None,
         policy,

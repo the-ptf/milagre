@@ -9,6 +9,7 @@
 #![allow(clippy::result_large_err)]
 
 pub mod codex;
+pub mod images;
 
 pub mod queue;
 pub mod workspace;

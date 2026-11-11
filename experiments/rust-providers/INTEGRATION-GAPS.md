@@ -1,9 +1,9 @@
 # Codex owner integration gaps
 
-Inventory checked against this Worktree's Node provider and Rust adapter on 2026-11-10.
-These are outstanding contracts and proposed task boundaries, not implemented features.
+Inventory checked against this Worktree's Node provider and Rust adapter on 2026-11-11.
+Implemented checkpoints and outstanding owner contracts are separated below.
 No owner files were changed. The event replay fixtures cover mapper behavior, not the missing
-host services or guard enforcement below.
+host services or owner dispatch enforcement below.
 
 ## 1. Policy checkpoint implemented; host integration required
 
@@ -40,31 +40,17 @@ Sources: [Rust guards](src/codex/guard.rs), [Rust session](src/codex/session.rs)
 
 ## 3. Images: bounded host storage and lifecycle
 
-Present: `local_image_input`, caller-supplied turn input blocks, `prompt_input` for one text block
-followed by image paths, and mapper image steps when Codex supplies a usable `savedPath`.
+Implemented: validated private input files, Node inline ordering, turn/steer retention and
+terminal cleanup; opt-in generated/MCP/dynamic output persistence, accepted-turn filtering,
+internal-render suppression and bounded worker/budget handling. See [IMAGE-CONTRACT.md](IMAGE-CONTRACT.md)
+for the Claude-compatible `ToolImageStore` signature, owner-controlled paths, limits, lifetime
+rules, deliberate Node deviations and fixture evidence.
 
-Missing: attachment decoding and private temporary files; inline text/image ordering; cleanup
-across start, steer, cancellation, failure and close; generated image base64 persistence;
-MCP/dynamic-tool image extraction and extra image steps. A generated image can currently finish
-without a displayable file when only `result` base64 is returned.
-
-Proposed boundary: owner supplies validated attachment bytes or a media-store service. Adapter
-owns references for each turn and all steered messages until that turn finishes, and transforms
-provider image results through the store before publishing image events. Persistent output
-files belong to the host's media retention policy, not turn-input cleanup. Apply bounded decode,
-MIME/signature validation and private writes; the transport frame cap is not an image-storage
-budget. Keep base64 out of persisted transcripts.
-
-Match `promptImageBlocks` reading order, including repeated references and unreferenced images.
-Only accepted current-thread/turn completions should produce tool image steps. Suppress internal
-Milagre `design_show`, `design_apply` and `html_preview` renders, including nested calls with
-preserved MCP provenance. Unsupported media must not discard the tool's text result. Decide how
-generated-image validation should differ from Node's less strict base64 writer.
-
-Acceptance checks: repeated/inline image positions; 0600 input files and terminal-path cleanup;
-steered inputs survive until their turn ends; malformed, oversized and unsupported payloads;
-stale/foreign completions; internal-render suppression; generated images with and without an
-existing saved path; failed writes preserve text and terminal events.
+Remaining owner work: implement one host media-store wrapper for both provider traits; choose
+private absolute scratch/output directories; wire attachments before sending; authorize serving
+paths; manage output retention/orphans; render unavailable media. Raw notifications may contain
+base64 and must not become persisted transcript events. MCP host media lifecycle and path access
+controls remain owner responsibilities.
 
 Sources: [Rust input construction](src/codex/session.rs), [Rust image steps](src/codex/steps.rs),
 [Node image lifecycle](../../packages/core/src/agents/codex-provider.cjs),
@@ -76,6 +62,6 @@ Sources: [Rust input construction](src/codex/session.rs), [Rust image steps](src
 
 Agree on the owner `CommandClassifier` and host MCP guard service using the policy contract,
 then integrate extras discovery and linked endpoint lifetime. Execution advisors and dynamic
-workspace access need another bounded policy checkpoint. Media storage/image lifecycle can
-proceed independently. Windows Job-object tree termination and command shims remain separate
+workspace access need another bounded policy checkpoint. Image host wiring can proceed
+independently using the completed contract. Windows Job-object tree termination and command shims remain separate
 gaps. Current validation is fake-server/fixture testing on macOS, without live provider turns.

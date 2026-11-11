@@ -21,6 +21,9 @@ test = false
 doc = false
 
 [dependencies]
+base64 = "0.22"
+sha2 = "0.10"
+tempfile = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 indexmap = "2"
