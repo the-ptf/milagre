@@ -62,6 +62,10 @@ pub struct Workspace {
     routines_open: bool,
     /// The sidebar row picked when Routines opened: a different pick closes it.
     routines_at: Option<usize>,
+    /// The Project the empty new-Chat screen started in, for the Chat its first message makes.
+    new_chat_project: Option<String>,
+    /// Snapshot seed (never in tests): `MILAGRE_GPUI_NEW_CHAT=1` opens on the empty new-Chat screen.
+    seed_new_chat: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -101,11 +105,8 @@ impl Workspace {
         });
         let palette_events =
             cx.subscribe_in(&palette, window, |this, _, event: &PaletteEvent, window, cx| this.on_palette_event(event, window, cx));
-        let new_chat = cx.subscribe(&sidebar, |this, _, event: &SidebarEvent, cx| match event {
-            SidebarEvent::NewChat => {
-                this.routines_open = false;
-                this.chat.update(cx, |chat, cx| chat.composer.update(cx, |composer, cx| composer.start_new_chat(cx)))
-            }
+        let new_chat = cx.subscribe_in(&sidebar, window, |this, _, event: &SidebarEvent, window, cx| match event {
+            SidebarEvent::NewChat => this.show_new_chat(window, cx),
         });
         // A Subchat picked in the Details panel opens although the sidebar has no row for it.
         let details = panel.read(cx).details().clone();
@@ -113,9 +114,12 @@ impl Workspace {
             let crate::workspace::panel::details::DetailsEvent::OpenChat(key) = event;
             this.open_chat_key(key, cx);
         });
-        let open_chat = cx.subscribe(&chat, |this, _, event: &ChatEvent, cx| {
+        let open_chat = cx.subscribe_in(&chat, window, |this, _, event: &ChatEvent, window, cx| {
             if let ChatEvent::OpenChat(key) = event {
                 this.open_chat_key(key, cx);
+            }
+            if let ChatEvent::StartChat(text) = event {
+                this.start_chat_from(text, window, cx);
             }
         });
         Self::install_window_keys(cx);
@@ -147,6 +151,8 @@ impl Workspace {
             routines,
             routines_open,
             routines_at,
+            new_chat_project: None,
+            seed_new_chat: std::env::var_os("MILAGRE_GPUI_NEW_CHAT").is_some(),
             _subscriptions: vec![
                 layout,
                 follow,
@@ -160,6 +166,31 @@ impl Workspace {
                 first_chat,
             ],
         }
+    }
+
+    /// New Chat (the sidebar's button, ⌘N, the palette): the Chat column clears to the empty new-Chat screen, the
+    /// sidebar selection goes, and the panel is closed with it (it has no Chat to show).
+    pub fn show_new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.routines_open = false;
+        let project = self.sidebar.read(cx).new_chat_project().unwrap_or_default();
+        self.new_chat_project = Some(project.clone());
+        self.sidebar.update(cx, |sidebar, cx| sidebar.clear_selection(cx));
+        self.chat.update(cx, |chat, cx| chat.set_new_chat(&project, window, cx));
+        self.panel.update(cx, |panel, cx| {
+            panel.set_chat("", cx);
+            panel.close(cx);
+        });
+        self.terminals.update(cx, |terminals, cx| terminals.set_chat("".into(), cx));
+        cx.notify();
+    }
+
+    /// The first message sent on the empty new-Chat screen: a fixture Chat joins the sidebar and opens.
+    fn start_chat_from(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let project = self.new_chat_project.take();
+        let Some(row) = self.sidebar.update(cx, |sidebar, cx| sidebar.create_chat(text, project.as_deref(), cx)) else { return };
+        self.follow_sidebar(Some(window), cx);
+        self.chat.update(cx, |chat, cx| chat.start_chat(&row, text, window, cx));
+        cx.notify();
     }
 
     /// Opens a Chat by key, with or without a sidebar row (the sidebar lists top-level Chats only). The Details panel's
@@ -194,6 +225,7 @@ impl Workspace {
             self.chat.update(cx, |chat, cx| chat.set_chat(&row, window, cx));
             let chats = self.sidebar.read(cx).family_chats();
             self.chat.update(cx, |chat, cx| chat.set_family(&chats, cx));
+            self.panel.update(cx, |panel, cx| panel.set_family(&chats, cx));
         }
     }
 }
@@ -201,6 +233,9 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.follow_sidebar(Some(window), cx);
+        if std::mem::take(&mut self.seed_new_chat) {
+            self.show_new_chat(window, cx);
+        }
         // A dialog or sheet (gpui-component's layers in `Root`) draws over the page: hide it while one is open.
         {
             use gpui_component::WindowExt as _;
@@ -248,7 +283,7 @@ impl Render for Workspace {
             // The shell's window-level keys: ⌘B, ⌘N, the Window menu, and Escape after every view under focus.
             .on_key_down(cx.listener(Self::on_escape_key))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
-            .on_action(cx.listener(|this, _: &NewChat, _, cx| this.new_chat(cx)))
+            .on_action(cx.listener(|this, _: &NewChat, window, cx| this.new_chat(window, cx)))
             .map(shell::keys::on_window_actions)
             .map(|el| self.window_actions(el, cx))
             .map(|el| self.sidebar_drag(el, cx))

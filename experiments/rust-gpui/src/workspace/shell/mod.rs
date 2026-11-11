@@ -88,10 +88,8 @@ impl Workspace {
     }
 
     /// ⌘N and File › New Chat: the Chat column opens its new-Chat composer, as the sidebar's button does.
-    pub fn new_chat(&mut self, cx: &mut Context<Self>) {
-        self.routines_open = false;
-        self.chat.update(cx, |chat, cx| chat.composer.update(cx, |composer, cx| composer.start_new_chat(cx)));
-        cx.notify();
+    pub fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_new_chat(window, cx);
     }
 
     /// Escape that no view under focus took (they handle theirs first, bubbling up to here): the window's steps of
@@ -180,9 +178,8 @@ impl Workspace {
         let column_left = if collapsed && self.link.is_none() { top_bar::controls_end() } else { SIDEBAR_WIDTH + 1.0 };
         let insets = (top_bar::chat_leading_inset(column_left), top_bar::chat_trailing_inset(items.len()));
         self.chat.update(cx, |chat, _| chat.set_header_insets(insets.0, insets.1));
-        let (panel, terminals) = (self.panel.clone(), self.terminals.clone());
-        let on_toggle: top_bar::CornerHandler = Rc::new(move |corner, window, cx| match corner {
-            Corner::Terminal => terminals.update(cx, |drawer, cx| drawer.toggle(window, cx)),
+        let panel = self.panel.clone();
+        let on_toggle: top_bar::CornerHandler = Rc::new(move |corner, _, cx| match corner {
             Corner::Tab(tab) => panel.update(cx, |panel, cx| panel.toggle_tab(tab, cx)),
         });
         div().relative().size_full().min_w_0().child(column).child(top_bar::corner(&items, on_toggle)).into_any_element()
@@ -191,7 +188,6 @@ impl Workspace {
     /// The corner's toggles for the Chat on screen.
     pub fn corner_items(&self, cx: &gpui::App) -> Vec<CornerItem> {
         let panel = self.panel.read(cx);
-        let showing = panel.is_open().then(|| panel.active());
-        top_bar::corner_items(&panel.visible_tabs(), showing, self.terminals.read(cx).is_open())
+        top_bar::corner_items(panel.active(), panel.is_open())
     }
 }

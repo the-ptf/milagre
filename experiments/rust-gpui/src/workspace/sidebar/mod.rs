@@ -296,6 +296,51 @@ impl Sidebar {
         cx.notify();
     }
 
+    /// New Chat: nothing is selected, in the list or among the Done rows.
+    pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
+        if let Some((view, _)) = self.selected.and_then(|row| self.row_views.get(&row)) {
+            view.update(cx, |view, cx| view.set_selected(false, cx));
+        }
+        self.selected = None;
+        self.picked = None;
+        cx.notify();
+    }
+
+    /// The Project the new-Chat screen starts in: the Chat on screen's, else the first visible Project's.
+    pub fn new_chat_project(&self) -> Option<String> {
+        let at = self.selected_row().and_then(|row| self.locate(&row.key)).map(|(scope, _)| scope);
+        let scope = at.or_else(|| self.data.scopes.iter().position(|s| !s.project.is_chats_home() && !s.project.hidden))?;
+        Some(self.data.scopes[scope].project.name.to_string())
+    }
+
+    /// A fixture Chat from the first message sent on the empty new-Chat screen: it joins the list (newest first) and
+    /// becomes the selected row. It goes in the Project the screen started in.
+    pub fn create_chat(&mut self, text: &str, project: Option<&str>, cx: &mut Context<Self>) -> Option<ChatRow> {
+        use crate::data::{Chat, ChatSummary};
+        let scope_ix = project
+            .and_then(|name| self.data.scopes.iter().position(|s| s.project.name.as_ref() == name && !s.project.hidden))
+            .or_else(|| self.data.scopes.iter().position(|s| !s.project.is_chats_home() && !s.project.hidden))?;
+        let scope = &mut self.data.scopes[scope_ix];
+        let worktree =
+            scope.state.sessions.values().next().map(|chat| chat.worktree_id).or_else(|| scope.state.worktrees.keys().next().copied())?;
+        let id = scope.state.sessions.keys().max().copied().unwrap_or(0) + 1;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        let mut chat = Chat::new(id, worktree, "main");
+        let title: String = text.lines().next().unwrap_or_default().chars().take(60).collect();
+        chat.summary = Some(ChatSummary {
+            count: 1,
+            first_at: Some(now),
+            last_at: Some(now),
+            title_line: Some(title.into()),
+            ..ChatSummary::default()
+        });
+        let key = scope.project.scope().chat_key(id);
+        scope.state.sessions.insert(id, chat);
+        self.rebuild(Some(&key));
+        cx.notify();
+        self.rows.iter().find(|row| row.key.as_ref() == key).cloned()
+    }
+
     /// Opens the Chat with this key whether or not it has a row (the Details panel's Subchats have none).
     pub fn open_key(&mut self, key: &str, cx: &mut Context<Self>) {
         if self.rows.iter().any(|row| row.key.as_ref() == key) {

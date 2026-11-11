@@ -163,6 +163,8 @@ fn subchat_rows_nest_and_open_their_chat(cx: &mut TestAppContext) {
     });
     click(cx, "details-subchat-0");
     assert_eq!(events.borrow().as_slice(), [rows[0].key.clone()]);
+    // The Workspace opened that Chat (it has no sidebar row); its panel starts on Changes, so come back to Details.
+    panel.update(cx, |p, cx| p.activate(PanelTab::Details, cx));
     // From a Subchat, the parent row opens the parent.
     view.update(cx, |v, cx| v.set_chat(rows[0].key.clone(), None, false, cx));
     cx.run_until_parked();

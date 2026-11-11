@@ -61,6 +61,8 @@ pub enum ChatEvent {
     Answer { chat: String, request: String, label: String },
     /// A Subchat's approval allowed or denied from its row.
     Respond { chat: String, request: String, allow: bool },
+    /// The first message sent from the empty new-Chat screen: the window makes the Chat.
+    StartChat(String),
 }
 
 impl EventEmitter<ChatEvent> for ChatView {}
@@ -87,6 +89,8 @@ pub struct ChatView {
     family_open: bool,
     /// The Chat on screen (`None` until the sidebar has named one: the fixture shows meanwhile).
     key: Option<SharedString>,
+    /// The empty new-Chat screen is up: no transcript, the composer and its tray centred (`isNewChat`).
+    new_chat: bool,
     /// Unsent drafts of the Chats left behind, by Chat key.
     drafts: HashMap<SharedString, String>,
     _send: Subscription,
@@ -113,6 +117,8 @@ impl ChatView {
                 this.want_undo = Some(Intent::Undo);
                 cx.notify();
             }
+            // From the empty new-Chat screen the window makes the Chat first.
+            ComposerEvent::Send(text) if !text.is_empty() && this.new_chat => cx.emit(ChatEvent::StartChat(text.to_string())),
             ComposerEvent::Send(text) if !text.is_empty() => {
                 this.transcript.update(cx, |transcript, cx| transcript.push_user(text.clone(), cx))
             }
@@ -159,6 +165,7 @@ impl ChatView {
             family_open: false,
             _pill_events: pill_events,
             key: None,
+            new_chat: false,
             drafts: HashMap::new(),
             _send: send,
             header_insets: (px(16.0), px(16.0)),
@@ -197,6 +204,9 @@ impl ChatView {
         if self.key.as_ref() == Some(&row.key) {
             return;
         }
+        if std::mem::take(&mut self.new_chat) {
+            self.composer.update(cx, |composer, cx| composer.end_new_chat(cx));
+        }
         // The fixture's own Chat (its title is the one `new` shows) keeps the rich fixture transcript.
         let first = self.key.is_none() && row.title == self.title;
         let running = if first { self.running.is_some() } else { row.mark == ChatMark::Running };
@@ -229,6 +239,56 @@ impl ChatView {
             self.composer.update(cx, |composer, cx| composer.set_running(running, cx));
         }
         cx.notify();
+    }
+
+    /// The empty new-Chat screen (`New Chat`, ⌘N): nothing on screen but the title, the composer in its tray with the
+    /// first-Chat starters, centred in the column. The sidebar's selection is cleared by the window; picking a row
+    /// again ([`ChatView::set_chat`]) leaves this screen.
+    pub fn set_new_chat(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(old) = self.key.take() {
+            let draft = self.composer.read(cx).text().to_string();
+            if draft.is_empty() {
+                self.drafts.remove(&old);
+            } else {
+                self.drafts.insert(old, draft);
+            }
+        }
+        self.new_chat = true;
+        self.title = crate::logic::copy::model_copy::UI_COPY.new_chat.into();
+        self.project = "".into();
+        self.transcript.update(cx, |transcript, cx| transcript.set_items(Vec::new(), cx));
+        if self.running.take().is_some() {
+            self.transcript.update(cx, |transcript, cx| transcript.set_running_row(false, cx));
+            self.composer.update(cx, |composer, cx| composer.set_running(false, cx));
+        }
+        self.composer.update(cx, |composer, cx| {
+            composer.set_text("", window, cx);
+            composer.start_new_chat(cx);
+            composer.set_starters(Some(project), cx);
+        });
+        self.close_find(window, cx);
+        self.close_undo(cx);
+        self.bookmark = None;
+        self.family = None;
+        self.family_open = false;
+        let title = self.title.clone();
+        self.pills.update(cx, |pills, cx| pills.set_chat("", &title, cx));
+        self.refocus_composer = true;
+        cx.notify();
+    }
+
+    /// Whether the empty new-Chat screen is up.
+    pub fn is_new_chat(&self) -> bool {
+        self.new_chat
+    }
+
+    /// The Chat the first message made: it opens with that message as its whole transcript.
+    pub fn start_chat(&mut self, row: &ChatRow, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_chat(row, window, cx);
+        self.transcript.update(cx, |transcript, cx| {
+            transcript.set_items(Vec::new(), cx);
+            transcript.push_user(text.to_owned().into(), cx);
+        });
     }
 
     /// The Chats of the open Chat's Project as the bookmark and the family menu read them (the sidebar's data).
@@ -349,24 +409,45 @@ impl Render for ChatView {
             .h_full()
             .bg(theme.page)
             .child(header)
-            .child(
-                div()
-                    .id("transcript")
-                    .relative()
-                    .overflow_hidden()
-                    .flex_1()
-                    .min_h_0()
-                    .child(AnyView::from(self.transcript.clone()).cached(StyleRefinement::default().size_full()))
-                    .on_key_down(cx.listener(Self::on_transcript_key))
-                    .when_some(self.running.clone().zip(running_offset), |el, (running, offset)| el.child(running_row(running, offset)))
-                    .child(self.pills.clone())
-                    .children(find_overlays),
-            )
-            .child(div().flex_none().flex().justify_center().px_4().pb(px(composer_bottom)).child(match &self.undo {
-                // The panel takes the composer's place, as wide as it.
-                Some(undo) => div().w_full().max_w(px(crate::theme::column_width())).child(undo.clone()).into_any_element(),
-                None => self.composer.clone().into_any_element(),
-            }))
+            .when(self.new_chat, |el| {
+                // `isNewChat`: `justify-center`, the transcript and the pills gone.
+                el.child(
+                    div()
+                        .id("new-chat-body")
+                        .debug_selector(|| "new-chat-body".into())
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_h_0()
+                        .justify_center()
+                        .items_center()
+                        .px_4()
+                        .pb(px(composer_bottom))
+                        .child(div().w_full().max_w(px(crate::theme::column_width())).child(self.composer.clone())),
+                )
+            })
+            .when(!self.new_chat, |el| {
+                el.child(
+                    div()
+                        .id("transcript")
+                        .relative()
+                        .overflow_hidden()
+                        .flex_1()
+                        .min_h_0()
+                        .child(AnyView::from(self.transcript.clone()).cached(StyleRefinement::default().size_full()))
+                        .on_key_down(cx.listener(Self::on_transcript_key))
+                        .when_some(self.running.clone().zip(running_offset), |el, (running, offset)| el.child(running_row(running, offset)))
+                        .child(self.pills.clone())
+                        .children(find_overlays),
+                )
+            })
+            .when(!self.new_chat, |el| {
+                el.child(div().flex_none().flex().justify_center().px_4().pb(px(composer_bottom)).child(match &self.undo {
+                    // The panel takes the composer's place, as wide as it.
+                    Some(undo) => div().w_full().max_w(px(crate::theme::column_width())).child(undo.clone()).into_any_element(),
+                    None => self.composer.clone().into_any_element(),
+                }))
+            })
             .children(menu)
     }
 }

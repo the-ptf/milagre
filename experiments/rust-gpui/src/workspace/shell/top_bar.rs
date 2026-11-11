@@ -7,9 +7,8 @@
 //! of them ([`chat_leading_inset`], the desktop's `useControlsClearance`). The Canvas button is left out: the Canvas
 //! view is not migrated.
 //!
-//! The corner (`PanelToggles.tsx`): Terminals, and Simulators while one is attached, right to left from 12px in,
-//! 40px apart, each pressed while its panel shows. Design A keeps the panel's own tab strip, which already has
-//! Changes, the pull request, Designs and Artifacts, so those four have no toggle here. The corner is the Chat
+//! The corner (`PanelToggles.tsx`): one toggle that opens and closes the side panel, 12px in, pressed while the
+//! panel shows. The panel's own tab strip has every tab, so no other toggle is drawn here, and the Terminals open with ⌘J. The corner is the Chat
 //! column's top-right rather than the window's; the Chat header ends short of it ([`chat_trailing_inset`]).
 
 use std::rc::Rc;
@@ -147,7 +146,6 @@ pub fn bar(bar: Bar, theme: &Theme) -> AnyElement {
 /// One corner toggle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Corner {
-    Terminal,
     Tab(PanelTab),
 }
 
@@ -157,21 +155,16 @@ pub struct CornerItem {
     pub pressed: bool,
 }
 
-/// The toggles the Chat on screen offers, left to right: Terminals, then Simulators when it has one attached. The
-/// panel's other tabs (Artifacts, Designs, the pull request, Changes) have no toggle here: the panel's own tab strip
-/// shows them, and their shortcuts still work. `showing` is the panel tab on screen, if any.
-pub fn corner_items(tabs: &[PanelTab], showing: Option<PanelTab>, terminal_open: bool) -> Vec<CornerItem> {
-    let mut items = vec![CornerItem { corner: Corner::Terminal, pressed: terminal_open }];
-    if tabs.contains(&PanelTab::Simulator) {
-        items.push(CornerItem { corner: Corner::Tab(PanelTab::Simulator), pressed: showing == Some(PanelTab::Simulator) });
-    }
-    items
+/// The corner's one toggle: it opens and closes the side panel (`PanelToggles.tsx`'s per-panel buttons, as one). It
+/// wears the icon, tooltip and shortcut of the panel's own tab: Changes by default ("Show Changes", ⇧⌘D), whichever tab
+/// the Chat last had after that. The panel's tab strip switches tabs; the Terminals open with ⌘J only.
+pub fn corner_items(active: PanelTab, panel_open: bool) -> Vec<CornerItem> {
+    vec![CornerItem { corner: Corner::Tab(active), pressed: panel_open }]
 }
 
 impl Corner {
     pub fn selector(self) -> &'static str {
         match self {
-            Corner::Terminal => "toggle-terminal",
             Corner::Tab(PanelTab::Artifact) => "toggle-artifacts",
             Corner::Tab(PanelTab::Designs) => "toggle-designs",
             Corner::Tab(PanelTab::Pr) => "toggle-pr",
@@ -183,7 +176,6 @@ impl Corner {
 
     fn icon(self) -> IconName {
         match self {
-            Corner::Terminal => IconName::ComputerTerminal01,
             Corner::Tab(tab) => tab.icon(),
         }
     }
@@ -191,7 +183,6 @@ impl Corner {
     /// The tooltip: "Show Changes" or "Hide Changes", as the desktop's.
     fn label(self, pressed: bool) -> SharedString {
         let name = match self {
-            Corner::Terminal => "Terminals",
             Corner::Tab(PanelTab::Artifact) => "artifacts",
             Corner::Tab(PanelTab::Designs) => "designs",
             Corner::Tab(PanelTab::Pr) => return "Pull request".into(),
@@ -204,7 +195,6 @@ impl Corner {
 
     fn command(self) -> Option<&'static str> {
         match self {
-            Corner::Terminal => Some("terminal.toggle"),
             Corner::Tab(PanelTab::Artifact) => Some("artifacts.toggle"),
             Corner::Tab(PanelTab::Designs) => Some("designs.toggle"),
             Corner::Tab(PanelTab::Changes) => Some("changes.toggle"),

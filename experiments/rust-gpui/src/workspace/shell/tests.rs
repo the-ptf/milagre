@@ -54,35 +54,36 @@ fn the_collapsed_rail_sits_under_a_full_width_title_band_that_holds_the_lights_a
 }
 
 #[gpui::test]
-fn the_corner_has_the_terminal_toggle_and_none_for_the_panels_own_tabs(cx: &mut TestAppContext) {
+fn the_corner_has_one_toggle_that_opens_and_closes_the_side_panel(cx: &mut TestAppContext) {
     let (workspace, cx) = testing::mount_workspace(cx);
+    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
+    // The terminal drawer is the keyboard's alone.
     let terminals = workspace.read_with(cx, |w, _| w.terminals.clone());
+    cx.simulate_keystrokes("cmd-j");
+    cx.run_until_parked();
+    assert!(terminals.read_with(cx, |t, _| t.is_open()), "⌘J still toggles the drawer");
     let items = workspace.read_with(cx, |w, cx| w.corner_items(cx));
-    assert_eq!(items.iter().map(|i| i.corner).collect::<Vec<_>>(), [Corner::Terminal], "no simulator is attached");
-    for gone in ["toggle-changes", "toggle-pr", "toggle-designs", "toggle-artifacts"] {
-        assert!(cx.debug_bounds(gone).is_none(), "{gone}: the panel's own tab strip has it");
+    assert_eq!(items, [CornerItem { corner: Corner::Tab(PanelTab::Changes), pressed: true }], "one toggle, pressed while the panel shows");
+    for gone in ["toggle-terminal", "toggle-simulator", "toggle-designs", "toggle-artifacts", "toggle-pr", "toggle-details"] {
+        assert!(cx.debug_bounds(gone).is_none(), "{gone}: the corner has only the panel toggle");
     }
     let corner = cx.debug_bounds("corner-toggles").expect("the corner is drawn");
-    let terminal = cx.debug_bounds("toggle-terminal").expect("the Terminals toggle");
-    assert_eq!(corner.right(), terminal.right(), "12px from the Chat column's right edge");
-    assert_eq!(terminal.size.width, px(32.0));
-    cx.simulate_click(terminal.center(), Modifiers::none());
-    assert!(terminals.read_with(cx, |t, _| t.is_open()), "the Terminals toggle opens the drawer");
+    let toggle = cx.debug_bounds("toggle-changes").expect("the panel toggle");
+    assert_eq!(corner.right(), toggle.right(), "12px from the Chat column's right edge");
+    assert_eq!(toggle.size.width, px(32.0));
+    cx.simulate_click(toggle.center(), Modifiers::none());
+    assert!(!panel.read_with(cx, |p, _| p.is_open()), "the toggle closes the panel");
+    let toggle = cx.debug_bounds("toggle-changes").expect("still there");
+    cx.simulate_click(toggle.center(), Modifiers::none());
+    assert!(panel.read_with(cx, |p, _| p.is_open()), "and opens it again");
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
-    let count = workspace.read_with(cx, |w, cx| w.corner_items(cx).len());
-    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(count));
+    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(1));
 }
 
 #[test]
-fn corner_items_are_the_terminal_and_an_attached_simulator() {
-    let tabs = [PanelTab::Changes, PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr];
-    let items = top_bar::corner_items(&tabs, Some(PanelTab::Designs), true);
-    assert_eq!(items, [CornerItem { corner: Corner::Terminal, pressed: true }]);
-    let with_simulator = top_bar::corner_items(&[PanelTab::Changes, PanelTab::Simulator], Some(PanelTab::Simulator), false);
-    assert_eq!(
-        with_simulator,
-        [CornerItem { corner: Corner::Terminal, pressed: false }, CornerItem { corner: Corner::Tab(PanelTab::Simulator), pressed: true }]
-    );
+fn the_corner_item_wears_the_active_panel_tab() {
+    assert_eq!(top_bar::corner_items(PanelTab::Changes, false), [CornerItem { corner: Corner::Tab(PanelTab::Changes), pressed: false }]);
+    assert_eq!(top_bar::corner_items(PanelTab::Designs, true), [CornerItem { corner: Corner::Tab(PanelTab::Designs), pressed: true }]);
 }
 
 #[test]

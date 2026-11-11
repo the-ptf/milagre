@@ -90,3 +90,75 @@ fn the_new_chat_button_opens_the_new_chat_composer(cx: &mut TestAppContext) {
     cx.simulate_click(button.center(), Modifiers::none());
     assert!(composer.read_with(cx, |c, _| c.new_chat().is_some()));
 }
+
+fn on_the_empty_screen(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) {
+    let (chat, sidebar, panel) = workspace.read_with(cx, |w, _| (w.chat.clone(), w.sidebar.clone(), w.panel.clone()));
+    assert!(chat.read_with(cx, |c, _| c.is_new_chat()));
+    assert_eq!(chat.read_with(cx, |c, _| c.key().map(str::to_owned)), None);
+    assert_eq!(chat.read_with(cx, |c, _| c.title().to_owned()), "New Chat");
+    assert!(chat.read_with(cx, |c, cx| c.transcript.read(cx).items().is_empty()), "no transcript");
+    assert!(chat.read_with(cx, |c, _| c.running.is_none()));
+    assert!(cx.debug_bounds("running-row").is_none() && cx.debug_bounds("composer-pills").is_none());
+    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), None, "the sidebar selection clears");
+    assert!(sidebar.read_with(cx, |s, _| s.selected_row().is_none()));
+    assert!(!panel.read_with(cx, |p, _| p.is_open()), "the panel follows: no Chat, no panel");
+    let composer = chat.read_with(cx, |c, _| c.composer.clone());
+    assert!(composer.read_with(cx, |c, _| c.new_chat().is_some() && !c.starters().is_empty()), "the tray and the starters");
+    let body = cx.debug_bounds("new-chat-body").expect("the empty screen");
+    let tray = cx.debug_bounds("new-chat-tray").expect("the tray");
+    let (above, below) = (tray.top() - body.top(), body.bottom() - tray.bottom());
+    // The starters sit above the tray inside the centred group, so the tray is a little low: not docked at the bottom.
+    assert!(above > gpui::px(150.0) && below > gpui::px(150.0), "the composer floats in the middle: {above:?} above, {below:?} below");
+}
+
+#[gpui::test]
+fn new_chat_clears_the_column_and_a_row_brings_its_chat_back(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    let (chat, sidebar) = workspace.read_with(cx, |w, _| (w.chat.clone(), w.sidebar.clone()));
+    let before = chat.read_with(cx, |c, _| c.key().map(str::to_owned));
+    let button = cx.debug_bounds("new-chat").expect("button drawn");
+    cx.simulate_click(button.center(), Modifiers::none());
+    cx.run_until_parked();
+    on_the_empty_screen(&workspace, cx);
+    // ⌘N from a Chat does the same.
+    click_row(&workspace, 4, cx);
+    cx.run_until_parked();
+    assert!(!chat.read_with(cx, |c, _| c.is_new_chat()));
+    cx.simulate_keystrokes("cmd-n");
+    cx.run_until_parked();
+    on_the_empty_screen(&workspace, cx);
+    // A row brings its Chat back.
+    click_row(&workspace, 4, cx);
+    cx.run_until_parked();
+    let key = sidebar.read_with(cx, |s, _| s.row(4).unwrap().key.to_string());
+    assert_eq!(chat.read_with(cx, |c, _| c.key().map(str::to_owned)), Some(key));
+    assert!(!chat.read_with(cx, |c, _| c.is_new_chat()) && cx.debug_bounds("new-chat-body").is_none());
+    assert!(chat.read_with(cx, |c, cx| c.composer.read(cx).new_chat().is_none()), "the tray is gone");
+    assert_ne!(before, chat.read_with(cx, |c, _| c.key().map(str::to_owned)));
+}
+
+#[gpui::test]
+fn sending_from_the_empty_screen_makes_a_chat_that_the_sidebar_lists_and_selects(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    let (chat, sidebar) = workspace.read_with(cx, |w, _| (w.chat.clone(), w.sidebar.clone()));
+    let rows = sidebar.read_with(cx, |s, _| s.row_count());
+    cx.simulate_keystrokes("cmd-n");
+    cx.run_until_parked();
+    let composer = chat.read_with(cx, |c, _| c.composer.clone());
+    cx.update(|window, cx| {
+        let handle = gpui::Focusable::focus_handle(composer.read(cx), cx);
+        window.focus(&handle, cx);
+    });
+    cx.simulate_input("Plan the release notes");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(sidebar.read_with(cx, |s, _| s.row_count()), rows + 1, "the new Chat is in the list");
+    let selected =
+        sidebar.read_with(cx, |s, _| s.selected().and_then(|ix| s.row(ix)).map(|row| (row.key.to_string(), row.title.to_string())));
+    let (key, title) = selected.expect("and selected");
+    assert_eq!(title, "Plan the release notes");
+    assert_eq!(chat.read_with(cx, |c, _| c.key().map(str::to_owned)), Some(key));
+    assert!(!chat.read_with(cx, |c, _| c.is_new_chat()));
+    let items = chat.read_with(cx, |c, cx| c.transcript.read(cx).items().to_vec());
+    assert!(matches!(items.as_slice(), [Item::User(text)] if text.as_ref() == "Plan the release notes"), "{items:?}");
+}

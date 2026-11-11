@@ -122,16 +122,10 @@ impl Workspace {
     }
 
     fn start_new_chat(&mut self, draft: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
-        self.routines_open = false;
-        self.chat.update(cx, |chat, cx| {
-            chat.composer.update(cx, |composer, cx| {
-                composer.start_new_chat(cx);
-                if let Some(draft) = draft {
-                    composer.prefill(draft, window, cx);
-                }
-            })
-        });
-        cx.notify();
+        self.show_new_chat(window, cx);
+        if let Some(draft) = draft {
+            self.chat.update(cx, |chat, cx| chat.composer.update(cx, |composer, cx| composer.prefill(draft, window, cx)));
+        }
     }
 
     fn open_chat(&mut self, key: &str, cx: &mut Context<Self>) {
