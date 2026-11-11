@@ -13,6 +13,7 @@ pub mod body;
 pub mod changes;
 pub mod dock;
 pub mod fixture;
+pub mod terminal;
 
 #[cfg(test)]
 mod dock_tests;
@@ -30,6 +31,7 @@ use gpui_component::resizable::ResizableState;
 use self::body::TabPlaceholder;
 use self::changes::ChangesView;
 use self::fixture::ChatContent;
+use self::terminal::TerminalPanel;
 use crate::theme::ActiveTheme;
 use crate::ui::{IconButton, IconButtonSize, IconName, IconSize, Tab};
 use crate::workspace::chrome::{self, NoDrag};
@@ -110,6 +112,7 @@ pub struct Panel {
     /// Horizontal scroll of the tab list; also used to bring a clicked tab fully into view.
     tabs_scroll: ScrollHandle,
     changes: Entity<ChangesView>,
+    terminal: Entity<TerminalPanel>,
     placeholders: HashMap<PanelTab, Entity<TabPlaceholder>>,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
     renders: usize,
@@ -124,7 +127,7 @@ impl Panel {
         changes.update(cx, |changes, cx| changes.set_chat(chat.clone(), content.changes.clone(), cx));
         let placeholders = PanelTab::ALL
             .into_iter()
-            .filter(|tab| *tab != PanelTab::Changes)
+            .filter(|tab| !matches!(tab, PanelTab::Changes | PanelTab::Terminal))
             .map(|tab| (tab, cx.new(|_| TabPlaceholder::new(tab))))
             .collect();
         let mut panel = Self {
@@ -136,6 +139,7 @@ impl Panel {
             resizable: cx.new(|_| ResizableState::default()),
             tabs_scroll: ScrollHandle::new(),
             changes,
+            terminal: cx.new(TerminalPanel::new),
             placeholders,
             renders: 0,
         };
@@ -150,6 +154,9 @@ impl Panel {
         }
         if let Some(width) = std::env::var("MILAGRE_GPUI_PANEL_WIDTH").ok().and_then(|w| w.parse::<f32>().ok()) {
             self.set_width(width);
+        }
+        if let Some(tab) = std::env::var("MILAGRE_GPUI_PANEL_TAB").ok().and_then(|n| PanelTab::ALL.into_iter().find(|t| t.label() == n)) {
+            self.state_mut().tab = tab;
         }
         if let Ok(path) = std::env::var("MILAGRE_GPUI_CHANGES_FILE") {
             self.changes
@@ -203,6 +210,7 @@ impl Panel {
     pub fn body_view(&self, tab: PanelTab) -> Option<AnyView> {
         match tab {
             PanelTab::Changes => Some(self.changes.clone().into()),
+            PanelTab::Terminal => Some(self.terminal.clone().into()),
             other => self.placeholders.get(&other).map(|view| view.clone().into()),
         }
     }

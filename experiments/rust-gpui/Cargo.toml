@@ -58,6 +58,10 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # Composer caret movement and backspace by grapheme cluster, as GPUI's own `input` example does.
 # Already in GPUI's dependency tree (Cargo.lock), so it adds no new crate.
 unicode-segmentation = "1.10"
+# The Terminal panel (src/workspace/panel/terminal/): VT parser, grid, scrollback and a local PTY (Apache-2.0).
+alacritty_terminal = { version = "=0.26.0", default-features = false }
+# Wakes the Terminal view from alacritty's PTY thread. Already in GPUI's tree (Cargo.lock), so no new crate.
+async-channel = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Already in GPUI's tree at this version; used by src/snapshot.rs to find the window's NSView.
