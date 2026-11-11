@@ -347,6 +347,7 @@ fn stored_fault_codes_remain_distinct_from_missing_assets_and_bad_requests() {
     );
 }
 
+#[cfg(feature = "lock-fixture")]
 #[test]
 fn inherited_store_descriptors_do_not_delay_release_or_unlock_another_generation() {
     let temp = tempfile::tempdir().unwrap();
@@ -364,4 +365,67 @@ fn inherited_store_descriptors_do_not_delay_release_or_unlock_another_generation
         report,
         json!({"artifactStore":true,"designKits":true,"childDropPreservesParentLock":true,"releaseBeforeChildExit":true,"exactlyOneSuccessor":true,"lateChildDropPreservesSuccessorLock":true})
     );
+}
+
+#[test]
+fn concurrent_spawn_and_store_handover_never_requires_ownership_retries() {
+    use std::os::unix::process::CommandExt;
+    use std::sync::Barrier;
+    const ROUNDS: usize = 96;
+    let (_temp, isolation) = isolated();
+    let phase = Barrier::new(2);
+    let make = || {
+        ArtifactStore::open(
+            isolation.clone(),
+            Path::new("artifacts"),
+            Arc::new(|_| Ok(())),
+            Arc::new(|| Ok(())),
+            Arc::new(SystemRuntime),
+        )
+    };
+    std::thread::scope(|scope| {
+        let spawn = scope.spawn(|| {
+            let mut failures = Vec::new();
+            for round in 0..ROUNDS {
+                phase.wait();
+                let result = std::process::Command::new("/usr/bin/true")
+                    .process_group(0)
+                    .spawn()
+                    .and_then(|mut child| child.wait());
+                if !result.as_ref().is_ok_and(|status| status.success()) {
+                    failures.push((round, result));
+                }
+                phase.wait();
+            }
+            failures
+        });
+        let mut failures = Vec::new();
+        for round in 0..ROUNDS {
+            let owner = make();
+            if let Err(error) = &owner {
+                failures.push((round, "open", error.to_string()));
+            }
+            phase.wait();
+            drop(owner);
+            let successor = make();
+            if let Err(error) = &successor {
+                failures.push((round, "handover", error.to_string()));
+            }
+            let contender = make();
+            if !contender
+                .as_ref()
+                .err()
+                .is_some_and(|error| error.code == "STORE_OWNED")
+            {
+                failures.push((round, "exclusion", "More than one writer admitted".into()));
+            }
+            drop(contender);
+            phase.wait();
+            drop(successor);
+        }
+        assert!(failures.is_empty(), "{failures:?}");
+        let spawns = spawn.join().unwrap();
+        assert!(spawns.is_empty(), "{spawns:?}");
+    });
+    make().unwrap();
 }

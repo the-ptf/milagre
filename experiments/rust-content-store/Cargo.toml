@@ -5,6 +5,16 @@ edition = "2021"
 publish = false
 description = "Isolated Rust content store with Node-compatible Artifacts and structured Design source edits"
 
+[features]
+lock-fixture = []
+
+[[bin]]
+name = "content-lock-lifetime-fixture"
+path = "src/bin/content-lock-lifetime-fixture.rs"
+required-features = ["lock-fixture"]
+test = false
+bench = false
+
 [dependencies]
 milagre-owner-store = { path = "../rust-owner" }
 serde_json = { version = "1", features = ["preserve_order"] }

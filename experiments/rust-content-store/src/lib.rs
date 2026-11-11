@@ -7,6 +7,7 @@ mod files;
 mod validation;
 
 pub use error::{Error, Result};
+pub use files::{lock_release_diagnostics, LockReleaseDiagnostics};
 use files::{Dir, StoreLock};
 use milagre_owner_store::{isolation::MARKER, jsjson, Isolation};
 use serde_json::{json, Value};

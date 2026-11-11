@@ -6,7 +6,72 @@ use std::{
     io::{Read, Write},
     os::fd::{AsRawFd, FromRawFd},
     path::{Component, Path},
+    sync::atomic::{AtomicI32, AtomicU64, Ordering},
 };
+
+/// Fixed-size process-local observations, not a claim that a store is unlocked.
+/// Any recorded failure means explicit release was uncertain. File close still
+/// runs, but another inherited descriptor may keep that lease alive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LockReleaseDiagnostics {
+    pub failures: u64,
+    pub last_os_error: Option<i32>,
+}
+struct ReleaseCounters {
+    failures: AtomicU64,
+    last_os_error: AtomicI32,
+}
+static RELEASE_COUNTERS: ReleaseCounters = ReleaseCounters {
+    failures: AtomicU64::new(0),
+    last_os_error: AtomicI32::new(0),
+};
+impl ReleaseCounters {
+    fn failed(&self, error: &std::io::Error) {
+        self.last_os_error
+            .store(error.raw_os_error().unwrap_or(0), Ordering::Relaxed);
+        let _ = self
+            .failures
+            .try_update(Ordering::Release, Ordering::Relaxed, |count| {
+                Some(count.saturating_add(1))
+            });
+    }
+    fn snapshot(&self) -> LockReleaseDiagnostics {
+        let failures = self.failures.load(Ordering::Acquire);
+        let errno = self.last_os_error.load(Ordering::Relaxed);
+        LockReleaseDiagnostics {
+            failures,
+            last_os_error: (errno != 0).then_some(errno),
+        }
+    }
+}
+/// Non-destructive process-local diagnostic. Constant memory, saturating count,
+/// no paths, callbacks, logging, allocation or mutex in a store's destructor.
+/// The count and last errno are separate observations, not a transactional or
+/// store-specific record when several guards fail concurrently.
+pub fn lock_release_diagnostics() -> LockReleaseDiagnostics {
+    RELEASE_COUNTERS.snapshot()
+}
+type Flock = fn(libc::c_int, libc::c_int) -> std::io::Result<()>;
+fn system_flock(fd: libc::c_int, operation: libc::c_int) -> std::io::Result<()> {
+    if unsafe { libc::flock(fd, operation) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+fn acquire_error(error: std::io::Error) -> Error {
+    match error.raw_os_error() {
+        Some(errno) if errno == libc::EWOULDBLOCK || errno == libc::EAGAIN => Error::coded(
+            "STORE_OWNED",
+            "This isolated Artifact store already has a Rust writer.",
+        ),
+        Some(libc::EINTR) => Error::coded(
+            "LOCK_INTERRUPTED",
+            "Content-store lock acquisition was interrupted; ownership was not acquired.",
+        ),
+        _ => error.into(),
+    }
+}
 
 /// One owning process controls this advisory lock. A fork/dup can retain the
 /// open-file description after File::drop, so release explicitly before close.
@@ -15,14 +80,14 @@ use std::{
 pub struct StoreLock {
     file: File,
     owner_pid: libc::pid_t,
+    unlock: Flock,
 }
 impl Drop for StoreLock {
     fn drop(&mut self) {
         if unsafe { libc::getpid() } == self.owner_pid {
-            // A valid flock-acquired regular-file descriptor supports LOCK_UN.
-            // On an unexpected OS failure, File's close remains the fallback;
-            // retained duplicates then fail closed instead of admitting a writer.
-            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+            if let Err(error) = (self.unlock)(self.file.as_raw_fd(), libc::LOCK_UN) {
+                RELEASE_COUNTERS.failed(&error);
+            }
         }
     }
 }
@@ -225,19 +290,18 @@ impl Dir {
         Ok(entries)
     }
     pub fn lock(&self) -> Result<StoreLock> {
+        self.lock_using(system_flock)
+    }
+    fn lock_using(&self, acquire: Flock) -> Result<StoreLock> {
         let file = match self.create(".rust-content.lock") {
             Ok(file) => file,
             Err(_) => self.open(".rust-content.lock")?,
         };
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err(Error::coded(
-                "STORE_OWNED",
-                "This isolated Artifact store already has a Rust writer.",
-            ));
-        }
+        acquire(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB).map_err(acquire_error)?;
         Ok(StoreLock {
             file,
             owner_pid: unsafe { libc::getpid() },
+            unlock: system_flock,
         })
     }
 }
@@ -267,5 +331,74 @@ mod lock_tests {
         assert_eq!(root.lock().err().unwrap().code, "STORE_OWNED");
         drop(successor);
         root.lock().unwrap();
+    }
+    #[test]
+    fn interrupted_and_failed_acquisition_are_not_reported_as_contention_or_retried() {
+        use std::sync::atomic::AtomicUsize;
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+        fn interrupted(_: i32, _: i32) -> std::io::Result<()> {
+            CALLS.fetch_add(1, Ordering::Relaxed);
+            Err(std::io::Error::from_raw_os_error(libc::EINTR))
+        }
+        fn io_error(_: i32, _: i32) -> std::io::Result<()> {
+            Err(std::io::Error::from_raw_os_error(libc::EIO))
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let root = Dir::open_absolute(&std::fs::canonicalize(temp.path()).unwrap()).unwrap();
+        assert_eq!(
+            root.lock_using(interrupted).err().unwrap().code,
+            "LOCK_INTERRUPTED"
+        );
+        assert_eq!(CALLS.load(Ordering::Relaxed), 1);
+        assert_eq!(root.lock_using(io_error).err().unwrap().code, "IO_ERROR");
+        assert_eq!(
+            acquire_error(std::io::Error::from_raw_os_error(libc::EWOULDBLOCK)).code,
+            "STORE_OWNED"
+        );
+        let owner = root.lock().unwrap();
+        assert_eq!(root.lock().err().unwrap().code, "STORE_OWNED");
+        drop(owner);
+        root.lock().unwrap();
+    }
+
+    #[test]
+    fn failed_unlock_is_observable_and_does_not_claim_the_inherited_lease_released() {
+        fn interrupted(_: i32, _: i32) -> std::io::Result<()> {
+            Err(std::io::Error::from_raw_os_error(libc::EINTR))
+        }
+        fn io_error(_: i32, _: i32) -> std::io::Result<()> {
+            Err(std::io::Error::from_raw_os_error(libc::EIO))
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let root = Dir::open_absolute(&std::fs::canonicalize(temp.path()).unwrap()).unwrap();
+        for (fault, errno) in [
+            (interrupted as Flock, libc::EINTR),
+            (io_error as Flock, libc::EIO),
+        ] {
+            let before = lock_release_diagnostics().failures;
+            let mut owner = root.lock().unwrap();
+            let inherited = owner.file.try_clone().unwrap();
+            owner.unlock = fault;
+            drop(owner);
+            let diagnostic = lock_release_diagnostics();
+            assert!(diagnostic.failures > before);
+            assert_eq!(diagnostic.last_os_error, Some(errno));
+            assert_eq!(root.lock().err().unwrap().code, "STORE_OWNED");
+            drop(inherited);
+            root.lock().unwrap();
+        }
+        let bounded = ReleaseCounters {
+            failures: AtomicU64::new(u64::MAX - 1),
+            last_os_error: AtomicI32::new(0),
+        };
+        bounded.failed(&std::io::Error::from_raw_os_error(libc::EIO));
+        bounded.failed(&std::io::Error::from_raw_os_error(libc::EINTR));
+        assert_eq!(
+            bounded.snapshot(),
+            LockReleaseDiagnostics {
+                failures: u64::MAX,
+                last_os_error: Some(libc::EINTR)
+            }
+        );
     }
 }
