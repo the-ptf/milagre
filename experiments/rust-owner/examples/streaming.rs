@@ -139,6 +139,7 @@ fn run(name: &str, chats: &[i64]) -> Outcome {
     let mut host = ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0));
     let kiro = MockProvider::new("kiro");
     host.register(Box::new(kiro.clone()));
+    host.open_project(&project).unwrap();
     let path = project.display().to_string();
     let key = |id: i64| format!("{path}#{id}");
     for &id in chats {

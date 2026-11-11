@@ -62,11 +62,19 @@ impl Copy {
         format!("{}#{id}", self.project.display())
     }
 
+    /// Opens the Project (once): the runtime does before anything else.
+    fn open(&mut self) {
+        if !self.host.is_project_ready(&self.project) {
+            self.host.open_project(&self.project).unwrap();
+        }
+    }
+
     fn send(
         &mut self,
         id: i64,
         body: &str,
     ) -> milagre_owner_store::Result<milagre_owner_store::chat_host::Sent> {
+        self.open();
         self.host.send(&json!({ "projectPath": self.project.display().to_string(), "sessionId": id, "provider": "kiro", "model": "m", "body": body, "clientMessageId": format!("c-{id}-{body}") }))
     }
 
@@ -349,8 +357,7 @@ fn recovery_fails_dividers_left_preparing() {
         state.to_string(),
     )
     .unwrap();
-    c.host.states.get(&c.project).unwrap();
-    c.host.recover_handoffs(&c.project).unwrap();
+    c.host.open_project(&c.project).unwrap();
     assert_eq!(c.divider(1)["context"]["status"], json!("failed"));
     assert_eq!(c.divider(2)["context"]["status"], json!("failed"));
     let sessions = c
@@ -534,24 +541,25 @@ fn stop_while_the_done_divider_is_saving_fails_it_and_starts_nothing() {
     );
 }
 
-/// Restore mode opens the handover store (lease, sweep) only when a restore is decided: an ordinary send leaves no
-/// trace of it; the first restore opens it, and is staged as usual.
+/// The handover store opens with the Project (open_project: lease, then the sweep), before any send; ordinary sends
+/// and the first restore use it as it is, and a restore is staged once.
 #[test]
-fn the_handover_store_opens_only_for_a_restore() {
+fn the_handover_store_opens_with_the_project() {
     let mut c = copy(2);
     edit_seed(&c, |state| {
         state["sessions"]["1"]["native_session_id"] = json!("native-1")
     });
     let owner = c.project.parent().unwrap().join(".owner");
+    assert!(!owner.exists());
+    c.open();
+    assert!(
+        owner.join("handovers").is_dir(),
+        "open_project didn't open the handover store"
+    );
     let sent = c.send(1, "An ordinary turn").unwrap();
     assert!(sent.turn.is_some());
     assert_eq!(c.starts().len(), 1);
-    assert!(
-        !owner.exists(),
-        "an ordinary send opened the handover store"
-    );
     let restored = c.send(2, "A restore").unwrap();
-    assert!(owner.join("handovers").is_dir());
     assert_eq!(c.divider(2)["context"]["status"], json!("preparing"));
     assert_eq!(c.host.take_jobs().len(), 1);
     assert!(restored.turn.is_some());

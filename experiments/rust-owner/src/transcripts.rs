@@ -331,10 +331,10 @@ impl Lease {
         match rustix::fs::flock(&**dir, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
             Ok(()) => {}
             Err(rustix::io::Errno::WOULDBLOCK) => {
-                return Err(StoreError::OwnershipLost {
-                    lock: folder.to_path_buf(),
-                    why: "another owner holds the handover store".into(),
-                })
+                return Err(StoreError::HandoverStoreBusy(format!(
+                    "Another owner holds the handover store at {}.",
+                    folder.display()
+                )))
             }
             Err(error) => return Err(io(error, "flock", folder)),
         }
@@ -480,6 +480,20 @@ impl TranscriptJobs {
     /// The handovers folder.
     pub fn folder(&self) -> &Path {
         self.pin.path()
+    }
+
+    /// The store still holds: its folder's path leads to the folder this owner locked (its lease is held for as long
+    /// as this lives).
+    pub fn validate(&self) -> Result<()> {
+        let lost = |why: &str| StoreError::OwnershipLost {
+            lock: self.pin.path().to_path_buf(),
+            why: why.into(),
+        };
+        self.pin.check().map_err(lost)?;
+        if identity(&self.dir).ok() != Some(self.pin.identity()) {
+            return Err(lost("the handovers folder isn't the one locked"));
+        }
+        Ok(())
     }
 
     /// Temporary files a previous owner left that were removed when the lease was taken.

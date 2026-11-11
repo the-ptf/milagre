@@ -209,6 +209,7 @@ fn the_minimal_brief_lists_the_admitted_worktrees_changes() {
     brief.state.lock().unwrap().refuse = Some(BriefRefused::NoModel);
     host.register_brief_model(Box::new(brief));
     host.admit_worktree(&worktree).unwrap();
+    host.open_project(&project).unwrap();
     host.send(&json!({ "projectPath": project.display().to_string(), "sessionId": 1, "provider": "kiro", "model": "m", "body": "Next", "clientMessageId": "c1" }))
         .unwrap();
     for job in host.take_jobs() {

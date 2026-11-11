@@ -255,3 +255,24 @@ agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the n
   when it errs); the runtime takes the notices once more after the last `shutdown` call.
 - **Transcripts** go to `<copy>/.owner/handovers/<sha1(project)[..12]>/<session>.md` through `transcripts::TranscriptJob`
   (bounded, owned, one outcome per job, pinned folder descriptors; see the module docs).
+
+## Opening a Project (required)
+
+`ChatHost::open_project(&mut self, project: &Path) -> Result<()>` is the only way a Project becomes ready, and it
+is required before every send, queued start, Send now, queue removal, answer and provider event for it (refused
+`PROJECT_NOT_READY`, nothing saved or started; provider events are dropped). Steps: refuse while quitting or while
+the Project is closing (`OWNER_CLOSING`, nothing changes); load its states (a failure there releases as before);
+verify ownership and the root; mark it not ready; open the handover store (lease and sweep; another owner holds it:
+`HANDOVER_STORE_BUSY`); recover dividers left preparing (this host's live preparations skipped, never cancelled);
+flush. Then it is ready, told once as `Notice::ProjectReady { project: PathBuf }` (the canonical path), followed by
+a `Broadcast` if recovery changed the state. Nothing of a Project is broadcast before it is ready. Any failure after
+loading keeps its locks and state and leaves it not ready; calling `open_project` again retries.
+
+- Already ready: `open_project` checks ownership, the root and the retained handover store again and returns, with
+  no recovery, save or notice. A failed check makes it not ready (locks kept) and returns the error.
+- `ChatHost::is_project_ready(&self, project: &Path) -> bool`: a pure lookup (no I/O, never loads or reopens).
+- `ChatHost::require_project_ready(&mut self, project: &Path) -> Result<()>`: `PROJECT_NOT_READY` unless ready;
+  otherwise the same checks as the fast path, a failure making it not ready. Never recovers, loads or reopens.
+- A completed `forget` makes it not ready; only an explicit `open_project` reopens it. Late events never do.
+- Errors: `StoreError::OwnerClosing` (`OWNER_CLOSING`), `StoreError::HandoverStoreBusy` (`HANDOVER_STORE_BUSY`),
+  `StoreError::ProjectNotReady` (`PROJECT_NOT_READY`). Load, ownership, store and save failures keep their own types.

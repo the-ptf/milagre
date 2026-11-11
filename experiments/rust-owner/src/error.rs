@@ -61,6 +61,13 @@ pub enum StoreError {
     /// A quit can't finish yet (`QUIT_PENDING`): transcript jobs or their cleanups are still out. Not a failure: the
     /// locks are held; call `shutdown` again once they report back (`ChatHost::quit_state`).
     QuitPending(String),
+    /// The owner is quitting, or the Project is being closed (`OWNER_CLOSING`): nothing was opened or changed.
+    OwnerClosing(String),
+    /// Another owner holds the handover store's lease (`HANDOVER_STORE_BUSY`).
+    HandoverStoreBusy(String),
+    /// The Project isn't open and ready here (`PROJECT_NOT_READY`): `open_project` first, or again after a failure.
+    /// Nothing was saved or started.
+    ProjectNotReady(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -114,6 +121,9 @@ impl StoreError {
             StoreError::AnswersAtCapacity(_) => Some("ANSWERS_AT_CAPACITY"),
             StoreError::TranscriptsAtCapacity(_) => Some("TRANSCRIPTS_AT_CAPACITY"),
             StoreError::QuitPending(_) => Some("QUIT_PENDING"),
+            StoreError::OwnerClosing(_) => Some("OWNER_CLOSING"),
+            StoreError::HandoverStoreBusy(_) => Some("HANDOVER_STORE_BUSY"),
+            StoreError::ProjectNotReady(_) => Some("PROJECT_NOT_READY"),
             _ => None,
         }
     }
@@ -196,7 +206,10 @@ impl fmt::Display for StoreError {
             StoreError::AnswerDeliveryUnknown(message) => write!(f, "{message}"),
             StoreError::AnswersAtCapacity(message)
             | StoreError::TranscriptsAtCapacity(message)
-            | StoreError::QuitPending(message) => write!(f, "{message}"),
+            | StoreError::QuitPending(message)
+            | StoreError::OwnerClosing(message)
+            | StoreError::HandoverStoreBusy(message)
+            | StoreError::ProjectNotReady(message) => write!(f, "{message}"),
             StoreError::OwnershipLost { lock, why } => write!(
                 f,
                 "This process no longer owns the Project ({why}: {}); nothing was written.",

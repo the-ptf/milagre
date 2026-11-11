@@ -262,8 +262,7 @@ fn transcript_jobs_stay_within_their_byte_bounds() {
     host.register(Box::new(milagre_owner_store::chat_host::MockProvider::new(
         "kiro",
     )));
-    host.states.get(&project).unwrap();
-    host.states.flush(Some(&project)).unwrap();
+    host.open_project(&project).unwrap();
     let send = |session: i64| {
         json!({ "projectPath": project.display().to_string(), "sessionId": session, "provider": "kiro",
             "model": "m", "body": "Next", "clientMessageId": format!("c{session}") })

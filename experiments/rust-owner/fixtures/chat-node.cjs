@@ -178,7 +178,9 @@ async function run(tracesFile, name, dir) {
     let result = null;
     switch (step.op) {
       case "open":
+        // runtime.cjs opens a Project, then recovers its handoffs (recoverHandoffs) before anything else.
         await states.get(dir);
+        await host.recoverHandoffs(dir);
         break;
       case "send":
         if (step.brief) briefMode = step.brief;

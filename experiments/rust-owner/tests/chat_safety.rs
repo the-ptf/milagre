@@ -38,6 +38,8 @@ impl Copy {
         let mut host = ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0));
         let kiro = MockProvider::new("kiro");
         host.register(Box::new(kiro.clone()));
+        // The runtime opens a Project before anything else.
+        host.open_project(&project).unwrap();
         Copy {
             _base: base,
             project,
@@ -449,14 +451,20 @@ fn a_closed_project_stays_closed() {
     );
     let errors: Vec<String> = copy.host.pump().iter().map(ToString::to_string).collect();
     assert_eq!(errors.len(), 2, "{errors:?}");
-    assert!(errors[0].contains("isn't open here"), "{errors:?}");
+    // Refused before anything is loaded: a forgotten Project isn't ready, and a late event never reopens it.
+    assert!(errors[0].contains("isn't open and ready"), "{errors:?}");
     assert!(!copy.host.states.has(&project));
     assert!(
         !ownership::project_lock(&project).exists(),
         "a late event took the lock again"
     );
 
-    // Opened again, a running turn is ended by a forced close.
+    // A send doesn't reopen it either; an explicit open does. A running turn is then ended by a forced close.
+    assert_eq!(
+        copy.send("two", "c2", json!({})).unwrap_err().code(),
+        Some("PROJECT_NOT_READY")
+    );
+    copy.host.open_project(&project).unwrap();
     copy.send("two", "c2", json!({})).unwrap();
     copy.host.pump();
     copy.host.forget(&project, true).unwrap();

@@ -568,6 +568,11 @@ pub enum Notice {
         lock: String,
         why: String,
     },
+    /// `open_project` finished: the Project is ready (told once per transition to ready). Until then nothing of it
+    /// is published.
+    ProjectReady {
+        project: PathBuf,
+    },
     /// A later definitive settlement of an answer told `Uncertain` before: `Accepted` (it stays), or `NotWaiting` /
     /// `Failed` (its answers message was taken back). The command was answered already; this is for the Chat.
     AnswerResolved {
@@ -777,6 +782,10 @@ pub struct ChatHost {
     pub interrupt_grace_ms: i64,
     /// Events a bounded pump left for the next one.
     held_events: Vec<ProviderEvent>,
+    /// Projects `open_project` made ready (the only ready transition), and Projects opened but not ready (an open
+    /// failed after loading, or a repeat open's checks failed): their locks and state are kept, new work refused.
+    ready: HashSet<PathBuf>,
+    not_ready: HashSet<PathBuf>,
     /// Handoffs being prepared, by Chat: the turn reserved for each (its generation) and what is ready so far.
     preparing: HashMap<String, Preparing>,
     /// The transcript jobs (opened on first use) and the ones not yet taken by the runtime.
@@ -850,6 +859,8 @@ impl ChatHost {
             deadlines: HashMap::new(),
             interrupt_grace_ms: INTERRUPT_GRACE_MS,
             held_events: Vec::new(),
+            ready: HashSet::new(),
+            not_ready: HashSet::new(),
             preparing: HashMap::new(),
             transcripts: None,
             ready_jobs: std::collections::VecDeque::new(),
@@ -1008,6 +1019,10 @@ impl ChatHost {
     }
 
     fn broadcast(&mut self, project: &Path) {
+        // Nothing of a Project that isn't ready is published: `ProjectReady` says when it is.
+        if !self.ready.contains(project) {
+            return;
+        }
         self.notice(Notice::Broadcast {
             project: project.to_path_buf(),
         });
@@ -1085,6 +1100,7 @@ impl ChatHost {
                 "This Project is closing; the message wasn't sent.".into(),
             ));
         }
+        self.require_ready(&project)?;
         // A Project already open here must still be ours before anything is staged in memory.
         if self.states.has(&project) {
             self.states.assert_owned(&project)?;
@@ -2079,6 +2095,15 @@ impl ChatHost {
                 outcome,
             },
         };
+        // A Project that isn't ready takes no provider event: refused and dropped, never loading or reopening it.
+        let chat = match &event {
+            ProviderEvent::Started { chat, .. }
+            | ProviderEvent::StartFailed { chat, .. }
+            | ProviderEvent::Agent { chat, .. }
+            | ProviderEvent::Exited { chat, .. }
+            | ProviderEvent::AnswerSettled { chat, .. } => chat.clone(),
+        };
+        self.require_ready_chat(&chat)?;
         match event {
             ProviderEvent::Started { chat, turn, result } => {
                 if self.active_turn(&chat) != Some(turn) {
@@ -2664,6 +2689,7 @@ impl ChatHost {
     /// chat:queue-send: Send now. A running turn that can't take it is stopped, and it starts once that turn ends.
     pub fn send_queued_now(&mut self, chat: &str, id: &str) -> Result<()> {
         let (project, _) = self.canonical_chat(chat)?;
+        self.require_ready(&project)?;
         let session_id = session_of_key(chat).unwrap_or(-1);
         let state = self.states.get(&project)?;
         let session = session_value(&state, &json!(session_id));
@@ -2722,6 +2748,7 @@ impl ChatHost {
     /// chat:queue-remove: takes a message out of the queue without sending it. False when it was already gone.
     pub fn remove_queued(&mut self, chat: &str, id: &str) -> Result<bool> {
         let (project, _) = self.canonical_chat(chat)?;
+        self.require_ready(&project)?;
         let session_id = session_of_key(chat).unwrap_or(-1);
         let (_, changed) = self.states.update(&project, Some(&[]), true, |latest| {
             let session = agent_runs_session(latest, session_id)?;
@@ -2877,6 +2904,11 @@ impl ChatHost {
             return Err(self.quit_pending("Closing this Project"));
         }
         let closed = self.states.forget(&key);
+        if closed.is_ok() {
+            // Forgotten: only an explicit open_project makes it ready again.
+            self.ready.remove(&key);
+            self.not_ready.remove(&key);
+        }
         self.closing.remove(&key);
         self.deferred.retain(|(chat, _)| !in_project(chat));
         closed
@@ -3162,11 +3194,99 @@ impl ChatHost {
         }
     }
 
+    /// Opens a Project for this host: the only way it becomes ready, and required before any send, queued start,
+    /// Send now, answer or provider event for it (refused `PROJECT_NOT_READY` until then).
+    ///
+    /// Quitting, or the Project closing: `OWNER_CLOSING`, nothing changes. Otherwise its states are loaded (a failure
+    /// there releases as before), ownership and its root are verified, it is marked not ready, the handover store is
+    /// opened (lease, then the sweep; another owner holds it: `HANDOVER_STORE_BUSY`), dividers left preparing are
+    /// recovered (this host's live preparations skipped, never cancelled) and the result is flushed. Only then is it
+    /// ready, told once as `Notice::ProjectReady`. Any failure after loading keeps its locks and state and leaves it not
+    /// ready; calling this again retries.
+    ///
+    /// Already ready: ownership, the root and the handover store are checked again and it returns, with no recovery,
+    /// save or notice. If a check fails it becomes not ready (new work refused, locks kept) and the error is returned:
+    /// never ready against an untrusted root.
+    pub fn open_project(&mut self, project: &Path) -> Result<()> {
+        let key = self.canonical_project(&project.display().to_string())?;
+        if self.quitting || self.closing.contains(&key) {
+            return Err(StoreError::OwnerClosing(format!(
+                "{} is closing (or Milagre is quitting); it wasn't opened.",
+                key.display()
+            )));
+        }
+        if self.ready.contains(&key) {
+            return self.require_project_ready(&key);
+        }
+        self.states.get(&key)?;
+        self.not_ready.insert(key.clone());
+        self.states.assert_owned(&key)?;
+        self.open_transcripts()?;
+        if let Some(jobs) = &self.transcripts {
+            jobs.validate()?;
+        }
+        let recovered = self.recover_handoffs(&key)?;
+        self.states.flush(Some(&key))?;
+        self.not_ready.remove(&key);
+        self.ready.insert(key.clone());
+        self.notice(Notice::ProjectReady {
+            project: key.clone(),
+        });
+        // What recovery changed is published now that the Project is ready (Node broadcasts it as it recovers).
+        if recovered {
+            self.broadcast(&key);
+        }
+        Ok(())
+    }
+
+    /// Whether a Project is open and ready here (see [`ChatHost::open_project`]): a pure lookup, no I/O, never loads
+    /// or reopens anything. `project` is compared as given (the canonical path `open_project` was called with).
+    pub fn is_project_ready(&self, project: &Path) -> bool {
+        self.ready.contains(project)
+    }
+
+    /// Checks a ready Project still is: its ownership and root (`assert_owned`) and the retained handover store
+    /// (folder still the one locked). Not ready: `PROJECT_NOT_READY`. A failed check makes it not ready (new work
+    /// refused, locks and state kept) and returns the error. Never recovers, loads or reopens: only `open_project`
+    /// makes a Project ready.
+    pub fn require_project_ready(&mut self, project: &Path) -> Result<()> {
+        self.require_ready(project)?;
+        let checked = self
+            .states
+            .assert_owned(project)
+            .and_then(|()| match &self.transcripts {
+                Some(jobs) => jobs.validate(),
+                None => Ok(()),
+            });
+        if let Err(error) = checked {
+            self.ready.remove(project);
+            self.not_ready.insert(project.to_path_buf());
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Refused `PROJECT_NOT_READY` unless the Project of `project` is ready.
+    fn require_ready(&self, project: &Path) -> Result<()> {
+        if self.ready.contains(project) {
+            return Ok(());
+        }
+        Err(StoreError::ProjectNotReady(format!(
+            "{} isn't open and ready here; nothing was saved or started.",
+            project.display()
+        )))
+    }
+
+    /// [`ChatHost::require_ready`] for the Project of a Chat key.
+    fn require_ready_chat(&self, chat: &str) -> Result<()> {
+        self.require_ready(Path::new(agent_runs::project_of_key(chat)))
+    }
+
     /// recoverHandoffs: when a Project opens, a divider still `preparing` that no handoff here prepares failed in a
     /// crash: it is marked failed (a switch's session going back to the provider it left), and `handoverPending`
     /// marks go. Call after the handover store is open (its leftovers swept).
-    pub fn recover_handoffs(&mut self, project: &Path) -> Result<()> {
-        let key = self.canonical_project(&project.display().to_string())?;
+    fn recover_handoffs(&mut self, key: &Path) -> Result<bool> {
+        let key = key.to_path_buf();
         let project_text = key.display().to_string();
         let live: HashSet<String> = self.preparing.keys().cloned().collect();
         let (_, changed) = self.states.update(&key, None, true, |latest| {
@@ -3212,10 +3332,8 @@ impl ChatHost {
                     .with_messages(list)
             })
         })?;
-        if changed {
-            self.broadcast(&key);
-        }
-        Ok(())
+        // Told once the Project is ready (open_project): nothing of it is published before.
+        Ok(changed)
     }
 
     /// Reserves the transcript job of the handoff `chat` prepares for `turn`, ready for `take_jobs`.
@@ -3910,6 +4028,9 @@ impl ChatHost {
     /// `permission-resolved` follows as an agent event. Setup reviews (`setup-review-*`) are refused: Worktree setup
     /// isn't ported.
     pub fn respond_permission(&mut self, request: &Value) -> Result<AnswerTicket> {
+        if let Some(chat) = request.get("chatId").and_then(Value::as_str) {
+            self.require_ready_chat(chat)?;
+        }
         let request_id = request.get("requestId");
         if request_id
             .and_then(Value::as_str)
@@ -4129,6 +4250,9 @@ impl ChatHost {
     /// them. Refused: chat secrets and bug reports (their requests never reach a Chat), images attached to answers,
     /// and a Subchat suggestion card's answer. Subchat escalation bookkeeping isn't ported.
     pub fn answer_question(&mut self, request: &Value) -> Result<AnswerTicket> {
+        if let Some(chat) = request.get("chatId").and_then(Value::as_str) {
+            self.require_ready_chat(chat)?;
+        }
         let request_id = request.get("requestId");
         let id_text = request_id.and_then(Value::as_str);
         if id_text.is_some_and(|id| id.starts_with("milagre-secret-")) {

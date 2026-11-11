@@ -127,8 +127,9 @@ impl Run {
         let p = self.project.clone();
         match step["op"].as_str().unwrap() {
             "open" => {
-                self.host.states.get(&p).unwrap();
-                Value::Null
+                // The runtime opens a Project through the host (states, handover store, recovery) before anything else.
+                let result = self.host.open_project(&p).map(|()| Value::Null);
+                self.attempt(result)
             }
             "send" => {
                 let mut request = step["request"].clone();
@@ -253,7 +254,8 @@ impl Run {
                 Value::Null
             }
             "recover" => {
-                let result = self.host.recover_handoffs(&p).map(|()| Value::Null);
+                // Recovery ran when the Project opened; opening again is the ready fast path (no recovery, no save).
+                let result = self.host.open_project(&p).map(|()| Value::Null);
                 self.attempt(result)
             }
             "flush" => {
@@ -340,7 +342,7 @@ impl Run {
             .filter(|notice| {
                 !matches!(
                     notice,
-                    Notice::Started { .. } | Notice::AnswerSettled { .. } | Notice::AnswerResolved { .. } | Notice::SteerRequested { .. }
+                    Notice::Started { .. } | Notice::AnswerSettled { .. } | Notice::AnswerResolved { .. } | Notice::SteerRequested { .. } | Notice::ProjectReady { .. }
                 )
             })
             .map(|notice| match notice {
@@ -363,7 +365,7 @@ impl Run {
                 Notice::Failed { what, error, .. } => json!({ "failed": what, "error": error }),
                 Notice::AnswerForgotten { answer, .. } => json!({ "answerForgotten": answer.0 }),
                 Notice::LockStranded { lock, why } => json!({ "lockStranded": lock, "why": why }),
-                Notice::Started { .. } | Notice::AnswerSettled { .. } | Notice::AnswerResolved { .. } | Notice::SteerRequested { .. } => {
+                Notice::Started { .. } | Notice::AnswerSettled { .. } | Notice::AnswerResolved { .. } | Notice::SteerRequested { .. } | Notice::ProjectReady { .. } => {
                     unreachable!()
                 }
             })
@@ -568,6 +570,7 @@ fn unsupported_features_are_refused_not_approximated() {
     let claude = MockProvider::new("claude");
     host.register(Box::new(claude.clone()));
     host.register(Box::new(MockProvider::new("codex")));
+    host.open_project(&project).unwrap();
     let path = project.display().to_string();
     let send = |host: &mut ChatHost, extra: Value| {
         let mut request = json!({ "projectPath": path, "sessionId": 1, "provider": "claude", "model": "m", "body": "hi" });

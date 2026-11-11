@@ -360,7 +360,7 @@ fn a_swap_during_the_commit_is_reported_as_an_unknown_location() {
 fn the_handover_store_lease_is_held_through_every_job_and_outcome() {
     let mut s = setup();
     let refused = TranscriptJobs::new(&s.isolation).err().unwrap();
-    assert!(refused.to_string().contains("another owner"), "{refused}");
+    assert_eq!(refused.code(), Some("HANDOVER_STORE_BUSY"), "{refused}");
     s.jobs.job(&s.project, input(None)).unwrap().run();
     let JobOutcome::Staged { staged, .. } = s.jobs.take_outcomes().remove(0) else {
         panic!()
