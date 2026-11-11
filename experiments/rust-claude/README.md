@@ -216,10 +216,12 @@ cargo fmt --check
   `tests/fixtures/conformance/claude-contract.json`, generated from `permissions.cjs` and
   `questions.cjs` (21 permission cards incl. caps at 20,000 UTF-16 units, MCP names, blocked paths;
   8 results; 6 question cards; 6 question results; 4 answer settlements).
-- `tests/events.rs` compares 32 message sequences with Node `mapClaudeMessage`: streaming text,
+- `tests/events.rs` compares 42 message sequences with Node `mapClaudeMessage`: streaming text,
   thinking, steps/results, tasks, design drafts, subagent artifact steps, usage/compaction, local
-  commands, login/rate-limit errors and suggestions. Its generator uses a deterministic clock.
-- `tests/session.rs` covers 22 integration cases, including eight Node `ClaudeSession` traces:
+  commands, login/rate-limit errors and suggestions; child tasks/transcripts/status/progress and
+  background sets. Its generator uses a deterministic clock. The transcript-tail case feeds 105
+  messages and compares the final 100-row snapshots and cumulative progress.
+- `tests/session.rs` covers 24 integration cases, including eight Node `ClaudeSession` traces:
   starts/steering, implicit turns, notification-only turns, suggestions, permissions/questions,
   settings ordering, can-start, resume/login/crashes, backpressure, oversize sends, dropped startup,
   dropped steering, dropped close, session drop and interrupt grace. Fake processes only. Existing
@@ -246,10 +248,11 @@ Owner integration and remaining mapping:
 1. The standalone session is not wired to `rust-owner` or `rust-providers`; provider selection,
    durable turn ownership, persistence and desktop/mobile fanout still belong to that integration.
 2. `events.cjs` text/thinking, tool steps/results, task lists, live design drafts, compaction/context
-   usage, errors and suggestions are ported. `claudeSubagents`/`settleSubagents` (subagent transcript,
-   progress and background-task lifecycle) and `claudeReadImages` (image-file persistence) are not.
-   Mapper fixtures explicitly exclude those subagent event families and Read-image cases. Do not
-   treat this as a complete production event mapper.
+   usage, errors and suggestions are ported, including `claudeSubagents`/`settleSubagents`: nested
+   launches, status updates, task lists, transcript/progress caps, foreground waits and background
+   sets. Background work survives a normal turn end; close/crash settles it before terminal events.
+   `claudeReadImages` (image-file persistence) remains unported; fixtures exclude Read-image cases.
+   The mapper is not wired to the production owner yet.
 3. In-process MCP server for linked tools (`createSdkMcpServer` + `runTool`): only the `mcp_message`
    hook exists; MCP `initialize` / `tools/list` / `tools/call` serving, `alwaysLoad`, annotations and
    `sdkMcpServerManifests` are not implemented.

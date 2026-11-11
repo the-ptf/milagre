@@ -533,3 +533,41 @@ async fn concurrent_close_callers_both_wait_for_process_cleanup() {
     assert_eq!(next(&mut events).await["type"], "turn-cancelled");
     assert!(events.recv().await.is_none());
 }
+
+fn background_launch() -> Value {
+    json!({"emit":{"type":"assistant","message":{"content":[{"type":"tool_use","id":"child","name":"Agent","input":{"description":"Review","run_in_background":true}}]}}})
+}
+fn background_shell() -> Value {
+    json!({"emit":{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"shell","task_type":"local_bash","description":"Build"}]}})
+}
+#[tokio::test]
+async fn background_work_survives_turn_but_close_settles_once() {
+    let mut script = handshake();
+    script.extend([json!({"expect":{"type":"user"}}), init(), background_launch(), background_shell(), result()]);
+    let (session, mut events) = configured(script, |o| o.clock = Some(Arc::new(|| 1234)));
+    session.start_turn(request("one")).await.unwrap();
+    let trace = until(&mut events, "turn-completed").await;
+    assert_eq!(trace.iter().filter(|e| e["type"] == "subagent-update").count(), 1);
+    assert_eq!(trace.iter().find(|e| e["type"] == "subagent-update").unwrap()["agent"]["status"], "running");
+    assert!(!session.turn_active());
+    session.close().await;
+    let child = next(&mut events).await;
+    assert_eq!(child["agent"]["id"], "child");
+    assert_eq!(child["agent"]["status"], "cancelled");
+    assert_eq!(child["agent"]["endedAt"], 1234);
+    assert_eq!(next(&mut events).await, json!({"type":"background-tasks","tasks":[]}));
+    session.close().await;
+    assert!(events.recv().await.is_none());
+}
+#[tokio::test]
+async fn process_crash_settles_children_and_background_before_turn_failure() {
+    let mut script = handshake();
+    script.extend([json!({"expect":{"type":"user"}}), init(), background_launch(), background_shell(), json!({"exit":7})]);
+    let (session, mut events) = session(script);
+    session.start_turn(request("one")).await.unwrap();
+    let trace = until(&mut events, "turn-failed").await;
+    assert_eq!(kinds(&trace[trace.len() - 3..]), ["subagent-update", "background-tasks", "turn-failed"]);
+    assert_eq!(trace[trace.len() - 3]["agent"]["status"], "failed");
+    assert_eq!(trace[trace.len() - 2]["tasks"], json!([]));
+    assert!(events.recv().await.is_none());
+}

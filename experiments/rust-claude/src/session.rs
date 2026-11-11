@@ -888,6 +888,9 @@ impl Inner {
     // The state transition happens before any await; cleanup owns only the client and continues if
     // a caller drops close(). Dropping the runtime also drops that last client and kills its group.
     fn stop_locked(&self, state: &mut State) -> Option<watch::Receiver<Option<ExitInfo>>> {
+        for event in state.mapper.settle_subagents("cancelled") {
+            self.emit(event);
+        }
         state.closed = true;
         state.cancel_requested |= state.turn_active;
         state.generation += 1;
@@ -1147,6 +1150,10 @@ impl Inner {
         }
         state.client = None;
         state.closed = true;
+        let status = if state.cancel_requested { "cancelled" } else { "failed" };
+        for event in state.mapper.settle_subagents(status) {
+            self.emit(event);
+        }
         if let Some(info) = &info {
             state.exit = Some(info.clone());
         }

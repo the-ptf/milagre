@@ -2,8 +2,8 @@
 //! in `packages/core/src/agents/events.cjs`. Events are JSON values in the `AgentEvent` shapes of
 //! `@milagre/shared/model`, so the owner forwards them unchanged.
 //!
-//! Not ported: `claudeSubagents` (subagents.cjs: `subagent-update`, `background-tasks`,
-//! `subagents-waiting`) and `claudeReadImages` (it writes image files). See README gaps.
+//! Includes child/background lifecycles (`subagents.cjs`). Read-image persistence is configured
+//! separately by the owner. See README for integration boundaries.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -205,6 +205,7 @@ pub struct ClaudeMapper {
     /// Tool calls waiting for their result, by tool_use id.
     pub tools: HashMap<String, Value>,
     tasks: Tasks,
+    subagents: crate::subagents::Subagents,
     clock: Clock,
 }
 
@@ -336,6 +337,7 @@ impl ClaudeMapper {
             subagent_artifacts: HashMap::new(),
             tools: HashMap::new(),
             tasks: Tasks::default(),
+            subagents: Default::default(),
             clock: clock.unwrap_or_else(|| Arc::new(system_clock)),
         }
     }
@@ -347,7 +349,12 @@ impl ClaudeMapper {
     /// What `finishTurn` clears: calls waiting for a result never get one, nor does cut-off thinking.
     pub fn end_turn(&mut self) {
         self.tools.clear();
+        self.subagents.end_turn();
         self.thinking = None;
+    }
+
+    pub fn settle_subagents(&mut self, status: &str) -> Vec<Value> {
+        self.subagents.settle(status, self.now())
     }
 
     fn text_delta(&mut self, text: &str, starts_message: bool) -> Value {
@@ -428,7 +435,7 @@ impl ClaudeMapper {
             let turn_id = self.suggestion_turn_id.take().unwrap();
             return vec![json!({ "type": "prompt-suggestion", "text": suggestion.unwrap(), "turnId": turn_id })];
         }
-        let mut events: Vec<Value> = Vec::new();
+        let mut events = self.subagents.map(message, self.now());
         if kind == "assistant" && message.get("error").and_then(Value::as_str) == Some("authentication_failed") {
             self.auth_failed = true;
         }

@@ -17,6 +17,7 @@ pub mod process;
 pub mod protocol;
 pub mod session;
 pub mod steps;
+pub mod subagents;
 pub mod tasks;
 pub mod text;
 

@@ -3,15 +3,15 @@
 // mapClaudeMessage (packages/core/src/agents/events.cjs), message by message, with the events each produced.
 //   NODE_PATH=<checkout>/node_modules node experiments/rust-claude/scripts/generate-events.cjs
 //   npx oxfmt experiments/rust-claude/tests/fixtures/conformance/claude-events.json
-// Pure: no process, no file other than the fixture. Subagent events (subagents.cjs, not ported) are left out of the
-// expected lists; no case carries a Read image (claudeReadImages writes files).
+// Pure: no process, no file other than the fixture. Full subagent events are included.
+// Read-image persistence has its own isolated fixture generator.
 const fs = require("node:fs");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "../../..");
 const { mapClaudeMessage } = require(path.join(root, "packages/core/src/agents/events.cjs"));
 
-const SUBAGENT_EVENTS = new Set(["subagent-update", "subagents-waiting", "background-tasks"]);
+const { settleSubagents } = require(path.join(root, "packages/core/src/agents/subagents.cjs"));
 
 const init = (session_id = "s-1") => ({ type: "system", subtype: "init", session_id, model: "claude-opus-5-5", tools: [] });
 const stream = (event, parent = null) => ({ type: "stream_event", parent_tool_use_id: parent, event, session_id: "s-1" });
@@ -310,6 +310,8 @@ const cases = [
   ["unknown-messages", [{ type: "future_kind", data: 1 }, { type: "system", subtype: "hook_started" }, { type: "keep_alive" }]],
 ];
 
+cases.push(...require("./subagent-cases.cjs").map(([name, messages]) => [name, messages.map((message, index) => at(1000 + index * 100, message))]));
+const originalNow = Date.now;
 const output = cases.map(([name, messages, initial = {}]) => {
   const steps = all(messages);
   let clock = 0;
@@ -317,14 +319,18 @@ const output = cases.map(([name, messages, initial = {}]) => {
   return {
     name,
     initial,
-    steps: steps.map(({ at: time, message }) => {
+    steps: steps.map(({ at: time, message }, index) => {
       clock = time;
-      const events = mapClaudeMessage(message, state).filter((event) => !SUBAGENT_EVENTS.has(event.type));
+      Date.now = () => clock;
+      const events = message.settle ? settleSubagents(state, message.settle) : mapClaudeMessage(message, state);
+      // The tail case checks the final 100 rows and cumulative totals; omit its growing warmup snapshots.
+      if (name === "child-transcript-tail" && index > 0 && index < 101) return { at: time, message };
       return { at: time, message, events: JSON.parse(JSON.stringify(events)) };
     }),
   };
 });
 
+Date.now = originalNow;
 const file = path.join(__dirname, "../tests/fixtures/conformance/claude-events.json");
 fs.writeFileSync(file, `${JSON.stringify({ generatedBy: "experiments/rust-claude/scripts/generate-events.cjs", cases: output }, null, 2)}\n`);
 console.log(`wrote ${path.relative(root, file)} (${output.length} cases)`);
