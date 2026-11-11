@@ -32,9 +32,37 @@ export default {
     if (!ID.test(url.searchParams.get("id") ?? "")) return new Response("Bad id", { status: 400 });
     if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
     const id = url.searchParams.get("id")!;
-    return env.ROOMS.get(env.ROOMS.idFromName(id)).fetch(request);
+    const answer = await env.ROOMS.get(env.ROOMS.idFromName(id)).fetch(request);
+    const refusal = answer.status === 101 ? null : parseRefusal(answer.headers.get(REFUSAL_HEADER));
+    return refusal ? closedSocket(refusal) : answer;
   },
 };
+
+// A room turns a phone away with a plain HTTP answer naming the close code, and the Worker closes its own socket with
+// it. A socket the room accepted itself, even only to close it, keeps the room in memory until the close completes:
+// a paired desktop redialing a sleeping Mac every 30 s kept that Mac's room awake all day (2026-11-10, the daily
+// duration limit). The phone still sees the same 4404/4429 close as before.
+const REFUSAL_HEADER = "x-milagre-refusal";
+
+type Refusal = { code: number; reason: string };
+
+function parseRefusal(value: string | null): Refusal | null {
+  const match = /^(4\d{3}) ([a-z-]{1,40})$/.exec(value ?? "");
+  return match ? { code: Number(match[1]), reason: match[2]! } : null;
+}
+
+function refusalAnswer({ code, reason }: Refusal): Response {
+  return new Response(null, { status: 409, headers: { [REFUSAL_HEADER]: `${code} ${reason}` } });
+}
+
+/** Accepted and closed at once by the Worker, so no Durable Object holds it. */
+function closedSocket({ code, reason }: Refusal): Response {
+  const [client, server] = Object.values(new WebSocketPair());
+  if (!client || !server) throw new Error("WebSocketPair did not yield two sockets");
+  server.accept();
+  server.close(code, reason);
+  return new Response(null, { status: 101, webSocket: client });
+}
 
 type Role = "host" | "phone";
 
@@ -70,16 +98,11 @@ export class Room implements DurableObject {
     // rebuild it from the marks, exactly as after an eviction, now that the request says which Mac this is.
     if (this.room && this.roomId !== id) this.room = undefined;
     const room = this.live(); // before accepting, so a rebuild cannot mistake the new socket for one that lost its state
+    // A phone turned away at the door gets no socket here: the Worker closes its own (see closedSocket).
+    const refusal = role === "phone" ? room.phoneRefusal() : null;
+    if (refusal) return refusalAnswer(refusal);
     const [client, server] = Object.values(new WebSocketPair());
     if (!client || !server) throw new Error("WebSocketPair did not yield two sockets");
-    // A phone turned away at the door never becomes hibernatable: the runtime takes about 10 s to finish
-    // closing a hibernatable socket that has not sent anything yet, and the phone would wait that long for its 4404.
-    const refusal = role === "phone" ? room.phoneRefusal() : null;
-    if (refusal) {
-      server.accept();
-      server.close(refusal.code, refusal.reason);
-      return new Response(null, { status: 101, webSocket: client });
-    }
     // Hibernatable sockets hand binary over as an ArrayBuffer, which the room reads with its brand check.
     this.state.acceptWebSocket(server, [role]);
     if (role === "host") room.hostOpened(server);
