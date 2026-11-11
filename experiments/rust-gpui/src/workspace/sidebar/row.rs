@@ -9,11 +9,11 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use gpui::{ClickEvent, Context, EventEmitter, FontWeight, Rgba, SharedString, Window, div, prelude::*, px};
+use gpui::{ClickEvent, Context, EventEmitter, FontWeight, Rgba, Window, div, prelude::*, px};
 
 use crate::data::fixture::{ChatRow, ChatStatus};
-use crate::theme::{ActiveTheme, RADIUS_CHIP, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_11, TEXT_12, TEXT_13, TextStepExt, Theme, hex};
-use crate::ui::{Icon, IconName, IconSize, SpinnerRing};
+use crate::theme::{ActiveTheme, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_12, TEXT_13, TextStepExt, Theme, hex};
+use crate::ui::{Icon, IconName, IconSize, ProjectAvatar, SpinnerRing};
 
 /// Horizontal inset of each row inside the sidebar.
 pub const ROW_INSET: f32 = 8.0;
@@ -100,25 +100,14 @@ impl Render for ChatRowView {
     }
 }
 
-/// A project tile: the project's identity colour, or `field`, with its initial at 600.
-fn project_tile(row: &ChatRow, theme: &Theme) -> impl IntoElement + use<> {
+/// A project tile: the project's identity colour, or `field`, with its initial at 600. (The spike's look;
+/// DESIGN.md's default tile is an ink fill, which `ProjectAvatar` draws without `.colors`.)
+fn project_tile(row: &ChatRow, theme: &Theme) -> ProjectAvatar {
     let (fill, ink) = match row.tile {
         Some(color) => (color, hex("#ffffff")),
         None => (theme.field, theme.ink2),
     };
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(px(TILE_SIZE))
-        .rounded(RADIUS_CHIP)
-        .bg(fill)
-        .text_color(ink)
-        .text_size(px(11.0))
-        .line_height(px(TEXT_11.line_height))
-        .font_weight(FontWeight::SEMIBOLD)
-        .child(SharedString::from(row.initial.to_string()))
+    ProjectAvatar::new(&row.initial.to_string()).size(TILE_SIZE).colors(fill, ink)
 }
 
 pub fn dot_mark(color: Rgba) -> gpui::Div {

@@ -6,24 +6,17 @@
 
 use gpui::{ClipboardItem, Entity, EntityInputHandler as _, Focusable as _, Modifiers, TestAppContext, VisualTestContext, px};
 
-use crate::theme::Theme;
-use crate::workspace::Workspace;
+use crate::testing::{self, leak};
 use crate::workspace::chat::ChatView;
 use crate::workspace::chat::composer::Composer;
 use crate::workspace::chat::markdown::{self, Block, SpanStyle};
 use crate::workspace::chat::transcript::{ApprovalState, COLUMN_WIDTH, Item, Transcript};
 
 fn mount(cx: &mut TestAppContext) -> (Entity<Transcript>, Entity<Composer>, &mut VisualTestContext) {
-    cx.update(|cx| cx.set_global(Theme::dark()));
-    let (workspace, cx) = cx.add_window_view(Workspace::new);
+    let (workspace, cx) = testing::mount_workspace(cx);
     let chat: Entity<ChatView> = workspace.read_with(cx, |workspace, _| workspace.chat.clone());
     let (transcript, composer) = chat.read_with(cx, |chat, _| (chat.transcript.clone(), chat.composer.clone()));
-    cx.run_until_parked();
     (transcript, composer, cx)
-}
-
-fn leak(s: String) -> &'static str {
-    Box::leak(s.into_boxed_str())
 }
 
 #[test]
@@ -256,7 +249,7 @@ fn activity_marks_take_their_width(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn clicking_a_link_in_prose_opens_it(cx: &mut TestAppContext) {
-    cx.update(|cx| cx.set_global(Theme::dark()));
+    testing::init(cx);
     let items = vec![Item::Prose(markdown::parse("[Open the docs](https://milagre.cloud/docs) for the list API."))];
     let (_, cx) = cx.add_window_view(|_, cx| Transcript::with_items(items, cx));
     let item = cx.debug_bounds("transcript-item-0").expect("the one item is drawn");

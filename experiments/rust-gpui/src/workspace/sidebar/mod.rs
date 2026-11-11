@@ -28,8 +28,8 @@ use gpui::{
 
 use crate::data::fixture::chat_fixtures;
 pub use crate::data::fixture::{ChatRow, ChatStatus};
-use crate::theme::{ActiveTheme, CONTROL_MD, CONTROL_XS, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_12, TEXT_13, TextStepExt, Theme};
-use crate::ui::{Icon, IconName};
+use crate::theme::{ActiveTheme, CONTROL_MD, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_13, TextStepExt, Theme};
+use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, SectionLabel};
 use crate::workspace::chrome::{self, NoDrag};
 use row::{ChatRowView, ROW_INSET, RowEvent, dot_mark};
 
@@ -175,7 +175,7 @@ impl Render for Sidebar {
             .h_full()
             .bg(theme.canvas)
             .text_color(theme.ink)
-            .child(header(&theme))
+            .child(header())
             .child(destination("canvas", "Canvas", IconName::FlowConnection, false, &theme))
             .child(destination("routines", "Routines", IconName::TimeSchedule, true, &theme))
             .child(destination("links", "Links", IconName::Link04, false, &theme))
@@ -189,7 +189,7 @@ impl Render for Sidebar {
                     .h(px(SECTION_HEIGHT))
                     .pl(px(20.0))
                     .pr(px(16.0))
-                    .child(div().text_step(TEXT_12).font_weight(FontWeight::MEDIUM).text_color(theme.ink3).child("All Chats"))
+                    .child(SectionLabel::new("All Chats"))
                     .child(Icon::new(IconName::Filter).color(theme.ink3)),
             )
             .child(
@@ -201,24 +201,14 @@ impl Render for Sidebar {
 
 /// 44px title-bar header: the traffic lights sit at the left (see `app.rs`), three 16px icon buttons at
 /// x 208, 240 and 272. Each button has a 24px hit area centred on its glyph.
-fn header(theme: &Theme) -> impl IntoElement + use<> {
+fn header() -> impl IntoElement {
     let button = |name: &'static str, icon: IconName, x: f32| {
-        let hover = theme.hover;
         div()
-            .id(name)
-            .debug_selector(move || name.to_string())
             .absolute()
             .left(px(x - 4.0))
             .top(px(10.0))
-            .size(CONTROL_XS)
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(RADIUS_CONTROL)
-            .cursor_pointer()
-            .hover(move |style| style.bg(hover))
             .no_drag()
-            .child(Icon::new(icon).color(theme.ink3))
+            .child(IconButton::new(name, icon).size(IconButtonSize::S24).glyph(IconSize::S16))
     };
     chrome::header("sidebar-header")
         .relative()

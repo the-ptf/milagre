@@ -22,7 +22,7 @@ use gpui::{
 use crate::theme::{
     ActiveTheme, CHAT_TEXT, CODE_TEXT, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_WINDOW, TEXT_12, TEXT_13, TextStepExt, Theme, mono,
 };
-use crate::ui::{Icon, IconName, IconSize};
+use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconName, IconSize};
 use crate::workspace::chat::markdown::{self, Block};
 
 /// The Chat content column, centred in the Chat column.
@@ -209,9 +209,9 @@ impl Transcript {
                         .flex()
                         .flex_none()
                         .gap(px(6.0))
-                        .child(self.decision_button(ix, ApprovalState::Denied, theme, cx))
-                        .child(self.decision_button(ix, ApprovalState::AlwaysAllowed, theme, cx))
-                        .child(self.decision_button(ix, ApprovalState::Allowed, theme, cx)),
+                        .child(self.decision_button(ix, ApprovalState::Denied, cx))
+                        .child(self.decision_button(ix, ApprovalState::AlwaysAllowed, cx))
+                        .child(self.decision_button(ix, ApprovalState::Allowed, cx)),
                 )
         } else {
             let icon = if approval.state == ApprovalState::Denied { IconName::Cancel01 } else { IconName::Tick02 };
@@ -248,37 +248,19 @@ impl Transcript {
         )
     }
 
-    fn decision_button(&self, ix: usize, decision: ApprovalState, theme: &Theme, cx: &Context<Self>) -> impl IntoElement + use<> {
-        let (id, selector, label) = match decision {
-            ApprovalState::Denied => ("approval-deny", "approval-deny", "Deny"),
-            ApprovalState::AlwaysAllowed => ("approval-always", "approval-always", "Always allow"),
-            _ => ("approval-allow-once", "approval-allow-once", "Allow once"),
+    /// Deny (`danger-ghost`), Always allow (`secondary`) and Allow once (`primary`), all 28 high (DESIGN.md
+    /// "Approvals").
+    fn decision_button(&self, ix: usize, decision: ApprovalState, cx: &Context<Self>) -> Button {
+        let (id, label, variant) = match decision {
+            ApprovalState::Denied => ("approval-deny", "Deny", ButtonVariant::DangerGhost),
+            ApprovalState::AlwaysAllowed => ("approval-always", "Always allow", ButtonVariant::Secondary),
+            _ => ("approval-allow-once", "Allow once", ButtonVariant::Primary),
         };
-        let hover_tint = theme.red_tint;
-        let hover = theme.hover;
-        div()
-            .id((id, ix))
-            .debug_selector(move || selector.into())
-            .flex()
-            .items_center()
-            .h(CONTROL_SM)
-            .px(px(10.0))
-            .rounded(RADIUS_CONTROL)
-            .text_step(TEXT_12)
-            .font_weight(FontWeight::MEDIUM)
-            .cursor_pointer()
-            .map(|button| match decision {
-                ApprovalState::Denied => button.text_color(theme.red_ink).hover(move |style| style.bg(hover_tint)),
-                ApprovalState::AlwaysAllowed => button
-                    .bg(theme.surface)
-                    .border_1()
-                    .border_color(theme.line_strong)
-                    .text_color(theme.ink)
-                    .hover(move |style| style.bg(hover)),
-                _ => button.bg(theme.ink).text_color(theme.on_ink).hover(|style| style.opacity(0.9)),
-            })
+        Button::new((id, ix), label)
+            .selector(id)
+            .variant(variant)
+            .size(ButtonSize::S28)
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| this.resolve(ix, decision, cx)))
-            .child(label)
     }
 }
 

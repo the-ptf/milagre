@@ -4,7 +4,7 @@
 //! By default the mark is drawn in its brand colours (gradient and blurred blobs included) as an image;
 //! `.mono(color)` draws the one-colour outline in `color`, for controls such as the model picker's rail.
 
-use gpui::{App, Hsla, IntoElement, ObjectFit, RenderOnce, StyledImage, Window, img, prelude::*, px, svg};
+use gpui::{App, Hsla, ImgResourceLoader, IntoElement, ObjectFit, RenderOnce, Resource, StyledImage, Window, img, prelude::*, px, svg};
 
 use crate::data::Provider;
 
@@ -65,4 +65,12 @@ impl RenderOnce for ProviderLogo {
             None => img(self.provider.logo_path()).flex_none().size(size).object_fit(ObjectFit::Contain).into_any_element(),
         }
     }
+}
+
+/// Starts decoding every brand mark, so the first frame that shows one already has it (an `img()` that is
+/// still loading draws nothing until its view renders again). Returns whether all are decoded; call it again
+/// to poll. `app::init` calls it; snapshot mode waits for it, because a window nobody can see gets no more
+/// frames after its first ones (gpui-pre stops the display link of an occluded window).
+pub fn preload_logos(cx: &mut App) -> bool {
+    Provider::ALL.iter().all(|provider| cx.fetch_asset::<ImgResourceLoader>(&Resource::Embedded(provider.logo_path().into())).is_some())
 }

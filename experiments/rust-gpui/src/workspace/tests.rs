@@ -3,14 +3,12 @@
 
 use gpui::{Modifiers, TestAppContext};
 
-use crate::theme::Theme;
-use crate::workspace::Workspace;
+use crate::testing;
 use crate::workspace::panel::PanelTab;
 
 #[gpui::test]
 fn clicking_a_panel_tab_makes_it_active(cx: &mut TestAppContext) {
-    cx.update(|cx| cx.set_global(Theme::dark()));
-    let (workspace, cx) = cx.add_window_view(Workspace::new);
+    let (workspace, cx) = testing::mount_workspace(cx);
     let panel = workspace.read_with(cx, |workspace, _| workspace.panel.clone());
     assert_eq!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Changes);
 
@@ -26,8 +24,7 @@ fn clicking_a_panel_tab_makes_it_active(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn clicking_a_chat_row_selects_it(cx: &mut TestAppContext) {
-    cx.update(|cx| cx.set_global(Theme::dark()));
-    let (workspace, cx) = cx.add_window_view(Workspace::new);
+    let (workspace, cx) = testing::mount_workspace(cx);
     let sidebar = workspace.read_with(cx, |workspace, _| workspace.sidebar.clone());
     assert_eq!(sidebar.read_with(cx, |sidebar, _| sidebar.selected()), Some(1));
 
@@ -40,8 +37,7 @@ fn clicking_a_chat_row_selects_it(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn columns_have_their_fixed_widths(cx: &mut TestAppContext) {
-    cx.update(|cx| cx.set_global(Theme::dark()));
-    let (_workspace, cx) = cx.add_window_view(Workspace::new);
+    let (_workspace, cx) = testing::mount_workspace(cx);
     let first_tab = cx.debug_bounds("panel-tab-Changes").expect("the Changes tab is drawn");
     let row = cx.debug_bounds("chat-row-0").expect("row 0 is drawn");
     // The sidebar row starts 8px in from the window edge; the panel's first tab starts 8px in from
@@ -65,10 +61,7 @@ fn gpui_component_widgets_mount(cx: &mut TestAppContext) {
         }
     }
 
-    cx.update(|cx| {
-        cx.set_global(Theme::dark());
-        gpui_component::init(cx);
-    });
+    testing::init(cx);
     let (_probe, cx) = cx.add_window_view(|_, _| Probe);
     let button = cx.debug_bounds("component-button").expect("the gpui-component Button is drawn");
     assert!(button.size.height > gpui::px(0.0) && button.size.width > gpui::px(0.0), "it has a size: {button:?}");
@@ -92,8 +85,7 @@ fn double_click(cx: &mut gpui::VisualTestContext, position: gpui::Point<gpui::Pi
 #[gpui::test]
 fn headers_move_and_zoom_the_window_but_their_controls_do_not(cx: &mut TestAppContext) {
     use gpui::{MouseButton, point, px};
-    cx.update(|cx| cx.set_global(Theme::dark()));
-    let (_workspace, cx) = cx.add_window_view(Workspace::new);
+    let (_workspace, cx) = testing::mount_workspace(cx);
     chrome_calls();
 
     // Press low in the sidebar header (y 38 of 44: below AppKit's old 28px strip), then move.

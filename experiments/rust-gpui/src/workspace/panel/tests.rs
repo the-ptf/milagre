@@ -2,19 +2,13 @@
 
 use gpui::{Modifiers, TestAppContext, px};
 
-use crate::theme::Theme;
-use crate::workspace::Workspace;
+use crate::testing::{self, leak};
 use crate::workspace::panel::{PANEL_WIDTH, PanelTab};
 
 fn mount(cx: &mut TestAppContext) -> (gpui::Entity<crate::workspace::panel::Panel>, &mut gpui::VisualTestContext) {
-    cx.update(|cx| cx.set_global(Theme::dark()));
-    let (workspace, cx) = cx.add_window_view(Workspace::new);
+    let (workspace, cx) = testing::mount_workspace(cx);
     let panel = workspace.read_with(cx, |workspace, _| workspace.panel.clone());
     (panel, cx)
-}
-
-fn leak(s: String) -> &'static str {
-    Box::leak(s.into_boxed_str())
 }
 
 #[gpui::test]
@@ -28,7 +22,7 @@ fn six_tabs_in_order_each_with_icon_and_name(cx: &mut TestAppContext) {
         assert_eq!(tab.size.height, px(28.0));
         assert!(tab.origin.x > last_x, "{name} is right of the previous tab");
         last_x = tab.origin.x;
-        if let Some(icon) = cx.debug_bounds(leak(format!("panel-tab-icon-{name}"))) {
+        if let Some(icon) = cx.debug_bounds(leak(format!("panel-tab-{name}-icon"))) {
             assert_eq!(icon.size.width, px(14.0));
             assert_eq!(icon.size.height, px(14.0));
             assert_eq!(icon.origin.x, tab.origin.x + px(6.0), "{name} icon after the 6px padding");

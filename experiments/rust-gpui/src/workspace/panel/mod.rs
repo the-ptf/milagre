@@ -1,12 +1,13 @@
-//! Side panel column: the tab strip and an empty body.
+//! Side panel column: the tab strip (`ui::Tab` in a horizontally scrolling list, expand and close pinned
+//! at the right) and an empty body.
 
 #[cfg(test)]
 mod tests;
 
-use gpui::{ClickEvent, Context, FontWeight, ScrollHandle, Window, div, prelude::*, px};
+use gpui::{ClickEvent, Context, ScrollHandle, Window, div, prelude::*, px};
 
-use crate::theme::{ActiveTheme, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, TEXT_12, TextStepExt};
-use crate::ui::{Icon, IconName, IconSize};
+use crate::theme::ActiveTheme;
+use crate::ui::{IconButton, IconButtonSize, IconName, IconSize, Tab};
 use crate::workspace::chrome::{self, NoDrag};
 
 pub const PANEL_WIDTH: f32 = 518.0;
@@ -81,59 +82,16 @@ impl Render for Panel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let tabs = PanelTab::ALL.map(|tab| {
-            let active = tab == self.active;
-            let hover = theme.hover;
-            let color = if active { theme.ink } else { theme.ink3 };
-            div()
-                .id(tab.label())
-                .debug_selector(move || format!("panel-tab-{}", tab.label()))
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(6.0))
-                .h(CONTROL_SM)
-                .px(px(6.0))
-                .rounded(RADIUS_CONTROL)
-                .text_step(TEXT_12)
-                .font_weight(FontWeight::MEDIUM)
-                .cursor_pointer()
-                .when(active, |el| el.bg(theme.hover2).text_color(theme.ink))
-                .when(!active, |el| el.text_color(theme.ink3).hover(move |style| style.bg(hover)))
-                .no_drag()
-                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    // Keep a double-click on a tab from reaching the header's zoom handler.
-                    cx.stop_propagation();
-                    this.activate(tab, cx);
-                }))
-                .child(
-                    div()
-                        .debug_selector(move || format!("panel-tab-icon-{}", tab.label()))
-                        .child(Icon::new(tab.icon()).size(IconSize::S14).color(color)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap(px(4.0))
-                        .child(tab.label())
-                        .when(tab == PanelTab::Changes, |el| el.child(div().text_color(theme.ink3).child("4"))),
-                )
+            Tab::new(tab.label(), tab.label())
+                .selector(format!("panel-tab-{}", tab.label()))
+                .icon(tab.icon())
+                .active(tab == self.active)
+                .when(tab == PanelTab::Changes, |el| el.count("4"))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| this.activate(tab, cx)))
         });
+        // Expand and close: 24px buttons with 16px glyphs, pinned right of the scrolling tabs.
         let button = |id: &'static str, icon: IconName| {
-            let hover = theme.hover;
-            div()
-                .id(id)
-                .debug_selector(move || id.to_string())
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .size(CONTROL_XS)
-                .rounded(RADIUS_CONTROL)
-                .cursor_pointer()
-                .hover(move |style| style.bg(hover))
-                .no_drag()
-                .on_click(|_, _, cx| cx.stop_propagation())
-                .child(Icon::new(icon).color(theme.ink3))
+            div().flex_none().no_drag().child(IconButton::new(id, icon).size(IconButtonSize::S24).glyph(IconSize::S16))
         };
         let tab_list = div()
             .id("panel-tab-list")

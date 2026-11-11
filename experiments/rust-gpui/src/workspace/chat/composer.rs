@@ -15,14 +15,15 @@ use std::rc::Rc;
 
 use gpui::{
     App, AvailableSpace, Bounds, ClickEvent, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, EventEmitter, FocusHandle, Focusable, FontWeight, Global, GlobalElementId, InspectorElementId, KeyBinding,
-    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, SharedString, Style, TextAlign, TextRun,
-    UTF16Selection, UnderlineStyle, Window, WrappedLine, actions, div, fill, font, point, prelude::*, px, relative, rgb, size,
+    EntityInputHandler, EventEmitter, FocusHandle, Focusable, Global, GlobalElementId, InspectorElementId, KeyBinding, LayoutId,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, SharedString, Style, TextAlign, TextRun,
+    UTF16Selection, UnderlineStyle, Window, WrappedLine, actions, div, fill, font, point, prelude::*, px, relative, size,
 };
 use unicode_segmentation::UnicodeSegmentation as _;
 
-use crate::theme::{ActiveTheme, CHAT_TEXT, CONTROL_SM, RADIUS_WINDOW, SANS, TEXT_12, TextStepExt, Theme};
-use crate::ui::{Icon, IconName};
+use crate::data::Provider;
+use crate::theme::{ActiveTheme, CHAT_TEXT, CONTROL_SM, RADIUS_WINDOW, SANS, Theme};
+use crate::ui::{Chip, Icon, IconButton, IconName};
 use crate::workspace::chat::transcript::COLUMN_WIDTH;
 
 actions!(
@@ -55,8 +56,6 @@ const KEY_CONTEXT: &str = "Composer";
 pub const COMPOSER_MIN_HEIGHT: f32 = 112.0;
 /// The input grows to this many lines, then scrolls to keep the caret in view.
 const MAX_LINES: usize = 8;
-/// Claude's brand colour, the model chip's dot.
-const CLAUDE_DOT: u32 = 0xd97757;
 
 pub enum ComposerEvent {
     Send(SharedString),
@@ -536,16 +535,15 @@ impl Render for Composer {
                     .h(CONTROL_SM)
                     .mx(px(8.0))
                     .mb(px(8.0))
-                    .child(icon_button("composer-attach", IconName::Attachment01, &theme))
+                    .child(IconButton::new("composer-attach", IconName::Attachment01).pill())
                     .child(div().flex_1())
-                    .child(chip(&theme).child("Ask"))
+                    .child(Chip::new("composer-mode").child("Ask"))
                     .child(
-                        chip(&theme)
-                            .gap(px(6.0))
-                            .child(div().flex_none().size(px(8.0)).rounded_full().bg(rgb(CLAUDE_DOT)))
+                        Chip::new("composer-model")
+                            .child(div().flex_none().size(px(8.0)).rounded_full().bg(Provider::Claude.brand_color()))
                             .child("Opus 5.5 · Medium"),
                     )
-                    .child(icon_button("composer-mic", IconName::Mic01, &theme))
+                    .child(IconButton::new("composer-mic", IconName::Mic01).pill())
                     .child(
                         div()
                             .id("composer-send")
@@ -579,38 +577,6 @@ fn utf16_to_utf8(text: &str, utf16: usize) -> usize {
         bytes += ch.len_utf8();
     }
     bytes
-}
-
-/// A composer trigger chip: 28 high, fully round, 12 medium `ink-2`, `hover` on hover.
-fn chip(theme: &Theme) -> gpui::Div {
-    let hover = theme.hover;
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .h(CONTROL_SM)
-        .px(px(10.0))
-        .rounded_full()
-        .text_step(TEXT_12)
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(theme.ink2)
-        .cursor_pointer()
-        .hover(move |style| style.bg(hover))
-}
-
-fn icon_button(id: &'static str, icon: IconName, theme: &Theme) -> impl IntoElement + use<> {
-    let hover = theme.hover;
-    div()
-        .id(id)
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(CONTROL_SM)
-        .rounded_full()
-        .cursor_pointer()
-        .hover(move |style| style.bg(hover))
-        .child(Icon::new(icon).color(theme.ink3))
 }
 
 /// Where the shaped input sits and how offsets map to points. Kept on the entity after paint so

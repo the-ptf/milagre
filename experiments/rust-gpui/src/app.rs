@@ -29,10 +29,28 @@ pub fn run() {
     let snapshot = std::env::var_os("MILAGRE_GPUI_SNAPSHOT").map(PathBuf::from);
     gpui_platform::application().with_assets(crate::assets::Assets).run(move |cx: &mut App| {
         init(cx);
-        let window = open_main_window(cx);
         match snapshot {
-            Some(path) => snapshot_then_quit(window, path, cx),
-            None => cx.activate(true),
+            None => {
+                open_main_window(cx);
+                cx.activate(true);
+            }
+            Some(path) => {
+                // The snapshot window is never activated, so AppKit may report it occluded (or the display is
+                // asleep) and gpui-pre then draws no frame after the first ones: images must be decoded before.
+                cx.spawn(async move |cx| {
+                    for _ in 0..100 {
+                        if cx.update(crate::ui::preload_logos) {
+                            break;
+                        }
+                        cx.background_executor().timer(Duration::from_millis(20)).await;
+                    }
+                    cx.update(|cx| {
+                        let window = open_main_window(cx);
+                        snapshot_then_quit(window, path, cx);
+                    });
+                })
+                .detach();
+            }
         }
     });
 }
@@ -42,6 +60,7 @@ pub fn run() {
 pub fn init(cx: &mut App) {
     cx.set_global(Theme::from_env());
     crate::theme::init_fonts(cx);
+    crate::ui::preload_logos(cx);
     // gpui-component's globals, theme and key bindings, so its widgets can be used in any view.
     gpui_component::init(cx);
 

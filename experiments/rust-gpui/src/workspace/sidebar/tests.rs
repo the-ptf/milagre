@@ -3,12 +3,10 @@
 use gpui::{Modifiers, TestAppContext, px};
 
 use crate::data::fixture::CHAT_COUNT;
-use crate::theme::Theme;
-use crate::workspace::Workspace;
+use crate::testing;
 
 fn mount(cx: &mut TestAppContext) -> (gpui::Entity<crate::workspace::sidebar::Sidebar>, &mut gpui::VisualTestContext) {
-    cx.update(|cx| cx.set_global(Theme::dark()));
-    let (workspace, cx) = cx.add_window_view(Workspace::new);
+    let (workspace, cx) = testing::mount_workspace(cx);
     let sidebar = workspace.read_with(cx, |workspace, _| workspace.sidebar.clone());
     (sidebar, cx)
 }
