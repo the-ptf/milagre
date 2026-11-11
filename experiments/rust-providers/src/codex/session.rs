@@ -1,28 +1,37 @@
-//! One Codex thread and its turns: the lifecycle subset of codex-provider.cjs `CodexSession` that
-//! touches the process. It starts or resumes the thread, starts / steers / interrupts turns, routes
-//! server requests into Milagre permission and question requests, and answers them exactly once,
-//! cancelling whatever is still open when a turn ends.
+//! One Codex thread and its turns: codex-provider.cjs `CodexSession` without host I/O. It starts or
+//! resumes the thread, starts / steers / interrupts turns, maps notifications to Milagre agent events
+//! (events.rs), routes server requests into Milagre permission and question requests with
+//! `PendingPermissions` / `PendingQuestions` semantics, and polls native subagent threads.
 //!
-//! Not here (owner/host policy, see the crate README): mapping item notifications to Milagre steps
-//! (events.cjs `mapCodexNotification`), subagent polling, babysit guards and wake escalation,
-//! WorkspaceAccess auto-answers, permission-mode auto-allow, MCP extras and the config retry ladder,
-//! image files, session instructions. Every notification is forwarded raw as
-//! [`SessionEvent::Notification`] so the owner can map the rest.
+//! Every Milagre event comes out as [`SessionEvent::Agent`] (the `AgentEvent` JSON contract), except
+//! the one terminal event of each turn, which comes as [`SessionEvent::TurnEnded`] with that JSON in
+//! `event`. Raw notifications are forwarded only with [`SessionOptions::forward_raw_notifications`].
+//!
+//! Not here (host or owner work, see README): babysit guards and wake escalation, WorkspaceAccess
+//! auto-answers beyond "auto allows edits inside the workspace", MCP extras and the config retry
+//! ladder, image files (turn input, generated and tool images), session instructions.
 
 use crate::codex::approvals::{self, Decision, QuestionOutcome};
 use crate::codex::client::{CodexClient, ConnectError, ConnectOptions, ResumeError};
-use crate::codex::protocol::{methods, CodexPolicy, RequestId};
-use crate::codex::rpc::{ExitInfo, Notification, RpcError, ServerEvent, ServerRequest};
-use serde_json::Value;
+use crate::codex::events::{crash_message, failed_with, is_terminal, map_codex_notification, CodexEventState};
+use crate::codex::protocol::{methods, CodexPolicy, PermissionMode, RequestId};
+use crate::codex::rpc::{signal_name, ExitInfo, Notification, RpcError, ServerEvent, ServerRequest};
+use crate::codex::subagents::{active as subagent_active, settle_subagents};
+use crate::queue::{self, EventReceiver, EventSender, QueueLimits};
+use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 
 #[derive(Debug, Clone)]
 pub struct SessionOptions {
     pub connect: ConnectOptions,
     pub cwd: String,
+    /// Other roots the session owns; edits inside them are allowed without a card in Auto.
+    pub workspace_roots: Vec<String>,
     /// Resume this thread instead of starting one.
     pub resume_thread_id: Option<String>,
     /// codex-provider.cjs `interruptGraceMs`.
@@ -33,6 +42,12 @@ pub struct SessionOptions {
     pub analysis_only: bool,
     /// Skip the `account/read` login check.
     pub skip_login_check: bool,
+    /// Also emit every notification raw as [`SessionEvent::Notification`].
+    pub forward_raw_notifications: bool,
+    /// How often subagent threads are read while one is active (codex-provider.cjs: 1.5 s).
+    pub subagent_poll_interval: Duration,
+    /// Budget for session events not yet received; past it Codex is stopped.
+    pub event_queue: QueueLimits,
 }
 
 impl SessionOptions {
@@ -40,11 +55,15 @@ impl SessionOptions {
         SessionOptions {
             connect,
             cwd: cwd.into(),
+            workspace_roots: Vec::new(),
             resume_thread_id: None,
             interrupt_grace: Duration::from_secs(3),
             ungated_milagre_tools: approvals::MILAGRE_UNGATED_TOOLS.iter().map(|s| s.to_string()).collect(),
             analysis_only: false,
             skip_login_check: false,
+            forward_raw_notifications: false,
+            subagent_poll_interval: Duration::from_millis(1500),
+            event_queue: QueueLimits::default(),
         }
     }
 }
@@ -67,6 +86,8 @@ pub struct TurnSettings {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub policy: CodexPolicy,
+    /// The Chat's mode, for answering approvals (Full allows, Auto allows workspace edits).
+    pub permission_mode: Option<PermissionMode>,
     /// `serviceTierForTurn`; codex-provider.cjs sends `"default"` unless fast mode is on.
     pub service_tier: String,
     pub extra: serde_json::Map<String, Value>,
@@ -76,66 +97,53 @@ pub struct TurnSettings {
 pub enum SessionError {
     #[error(transparent)]
     Connect(#[from] ConnectError),
-    /// `account/read` says no account while OpenAI auth is required.
+    /// `account/read` says no account while OpenAI auth is required. The Milagre message is
+    /// [`crate::codex::events::login_message`].
     #[error("Codex needs you to log in (codex login).")]
     LoginRequired,
     #[error(transparent)]
     Resume(#[from] ResumeError),
     #[error(transparent)]
     Rpc(#[from] RpcError),
-    #[error("A turn is already running; steer it or interrupt it first.")]
-    TurnActive,
     #[error("No turn is running.")]
     NoTurn,
-    #[error("The session is closed.")]
+    #[error("The agent session closed before this message was sent.")]
     Closed,
 }
 
+/// How a turn ended, from its terminal Milagre event.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TurnEnd {
     Completed,
     Failed {
         message: String,
     },
-    /// Codex reported `interrupted` without Milagre asking.
-    Interrupted,
-    /// Milagre stopped it (interrupt, close, or the grace-period kill).
+    /// Interrupted by Codex or stopped by Milagre (interrupt, close, the grace-period kill).
     Cancelled,
-    /// The process exited mid-turn.
+    /// The process exited mid-turn; `message` is Milagre's crash message.
     Crashed {
-        detail: String,
+        message: String,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionEvent {
-    /// Every notification, raw, own thread or not.
+    /// A Milagre agent event (`text-delta`, `step-started`, `permission-request`, `subagent-update`, …).
+    Agent(Value),
+    /// The one terminal event of a turn (`turn-completed` / `turn-failed` / `turn-cancelled`).
+    TurnEnded { turn_id: Option<String>, end: TurnEnd, event: Value },
+    /// A notification as received, with [`SessionOptions::forward_raw_notifications`].
     Notification(Notification),
-    ThreadStarted {
-        thread_id: String,
-    },
-    TurnStarted {
-        turn_id: String,
-    },
-    AgentMessageDelta {
-        item_id: Option<String>,
-        delta: String,
-    },
-    /// Milagre's `permission-request` shape (requestId, kind, tool, title, …).
-    PermissionRequest(Value),
-    /// Milagre's `question-request` shape (requestId, questions).
-    QuestionRequest(Value),
-    /// Codex took a request back (`serverRequest/resolved`) before Milagre answered.
-    RequestWithdrawn {
-        request_id: String,
-    },
-    /// Exactly once per started turn. `raw` is the `turn/completed` params when Codex sent them.
-    TurnEnded {
-        turn_id: Option<String>,
-        end: TurnEnd,
-        raw: Option<Value>,
-    },
+    /// Always the last event.
     Exited(ExitInfo),
+}
+
+/// What [`CodexSession::send`] did with a message.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SendOutcome {
+    pub turn_id: Option<String>,
+    /// Joined the running turn instead of starting one.
+    pub steered: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,28 +156,51 @@ enum PendingKind {
 struct Pending {
     rpc_id: RequestId,
     kind: PendingKind,
+    allow_for_chat: bool,
+    in_workspace: bool,
+    /// Question ids, for dropping answers to questions that weren't asked.
+    question_ids: Vec<String>,
 }
 
 #[derive(Default)]
 struct State {
-    thread_id: Option<String>,
-    turn_id: Option<String>,
     turn_active: bool,
     cancel_requested: bool,
     closed: bool,
-    /// By Milagre request id (`String(id)`).
-    pending: HashMap<String, Pending>,
+    ready: bool,
+    /// turn/start is in flight.
+    starting: bool,
+    mode: Option<PermissionMode>,
+    /// By Milagre request id (`String(id)`), in arrival order.
+    pending: indexmap::IndexMap<String, Pending>,
     /// fileChange items from item/started; their approval requests carry no diff of their own.
     file_changes: HashMap<String, Vec<Value>>,
+    /// Why the session stopped Codex itself, for the crash message.
+    stop_detail: Option<String>,
+}
+
+/// Per subagent thread: what the last poll saw (codex-provider.cjs `childHistory`).
+#[derive(Default, Clone)]
+struct ChildHistory {
+    cursor: Option<String>,
+    /// `turn:item` -> the item while its turn runs, `None` once the turn finished.
+    items: HashMap<String, Option<Value>>,
+    outcome: Option<Value>,
+    agent_status: Option<Value>,
+    finished: bool,
 }
 
 struct Inner {
     client: CodexClient,
     options: SessionOptions,
     state: Mutex<State>,
-    events: mpsc::UnboundedSender<SessionEvent>,
-    /// Bumped whenever a turn ends.
+    mapper: Mutex<CodexEventState>,
+    events: EventSender<SessionEvent>,
+    /// Bumped whenever a turn ends; and whenever turn/start settles.
     turn_ended: watch::Sender<u64>,
+    turn_ready: watch::Sender<u64>,
+    poll_scheduled: AtomicBool,
+    polling: tokio::sync::Mutex<HashMap<String, ChildHistory>>,
 }
 
 #[derive(Clone)]
@@ -182,11 +213,21 @@ impl CodexSession {
     pub async fn start(
         options: SessionOptions,
         thread: ThreadSettings,
-    ) -> Result<(CodexSession, mpsc::UnboundedReceiver<SessionEvent>), SessionError> {
+    ) -> Result<(CodexSession, EventReceiver<SessionEvent>), SessionError> {
         let (client, rpc_events) = CodexClient::connect(options.connect.clone()).await?;
-        let (events, events_rx) = mpsc::unbounded_channel();
-        let (turn_ended, _) = watch::channel(0);
-        let inner = Arc::new(Inner { client, options, state: Mutex::new(State::default()), events, turn_ended });
+        let (events, events_rx) = queue::channel(options.event_queue);
+        let mapper = CodexEventState::new(options.resume_thread_id.clone());
+        let inner = Arc::new(Inner {
+            client,
+            options,
+            state: Mutex::new(State::default()),
+            mapper: Mutex::new(mapper),
+            events,
+            turn_ended: watch::channel(0).0,
+            turn_ready: watch::channel(0).0,
+            poll_scheduled: AtomicBool::new(false),
+            polling: tokio::sync::Mutex::new(HashMap::new()),
+        });
         tokio::spawn(pump(inner.clone(), rpc_events));
         let session = CodexSession { inner };
         match session.open_thread(thread).await {
@@ -202,6 +243,7 @@ impl CodexSession {
         let inner = &self.inner;
         if !inner.options.skip_login_check {
             if let Some(status) = inner.client.account_status().await {
+                inner.mapper.lock().unwrap().requires_openai_auth = Some(status.requires_openai_auth);
                 if status.login_required() {
                     return Err(SessionError::LoginRequired);
                 }
@@ -225,12 +267,19 @@ impl CodexSession {
             Some(id) => inner.client.thread_resume(id, Value::Object(params)).await?,
             None => inner.client.thread_start(Value::Object(params)).await?,
         };
-        let thread_id =
-            result.pointer("/thread/id").and_then(Value::as_str).map(str::to_string).or_else(|| inner.options.resume_thread_id.clone());
-        if let Some(id) = &thread_id {
-            inner.state.lock().unwrap().thread_id = Some(id.clone());
-            inner.emit(SessionEvent::ThreadStarted { thread_id: id.clone() });
+        // A new id (a fresh thread, or a resume that moved) is announced as session-started.
+        if let Some(id) = result.pointer("/thread/id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+            let changed = {
+                let mut mapper = inner.mapper.lock().unwrap();
+                let changed = mapper.thread_id.as_deref() != Some(id);
+                mapper.thread_id = Some(id.to_string());
+                changed
+            };
+            if changed {
+                inner.emit(SessionEvent::Agent(json!({ "type": "session-started", "nativeId": id })));
+            }
         }
+        inner.state.lock().unwrap().ready = true;
         Ok(())
     }
 
@@ -238,16 +287,26 @@ impl CodexSession {
         &self.inner.client
     }
 
+    /// Codex's thread id (Milagre's `nativeId`).
     pub fn thread_id(&self) -> Option<String> {
-        self.inner.state.lock().unwrap().thread_id.clone()
+        self.inner.mapper.lock().unwrap().thread_id.clone()
     }
 
     pub fn turn_id(&self) -> Option<String> {
-        self.inner.state.lock().unwrap().turn_id.clone()
+        self.inner.mapper.lock().unwrap().turn_id.clone()
     }
 
     pub fn turn_active(&self) -> bool {
         self.inner.state.lock().unwrap().turn_active
+    }
+
+    /// The app-server's pid while it runs; the ports its commands open belong to the Chat.
+    pub fn pid(&self) -> Option<u32> {
+        if self.inner.state.lock().unwrap().closed {
+            None
+        } else {
+            self.inner.client.rpc().pid()
+        }
     }
 
     /// Milagre request ids still waiting for an answer.
@@ -255,23 +314,94 @@ impl CodexSession {
         self.inner.state.lock().unwrap().pending.keys().cloned().collect()
     }
 
-    /// Starts a turn. Returns its id when Codex gave one (a turn without an id still ends through
-    /// `turn/completed`). On failure the turn has already ended with [`TurnEnd::Failed`] or
-    /// [`TurnEnd::Cancelled`].
-    pub async fn start_turn(&self, turn: TurnSettings) -> Result<Option<String>, SessionError> {
+    /// Subagent agent objects as last reported.
+    pub fn subagents(&self) -> Vec<Value> {
+        self.inner.mapper.lock().unwrap().subagents.values().cloned().collect()
+    }
+
+    /// A message: starts a turn, or joins the running one through `turn/steer` (codex-provider.cjs
+    /// `startTurn`). A message for a turn that is stopping, has no id yet, or that Codex refuses to
+    /// steer (it already ended) starts the next turn once this one ends.
+    pub async fn send(&self, turn: TurnSettings) -> Result<SendOutcome, SessionError> {
+        loop {
+            let (active, cancel, closed) = {
+                let state = self.inner.state.lock().unwrap();
+                (state.turn_active, state.cancel_requested, state.closed)
+            };
+            if closed {
+                return Err(SessionError::Closed);
+            }
+            if !active {
+                return self.start_turn(turn).await;
+            }
+            // Wait for turn/start to settle before deciding.
+            self.wait_turn_ready().await;
+            let mut ended = self.inner.turn_ended.subscribe();
+            let turn_id = self.turn_id();
+            if cancel || turn_id.is_none() || !self.turn_active() {
+                if self.turn_active() {
+                    wait_turn_end(&self.inner, &mut ended).await;
+                }
+                continue;
+            }
+            match self.steer_with(&turn).await {
+                Ok(()) => return Ok(SendOutcome { turn_id, steered: true }),
+                Err(SessionError::Rpc(error)) if error.is_server_error() => {
+                    wait_turn_end(&self.inner, &mut ended).await;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    /// Waits while turn/start is in flight.
+    async fn wait_turn_ready(&self) {
+        let mut ready = self.inner.turn_ready.subscribe();
+        while self.inner.state.lock().unwrap().starting {
+            if ready.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+
+    async fn steer_with(&self, turn: &TurnSettings) -> Result<(), SessionError> {
+        if let Some(mode) = turn.permission_mode {
+            self.set_permission_mode(mode).await;
+        }
+        self.steer(turn.input.clone()).await
+    }
+
+    /// Starts a turn (a running one is steered instead, as [`CodexSession::send`]). Returns the
+    /// turn id when Codex gave one. On failure the turn has already ended (`turn-failed` or
+    /// `turn-cancelled`).
+    pub async fn start_turn(&self, turn: TurnSettings) -> Result<SendOutcome, SessionError> {
         let inner = &self.inner;
-        let thread_id = {
+        // One lock decides: two messages at once start one turn and steer the other into it.
+        let busy = {
             let mut state = inner.state.lock().unwrap();
             if state.closed {
                 return Err(SessionError::Closed);
             }
             if state.turn_active {
-                return Err(SessionError::TurnActive);
+                true
+            } else {
+                state.turn_active = true;
+                state.cancel_requested = false;
+                state.starting = true;
+                if let Some(mode) = turn.permission_mode {
+                    state.mode = Some(mode);
+                }
+                false
             }
-            state.turn_active = true;
-            state.cancel_requested = false;
-            state.turn_id = None;
-            state.thread_id.clone()
+        };
+        if busy {
+            return Box::pin(self.send(turn)).await;
+        }
+        let thread_id = {
+            let mut mapper = inner.mapper.lock().unwrap();
+            mapper.start_turn();
+            mapper.thread_id.clone()
         };
         let mut params = serde_json::Map::new();
         params.insert("threadId".into(), thread_id.into());
@@ -287,67 +417,79 @@ impl CodexSession {
         params.insert("approvalPolicy".into(), turn.policy.approval_policy.into());
         params.insert("sandboxPolicy".into(), turn.policy.sandbox_policy);
         params.extend(turn.extra);
-        match inner.client.turn_start(Value::Object(params)).await {
+        let result = inner.client.turn_start(Value::Object(params)).await;
+        inner.state.lock().unwrap().starting = false;
+        inner.turn_ready.send_modify(|n| *n += 1);
+        match result {
             Ok(result) => {
-                let (turn_id, cancel) = {
-                    let mut state = inner.state.lock().unwrap();
-                    if state.turn_id.is_none() {
-                        state.turn_id = result.pointer("/turn/id").and_then(Value::as_str).map(str::to_string);
+                let turn_id = {
+                    let mut mapper = inner.mapper.lock().unwrap();
+                    if mapper.turn_id.is_none() {
+                        mapper.turn_id = result.pointer("/turn/id").and_then(Value::as_str).map(str::to_string);
                     }
-                    (state.turn_id.clone(), state.cancel_requested && state.turn_active)
+                    mapper.turn_id.clone()
+                };
+                let cancel = {
+                    let state = inner.state.lock().unwrap();
+                    state.cancel_requested && state.turn_active
                 };
                 // Stop was pressed while turn/start was in flight.
                 if cancel {
                     let session = self.clone();
                     tokio::spawn(async move { session.interrupt().await });
                 }
-                Ok(turn_id)
+                Ok(SendOutcome { turn_id, steered: false })
             }
             Err(error) => {
-                let end = if inner.state.lock().unwrap().cancel_requested {
-                    TurnEnd::Cancelled
+                let event = if inner.state.lock().unwrap().cancel_requested {
+                    json!({ "type": "turn-cancelled" })
                 } else {
-                    TurnEnd::Failed { message: error.to_string() }
+                    json!({ "type": "turn-failed", "message": error.to_string() })
                 };
-                inner.finish_turn(end, None).await;
+                inner.finish_turn(vec![event], false).await;
                 Err(error.into())
             }
         }
     }
 
     /// Adds input to the running turn (`turn/steer`). An open question is dismissed first: the
-    /// message is the user's reply. A server error means the turn already ended.
+    /// message is the user's reply. A server error means the turn already ended ([`CodexSession::send`]
+    /// then starts the next one).
     pub async fn steer(&self, input: Vec<Value>) -> Result<(), SessionError> {
         let (thread_id, turn_id) = {
             let state = self.inner.state.lock().unwrap();
             if !state.turn_active || state.cancel_requested {
                 return Err(SessionError::NoTurn);
             }
-            match (&state.thread_id, &state.turn_id) {
+            let mapper = self.inner.mapper.lock().unwrap();
+            match (&mapper.thread_id, &mapper.turn_id) {
                 (Some(thread), Some(turn)) => (thread.clone(), turn.clone()),
                 _ => return Err(SessionError::NoTurn),
             }
         };
-        self.inner.settle_pending(Some(PendingKind::Question), QuestionOutcome::Dismissed, Decision::Cancelled).await;
+        self.inner.settle_questions(QuestionOutcome::Dismissed).await;
         self.inner.client.turn_steer(&thread_id, &turn_id, input).await?;
         Ok(())
     }
 
     /// Stops the running turn: open requests are cancelled, `turn/interrupt` is sent, and if Codex
     /// doesn't end the turn within the grace period (or refuses), the process is stopped and the
-    /// turn ends as [`TurnEnd::Cancelled`]. Returns once the turn has ended.
+    /// turn ends as `turn-cancelled`. Returns once the turn has ended.
     pub async fn interrupt(&self) {
         let inner = &self.inner;
         let mut ended = inner.turn_ended.subscribe();
-        let (thread_id, turn_id) = {
+        {
             let mut state = inner.state.lock().unwrap();
             if !state.turn_active {
                 return;
             }
             state.cancel_requested = true;
-            (state.thread_id.clone(), state.turn_id.clone())
+        }
+        inner.cancel_all().await;
+        let (thread_id, turn_id) = {
+            let mapper = inner.mapper.lock().unwrap();
+            (mapper.thread_id.clone(), mapper.turn_id.clone())
         };
-        inner.settle_pending(None, QuestionOutcome::Cancelled, Decision::Cancelled).await;
         let grace = inner.options.interrupt_grace;
         let deadline = tokio::time::Instant::now() + grace;
         if let (Some(thread_id), Some(turn_id)) = (thread_id, turn_id) {
@@ -363,51 +505,100 @@ impl CodexSession {
 
     /// Fallback for an interrupt Codex doesn't honour.
     async fn stop_now(&self) {
-        self.inner.client.close().await;
-        self.inner.finish_turn(TurnEnd::Cancelled, None).await;
+        self.close().await;
+        self.inner.finish_turn(vec![json!({ "type": "turn-cancelled" })], false).await;
     }
 
-    /// Answers a permission request. `false` when it is unknown or already settled (Node's
-    /// `PendingPermissions.resolve`).
+    /// Answers a permission request (`PendingPermissions.resolve`). `false` when it is unknown or
+    /// already settled. "allow-for-chat" on a card that didn't offer it is "allow".
     pub async fn respond_to_permission(&self, request_id: &str, decision: Decision) -> bool {
         let pending = {
             let mut state = self.inner.state.lock().unwrap();
             match state.pending.get(request_id) {
-                Some(p) if p.kind != PendingKind::Question => state.pending.remove(request_id),
+                Some(p) if p.kind != PendingKind::Question => state.pending.shift_remove(request_id),
                 _ => None,
             }
         };
         let Some(pending) = pending else { return false };
-        self.inner.answer(pending, decision, &QuestionOutcome::Cancelled).await;
+        self.inner.resolve_permission(request_id, pending, decision).await;
         true
     }
 
-    /// Answers (or with [`QuestionOutcome::Dismissed`] dismisses) a question.
+    /// Answers a question (`PendingQuestions.answer`): answers to questions it didn't ask and blank
+    /// answers are dropped; nothing left is a dismissal. `Dismissed` dismisses.
     pub async fn answer_question(&self, request_id: &str, outcome: QuestionOutcome) -> bool {
         let pending = {
             let mut state = self.inner.state.lock().unwrap();
             match state.pending.get(request_id) {
-                Some(p) if p.kind == PendingKind::Question => state.pending.remove(request_id),
+                Some(p) if p.kind == PendingKind::Question => state.pending.shift_remove(request_id),
                 _ => None,
             }
         };
         let Some(pending) = pending else { return false };
-        self.inner.answer(pending, Decision::Cancelled, &outcome).await;
+        let outcome = match outcome {
+            QuestionOutcome::Answered(answers) => {
+                let given: Vec<(String, Vec<String>)> = answers
+                    .into_iter()
+                    .filter(|(id, _)| pending.question_ids.contains(id))
+                    .map(|(id, values)| (id, values.iter().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect::<Vec<_>>()))
+                    .filter(|(_, values)| !values.is_empty())
+                    .collect();
+                if given.is_empty() {
+                    QuestionOutcome::Dismissed
+                } else {
+                    QuestionOutcome::Answered(given)
+                }
+            }
+            other => other,
+        };
+        self.inner.settle_question(request_id, pending, outcome).await;
         true
     }
 
-    /// Stops the process tree. A running turn ends as [`TurnEnd::Cancelled`].
-    pub async fn close(&self) -> ExitInfo {
-        {
+    /// Codex fixes its approval policy when a turn starts, so a switch mid-turn is applied to open
+    /// cards here (`PendingPermissions.setMode`): Full allows them all, Auto allows workspace edits.
+    pub async fn set_permission_mode(&self, mode: PermissionMode) {
+        if self.inner.options.analysis_only {
+            return;
+        }
+        let allowed: Vec<(String, Pending)> = {
             let mut state = self.inner.state.lock().unwrap();
+            state.mode = Some(mode);
+            let ids: Vec<String> = state
+                .pending
+                .iter()
+                .filter(|(_, p)| {
+                    p.kind != PendingKind::Question && (mode == PermissionMode::Full || (mode == PermissionMode::Auto && p.in_workspace))
+                })
+                .map(|(id, _)| id.clone())
+                .collect();
+            ids.into_iter().filter_map(|id| state.pending.shift_remove(&id).map(|p| (id, p))).collect()
+        };
+        for (id, pending) in allowed {
+            self.inner.resolve_permission(&id, pending, Decision::Allow).await;
+        }
+    }
+
+    /// Stops the process tree. Running subagents are settled as cancelled; a running turn ends as
+    /// `turn-cancelled` when the exit is seen.
+    pub async fn close(&self) -> ExitInfo {
+        let inner = &self.inner;
+        let settled = settle_subagents(&mut inner.mapper.lock().unwrap(), "cancelled");
+        for event in settled {
+            inner.emit(SessionEvent::Agent(event));
+        }
+        inner.cancel_all().await;
+        {
+            let mut state = inner.state.lock().unwrap();
             if state.turn_active {
                 state.cancel_requested = true;
             }
             state.closed = true;
         }
-        self.inner.settle_pending(None, QuestionOutcome::Cancelled, Decision::Cancelled).await;
-        let exit = self.inner.client.close().await;
-        self.inner.finish_turn(TurnEnd::Cancelled, None).await;
+        let exit = inner.client.close().await;
+        // The pump ends the turn on the exit; wait for it so callers see a settled session.
+        let mut ended = inner.turn_ended.subscribe();
+        let _ = tokio::time::timeout(Duration::from_secs(1), wait_turn_end(inner, &mut ended)).await;
         exit
     }
 }
@@ -423,48 +614,128 @@ async fn wait_turn_end(inner: &Inner, ended: &mut watch::Receiver<u64>) {
     }
 }
 
+/// A cheap size estimate for the event queue budget.
+fn approx_size(value: &Value) -> usize {
+    match value {
+        Value::String(s) => s.len() + 2,
+        Value::Array(items) => 2 + items.iter().map(approx_size).sum::<usize>(),
+        Value::Object(map) => 2 + map.iter().map(|(k, v)| k.len() + 4 + approx_size(v)).sum::<usize>(),
+        _ => 8,
+    }
+}
+
+fn path_inside(file: &str, root: &str) -> bool {
+    let (file, root) = (Path::new(file), Path::new(root));
+    file.is_absolute() && file.starts_with(root)
+}
+
 impl Inner {
     fn emit(&self, event: SessionEvent) {
-        let _ = self.events.send(event);
+        let bytes = match &event {
+            SessionEvent::Agent(value) | SessionEvent::TurnEnded { event: value, .. } => approx_size(value),
+            SessionEvent::Notification(n) => approx_size(&n.raw),
+            SessionEvent::Exited(_) => 0,
+        };
+        // A turn's end and the exit are one each per turn / session: they always get through.
+        if matches!(event, SessionEvent::Exited(_) | SessionEvent::TurnEnded { .. }) {
+            return self.events.force(event, bytes);
+        }
+        if let Err(overflow) = self.events.send(event, bytes) {
+            // Nobody reads: stop Codex rather than buffer without limit. The exit still reaches the reader.
+            let mut state = self.state.lock().unwrap();
+            if state.stop_detail.is_none() {
+                state.stop_detail = Some(format!(
+                    "Milagre stopped Codex: {} session events ({} bytes) were waiting to be read.",
+                    overflow.queued_events, overflow.queued_bytes
+                ));
+                let client = self.client.clone();
+                tokio::spawn(async move {
+                    client.close().await;
+                });
+            }
+        }
     }
 
-    /// Ends the running turn once: cancels open requests and emits `TurnEnded`.
-    async fn finish_turn(&self, end: TurnEnd, raw: Option<Value>) {
-        let turn_id = {
+    fn emit_agent(&self, event: Value) {
+        self.emit(SessionEvent::Agent(event));
+    }
+
+    /// Ends the running turn once (codex-provider.cjs `finishTurn`): cancels open requests, clears
+    /// per-turn state, then emits the events, the terminal one as `TurnEnded`.
+    async fn finish_turn(&self, events: Vec<Value>, crashed: bool) {
+        {
             let mut state = self.state.lock().unwrap();
             if !state.turn_active {
                 return;
             }
             state.turn_active = false;
             state.file_changes.clear();
-            state.turn_id.clone()
+        }
+        self.cancel_all().await;
+        let turn_id = {
+            let mut mapper = self.mapper.lock().unwrap();
+            mapper.end_turn();
+            mapper.turn_id.clone()
         };
-        self.settle_pending(None, QuestionOutcome::Cancelled, Decision::Cancelled).await;
-        self.emit(SessionEvent::TurnEnded { turn_id, end, raw });
+        let mut terminal = None;
+        for event in events {
+            if is_terminal(&event) && terminal.is_none() {
+                terminal = Some(event);
+            } else if !is_terminal(&event) {
+                self.emit_agent(event);
+            }
+        }
+        let event = terminal.unwrap_or_else(|| json!({ "type": "turn-completed" }));
+        let end = turn_end(&event, crashed);
+        self.emit(SessionEvent::TurnEnded { turn_id, end, event });
         self.turn_ended.send_modify(|n| *n += 1);
     }
 
-    /// Answers every open request (of one kind, or all) with the given outcome.
-    async fn settle_pending(&self, only: Option<PendingKind>, question: QuestionOutcome, decision: Decision) {
-        let settled: Vec<Pending> = {
+    async fn cancel_all(&self) {
+        let open: Vec<(String, Pending)> = {
             let mut state = self.state.lock().unwrap();
-            let ids: Vec<String> =
-                state.pending.iter().filter(|(_, p)| only.is_none_or(|k| p.kind == k)).map(|(id, _)| id.clone()).collect();
-            ids.into_iter().filter_map(|id| state.pending.remove(&id)).collect()
+            state.pending.drain(..).collect()
         };
-        for pending in settled {
-            self.answer(pending, decision, &question).await;
+        for (id, pending) in open {
+            if pending.kind == PendingKind::Question {
+                self.settle_question(&id, pending, QuestionOutcome::Cancelled).await;
+            } else {
+                self.resolve_permission(&id, pending, Decision::Cancelled).await;
+            }
         }
     }
 
-    async fn answer(&self, pending: Pending, decision: Decision, question: &QuestionOutcome) {
+    async fn settle_questions(&self, outcome: QuestionOutcome) {
+        let open: Vec<(String, Pending)> = {
+            let mut state = self.state.lock().unwrap();
+            let ids: Vec<String> =
+                state.pending.iter().filter(|(_, p)| p.kind == PendingKind::Question).map(|(id, _)| id.clone()).collect();
+            ids.into_iter().filter_map(|id| state.pending.shift_remove(&id).map(|p| (id, p))).collect()
+        };
+        for (id, pending) in open {
+            self.settle_question(&id, pending, outcome.clone()).await;
+        }
+    }
+
+    async fn resolve_permission(&self, request_id: &str, pending: Pending, decision: Decision) {
+        let given = if decision == Decision::AllowForChat && !pending.allow_for_chat { Decision::Allow } else { decision };
         let reply = match pending.kind {
-            PendingKind::Approval => approvals::approval_response(decision),
-            PendingKind::McpApproval => approvals::mcp_response(decision),
-            PendingKind::Question => approvals::question_response(question),
+            PendingKind::McpApproval => approvals::mcp_response(given),
+            _ => approvals::approval_response(given),
         };
         // Codex may already have exited or withdrawn it; then there is nobody left to answer.
         let _ = self.client.rpc().respond(&pending.rpc_id, reply).await;
+        self.emit_agent(json!({ "type": "permission-resolved", "requestId": request_id, "decision": decision_name(given) }));
+    }
+
+    async fn settle_question(&self, request_id: &str, pending: Pending, outcome: QuestionOutcome) {
+        let _ = self.client.rpc().respond(&pending.rpc_id, approvals::question_response(&outcome)).await;
+        let name = match outcome {
+            QuestionOutcome::Answered(_) => "answered",
+            QuestionOutcome::Dismissed => "dismissed",
+            QuestionOutcome::Cancelled => "cancelled",
+        };
+        self.emit_agent(json!({ "type": "question-resolved", "requestId": request_id, "outcome": name }));
     }
 
     fn accepting(&self) -> bool {
@@ -476,9 +747,39 @@ impl Inner {
         let _ = self.client.rpc().respond(id, result).await;
     }
 
+    fn in_workspace(&self, files: &[String]) -> bool {
+        let roots: Vec<&str> =
+            std::iter::once(self.options.cwd.as_str()).chain(self.options.workspace_roots.iter().map(String::as_str)).collect();
+        !files.is_empty() && files.iter().all(|file| roots.iter().any(|root| path_inside(file, root)))
+    }
+
+    /// `PendingPermissions.add`: Full answers at once; otherwise a card.
+    async fn add_permission(&self, id: RequestId, card: Value, kind: PendingKind, in_workspace: bool) {
+        let mode = self.state.lock().unwrap().mode;
+        if mode == Some(PermissionMode::Full) || (mode == Some(PermissionMode::Auto) && in_workspace) {
+            let reply = if kind == PendingKind::McpApproval {
+                approvals::mcp_response(Decision::Allow)
+            } else {
+                approvals::approval_response(Decision::Allow)
+            };
+            return self.reply(&id, reply).await;
+        }
+        let request_id = id.to_string();
+        let allow_for_chat = card.get("allowForChat") == Some(&Value::Bool(true));
+        self.state
+            .lock()
+            .unwrap()
+            .pending
+            .insert(request_id, Pending { rpc_id: id, kind, allow_for_chat, in_workspace, question_ids: vec![] });
+        let mut event = json!({ "type": "permission-request" });
+        if let (Some(target), Value::Object(fields)) = (event.as_object_mut(), card) {
+            target.extend(fields);
+        }
+        self.emit_agent(event);
+    }
+
     async fn handle_request(&self, request: ServerRequest) {
         let ServerRequest { id, method, params, .. } = request;
-        let request_id = id.to_string();
         let analysis = self.options.analysis_only;
         match method.as_str() {
             methods::MCP_ELICITATION => {
@@ -491,8 +792,7 @@ impl Inner {
                 } else if approvals::is_ungated_milagre_tool_approval(&params, &ungated) {
                     self.reply(&id, approvals::mcp_response(Decision::Allow)).await;
                 } else if let Some(card) = card {
-                    self.track(request_id, id, PendingKind::McpApproval);
-                    self.emit(SessionEvent::PermissionRequest(card));
+                    self.add_permission(id, card, PendingKind::McpApproval, false).await;
                 }
             }
             methods::COMMAND_APPROVAL | methods::FILE_CHANGE_APPROVAL => {
@@ -502,22 +802,39 @@ impl Inner {
                 if !self.accepting() {
                     return self.reply(&id, approvals::approval_response(Decision::Cancelled)).await;
                 }
-                let card = if method == methods::COMMAND_APPROVAL {
-                    approvals::command_request(&id, &params, |_| false)
+                if method == methods::COMMAND_APPROVAL {
+                    let card = approvals::command_request(&id, &params, |_| false);
+                    self.add_permission(id, card, PendingKind::Approval, false).await;
                 } else {
                     let item = params.get("itemId").and_then(Value::as_str).unwrap_or_default();
                     let changes = self.state.lock().unwrap().file_changes.get(item).cloned().unwrap_or_default();
-                    approvals::file_request(&id, &params, &changes)
-                };
-                self.track(request_id, id, PendingKind::Approval);
-                self.emit(SessionEvent::PermissionRequest(card));
+                    let card = approvals::file_request(&id, &params, &changes);
+                    let files: Vec<String> = card
+                        .get("files")
+                        .and_then(Value::as_array)
+                        .map(|f| f.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                        .unwrap_or_default();
+                    let in_workspace = !crate::codex::js::truthy(params.get("grantRoot")) && self.in_workspace(&files);
+                    self.add_permission(id, card, PendingKind::Approval, in_workspace).await;
+                }
             }
             methods::REQUEST_USER_INPUT => {
                 let card = approvals::question_request(&id, &params);
                 match card {
                     Some(card) if !analysis && self.accepting() => {
-                        self.track(request_id, id, PendingKind::Question);
-                        self.emit(SessionEvent::QuestionRequest(card));
+                        let question_ids = card["questions"]
+                            .as_array()
+                            .map(|qs| qs.iter().filter_map(|q| q["id"].as_str().map(str::to_string)).collect())
+                            .unwrap_or_default();
+                        self.state.lock().unwrap().pending.insert(
+                            id.to_string(),
+                            Pending { rpc_id: id, kind: PendingKind::Question, allow_for_chat: false, in_workspace: false, question_ids },
+                        );
+                        let mut event = json!({ "type": "question-request" });
+                        if let (Some(target), Value::Object(fields)) = (event.as_object_mut(), card) {
+                            target.extend(fields);
+                        }
+                        self.emit_agent(event);
                     }
                     _ if analysis => self.reply(&id, approvals::question_response(&QuestionOutcome::Dismissed)).await,
                     _ => self.reply(&id, approvals::question_response(&QuestionOutcome::Cancelled)).await,
@@ -530,114 +847,343 @@ impl Inner {
         }
     }
 
-    fn track(&self, request_id: String, rpc_id: RequestId, kind: PendingKind) {
-        self.state.lock().unwrap().pending.insert(request_id, Pending { rpc_id, kind });
-    }
-
-    async fn handle_notification(&self, notification: Notification) {
-        let params = &notification.params;
-        let own_thread = {
-            let state = self.state.lock().unwrap();
-            let thread = params.get("threadId").and_then(Value::as_str);
-            thread.is_none() || thread == state.thread_id.as_deref()
-        };
-        match notification.method.as_str() {
-            methods::ITEM_STARTED if params.pointer("/item/type").and_then(Value::as_str) == Some("fileChange") => {
-                if let Some(id) = params.pointer("/item/id").and_then(Value::as_str) {
-                    let changes = params.pointer("/item/changes").and_then(Value::as_array).cloned().unwrap_or_default();
-                    self.state.lock().unwrap().file_changes.insert(id.to_string(), changes);
-                }
-            }
-            methods::SERVER_REQUEST_RESOLVED => {
-                if let Some(id) = params.get("requestId").and_then(RequestId::from_value) {
-                    let removed = self.state.lock().unwrap().pending.remove(&id.to_string()).is_some();
-                    if removed {
-                        self.emit(SessionEvent::RequestWithdrawn { request_id: id.to_string() });
-                    }
-                }
-            }
-            _ => {}
+    async fn handle_notification(self: &Arc<Self>, notification: Notification) {
+        if self.options.forward_raw_notifications {
+            self.emit(SessionEvent::Notification(notification.clone()));
         }
-        self.emit(SessionEvent::Notification(notification.clone()));
-        if !own_thread {
+        let method = notification.method.as_str();
+        let params = &notification.params;
+        if method == methods::ITEM_STARTED && params.pointer("/item/type").and_then(Value::as_str) == Some("fileChange") {
+            if let Some(id) = params.pointer("/item/id") {
+                let changes = params.pointer("/item/changes").and_then(Value::as_array).cloned().unwrap_or_default();
+                self.state.lock().unwrap().file_changes.insert(crate::codex::js::js_string(Some(id)), changes);
+            }
+        }
+        if method == methods::SERVER_REQUEST_RESOLVED {
+            if let Some(id) = params.get("requestId").and_then(RequestId::from_value) {
+                let request_id = id.to_string();
+                let removed = self.state.lock().unwrap().pending.shift_remove(&request_id);
+                if let Some(pending) = removed {
+                    self.emit_agent(if pending.kind == PendingKind::Question {
+                        json!({ "type": "question-resolved", "requestId": request_id, "outcome": "cancelled" })
+                    } else {
+                        json!({ "type": "permission-resolved", "requestId": request_id, "decision": "cancelled" })
+                    });
+                }
+            }
+        }
+        if method == methods::TURN_STARTED {
+            let thread = params.get("threadId").and_then(Value::as_str).unwrap_or_default().to_string();
+            let active = self.state.lock().unwrap().turn_active;
+            let mut mapper = self.mapper.lock().unwrap();
+            // A turn this session isn't running (its start acknowledgement timed out) would open a run nothing ends.
+            if !active && !mapper.subagents.contains_key(&thread) {
+                return;
+            }
+            if mapper.thread_id.as_deref() == Some(thread.as_str()) && mapper.turn_id.is_none() {
+                mapper.turn_id = params.pointer("/turn/id").and_then(Value::as_str).map(str::to_string);
+            }
+        }
+        let (events, recheck) = {
+            let mut mapper = self.mapper.lock().unwrap();
+            let events = map_codex_notification(method, params, &mut mapper);
+            (events, mapper.recheck_pending())
+        };
+        if recheck || events.iter().any(|e| e["type"] == "subagent-update") {
+            self.schedule_subagents();
+        }
+        if !events.iter().any(is_terminal) {
+            for event in events {
+                self.emit_agent(event);
+            }
             return;
         }
-        match notification.method.as_str() {
-            methods::TURN_STARTED => {
-                let turn_id = params.pointer("/turn/id").and_then(Value::as_str).map(str::to_string);
-                let announce = {
-                    let mut state = self.state.lock().unwrap();
-                    // A turn this session isn't running (its start acknowledgement timed out) would open a run nothing ends.
-                    if !state.turn_active {
-                        None
-                    } else {
-                        if state.turn_id.is_none() {
-                            state.turn_id = turn_id.clone();
+        let cancel = self.state.lock().unwrap().cancel_requested;
+        let logged_out = !cancel && events.iter().any(|e| e.get("login") == Some(&Value::Bool(true)));
+        let events = if cancel {
+            events.into_iter().map(|e| if is_terminal(&e) { json!({ "type": "turn-cancelled" }) } else { e }).collect()
+        } else {
+            events
+        };
+        self.finish_turn(events, false).await;
+        // An app-server that answered 401 holds the old credentials; the owner starts a fresh session.
+        if logged_out {
+            let client = self.client.clone();
+            self.state.lock().unwrap().closed = true;
+            tokio::spawn(async move {
+                client.close().await;
+            });
+        }
+    }
+
+    fn should_poll(&self, agent: &Value, mapper: &mut CodexEventState) -> bool {
+        let id = agent.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+        let now = mapper.now();
+        subagent_active(agent) || mapper.subagent_recheck_until.get(&id).is_some_and(|until| *until > now)
+    }
+
+    /// Polls subagent threads every interval while one is active (codex-provider.cjs `scheduleSubagents`).
+    fn schedule_subagents(self: &Arc<Self>) {
+        if self.state.lock().unwrap().closed || self.poll_scheduled.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let inner = Arc::downgrade(self);
+        let interval = self.options.subagent_poll_interval;
+        tokio::spawn(async move {
+            tokio::time::sleep(interval).await;
+            let Some(inner) = inner.upgrade() else { return };
+            inner.poll_scheduled.store(false, Ordering::Release);
+            inner.poll_subagents().await;
+            let again = {
+                let mut mapper = inner.mapper.lock().unwrap();
+                let agents: Vec<Value> = mapper.subagents.values().cloned().collect();
+                agents.iter().any(|agent| inner.should_poll(agent, &mut mapper))
+            };
+            if again {
+                inner.schedule_subagents();
+            }
+        });
+    }
+
+    async fn read_subagent_thread(
+        &self,
+        thread_id: &str,
+        previous: Option<&ChildHistory>,
+    ) -> Result<(Value, Vec<Value>, Option<String>), RpcError> {
+        let thread = self.client.thread_read(thread_id, false).await?.get("thread").cloned().unwrap_or(Value::Null);
+        let cursor = previous.and_then(|p| p.cursor.clone());
+        let newest = self
+            .client
+            .thread_turns_list(json!({ "threadId": thread_id, "limit": if cursor.is_some() { 1 } else { 20 }, "sortDirection": "desc", "itemsView": "full" }))
+            .await?;
+        let backwards = newest.get("backwardsCursor").and_then(Value::as_str).map(str::to_string);
+        let Some(mut cursor) = cursor else {
+            let mut turns = newest.get("data").and_then(Value::as_array).cloned().unwrap_or_default();
+            turns.reverse();
+            return Ok((thread, turns, backwards));
+        };
+        let start = cursor.clone();
+        let mut turns = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        // The opposite-direction cursor includes its anchor turn, so an active item can grow without getting lost.
+        while seen.insert(cursor.clone()) {
+            let page = self
+                .client
+                .thread_turns_list(
+                    json!({ "threadId": thread_id, "cursor": cursor, "limit": 20, "sortDirection": "asc", "itemsView": "full" }),
+                )
+                .await?;
+            turns.extend(page.get("data").and_then(Value::as_array).cloned().unwrap_or_default());
+            match page.get("nextCursor").and_then(Value::as_str) {
+                Some(next) if !next.is_empty() => cursor = next.to_string(),
+                _ => break,
+            }
+        }
+        Ok((thread, turns, backwards.or(Some(start))))
+    }
+
+    /// Reads each subagent thread that may have changed and maps new or changed items through the
+    /// same mapper, never replaying finished history (codex-provider.cjs `pollSubagents`).
+    async fn poll_subagents(&self) {
+        let mut histories = self.polling.lock().await;
+        let agents: Vec<Value> = self.mapper.lock().unwrap().subagents.values().cloned().collect();
+        for agent in agents {
+            if self.state.lock().unwrap().closed {
+                return;
+            }
+            let id = agent.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+            let previous = histories.get(&id).cloned();
+            let poll = self.should_poll(&agent, &mut self.mapper.lock().unwrap());
+            if !poll && previous.as_ref().is_some_and(|p| p.finished) {
+                continue;
+            }
+            // A live child may not have flushed its history yet: retry from the last cursor next time.
+            let Ok((thread, turns, cursor)) = self.read_subagent_thread(&id, previous.as_ref()).await else { continue };
+            if self.state.lock().unwrap().closed {
+                return;
+            }
+            let mut items = HashMap::new();
+            let mut events = Vec::new();
+            {
+                let mut mapper = self.mapper.lock().unwrap();
+                for turn in &turns {
+                    let done = matches!(turn.get("status").and_then(Value::as_str), Some("completed" | "failed" | "interrupted"));
+                    for item in turn.get("items").and_then(Value::as_array).cloned().unwrap_or_default() {
+                        let key =
+                            format!("{}:{}", crate::codex::js::js_string(turn.get("id")), crate::codex::js::js_string(item.get("id")));
+                        let old = previous.as_ref().and_then(|p| p.items.get(&key).cloned());
+                        items.insert(key, if done { None } else { Some(item.clone()) });
+                        match old {
+                            Some(None) => continue,
+                            Some(Some(old)) if old == item => continue,
+                            _ => {}
                         }
-                        turn_id
+                        events.extend(map_codex_notification("item/completed", &json!({ "threadId": id, "item": item }), &mut mapper));
                     }
-                };
-                if let Some(turn_id) = announce {
-                    self.emit(SessionEvent::TurnStarted { turn_id });
                 }
-            }
-            methods::AGENT_MESSAGE_DELTA => {
-                if let Some(delta) = params.get("delta").and_then(Value::as_str) {
-                    let item_id = params.get("itemId").and_then(Value::as_str).map(str::to_string);
-                    self.emit(SessionEvent::AgentMessageDelta { item_id, delta: delta.to_string() });
-                }
-            }
-            methods::TURN_COMPLETED => {
-                let (current, cancel) = {
-                    let state = self.state.lock().unwrap();
-                    (state.turn_id.clone(), state.cancel_requested)
-                };
-                let completed = params.pointer("/turn/id").and_then(Value::as_str);
-                // A stale turn's completion (an earlier turn) does not end this one.
-                if current.is_some() && completed.is_some() && completed != current.as_deref() {
-                    return;
-                }
-                let end = if cancel {
-                    TurnEnd::Cancelled
-                } else {
-                    match params.pointer("/turn/status").and_then(Value::as_str) {
-                        Some("failed") => TurnEnd::Failed {
-                            message: params
-                                .pointer("/turn/error/message")
-                                .and_then(Value::as_str)
-                                .unwrap_or("The turn failed.")
-                                .to_string(),
-                        },
-                        Some("interrupted") => TurnEnd::Interrupted,
-                        _ => TurnEnd::Completed,
+                let last = turns.last();
+                let outcome = json!({ "status": thread.get("status"), "turnId": last.and_then(|t| t.get("id")), "turnStatus": last.and_then(|t| t.get("status")) });
+                let agent_status = mapper.subagents.get(&id).and_then(|a| a.get("status")).cloned();
+                let changed = previous.as_ref().and_then(|p| p.outcome.as_ref()) != Some(&outcome)
+                    || previous.as_ref().and_then(|p| p.agent_status.clone()) != agent_status;
+                if changed {
+                    let status_type = thread.pointer("/status/type").and_then(Value::as_str);
+                    let last_status = last.and_then(|t| t.get("status")).and_then(Value::as_str);
+                    if matches!(status_type, Some("active" | "systemError")) {
+                        events.extend(map_codex_notification(
+                            "thread/status/changed",
+                            &json!({ "threadId": id, "status": thread["status"] }),
+                            &mut mapper,
+                        ));
+                    } else if last_status == Some("inProgress") {
+                        events.extend(map_codex_notification("turn/started", &json!({ "threadId": id, "turn": last }), &mut mapper));
+                    } else if matches!(last_status, Some("completed" | "failed" | "interrupted")) {
+                        events.extend(map_codex_notification("turn/completed", &json!({ "threadId": id, "turn": last }), &mut mapper));
                     }
-                };
-                self.finish_turn(end, Some(params.clone())).await;
+                }
+                let current = mapper.subagents.get(&id).cloned().unwrap_or(Value::Null);
+                histories.insert(
+                    id.clone(),
+                    ChildHistory {
+                        cursor,
+                        items,
+                        outcome: Some(outcome),
+                        agent_status: current.get("status").cloned(),
+                        finished: !subagent_active(&current),
+                    },
+                );
             }
-            _ => {}
+            for event in events {
+                self.emit_agent(event);
+            }
         }
     }
 }
 
-async fn pump(inner: Arc<Inner>, mut events: mpsc::UnboundedReceiver<ServerEvent>) {
+fn decision_name(decision: Decision) -> &'static str {
+    match decision {
+        Decision::Allow => "allow",
+        Decision::AllowForChat => "allow-for-chat",
+        Decision::Deny => "deny",
+        Decision::Cancelled => "cancelled",
+    }
+}
+
+fn turn_end(event: &Value, crashed: bool) -> TurnEnd {
+    let message = event.get("message").and_then(Value::as_str).unwrap_or_default().to_string();
+    match event.get("type").and_then(Value::as_str) {
+        Some("turn-cancelled") => TurnEnd::Cancelled,
+        Some("turn-failed") if crashed => TurnEnd::Crashed { message },
+        Some("turn-failed") => TurnEnd::Failed { message },
+        _ => TurnEnd::Completed,
+    }
+}
+
+async fn pump(inner: Arc<Inner>, mut events: EventReceiver<ServerEvent>) {
     while let Some(event) = events.recv().await {
         match event {
             ServerEvent::Notification(notification) => inner.handle_notification(notification).await,
             ServerEvent::Request(request) => inner.handle_request(request).await,
             ServerEvent::Diagnostic(_) => {}
             ServerEvent::Exit(exit) => {
-                let cancelled = {
+                let (cancelled, stop_detail) = {
                     let mut state = inner.state.lock().unwrap();
                     state.closed = true;
-                    state.pending.clear();
-                    state.cancel_requested
+                    (state.cancel_requested, state.stop_detail.clone())
                 };
-                let end = if cancelled { TurnEnd::Cancelled } else { TurnEnd::Crashed { detail: exit.detail.clone() } };
-                inner.finish_turn(end, None).await;
+                let settled = settle_subagents(&mut inner.mapper.lock().unwrap(), if cancelled { "cancelled" } else { "failed" });
+                for event in settled {
+                    inner.emit_agent(event);
+                }
+                let terminal = if cancelled {
+                    json!({ "type": "turn-cancelled" })
+                } else {
+                    let detail = stop_detail.unwrap_or_else(|| exit.detail.clone());
+                    let signal = exit.signal.map(signal_name);
+                    failed_with(&crash_message(&detail, signal.as_deref()), &[])
+                };
+                inner.finish_turn(vec![terminal], !cancelled).await;
                 inner.emit(SessionEvent::Exited(exit));
                 return;
             }
         }
+    }
+}
+
+/// Reopening an idle Chat need not start or resume an agent: only its saved subagents with status
+/// "unknown" are checked, and history items are never replayed (codex-provider.cjs
+/// `recoverCodexSubagents`). Returns `subagent-update` events for the ones that finished.
+pub async fn recover_codex_subagents(connect: ConnectOptions, agents: &[Value]) -> Vec<Value> {
+    let unknown: Vec<&Value> = agents
+        .iter()
+        .filter(|a| a.get("status").and_then(Value::as_str) == Some("unknown") && a.get("archived") != Some(&Value::Bool(true)))
+        .collect();
+    if unknown.is_empty() {
+        return vec![];
+    }
+    let mut connect = connect;
+    connect.initialize_timeout = Some(Duration::from_secs(5));
+    let Ok((client, _events)) = CodexClient::connect(connect).await else { return vec![] };
+    let mut results = Vec::new();
+    for agent in &unknown {
+        let id = agent.get("id").and_then(Value::as_str).unwrap_or_default();
+        results.push(read_latest_child_turn(&client, id).await.ok());
+    }
+    client.close().await;
+    let now = crate::codex::events::system_millis();
+    unknown
+        .into_iter()
+        .zip(results)
+        .filter_map(|(agent, thread)| {
+            let thread = thread?;
+            if thread.pointer("/status/type").and_then(Value::as_str) == Some("active") {
+                return None;
+            }
+            let last = thread.get("turns").and_then(Value::as_array).and_then(|t| t.last())?;
+            let status = match last.get("status").and_then(Value::as_str) {
+                Some("completed") => "completed",
+                Some("failed") => "failed",
+                Some("interrupted") => "cancelled",
+                _ => return None,
+            };
+            let time = now.max(agent.get("updatedAt").and_then(Value::as_i64).unwrap_or(0));
+            let mut updated = agent.clone();
+            updated["status"] = status.into();
+            updated["updatedAt"] = time.into();
+            if updated.get("endedAt").is_none_or(Value::is_null) {
+                updated["endedAt"] = time.into();
+            }
+            if agent.get("latestActivity").and_then(Value::as_str).is_some_and(|a| a.starts_with("Session disconnected.")) {
+                updated["latestActivity"] = match status {
+                    "completed" => "Finished",
+                    "failed" => "Failed",
+                    _ => "Cancelled",
+                }
+                .into();
+            }
+            Some(json!({ "type": "subagent-update", "agent": updated }))
+        })
+        .collect()
+}
+
+async fn read_latest_child_turn(client: &CodexClient, thread_id: &str) -> Result<Value, RpcError> {
+    let thread = client.thread_read(thread_id, false).await?.get("thread").cloned().unwrap_or(Value::Null);
+    if thread.pointer("/status/type").and_then(Value::as_str) == Some("active") {
+        return Ok(thread);
+    }
+    match client.thread_turns_list(json!({ "threadId": thread_id, "limit": 1, "sortDirection": "desc", "itemsView": "notLoaded" })).await {
+        Ok(page) => {
+            let mut thread = thread;
+            let first: Vec<Value> =
+                page.get("data").and_then(Value::as_array).map(|d| d.iter().take(1).cloned().collect()).unwrap_or_default();
+            thread["turns"] = Value::Array(first);
+            Ok(thread)
+        }
+        // Older providers do not have the paginated endpoint.
+        Err(error) if error.is_server_error() => {
+            Ok(client.thread_read(thread_id, true).await?.get("thread").cloned().unwrap_or(Value::Null))
+        }
+        Err(error) => Err(error),
     }
 }
 
@@ -662,7 +1208,7 @@ pub fn chat_thread(model: Option<String>, policy: CodexPolicy) -> ThreadSettings
 
 /// Default `TurnSettings`.
 pub fn turn(input: Vec<Value>, model: Option<String>, policy: CodexPolicy) -> TurnSettings {
-    TurnSettings { input, model, effort: None, policy, service_tier: "default".into(), extra: Default::default() }
+    TurnSettings { input, model, effort: None, policy, permission_mode: None, service_tier: "default".into(), extra: Default::default() }
 }
 
 #[allow(dead_code)]

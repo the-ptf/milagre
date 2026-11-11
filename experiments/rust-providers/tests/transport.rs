@@ -7,7 +7,7 @@ use milagre_providers::codex::{CodexRpc, Diagnostic, ExitReason, Limits, Request
 use serde_json::{json, Value};
 use std::time::Duration;
 
-fn spawn(scenario: &str) -> (CodexRpc, tokio::sync::mpsc::UnboundedReceiver<ServerEvent>) {
+fn spawn(scenario: &str) -> (CodexRpc, milagre_providers::queue::EventReceiver<ServerEvent>) {
     CodexRpc::spawn(fake(scenario)).expect("fake starts")
 }
 
@@ -342,4 +342,47 @@ async fn a_request_without_a_time_limit_waits_until_exit() {
     assert!(!waiting.is_finished());
     rpc.close().await;
     assert!(matches!(waiting.await.unwrap(), Err(RpcError::Exited { .. })));
+}
+
+#[tokio::test]
+async fn an_unread_event_queue_stops_codex_instead_of_growing() {
+    let limits = Limits { event_queue: milagre_providers::queue::QueueLimits { max_events: 50, max_bytes: 1 << 30 }, ..fast_limits() };
+    let (rpc, mut events) = CodexRpc::spawn(fake("reply").limits(limits)).unwrap();
+    let pid = rpc.pid().unwrap();
+    // Nobody reads events while Codex floods them; the request still gets its answer or the exit.
+    let _ = rpc.request("fake/flood", json!({ "count": 2000, "bytes": 100 })).await;
+    let exit = rpc.wait_exit().await;
+    assert_eq!(exit.reason, ExitReason::ConsumerStalled, "{exit:?}");
+    assert!(exit.detail.contains("waiting to be read"), "{}", exit.detail);
+    assert!(eventually(|| !pid_alive(pid), Duration::from_secs(2)).await);
+    // What was queued is still delivered, then the exit, nothing past the budget.
+    let mut floods = 0;
+    loop {
+        match tokio::time::timeout(Duration::from_secs(2), events.recv()).await.unwrap().unwrap() {
+            ServerEvent::Notification(n) if n.method == "fake/flood" => floods += 1,
+            ServerEvent::Exit(_) => break,
+            _ => {}
+        }
+    }
+    assert!(floods <= 50, "{floods} queued past the budget");
+    assert_eq!(events.queued(), (0, 0));
+}
+
+#[tokio::test]
+async fn the_event_byte_budget_counts_frame_sizes() {
+    let limits =
+        Limits { event_queue: milagre_providers::queue::QueueLimits { max_events: 100_000, max_bytes: 64 * 1024 }, ..fast_limits() };
+    let (rpc, _events) = CodexRpc::spawn(fake("reply").limits(limits)).unwrap();
+    let _ = rpc.request("fake/flood", json!({ "count": 20, "bytes": 8 * 1024 })).await;
+    assert_eq!(rpc.wait_exit().await.reason, ExitReason::ConsumerStalled);
+}
+
+#[tokio::test]
+async fn too_many_open_server_requests_stop_codex() {
+    let limits = Limits { max_open_server_requests: 5, ..fast_limits() };
+    let (rpc, _events) = CodexRpc::spawn(fake("reply").limits(limits)).unwrap();
+    let _ = rpc.request("fake/requests", json!({ "count": 50 })).await;
+    let exit = rpc.wait_exit().await;
+    assert_eq!(exit.reason, ExitReason::ProtocolViolation);
+    assert!(exit.detail.contains("more than 5 requests"), "{}", exit.detail);
 }

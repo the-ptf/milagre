@@ -20,6 +20,7 @@
 //!   EOF on stdout with the process still alive stops it.
 
 use crate::codex::protocol::{self, classify, Incoming, RequestId};
+use crate::queue::{EventReceiver, EventSender, QueueLimits};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -51,6 +52,11 @@ pub struct Limits {
     pub drain_grace: Duration,
     /// Timeout for writing a notification or a server-request answer into a stalled stdin pipe.
     pub write_timeout: Duration,
+    /// Budget for events not yet received. Past it Codex is stopped ([`ExitReason::ConsumerStalled`])
+    /// instead of buffering without limit or blocking the reader that answers requests.
+    pub event_queue: QueueLimits,
+    /// Server requests Codex may leave open at once before it is stopped as misbehaving.
+    pub max_open_server_requests: usize,
 }
 
 impl Default for Limits {
@@ -62,6 +68,8 @@ impl Default for Limits {
             kill_grace: Duration::from_secs(2),
             drain_grace: Duration::from_millis(500),
             write_timeout: Duration::from_secs(10),
+            event_queue: QueueLimits::default(),
+            max_open_server_requests: 1024,
         }
     }
 }
@@ -175,8 +183,10 @@ pub enum ExitReason {
     ProcessEnded,
     /// [`CodexRpc::close`] or drop stopped it.
     Closed,
-    /// Codex broke the framing contract (an oversized frame); Milagre stopped it.
+    /// Codex broke the framing contract (an oversized frame, too many open requests); Milagre stopped it.
     ProtocolViolation,
+    /// Nobody read the events within [`Limits::event_queue`]; Milagre stopped Codex.
+    ConsumerStalled,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -239,7 +249,11 @@ struct Shared {
     server_requests: Mutex<HashMap<RequestId, String>>,
     exited: Mutex<Option<ExitInfo>>,
     exit_tx: watch::Sender<Option<ExitInfo>>,
-    events: mpsc::UnboundedSender<ServerEvent>,
+    events: EventSender<ServerEvent>,
+    /// Why Milagre stopped the process itself, when it did.
+    stopped: Mutex<Option<StopCause>>,
+    pid: Option<u32>,
+    kill_tx: mpsc::UnboundedSender<KillRequest>,
     stderr: Mutex<Vec<u8>>,
     closing: AtomicBool,
     counters: Counters,
@@ -247,9 +261,28 @@ struct Shared {
 }
 
 impl Shared {
-    fn emit(&self, event: ServerEvent) {
-        // A dropped receiver only means nobody listens any more.
-        let _ = self.events.send(event);
+    /// Queues an event of about `bytes` bytes. A full queue stops Codex: memory stays bounded and no
+    /// event is silently lost.
+    fn emit(&self, event: ServerEvent, bytes: usize) {
+        if let Err(overflow) = self.events.send(event, bytes) {
+            self.stop(StopCause::ConsumerStalled { events: overflow.queued_events, bytes: overflow.queued_bytes });
+        }
+    }
+
+    /// Stops the process tree from the reader; the supervisor reports the exit with this cause.
+    fn stop(&self, cause: StopCause) {
+        {
+            let mut stopped = self.stopped.lock().unwrap();
+            if stopped.is_some() {
+                return;
+            }
+            *stopped = Some(cause);
+        }
+        #[cfg(unix)]
+        if let Some(pid) = self.pid {
+            signal_group(pid, libc::SIGKILL);
+        }
+        let _ = self.kill_tx.send(KillRequest::Kill);
     }
 
     fn is_exited(&self) -> bool {
@@ -268,8 +301,15 @@ impl Shared {
         match classify(&parsed) {
             Incoming::Request { id, method, params } => {
                 self.counters.server_requests.fetch_add(1, Ordering::Relaxed);
-                self.server_requests.lock().unwrap().insert(id.clone(), method.clone());
-                self.emit(ServerEvent::Request(ServerRequest { id, method, params, raw: parsed }));
+                {
+                    let mut open = self.server_requests.lock().unwrap();
+                    if open.len() >= self.limits.max_open_server_requests {
+                        drop(open);
+                        return self.stop(StopCause::TooManyServerRequests);
+                    }
+                    open.insert(id.clone(), method.clone());
+                }
+                self.emit(ServerEvent::Request(ServerRequest { id, method, params, raw: parsed }), line.len());
             }
             Incoming::Notification { method, params } => {
                 self.counters.notifications.fetch_add(1, Ordering::Relaxed);
@@ -279,7 +319,7 @@ impl Shared {
                         self.server_requests.lock().unwrap().remove(&id);
                     }
                 }
-                self.emit(ServerEvent::Notification(Notification { method, params, raw: parsed }));
+                self.emit(ServerEvent::Notification(Notification { method, params, raw: parsed }), line.len());
             }
             Incoming::Response { id, outcome } => {
                 let waiter = match &id {
@@ -288,7 +328,7 @@ impl Shared {
                 };
                 let Some(waiter) = waiter else {
                     self.counters.unmatched_responses.fetch_add(1, Ordering::Relaxed);
-                    return self.emit(ServerEvent::Diagnostic(Diagnostic::UnmatchedResponse { id }));
+                    return self.emit(ServerEvent::Diagnostic(Diagnostic::UnmatchedResponse { id }), 64);
                 };
                 self.counters.responses_matched.fetch_add(1, Ordering::Relaxed);
                 let result = outcome.map_err(|error| RpcError::Server {
@@ -307,7 +347,7 @@ impl Shared {
     fn malformed(&self, line: &[u8]) {
         self.counters.malformed_frames.fetch_add(1, Ordering::Relaxed);
         let preview = String::from_utf8_lossy(&line[..line.len().min(200)]).into_owned();
-        self.emit(ServerEvent::Diagnostic(Diagnostic::MalformedFrame { preview }));
+        self.emit(ServerEvent::Diagnostic(Diagnostic::MalformedFrame { preview }), 256);
     }
 
     fn stderr_tail(&self) -> String {
@@ -322,13 +362,22 @@ impl Shared {
                 return;
             }
             let stderr = self.stderr_tail();
-            let reason = match end {
-                ReadEnd::FrameTooLarge(_) => ExitReason::ProtocolViolation,
+            let stopped = self.stopped.lock().unwrap().clone();
+            let reason = match (&stopped, end) {
+                (Some(StopCause::ConsumerStalled { .. }), _) => ExitReason::ConsumerStalled,
+                (Some(StopCause::TooManyServerRequests), _) | (_, ReadEnd::FrameTooLarge(_)) => ExitReason::ProtocolViolation,
                 _ if self.closing.load(Ordering::SeqCst) => ExitReason::Closed,
                 _ => ExitReason::ProcessEnded,
             };
-            let detail = match end {
-                ReadEnd::FrameTooLarge(size) => {
+            let detail = match (&stopped, end) {
+                (Some(StopCause::ConsumerStalled { events, bytes }), _) => {
+                    format!("Milagre stopped Codex: {events} of its events ({bytes} bytes) were waiting to be read.")
+                }
+                (Some(StopCause::TooManyServerRequests), _) => format!(
+                    "Codex left more than {} requests unanswered at once; Milagre stopped it.",
+                    self.limits.max_open_server_requests
+                ),
+                (_, ReadEnd::FrameTooLarge(size)) => {
                     format!("Codex sent a message of more than {} bytes ({size} read); Milagre stopped it.", self.limits.max_frame_bytes)
                 }
                 _ if !stderr.trim().is_empty() => stderr.trim().to_string(),
@@ -347,12 +396,14 @@ impl Shared {
             let _ = waiter.tx.send(Err(RpcError::Exited { detail: info.detail.clone() }));
         }
         self.server_requests.lock().unwrap().clear();
-        self.emit(ServerEvent::Exit(info.clone()));
+        // The final event goes in past the budget.
+        self.events.force(ServerEvent::Exit(info.clone()), 0);
         let _ = self.exit_tx.send(Some(info));
     }
 }
 
-fn signal_name(signal: i32) -> String {
+/// A Unix signal's name, as Node reports it ("SIGTERM").
+pub fn signal_name(signal: i32) -> String {
     match signal {
         1 => "SIGHUP".into(),
         2 => "SIGINT".into(),
@@ -364,6 +415,12 @@ fn signal_name(signal: i32) -> String {
         15 => "SIGTERM".into(),
         other => format!("signal {other}"),
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum StopCause {
+    ConsumerStalled { events: usize, bytes: usize },
+    TooManyServerRequests,
 }
 
 #[derive(Debug)]
@@ -413,9 +470,10 @@ impl Drop for Handle {
 
 impl CodexRpc {
     /// Starts the process. Returns the handle and the event stream (notifications, server requests,
-    /// diagnostics, then exactly one [`ServerEvent::Exit`]). The stream is unbounded so a consumer that
-    /// awaits a request while events pile up can never deadlock the reader that would answer it.
-    pub fn spawn(options: SpawnOptions) -> Result<(CodexRpc, mpsc::UnboundedReceiver<ServerEvent>), SpawnError> {
+    /// diagnostics, then exactly one [`ServerEvent::Exit`]). The stream never blocks the reader, so a
+    /// consumer that awaits a request while events pile up can't deadlock the reader that would answer
+    /// it; its memory is bounded by [`Limits::event_queue`] instead.
+    pub fn spawn(options: SpawnOptions) -> Result<(CodexRpc, EventReceiver<ServerEvent>), SpawnError> {
         let command_name = PathBuf::from(&options.command)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -443,7 +501,7 @@ impl CodexRpc {
         let stdin = child.stdin.take();
         let stdout = child.stdout.take().expect("stdout is piped");
         let stderr = child.stderr.take().expect("stderr is piped");
-        let (events_tx, events_rx) = mpsc::unbounded_channel();
+        let (events_tx, events_rx) = crate::queue::channel(options.limits.event_queue);
         let (exit_tx, exit_rx) = watch::channel(None);
         let (kill_tx, kill_rx) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
@@ -453,6 +511,9 @@ impl CodexRpc {
             exited: Mutex::new(None),
             exit_tx,
             events: events_tx,
+            stopped: Mutex::new(None),
+            pid,
+            kill_tx: kill_tx.clone(),
             stderr: Mutex::new(Vec::new()),
             closing: AtomicBool::new(false),
             counters: Counters::default(),

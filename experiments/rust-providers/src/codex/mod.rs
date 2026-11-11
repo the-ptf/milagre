@@ -16,4 +16,4 @@ pub use rpc::{
     CodexRpc, Diagnostic, ExitInfo, ExitReason, Limits, Notification, RpcError, RpcStats, ServerEvent, ServerRequest, SpawnError,
     SpawnOptions,
 };
-pub use session::{CodexSession, SessionError, SessionEvent, SessionOptions, ThreadSettings, TurnEnd, TurnSettings};
+pub use session::{CodexSession, SendOutcome, SessionError, SessionEvent, SessionOptions, ThreadSettings, TurnEnd, TurnSettings};

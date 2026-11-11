@@ -3,10 +3,10 @@
 
 use crate::codex::protocol::{self, methods, ClientInfo};
 use crate::codex::rpc::{CodexRpc, ExitInfo, RpcError, ServerEvent, SpawnError, SpawnOptions};
+use crate::queue::EventReceiver;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::time::Duration;
-use tokio::sync::mpsc;
 
 /// codex-provider.cjs `ACCOUNT_TIMEOUT_MS`.
 pub const ACCOUNT_TIMEOUT: Duration = Duration::from_secs(8);
@@ -80,7 +80,7 @@ pub struct CodexClient {
 impl CodexClient {
     /// Spawns Codex, sends `initialize` and then the `initialized` notification. On failure the
     /// process is stopped before returning.
-    pub async fn connect(options: ConnectOptions) -> Result<(CodexClient, mpsc::UnboundedReceiver<ServerEvent>), ConnectError> {
+    pub async fn connect(options: ConnectOptions) -> Result<(CodexClient, EventReceiver<ServerEvent>), ConnectError> {
         let (rpc, events) = CodexRpc::spawn(options.spawn)?;
         let params = protocol::initialize_params(&options.client, options.experimental_api);
         let initialize = match rpc.request_with_timeout(methods::INITIALIZE, params, options.initialize_timeout).await {
@@ -179,6 +179,11 @@ impl CodexClient {
     pub async fn thread_read(&self, thread_id: &str, include_turns: bool) -> Result<Value, RpcError> {
         let params = if include_turns { json!({ "threadId": thread_id, "includeTurns": true }) } else { json!({ "threadId": thread_id }) };
         self.rpc.request_with_timeout(methods::THREAD_READ, params, Some(Duration::from_secs(5))).await
+    }
+
+    /// `thread/turns/list` (5 s), e.g. `{ threadId, limit, sortDirection, itemsView, cursor? }`.
+    pub async fn thread_turns_list(&self, params: Value) -> Result<Value, RpcError> {
+        self.rpc.request_with_timeout(methods::THREAD_TURNS_LIST, params, Some(Duration::from_secs(5))).await
     }
 
     /// `turn/start`, 90 s limit. Returns the whole result (`{ turn: { id, … } }`).

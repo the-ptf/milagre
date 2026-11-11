@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
 use milagre_providers::codex::{Limits, ServerEvent, SpawnOptions};
+use milagre_providers::queue::EventReceiver;
 use std::time::Duration;
-use tokio::sync::mpsc::UnboundedReceiver;
 
 pub const FAKE: &str = env!("CARGO_BIN_EXE_fake-codex-app-server");
 
@@ -34,7 +34,7 @@ pub fn which(name: &str) -> Option<std::path::PathBuf> {
 }
 
 /// Next event matching `pick`, failing after 5 s.
-pub async fn next_matching<T>(events: &mut UnboundedReceiver<ServerEvent>, mut pick: impl FnMut(&ServerEvent) -> Option<T>) -> T {
+pub async fn next_matching<T>(events: &mut EventReceiver<ServerEvent>, mut pick: impl FnMut(&ServerEvent) -> Option<T>) -> T {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let event = events.recv().await.expect("event stream ended");

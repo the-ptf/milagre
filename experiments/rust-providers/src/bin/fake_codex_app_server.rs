@@ -64,6 +64,7 @@ fn main() {
     let mut turn: Option<Turn> = None;
     let mut turns = 0;
     let mut threads = 0;
+    let mut child_reads = 0;
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
@@ -117,6 +118,52 @@ fn main() {
                 }
             }
             "thread/unarchive" => out.error(&id, -32600, "thread is not archived"),
+            // Subagent threads: child-1 runs on the first read and has finished from the second; done-child
+            // finished, active-child still runs, old-child's Codex has no thread/turns/list.
+            "thread/read" => {
+                let thread = params.get("threadId").and_then(Value::as_str).unwrap_or_default().to_string();
+                let include = params.get("includeTurns") == Some(&Value::Bool(true));
+                let status = match thread.as_str() {
+                    "child-1" => {
+                        child_reads += 1;
+                        if child_reads == 1 {
+                            "active"
+                        } else {
+                            "idle"
+                        }
+                    }
+                    "active-child" => "active",
+                    _ => "idle",
+                };
+                let mut result = json!({ "thread": { "id": thread, "status": { "type": status } } });
+                if include && thread == "old-child" {
+                    result["thread"]["turns"] = json!([{ "id": "ot-1", "status": "interrupted", "items": [] }]);
+                }
+                out.reply(&id, result);
+            }
+            "thread/turns/list" => {
+                let thread = params.get("threadId").and_then(Value::as_str).unwrap_or_default();
+                let cursor = params.get("cursor").and_then(Value::as_str);
+                let finished = child_reads > 1;
+                let working = json!({ "type": "agentMessage", "id": "cm-1", "text": "Working on it." });
+                let done = json!({ "type": "agentMessage", "id": "cm-2", "text": "Done. Token expiry is 5 minutes." });
+                match thread {
+                    "old-child" => out.error(&id, -32601, "unknown method thread/turns/list"),
+                    "child-1" if cursor.is_some() => out.reply(
+                        &id,
+                        json!({ "data": [{ "id": "ct-1", "status": "completed", "items": [working, done] }], "nextCursor": null }),
+                    ),
+                    "child-1" if finished => out.reply(
+                        &id,
+                        json!({ "data": [{ "id": "ct-1", "status": "completed", "items": [working, done] }], "backwardsCursor": "b1" }),
+                    ),
+                    "child-1" => out.reply(
+                        &id,
+                        json!({ "data": [{ "id": "ct-1", "status": "inProgress", "items": [working] }], "backwardsCursor": "b1" }),
+                    ),
+                    _ => out.reply(&id, json!({ "data": [{ "id": "dt-1", "status": "completed", "items": [] }], "backwardsCursor": null })),
+                }
+            }
             "turn/start" => {
                 turns += 1;
                 let thread = params.get("threadId").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -124,6 +171,13 @@ fn main() {
                 out.reply(&id, json!({ "turn": { "id": current.turn, "status": "inProgress", "items": [], "error": null } }));
                 out.notify("turn/started", json!({ "threadId": thread, "turn": { "id": current.turn, "status": "inProgress" } }));
                 turn = start_turn(&scenario, &out, current);
+            }
+            "turn/steer" if scenario == "steer-late" => {
+                // The turn ended just before the steer arrived.
+                out.error(&id, -32600, "no active turn to steer");
+                if let Some(current) = turn.take() {
+                    complete(&out, &current, "completed");
+                }
             }
             "turn/steer" => match turn.as_ref() {
                 Some(current) if params.get("expectedTurnId").and_then(Value::as_str) == Some(current.turn.as_str()) => {
@@ -156,6 +210,21 @@ fn main() {
                 out.reply(&id, json!({ "received": frames }));
             }
             "fake/hang" => {}
+            "fake/flood" => {
+                let count = params.get("count").and_then(Value::as_u64).unwrap_or(0);
+                let filler = "z".repeat(params.get("bytes").and_then(Value::as_u64).unwrap_or(10) as usize);
+                for n in 0..count {
+                    out.notify("fake/flood", json!({ "n": n, "f": filler }));
+                }
+                out.reply(&id, json!({ "sent": count }));
+            }
+            "fake/requests" => {
+                let count = params.get("count").and_then(Value::as_u64).unwrap_or(0);
+                for n in 0..count {
+                    out.send(&json!({ "id": format!("flood-{n}"), "method": "item/commandExecution/requestApproval", "params": {} }));
+                }
+                out.reply(&id, json!({ "sent": count }));
+            }
             "fake/noise" => {
                 out.raw("this is not json\n\n   \n[1,2]\n{\"neither\":true}\n");
                 out.raw("{\"id\":424242,\"result\":{\"stray\":true}}\n");
@@ -278,7 +347,57 @@ fn start_turn(scenario: &str, out: &Out, mut turn: Turn) -> Option<Turn> {
             out.send(&json!({ "id": "srv-u", "method": "item/somethingNew/request", "params": {} }));
             Some(turn)
         }
-        "stubborn" | "slow" => Some(turn),
+        "stubborn" | "slow" | "steer-late" => Some(turn),
+        "chatty" => {
+            for n in 0..300 {
+                out.notify(
+                    "item/agentMessage/delta",
+                    json!({ "threadId": thread, "turnId": turn_id, "itemId": "msg-1", "delta": format!("{n} ") }),
+                );
+            }
+            complete(out, &turn, "completed");
+            None
+        }
+        "steps" => {
+            let command = json!({ "type": "commandExecution", "id": "exec-1", "command": "/bin/zsh -lc 'npm test'", "cwd": "/repo", "status": "inProgress",
+                "commandActions": [{ "type": "unknown", "command": "npm test" }], "aggregatedOutput": null, "exitCode": null });
+            out.notify("item/started", json!({ "threadId": thread, "turnId": turn_id, "item": command }));
+            out.notify(
+                "item/commandExecution/outputDelta",
+                json!({ "threadId": thread, "turnId": turn_id, "itemId": "exec-1", "delta": "ok 2\n" }),
+            );
+            let mut done = command.clone();
+            done["status"] = "completed".into();
+            done["aggregatedOutput"] = "ok 1\nok 2\n".into();
+            done["exitCode"] = 0.into();
+            out.notify("item/completed", json!({ "threadId": thread, "turnId": turn_id, "item": done }));
+            out.notify("item/started", json!({ "threadId": thread, "turnId": turn_id, "item": { "type": "reasoning", "id": "rs-1", "summary": [], "content": [] } }));
+            out.notify("item/completed", json!({ "threadId": thread, "turnId": turn_id, "item": { "type": "reasoning", "id": "rs-1", "summary": ["Checked tests"], "content": [] } }));
+            out.notify("thread/tokenUsage/updated", json!({ "threadId": thread, "turnId": turn_id, "tokenUsage": { "last": { "totalTokens": 1200 }, "modelContextWindow": 272000 } }));
+            out.notify(
+                "turn/plan/updated",
+                json!({ "threadId": thread, "turnId": turn_id, "plan": [{ "step": "Run tests", "status": "completed" }] }),
+            );
+            out.notify("item/agentMessage/delta", json!({ "threadId": thread, "turnId": turn_id, "itemId": "msg-1", "delta": "Done" }));
+            complete(out, &turn, "completed");
+            None
+        }
+        "subagents" => {
+            let spawn = json!({ "type": "collabAgentToolCall", "id": "co-1", "tool": "spawnAgent", "senderThreadId": thread,
+                "receiverThreadIds": ["child-1"], "prompt": "Review the auth flow", "agentsStates": {} });
+            out.notify("item/started", json!({ "threadId": thread, "turnId": turn_id, "item": spawn }));
+            let mut spawned = spawn.clone();
+            spawned["agentsStates"] = json!({ "child-1": { "status": "running", "message": null } });
+            out.notify("item/completed", json!({ "threadId": thread, "turnId": turn_id, "item": spawned }));
+            out.notify("item/agentMessage/delta", json!({ "threadId": thread, "turnId": turn_id, "itemId": "msg-1", "delta": "Spawned" }));
+            complete(out, &turn, "completed");
+            None
+        }
+        "unauthorized" => {
+            out.notify("turn/completed", json!({ "threadId": thread, "turn": { "id": turn_id, "items": [], "status": "failed",
+                "error": { "message": "unexpected status 401 Unauthorized", "codexErrorInfo": { "httpConnectionFailed": { "httpStatusCode": 401 } } } } }));
+            None
+        }
         "crash" => {
             eprintln!("boom: model unavailable");
             std::process::exit(3);
