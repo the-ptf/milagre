@@ -1,0 +1,7 @@
+{
+  "path": "/private/tmp/milagre-rust-wire-FIXTURE/fixture",
+  "name": "fixture",
+  "git": false,
+  "epoch": "isolated-actor:/private/tmp/milagre-rust-wire-FIXTURE/fixture",
+  "version": 1
+}

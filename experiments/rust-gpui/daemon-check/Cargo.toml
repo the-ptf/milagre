@@ -1,0 +1,26 @@
+[package]
+name = "milagre-gpui-daemon-check"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "Off-by-default DaemonAdapter: the GPUI crate's DataSource over the backend's shared daemon client, checked against its owned app-fixture"
+
+# Its own workspace: the base GPUI crate's manifest, lock and build do not know this crate exists.
+[workspace]
+
+[dependencies]
+# The GPUI crate: its domain types and `DataSource` trait, and the sidebar the headless test mounts.
+milagre-gpui-spike = { path = ".." }
+# The backend's frozen client at a9d85d1d, exported (never edited) by scripts/check-gpui-adapter.py into the
+# GPUI crate's ignored target/ directory. Run `python3 scripts/check-gpui-adapter.py export --backend <worktree>`
+# before any cargo command here.
+milagre-daemon-client = { path = "../target/daemon-client-a9d85d1d/experiments/rust-daemon-client" }
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+anyhow = "1"
+serde_json = "1"
+
+[dev-dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
+gpui-component = "=0.9.1"
+futures = "0.3"

@@ -515,3 +515,38 @@ WP-22 (2026-11-11): the activity fold and the tool rows, in `workspace/chat/tran
   `MILAGRE_GPUI_CHANGES_LAYOUT=split`.
 - Diff colours are gpui-component's `success`/`danger` at 12%/30%: exact in dark, 3 to 9 units off in light. Split columns keep their content
   width and scroll sideways, so at 640px only the left side shows.
+
+## Daemon adapter
+
+`daemon-check/` is the first real-data stage, off by default: `DaemonAdapter` implements `DataSource` on the
+backend's shared daemon client (`milagre-daemon-client`, used exactly as committed at a9d85d1d) and is checked
+headless against the backend's owned `app-fixture`. It is its own crate with its own `[workspace]` and lock; this
+crate's manifest, lock and build do not know it exists, and the app never constructs the adapter.
+
+```sh
+cd daemon-check
+python3 scripts/check-gpui-adapter.py export --backend <backend worktree>   # client tree into ../target/
+cargo test --offline --locked                                                # mapping on captured bodies
+python3 scripts/check-gpui-adapter.py run --backend <backend worktree>      # real fixture, staged in /tmp
+```
+
+`export` unpacks `git archive a9d85d1d experiments/rust-daemon-client` into `target/daemon-client-a9d85d1d/` and
+checks every file against the commit's blobs. `run` also checks the fixture's SHA-256, stages the test runner beside
+a copy of that exact binary in a private /tmp directory (the client's `FixtureGuard::launch()` only launches its
+sibling `app-fixture`), runs each ignored `real::` test in its own process, records both hashes and HEADs, and
+removes the stage; the log is `daemon-check/target/check-gpui-adapter.log`.
+
+- `src/map.rs`: the client's JSON bodies into the domain types, by wire name; a wrong type is an error naming its path.
+- `src/adapter.rs`: `project:current`, `project:open`, `project:read`, `state:read`, `chat:runs`, `chat:messages`.
+  `computers:list`, `project:recent`, `pull-requests:snapshot`, `usage:cached` and any other computer answer a typed
+  `NotAvailable`. `chat:messages` needs `project:open` on the connection first (the owner refuses with
+  `ISOLATED_SCOPE_ONLY`); the adapter does not open on its own, since opening may persist owner state.
+- `src/events.rs`: connect, `runtime_snapshot()`, apply to a `Reducer`, `accept_snapshot`, then released events, which
+  are recorded, not applied. A closed stream (`StateTooLarge` included) is an error, never an empty state.
+
+Not done in this stage: live streaming into the UI, state patches, hydration of oversized states, sends or any
+write, Links, other computers. Not decoded yet: subagent transcripts and progress (a non-empty one is an error),
+typed message contexts other than `reload`, `git-action`, `limit-reset` and `handover` (the rest stay whole in
+`ChatContext::Other`), `native_sessions`, `plan`, `limitResume`, `limitTurn`, `openSuggestions`, queued messages'
+images and context. The fixture's two Chats have no messages, so the sidebar mounted from the adapter lists no row
+(the shared rule leaves empty starter Chats out).

@@ -1,0 +1,45 @@
+{
+  "path": "/private/tmp/milagre-rust-wire-FIXTURE/fixture",
+  "name": "fixture",
+  "git": false,
+  "state": {
+    "next_id": 10,
+    "name": "actor",
+    "worktrees": {
+      "1": {
+        "id": 1,
+        "path": "/private/tmp/milagre-rust-wire-FIXTURE/fixture",
+        "name": "fixture",
+        "project_id": 1
+      }
+    },
+    "sessions": {
+      "1": {
+        "id": 1,
+        "worktree_id": 1,
+        "agent_name": "fixture",
+        "summary": {
+          "count": 0
+        }
+      },
+      "2": {
+        "id": 2,
+        "worktree_id": 1,
+        "agent_name": "fixture",
+        "summary": {
+          "count": 0
+        }
+      }
+    },
+    "messages": [],
+    "projects": {
+      "1": {
+        "id": 1,
+        "name": "fixture"
+      }
+    },
+    "tasks": {}
+  },
+  "version": 1,
+  "epoch": "isolated-actor:/private/tmp/milagre-rust-wire-FIXTURE/fixture"
+}
