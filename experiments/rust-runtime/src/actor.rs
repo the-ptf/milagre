@@ -81,6 +81,8 @@ struct Shared {
     delivery_failed: AtomicBool,
     forgotten_answers: AtomicU64,
     stranded_lock_notices: AtomicU64,
+    #[cfg(test)]
+    observed_quit: Mutex<Option<QuitState>>,
 }
 struct Actor {
     send: SyncSender<Request>,
@@ -649,6 +651,10 @@ impl State {
         }
         let was_running = self.host.quit_state() == QuitState::Running;
         let closed = self.host.shutdown(force);
+        #[cfg(test)]
+        {
+            *shared.observed_quit.lock().unwrap() = Some(self.host.quit_state());
+        }
         // Only the owner's actual busy gate, before shutdown starts, permits
         // reopening. Earlier interrupt/pump errors never reach this branch.
         *refused = was_running
@@ -881,6 +887,8 @@ fn start_provider(
         delivery_failed: AtomicBool::new(false),
         forgotten_answers: AtomicU64::new(0),
         stranded_lock_notices: AtomicU64::new(0),
+        #[cfg(test)]
+        observed_quit: Mutex::new(None),
     });
     let (send, requests) = mpsc::sync_channel(QUEUE);
     let actor = Arc::new(Actor {
@@ -1139,6 +1147,8 @@ mod tests {
             delivery_failed: AtomicBool::new(false),
             forgotten_answers: AtomicU64::new(0),
             stranded_lock_notices: AtomicU64::new(0),
+            #[cfg(test)]
+            observed_quit: Mutex::new(None),
         });
         (
             Actor {
@@ -1318,6 +1328,8 @@ mod publication_tests {
             delivery_failed: AtomicBool::new(false),
             forgotten_answers: AtomicU64::new(0),
             stranded_lock_notices: AtomicU64::new(0),
+            #[cfg(test)]
+            observed_quit: Mutex::new(None),
         };
         let mut state = State {
             host: ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0)),
@@ -1496,6 +1508,8 @@ mod job_tests {
             delivery_failed: AtomicBool::new(false),
             forgotten_answers: AtomicU64::new(0),
             stranded_lock_notices: AtomicU64::new(0),
+            #[cfg(test)]
+            observed_quit: Mutex::new(None),
         });
         let (send, requests) = mpsc::sync_channel(QUEUE);
         let actor = Arc::new(Actor {
@@ -1710,6 +1724,39 @@ mod job_tests {
             "never-started restore has no native session to close"
         );
         assert!(server.is_stopped());
+        assert_eq!(
+            *actor.shared.observed_quit.lock().unwrap(),
+            Some(QuitState::Done)
+        );
+        assert_eq!(
+            actor.shared.stranded_lock_notices.load(Ordering::Acquire),
+            0
+        );
+        let handovers = server.profile_path().join(".owner/handovers");
+        assert!(
+            handovers.is_dir(),
+            "the real restore acquired its handover store"
+        );
+        let mut folders = vec![handovers];
+        while let Some(folder) = folders.pop() {
+            for entry in fs::read_dir(folder).unwrap() {
+                let entry = entry.unwrap();
+                if entry.file_type().unwrap().is_dir() {
+                    folders.push(entry.path());
+                } else {
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    assert!(
+                        !name.ends_with(".tmp"),
+                        "cancelled job left temporary transcript {name}"
+                    );
+                    assert!(
+                        !name.ends_with(".md"),
+                        "cancelled job committed a session transcript {name}"
+                    );
+                }
+            }
+        }
         use milagre_owner_store::{ProjectRepository, ProjectStore};
         let saved = ProjectStore::new(project.clone())
             .read_project_state()
