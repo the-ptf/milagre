@@ -853,3 +853,18 @@ fn spoofed_key_subquota_leaves_other_known_phone_admissible() {
         0
     );
 }
+
+#[test]
+fn consuming_completion_releases_ticket_even_when_clock_fails() {
+    let mut a = authority(Limits {
+        pending: 1,
+        pending_desktops: 1,
+        ..Default::default()
+    });
+    a.open_pairing(1).unwrap();
+    let bytes = hello(2, DeviceKind::Phone, TOKEN);
+    let ticket = a.begin(Source::Relay, &bytes, 1, &mut OsRng).unwrap();
+    assert!(matches!(a.complete(ticket, || 0), Err(PolicyError::Time)));
+    let retry = a.begin(Source::Relay, &bytes, 1, &mut OsRng).unwrap();
+    assert!(a.complete(retry, || 1).unwrap().device().first_pairing);
+}

@@ -614,3 +614,79 @@ fn authoritative_event_evicts_advisory_from_full_queue() {
     drop(s);
     assert_eq!(c.retained_bytes(), 0);
 }
+
+#[test]
+fn failed_approval_releases_protected_slot_and_ticket_immediately() {
+    let limits = Limits {
+        authority: milagre_remote::policy::Limits {
+            records: 1,
+            pending: 1,
+            pending_desktops: 1,
+            ..Default::default()
+        },
+        registry: milagre_remote::registry::Limits {
+            carriers: 2,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (s, c, _) = start(limits);
+    run(&c, Command::OpenPairing);
+    let (phone_handle, _, _) = phone(&c, 1, 2);
+    for seed in 3..8 {
+        let (h, m) = attach(&c, u64::from(seed));
+        hello(&c, &h, seed, 1, DeviceKind::Desktop);
+        let permit = match c.next_event(WAIT).unwrap() {
+            Event::Approval { permit, .. } => permit,
+            _ => panic!(),
+        };
+        assert!(matches!(
+            c.submit(Command::Approve(permit)).unwrap().wait(WAIT),
+            Err(Error::Policy(milagre_remote::policy::PolicyError::Limited))
+        ));
+        assert_eq!(h.status(), CarrierStatus::Closed(CloseReason::Protocol));
+        assert!(m.is_closed());
+        assert_eq!(m.delivery_attempts(), 0);
+        assert_eq!(phone_handle.status(), CarrierStatus::Active);
+        assert!(!c.is_retired());
+    }
+    drop(s);
+    assert_eq!(c.retained_bytes(), 0);
+}
+#[test]
+fn failed_replace_reports_retired_running_state_and_valid_retry_recovers() {
+    let (s, c, _) = start(Limits::default());
+    assert!(!c.is_retired());
+    run(&c, Command::OpenPairing);
+    let (old, m, _) = phone(&c, 1, 2);
+    let mut invalid = identity(9);
+    invalid.token.clear();
+    assert!(c
+        .submit(Command::Replace(invalid))
+        .unwrap()
+        .wait(WAIT)
+        .is_err());
+    assert!(c.is_retired());
+    assert_eq!(c.stop_reason(), StopReason::Running);
+    assert!(!c.is_finished());
+    assert_eq!(old.status(), CarrierStatus::Closed(CloseReason::Retired));
+    assert!(m.is_closed());
+    assert!(c.submit(Command::OpenPairing).unwrap().wait(WAIT).is_err());
+    run(&c, Command::Replace(identity(9)));
+    assert!(!c.is_retired());
+    run(&c, Command::OpenPairing);
+    let (h, fresh) = attach(&c, 1);
+    let pending = hello(&c, &h, 2, 9, DeviceKind::Phone);
+    pending.finish(&fresh.receive().unwrap()).unwrap();
+    assert!(c
+        .submit(Command::Send {
+            handle: old,
+            encoded: b"null".to_vec()
+        })
+        .unwrap()
+        .wait(WAIT)
+        .is_err());
+    drop(s);
+    assert!(c.is_retired() && c.is_finished());
+    assert_eq!(c.retained_bytes(), 0);
+}

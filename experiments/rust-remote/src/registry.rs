@@ -103,6 +103,10 @@ pub struct WorkToken {
     state: Arc<AtomicU8>,
 }
 impl WorkToken {
+    pub(crate) fn handle(&self) -> &Handle {
+        &self.handle
+    }
+
     pub fn id(&self) -> i64 {
         self.id
     }

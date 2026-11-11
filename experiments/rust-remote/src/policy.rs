@@ -623,9 +623,13 @@ impl TemporaryAuthority {
     /// Consumes the ticket, commits new records, then derives and
     /// consumes ServiceDecision internally. No caller can assert "persisted" here.
     pub fn complete(&mut self, ticket: Ticket, mut now: impl FnMut() -> u64) -> Result<Session> {
-        self.clock(now())?;
         let id = self.ticket_id(&ticket)?;
+        // Consuming completion must release the ticket even if the clock fails.
         let p = self.pending.remove(&id).ok_or(PolicyError::Denied)?;
+        self.clock(now())?;
+        if self.last_time >= p.deadline {
+            return Err(PolicyError::Denied);
+        }
         let d = p.accepted.device();
         if self.retired || self.records.get(&d.key).copied() != p.record {
             return Err(PolicyError::Denied);
