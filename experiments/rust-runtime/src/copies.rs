@@ -2,7 +2,7 @@ use crate::{ProjectInfo, ReadBackend};
 use milagre_owner_store::{
     chat_page, jsjson, PageOptions, ProjectReader, ProjectRepository, ProjectStore, StoreError,
 };
-use milagre_owner_wire::{IsolatedProfile, RpcError, RpcResult};
+use milagre_owner_wire::{IsolatedProfile, ProfileLease, RpcError, RpcResult};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
@@ -18,6 +18,7 @@ pub struct SavedCopies {
     root: PathBuf,
     projects: Vec<ProjectInfo>,
     seals: BTreeMap<String, String>,
+    _profile: ProfileLease,
 }
 impl SavedCopies {
     pub fn create(profile: &IsolatedProfile) -> Result<Self, RpcError> {
@@ -60,6 +61,7 @@ impl SavedCopies {
             root,
             projects,
             seals,
+            _profile: profile.lease(),
         })
     }
     fn reader(&self, path: &str) -> Result<ProjectReader, RpcError> {

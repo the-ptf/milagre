@@ -21,13 +21,14 @@ A quit request closes new admission while ticks and worker completion intake con
 
 shutdown_pending runs outside the actor and retries only QUIT_PENDING, returning it after the caller's bounded wait expires. The actor, Claude and ACP fixture executables use this driver on stdin EOF; a pending result retains the server and retries another bounded interval, with one diagnostic. Busy refusal and save errors are surfaced rather than silently forced or retried. Repeated daemon:stop requests remain retryable.
 
-Forced forget retains its Project and lock until jobs report and cleanup finishes. No separate runtime finish callback exists. State Drop joins workers before destroying the host, but forced Server Drop remains a crash boundary: the wire server currently drops its profile field before its handler. This checkpoint does not claim profile retention or durable cleanup after forced Server Drop or process termination.
+Forced forget retains its Project and lock until jobs report and cleanup finishes. No separate runtime finish callback exists. State owns an opaque ProfileLease acquired before Server::bind. State Drop joins workers before destroying the host and releases that lease last, so forced Server Drop cannot remove the profile underneath a retained actor or its workers. SavedCopies and OwnedCopies retain their own leases, including when content or terminal callbacks retain backend Arcs. Forced drop remains a crash boundary: retaining files until teardown does not imply saved state, consumed job outcomes, graceful cleanup or survival after process termination.
 
 ## Verified fixture evidence
 
 - Four paused jobs fill the owner's reservations; a fifth is refused before staging. Actor ticks and Stop remain responsive.
 - A handshake holds each worker before run. Repeated bounded shutdown attempts and three production Node-client daemon:stop calls report QUIT_PENDING with no stopping event; socket, profile and Project lock remain present. Releasing jobs allows Done, joined workers and successful shutdown.
 - Forced forget stays pending for normal completion, worker panic and dropped-unrun jobs. After the owner consumes each outcome and cleanup, forget releases the lock. No job is replayed.
+- A forced Server Drop with an actual paused transcript job and retained Actor preserves the profile and Project lock. Actor destruction blocks until worker release/join, then the final lease removes the profile. Separate tests check retained saved/owned backends after server teardown.
 - The full existing runtime compatibility suites still exercise ordinary refusal, failed-close retry, provider answers and Node clients.
 
 ## Brief generation and restore

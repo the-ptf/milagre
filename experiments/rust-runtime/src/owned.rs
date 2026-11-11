@@ -4,7 +4,7 @@ use milagre_owner_store::{
     states::{ProjectStates, Timing},
     Isolation, PageOptions, ProjectReader, ProjectStore, StoreError,
 };
-use milagre_owner_wire::{RpcError, RpcResult};
+use milagre_owner_wire::{ProfileLease, RpcError, RpcResult};
 use serde_json::Value;
 use std::{
     fs,
@@ -17,14 +17,20 @@ pub(crate) struct OwnedCopies {
     projects: Vec<ProjectInfo>,
     isolation: Isolation,
     states: Mutex<ProjectStates>,
+    _profile: ProfileLease,
 }
 impl OwnedCopies {
-    pub(crate) fn new(projects: Vec<ProjectInfo>, isolation: Isolation) -> Self {
+    pub(crate) fn new(
+        projects: Vec<ProjectInfo>,
+        isolation: Isolation,
+        profile: ProfileLease,
+    ) -> Self {
         let states = ProjectStates::new(isolation.clone(), Timing::default(), now());
         Self {
             projects,
             isolation,
             states: Mutex::new(states),
+            _profile: profile,
         }
     }
     fn path(&self, path: &str) -> Result<PathBuf, RpcError> {

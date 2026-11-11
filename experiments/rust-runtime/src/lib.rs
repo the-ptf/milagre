@@ -449,7 +449,11 @@ fn start_mode_with_git(
     let copies = SavedCopies::create(&profile)?;
     let content_isolation = isolation.clone();
     let backend: Arc<dyn ReadBackend> = match isolation {
-        Some(isolation) => Arc::new(owned::OwnedCopies::new(copies.projects(), isolation)),
+        Some(isolation) => Arc::new(owned::OwnedCopies::new(
+            copies.projects(),
+            isolation,
+            profile.lease(),
+        )),
         None => Arc::new(copies),
     };
     let epoch = format!("isolated-read:{}", profile.path().display());
@@ -495,4 +499,57 @@ fn start_mode_with_git(
         git_metadata,
         content,
     })
+}
+
+#[cfg(test)]
+mod profile_lifetime_tests {
+    use super::*;
+    #[test]
+    fn retained_read_backends_keep_their_private_profile_after_server_drop() {
+        for owned in [false, true] {
+            let profile = IsolatedProfile::create().unwrap();
+            let path = profile.path().to_path_buf();
+            let isolation = owned.then(|| {
+                milagre_owner_store::Isolation::create(
+                    &path,
+                    &milagre_owner_store::Policy::default(),
+                )
+                .unwrap()
+            });
+            let copies = SavedCopies::create(&profile).unwrap();
+            let backend: Arc<dyn ReadBackend> = match isolation {
+                Some(isolation) => {
+                    let projects = copies.projects();
+                    drop(copies);
+                    Arc::new(owned::OwnedCopies::new(
+                        projects,
+                        isolation,
+                        profile.lease(),
+                    ))
+                }
+                None => Arc::new(copies),
+            };
+            let project = backend.projects()[0].path.clone();
+            backend.state(&project).unwrap();
+            let server = Server::bind(
+                profile,
+                Arc::new(ReadHandler::new(backend.clone(), "lease-fixture".into())),
+                Config::default(),
+            )
+            .unwrap();
+            drop(server);
+            assert!(
+                path.exists(),
+                "a retained backend still owns this private profile"
+            );
+            if !owned {
+                backend.state(&project).unwrap();
+            }
+            drop(backend);
+            assert!(
+                !path.exists(),
+                "the final backend lease releases the profile"
+            );
+        }
+    }
 }

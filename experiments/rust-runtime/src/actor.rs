@@ -10,8 +10,8 @@ use milagre_owner_store::{
     Isolation, Policy,
 };
 use milagre_owner_wire::{
-    ClientContext, Config, EventSink, Handler, IsolatedProfile, Publication, RpcError, RpcResult,
-    Server,
+    ClientContext, Config, EventSink, Handler, IsolatedProfile, ProfileLease, Publication,
+    RpcError, RpcResult, Server,
 };
 use serde_json::{json, Value};
 use std::{
@@ -318,6 +318,8 @@ struct State {
     pending: VecDeque<(String, Value)>,
     answers: HashMap<AnswerId, SyncSender<RpcResult>>,
     settled_answers: Vec<(SyncSender<RpcResult>, RpcResult)>,
+    // Drop after jobs join and the host releases its locks, even on forced teardown.
+    _profile: ProfileLease,
 }
 impl Drop for State {
     fn drop(&mut self) {
@@ -835,6 +837,7 @@ fn start_provider(
         project: project.to_string_lossy().into_owned(),
         content: content.is_some(),
     });
+    let profile_lease = profile.lease();
     let server = Server::bind(
         profile,
         actor.clone(),
@@ -859,6 +862,7 @@ fn start_provider(
                 pending: VecDeque::new(),
                 answers: HashMap::new(),
                 settled_answers: Vec::new(),
+                _profile: profile_lease,
             },
             shared,
             requests,
@@ -1275,6 +1279,7 @@ mod publication_tests {
             pending: VecDeque::new(),
             answers: HashMap::new(),
             settled_answers: Vec::new(),
+            _profile: profile.lease(),
         };
         state
             .pending
@@ -1422,6 +1427,54 @@ mod job_tests {
             host.shutdown(true).unwrap();
         }
     }
+    fn running(
+        profile: IsolatedProfile,
+        project: &std::path::Path,
+        host: ChatHost,
+        workers: crate::jobs::Workers,
+    ) -> (Arc<Server>, Arc<Actor>) {
+        let shared = Arc::new(Shared {
+            snapshot: Mutex::new(json!({})),
+            events: Mutex::new(None),
+            bytes: AtomicUsize::new(0),
+            closing: AtomicBool::new(false),
+            stop: AtomicBool::new(false),
+            failure: Mutex::new(None),
+            delivery_failed: AtomicBool::new(false),
+            forgotten_answers: AtomicU64::new(0),
+            stranded_lock_notices: AtomicU64::new(0),
+        });
+        let (send, requests) = mpsc::sync_channel(QUEUE);
+        let actor = Arc::new(Actor {
+            send,
+            shared: shared.clone(),
+            thread: Mutex::new(None),
+            project: project.to_string_lossy().into(),
+            content: false,
+        });
+        let profile_lease = profile.lease();
+        let server = Arc::new(Server::bind(profile, actor.clone(), Config::default()).unwrap());
+        *shared.events.lock().unwrap() = Some(server.events());
+        let state = State {
+            host,
+            jobs: workers,
+            provider: "kiro",
+            content: None,
+            project: project.to_path_buf(),
+            opened: true,
+            version: 0,
+            last: Value::Null,
+            run_seq: 0,
+            pending: VecDeque::new(),
+            answers: HashMap::new(),
+            settled_answers: vec![],
+            _profile: profile_lease,
+        };
+        *actor.thread.lock().unwrap() = Some(thread::spawn(move || {
+            run(state, shared, requests, Instant::now(), 0)
+        }));
+        (server, actor)
+    }
     #[test]
     fn quit_keeps_socket_profile_and_locks_until_four_workers_are_joined() {
         let (profile, project, mut host) = seeded();
@@ -1448,44 +1501,7 @@ mod job_tests {
             Some("TRANSCRIPTS_AT_CAPACITY")
         );
         let (workers, gate, entered) = workers(0);
-        let shared = Arc::new(Shared {
-            snapshot: Mutex::new(json!({})),
-            events: Mutex::new(None),
-            bytes: AtomicUsize::new(0),
-            closing: AtomicBool::new(false),
-            stop: AtomicBool::new(false),
-            failure: Mutex::new(None),
-            delivery_failed: AtomicBool::new(false),
-            forgotten_answers: AtomicU64::new(0),
-            stranded_lock_notices: AtomicU64::new(0),
-        });
-        let (send, requests) = mpsc::sync_channel(QUEUE);
-        let actor = Arc::new(Actor {
-            send,
-            shared: shared.clone(),
-            thread: Mutex::new(None),
-            project: project.to_string_lossy().into(),
-            content: false,
-        });
-        let server = Arc::new(Server::bind(profile, actor.clone(), Config::default()).unwrap());
-        *shared.events.lock().unwrap() = Some(server.events());
-        let state = State {
-            host,
-            jobs: workers,
-            provider: "kiro",
-            content: None,
-            project: project.clone(),
-            opened: true,
-            version: 0,
-            last: Value::Null,
-            run_seq: 0,
-            pending: VecDeque::new(),
-            answers: HashMap::new(),
-            settled_answers: vec![],
-        };
-        *actor.thread.lock().unwrap() = Some(thread::spawn(move || {
-            run(state, shared, requests, Instant::now(), 0)
-        }));
+        let (server, actor) = running(profile, &project, host, workers);
         let _release = ReleaseOnDrop(gate.clone());
         for _ in 0..4 {
             entered.recv_timeout(Duration::from_secs(2)).unwrap();
@@ -1533,5 +1549,41 @@ mod job_tests {
         server.shutdown().unwrap();
         drop(actor);
         Server::finish(server).unwrap();
+    }
+    #[test]
+    fn forced_server_drop_retains_profile_until_actor_joins_paused_job() {
+        let (profile, project, mut host) = seeded();
+        let path = profile.path().to_path_buf();
+        prepare(&mut host, &project, 1);
+        let (workers, gate, entered) = workers(0);
+        let (server, actor) = running(profile, &project, host, workers);
+        let _release = ReleaseOnDrop(gate.clone());
+        entered.recv_timeout(Duration::from_secs(2)).unwrap();
+        // Deliberately abandon graceful quit. The retained Actor and paused job
+        // must outlive wire Inner and its original IsolatedProfile handle.
+        drop(server);
+        assert!(path.exists());
+        assert!(project.join(".milagre/runtime.lock").exists());
+        let stop = actor.shared.clone();
+        let (completed, receive) = mpsc::sync_channel(1);
+        let dropping = thread::spawn(move || {
+            drop(actor);
+            completed.send(()).unwrap();
+        });
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !stop.stop.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "Actor drop entered");
+            thread::yield_now();
+        }
+        assert!(receive.try_recv().is_err(), "drop joins the held worker");
+        assert!(path.exists());
+        assert!(project.join(".milagre/runtime.lock").exists());
+        gate.release();
+        receive.recv_timeout(Duration::from_secs(3)).unwrap();
+        dropping.join().unwrap();
+        assert!(
+            !path.exists(),
+            "last lease follows worker and host destruction"
+        );
     }
 }
