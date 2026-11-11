@@ -40,23 +40,30 @@ cargo check --manifest-path experiments/rust-runtime/Cargo.toml --no-default-fea
 node experiments/rust-runtime/fixtures/app-bootstrap-node.cjs --check
 ```
 
-The combined suite currently has 75 tests. Default dependency-tree inspection excludes `milagre-registry` and `milagre-accounts`; the app binary's `required-features` prevents a default build from selecting it. The original intermittent paging disconnect remains unproven; this checkpoint does not add stress runs or change wire policies.
+The combined suite has 77 tests including two receipt identity/bounds tests. Default dependency-tree inspection excludes `milagre-registry` and `milagre-accounts`; the app binary's `required-features` prevents a default build from selecting it. The original intermittent paging disconnect remains unproven; this checkpoint does not add stress runs or change wire policies.
 
 ## Bootstrap receipt and proposed desktop handoff
 
-The binary accepts zero arguments and emits one JSON line to stdout before serving. Current fields are:
+The binary accepts zero arguments and emits one JSON line to stdout before serving, bounded to 4096 UTF-8 bytes including the newline. Existing fields are preserved. Current fields are:
 
 ```json
 {
   "bootstrapVersion": 1,
   "protocolVersion": 1,
   "pid": "number: this daemon process",
+  "uid": "number: OS user ID",
   "profile": "absolute path: freshly generated private profile",
   "socket": "absolute path: this server's private Unix socket",
   "fixture": true,
   "appFixture": true,
   "scriptedOwner": true,
   "ownedCopies": true,
+  "identities": {
+    "profile": { "dev": "decimal u64 string", "ino": "decimal u64 string", "mode": 448, "uid": "number", "kind": "directory" },
+    "project": { "dev": "decimal u64 string", "ino": "decimal u64 string", "mode": "number: permission bits", "uid": "number", "kind": "directory" },
+    "socketDirectory": { "dev": "decimal u64 string", "ino": "decimal u64 string", "mode": 448, "uid": "number", "kind": "directory" },
+    "socket": { "dev": "decimal u64 string", "ino": "decimal u64 string", "mode": 384, "uid": "number", "kind": "socket" }
+  },
   "actor": {
     "project": "absolute path: profile/fixture",
     "appFixture": true,
@@ -72,9 +79,13 @@ The binary accepts zero arguments and emits one JSON line to stdout before servi
 }
 ```
 
-The explanatory strings above are schema descriptions; actual pid is numeric and paths are strings. They contain no account secrets. These are fixture timing values, not production defaults or performance measurements. The listener uses the existing 4 KiB frame/128 KiB outgoing-byte limits and advertises paging only. It does not advertise computer management or state patches.
+The explanatory strings above are schema descriptions; actual pid/uid/mode are numeric and paths are strings. `mode` holds Unix permission/special bits (`metadata.mode() & 07777`), so 448 is 0700 and 384 is 0600. Device and inode remain decimal strings because JavaScript cannot represent every u64 exactly. These identities are captured and rechecked before returning the line, using lstat to reject final symlinks. The identity checker is private and cannot construct an endpoint from supplied paths. A future launcher must independently verify the fixed child's PID/UID, local filesystem identity and peer credentials. A receipt is not atomic path-use protection or authentication by itself.
 
-**Proposed parent/desktop agreement, not implemented:** a launcher consumes this line exclusively from its fixed child process's inherited pipe, bounds its size, verifies both versions/flags/PID, canonical profile/Project containment, directory/socket identity and ownership, then mints a private `FixtureLaunchContext`. The shell receives that context through a private inherited channel. It never accepts this JSON as a renderer request, arbitrary command-line profile, saved preference or general environment override. The context must also own separate shell preferences, localStorage/outbox/WebKit data, window-state, instance lock and smoke-output roots. No fallback to the production socket or preference files is permitted.
+The receipt contains no account secrets. Timing values are fixture settings, not production defaults or performance measurements. The listener uses the existing 4 KiB frame/128 KiB outgoing-byte limits and advertises paging only. It does not advertise computer management or state patches.
+
+**Agreed parent/desktop contract, shell not implemented:** the feature-gated shell spawns a fixed sibling `app-fixture`, owns its `Child` and stdin, and consumes the receipt only from that child's inherited stdout pipe. It bounds the line, verifies both versions/flags/PID/UID, canonical profile/Project containment, directory/socket identity and peer credentials, then mints a private `FixtureLaunchContext`. It never accepts receipt JSON as a renderer request, arbitrary command-line profile, saved preference or general environment override. The shell owns separate fresh preferences, localStorage/outbox/WebKit data, window-state, instance lock and smoke-output storage. The daemon exclusively owns its own profile; no content grants are derived from that profile path. No fallback to the production socket or preference files is permitted.
+
+The future fixed-child launch should use `env_clear` and an explicit minimal environment, with private HOME/config roots and no inherited account/provider settings. This is configuration isolation, not an OS sandbox. No production HOME/config replacement is implemented or authorized by this checkpoint. A separate developer bundle ID also needs real macOS evidence that WKWebsiteDataStore cookies/localStorage/directories remain separate; no Tauri path assumption establishes that.
 
 No arbitrary shell launch or desktop API is added here. The next contract must settle who retains the cross-process profile lifetime, how the shell identifies a deliberately limited fixture host without fake `computer-management-v1`, and how pending quit is exposed. Current stdin EOF requests the existing normal shutdown path, not an unconditional kill. A successful `daemon:stop` and `Server::finish` drain/join before cleanup; refused/pending shutdown does not mean stopped. This receipt is an input to that future trusted launcher, not a production profile-adoption capability.
 

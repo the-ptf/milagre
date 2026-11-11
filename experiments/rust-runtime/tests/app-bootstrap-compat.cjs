@@ -24,12 +24,35 @@ async function main() {
   const timeout = setTimeout(() => child.kill("SIGKILL"), 20000);
   let client, metadata;
   try {
-    metadata = JSON.parse((await once(lines, "line"))[0]);
+    const receipt = (await once(lines, "line"))[0];
+    assert.ok(Buffer.byteLength(receipt) + 1 <= 4096);
+    metadata = JSON.parse(receipt);
     assert.equal(metadata.appFixture, true);
     assert.equal(metadata.bootstrapVersion, 1);
     assert.equal(metadata.protocolVersion, 1);
     assert.equal(metadata.pid, child.pid);
+    assert.equal(metadata.uid, process.getuid());
     const project = metadata.actor.project;
+    for (const [name, file, kind] of [
+      ["profile", metadata.profile, "directory"],
+      ["project", project, "directory"],
+      ["socketDirectory", path.dirname(metadata.socket), "directory"],
+      ["socket", metadata.socket, "socket"],
+    ]) {
+      const stat = fs.lstatSync(file, { bigint: true });
+      assert.equal(stat.isSymbolicLink(), false);
+      assert.equal(kind === "socket" ? stat.isSocket() : stat.isDirectory(), true);
+      assert.deepEqual(metadata.identities[name], {
+        dev: stat.dev.toString(),
+        ino: stat.ino.toString(),
+        mode: Number(stat.mode & 0o7777n),
+        uid: Number(stat.uid),
+        kind,
+      });
+    }
+    assert.equal(metadata.identities.profile.mode, 0o700);
+    assert.equal(metadata.identities.socketDirectory.mode, 0o700);
+    assert.equal(metadata.identities.socket.mode, 0o600);
     assert.equal(path.dirname(project), metadata.profile);
     assert.equal(metadata.actor.handoff, "gated");
     assert.equal(metadata.actor.steering, "gated");

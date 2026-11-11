@@ -1,4 +1,6 @@
 //! Fresh in-process scripted app owner. No external root, executable, account or environment input.
+#[path = "app_receipt.rs"]
+mod receipt;
 use milagre_accounts::Accounts;
 use milagre_owner_store::{jsjson, Isolation};
 use milagre_owner_wire::{RpcError, RpcResult, Server};
@@ -6,6 +8,7 @@ use milagre_registry::{
     writer::{RegistryCopy, Seeds, Writer},
     Snapshot,
 };
+pub use receipt::{bootstrap_receipt, MAX_BOOTSTRAP_BYTES};
 use serde_json::{json, Value};
 use std::{path::Path, sync::Arc};
 

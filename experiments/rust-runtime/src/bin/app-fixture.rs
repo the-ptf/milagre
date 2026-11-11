@@ -1,5 +1,4 @@
 //! This binary accepts no path arguments and never connects to a live owner.
-use serde_json::json;
 use std::{
     io::{self, Write},
     sync::Arc,
@@ -14,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = Arc::new(server);
     println!(
         "{}",
-        json!({"profile":server.profile_path(),"socket":server.socket_path(),"fixture":true,"scriptedOwner":true,"bootstrapVersion":1,"protocolVersion":1,"pid":std::process::id(),"appFixture":true,"ownedCopies":true,"actor":actor})
+        milagre_rust_runtime::app_fixture::bootstrap_receipt(&server, actor)?
     );
     io::stdout().flush()?;
     milagre_rust_runtime::actor::stop_on_stdin(Arc::downgrade(&server));
