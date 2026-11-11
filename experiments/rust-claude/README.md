@@ -338,8 +338,15 @@ Owner integration and remaining mapping:
    hook exists; MCP `initialize` / `tools/list` / `tools/call` serving, `alwaysLoad`, annotations and
    `sdkMcpServerManifests` are not implemented.
 4. Owner policy/config assembly: real `WorkspaceAccess` root tracking/learning, babysit and wake
-   guard rules, `advisorPolicy`, QA agents, `sessionInstructions`, linked tools and settings discovery
-   are not implemented. Access and pre-tool guard interfaces accept owner-supplied decisions, but
+   guard rules, `advisorPolicy`, linked tools and settings discovery are not implemented. The
+   ordinary-Chat launch is planned by `ordinary::OrdinaryLaunch` from owner-supplied facts
+   (appended instructions, SubagentStart context, QA agents, prompt suggestions, Node's
+   `settingSources`, additional directories) with typed `OrdinaryTurn` admission; a missing fact or
+   an advisor role is refused. `ordinary::node_trace` maps every recorded Node `sdk.query` option
+   and control call to fake-CLI assertions and errors on an unmapped one. `tests/ordinary.rs`
+   replays the actual Node three-turn trace (`scripts/generate-session.cjs`,
+   `claude-ordinary.json`) with four negative controls; the instructions themselves are ported in
+   `rust-runtime/src/instructions.rs`. Access and pre-tool guard interfaces accept owner-supplied decisions, but
    do not supply safe analysis/advisor policies on their own. `analysis_only` sessions now fail
    before spawn with `SessionError::UnsupportedAnalysis`, regardless of mode or launch allow rules. Execution-advisor disallowed tools,
    question denial, SubagentStart context, MCP off toggles, prompt-suggestion gating, reply style,

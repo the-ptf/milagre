@@ -18,6 +18,7 @@ pub mod images;
 pub mod launch;
 pub mod mcp;
 pub mod milagre;
+pub mod ordinary;
 pub mod process;
 pub mod protocol;
 pub mod raw_mcp;

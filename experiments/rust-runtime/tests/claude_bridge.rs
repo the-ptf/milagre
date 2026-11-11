@@ -138,8 +138,16 @@ fn unsupported_configuration_is_refused_before_spawn() {
     for (k, v) in [
         ("role", json!("babysit")),
         ("permissionMode", json!("auto")),
+        ("permissionMode", json!("full")),
         ("images", json!(["x"])),
-        ("fastMode", json!(true)),
+        ("fastMode", json!(1)),
+        ("ultracode", json!(null)),
+        ("tldrEnabled", json!("yes")),
+        ("replies", json!(["concise"])),
+        ("replies", json!("verbose")),
+        ("effort", json!(5)),
+        ("model", json!(null)),
+        ("accountId", json!("work")),
     ] {
         let mut req = request(&p);
         req[k] = v;
@@ -457,4 +465,185 @@ fn stop_with_eight_entered_and_eight_queued_answers_settles_once_without_blockin
         std::io::Error::last_os_error().raw_os_error(),
         Some(libc::ESRCH)
     );
+}
+
+fn ps_command(pid: u32) -> String {
+    let output = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+fn alive(pid: u32) -> bool {
+    unsafe { libc::kill(pid as i32, 0) == 0 }
+}
+
+#[test]
+fn typed_fast_ultracode_effort_and_tldr_settings_are_admitted() {
+    let mut p = ClaudeFixture::create(Scenario::Reply).unwrap();
+    let m = p.monitor();
+    let mut req = request(&p);
+    for (k, v) in [
+        ("effort", json!("low")),
+        ("ultracode", json!(true)),
+        ("fastMode", json!(true)),
+        ("replies", json!("normal")),
+        ("tldrEnabled", json!(false)),
+        ("images", json!([])),
+    ] {
+        req[k] = v;
+    }
+    p.start_turn(TurnId(1), &RawJson(req)).unwrap();
+    let events = collect(&mut p, |e| e.iter().any(terminal));
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, ProviderEvent::StartFailed { .. })));
+    assert!(events.iter().any(
+        |e| matches!(e,ProviderEvent::Agent{event:RawJson(v),..} if v["type"]=="turn-completed")
+    ));
+    // The idle session keeps its process: its argv is still observable.
+    let argv = ps_command(m.pid("fixture").unwrap());
+    for expected in [
+        "--effort low",
+        "--settings ",
+        "--append-system-prompt-file ",
+        "--setting-sources=user,project,local",
+    ] {
+        assert!(argv.contains(expected), "{expected} missing from {argv}");
+    }
+    assert!(
+        !argv.contains("Milagre"),
+        "instructions stay off argv: {argv}"
+    );
+    p.shutdown();
+    assert!(m.wait_stopped(Duration::from_secs(3)));
+}
+
+/// The three ordinary turns of the Node trace. The fake child asserts every launch option and
+/// control frame recorded from Node; this test observes generations and processes.
+#[test]
+fn ordinary_turns_reuse_then_restart_on_tldr_change_with_a_late_old_exit() {
+    let trace: Value = serde_json::from_str(include_str!(
+        "../../rust-claude/tests/fixtures/conformance/claude-ordinary.json"
+    ))
+    .unwrap();
+    let mut p = ClaudeFixture::create(Scenario::Ordinary).unwrap();
+    let m = p.monitor();
+    let turn = |p: &ClaudeFixture, index: usize| {
+        let mut req = trace["request"].clone();
+        req["chatId"] = json!("fixture");
+        req["cwd"] = json!(p.project());
+        for (k, v) in trace["turns"][index].as_object().unwrap() {
+            req[k] = v.clone();
+        }
+        if index > 0 {
+            // The owner sends the native id it saw in session-started.
+            req["resumeId"] = json!("fixture-session");
+        }
+        RawJson(req)
+    };
+    let mut all = Vec::new();
+    p.start_turn(TurnId(1), &turn(&p, 0)).unwrap();
+    all.extend(collect(&mut p, |e| e.iter().any(terminal)));
+    let first = m.pid("fixture").unwrap();
+    p.start_turn(TurnId(2), &turn(&p, 1)).unwrap();
+    all.extend(collect(&mut p, |e| e.iter().any(terminal)));
+    assert_eq!(
+        m.pid("fixture"),
+        Some(first),
+        "concise -> normal reuses the process"
+    );
+    // A different resume identity cannot hijack the restart.
+    let mut wrong = turn(&p, 2);
+    wrong.0["resumeId"] = json!("another-session");
+    assert!(p.start_turn(TurnId(3), &wrong).is_err());
+    assert!(alive(first));
+    p.start_turn(TurnId(3), &turn(&p, 2)).unwrap();
+    let third = collect(&mut p, |e| {
+        e.iter().any(terminal)
+            && e.iter().any(|e| {
+                matches!(
+                    e,
+                    ProviderEvent::Exited {
+                        turn: TurnId(2),
+                        ..
+                    }
+                )
+            })
+    });
+    let second = m.pid("fixture").unwrap();
+    assert_ne!(second, first, "TLDR change starts a new process");
+    assert!(ps_command(second).contains("--resume=fixture-session"));
+    let position = |test: &dyn Fn(&ProviderEvent) -> bool| third.iter().position(test).unwrap();
+    let started = position(&|e| {
+        matches!(
+            e,
+            ProviderEvent::Started {
+                turn: TurnId(3),
+                ..
+            }
+        )
+    });
+    let completed = position(&|e| {
+        terminal(e)
+            && matches!(
+                e,
+                ProviderEvent::Agent {
+                    turn: TurnId(3),
+                    ..
+                }
+            )
+    });
+    let old_exit = position(&|e| {
+        matches!(
+            e,
+            ProviderEvent::Exited {
+                turn: TurnId(2),
+                ..
+            }
+        )
+    });
+    assert!(
+        old_exit > started,
+        "the old generation exits late: {third:?}"
+    );
+    let _ = completed;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while alive(first) {
+        assert!(
+            Instant::now() < deadline,
+            "old process {first} was not reaped"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    all.extend(third);
+    for event in &all {
+        match event {
+            ProviderEvent::StartFailed { .. } => panic!("{all:?}"),
+            ProviderEvent::Agent {
+                event: RawJson(v), ..
+            } => {
+                assert!(
+                    v["type"] != "turn-failed" && v["type"] != "turn-cancelled",
+                    "{v}"
+                )
+            }
+            ProviderEvent::Exited { turn, .. } => {
+                assert_eq!(*turn, TurnId(2), "only the old generation exits")
+            }
+            _ => {}
+        }
+    }
+    for id in 1..=3 {
+        assert_eq!(
+            all.iter()
+                .filter(|e| terminal(e)
+                    && matches!(e, ProviderEvent::Agent { turn, .. } if turn.0 == id))
+                .count(),
+            1
+        );
+    }
+    p.shutdown();
+    assert!(m.wait_stopped(Duration::from_secs(3)));
+    assert!(!m.cleanup_failed());
 }

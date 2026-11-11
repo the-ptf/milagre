@@ -1,6 +1,10 @@
 //! Nonblocking owner adapter restricted to the checked-in scripted Claude CLI.
 //! There is no public executable, environment, live profile, role or MCP configuration.
-use milagre_claude::{ClaudeSession, LaunchOptions, SessionOptions, TurnRequest};
+use crate::instructions::{self, Bundle, HostNetwork};
+use milagre_claude::{
+    ordinary::{node_trace, OrdinaryLaunch, OrdinaryTurn},
+    ClaudeSession, LaunchOptions, SessionOptions,
+};
 use milagre_owner_store::{
     chat_host::{
         AnswerId, AnswerOutcome, Provider, ProviderError, ProviderErrorKind, ProviderEvent, TurnId,
@@ -42,6 +46,49 @@ pub enum Scenario {
     ContentDeny,
     Design,
     Queue,
+    /// Three ordinary turns checked against the recorded Node launch options and control order.
+    Ordinary,
+}
+/// The Node ordinary trace (actual SessionManager/ClaudeSession over an explicit synthetic
+/// bundle, `rust-claude/scripts/generate-session.cjs`). Its bundle and host are this fixture's
+/// explicit instruction inputs; its recorded options become the fake child's launch assertions.
+const ORDINARY_TRACE: &str =
+    include_str!("../../rust-claude/tests/fixtures/conformance/claude-ordinary.json");
+/// Explicit ordinary instruction inputs. Nothing is discovered from the install or host.
+struct OrdinaryFacts {
+    bundle: Bundle,
+    agents: serde_json::Map<String, Value>,
+    host: HostNetwork,
+}
+impl OrdinaryFacts {
+    fn from_trace(trace: &Value) -> Result<Self, Box<dyn std::error::Error>> {
+        let b = &trace["bundle"];
+        let text = |v: &Value| v.as_str().map(str::to_owned).ok_or("trace text");
+        let personas: Vec<(String, String)> = b["personas"]
+            .as_array()
+            .ok_or("trace personas")?
+            .iter()
+            .map(|p| Ok((text(&p[0])?, text(&p[1])?)))
+            .collect::<Result<_, &str>>()?;
+        let personas: Vec<(&str, &str)> = personas
+            .iter()
+            .map(|(f, t)| (f.as_str(), t.as_str()))
+            .collect();
+        let addresses: Vec<String> = trace["host"]["addresses"]
+            .as_array()
+            .ok_or("trace host")?
+            .iter()
+            .map(text)
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            bundle: Bundle::new(&text(&b["skillsDir"])?, &text(&b["tldrDefault"])?)?,
+            agents: instructions::bundled_agents(&text(&b["agentMd"])?, &personas)?,
+            host: HostNetwork {
+                name: trace["host"]["name"].as_str().map(str::to_owned),
+                addresses,
+            },
+        })
+    }
 }
 fn refused(text: &str) -> ProviderError {
     ProviderError::new(ProviderErrorKind::Refused, text)
@@ -139,6 +186,7 @@ impl FixtureMonitor {
 struct Start {
     id: TurnId,
     request: Value,
+    turn: OrdinaryTurn,
 }
 enum Answer {
     Permission(String),
@@ -207,6 +255,8 @@ struct Slot {
     done: Arc<AtomicBool>,
     latest: Arc<AtomicU64>,
     native_id: Arc<Mutex<Option<String>>>,
+    /// The TLDR setting this session's instructions were built with (fixed per session).
+    tldr: bool,
 }
 struct Worker {
     content_scope: Arc<crate::claude_content::SessionContent>,
@@ -221,6 +271,8 @@ struct Worker {
     done: Arc<AtomicBool>,
     native_id: Arc<Mutex<Option<String>>>,
     content: Option<Arc<crate::claude_content::SharedContent>>,
+    facts: Arc<OrdinaryFacts>,
+    tldr: bool,
 }
 impl Drop for Worker {
     fn drop(&mut self) {
@@ -238,11 +290,14 @@ pub struct ClaudeFixture {
     isolation: Isolation,
     project: PathBuf,
     program: PathBuf,
-    script: PathBuf,
+    /// Fake CLI scripts by launch: the last one serves every later launch.
+    scripts: Vec<PathBuf>,
+    launches: usize,
     scenario: Scenario,
     shared: Arc<Shared>,
     slots: HashMap<String, Slot>,
     closed: bool,
+    facts: Arc<OrdinaryFacts>,
 }
 impl ClaudeFixture {
     pub fn create(scenario: Scenario) -> Result<Self, Box<dyn std::error::Error>> {
@@ -258,11 +313,18 @@ impl ClaudeFixture {
             dir = dir.parent().ok_or("Missing Cargo target directory")?;
         }
         let program = dir.join("runtime-fake-claude").canonicalize()?;
-        let script = profile.path().join("claude-script.json");
-        std::fs::write(
-            &script,
-            script_for(scenario, &profile.path().join("queue-release")).to_string(),
-        )?;
+        let trace: Value = serde_json::from_str(ORDINARY_TRACE)?;
+        let facts = Arc::new(OrdinaryFacts::from_trace(&trace)?);
+        let mut scripts = Vec::new();
+        let bodies = match scenario {
+            Scenario::Ordinary => ordinary_scripts(&trace)?,
+            _ => vec![script_for(scenario, &profile.path().join("queue-release"))],
+        };
+        for (index, body) in bodies.into_iter().enumerate() {
+            let script = profile.path().join(format!("claude-script-{index}.json"));
+            std::fs::write(&script, body.to_string())?;
+            scripts.push(script);
+        }
         let content = if matches!(scenario, Scenario::Design) {
             let helper = dir.join("milagre-design-raster").canonicalize()?;
             let raster = Arc::new(milagre_content_store::design::raster::RasterRenderer::new(
@@ -290,8 +352,10 @@ impl ClaudeFixture {
             isolation,
             project,
             program,
-            script,
+            scripts,
+            launches: 0,
             scenario,
+            facts,
             shared: Arc::new(Shared {
                 queue: Mutex::new(Queue {
                     events: VecDeque::new(),
@@ -372,7 +436,7 @@ impl ClaudeFixture {
         Ok(())
     }
 }
-fn native_request(request: &Value, project: &Path) -> Result<Value, ProviderError> {
+fn native_request(request: &Value, project: &Path) -> Result<(Value, OrdinaryTurn), ProviderError> {
     if request.to_string().len() > 1024 * 1024 {
         return Err(refused("Oversized fixture turn"));
     }
@@ -405,43 +469,35 @@ fn native_request(request: &Value, project: &Path) -> Result<Value, ProviderErro
             "Only this isolated Claude fixture Project is admitted",
         ));
     }
+    // Typed ordinary Ask settings: model, effort, ultracode, fastMode, replies and tldrEnabled.
+    // Auto/Full and mistyped values are refused, never coerced as Node would.
+    let turn = OrdinaryTurn::parse(request).map_err(|e| match e {
+        milagre_claude::ordinary::OrdinaryError::Mode => {
+            refused("Only ordinary Ask mode is implemented")
+        }
+        _ => refused("Invalid fixture turn setting"),
+    })?;
     if request
-        .get("permissionMode")
-        .is_some_and(|v| !v.is_null() && v != "ask")
+        .get("images")
+        .is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty()))
     {
-        return Err(refused("Only ordinary Ask mode is implemented"));
-    }
-    for key in ["ultracode", "fastMode", "tldrEnabled"] {
-        if request.get(key).is_some_and(|v| !v.is_null() && v != false) {
-            return Err(refused("Instruction and policy assembly is unsupported"));
-        }
-    }
-    for key in ["images", "replies"] {
-        if request
-            .get(key)
-            .is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty()))
-        {
-            return Err(refused("Images and replies are unsupported"));
-        }
+        return Err(refused("Images are unsupported"));
     }
     if !request["prompt"].is_string() {
         return Err(refused("Expected text prompt"));
     }
     let native = request.clone();
-    let chat = native["chatId"]
+    native["chatId"]
         .as_str()
         .filter(|s| !s.is_empty() && s.len() <= 4096)
         .ok_or_else(|| refused("Invalid Chat identity"))?;
-    let _ = chat;
-    for key in ["model", "effort", "resumeId"] {
-        if native
-            .get(key)
-            .is_some_and(|v| !v.is_null() && !v.is_string())
-        {
-            return Err(refused("Invalid fixture turn setting"));
-        }
+    if native
+        .get("resumeId")
+        .is_some_and(|v| !v.is_null() && !v.is_string())
+    {
+        return Err(refused("Invalid fixture turn setting"));
     }
-    Ok(native)
+    Ok((native, turn))
 }
 impl Provider for ClaudeFixture {
     fn name(&self) -> &str {
@@ -453,7 +509,7 @@ impl Provider for ClaudeFixture {
         if id.0 == 0 {
             return Err(refused("Invalid turn generation"));
         }
-        let native = native_request(request, &self.project)?;
+        let (mut native, turn) = native_request(request, &self.project)?;
         let chat = request["chatId"].as_str().unwrap().to_owned();
         self.slots
             .retain(|_, slot| !slot.done.load(Ordering::Acquire));
@@ -462,6 +518,32 @@ impl Provider for ClaudeFixture {
             .lock()
             .unwrap()
             .retain(|chat, _| self.slots.contains_key(chat));
+        // SessionManager.currentEntry: instructions are fixed per session, so an idle session whose
+        // TLDR setting changed is closed and its native id resumed by a fresh one. The detached
+        // worker reaps on its own and reports Exited for its own last turn only.
+        if let Some(slot) = self
+            .slots
+            .get(&chat)
+            .filter(|slot| slot.tldr != turn.tldr_enabled && !slot.active.load(Ordering::Acquire))
+        {
+            if *self.shared.workers.lock().unwrap() >= CHATS {
+                return Err(refused("The fixture Chat limit was reached"));
+            }
+            let current = slot.native_id.lock().unwrap().clone();
+            if let (Some(requested), Some(current)) = (native["resumeId"].as_str(), &current) {
+                if requested != current {
+                    return Err(refused(
+                        "Close the previous fixture session before resuming another native session",
+                    ));
+                }
+            }
+            let slot = self.slots.remove(&chat).expect("checked above");
+            slot.content_scope.revoke();
+            slot.close.send_replace(true);
+            if let Some(current) = current {
+                native["resumeId"] = json!(current);
+            }
+        }
         if !self.slots.contains_key(&chat) {
             if *self.shared.workers.lock().unwrap() >= CHATS {
                 return Err(refused("The fixture Chat limit was reached"));
@@ -481,9 +563,11 @@ impl Provider for ClaudeFixture {
                 _profile: self.profile.clone(),
                 project: self.project.clone(),
                 program: self.program.clone(),
-                script: self.script.clone(),
+                script: self.scripts[self.launches.min(self.scripts.len() - 1)].clone(),
                 chat: chat.clone(),
                 scenario: self.scenario,
+                facts: self.facts.clone(),
+                tldr: turn.tldr_enabled,
                 active: active.clone(),
                 done: done.clone(),
                 native_id: native_id.clone(),
@@ -537,8 +621,10 @@ impl Provider for ClaudeFixture {
                     done,
                     latest,
                     native_id,
+                    tldr: turn.tldr_enabled,
                 },
             );
+            self.launches += 1;
         }
         let slot = self.slots.get(&chat).unwrap();
         if let Some(resume) = native["resumeId"].as_str() {
@@ -568,6 +654,7 @@ impl Provider for ClaudeFixture {
             .try_send(Start {
                 id,
                 request: native,
+                turn,
             })
             .is_err()
         {
@@ -692,6 +779,40 @@ impl Drop for ClaudeFixture {
     }
 }
 impl Worker {
+    /// The Node ordinary launch for this session: instructions for its TLDR setting with the
+    /// explicit synthetic host, SubagentStart context (design section only with `design_show`),
+    /// QA agents and the prompt-suggestion default read from this private profile only.
+    fn plan(
+        &self,
+        options: &mut SessionOptions,
+        registration: Option<&milagre_claude::mcp::McpRegistration>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let design = registration.is_some_and(|r| {
+            r.provider_manifest()
+                .iter()
+                .any(|tool| tool.name == "design_show")
+        });
+        let host = self.facts.host.instructions();
+        let workspace = instructions::session_workspace(None, &host);
+        let settings = match std::fs::read(self._profile.path().join("home/settings.json")) {
+            Ok(bytes) => Some(bytes),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e.into()),
+        };
+        OrdinaryLaunch {
+            system_append: self.facts.bundle.milagre_instructions(
+                self.tldr,
+                workspace.as_deref(),
+                false,
+            ),
+            subagent_context: self.facts.bundle.subagent_context(design),
+            agents: self.facts.agents.clone(),
+            prompt_suggestions: instructions::prompt_suggestions_enabled(settings.as_deref(), None),
+            additional_directories: vec![],
+        }
+        .apply(options)?;
+        Ok(())
+    }
     fn agent(&self, id: TurnId, event: Value, reserved: bool) -> bool {
         self.shared.emit(
             ProviderEvent::Agent {
@@ -741,9 +862,10 @@ impl Worker {
                 self.script.clone().into_os_string(),
             ),
         ]);
+        // Fixture-only isolation flags Node does not pass; they add restrictions and are recorded
+        // in CLAUDE-FIXTURE.md. Setting sources stay Node's (planned below) over the private home.
         launch.no_session_persistence = true;
         launch.strict_mcp_config = true;
-        launch.setting_sources = Some(vec![]);
         let mut options = SessionOptions::new(launch);
         options.resume_id = pending
             .as_ref()
@@ -771,6 +893,18 @@ impl Worker {
             },
             None => None,
         };
+        if self.plan(&mut options, _registration.as_deref()).is_err() {
+            self.shared.emit(
+                ProviderEvent::StartFailed {
+                    chat: self.chat.clone(),
+                    turn: latest,
+                    error: failed(),
+                },
+                true,
+            );
+            self.exit(latest);
+            return;
+        }
         let (session, mut events) = ClaudeSession::new(options);
         let session = Arc::new(session);
         let mut replies = tokio::task::JoinSet::new();
@@ -780,13 +914,9 @@ impl Worker {
             }
             if let Some(start) = pending.take() {
                 latest = start.id;
-                let request = TurnRequest {
-                    content: vec![json!({"type":"text","text":start.request["prompt"]})],
-                    model: start.request["model"].as_str().unwrap_or("sonnet").into(),
-                    permission_mode: Some("ask".into()),
-                    effort: start.request["effort"].as_str().map(str::to_owned),
-                    ..Default::default()
-                };
+                let request = start
+                    .turn
+                    .request(vec![json!({"type":"text","text":start.request["prompt"]})]);
                 let result = tokio::select! {result=session.start_turn(request)=>Some(result),_=close.changed()=>None,_=interrupt.changed()=>None};
                 if let Some(pid) = session.pid() {
                     self.shared
@@ -877,6 +1007,41 @@ impl Worker {
         }
         self.exit(latest);
     }
+}
+/// One fake script per native process from the Node trace: launch assertions (argv, TODO env
+/// flag, private prompt/settings bytes, `initialize`), then Node's control and user order. The
+/// first process also answers both hooks exactly as Node's did, ignores SIGTERM and lingers after
+/// EOF, so its Exited arrives after the replacement process has started (late generation).
+fn ordinary_scripts(trace: &Value) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    let mut scripts = Vec::new();
+    for (index, query) in trace["queries"]
+        .as_array()
+        .ok_or("trace queries")?
+        .iter()
+        .enumerate()
+    {
+        let mut steps = Vec::new();
+        if index == 0 {
+            steps.push(json!({"ignore_sigterm":true}));
+        }
+        steps.extend(node_trace::launch_steps(query)?);
+        let hooks = node_trace::hook_steps(query)?;
+        let controls = query["controls"].as_array().ok_or("trace controls")?;
+        steps.extend(node_trace::control_steps(controls, |turn| {
+            let mut frames = vec![json!({"emit":{"type":"system","subtype":"init","session_id":"fixture-session"}})];
+            if turn == 0 {
+                frames.extend(hooks.clone());
+            }
+            frames.push(json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Claude fixture hello"}}}}));
+            frames.push(json!({"emit":{"type":"result","subtype":"success","num_turns":1,"result":"done"}}));
+            frames
+        })?);
+        if index == 0 {
+            steps.extend([json!({"wait_eof":true}), json!({"sleep_ms":10000})]);
+        }
+        scripts.push(Value::Array(steps));
+    }
+    Ok(scripts)
 }
 fn script_for(scenario: Scenario, queue_release: &Path) -> Value {
     let mut steps = vec![json!({"expect":{"subtype":"initialize"}})];
@@ -1023,7 +1188,7 @@ mod content_close_tests {
         provider.content = Some(content.clone());
         let chat = format!("{}#1", provider.project().display());
         let request = RawJson(
-            json!({"provider":"claude","chatId":chat,"cwd":provider.project(),"prompt":"fixture input","permissionMode":"ask"}),
+            json!({"provider":"claude","chatId":chat,"cwd":provider.project(),"prompt":"fixture input","permissionMode":"ask","model":"sonnet"}),
         );
         provider.start_turn(TurnId(1), &request).unwrap();
         entered_rx.recv_timeout(Duration::from_secs(3)).unwrap();

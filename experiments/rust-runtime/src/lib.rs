@@ -16,6 +16,7 @@ mod copies;
 mod executor;
 mod git;
 mod inbox;
+pub mod instructions;
 mod jobs;
 mod owned;
 mod ports;

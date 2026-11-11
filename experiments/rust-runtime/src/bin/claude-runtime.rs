@@ -23,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "content-deny" => Scenario::ContentDeny,
             "queue" => Scenario::Queue,
             "design" => Scenario::Design,
+            "ordinary" => Scenario::Ordinary,
             _ => return Err("Unknown fixture scenario".into()),
         },
         _ => return Err("Only one fixed fixture scenario is accepted".into()),

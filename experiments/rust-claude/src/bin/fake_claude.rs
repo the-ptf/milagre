@@ -28,6 +28,12 @@
 //! `FAKE_CLAUDE_NO_STDIN=1` never reads stdin (for backpressure tests); `FAKE_CLAUDE_STDIN_DELAY_MS=n`
 //! starts reading it only after n ms.
 //!   {"expect_raw_mcp": "<JSON>"}      compare opaque reply bytes; accepts lone surrogate escapes
+//!   {"expect_launch": {"pairs": [[flag, value]], "flags": [arg], "absent": [flag], "env": {k: v},
+//!                      "files": {flag: text}}}
+//!                                      check this process's own argv/env before reading stdin: each pair
+//!                                      adjacent, each flag present, no absent flag (bare or `flag=`),
+//!                                      each env value exact, and each file flag naming a private file
+//!                                      (0600 in a 0700 directory) whose bytes equal text
 //!   {"expect_skip": {"type": t}}       read frames, skipping `user` ones, until one of type t; writes
 //!                                      {"type":"fake_received","frame":...,"skipped":n}
 //! A failed check prints to stderr and exits with status 3. After the last step the fake waits for
@@ -193,6 +199,46 @@ fn main() {
                     fail("raw MCP bytes differed".into());
                 }
                 out.line(&json!({"type":"raw_mcp_verified"}));
+            }
+            "expect_launch" => {
+                let argv: Vec<String> = std::env::args().skip(1).collect();
+                let value_of = |flag: &str| argv.iter().position(|a| a == flag).and_then(|i| argv.get(i + 1));
+                for pair in arg["pairs"].as_array().into_iter().flatten() {
+                    let (flag, value) = (pair[0].as_str().unwrap(), pair[1].as_str().unwrap());
+                    if value_of(flag).map(String::as_str) != Some(value) {
+                        fail(format!("launch: expected {flag} {value}, argv {argv:?}"));
+                    }
+                }
+                for flag in arg["flags"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                    if !argv.iter().any(|a| a == flag) {
+                        fail(format!("launch: missing {flag}, argv {argv:?}"));
+                    }
+                }
+                for flag in arg["absent"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                    if argv.iter().any(|a| a == flag || a.starts_with(&format!("{flag}="))) {
+                        fail(format!("launch: unexpected {flag}, argv {argv:?}"));
+                    }
+                }
+                for (key, value) in arg["env"].as_object().into_iter().flatten() {
+                    if std::env::var(key).ok().as_deref() != value.as_str() {
+                        fail(format!("launch: env {key} differs"));
+                    }
+                }
+                for (flag, text) in arg["files"].as_object().into_iter().flatten() {
+                    let path = std::path::Path::new(value_of(flag).unwrap_or_else(|| fail(format!("launch: no {flag}"))));
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let mode = |p: &std::path::Path| std::fs::metadata(p).map(|m| m.permissions().mode() & 0o777).unwrap_or(0);
+                        if mode(path) != 0o600 || path.parent().map(mode) != Some(0o700) {
+                            fail(format!("launch: {flag} is not a private file"));
+                        }
+                    }
+                    let bytes = std::fs::read(path).unwrap_or_else(|e| fail(format!("launch: {flag}: {e}")));
+                    if Some(bytes.as_slice()) != text.as_str().map(str::as_bytes) {
+                        fail(format!("launch: {flag} bytes differ ({} bytes)", bytes.len()));
+                    }
+                }
             }
             "expect_skip" => {
                 let kind = arg["type"].as_str().unwrap_or("");

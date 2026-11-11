@@ -8,13 +8,32 @@ Each admitted turn receives Started or StartFailed. A running turn emits one hos
 
 Permission/question replies use the owner's asynchronous AnswerId contract. Accepted means the Claude callback resolved, not that its transport write or tool execution completed. NotWaiting means no callback waited. A queued answer dropped before entry may fail; cancellation after callback entry is Uncertain. The delayed-receipt fixture proves the CLI received the answer before cancellation, and requires Uncertain rather than rollback. Actor replies wait for the matching owner notice and publication. Normal turn completion releases active answer slots into bounded historical reconciliation records. A late definitive receipt updates that history without a second RPC reply. Idle answers return false; this adapter never replays an answer.
 
-RawJson provider events enter the owner codec once. The owner supplies native RawJson requests and answers; the adapter does not decode them again. Outbound prompt/answer text preserves literal noncharacters and private-use characters, replacing lone UTF-16 units with U+FFFD only in the native CLI copy. Stored originals remain lossless. Request/question identities, keys and model/resume metadata stay strict. Ordinary Ask mode and text-only model/effort/initial-resume settings are admitted. Images, fast/TLDR/ultracode, reply assembly, roles, arbitrary launch configuration and caller-selected MCP are refused. Initial resume is checked on the actual fake process argv; a reused session refuses a different native identity until closed.
+RawJson provider events enter the owner codec once. The owner supplies native RawJson requests and answers; the adapter does not decode them again. Outbound prompt/answer text preserves literal noncharacters and private-use characters, replacing lone UTF-16 units with U+FFFD only in the native CLI copy. Stored originals remain lossless. Request/question identities, keys and model/resume metadata stay strict. Ordinary Ask turns with typed model, effort, `ultracode`, `fastMode`, `replies` (`concise`/`normal`), `tldrEnabled` and initial resume are admitted (see Ordinary launch below). Mistyped values, a missing model, Auto/Full, images, roles, account routing, arbitrary launch configuration, user MCP extras and caller-selected MCP are refused. Initial resume is checked on the actual fake process argv; a reused session refuses a different native identity until closed.
 
 ## Evidence
 
-Ten `claude_bridge` integration tests use the fixed native fake process. They cover sequential turns/process reuse, permission/question receipts, Stop, crash, cancelled initialization, refused policy/image configuration, cancellation after callback delivery, stale close, initial resume and conflicting identity refusal, drop/reaping, and compact subagent transcript retention through the real owner reducer.
+Ordinary-turn root acceptance: 137 rust-claude tests pass (one live test remains
+ignored), 93 runtime tests pass with both fixture features, and all twelve production
+Node-client scenarios pass against the fixed native fake. Strict all-target Clippy and
+formatting pass for both crates. Root reran both non-writing Node recorder checks:
+81 instruction texts, eight existing session traces, two ordinary launch queries and
+40 prompt-suggestion cases match fresh actual Node output. These recorder checks are
+explicit commands, not an automatic Cargo gate. Independent source review found no
+P1/P2 within the admitted fake-provider scope; the real-CLI transport and background-work
+limits in Ordinary launch remain open.
 
-The production Node daemon client and desktop runtime client run eleven fresh fixture scenarios: reply/text, permission, question, Stop, crash, Unicode, shared native MCP content, queued turns, native Designs, and native content write Allow/Deny. Both prompt and question-answer Unicode frames are asserted inside the fake CLI. Marker/PUA output survives the provider-to-owner boundary once; saved prompt text retains its original lone surrogate. Every fixture verifies both temporary profiles disappear after successful shutdown.
+Root logs: `/tmp/milagre-claude-ordinary-root-{tests,clippy,fmt}.log`,
+`/tmp/milagre-runtime-ordinary-root-{tests-configured,clippy,fmt,build,node}.log`,
+`/tmp/milagre-instructions-oracle-root-check.log` and
+`/tmp/milagre-claude-oracle-root-check.log`. The first combined runtime attempt omitted
+`NODE_PATH` and failed ten Node-dependent tests with `MODULE_NOT_FOUND`; the corrected
+full run passed without Rust changes. The Node-client run observed PIDs 15689, 15689
+and 15712, including the old process still exiting when turn three completed. That
+overlap is recorded by this script; the bridge test separately asserts late Exited ordering.
+
+Twelve `claude_bridge` integration tests use the fixed native fake process. They cover sequential turns/process reuse, permission/question receipts, Stop, crash, cancelled initialization, refused policy/image configuration, cancellation after callback delivery, stale close, initial resume and conflicting identity refusal, drop/reaping, and compact subagent transcript retention through the real owner reducer.
+
+The production Node daemon client and desktop runtime client run twelve fresh fixture scenarios: reply/text, permission, question, Stop, crash, Unicode, shared native MCP content, queued turns, native Designs, native content write Allow/Deny and ordinary three-turn settings. Both prompt and question-answer Unicode frames are asserted inside the fake CLI. Marker/PUA output survives the provider-to-owner boundary once; saved prompt text retains its original lone surrogate. Every fixture verifies both temporary profiles disappear after successful shutdown.
 
 This checkpoint does not replace the shared Node runtime, prove real-provider compatibility, wire account/tool policy, or install any app. Broader session/resume lifecycle coverage remains follow-up work.
 
@@ -55,3 +74,31 @@ Each native slot now owns a revocable content lease created before its worker st
 The slow-write regression pauses artifact_show before its commit checks, closes the old slot without forgetting the Project, admits a replacement, and releases the old call. The revoked operation fails its remaining guard; the replacement writes exactly version 1, with one content writer and no replay. A retained MCP registration cannot attach after revocation. This does not retract a mutation already past its final authority check: such a lost response remains potentially committed and uncertain. The runtime cannot promise a universal zero-write-after-close boundary without a stronger content-store commit lease.
 
 The per-session registration mutex is recovered after poison. Both ordinary revocation and refused installation remove/reject the handle under that mutex, then invoke registration revocation outside the critical section. An injected-poison test retains the actual registration and verifies revocation, later attach refusal and safe lease teardown.
+
+## Ordinary launch and TLDR restart
+
+> **Unverified on a real CLI:** SDK 0.3.288 sends the appended instructions inside `initialize`; Rust sends the same bytes through a private `--append-system-prompt-file`. Every check here uses the fake CLI, so whether a real Claude Code CLI treats the two identically is still open and blocks treating this as production-equivalent.
+
+Every fixture session now gets Node's ordinary Chat launch. `src/instructions.rs` ports `milagreInstructions`, `hostNetworkInstructions`, the SubagentStart sections, SessionManager's workspace/host composition, `bundledWritingInstructions`, `personaAgent`/`bundledAgents` and `promptSuggestionsEnabled`. Its inputs are explicit: a synthetic bundled-skills path string, TLDR text, QA rules/personas and host `{name, addresses}` taken from the recorded Node trace; nothing is read from the install, environment or network. Only absolute normalized POSIX skill paths are accepted. Owner-encoded strings with an unpaired surrogate are refused (`decode_exact`), never replaced; a real U+10FFFE stays exact. The prompt-suggestion setting is read only from the private profile's `home/settings.json` with the lossless JS JSON parser. Advisor and execution-advisor prompts are not ported and stay refused.
+
+`milagre_claude::ordinary::OrdinaryLaunch` installs the appended instructions (private `--append-system-prompt-file`), Node's `settingSources` `user,project,local`, QA agents and SubagentStart context (design section only when the attached manifest has `design_show`) and prompt suggestions. The session keeps adding the TODO-tools env flag, `{fastMode, ultracode}` settings file, effort, skip-permissions, partial messages, subagent text, PreToolUse hook, summarized thinking and reply style in Node's order. The fixture still adds `--no-session-persistence` and `--strict-mcp-config` as isolation-only restrictions that Node does not pass. SDK 0.3.288 sends the appended prompt in `initialize`; Rust sends the same bytes by file. A real CLI has not verified that equivalence.
+
+SessionManager fixes instructions per session. When a foreground-idle Chat's `tldrEnabled` changes, `start_turn` detaches that slot exactly like `close_chat` (content lease revoked, worker reaps on its own) and starts a fresh session resuming the old native id. A request naming a different resume id is refused before anything is closed. A running turn is never restarted; steering stays refused. The detached worker reports `Exited` only for its own last turn, which the owner ignores for the newer turn. Scope limit: Node's `currentEntry` also keeps the existing session (no restart) while it has active subagent children or background tasks (`busyWithoutTurn`, `backgroundCount`), and refuses a provider/folder switch with background work. This fixture does not track children or background tasks for that decision: the TLDR restart is tested only for foreground-idle sessions with no background work, and a session with background work would be restarted here where Node would keep it.
+
+### Regenerating and checking the Node oracles
+
+```
+NODE_PATH=<checkout>/node_modules node experiments/rust-runtime/fixtures/instructions-node.cjs --check
+NODE_PATH=<checkout>/node_modules node experiments/rust-claude/scripts/generate-session.cjs --check
+```
+
+`--check` rebuilds fresh output from the actual Node sources, writes nothing, and fails on any difference from the committed JSON in structure, values or key order (formatting is ignored, so the formatter-laid-out legacy `claude-session.json` is left as committed). The informational `node` version field is excluded and both values are printed. Each run asserts its fixed `/tmp/milagre-*-oracle` root is removed. Without `--check` the scripts rewrite the files.
+
+### Evidence
+
+- `tests/instructions_node.rs`: 81 instruction texts across three synthetic bundles (real TLDR/personas, BOM/U+3000/U+0085/CRLF edges, empty), five hosts and three workspace values match `fixtures/instructions-node.cjs` (actual `events.cjs`, unchanged `bundled-skills.cjs` compiled over the synthetic directory, actual `SessionManager.currentEntry`) byte for byte, plus agents, four persona refusals and 40 prompt-suggestion cases. Four source mutants (TLDR-off text, JS trim, shared-Link section, env check) fail it.
+- `rust-claude/tests/ordinary.rs`: the actual Node SessionManager/ClaudeSession three-turn trace replayed through the Rust session. The fake child asserts argv, TODO env flag, 0600/0700 private prompt and settings bytes, `initialize` agents/hooks/suggestions/subagent text, both hook answers, `set_max_thinking_tokens` summarized before the Concise style, Normal's `outputStyle: null`, and no style call after the restart. Changed prompt byte, settings, env flag and control order each fail inside the child.
+- `tests/claude_bridge.rs`: Ordinary scenario turn 1 (defaults), turn 2 (Normal, same PID), refused foreign resume, turn 3 (TLDR off: new PID with `--resume=fixture-session`, old PID reaped, old `Exited { turn 2 }` after `Started { turn 3 }`, one terminal per turn, no failure); typed fast/ultracode/effort/TLDR admission with instructions absent from argv; 12 mistyped/unsupported refusals.
+- `tests/claude-compat.cjs` `ordinary`: production Node client sends the desktop composer's `agentRuns.send` shape (images/files empty, effort, `ultracode`/`fastMode` false, `replies`, `tldrEnabled`). It observes three completed turns matching Node's event sequence, the same PID for turns 1-2, a new PID with resume for turn 3, its reaping (it also logs whether the old process was still exiting when turn 3 completed: true in the recorded run, not asserted), no `turn-failed` after the late Exited, and the saved prompts/replies.
+
+Remaining: Auto/Full and their workspace access, images, advisor/execution roles, account `CLAUDE_CONFIG_DIR` routing, user MCP extras/off toggles, linked host tools beyond the content scope, shared-Link scope instructions, real install/host discovery and any real CLI run.
