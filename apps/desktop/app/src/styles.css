@@ -2225,6 +2225,20 @@ svg.onboarding-layer {
   -webkit-app-region: drag;
 }
 
+/* Software rendering uses the finished picture without SVG noise, spinning rays or a full-window blur. */
+.onboarding-intro[data-simple] * {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  filter: none !important;
+}
+.onboarding-intro[data-simple] .onboarding-intro-rays {
+  display: none;
+}
+.onboarding-intro[data-simple][data-leaving] {
+  animation: onboarding-fade-out var(--duration-base) ease both;
+}
+
 /* The steps' light: a faint wash of the intro's day over the app's own page, no clouds, fading as the steps go on so the
  * first Chat lands on the app as it always looks. */
 .onboarding-sky {
