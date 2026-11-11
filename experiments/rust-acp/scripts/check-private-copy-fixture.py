@@ -17,6 +17,7 @@ CRATE = Path(__file__).resolve().parents[1]
 REPO = CRATE.parents[1]
 FEATURE = "macos-private-copy-fixture"
 TESTS = [
+    ("private_copy::core::tests::retained_unstamped_worker_expires_and_closes_control", "PRIVATE_COPY_UNSTAMPED_DEADLINE_EVIDENCE "),
     ("private_copy::tests::public_observer_progress_and_independent_cancel", "PRIVATE_COPY_PUBLIC_PROGRESS_EVIDENCE "),
     ("private_copy::core::tests::native_private_copy_end_to_end", "PRIVATE_COPY_LIFETIME_EVIDENCE "),
     ("private_copy::core::tests::coordinated_native_commit_progress_and_cancel", "PRIVATE_COPY_COORDINATED_EVIDENCE "),

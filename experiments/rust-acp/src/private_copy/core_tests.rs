@@ -272,3 +272,24 @@ fn coordinated_native_commit_progress_and_cancel() {
     assert!(done.resources_removed);
     println!("PRIVATE_COPY_COORDINATED_EVIDENCE oneCoreBusy=true noUnstampedSpawn=true consumedBeforeExit=true cancelReaped=true controlDropRevoked=true");
 }
+
+#[test]
+#[ignore = "Only the staging checker provides the fixed native sibling"]
+fn retained_unstamped_worker_expires_and_closes_control() {
+    let (control, observer) = prepare(FixtureCase::Ready, "never admitted").unwrap();
+    wait_flag(|| observer.shared.completion.lock().unwrap().progress.prepared);
+    let until = Instant::now() + Duration::from_secs(7);
+    while observer.shared.completion.lock().unwrap().progress.report.is_none() {
+        assert!(Instant::now() < until);
+        thread::sleep(Duration::from_millis(5));
+    }
+    let done = report(&observer.shared);
+    assert_eq!(done.result, Err(Error::Deadline));
+    assert!(!done.reaped && done.resources_removed);
+    assert_eq!(observer.shared.pid.load(Ordering::Acquire), 0);
+    assert!(matches!(control.capture(), Err(Error::Revoked)));
+    let next = automatic(FixtureCase::Ready, "capacity released after deadline").unwrap();
+    let completed = report(&next.shared);
+    assert!(completed.result.is_ok() && completed.reaped && completed.resources_removed);
+    println!("PRIVATE_COPY_UNSTAMPED_DEADLINE_EVIDENCE noSpawn=true removed=true closedControl=true capacityReleased=true");
+}

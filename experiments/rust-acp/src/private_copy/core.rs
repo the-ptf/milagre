@@ -197,6 +197,11 @@ impl Shared {
         });
     }
     fn publish(&self, mut report: Report, finished: bool) {
+        // An unstamped worker may finish on its preparation deadline. Its retained
+        // Control must not mint a stamp after the worker has gone away.
+        if finished {
+            self.revoke();
+        }
         self.update(|state| {
             if let Some(previous) = &state.report {
                 if let Err(error) = previous.result {
