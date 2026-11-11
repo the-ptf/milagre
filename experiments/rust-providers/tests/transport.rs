@@ -498,3 +498,16 @@ fn spawn_options_never_print_the_environment() {
     let session = milagre_providers::codex::SessionOptions::new(milagre_providers::codex::ConnectOptions::new(options, "0"), "/repo");
     assert!(!format!("{session:?}").contains("sk-secret"));
 }
+
+#[tokio::test]
+async fn a_codex_that_closes_its_input_is_stopped() {
+    let (rpc, _events) = spawn("reply");
+    let pid = rpc.pid().unwrap();
+    rpc.request("fake/close-stdin", json!({})).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    // The write fails (EPIPE); answers could never reach Codex again, so it is stopped.
+    let _ = rpc.notify("fake/anything", None).await;
+    let exit = tokio::time::timeout(Duration::from_secs(3), rpc.wait_exit()).await.expect("stopped");
+    assert_eq!(exit.reason, ExitReason::InputClosed, "{exit:?}");
+    assert!(eventually(|| !pid_alive(pid), Duration::from_secs(2)).await);
+}

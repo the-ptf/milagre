@@ -775,7 +775,8 @@ async fn auto_allows_only_edits_that_are_really_inside_the_workspace() {
     let _ = std::fs::remove_dir_all(base);
 
     // `..` out of the root, a symlink to outside, the root itself, a relative escape: always a card.
-    let escapes: Vec<Box<dyn Fn(&Path) -> PathBuf>> = vec![
+    type Escape = Box<dyn Fn(&Path) -> PathBuf>;
+    let escapes: Vec<Escape> = vec![
         Box::new(|b: &Path| b.join("repo/../outside/x.txt")),
         Box::new(|b: &Path| b.join("repo/out-dir/x.txt")),
         Box::new(|b: &Path| b.join("repo")),

@@ -307,6 +307,12 @@ fn main() {
                 close_stdout();
                 std::thread::sleep(Duration::from_secs(60));
             }
+            "fake/close-stdin" => {
+                // Closes its input but keeps running: Milagre can't answer anything any more.
+                out.reply(&id, json!({ "ok": true }));
+                close_fd(0);
+                std::thread::sleep(Duration::from_secs(60));
+            }
             "fake/spawn-grandchild" => {
                 let child = std::process::Command::new("sleep").arg("30").spawn().expect("sleep");
                 out.reply(&id, json!({ "pid": child.id() }));
@@ -462,6 +468,20 @@ fn start_turn(scenario: &str, out: &Out, mut turn: Turn) -> Option<Turn> {
         }
     }
 }
+
+#[cfg(unix)]
+fn close_fd(fd: i32) {
+    extern "C" {
+        fn close(fd: i32) -> i32;
+    }
+    // SAFETY: closes one of our own descriptors; nothing uses it afterwards.
+    unsafe {
+        close(fd);
+    }
+}
+
+#[cfg(not(unix))]
+fn close_fd(_fd: i32) {}
 
 #[cfg(unix)]
 fn close_stdout() {

@@ -438,12 +438,14 @@ impl CodexSession {
         // forever: the guard stops it the way Stop would.
         let mut guard = StartGuard { inner: Some(inner.clone()) };
         let result = inner.client.rpc().request_with_timeout(methods::TURN_START, Value::Object(params), Some(start_timeout)).await;
-        guard.inner = None;
         if matches!(result, Err(RpcError::Timeout { .. })) {
             inner.state.lock().unwrap().stale_start = true;
         }
         let confirmed = result.as_ref().ok().and_then(|r| r.pointer("/turn/id")).and_then(Value::as_str).map(str::to_string);
+        // Still guarded: release_held waits on the notification lock, and a caller dropped there must
+        // not leave `starting` set.
         inner.release_held(confirmed).await;
+        guard.inner = None;
         match result {
             Ok(_) => {
                 let turn_id = inner.mapper.lock().unwrap().turn_id.clone();

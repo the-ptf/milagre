@@ -205,6 +205,8 @@ pub enum ExitReason {
     ConsumerStalled,
     /// Codex stopped reading its input for [`Limits::write_timeout`]; Milagre stopped it.
     InputStalled,
+    /// Codex closed its input while still running; nothing could be answered, so Milagre stopped it.
+    InputClosed,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -410,6 +412,7 @@ impl Shared {
             let reason = match (&stopped, end) {
                 (Some(StopCause::ConsumerStalled { .. }), _) => ExitReason::ConsumerStalled,
                 (Some(StopCause::InputStalled), _) => ExitReason::InputStalled,
+                (Some(StopCause::InputClosed), _) => ExitReason::InputClosed,
                 (Some(StopCause::TooManyServerRequests), _) | (_, ReadEnd::FrameTooLarge(_)) => ExitReason::ProtocolViolation,
                 _ if self.closing.load(Ordering::SeqCst) => ExitReason::Closed,
                 _ => ExitReason::ProcessEnded,
@@ -421,6 +424,7 @@ impl Shared {
                 (Some(StopCause::InputStalled), _) => {
                     format!("Codex stopped reading its input for {} s; Milagre stopped it.", self.limits.write_timeout.as_secs_f64())
                 }
+                (Some(StopCause::InputClosed), _) => "Codex closed its input while running; Milagre stopped it.".to_string(),
                 (Some(StopCause::TooManyServerRequests), _) => format!(
                     "Codex left more than {} requests unanswered at once; Milagre stopped it.",
                     self.limits.max_open_server_requests
@@ -470,6 +474,7 @@ enum StopCause {
     ConsumerStalled { events: usize, bytes: usize },
     TooManyServerRequests,
     InputStalled,
+    InputClosed,
 }
 
 #[derive(Debug)]
@@ -567,8 +572,13 @@ async fn write_frames(mut stdin: ChildStdin, mut rx: mpsc::UnboundedReceiver<Wri
         match tokio::time::timeout(timeout, written).await {
             Ok(Ok(())) => reply(WriteOutcome::Written),
             Ok(Err(error)) => {
-                // A broken pipe means the process is going away; the supervisor reports how.
-                reply(WriteOutcome::Failed(if shared.is_exited() { RpcError::NotRunning } else { RpcError::Io(error.to_string()) }));
+                // A broken pipe: either the process is going away (the supervisor reports how) or it
+                // closed stdin and lives on, unable to hear any answer. Stop it either way.
+                let exited = shared.is_exited();
+                if !exited && !shared.closing.load(Ordering::SeqCst) {
+                    shared.stop(StopCause::InputClosed);
+                }
+                reply(WriteOutcome::Failed(if exited { RpcError::NotRunning } else { RpcError::Io(error.to_string()) }));
                 break;
             }
             Err(_) => {
