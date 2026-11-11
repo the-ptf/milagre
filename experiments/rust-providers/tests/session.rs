@@ -13,6 +13,7 @@ use milagre_providers::codex::{
 };
 use milagre_providers::queue::{EventReceiver, QueueLimits};
 use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 type Events = EventReceiver<SessionEvent>;
@@ -202,15 +203,15 @@ async fn permission_modes_answer_without_a_card() {
     assert_eq!(text_of(&seen), ["decision:accept"]);
     session.close().await;
 
-    // Auto allows an edit inside the workspace, and switching to Full mid-turn allows an open card.
+    // Auto on a cwd that doesn't exist fails closed: a card (real folders: auto_allows_only_edits_...).
     let (session, mut events) = start(fake("file-approval")).await;
     let mut settings = send("x");
     settings.permission_mode = Some(PermissionMode::Auto);
     session.send(settings).await.unwrap();
-    let (seen, _, _) = until_end(&mut events).await;
-    assert_eq!(text_of(&seen), ["decision:accept"]);
+    assert_eq!(agent(&mut events, "permission-request").await["requestId"], "7");
     session.close().await;
 
+    // Switching to Full mid-turn allows an open card.
     let (session, mut events) = start(fake("approval")).await;
     session.send(send("x")).await.unwrap();
     agent(&mut events, "permission-request").await;
@@ -736,4 +737,81 @@ async fn numeric_and_string_server_request_ids_do_not_collide() {
     assert_eq!(answered[0], json!({ "id": 5, "answer": { "decision": "decline" } }));
     assert_eq!(answered[1], json!({ "id": "5", "answer": { "answers": { "q": { "answers": ["A"] } } } }));
     session.close().await;
+}
+
+/// A real repo folder and an outside folder, and a session whose fake asks to edit `file`.
+async fn auto_session(file: impl Fn(&Path) -> PathBuf) -> (CodexSession, Events, PathBuf) {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let base = std::env::temp_dir().join(format!("milagre-auto-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(base.join("repo/src")).unwrap();
+    std::fs::create_dir_all(base.join("outside")).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(base.join("outside"), base.join("repo/out-dir")).unwrap();
+    let mut spawn = fake("file-approval");
+    let mut env = spawn.env.clone().unwrap();
+    env.push(("FAKE_FILE".into(), file(&base).into_os_string()));
+    spawn.env = Some(env);
+    let mut opts = SessionOptions::new(ConnectOptions::new(spawn, "0"), base.join("repo").to_string_lossy());
+    opts.interrupt_grace = Duration::from_millis(400);
+    let (session, events) = start_with(opts).await;
+    (session, events, base)
+}
+
+fn auto(prompt: &str) -> milagre_providers::codex::TurnSettings {
+    let mut settings = send(prompt);
+    settings.permission_mode = Some(PermissionMode::Auto);
+    settings
+}
+
+#[tokio::test]
+async fn auto_allows_only_edits_that_are_really_inside_the_workspace() {
+    // Inside (a new file in a real folder): no card.
+    let (session, mut events, base) = auto_session(|b| b.join("repo/src/new.txt")).await;
+    session.send(auto("x")).await.unwrap();
+    let (seen, _, _) = until_end(&mut events).await;
+    assert!(!seen.iter().any(|e| e["type"] == "permission-request"));
+    assert_eq!(text_of(&seen), ["decision:accept"]);
+    session.close().await;
+    let _ = std::fs::remove_dir_all(base);
+
+    // `..` out of the root, a symlink to outside, the root itself, a relative escape: always a card.
+    let escapes: Vec<Box<dyn Fn(&Path) -> PathBuf>> = vec![
+        Box::new(|b: &Path| b.join("repo/../outside/x.txt")),
+        Box::new(|b: &Path| b.join("repo/out-dir/x.txt")),
+        Box::new(|b: &Path| b.join("repo")),
+        Box::new(|_: &Path| PathBuf::from("../outside/x.txt")),
+        Box::new(|_: &Path| PathBuf::from("/repo/notes.txt")),
+    ];
+    for escape in escapes {
+        let (session, mut events, base) = auto_session(escape).await;
+        session.send(auto("x")).await.unwrap();
+        let card = agent(&mut events, "permission-request").await;
+        assert_eq!(card["requestId"], "7", "{card}");
+        session.close().await;
+        let _ = std::fs::remove_dir_all(base);
+    }
+}
+
+#[tokio::test]
+async fn switching_to_auto_uses_the_same_check() {
+    // An open card outside the workspace stays open when Auto is chosen.
+    let (session, mut events, base) = auto_session(|b| b.join("repo/out-dir/x.txt")).await;
+    session.send(send("x")).await.unwrap();
+    agent(&mut events, "permission-request").await;
+    session.set_permission_mode(PermissionMode::Auto).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(session.open_requests(), ["7"]);
+    session.close().await;
+    let _ = std::fs::remove_dir_all(base);
+
+    // One inside is allowed.
+    let (session, mut events, base) = auto_session(|b| b.join("repo/src/new.txt")).await;
+    session.send(send("x")).await.unwrap();
+    agent(&mut events, "permission-request").await;
+    session.set_permission_mode(PermissionMode::Auto).await;
+    let (seen, _, _) = until_end(&mut events).await;
+    assert_eq!(seen[0]["decision"], "allow");
+    assert_eq!(text_of(&seen), ["decision:accept"]);
+    session.close().await;
+    let _ = std::fs::remove_dir_all(base);
 }

@@ -20,7 +20,7 @@ use crate::codex::subagents::{active as subagent_active, settle_subagents};
 use crate::queue::{self, EventReceiver, EventSender, QueueLimits};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -162,7 +162,9 @@ struct Pending {
     rpc_id: RequestId,
     kind: PendingKind,
     allow_for_chat: bool,
-    in_workspace: bool,
+    /// An edit approval's files (not a `grantRoot` one): Auto may allow it without a card when they
+    /// are all inside the workspace, checked again at the moment Auto is chosen.
+    workspace_files: Option<Vec<String>>,
     /// Question ids, for dropping answers to questions that weren't asked.
     question_ids: Vec<String>,
 }
@@ -584,18 +586,35 @@ impl CodexSession {
         if self.inner.options.analysis_only {
             return;
         }
-        let allowed: Vec<(String, Pending)> = {
+        let candidates: Vec<(String, Option<Vec<String>>)> = {
             let mut state = self.inner.state.lock().unwrap();
             state.mode = Some(mode);
-            let ids: Vec<String> = state
+            state
                 .pending
                 .iter()
-                .filter(|(_, p)| {
-                    p.kind != PendingKind::Question && (mode == PermissionMode::Full || (mode == PermissionMode::Auto && p.in_workspace))
-                })
-                .map(|(id, _)| id.clone())
-                .collect();
-            ids.into_iter().filter_map(|id| state.pending.shift_remove(&id).map(|p| (id, p))).collect()
+                .filter(|(_, p)| p.kind != PendingKind::Question && (mode == PermissionMode::Full || p.workspace_files.is_some()))
+                .map(|(id, p)| (id.clone(), p.workspace_files.clone()))
+                .collect()
+        };
+        // The same check a new request gets, against the filesystem as it is now.
+        let mut chosen = Vec::new();
+        for (id, files) in candidates {
+            let allowed = match (mode, files) {
+                (PermissionMode::Full, _) => true,
+                (PermissionMode::Auto, Some(files)) => self.inner.in_workspace(files).await,
+                _ => false,
+            };
+            if allowed {
+                chosen.push(id);
+            }
+        }
+        let allowed: Vec<(String, Pending)> = {
+            let mut state = self.inner.state.lock().unwrap();
+            // A card answered or cancelled meanwhile is gone; Auto only applies while it still is the mode.
+            if state.mode != Some(mode) {
+                return;
+            }
+            chosen.into_iter().filter_map(|id| state.pending.shift_remove(&id).map(|p| (id, p))).collect()
         };
         for (id, pending) in allowed {
             self.inner.resolve_permission(&id, pending, Decision::Allow);
@@ -645,11 +664,6 @@ fn approx_size(value: &Value) -> usize {
         Value::Object(map) => 2 + map.iter().map(|(k, v)| k.len() + 4 + approx_size(v)).sum::<usize>(),
         _ => 8,
     }
-}
-
-fn path_inside(file: &str, root: &str) -> bool {
-    let (file, root) = (Path::new(file), Path::new(root));
-    file.is_absolute() && file.starts_with(root)
 }
 
 impl Inner {
@@ -854,15 +868,22 @@ impl Inner {
         }
     }
 
-    fn in_workspace(&self, files: &[String]) -> bool {
-        let roots: Vec<&str> =
-            std::iter::once(self.options.cwd.as_str()).chain(self.options.workspace_roots.iter().map(String::as_str)).collect();
-        !files.is_empty() && files.iter().all(|file| roots.iter().any(|root| path_inside(file, root)))
+    /// permissions.cjs `insideWorkspace` over cwd and the workspace roots: canonical paths, nearest
+    /// existing ancestor for new files, fails closed. Off the async threads, since it touches the disk.
+    async fn in_workspace(&self, files: Vec<String>) -> bool {
+        let cwd = PathBuf::from(&self.options.cwd);
+        let roots: Vec<PathBuf> =
+            std::iter::once(self.options.cwd.clone()).chain(self.options.workspace_roots.iter().cloned()).map(PathBuf::from).collect();
+        tokio::task::spawn_blocking(move || crate::workspace::inside_workspace(&roots, &files, &cwd)).await.unwrap_or(false)
     }
 
     /// `PendingPermissions.add`: Full answers at once; otherwise a card.
-    async fn add_permission(&self, id: RequestId, card: Value, kind: PendingKind, in_workspace: bool) {
+    async fn add_permission(&self, id: RequestId, card: Value, kind: PendingKind, workspace_files: Option<Vec<String>>) {
         let mode = self.state.lock().unwrap().mode;
+        let in_workspace = match (&workspace_files, mode) {
+            (Some(files), Some(PermissionMode::Auto)) => self.in_workspace(files.clone()).await,
+            _ => false,
+        };
         if mode == Some(PermissionMode::Full) || (mode == Some(PermissionMode::Auto) && in_workspace) {
             let reply = if kind == PendingKind::McpApproval {
                 approvals::mcp_response(Decision::Allow)
@@ -877,7 +898,7 @@ impl Inner {
             let mut state = self.state.lock().unwrap();
             let request_id = Self::public_id(&state, &id);
             card["requestId"] = request_id.clone().into();
-            state.pending.insert(request_id, Pending { rpc_id: id, kind, allow_for_chat, in_workspace, question_ids: vec![] });
+            state.pending.insert(request_id, Pending { rpc_id: id, kind, allow_for_chat, workspace_files, question_ids: vec![] });
         }
         let mut event = json!({ "type": "permission-request" });
         if let (Some(target), Value::Object(fields)) = (event.as_object_mut(), card) {
@@ -900,7 +921,7 @@ impl Inner {
                 } else if approvals::is_ungated_milagre_tool_approval(&params, &ungated) {
                     self.reply(&id, approvals::mcp_response(Decision::Allow)).await;
                 } else if let Some(card) = card {
-                    self.add_permission(id, card, PendingKind::McpApproval, false).await;
+                    self.add_permission(id, card, PendingKind::McpApproval, None).await;
                 }
             }
             methods::COMMAND_APPROVAL | methods::FILE_CHANGE_APPROVAL => {
@@ -912,7 +933,7 @@ impl Inner {
                 }
                 if method == methods::COMMAND_APPROVAL {
                     let card = approvals::command_request(&id, &params, |_| false);
-                    self.add_permission(id, card, PendingKind::Approval, false).await;
+                    self.add_permission(id, card, PendingKind::Approval, None).await;
                 } else {
                     let item = params.get("itemId").and_then(Value::as_str).unwrap_or_default();
                     let changes = self.state.lock().unwrap().file_changes.get(item).cloned().unwrap_or_default();
@@ -922,8 +943,9 @@ impl Inner {
                         .and_then(Value::as_array)
                         .map(|f| f.iter().filter_map(Value::as_str).map(str::to_string).collect())
                         .unwrap_or_default();
-                    let in_workspace = !crate::codex::js::truthy(params.get("grantRoot")) && self.in_workspace(&files);
-                    self.add_permission(id, card, PendingKind::Approval, in_workspace).await;
+                    // Writing a new root is never a workspace edit.
+                    let workspace_files = (!crate::codex::js::truthy(params.get("grantRoot"))).then_some(files);
+                    self.add_permission(id, card, PendingKind::Approval, workspace_files).await;
                 }
             }
             methods::REQUEST_USER_INPUT => {
@@ -939,7 +961,7 @@ impl Inner {
                         card["requestId"] = request_id.clone().into();
                         state.pending.insert(
                             request_id,
-                            Pending { rpc_id: id, kind: PendingKind::Question, allow_for_chat: false, in_workspace: false, question_ids },
+                            Pending { rpc_id: id, kind: PendingKind::Question, allow_for_chat: false, workspace_files: None, question_ids },
                         );
                         drop(state);
                         let mut event = json!({ "type": "question-request" });

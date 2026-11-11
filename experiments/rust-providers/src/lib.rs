@@ -11,3 +11,4 @@
 pub mod codex;
 
 pub mod queue;
+pub mod workspace;

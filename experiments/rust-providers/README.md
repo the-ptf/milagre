@@ -117,8 +117,12 @@ while let Some(event) = events.recv().await {
 - Host I/O: `images` turn input files, `saveGeneratedImage`, `toolImageEvents` (tool images as
   image steps), `sessionInstructions` text.
 - Babysit guard (`babysitDenial` / `withRefusal`; the session passes `writes_remote = |_| false`),
-  wake escalation (`EscalationTurn`), `WorkspaceAccess.answer` auto-answers and read-only roots
-  (Auto here only allows edits whose files are all inside cwd / `workspace_roots`).
+  wake escalation (`EscalationTurn`), `WorkspaceAccess.answer` auto-answers and read-only roots.
+  Auto allows an edit without a card only when `workspace::inside_workspace` (a port of Node's
+  `insideWorkspace`: canonical roots, nearest existing ancestor for new files, root itself
+  excluded, errors fail closed) puts every file inside cwd / `workspace_roots`; the same check
+  runs again when the mode switches to Auto. Unlike Node it is also used for a lone cwd (Node's
+  `insideRoot` is lexical there) and a dangling symlink fails closed (Node counts it as inside).
 - MCP extras / linked tools, the `requestThread` config retry ladder, advisor config
   (`advisorCodexConfig`, `config/read` for inherited servers).
 - `canStart` (a turn cancelled before `turn/start`), `executionAdvisor` feature overrides.
