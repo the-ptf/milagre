@@ -375,6 +375,10 @@ impl LaunchContext {
     pub fn project(&self) -> &Path {
         &self.endpoint.project
     }
+    #[cfg(feature = "fixture-native-smoke")]
+    pub fn smoke_identity(&self) -> Value {
+        json!({"shellPid":std::process::id(),"daemonPid":self.endpoint.pid,"shellRoot":self.storage.path(),"profile":self.endpoint.pins[0].0,"project":self.endpoint.project})
+    }
     pub fn clean(&self) -> bool {
         self.clean.load(Ordering::Acquire)
     }

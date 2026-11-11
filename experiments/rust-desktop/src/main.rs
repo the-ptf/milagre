@@ -10,6 +10,7 @@ mod lifecycle;
 mod native;
 mod navigation;
 mod shortcuts;
+mod snapshot;
 mod transport;
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager};

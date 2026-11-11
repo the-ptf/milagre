@@ -1,8 +1,17 @@
 //! Separate development shell. Never install or route to the production owner.
+#[cfg(feature = "fixture-native-smoke")]
+#[path = "../evidence.rs"]
+mod evidence;
 #[path = "../fixture_launch.rs"]
 mod fixture_launch;
+#[cfg(feature = "fixture-native-smoke")]
+#[path = "../fixture_smoke.rs"]
+mod fixture_smoke;
 #[path = "../shortcuts.rs"]
 mod shortcuts;
+#[cfg(feature = "fixture-native-smoke")]
+#[path = "../snapshot.rs"]
+mod snapshot;
 #[path = "../transport.rs"]
 #[allow(dead_code)]
 mod transport;
@@ -36,12 +45,24 @@ fn preferences_write(
     context.write_preference(key, value)
 }
 #[tauri::command]
-async fn smoke_result() -> Result<Value, String> {
-    Err("Fixture capture is not implemented; no global smoke path is used".into())
+async fn smoke_result(app: tauri::AppHandle, value: String) -> Result<Value, String> {
+    #[cfg(feature = "fixture-native-smoke")]
+    {
+        fixture_smoke::result(app, value).await
+    }
+    #[cfg(not(feature = "fixture-native-smoke"))]
+    {
+        let _ = (app, value);
+        Err("Fixture capture requires the native smoke build".into())
+    }
 }
 #[tauri::command]
 async fn native_call(app: tauri::AppHandle, method: String, args: Value) -> Result<Value, Value> {
     match method.as_str() {
+        #[cfg(feature = "fixture-native-smoke")]
+        "fixture:smoke-context" => app
+            .state::<fixture_smoke::Smoke>()
+            .context(app.state::<Arc<fixture_launch::LaunchContext>>().project()),
         "app:launch-arguments" => Ok(json!([
             "--milagre-window-controls=leading",
             "--milagre-opened-projects-before=1"
@@ -137,9 +158,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let owned = context.clone();
     let background = std::env::var("MILAGRE_BACKGROUND").as_deref() == Ok("1");
     let app=tauri::Builder::default().manage(context.clone()).manage(Quit(AtomicBool::new(false)))
+        .on_page_load(|webview, payload| {
+            #[cfg(feature = "fixture-native-smoke")]
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                if let Some(window) = webview.app_handle().get_webview_window("main") {
+                    if let Some(smoke) = webview.app_handle().try_state::<fixture_smoke::Smoke>() { smoke.page_loaded(&window, payload.url().as_str()); }
+                }
+            }
+            #[cfg(not(feature = "fixture-native-smoke"))]
+            let _ = (webview, payload);
+        })
         .invoke_handler(tauri::generate_handler![daemon,native_call,preferences_read,preferences_write,smoke_result])
         .setup(move|app|{
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), Box<dyn std::error::Error>> {
+            #[cfg(feature = "fixture-native-smoke")]
+            app.manage(fixture_smoke::Smoke::new(&owned).map_err(std::io::Error::other)?);
             app.manage(transport::start_fixture(app.handle().clone(),owned.clone()));
             if background{app.set_activation_policy(tauri::ActivationPolicy::Accessory);}
             let window=tauri::WebviewWindowBuilder::from_config(app.handle(),&app.config().app.windows[0])?
@@ -154,7 +187,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let handle=app.handle().clone();let visible=window.clone();
             window.with_webview(move|view|unsafe{
                 let webview:&objc2_web_kit::WKWebView=&*view.inner().cast();
-                if webview.configuration().websiteDataStore().isPersistent(){
+                let persistent = webview.configuration().websiteDataStore().isPersistent();
+                #[cfg(feature = "fixture-native-smoke")]
+                handle.state::<fixture_smoke::Smoke>().store(persistent);
+                if persistent {
                     let _=handle.emit("native-event",json!({"channel":"app:quit-blocked","payload":{"code":"FIXTURE_WEBKIT_PERSISTENT","message":"Fixture WebKit storage was persistent; refusing to show the window"}}));
                     request_quit(&handle,1);
                 }else if !background{let _=visible.show();}
@@ -173,11 +209,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Ok(())
         })
-        .on_window_event(|window,event|if let tauri::WindowEvent::CloseRequested{api,..}=event{
+        .on_window_event(|window,event|{
+            #[cfg(feature = "fixture-native-smoke")]
+            if matches!(event, tauri::WindowEvent::Destroyed) { if let Some(smoke)=window.try_state::<fixture_smoke::Smoke>() { smoke.destroyed(); } }
+            if let tauri::WindowEvent::CloseRequested{api,..}=event{
             api.prevent_close();
             if let (Ok(position),Ok(size))=(window.outer_position(),window.inner_size()) {let _=window.state::<Arc<fixture_launch::LaunchContext>>().save_window(&json!({"x":position.x,"y":position.y,"width":size.width,"height":size.height}));}
             request_quit(window.app_handle(),0);
-        })
+        }})
         .build(tauri::generate_context!("tauri.fixture.conf.json"));
     let app = match app {
         Ok(app) => app,
@@ -190,12 +229,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(error.into());
         }
     };
+    #[cfg(feature = "fixture-native-smoke")]
+    fixture_smoke::watchdog(app.handle().clone());
     app.run(|app, event| {
         if let tauri::RunEvent::Exit = event {
             shortcuts::uninstall_fixture();
             let context = app.state::<Arc<fixture_launch::LaunchContext>>();
             if context.clean() {
-                if let Err(error) = context.remove_shell_storage() {
+                let cleanup = context.remove_shell_storage();
+                #[cfg(feature = "fixture-native-smoke")]
+                if let Some(smoke) = app.try_state::<fixture_smoke::Smoke>() {
+                    smoke.exit(&cleanup);
+                }
+                if let Err(error) = cleanup {
                     eprintln!(
                         "Fixture clean exit could not remove private storage: {}",
                         error["code"]

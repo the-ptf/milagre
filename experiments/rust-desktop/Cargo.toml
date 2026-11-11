@@ -6,6 +6,7 @@ default-run = "milagre-rust"
 [features]
 default = []
 app-fixture = ["dep:tempfile"]
+fixture-native-smoke = ["app-fixture"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 [dependencies]
