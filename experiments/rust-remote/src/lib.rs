@@ -12,6 +12,8 @@ pub mod policy;
 mod raw_json;
 pub mod registry;
 pub mod supervisor;
+#[cfg(unix)]
+pub mod synthetic_store;
 pub use crypto_box::{PublicKey, SecretKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
