@@ -26,3 +26,35 @@ fn production_sources_and_embedded_timezone_release_are_pinned() {
     assert_eq!(jiff_tzdb::VERSION, Some(milagre_routines::TZDB_VERSION));
     assert_eq!(milagre_routines::TZDB_VERSION, manifest["tz"]);
 }
+
+#[test]
+fn store_oracle_sources_and_private_codec_copy_are_pinned() {
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../store-oracle-manifest.json")).unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let sources = manifest["sources"].as_object().unwrap();
+    assert_eq!(
+        sources.len(),
+        15,
+        "Every source in the agreed store plan must be pinned"
+    );
+    for (path, expected) in sources {
+        let bytes = std::fs::read(root.join(path)).unwrap();
+        assert_eq!(
+            format!("{:x}", Sha256::digest(bytes)),
+            expected.as_str().unwrap(),
+            "Store oracle source drift: {path}"
+        );
+    }
+    let original = std::fs::read(root.join("experiments/rust-owner/src/jsjson.rs")).unwrap();
+    let private =
+        std::fs::read(root.join("experiments/rust-routines/src/store/jsjson.rs")).unwrap();
+    assert_eq!(
+        original, private,
+        "The private codec must remain byte-identical"
+    );
+}

@@ -1,9 +1,12 @@
 # Pure routine cron checkpoint
 
-Standalone, `publish = false`, and unregistered with any production service. This crate ports
-only the pure helpers in `packages/core/src/routines/cron.cjs`: `parseCron`, `everyToCron` and
-`nextRun`. It has no timer, scheduler, routine store, writer, host access, provider launch,
-network operation or Node fallback. Test scripts invoke the real Node source as an oracle.
+Standalone, `publish = false`, and unregistered with any production service. The public library
+ports only the pure helpers in `packages/core/src/routines/cron.cjs`: `parseCron`, `everyToCron`
+and `nextRun`. A separate private schedule/heartbeat state fixture is described in
+[STORE-CHECKPOINT.md](STORE-CHECKPOINT.md); it is compiled only for tests and the explicit
+`store_fixture` example, with no public store or commit API. Neither checkpoint has a timer,
+scheduler, filesystem writer, host access, provider launch, network operation or Node fallback.
+Test scripts invoke the real Node source as an oracle.
 This is a bounded IANA-timezone checkpoint, not complete cron parity or a full routines port.
 
 ## API and preserved behavior
@@ -102,6 +105,6 @@ second occurrence, accepting a spring gap, a one-year cap, and losing the first 
 value. Production sources remain untouched. Temporary mutant source trees are removed; their
 build outputs stay under this crate's ignored `target` directory.
 
-Validation and independent review status will be recorded in `CHECKPOINT.md`. No production
-routine scheduling, persistence, claiming, restart recovery, dispatch or UI integration is
-implemented by this checkpoint.
+Cron validation and independent review status are recorded in `CHECKPOINT.md`; the private
+state fixture has its own evidence document. No production routine scheduling, persistence,
+claim authority, restart recovery, dispatch or UI integration is implemented by these checkpoints.

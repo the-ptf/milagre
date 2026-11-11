@@ -7,6 +7,8 @@
 //! ```
 mod cron;
 mod schedule;
+#[cfg(test)]
+mod store;
 mod zone;
 pub use cron::{every_to_cron, parse_cron, Cron};
 pub use schedule::{next_run, MAX_AFTER_MS, MIN_AFTER_MS};

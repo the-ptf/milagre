@@ -1,0 +1,29 @@
+{
+  "node": "v24.13.0",
+  "icu": "77.1",
+  "tz": "2025b",
+  "sources": {
+    "packages/core/src/routines/store.cjs": "c8af1c739391cc7b337ecc112be17cd5c1e0d8c30dc572d65e27fd022babbc67",
+    "packages/core/src/routines/store.test.cjs": "22e3634eb051ecfb060df6188b1299a208a6f79203a87824c0e4f12edb970a0e",
+    "packages/core/src/routines/cron.cjs": "4bf2089a47093afa6bb364adb77d1196415849f8da33ff361d4b41f37183cbce",
+    "packages/core/src/routines/cron.test.cjs": "31dea9aee61f5a19e84a097f4679f0124638015cab80ebad65b1b8baf6a0bdf0",
+    "packages/shared/src/routine-flows.mjs": "7c13ea465bf15566dbecc658253b438042e2b8a1dc1dfab00c6854483e10c563",
+    "packages/shared/src/babysit.mjs": "44bd122baee3d92fd938a0f99e75c7aa1c1ee2d286dee4a2f7ee64d11b06e4a8",
+    "packages/shared/package.json": "dbca4f4db2ce28781221103a295ff6270dd45c4f673caaf3fee1858a308036ae",
+    "packages/core/src/routines/scheduler.cjs": "d30cdb2e6f4f1c5a1b733f09e6616beaba3c550bfa13dab14032f4306d58ac57",
+    "packages/core/src/routines/scheduler.test.cjs": "0efdf9dc42a1ece6301b94571fbb71feddffd8cd4b6dce77b78af2f9a1defbcf",
+    "packages/core/src/routines/runtime-adapter.cjs": "a27c9ad685dc3c2d8c8c205c2dfa36d082c861c80781493408677aa06a9294b7",
+    "packages/core/src/routines/runtime-adapter.test.cjs": "ed0893723d40850f6e9ba875222e9a338795fe3880f89647174e2358eae1d87b",
+    "packages/core/src/routines/flow-runner.cjs": "e6071a5445a6316487c68701e96f9016084efa97ee0c289377bb806bcc14704d",
+    "packages/core/src/routines/tools.cjs": "e3a246e869cc20623f4fb005eb2f7cbbbdd9d6ce3c884df06170b49630085b5f",
+    "packages/core/src/runtime.cjs": "3d44a7e175df281bd09740384fcda839d549e8fb4afbfb24d3b42be859bdd839",
+    "experiments/rust-owner/src/jsjson.rs": "518c89cfdad784818b2431d25fb580a85de32949716fecf41aa5cc9ba86097f3"
+  },
+  "resolvedModules": {
+    "@milagre/shared/babysit": "packages/shared/src/babysit.mjs",
+    "@milagre/shared/routine-flows": "packages/shared/src/routine-flows.mjs"
+  },
+  "copiedSources": {
+    "experiments/rust-routines/src/store/jsjson.rs": "518c89cfdad784818b2431d25fb580a85de32949716fecf41aa5cc9ba86097f3"
+  }
+}
