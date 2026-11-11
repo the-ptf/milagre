@@ -6,3 +6,6 @@ pub mod prs;
 pub mod usage;
 pub mod diff;
 pub mod keybindings;
+pub mod identity;
+pub mod lists;
+pub mod marks;
