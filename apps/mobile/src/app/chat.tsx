@@ -1078,6 +1078,7 @@ function ChatPane({
             images: [],
             files: [],
             ...sendOptions(model, composer.preferences[key] || composer.defaults),
+            sentFrom: SENT_FROM,
             compact: true,
           },
         ])

@@ -1472,6 +1472,7 @@ function createRuntime(options) {
   // off unless turned on: each note costs up to DEVICE_NOTE_TOKENS (shared/device-notes.mjs) on every message sent away from this computer.
   const deviceNotes = require("./design-settings.cjs").createDesignSettings(path.join(dataDir, "device-notes.json"), { name: "Device notes", missing: false });
   const sentFromNotes = createSentFromNotes({ enabled: () => deviceNotes.enabled() });
+  const turnDefaults = require("./turn-defaults.cjs").createTurnDefaults({ file: path.join(dataDir, "turn-defaults.json") });
   commands.handle("device-notes:read", () => ({ enabled: deviceNotes.enabled() }));
   commands.handle("device-notes:save", (_event, value) => {
     const result = deviceNotes.save(value);
@@ -1575,6 +1576,7 @@ function createRuntime(options) {
     // Undo is a convenience: a Worktree it can't capture still runs the task, with no checkpoint.
     beforeTask: (request) => checkpoints.begin(request).catch((error) => console.warn("Checkpoint start capture failed:", error.message)),
     beforeSend: async (request) => {
+      Object.assign(request, turnDefaults.resolve(request));
       request.images = await mobileUploads.resolveImages(request.projectPath, request.images);
       await mobileUploads.claim(request);
       if (request.sessionId != null && request.context?.kind !== "compaction" && (!request.canStart || request.canStart())) {
@@ -2214,7 +2216,10 @@ function createRuntime(options) {
     tell: (chatId, text) => agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), text]),
   });
 
-  commands.handle("chat:send", (_event, request) => sendAsUser(request));
+  commands.handle("chat:send", (_event, request) => {
+    turnDefaults.remember(request ?? {});
+    return sendAsUser(request);
+  });
   /** A message the user sends to a Chat: from a composer (desktop or phone), a pill, or a comment on a page. */
   async function sendAsUser(request) {
     if (isLinkScopeKey(request?.projectPath) || !scopeStates.has(request?.projectPath)) throw new Error("Open the project before sending to its chats.");
@@ -3081,7 +3086,7 @@ function createRuntime(options) {
         workspaceInstructions: context.workspaceInstructions,
         sharedLink: context.sharedLink,
         // Its system prompt is the advisor's own (events.cjs advisorInstructions): the Chat's writing setting, its read tools.
-        tldrEnabled: context.settings?.tldrEnabled !== false,
+        tldrEnabled: context.settings?.tldrEnabled ?? turnDefaults.read().tldrEnabled,
         analysisOnly: !executionAdvisor,
         executionAdvisor,
         ...(executionAdvisor ? { mcpExtras: () => mcp.forSession(record.provider, record.launchIdentity.accountId ?? "default") } : {}),
@@ -3124,6 +3129,7 @@ function createRuntime(options) {
     workspaces: linkWorkspaces,
     chats,
     sentFromNotes,
+    rememberTurnDefaults: (request) => turnDefaults.remember(request),
     broadcast: broadcastProjectState,
     titles: chatTitles,
     issues: { message: linearIssueMessage, started: markIssueStarted },

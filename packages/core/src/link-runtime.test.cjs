@@ -124,6 +124,21 @@ test("shared Chat keeps one canonical transcript and exact Worktrees across retr
     );
   }
 });
+test("a client's Link send remembers explicit turn defaults and an omitted choice inherits them", async (t) => {
+  const { dir, runtime, projects, edits, created, settle } = await fixture(t);
+  edits.length = 0;
+  const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
+  await runtime.invoke("link:open", [link.id]);
+  const request = { linkId: link.id, body: "Read the projects", provider: "claude", model: "test", permissionMode: "auto" };
+  const sent = await runtime.invoke("link:send", [{ ...request, operationId: randomUUID(), replies: "normal", tldrEnabled: false }]);
+  await settle(1);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, "profile", "turn-defaults.json"), "utf8")), { replies: "normal", tldrEnabled: false });
+  await runtime.invoke("link:send", [{ ...request, sessionId: sent.sessionId, operationId: randomUUID() }]);
+  await settle(2);
+  assert.equal(created.length, 1, "the phone's omitted choice keeps the existing session");
+  assert.equal(created[0].tldrEnabled, false);
+});
+
 test("desktop and phone can open a linked Chat Terminal before its first Worktree exists", async (t) => {
   const { runtime, projects, edits, settle } = await fixture(t);
   edits.length = 0;
