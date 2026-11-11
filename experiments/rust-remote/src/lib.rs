@@ -3,6 +3,7 @@
 pub mod channel;
 pub mod envelope;
 pub mod peer;
+pub mod phone;
 pub use crypto_box::{PublicKey, SecretKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

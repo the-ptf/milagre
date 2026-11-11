@@ -280,7 +280,9 @@ impl Channel {
         self.sent = next;
         Ok(frame)
     }
-    pub fn open(&mut self, frame: &[u8]) -> Result<Value> {
+    /// Authenticate and advance the counter without interpreting JSON. Pass these bytes
+    /// directly to the owner's lossless jsjson parser; never encode its internal PUA markers.
+    pub fn open_encoded(&mut self, frame: &[u8]) -> Result<Vec<u8>> {
         if frame.len() < 25 || frame.first() != Some(&3) {
             return Err(Error::Envelope);
         }
@@ -298,7 +300,11 @@ impl Channel {
         )?;
         // Match Node: authenticated malformed JSON consumes the receive counter.
         self.seen = counter;
-        serde_json::from_slice(&plain).map_err(|_| Error::Schema)
+        Ok(plain)
+    }
+    /// Convenience decoder for Unicode scalar JSON only. For lossless JS strings use open_encoded.
+    pub fn open(&mut self, frame: &[u8]) -> Result<Value> {
+        serde_json::from_slice(&self.open_encoded(frame)?).map_err(|_| Error::Schema)
     }
 }
 
