@@ -135,6 +135,8 @@ const ALLOWED: Record<string, string[]> = {
   ],
   "components/ProjectAccountsSettings.tsx": ["listAccountScopes", "onAccountsChanged", "accountAction"],
   "components/CanvasView.tsx": [
+    // Canvas belongs to this Mac; retry its snapshot when this Mac's host reconnects.
+    "onRuntimeConnection",
     "getCanvas",
     "onLinksChanged",
     "stopNegotiation",
