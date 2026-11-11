@@ -12,6 +12,7 @@
 //! | `page.rs` | the Routine page (R-02) and the Run Chat pane's header (V-04) |
 //! | `runs.rs` | the Runs list (R-03) |
 //! | `editor.rs`, `placeholders.rs` | the Routine form (R-04) and its prompt with the `{{` list (R-05) |
+//! | `flows/` | the Flow page a flow Routine opens (WP-46): steps, inspectors, Run view |
 //!
 //! One [`RoutinesView`] takes the place of the Chat column (the sidebar's Routines button opens it): the list, or the
 //! open Routine's page, or the form in place of either. A Run's Chat opens beside the page, which then narrows to a
@@ -19,6 +20,7 @@
 //! answers, so Pause, Run now, Delete, Save and Create change what the page shows.
 
 pub mod fixture;
+pub mod flows;
 pub mod form;
 pub mod model;
 pub mod prompt;
@@ -33,7 +35,7 @@ mod runs;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use gpui::{AnyElement, Context, Entity, IntoElement, Render, ScrollHandle, SharedString, Subscription, Window, div, prelude::*};
 
@@ -90,6 +92,33 @@ pub enum Start {
     EditorEdit,
     EditorWebhook,
     Empty,
+    /// The Flow page (`flows/`): the Review queue's draft, with a step selected, a Run shown, or another tab.
+    Flow(FlowStart),
+}
+
+/// Where the Flow page opens (`MILAGRE_GPUI_ROUTINES=flow-…`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlowStart {
+    /// The draft, Classify selected.
+    Draft,
+    /// The draft, its If selected.
+    If,
+    /// The draft, the pull request step selected.
+    PullRequest,
+    /// The first-step tiles of a flow never published.
+    Empty,
+    /// Run 14, waiting for you at the pull request.
+    Approval,
+    /// Run 15, waiting at an approval with a message.
+    Ask,
+    /// Run 13, stopped at Implement.
+    Failed,
+    /// Run 12, done, with the pull request's receipt.
+    Receipt,
+    /// The Runs tab.
+    Runs,
+    /// The Settings tab.
+    Settings,
 }
 
 impl Start {
@@ -102,6 +131,16 @@ impl Start {
             "editor-edit" => Start::EditorEdit,
             "editor-webhook" => Start::EditorWebhook,
             "empty" => Start::Empty,
+            "flow" => Start::Flow(FlowStart::Draft),
+            "flow-if" => Start::Flow(FlowStart::If),
+            "flow-pr" => Start::Flow(FlowStart::PullRequest),
+            "flow-empty" => Start::Flow(FlowStart::Empty),
+            "flow-approval" => Start::Flow(FlowStart::Approval),
+            "flow-ask" => Start::Flow(FlowStart::Ask),
+            "flow-failed" => Start::Flow(FlowStart::Failed),
+            "flow-receipt" => Start::Flow(FlowStart::Receipt),
+            "flow-runs" => Start::Flow(FlowStart::Runs),
+            "flow-settings" => Start::Flow(FlowStart::Settings),
             _ => return None,
         })
     }
@@ -151,6 +190,10 @@ pub struct RoutinesView {
     pub(crate) run_chat: Option<RunChat>,
     pub(crate) list_scroll: ScrollHandle,
     pub(crate) page_scroll: ScrollHandle,
+    /// The open flow Routine's page (`flows/`).
+    pub(crate) flow: Option<flows::FlowState>,
+    /// Where each flow's page was left.
+    pub(crate) flow_last: HashMap<String, flows::LastView>,
     next_id: u32,
     _editor: Option<Subscription>,
 }
@@ -174,6 +217,7 @@ impl RoutinesView {
                 view.start_editor(Some(Editing::Routine("rt-sentry".into())), window, cx);
             }
             Some(Start::Empty) => view.routines.clear(),
+            Some(Start::Flow(start)) => view.start_flow(start, cx),
             Some(Start::List) | None => {}
         }
         view
@@ -200,6 +244,8 @@ impl RoutinesView {
             run_chat: None,
             list_scroll: ScrollHandle::new(),
             page_scroll: ScrollHandle::new(),
+            flow: None,
+            flow_last: HashMap::new(),
             next_id: 1,
             _editor: None,
         }
@@ -291,6 +337,7 @@ impl RoutinesView {
     }
 
     pub fn close_page(&mut self) {
+        self.leave_flow();
         self.open = None;
         self.run_chat = None;
         self.created_hook = None;
@@ -373,7 +420,7 @@ impl RoutinesView {
                 self.next_id += 1;
                 let mut routine = form::routine_from_input(&id, input, self.now);
                 if *flow {
-                    routine.flow = Some(model::FlowInfo { revision: 0, waiting: 0 });
+                    routine.flow = Some(model::FlowInfo::new(0, 0));
                 }
                 // A webhook's URL shows once, on its new page.
                 if let Trigger::Webhook { hook_id, .. } = &routine.trigger {

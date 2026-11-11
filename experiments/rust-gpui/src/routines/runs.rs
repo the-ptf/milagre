@@ -25,11 +25,28 @@ struct Look {
     icon: IconName,
     spin: bool,
     red: bool,
+    orange: bool,
     text: String,
     failed: bool,
 }
 
 fn run_look(run: &Run, routine_name: &str) -> Look {
+    // A flow Run says where it stands: "MIL-482 Retry webhooks \u{b7} Waiting for you at Open pull request".
+    if let Some(flow) = &run.flow {
+        use super::flows::ops::{flow_run_text, needs_answer};
+        use super::flows::types::FlowStatus;
+        let text = format!("{} \u{b7} {}", run_title(run, routine_name), flow_run_text(flow, run.error.as_deref()));
+        let look = |icon, spin, red, orange, failed| Look { icon, spin, red, orange, text: text.clone(), failed };
+        return match flow.status {
+            FlowStatus::Running => look(IconName::Loading03, true, false, false, false),
+            FlowStatus::Waiting if needs_answer(flow) => look(IconName::PauseCircle, false, false, true, false),
+            FlowStatus::Waiting => look(IconName::Clock01, false, false, false, false),
+            FlowStatus::Paused => look(IconName::Pause, false, false, false, false),
+            FlowStatus::Failed => look(IconName::Alert02, false, true, false, true),
+            FlowStatus::Ended => look(IconName::MinusSignCircle, false, false, false, false),
+            FlowStatus::Done => look(IconName::CheckmarkCircle02, false, false, false, false),
+        };
+    }
     // A Run that ran on its fallback says so after its words.
     let note = retry_note(run);
     let noted = |text: String| if note.is_empty() { text } else { format!("{text} \u{b7} {note}") };
@@ -39,19 +56,31 @@ fn run_look(run: &Run, routine_name: &str) -> Look {
                 Some(reason) => format!("Ended, {reason}"),
                 None => "Ended".into(),
             };
-            Look { icon: IconName::MinusSignCircle, spin: false, red: false, text: noted(text), failed: false }
+            Look { icon: IconName::MinusSignCircle, spin: false, red: false, orange: false, text: noted(text), failed: false }
         }
-        RunStatus::Running => {
-            Look { icon: IconName::Loading03, spin: true, red: false, text: noted(run_title(run, routine_name)), failed: false }
-        }
+        RunStatus::Running => Look {
+            icon: IconName::Loading03,
+            spin: true,
+            red: false,
+            orange: false,
+            text: noted(run_title(run, routine_name)),
+            failed: false,
+        },
         RunStatus::Failed => {
             let text = match first_line(run.error.as_deref()) {
                 Some(error) => format!("Failed: {error}"),
                 None => "Failed".into(),
             };
-            Look { icon: IconName::Alert02, spin: false, red: true, text: noted(text), failed: true }
+            Look { icon: IconName::Alert02, spin: false, red: true, orange: false, text: noted(text), failed: true }
         }
-        _ => Look { icon: IconName::CheckmarkCircle02, spin: false, red: false, text: noted(run_title(run, routine_name)), failed: false },
+        _ => Look {
+            icon: IconName::CheckmarkCircle02,
+            spin: false,
+            red: false,
+            orange: false,
+            text: noted(run_title(run, routine_name)),
+            failed: false,
+        },
     }
 }
 
@@ -80,6 +109,7 @@ struct Row {
     text: String,
     muted: bool,
     red: bool,
+    orange: bool,
     unread: bool,
     selected: bool,
     trailing: Option<IconName>,
@@ -96,6 +126,7 @@ impl Row {
             text: text.into(),
             muted: false,
             red: false,
+            orange: false,
             unread: false,
             selected: false,
             trailing: None,
@@ -105,7 +136,13 @@ impl Row {
 
     fn render(self, cx: &App) -> AnyElement {
         let theme = *cx.theme();
-        let tone: Rgba = if self.red { theme.red_ink } else { theme.ink3 };
+        let tone: Rgba = if self.red {
+            theme.red_ink
+        } else if self.orange {
+            theme.orange_ink
+        } else {
+            theme.ink3
+        };
         let selector = self.id.to_string();
         let text_color = if self.red {
             theme.red_ink
@@ -171,6 +208,14 @@ impl RoutinesView {
             });
             on
         };
+        let show_flow_run = |id: String| {
+            let view = view.clone();
+            let on: Handler = std::rc::Rc::new(move |_, cx| {
+                let id = id.clone();
+                view.update(cx, |this, cx| this.flow_show_run(&id, cx));
+            });
+            on
+        };
         let toggle = |key: String| {
             let view = view.clone();
             let on: Handler = std::rc::Rc::new(move |_, cx| {
@@ -216,9 +261,15 @@ impl RoutinesView {
                     let mut row = Row::new(format!("routine-run-{}", run.id), clock(run.started_at, &words::ZONE), look.icon, look.text);
                     row.spin = look.spin;
                     row.red = look.red && look.failed;
+                    row.orange = look.orange;
+                    // A flow Run opens its Run view; the other Runs their Chat.
+                    let chat = chat.filter(|_| run.flow.is_none());
                     row.unread = chat.is_some_and(|chat| self.unread_chats.contains(chat));
                     row.selected = chat.is_some() && chat.map(str::to_string) == selected;
-                    if let Some(chat) = chat {
+                    if run.flow.is_some() {
+                        row.trailing = Some(IconName::ArrowRight01);
+                        row.on_click = Some(show_flow_run(run.id.clone()));
+                    } else if let Some(chat) = chat {
                         row.trailing = Some(IconName::ArrowRight01);
                         row.on_click = Some(open_chat(chat));
                     }

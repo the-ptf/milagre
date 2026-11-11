@@ -2,6 +2,7 @@
 //! the form makes, a Linear and a signed webhook trigger, a paused and a failing one, a flow, a babysit Heartbeat and a
 //! Routine on a paired computer. Runs by day so the Runs list shows its folds, attempts and unread dot.
 
+use super::flows;
 use super::model::*;
 use crate::data::{Millis, Provider};
 use crate::logic::usage::time::epoch_ms;
@@ -165,15 +166,30 @@ pub fn routines() -> Vec<Routine> {
     changelog.run_count = 4;
     list.push(changelog);
 
-    // A flow, not published yet, and one with Runs waiting on someone.
+    // A flow, not published yet, and one with Runs waiting on someone (the Flow page's fixture: `flows/fixture.rs`).
     let mut flow = Routine::new("rt-flow", "Release train", schedule("0 10 * * 1"), new_chat(ADE, Workspace::Worktree));
     flow.prompt = "flow".into();
-    flow.flow = Some(FlowInfo { revision: 0, waiting: 0 });
+    flow.enabled = false;
+    flow.flow = Some(FlowInfo::new(0, 0));
     list.push(flow);
-    let mut review = Routine::new("rt-review", "Review queue", schedule("*/30 * * * *"), new_chat(GYM, Workspace::Worktree));
+    let mut review = Routine::new(
+        "rt-review",
+        "Review queue",
+        Trigger::Linear {
+            workspace: "milagre".into(),
+            event: LinearEvent::LabelAdded,
+            team: Some("MIL".into()),
+            label: Some("agent".into()),
+            state: None,
+        },
+        new_chat(GYM, Workspace::Worktree),
+    );
     review.prompt = "flow".into();
-    review.flow = Some(FlowInfo { revision: 3, waiting: 2 });
-    review.next_run_at = Some(at(11, 12, 30));
+    let (def, runs) = flows::fixture::review_flow();
+    review.flow = Some(FlowInfo { revision: 3, waiting: flows::fixture::waiting_count(&runs), def });
+    review.run_count = 16;
+    review.last_run_at = runs.first().map(|run| run.started_at);
+    review.runs = runs;
     list.push(review);
 
     // A Routine on a paired computer.

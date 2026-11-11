@@ -4,6 +4,7 @@
 //! A Routine's times are milliseconds since the epoch, like the rest of `data`. Another computer's Routine carries its
 //! computer's id in `computer` (the TypeScript qualifies the Routine's id instead; the GPUI port keeps them apart).
 
+use super::flows::types::{FlowDef, FlowRun, RunEvent};
 use crate::data::{Millis, Provider};
 
 /// The id `This Mac` has in `computer` (`LOCAL_COMPUTER` in `chat-scopes`).
@@ -98,13 +99,22 @@ pub struct Fallback {
     pub effort: Option<String>,
 }
 
-/// A flow Routine's mark in the list. The Flow page itself is WP-46.
+/// A flow Routine's mark in the list, and its steps (the Flow page is `flows/`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowInfo {
     /// 0 before the first publish.
     pub revision: u32,
     /// Runs waiting on someone's approval.
     pub waiting: u32,
+    /// The published steps, when they were published, and the draft being edited.
+    pub def: FlowDef,
+}
+
+impl FlowInfo {
+    /// A flow with no steps yet at `revision`.
+    pub fn new(revision: u32, waiting: u32) -> Self {
+        FlowInfo { revision, waiting, def: FlowDef::default() }
+    }
 }
 
 /// A Run's outcome (`RoutineRun.status`).
@@ -159,6 +169,10 @@ pub struct Run {
     pub issue: Option<Issue>,
     pub attempts: Vec<Attempt>,
     pub fallback: Option<RunFallback>,
+    /// What made it run (a flow Run keeps the event its steps read).
+    pub event: Option<RunEvent>,
+    /// A flow Run's steps and how each went.
+    pub flow: Option<FlowRun>,
 }
 
 impl Run {
@@ -176,6 +190,8 @@ impl Run {
             issue: None,
             attempts: Vec::new(),
             fallback: None,
+            event: None,
+            flow: None,
         }
     }
 }

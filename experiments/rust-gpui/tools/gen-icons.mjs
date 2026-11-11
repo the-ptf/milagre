@@ -185,6 +185,28 @@ const ICONS = [
   "FolderGit",
   "Message01",
   "Upload01",
+  // WP-46 Flows (FlowPage, FlowSteps, FlowInspector, FlowRun, flow-look). Alert02, ArrowDown01, ArrowUp01, Cancel01,
+  // Delete02, PencilEdit02, Pause, Play, TestTube01, PlusSign, MoreHorizontal, Message01, SecurityCheck, Split,
+  // GitPullRequest, Code, CancelCircle, CheckmarkCircle02, Copy01, Refresh, Shield01 and Tick02 are in other blocks.
+  "Stop",
+  "WorkflowSquare03",
+  "Link01",
+  "Bot",
+  "CheckmarkSquare02",
+  "Hashtag",
+  "Hourglass",
+  "LeftToRightListBullet",
+  "TextFont",
+  "Zap",
+  "DashedLineCircle",
+  "Invoice03",
+  "Lock",
+  // WP-52 notices and WP-51 onboarding (UpdateNotice, Onboarding, FirstChatStarters). Cancel01, CheckmarkCircle02, Folder01,
+  // FolderAdd, FolderGit, FolderOpen, GitFork, ArrowLeft02, Bug01 and TestTube01 are in other blocks.
+  "Gift",
+  "ArrowRight02",
+  "ArrowUpRight01",
+  "Maps",
 ];
 
 /** The stroke written into every icon file; `src/assets` replaces it for the 12px (1.6) and 18px (2) sizes. */

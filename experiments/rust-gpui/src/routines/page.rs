@@ -80,10 +80,10 @@ fn setting_chip(id: &'static str, icon: IconName, text: impl Into<SharedString>,
 impl RoutinesView {
     /// The whole body of a Routine's page: the page alone, or the page as a column beside the Run Chat.
     pub(crate) fn render_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let _ = window;
         let theme = *cx.theme();
         let narrow = self.run_pane_open();
-        let page = self.page_column(narrow, cx);
+        // A flow Routine opens the Flow page (`flows/`) in place of the plain page.
+        let page = if self.is_flow_open() { self.flow_column(narrow, window, cx) } else { self.page_column(narrow, cx) };
         if !narrow {
             return div()
                 .flex()
@@ -335,7 +335,7 @@ impl RoutinesView {
     }
 
     /// "Routine created. Send POST requests to this URL." with the URL and Copy (shown once, on a webhook Routine's page).
-    fn created_card(&self, url: &str, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn created_card(&self, url: &str, cx: &mut Context<Self>) -> AnyElement {
         let theme = *cx.theme();
         let view = cx.entity();
         div()

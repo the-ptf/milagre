@@ -67,6 +67,8 @@ pub struct RoutineEditor {
     pub(crate) form: RoutineForm,
     /// A new Routine as a flow: its steps carry the prompts.
     pub(crate) flow: bool,
+    /// The form as the Flow page's Settings tab shows it: no window header, no scroll of its own, the page's width.
+    pub(crate) embedded: bool,
     pub(crate) errors: HashMap<Field, String>,
     top_error: String,
     name: Entity<InputState>,
@@ -145,6 +147,7 @@ impl RoutineEditor {
             baseline,
             form,
             flow,
+            embedded: false,
             errors: HashMap::new(),
             top_error: String::new(),
             name,
@@ -1071,10 +1074,7 @@ impl Render for RoutineEditor {
             .flex_col()
             .flex_1()
             .w_full()
-            .max_w(px(FORM_WIDTH))
-            .px(px(24.0))
-            .pt(px(12.0))
-            .pb(px(40.0))
+            .when(!self.embedded, |el| el.max_w(px(FORM_WIDTH)).px(px(24.0)).pt(px(12.0)).pb(px(40.0)))
             .child(
                 div()
                     .flex()
@@ -1222,11 +1222,21 @@ impl Render for RoutineEditor {
                 )
             });
 
-        div().flex().flex_col().flex_1().min_w_0().h_full().bg(theme.page).child(chrome::header("routine-editor-header")).child(
-            div().flex_1().min_h_0().child(
+        if self.embedded {
+            return div().flex().flex_col().flex_1().min_w_0().child(body).into_any_element();
+        }
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .bg(theme.page)
+            .child(chrome::header("routine-editor-header"))
+            .child(div().flex_1().min_h_0().child(
                 ScrollArea::new("routine-form-scroll", &self.scroll).child(div().w_full().flex().flex_1().justify_center().child(body)),
-            ),
-        )
+            ))
+            .into_any_element()
     }
 }
 
