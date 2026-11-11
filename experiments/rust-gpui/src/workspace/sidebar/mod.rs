@@ -1,9 +1,9 @@
 //! Sidebar column (304px, `canvas`): header with the New Chat button, the Pinned rows, the
-//! "All Chats" label and a virtualized Chat list, and a pinned bottom group (Done, usage, footer: `bottom.rs`).
+//! rows of every other Chat as a virtualized list, and a pinned bottom group (Done, usage, footer: `bottom.rs`).
 //!
 //! The rows come from the app's [`Data`] source through `list.rs`, which runs the shared list rules
 //! (`logic::lists`: listing, pins, order, Done, Subchat families) and the mark rules (`logic::marks`). Pinned rows
-//! sit above the "All Chats" label, as in the desktop's one-list layout; the rest are drawn through `uniform_list`,
+//! sit at the top of the list with no heading of their own (a pin marks each), as in the desktop's one-list layout; the rest are drawn through `uniform_list`,
 //! GPUI's virtualized list for rows of one fixed height, so only the rows in (or just around) the viewport are
 //! built each frame. Each row is a view of its own (`row.rs`) mounted as a cached view, so a sidebar re-render
 //! reuses the rows that did not change. Row indices run over the pinned rows first, then the list.
@@ -58,7 +58,7 @@ use crate::data::{Data, Polled, poll_once};
 use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::lists::order::ChatOrder;
 use crate::theme::{ActiveTheme, ROW_TWO_LINE};
-use crate::ui::{IconButton, IconButtonSize, IconName, IconSize, SectionLabel};
+use crate::ui::{IconButton, IconButtonSize, IconName, IconSize};
 use crate::workspace::chat::pills::bookmark::FamilyChat;
 use crate::workspace::chrome::{self, NoDrag};
 pub use actions::{Actions, ArchiveMode, ChatPatch, RecordingActions, SidebarActions, SidebarCall};
@@ -68,7 +68,6 @@ pub use row::ChatRow;
 use row::{ChatRowView, ROW_INSET, RowEvent, RowMeta};
 
 pub const SIDEBAR_WIDTH: f32 = 304.0;
-const SECTION_HEIGHT: f32 = 28.0;
 /// Row views kept on each side of the visible range, so scrolling back a little does not rebuild them.
 /// A fixed margin, not a multiple of the range: `uniform_list` also asks for `0..1` to measure a row, and
 /// that call must not evict the real rows (a new entity per frame would lose clicks and the cache).
@@ -566,19 +565,6 @@ impl Render for Sidebar {
                         .children(pinned),
                 )
             })
-            .child(
-                div()
-                    .id("section-label")
-                    .debug_selector(|| "section-label".into())
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_between()
-                    .h(px(SECTION_HEIGHT))
-                    .pl(px(20.0))
-                    .pr(px(16.0))
-                    .child(SectionLabel::new("All Chats")),
-            )
             .child(
                 uniform_list("chat-list", self.rows.len() - self.pinned, cx.processor(Self::render_rows))
                     .track_scroll(&self.scroll)

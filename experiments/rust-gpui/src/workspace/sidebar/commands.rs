@@ -756,12 +756,12 @@ impl Sidebar {
 
     /// Snapshot seeds (`MILAGRE_GPUI_SIDEBAR_DEMO`): the state a picture of one menu, card or toast needs.
     pub(super) fn apply_demo(&mut self, demo: &str, window: &mut Window, cx: &mut Context<Self>) {
-        // Row 2 starts 172px down: header 44, the Pinned rows and the All Chats label.
+        // Row 2 starts 144px down: header 44, the Pinned rows' 4px pad and the two pinned rows.
         let row =
-            |ix: usize| Bounds { origin: point(px(8.0), px(172.0 + 48.0 * (ix as f32 - 2.0))), size: gpui::size(px(288.0), px(48.0)) };
+            |ix: usize| Bounds { origin: point(px(8.0), px(144.0 + 48.0 * (ix as f32 - 2.0))), size: gpui::size(px(288.0), px(48.0)) };
         match demo {
-            "menu" => self.open_menu(3, point(px(150.0), px(172.0 + 48.0 + 24.0)), window, cx),
-            "menu-up" => self.open_menu(10, point(px(150.0), px(172.0 + 48.0 * 8.0 + 24.0)), window, cx),
+            "menu" => self.open_menu(3, point(px(150.0), px(144.0 + 48.0 + 24.0)), window, cx),
+            "menu-up" => self.open_menu(10, point(px(150.0), px(144.0 + 48.0 * 8.0 + 24.0)), window, cx),
             "card" => self.card = Some((self.rows[2].key.to_string(), row(2))),
             "card-prs" => {
                 self.card = Some((

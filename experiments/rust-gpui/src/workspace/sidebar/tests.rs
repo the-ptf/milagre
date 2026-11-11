@@ -57,14 +57,15 @@ fn the_list_holds_500_rows_but_builds_only_the_visible_ones(cx: &mut TestAppCont
 }
 
 #[gpui::test]
-fn pinned_rows_sit_above_the_all_chats_label(cx: &mut TestAppContext) {
+fn pinned_rows_lead_the_list_with_no_heading_and_each_shows_a_pin(cx: &mut TestAppContext) {
     let (sidebar, cx) = mount(cx);
     assert_eq!(sidebar.read_with(cx, |s, _| s.pinned_count()), 2);
     let pinned = cx.debug_bounds("sidebar-pinned").expect("the Pinned rows are drawn");
-    let label = cx.debug_bounds("section-label").expect("the All Chats label");
-    let first_listed = cx.debug_bounds("chat-row-2").expect("the first All Chats row");
-    assert!(pinned.bottom() <= label.top() && label.bottom() <= first_listed.top());
+    let first_listed = cx.debug_bounds("chat-row-2").expect("the first unpinned row");
+    assert!(cx.debug_bounds("section-label").is_none(), "no All Chats heading");
+    assert_eq!(pinned.bottom(), first_listed.top(), "no gap between the pinned rows and the list");
     assert_eq!(cx.debug_bounds("chat-row-1").unwrap().size.height, px(48.0));
+    assert!(cx.debug_bounds("chat-pinned").is_some(), "a pinned row shows the pin icon before its title");
 }
 
 #[gpui::test]

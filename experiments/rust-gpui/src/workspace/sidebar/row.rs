@@ -302,12 +302,29 @@ impl Render for ChatRowView {
                             .min_w_0()
                             .child(match &self.rename {
                                 Some(field) => div().h(px(18.0)).child(field.clone()).into_any_element(),
+                                // `InboxTitleLine`: a pinned Chat's 12px pin sits before the title, in `ink-3`.
                                 None => div()
-                                    .text_step(sidebar_step(TEXT_13))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme.ink)
-                                    .truncate()
-                                    .child(row.title.clone())
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.0))
+                                    .min_w_0()
+                                    .when(self.pinned, |el| {
+                                        el.child(
+                                            div()
+                                                .debug_selector(|| "chat-pinned".into())
+                                                .flex_none()
+                                                .child(Icon::new(IconName::Pin).size(IconSize::S12).color(theme.ink3)),
+                                        )
+                                    })
+                                    .child(
+                                        div()
+                                            .min_w_0()
+                                            .text_step(sidebar_step(TEXT_13))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(theme.ink)
+                                            .truncate()
+                                            .child(row.title.clone()),
+                                    )
                                     .into_any_element(),
                             })
                             .child(
