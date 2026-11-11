@@ -18,20 +18,26 @@ mod activity_tests;
 #[cfg(test)]
 mod cards_tests;
 #[cfg(test)]
+mod switch_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod transcript_tests;
+
+use std::collections::HashMap;
 
 use gpui::{
     AnyView, Context, Entity, FocusHandle, Focusable, FontWeight, ListState, Pixels, SharedString, StyleRefinement, Subscription, Window,
     div, prelude::*, px,
 };
 
+use crate::logic::marks::chat_mark::ChatMark;
 use crate::theme::{ActiveTheme, CONTROL_SM, CONTROL_XS, TEXT_12, TEXT_13, TextStepExt, Theme};
 use crate::workspace::chat::composer::{Composer, ComposerEvent};
 use crate::workspace::chat::running::RunningRow;
 use crate::workspace::chat::transcript::{BOTTOM_CLEARANCE, COLUMN_WIDTH, LIST_TOP_PAD, RUNNING_GAP, Transcript};
 use crate::workspace::chrome;
+use crate::workspace::sidebar::ChatRow;
 
 const COMPOSER_BOTTOM: f32 = 24.0;
 const PILLS_BOTTOM: f32 = 8.0;
@@ -44,6 +50,10 @@ pub struct ChatView {
     /// The running turn's row, while a turn runs.
     pub running: Option<Entity<RunningRow>>,
     composer_focused_once: bool,
+    /// The Chat on screen (`None` until the sidebar has named one: the fixture shows meanwhile).
+    key: Option<SharedString>,
+    /// Unsent drafts of the Chats left behind, by Chat key.
+    drafts: HashMap<SharedString, String>,
     _send: Subscription,
 }
 
@@ -69,14 +79,64 @@ impl ChatView {
             }
         });
         Self {
-            title: "Fix Linux onboarding intro hang".into(),
+            title: fixture::DEFAULT_TITLE.into(),
             project: "milagre-ade".into(),
             transcript,
             composer,
             running,
             composer_focused_once: false,
+            key: None,
+            drafts: HashMap::new(),
             _send: send,
         }
+    }
+
+    /// The Chat on screen.
+    pub fn key(&self) -> Option<&str> {
+        self.key.as_deref()
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn project(&self) -> &str {
+        &self.project
+    }
+
+    /// A different Chat picked in the sidebar: its title and Project, its transcript, whether a turn runs, and its
+    /// draft. The first Chat named keeps the fixture transcript (the default Chat's rich history). The sidebar is not
+    /// touched and the transcript stays one cached leaf: only `set_items` and the composer text change.
+    pub fn set_chat(&mut self, row: &ChatRow, window: &mut Window, cx: &mut Context<Self>) {
+        if self.key.as_ref() == Some(&row.key) {
+            return;
+        }
+        // The fixture's own Chat (its title is the one `new` shows) keeps the rich fixture transcript.
+        let first = self.key.is_none() && row.title == self.title;
+        let running = if first { self.running.is_some() } else { row.mark == ChatMark::Running };
+        self.title = row.title.clone();
+        self.project = row.detail.split(" \u{b7} ").next().unwrap_or_default().to_string().into();
+        if let Some(old) = self.key.replace(row.key.clone()) {
+            // The default Chat's draft is saved too.
+            let draft = self.composer.read(cx).text().to_string();
+            if draft.is_empty() {
+                self.drafts.remove(&old);
+            } else {
+                self.drafts.insert(old, draft);
+            }
+        }
+        if !first {
+            let items = fixture::transcript_for(&row.key, &row.title);
+            self.transcript.update(cx, |transcript, cx| transcript.set_items(items, cx));
+            let draft = self.drafts.get(&row.key).cloned().unwrap_or_default();
+            self.composer.update(cx, |composer, cx| composer.set_text(&draft, window, cx));
+        }
+        if running != self.running.is_some() {
+            self.running = running.then(|| cx.new(|_| RunningRow::new("2m 18s")));
+            self.transcript.update(cx, |transcript, cx| transcript.set_running_row(running, cx));
+            self.composer.update(cx, |composer, cx| composer.set_running(running, cx));
+        }
+        cx.notify();
     }
 
     pub fn composer_focus_handle(&self, cx: &gpui::App) -> FocusHandle {

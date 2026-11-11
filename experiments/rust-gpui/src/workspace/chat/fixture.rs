@@ -14,6 +14,9 @@ use crate::workspace::chat::transcript::{Activity, Approval, ApprovalState, Entr
 /// The clock the fixture's running steps count from (the transcript has no ticking clock yet).
 pub const NOW: Millis = 1_800_000_000_000;
 
+/// The fixture Chat that shows the rich transcript.
+pub const DEFAULT_TITLE: &str = "Fix Linux onboarding intro hang";
+
 /// Items in the default transcript.
 pub const HISTORY_ITEMS: usize = 2000;
 
@@ -22,6 +25,22 @@ pub fn transcript(total: usize) -> Vec<Item> {
     let tail = first_screen();
     let mut items = history(total.saturating_sub(tail.len()));
     items.extend(tail);
+    items
+}
+
+/// The seam the daemon adapter replaces with `chat:messages`: the items of the Chat `key` that the sidebar shows as
+/// `title`. Deterministic from the key, so switching is visible and repeatable; the first user message carries the
+/// row's title.
+pub fn transcript_for(key: &str, title: &str) -> Vec<Item> {
+    if title == DEFAULT_TITLE {
+        return transcript(HISTORY_ITEMS);
+    }
+    // FNV-1a over the key.
+    let hash = key.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    let count = 12 + (hash % 90) as usize;
+    let mut items = vec![Item::User(format!("{title}. Take it from here and keep me posted.").into())];
+    items.extend(history_seeded(hash | 1, count));
+    items.push(Item::Prose(Prose::new(format!("Done with **{title}**. The checks pass and the change is ready for review."))));
     items
 }
 
@@ -124,7 +143,12 @@ impl Rng {
 
 /// Exactly `count` items of past turns.
 pub fn history(count: usize) -> Vec<Item> {
-    let mut rng = Rng(0x6d69_6c61_6772_6521);
+    history_seeded(0x6d69_6c61_6772_6521, count)
+}
+
+/// `history` from another seed.
+fn history_seeded(seed: u64, count: usize) -> Vec<Item> {
+    let mut rng = Rng(seed);
     let mut items = Vec::with_capacity(count + 16);
     let mut turn = 0;
     while items.len() < count {

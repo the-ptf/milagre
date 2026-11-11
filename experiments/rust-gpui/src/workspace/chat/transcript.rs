@@ -234,6 +234,22 @@ impl Transcript {
         }
     }
 
+    /// Shows another Chat's items: the list starts over at the bottom, and the views, streams, selection and
+    /// other per-item caches of the old items go.
+    pub fn set_items(&mut self, items: Vec<Item>, cx: &mut Context<Self>) {
+        self.list.reset(items.len());
+        self.list.scroll_to(ListOffset { item_ix: items.len(), offset_in_item: px(0.0) });
+        self.items = items;
+        self.views.clear();
+        self.streams.clear();
+        self.inputs.clear();
+        self.viewer = None;
+        self.select_on_open = None;
+        *self.tracker.borrow_mut() = SelectionTracker::default();
+        self.painted.borrow_mut().clear();
+        cx.notify();
+    }
+
     /// The two Chat settings that shape the activity: every item is built again, so heights are measured again.
     pub fn set_display(&mut self, display: ToolCallDisplay, expand_reasoning: bool, cx: &mut Context<Self>) {
         if (self.display, self.expand_reasoning) != (display, expand_reasoning) {

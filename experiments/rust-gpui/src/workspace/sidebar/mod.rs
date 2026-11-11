@@ -68,6 +68,14 @@ pub struct Sidebar {
     _load: Option<gpui::Task<()>>,
 }
 
+/// What the sidebar asks the window to do.
+pub enum SidebarEvent {
+    /// The New Chat button: the Chat column opens its new-Chat composer.
+    NewChat,
+}
+
+impl gpui::EventEmitter<SidebarEvent> for Sidebar {}
+
 impl Sidebar {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let seed = cx.try_global::<SidebarSeed>().cloned().unwrap_or_default();
@@ -107,6 +115,12 @@ impl Sidebar {
     fn set_data(&mut self, data: SidebarData, select: Option<&str>) {
         self.data = data;
         self.rebuild(select);
+        // Snapshot seed (never in tests): open on another row.
+        if let Some(ix) =
+            std::env::var("MILAGRE_GPUI_SELECT_ROW").ok().and_then(|v| v.parse::<usize>().ok()).filter(|ix| *ix < self.rows.len())
+        {
+            self.selected = Some(ix);
+        }
     }
 
     /// Builds the rows again from the data, keeping the selection on the same Chat (or `select`).
@@ -260,7 +274,10 @@ impl Render for Sidebar {
             .h_full()
             .bg(theme.canvas)
             .text_color(theme.ink)
-            .child(header())
+            .child(header({
+                let sidebar = cx.entity();
+                move |_, cx| sidebar.update(cx, |_, cx| cx.emit(SidebarEvent::NewChat))
+            }))
             .child(destination("canvas", "Canvas", IconName::FlowConnection, false, &theme))
             .child(destination("routines", "Routines", IconName::TimeSchedule, true, &theme))
             .child(destination("links", "Links", IconName::Link04, false, &theme))
@@ -302,7 +319,8 @@ impl Render for Sidebar {
 
 /// 44px title-bar header: the traffic lights sit at the left (see `app.rs`), three 16px icon buttons at
 /// x 208, 240 and 272. Each button has a 24px hit area centred on its glyph.
-fn header() -> impl IntoElement {
+fn header(on_new_chat: impl Fn(&mut Window, &mut gpui::App) + 'static) -> impl IntoElement {
+    let on_new_chat = Rc::new(on_new_chat);
     let button = |name: &'static str, icon: IconName, x: f32| {
         div()
             .absolute()
@@ -315,7 +333,14 @@ fn header() -> impl IntoElement {
         .relative()
         .child(button("hide-sidebar", IconName::SidebarLeft01, 208.0))
         .child(button("search", IconName::Search01, 240.0))
-        .child(button("new-chat", IconName::PencilEdit02, 272.0))
+        .child(
+            div().absolute().left(px(268.0)).top(px(10.0)).no_drag().child(
+                IconButton::new("new-chat", IconName::PencilEdit02)
+                    .size(IconButtonSize::S24)
+                    .glyph(IconSize::S16)
+                    .on_click(move |_, window, cx| on_new_chat(window, cx)),
+            ),
+        )
 }
 
 /// A 32px destination row: icon at x 12, label at x 40, optional accent dot at x 268.

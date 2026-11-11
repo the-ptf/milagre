@@ -26,7 +26,7 @@ use crate::theme::{ActiveTheme, Theme};
 use crate::workspace::chat::ChatView;
 use crate::workspace::panel::dock;
 use crate::workspace::panel::{Panel, PanelEvent};
-use crate::workspace::sidebar::Sidebar;
+use crate::workspace::sidebar::{Sidebar, SidebarEvent};
 
 pub struct Workspace {
     pub sidebar: Entity<Sidebar>,
@@ -44,25 +44,36 @@ impl Workspace {
             (cx.new(Sidebar::new), cx.new(ChatView::new), cx.new(Panel::new), cx.new(SettingsModal::new));
         // The panel's place in the window changed: lay the columns out again.
         let layout = cx.subscribe(&panel, |_, _, _: &PanelEvent, cx| cx.notify());
-        let follow = cx.observe(&sidebar, |this, _, cx| this.follow_sidebar(cx));
-        Self { sidebar, chat, panel, settings, _subscriptions: vec![layout, follow] }
+        let new_chat = cx.subscribe(&sidebar, |this, _, event: &SidebarEvent, cx| match event {
+            SidebarEvent::NewChat => this.chat.update(cx, |chat, cx| chat.composer.update(cx, |composer, cx| composer.start_new_chat(cx))),
+        });
+        let follow = cx.observe(&sidebar, |this, _, cx| this.follow_sidebar(None, cx));
+        Self { sidebar, chat, panel, settings, _subscriptions: vec![layout, follow, new_chat] }
     }
 
     /// A different Chat picked in the sidebar: the panel shows that Chat's tab and width. The sidebar does not
     /// notify itself on a selection (only the two rows do, and every view above them re-renders), so `render`
     /// calls this too; it is two reads when nothing changed.
-    fn follow_sidebar(&mut self, cx: &mut Context<Self>) {
+    fn follow_sidebar(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
         let sidebar = self.sidebar.read(cx);
-        let key = sidebar.selected().and_then(|ix| sidebar.row(ix)).map(|row| row.key.clone());
-        if let Some(key) = key.filter(|key| self.panel.read(cx).chat() != key.as_ref()) {
+        let row = sidebar.selected().and_then(|ix| sidebar.row(ix)).cloned();
+        let Some(row) = row else { return };
+        if self.panel.read(cx).chat() != row.key.as_ref() {
+            let key = row.key.clone();
             self.panel.update(cx, |panel, cx| panel.set_chat(key, cx));
+        }
+        // The Chat column needs the window (the composer's text area); `render` always follows too.
+        if let Some(window) = window
+            && self.chat.read(cx).key() != Some(row.key.as_ref())
+        {
+            self.chat.update(cx, |chat, cx| chat.set_chat(&row, window, cx));
         }
     }
 }
 
 impl Render for Workspace {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.follow_sidebar(cx);
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.follow_sidebar(Some(window), cx);
         let theme = *cx.theme();
         let columns = dock::layout(&self.panel, self.chat.clone(), cx);
         let settings = self.settings.clone();
