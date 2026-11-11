@@ -155,3 +155,80 @@ re-renders only that one.
   use 68px meters at x 132 and 208; one window uses one 144px track from x 132 to 276. The block pads 8px top and bottom only, since
   the x positions are relative to the 288px inner area. Fills are at least 2px above 0% and absent at 0%. Data is in `fixtures.rs` (`USAGE`).
 - The logos (`ProviderLogo` in `src/icons.rs`) are stand-ins drawn as stroked vector paths (starburst, cloud, arch), not the real marks.
+
+## Transcript notes
+
+The Chat column now holds a real transcript and composer (2026-11-11).
+
+| File                   | Lines (code) | What                                                                                     |
+| ---------------------- | ------------ | ---------------------------------------------------------------------------------------- |
+| `src/transcript.rs`    | 608 (526)    | `Transcript` entity: items, `list()` + `ListState`, item rows, path glyphs, timing probe |
+| `src/composer.rs`      | 830 (710)    | Composer: multi-line text input (~590 code lines) plus the send row (~120)               |
+| `src/markdown.rs`      | 455 (393)    | pulldown-cmark events to blocks; blocks to GPUI elements                                 |
+| `src/chat.rs`          | 123 (106)    | Header, cached transcript view, floating pills, composer; Send appends a user message    |
+| `src/chat_fixtures.rs` | 284 (226)    | The first screen plus ~2,000 generated items (fixed seed), long markdown answers         |
+| `src/chat_tests.rs`    | 277 (236)    | 15 headless tests (markdown, list, approvals, typing, keys, paste, IME, link, caching)   |
+
+How it works:
+
+- `list(ListState::new(n, ListAlignment::Bottom, px(600.)), cx.processor(Self::render_item))`. Bottom alignment opens at the
+  newest item and stays pinned there while items arrive, unless the reader has scrolled up. Only items in view, plus a 600px
+  band above and below that is measured but not painted, are built each frame. Item heights are cached in a sum tree, so a
+  change to a measured item has to be reported with `ListState::splice` (`Transcript::resolve` does this for approvals).
+- The transcript is drawn as `AnyView::cached`. Without it, any `cx.notify()` in the window (one keystroke in the composer)
+  re-renders every view, and the transcript re-lays out all its visible items: 18 item builds per keystroke measured in the
+  test, against 0 with the cache. The README's earlier claim that one entity per column re-renders only that column holds only
+  with `cached`.
+- Markdown is parsed once per message (pulldown-cmark, 2,000 items in 0.6 ms release). A paragraph is one `StyledText` with
+  `TextRun`s, so bold, inline code and links wrap together; paragraphs with links are `InteractiveText` with click ranges that
+  call `cx.open_url`.
+- The composer follows the gpui crate's `examples/input.rs`: the entity implements `EntityInputHandler` (text, selection, IME
+  marked range, all in UTF-16 for the platform), and a custom `Element` shapes the text with `shape_text` at the wrap width,
+  paints selection rects, lines and the caret, and calls `window.handle_input` so typed text, dead keys and IME reach it.
+  Editing keys are actions bound in a `Composer` key context. It grows to 8 lines, then scrolls to keep the caret visible.
+
+Env vars: `MILAGRE_GPUI_TIMING=1` prints the timing probe; `MILAGRE_GPUI_TRANSCRIPT_ITEMS=<n>` sets the fixture size;
+`MILAGRE_GPUI_COMPOSER_TEXT` (`\n` for newlines) and `MILAGRE_GPUI_COMPOSER_SELECT=<start>..<end>` prefill the composer for a
+snapshot.
+
+Measurements (Apple M5 Pro, release build, `MILAGRE_GPUI_TIMING=1` with `MILAGRE_GPUI_SNAPSHOT` so the window never activates;
+three runs). The probe times from the start of `Transcript::render` to the paint of a zero-size canvas drawn last in the
+transcript, and counts calls to `render_item`. Launch time is perl's clock just before `exec` against the epoch printed at the
+first paint. GPU time and presentation are not included.
+
+| What                                          | Result                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------ |
+| Launch to first transcript paint, 2,000 items | 123, 126 ms warm (380 ms on the first, cold run); 10 items: 120 ms |
+| Items built in the first frame                | 26 of 2,000 (in view plus the overdraw band)                       |
+| Fixture build and markdown parse              | 0.6 ms (debug 2.5 ms; 20,000 items in debug 23.7 ms)               |
+| Append one item at the bottom                 | 1.6 to 3.7 ms render to paint, 13 items built                      |
+| Jump 300 items up into never-measured history | 6 to 13 ms, 37 items built                                         |
+| One 120px scroll step                         | 1.7 to 2.5 ms, 11 items built                                      |
+| Idle 500 ms with the running mark breathing   | 31 frames, 403 items built (13 per frame)                          |
+| Typing in the composer                        | 0 transcript items built per keystroke (test platform count)       |
+
+Not measured: GPU frame time, smoothness of a real trackpad scroll, memory, and anything that needs a person at the keyboard.
+
+What was awkward:
+
+- Never-measured items count as 0px. After jumping 300 items up, the list knew a scrollable height of 2,983px for 2,001 items,
+  so a scrollbar would be wrong and pixel jumps (`scroll_by`) land short. `ListState::measure_all()` fixes it by laying out
+  every item once on open. Wheel scrolling measures as it goes and is fine.
+- An animation anywhere in the transcript (the breathing running mark) asks for a frame and marks the transcript view dirty,
+  so every visible item is rebuilt every frame (13 per frame here). GPUI marks ancestors of a dirty view dirty too, so moving
+  the mark into its own entity does not help; it has to live outside the list. The headless tests keep it still (`cfg(test)`).
+- Static text is not selectable in GPUI 0.2.2: no selection, no copy. `StyledText::layout()` maps points to indices, so
+  selection inside one paragraph is buildable; selection across paragraphs and list items (some not even laid out) needs a
+  transcript-wide selection model, as Zed's own `markdown` crate has (not published on crates.io).
+- `TextRun` has a font, colours and decorations but no size, padding or radius: inline code is Menlo at the prose size with a
+  square `field` background, not a 4px pill at a smaller size.
+- `ui-monospace` (SF Mono) has no family name apps can load (`NSFontManager` lists Andale Mono, Menlo, PT Mono); code uses Menlo.
+- A hugging flex container whose children have negative margins measures 0px wide (the activity marks overlapped their text);
+  fixed with an explicit width.
+- GPUI's test support never clears a frame's debug bounds, so `debug_bounds("x").is_none()` passes only for selectors that
+  were never drawn. Tests check state or new selectors instead. The test platform's text system is a no-op with fixed advances.
+- Code blocks scroll sideways (`overflow_x_scroll`, `restrict_scroll_to_axis` so vertical wheel deltas stay with the list);
+  not tried with a real trackpad.
+- IME and dead keys go through `NSTextInputClient` (`setMarkedText`, `insertText`) into the composer's input handler, the same
+  path Zed's editor uses. The test drives that handler's methods directly; nobody typed Option+E, A on the real window.
+- Not built in the composer: undo, word movement, double-click selection, caret blink, drag and drop, attachments.

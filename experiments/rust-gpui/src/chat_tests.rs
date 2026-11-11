@@ -1,0 +1,277 @@
+//! Chat column tests in GPUI's headless test platform: the real workspace with the ~2,000-item
+//! fixture, driven by simulated clicks and keystrokes.
+//!
+//! The test platform shapes text with a no-op text system (fixed advances), so these tests check
+//! structure, state and geometry, not text metrics or timing.
+
+use gpui::{ClipboardItem, Entity, EntityInputHandler as _, Focusable as _, Modifiers, TestAppContext, VisualTestContext, px};
+
+use crate::chat::ChatView;
+use crate::composer::Composer;
+use crate::markdown::{self, Block, SpanStyle};
+use crate::theme::Theme;
+use crate::transcript::{ApprovalState, COLUMN_WIDTH, Item, Transcript};
+use crate::workspace::Workspace;
+
+fn mount(cx: &mut TestAppContext) -> (Entity<Transcript>, Entity<Composer>, &mut VisualTestContext) {
+    cx.update(|cx| cx.set_global(Theme::dark()));
+    let (workspace, cx) = cx.add_window_view(Workspace::new);
+    let chat: Entity<ChatView> = workspace.read_with(cx, |workspace, _| workspace.chat.clone());
+    let (transcript, composer) = chat.read_with(cx, |chat, _| (chat.transcript.clone(), chat.composer.clone()));
+    cx.run_until_parked();
+    (transcript, composer, cx)
+}
+
+fn leak(s: String) -> &'static str {
+    Box::leak(s.into_boxed_str())
+}
+
+#[test]
+fn markdown_sample_has_the_expected_blocks() {
+    let blocks =
+        markdown::parse("Run **cargo test** and check `ListState`:\n\n- first item\n- second with `code`\n\n```rust\nfn main() {}\n```\n");
+    let [Block::Paragraph(intro), Block::List { start: None, items }, Block::Code { lang, text }] = blocks.as_slice() else {
+        panic!("paragraph, list, code block: {blocks:#?}");
+    };
+
+    assert_eq!(intro.text.as_ref(), "Run cargo test and check ListState:");
+    let styled: Vec<(&str, SpanStyle)> = intro.spans.iter().map(|s| (&intro.text[s.range.clone()], s.style)).collect();
+    let plain = SpanStyle::default();
+    assert_eq!(
+        styled,
+        vec![
+            ("Run ", plain),
+            ("cargo test", SpanStyle { bold: true, ..plain }),
+            (" and check ", plain),
+            ("ListState", SpanStyle { code: true, ..plain }),
+            (":", plain),
+        ]
+    );
+
+    assert_eq!(items.len(), 2);
+    let [Block::Paragraph(second)] = items[1].as_slice() else { panic!("tight item is one paragraph: {:?}", items[1]) };
+    assert_eq!(second.text.as_ref(), "second with code");
+    assert!(second.spans.last().is_some_and(|s| s.style.code));
+
+    assert_eq!(lang.as_ref().map(|lang| lang.as_ref()), Some("rust"));
+    assert_eq!(text.as_ref(), "fn main() {}");
+}
+
+#[gpui::test]
+fn the_list_holds_about_two_thousand_items_and_opens_at_the_bottom(cx: &mut TestAppContext) {
+    let (transcript, _, cx) = mount(cx);
+    let (count, list_count, top, renders) = transcript.read_with(cx, |t, _| {
+        (t.items().len(), t.list_state().item_count(), t.list_state().logical_scroll_top().item_ix, t.item_renders())
+    });
+    assert_eq!(count, 2000);
+    assert_eq!(list_count, 2000, "ListState tracks every item");
+    assert!(top > 1900, "opens scrolled to the bottom (top item {top})");
+    assert!(cx.debug_bounds("running-row").is_some(), "the running row, the last item, is drawn");
+    assert!(cx.debug_bounds("approval-allow-once").is_some(), "the waiting approval is on screen");
+    assert!(cx.debug_bounds("transcript-item-0").is_none(), "the oldest item is not");
+    eprintln!("item renders to open 2,000 items: {renders} (top item {top})");
+    assert!(renders < 120, "only items in and around the viewport are laid out, got {renders}");
+}
+
+#[gpui::test]
+fn items_sit_in_the_536px_column_with_the_composer(cx: &mut TestAppContext) {
+    let (_, _, cx) = mount(cx);
+    let composer = cx.debug_bounds("composer").expect("composer drawn");
+    assert_eq!(composer.size.width, px(COLUMN_WIDTH));
+    assert!(composer.size.height >= px(crate::composer::COMPOSER_MIN_HEIGHT));
+    let running = cx.debug_bounds("running-row").expect("running row drawn");
+    assert_eq!(running.origin.x, composer.origin.x, "transcript column and composer share a left edge");
+    let progress = cx.debug_bounds("pill-progress").expect("3/7 pill drawn");
+    assert_eq!(progress.right(), composer.right(), "the 3/7 pill ends at the column's right edge");
+    let subagents = cx.debug_bounds("pill-subagents").expect("subagents pill drawn");
+    assert_eq!(subagents.origin.x, composer.origin.x);
+    assert_eq!(progress.size.height, crate::theme::CONTROL_SM);
+}
+
+#[gpui::test]
+fn allow_once_settles_the_approval(cx: &mut TestAppContext) {
+    let (transcript, _, cx) = mount(cx);
+    let allow = cx.debug_bounds("approval-allow-once").expect("Allow once drawn");
+    assert_eq!(allow.size.height, crate::theme::CONTROL_SM);
+    cx.simulate_click(allow.center(), Modifiers::none());
+
+    let state = transcript
+        .read_with(cx, |t, _| t.items().iter().rev().find_map(|item| if let Item::Approval(a) = item { Some(a.state) } else { None }));
+    assert_eq!(state, Some(ApprovalState::Allowed));
+    // GPUI 0.2.2 never clears a frame's debug bounds, so a selector that was drawn once stays
+    // findable: check that the new line is drawn where the waiting row was, not that the buttons left.
+    let waiting = cx.debug_bounds("approval-waiting").expect("the waiting row was drawn");
+    let resolved = cx.debug_bounds("approval-resolved").expect("the quiet Allowed line is drawn");
+    assert_eq!(resolved.origin, waiting.origin, "it replaces the waiting row in place");
+    assert_eq!(resolved.size.height, waiting.size.height);
+}
+
+#[gpui::test]
+fn deny_settles_the_approval(cx: &mut TestAppContext) {
+    let (transcript, _, cx) = mount(cx);
+    let deny = cx.debug_bounds("approval-deny").expect("Deny drawn");
+    cx.simulate_click(deny.center(), Modifiers::none());
+    let state = transcript
+        .read_with(cx, |t, _| t.items().iter().rev().find_map(|item| if let Item::Approval(a) = item { Some(a.state) } else { None }));
+    assert_eq!(state, Some(ApprovalState::Denied));
+}
+
+#[gpui::test]
+fn typing_then_enter_sends_a_user_message(cx: &mut TestAppContext) {
+    let (transcript, composer, cx) = mount(cx);
+    cx.update(|window, cx| assert!(composer.focus_handle(cx).is_focused(window), "the composer has focus when the Chat opens"));
+
+    cx.simulate_input("Ship");
+    cx.simulate_keystrokes("space");
+    cx.simulate_input("it");
+    cx.simulate_keystrokes("shift-enter");
+    cx.simulate_input("now");
+    assert_eq!(composer.read_with(cx, |c, _| c.text().to_string()), "Ship it\nnow");
+
+    let before = transcript.read_with(cx, |t, _| t.items().len());
+    cx.simulate_keystrokes("enter");
+    let (after, last) = transcript.read_with(cx, |t, _| (t.items().len(), t.items().last().cloned()));
+    assert_eq!(after, before + 1);
+    assert!(matches!(last, Some(Item::User(text)) if text.as_ref() == "Ship it\nnow"));
+    assert_eq!(composer.read_with(cx, |c, _| c.text().to_string()), "", "the input clears after sending");
+    let last_selector = leak(format!("transcript-item-{}", after - 1));
+    assert!(cx.debug_bounds(last_selector).is_some(), "the sent message is on screen");
+
+    // Enter on an empty input sends nothing.
+    cx.simulate_keystrokes("enter");
+    assert_eq!(transcript.read_with(cx, |t, _| t.items().len()), after);
+}
+
+#[gpui::test]
+fn sending_while_scrolled_up_jumps_to_the_bottom(cx: &mut TestAppContext) {
+    let (transcript, _, cx) = mount(cx);
+    transcript.update(cx, |t, cx| {
+        t.list_state().scroll_to(gpui::ListOffset { item_ix: 100, offset_in_item: px(0.0) });
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let top = transcript.read_with(cx, |t, _| t.list_state().logical_scroll_top().item_ix);
+    assert!(top < 200, "scrolled away from the bottom (top item {top})");
+    cx.simulate_input("hi");
+    cx.simulate_keystrokes("enter");
+    let (last, top) = transcript.read_with(cx, |t, _| (t.items().len() - 1, t.list_state().logical_scroll_top().item_ix));
+    assert!(top > 1900, "back at the bottom (top item {top})");
+    assert!(cx.debug_bounds(leak(format!("transcript-item-{last}"))).is_some(), "the new message is drawn");
+}
+
+#[gpui::test]
+fn caret_keys_backspace_and_select_all(cx: &mut TestAppContext) {
+    let (_, composer, cx) = mount(cx);
+    let text = |cx: &mut VisualTestContext| composer.read_with(cx, |c, _| (c.text().to_string(), c.selected_range()));
+
+    cx.simulate_input("abc");
+    cx.simulate_keystrokes("left left");
+    assert_eq!(text(cx), ("abc".into(), 1..1));
+    cx.simulate_input("X");
+    assert_eq!(text(cx), ("aXbc".into(), 2..2));
+    cx.simulate_keystrokes("backspace");
+    assert_eq!(text(cx), ("abc".into(), 1..1));
+    cx.simulate_keystrokes("right right right");
+    assert_eq!(text(cx).1, 3..3, "right stops at the end");
+    cx.simulate_keystrokes("shift-left shift-left");
+    assert_eq!(text(cx).1, 1..3);
+    cx.simulate_keystrokes("backspace");
+    assert_eq!(text(cx), ("a".into(), 1..1));
+    cx.simulate_input("é");
+    cx.simulate_keystrokes("backspace");
+    assert_eq!(text(cx), ("a".into(), 1..1), "backspace removes a whole two-byte character");
+    cx.simulate_keystrokes("cmd-a backspace");
+    assert_eq!(text(cx), ("".into(), 0..0));
+}
+
+#[gpui::test]
+fn up_and_down_move_between_lines(cx: &mut TestAppContext) {
+    let (_, composer, cx) = mount(cx);
+    cx.simulate_input("one");
+    cx.simulate_keystrokes("shift-enter");
+    cx.simulate_input("two");
+    let caret = |cx: &mut VisualTestContext| composer.read_with(cx, |c, _| c.selected_range().start);
+    assert_eq!(caret(cx), 7);
+    cx.simulate_keystrokes("up");
+    assert_eq!(caret(cx), 3, "up keeps the column: end of `one`");
+    cx.simulate_keystrokes("down");
+    assert_eq!(caret(cx), 7);
+}
+
+#[gpui::test]
+fn paste_inserts_clipboard_text_with_newlines(cx: &mut TestAppContext) {
+    let (_, composer, cx) = mount(cx);
+    cx.write_to_clipboard(ClipboardItem::new_string("line one\r\nline two".into()));
+    cx.simulate_keystrokes("cmd-v");
+    assert_eq!(composer.read_with(cx, |c, _| c.text().to_string()), "line one\nline two");
+    cx.simulate_keystrokes("cmd-a cmd-c");
+    assert_eq!(cx.read_from_clipboard().and_then(|item| item.text()).as_deref(), Some("line one\nline two"));
+}
+
+/// The sequence macOS sends for Option+E then A: `setMarkedText("´")`, then `insertText("á")`
+/// replacing the marked range. Called on the entity directly, as `ElementInputHandler` does; the
+/// test platform has no IME to drive it from a real key event.
+#[gpui::test]
+fn dead_key_composition_replaces_the_marked_text(cx: &mut TestAppContext) {
+    let (_, composer, cx) = mount(cx);
+    cx.simulate_input("s");
+    cx.update(|window, cx| {
+        composer.update(cx, |c, cx| {
+            c.replace_and_mark_text_in_range(None, "´", None, window, cx);
+            assert_eq!(c.text(), "s´");
+            assert_eq!(c.marked_text_range(window, cx), Some(1..2), "marked range is in UTF-16 units");
+            c.replace_text_in_range(None, "á", window, cx);
+        })
+    });
+    assert_eq!(composer.read_with(cx, |c, _| (c.text().to_string(), c.marked_range(), c.selected_range())), ("sá".into(), None, 3..3));
+}
+
+#[gpui::test]
+fn typing_does_not_re_render_the_transcript(cx: &mut TestAppContext) {
+    let (transcript, _, cx) = mount(cx);
+    let before = transcript.read_with(cx, |t, _| t.item_renders());
+    cx.simulate_input("hello");
+    let after_typing = transcript.read_with(cx, |t, _| t.item_renders());
+    assert_eq!(after_typing, before, "the transcript is a cached view; keystrokes reuse its last frame");
+
+    let appended = crate::markdown::parse("One more **answer** with `code`.");
+    transcript.update(cx, |t, cx| t.push(Item::Prose(appended), cx));
+    cx.run_until_parked();
+    let after_append = transcript.read_with(cx, |t, _| t.item_renders());
+    eprintln!("item renders: typing 5 keys {}, appending one item {}", after_typing - before, after_append - after_typing);
+    assert!(after_append > after_typing, "the append is laid out");
+    assert!(after_append - after_typing < 120, "an append re-lays only what is in view");
+}
+
+#[gpui::test]
+fn activity_marks_take_their_width(cx: &mut TestAppContext) {
+    let (_, _, cx) = mount(cx);
+    let marks = cx.debug_bounds("activity-marks").expect("an activity row is drawn");
+    assert_eq!(marks.size.width, px(20.0 + 14.0 + 14.0), "three 20px marks overlapping by 6px");
+}
+
+#[gpui::test]
+fn clicking_a_link_in_prose_opens_it(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.set_global(Theme::dark()));
+    let items = vec![Item::Prose(markdown::parse("[Open the docs](https://milagre.cloud/docs) for the list API."))];
+    let (_, cx) = cx.add_window_view(|_, cx| Transcript::with_items(items, cx));
+    let item = cx.debug_bounds("transcript-item-0").expect("the one item is drawn");
+    // The column is centred in the item; the link is the paragraph's first words, below the 8px gap.
+    let column_left = item.center().x - px(COLUMN_WIDTH / 2.0);
+    let line_y = item.origin.y + px(8.0 + 10.0);
+    cx.simulate_click(gpui::point(column_left + px(400.0), line_y), Modifiers::none());
+    assert_eq!(cx.opened_url(), None, "a click past the link opens nothing");
+    cx.simulate_click(gpui::point(column_left + px(12.0), line_y), Modifiers::none());
+    assert_eq!(cx.opened_url().as_deref(), Some("https://milagre.cloud/docs"));
+}
+
+#[gpui::test]
+fn clicking_in_the_input_places_the_caret(cx: &mut TestAppContext) {
+    let (_, composer, cx) = mount(cx);
+    cx.simulate_input("hello");
+    assert_eq!(composer.read_with(cx, |c, _| c.selected_range()), 5..5);
+    let input = cx.debug_bounds("composer-input").expect("input drawn");
+    // 14px left padding, 12px top padding: the first character's left edge.
+    cx.simulate_click(gpui::point(input.origin.x + px(14.0), input.origin.y + px(20.0)), Modifiers::none());
+    assert_eq!(composer.read_with(cx, |c, _| c.selected_range()), 0..0);
+}

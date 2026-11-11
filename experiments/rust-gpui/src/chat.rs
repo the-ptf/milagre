@@ -1,31 +1,62 @@
-//! Chat column: header, transcript area and composer.
+//! Chat column: header, transcript, floating pills and composer.
 //!
-//! The transcript area is empty; a later step fills it. The composer is a placeholder box with the
-//! real size and surface tokens.
+//! The transcript and the composer are entities of their own. The transcript is drawn as a cached
+//! view (`AnyView::cached`), so a keystroke in the composer re-renders the composer and its
+//! ancestors but reuses the transcript's last layout and paint; only `cx.notify()` on the transcript
+//! (a new item, a settled approval, a scroll) lays its visible items out again.
 
-use gpui::{Context, FontWeight, SharedString, Window, div, prelude::*, px};
+use gpui::{
+    AnyView, Context, Entity, FocusHandle, Focusable, FontWeight, SharedString, StyleRefinement, Subscription, Window, div, prelude::*, px,
+};
 
 use crate::chrome;
-use crate::theme::{ActiveTheme, RADIUS_WINDOW, StyledText, TEXT_12, TEXT_13};
+use crate::composer::{Composer, ComposerEvent};
+use crate::theme::{ActiveTheme, CONTROL_SM, StyledText, TEXT_12, TEXT_13, Theme};
+use crate::transcript::{COLUMN_WIDTH, Transcript};
 
-const COMPOSER_MAX_WIDTH: f32 = 536.0;
-const COMPOSER_HEIGHT: f32 = 112.0;
 const COMPOSER_BOTTOM: f32 = 24.0;
+const PILLS_BOTTOM: f32 = 8.0;
 
 pub struct ChatView {
     title: SharedString,
     project: SharedString,
+    pub transcript: Entity<Transcript>,
+    pub composer: Entity<Composer>,
+    composer_focused_once: bool,
+    _send: Subscription,
 }
 
 impl ChatView {
-    pub fn new(_cx: &mut Context<Self>) -> Self {
-        Self { title: "Fix sidebar undo toast on iPad".into(), project: "milagre-ade".into() }
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        let transcript = cx.new(Transcript::new);
+        let composer = cx.new(Composer::new);
+        let send = cx.subscribe(&composer, |this, _, event: &ComposerEvent, cx| match event {
+            ComposerEvent::Send(text) => this.transcript.update(cx, |transcript, cx| transcript.push_user(text.clone(), cx)),
+        });
+        Self {
+            title: "Fix Linux onboarding intro hang".into(),
+            project: "milagre-ade".into(),
+            transcript,
+            composer,
+            composer_focused_once: false,
+            _send: send,
+        }
+    }
+
+    pub fn composer_focus_handle(&self, cx: &gpui::App) -> FocusHandle {
+        self.composer.focus_handle(cx)
     }
 }
 
 impl Render for ChatView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A Chat opens with the composer focused, as in the Electron app.
+        if !self.composer_focused_once {
+            self.composer_focused_once = true;
+            let handle = self.composer.focus_handle(cx);
+            window.defer(cx, move |window, _| window.focus(&handle));
+        }
+        let theme = *cx.theme();
         div()
             .flex()
             .flex_col()
@@ -47,20 +78,46 @@ impl Render for ChatView {
                     )
                     .child(div().flex_none().text_step(TEXT_12).text_color(theme.ink3).child(self.project.clone())),
             )
-            // Transcript goes here.
-            .child(div().id("transcript").flex_1().min_h_0())
             .child(
-                div().flex_none().flex().justify_center().px_4().pb(px(COMPOSER_BOTTOM)).child(
-                    div()
-                        .id("composer")
-                        .w_full()
-                        .max_w(px(COMPOSER_MAX_WIDTH))
-                        .h(px(COMPOSER_HEIGHT))
-                        .rounded(RADIUS_WINDOW)
-                        .bg(theme.surface)
-                        .border_1()
-                        .border_color(theme.line),
-                ),
+                div()
+                    .id("transcript")
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(AnyView::from(self.transcript.clone()).cached(StyleRefinement::default().size_full()))
+                    .child(pills(&theme)),
             )
+            .child(div().flex_none().flex().justify_center().px_4().pb(px(COMPOSER_BOTTOM)).child(self.composer.clone()))
     }
+}
+
+/// "2 subagents" and "3/7", floating over the transcript's bottom edge, aligned to the column.
+fn pills(theme: &Theme) -> impl IntoElement + use<> {
+    div().absolute().left_0().right_0().bottom(px(PILLS_BOTTOM)).flex().justify_center().px_4().child(
+        div().w_full().max_w(px(COLUMN_WIDTH)).flex().justify_between().child(pill("pill-subagents", "2 subagents", theme)).child(pill(
+            "pill-progress",
+            "3/7",
+            theme,
+        )),
+    )
+}
+
+fn pill(id: &'static str, label: &'static str, theme: &Theme) -> impl IntoElement + use<> {
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .flex()
+        .flex_none()
+        .items_center()
+        .h(CONTROL_SM)
+        .px(px(12.0))
+        .rounded_full()
+        .bg(theme.surface)
+        .border_1()
+        .border_color(theme.line)
+        .text_step(TEXT_12)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme.ink2)
+        .cursor_pointer()
+        .child(label)
 }

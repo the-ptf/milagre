@@ -17,6 +17,11 @@ path = "src/main.rs"
 # `runtime_shaders` compiles the Metal shaders when the app starts instead of at build time, so the
 # build does not need Xcode's separately downloaded Metal Toolchain (absent on this Mac).
 gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
+# Transcript markdown (src/markdown.rs): CommonMark events, turned into GPUI blocks by hand.
+pulldown-cmark = { version = "0.13", default-features = false }
+# Composer caret movement and backspace by grapheme cluster, as GPUI's own `input` example does.
+# Already in GPUI's dependency tree (Cargo.lock), so it adds no new crate.
+unicode-segmentation = "1.10"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Already in GPUI's tree at this version; used by src/snapshot.rs to find the window's NSView.
