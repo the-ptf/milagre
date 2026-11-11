@@ -552,3 +552,55 @@ fn a_worktree_swapped_under_its_name_gives_no_list() {
     back(".git");
     assert_eq!(changed_files(&copy, &plan), Some(listed));
 }
+
+/// Metadata under `.git` is read through descriptors from the held `.git` down: a link on the way (`refs`, `info`,
+/// `objects`, `objects/info`), even one to a folder with the same contents, gives no list. A folder on the way that
+/// isn't there is only absent: refs packed with `refs/heads` removed still list as Node does.
+#[test]
+fn a_link_above_git_metadata_gives_no_list() {
+    let Some((base, copy)) = setup() else { return };
+    let mut grants = GitGrants::new(&copy);
+    // Moves `.git/<name>` to `away` and puts a link to it in its place.
+    let linked = |repo: &Path, name: &str, away: &Path| {
+        let at = repo.join(".git").join(name);
+        std::fs::rename(&at, away).unwrap();
+        symlink(away, &at).unwrap();
+    };
+    for (index, name) in ["refs", "info", "objects", "objects/info"]
+        .into_iter()
+        .enumerate()
+    {
+        let repo = repository(&copy, &format!("repo{index}"));
+        grants.admit(&repo).unwrap();
+        let plan = grants.plan(Some(&repo.display().to_string()), None);
+        assert!(
+            changed_files(&copy, &plan).is_some(),
+            "{name}: no list before the link"
+        );
+        // `objects` points inside the worktree itself; the others outside the copy.
+        let away = if name == "objects" {
+            repo.join("store")
+        } else {
+            base.path().join(format!("away{index}"))
+        };
+        linked(&repo, name, &away);
+        assert!(
+            changed_files(&copy, &plan).is_none(),
+            "{name}: read through a link"
+        );
+    }
+    let packed = repository(&copy, "packed");
+    git(&packed, &["pack-refs", "--all"]);
+    std::fs::remove_dir_all(packed.join(".git/refs/heads")).unwrap();
+    grants.admit(&packed).unwrap();
+    let rust = changed_files(
+        &copy,
+        &grants.plan(Some(&packed.display().to_string()), None),
+    )
+    .expect("a list from packed refs");
+    let mut rust = rust;
+    let mut node = node_changed(&copy, &[(None, &packed)]);
+    rust.sort();
+    node.sort();
+    assert_eq!(rust, node);
+}

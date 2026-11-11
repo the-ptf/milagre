@@ -28,7 +28,8 @@
 //! - **The repository's own Git folder isn't Git's.** Each run gets a private Git folder in `.owner/git` (removed
 //!   after): a plain config with only that allow-list (read by `git config --no-includes` as data, values checked),
 //!   HEAD as the commit it names, a copy of the index and `info/exclude`, and the repository's objects through one
-//!   alternate. So no filter, hook, fsmonitor, include, `worktreeConfig`, replace ref or submodule the repository
+//!   alternate. All of it is read through descriptors from the held `.git` down (a link anywhere on the way is no
+//!   list), and `git config` reads a private copy of the config bytes, never the repository's path. So no filter, hook, fsmonitor, include, `worktreeConfig`, replace ref or submodule the repository
 //!   names is ever read or run; attributes files can name filters, but none is configured. A repository with
 //!   extensions (SHA-256, reftables, `worktreeConfig`) or object alternates of its own gives no list.
 
@@ -273,6 +274,8 @@ struct Tree {
     path: PathBuf,
     root: OwnedFd,
     git: OwnedFd,
+    /// Given to Git (as the private folder's one alternate) by path, so held and checked like the others.
+    objects: OwnedFd,
 }
 
 impl Tree {
@@ -285,16 +288,24 @@ impl Tree {
             dir = rustix::fs::openat(&dir, name, DIR_FLAGS, Mode::empty()).ok()?;
         }
         let git = rustix::fs::openat(&dir, ".git", DIR_FLAGS, Mode::empty()).ok()?;
+        let objects = rustix::fs::openat(&git, "objects", DIR_FLAGS, Mode::empty()).ok()?;
         let tree = Tree {
             path: folder.to_path_buf(),
             root: dir,
             git,
+            objects,
         };
         tree.holds().then_some(tree)
     }
 
     fn holds(&self) -> bool {
-        leads_to(&self.path, &self.root) && leads_to(&self.path.join(".git"), &self.git)
+        leads_to(&self.path, &self.root)
+            && leads_to(&self.path.join(".git"), &self.git)
+            && leads_to(&self.objects_path(), &self.objects)
+    }
+
+    fn objects_path(&self) -> PathBuf {
+        self.path.join(".git").join("objects")
     }
 }
 
@@ -383,12 +394,31 @@ fn remove_tree(dir: &OwnedFd) {
     }
 }
 
-/// A file inside the repository's `.git`, read through its descriptor with at most `cap` bytes ever held:
-/// `Ok(None)` when it doesn't exist, `Err` when it is a link, not a plain file, unreadable or larger than `cap`.
-fn small_file(path: &Path, cap: u64) -> std::result::Result<Option<Vec<u8>>, ()> {
+/// The file at `name` (`/`-separated) under the held folder `dir`, each folder on the way opened from the one before
+/// without following a link, and at most `cap` bytes ever held: `Ok(None)` when it (or a folder on the way) doesn't
+/// exist; `Err` when anything on the way is a link or not a folder, or the file is a link, not a plain file,
+/// unreadable or larger than `cap`.
+fn read_beneath(dir: &OwnedFd, name: &str, cap: u64) -> std::result::Result<Option<Vec<u8>>, ()> {
+    let mut parts: Vec<&str> = name.split('/').collect();
+    if parts
+        .iter()
+        .any(|part| part.is_empty() || *part == "." || *part == "..")
+    {
+        return Err(());
+    }
+    let last = parts.pop().ok_or(())?;
+    let mut held: Option<OwnedFd> = None;
+    for part in parts {
+        let at = held.as_ref().unwrap_or(dir);
+        match rustix::fs::openat(at, part, DIR_FLAGS, Mode::empty()) {
+            Ok(fd) => held = Some(fd),
+            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(_) => return Err(()),
+        }
+    }
     let file = match rustix::fs::openat(
-        rustix::fs::CWD,
-        path,
+        held.as_ref().unwrap_or(dir),
+        last,
         OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
         Mode::empty(),
     ) {
@@ -412,8 +442,8 @@ fn small_file(path: &Path, cap: u64) -> std::result::Result<Option<Vec<u8>>, ()>
 }
 
 /// A file that must be there (HEAD, config): `None` unless it reads.
-fn required(path: &Path, cap: u64) -> Option<Vec<u8>> {
-    small_file(path, cap).ok().flatten()
+fn required(dir: &OwnedFd, name: &str, cap: u64) -> Option<Vec<u8>> {
+    read_beneath(dir, name, cap).ok().flatten()
 }
 
 fn hex_id(text: &str) -> bool {
@@ -421,7 +451,7 @@ fn hex_id(text: &str) -> bool {
 }
 
 impl Scratch {
-    fn make(copy: &Path, folder: &Path, deadline: Instant) -> Option<Scratch> {
+    fn make(copy: &Path, tree: &Tree, deadline: Instant) -> Option<Scratch> {
         // The copy's own folder, held: everything below is made relative to it.
         let root = open_copy(copy)?;
         let owner = folder_at(&root, crate::isolation::OWNER_DIR, false)?;
@@ -442,7 +472,7 @@ impl Scratch {
             name,
             dir,
         };
-        scratch.fill(copy, folder, deadline)?;
+        scratch.fill(copy, tree, deadline)?;
         Some(scratch)
     }
 
@@ -451,16 +481,17 @@ impl Scratch {
         leads_to(&self.path, &self.dir)
     }
 
-    fn fill(&self, copy: &Path, folder: &Path, deadline: Instant) -> Option<()> {
-        let git = folder.join(".git");
-        let config = required(&git.join("config"), 64 * 1024)?;
+    fn fill(&self, copy: &Path, tree: &Tree, deadline: Instant) -> Option<()> {
+        // Everything is read under the held `.git`, never by path: a link anywhere on the way is no list.
+        let git = &tree.git;
+        let config = required(git, "config", 64 * 1024)?;
         let text = String::from_utf8_lossy(&config).to_ascii_lowercase();
         // A repository format this run can't read with a plain config (SHA-256 objects, reftables): no list.
         if text.contains("[extensions") {
             return None;
         }
         // HEAD as the commit it names (the branch doesn't show in porcelain output), or as is while unborn.
-        let head = String::from_utf8(required(&git.join("HEAD"), 4096)?).ok()?;
+        let head = String::from_utf8(required(git, "HEAD", 4096)?).ok()?;
         let head = head.trim();
         let commit = match head.strip_prefix("ref: ") {
             Some(name)
@@ -470,7 +501,7 @@ impl Scratch {
                         .any(|part| part.is_empty() || part.starts_with('.')) =>
             {
                 // A loose ref that is there but unreadable is no list; one that is absent may be packed.
-                let loose = small_file(&git.join(name), 4096).ok()?;
+                let loose = read_beneath(git, name, 4096).ok()?;
                 match loose {
                     Some(bytes) => {
                         let id = String::from_utf8(bytes).ok()?.trim().to_string();
@@ -479,7 +510,7 @@ impl Scratch {
                         }
                         Some(id)
                     }
-                    None => match small_file(&git.join("packed-refs"), 16 << 20).ok()? {
+                    None => match read_beneath(git, "packed-refs", 16 << 20).ok()? {
                         Some(bytes) => String::from_utf8(bytes).ok()?.lines().find_map(|line| {
                             let (id, rest) = line.split_once(' ')?;
                             (rest == name && hex_id(id)).then(|| id.to_string())
@@ -496,14 +527,12 @@ impl Scratch {
             Some(id) => format!("{id}\n"),
             None => format!("{head}\n"),
         };
-        let objects = std::fs::canonicalize(git.join("objects")).ok()?;
-        if !objects.starts_with(folder) || !std::fs::symlink_metadata(&objects).ok()?.is_dir() {
+        // Its objects must be its own: an alternate would have Git read another repository's. Anything there (or a
+        // link on the way) is no list.
+        if read_beneath(&tree.objects, "info/alternates", 4096) != Ok(None) {
             return None;
         }
-        // Its objects must be its own: an alternate would have Git read another repository's.
-        if std::fs::symlink_metadata(objects.join("info/alternates")).is_ok() {
-            return None;
-        }
+        let objects = tree.objects_path();
         let dir = &self.dir;
         let refs = folder_at(dir, "refs", true)?;
         drop(refs);
@@ -519,15 +548,17 @@ impl Scratch {
         )?;
         // The index: absent is fine (nothing staged yet); there but a link, unreadable or too large is no list (a
         // status without it would differ).
-        if let Some(index) = small_file(&git.join("index"), 64 << 20).ok()? {
+        if let Some(index) = read_beneath(git, "index", 64 << 20).ok()? {
             write_at(dir, "index", &index)?;
         }
-        if let Some(exclude) = small_file(&git.join("info/exclude"), 1 << 20).ok()? {
+        if let Some(exclude) = read_beneath(git, "info/exclude", 1 << 20).ok()? {
             write_at(&info, "exclude", &exclude)?;
         }
         // Only the allow-listed settings of the repository's config, read by Git as data (no includes), values
         // checked. A read that fails or times out is no list (exit 1 is "none of them set").
         let mut kept = String::from("[core]\n\trepositoryformatversion = 0\n\tbare = false\n");
+        // Git reads the bytes read above (a private copy), not the repository's config by path.
+        write_at(dir, "source-config", &config)?;
         if !self.holds() {
             return None;
         }
@@ -542,13 +573,15 @@ impl Scratch {
             .env("GIT_DIR", &self.path)
             .arg("config")
             .arg("--file")
-            .arg(git.join("config"))
+            .arg(self.path.join("source-config"))
             .args([
                 "--no-includes",
                 "--get-regexp",
                 "^core\\.(ignorecase|precomposeunicode|filemode|symlinks|trustctime|checkstat|autocrlf|eol)$",
             ]);
-        let listed = run_bounded(read, deadline, 64 * 1024, true)?;
+        let listed = run_bounded(read, deadline, 64 * 1024, true);
+        rustix::fs::unlinkat(dir, "source-config", AtFlags::empty()).ok()?;
+        let listed = listed.filter(|_| self.holds())?;
         for line in listed.lines() {
             let Some((key, value)) = line.split_once(' ') else {
                 continue;
@@ -569,7 +602,7 @@ impl Scratch {
 /// its output read as UTF-8 (U+FFFD for invalid bytes, as Node's `encoding: "utf8"`), or `None`.
 fn status(copy: &Path, folder: &Path, deadline: Instant, limit: usize) -> Option<String> {
     let tree = Tree::open(copy, folder)?;
-    let scratch = Scratch::make(copy, folder, deadline)?;
+    let scratch = Scratch::make(copy, &tree, deadline)?;
     #[cfg(feature = "test-fixtures")]
     test_hooks::run_before_status();
     // Git is given the worktree's and the private folder's paths: each must lead to the folder held, now and after.
