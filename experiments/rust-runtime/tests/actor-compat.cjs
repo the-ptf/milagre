@@ -110,10 +110,20 @@ async function run() {
   await fixture(async ({ client, metadata }) => {
     const status = await client.call("daemon:status");
     const before = status.diagnostics.wire;
-    assert.deepEqual(Object.keys(before).sort(), ["admissionRejected", "disconnects", "errorReplyFailures", "listenerAcceptIo", "shutdowns"]);
+    assert.deepEqual(Object.keys(before).sort(), [
+      "admissionRejected",
+      "disconnects",
+      "errorReplyFailures",
+      "listenerAcceptIo",
+      "listenerFailed",
+      "listenerRetryIo",
+      "shutdowns",
+    ]);
     assert.equal(Object.keys(before.disconnects).length, 14);
     assert.ok(JSON.stringify(before).length < 1024, "wire audit has a constant-size schema");
     assert.equal(before.disconnects.invalidFrame, 0);
+    assert.equal(before.listenerFailed, false);
+    assert.equal(before.listenerRetryIo, 0);
     const invalid = net.createConnection(status.socketPath);
     try {
       await once(invalid, "connect");
