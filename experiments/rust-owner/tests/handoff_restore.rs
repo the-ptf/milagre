@@ -441,3 +441,50 @@ fn send_now_during_a_preparing_restore_starts_the_queued_message() {
         "{starts:?}"
     );
 }
+
+fn edit_seed(c: &Copy, edit: impl FnOnce(&mut Value)) {
+    let file = c.project.join(".milagre/coordination.json");
+    let mut state: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    edit(&mut state);
+    std::fs::write(&file, state.to_string()).unwrap();
+}
+
+/// A Chat too large to hand over is refused before anything is staged: no divider, no message, no run, no job.
+#[test]
+fn a_chat_too_large_to_hand_over_is_refused_before_staging() {
+    let mut c = copy(1);
+    edit_seed(&c, |state| {
+        state["messages"][1]["body"] =
+            json!("x".repeat(milagre_owner_store::transcripts::MAX_TRANSCRIPT_INPUT_BYTES + 1024));
+    });
+    let before = {
+        c.host.states.get(&c.project).unwrap();
+        c.messages().len()
+    };
+    let refused = c.send(1, "Next").unwrap_err().to_string();
+    assert!(refused.contains("too large"), "{refused}");
+    assert_eq!(c.messages().len(), before, "something was staged");
+    assert!(c.host.runs().is_empty());
+    assert!(c.host.take_jobs().is_empty());
+}
+
+/// A next id JavaScript can't hold as a whole number (a fraction, past 2^53, not a number) refuses the restore
+/// before staging: the divider could never be found by its id again.
+#[test]
+fn a_restore_with_an_unusable_next_id_is_refused_before_staging() {
+    for next in [
+        json!(1.5),
+        json!(9_007_199_254_740_991_u64),
+        json!("x"),
+        json!(-1),
+    ] {
+        let mut c = copy(1);
+        edit_seed(&c, |state| state["next_id"] = next.clone());
+        c.host.states.get(&c.project).unwrap();
+        let before = c.messages().len();
+        let refused = c.send(1, "Next").unwrap_err().to_string();
+        assert!(refused.contains("whole number"), "{next}: {refused}");
+        assert_eq!(c.messages().len(), before, "{next}: something was staged");
+        assert!(c.host.take_jobs().is_empty());
+    }
+}

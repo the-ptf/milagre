@@ -140,7 +140,18 @@ fn weight(value: &Value) -> usize {
 }
 
 /// The parts of `source.state` a transcript of its session reads, measured, then copied only within `budget` bytes.
-fn take_input(source: &TranscriptSource<'_>, budget: usize) -> Result<TranscriptInput> {
+/// The parts of a source a transcript reads (the Chat's session, its worktree, its messages before the divider), by
+/// reference, and what they weigh as JSON: refused over MAX_TRANSCRIPT_INPUT_BYTES or `budget`, nothing copied.
+#[allow(clippy::type_complexity)]
+fn select<'a>(
+    source: &TranscriptSource<'a>,
+    budget: usize,
+) -> Result<(
+    &'a Value,
+    Option<(String, &'a Value)>,
+    Vec<&'a Value>,
+    usize,
+)> {
     let state = source.state;
     let key = source.session.to_string();
     let session_id = Value::from(source.session);
@@ -194,6 +205,19 @@ fn take_input(source: &TranscriptSource<'_>, budget: usize) -> Result<Transcript
             (MAX_TRANSCRIPT_BUDGET_BYTES - budget) >> 20
         )));
     }
+    Ok((session, worktree.map(|w| (worktree_key, w)), kept, bytes))
+}
+
+/// What a job for `source` would take from the budget, checked without copying anything: `Err` when the Chat is over
+/// MAX_TRANSCRIPT_INPUT_BYTES, or over `budget` (`TRANSCRIPTS_AT_CAPACITY`). A send measures this before it stages a
+/// restore, so a Chat that can't be handed over is refused with nothing saved.
+pub fn measure(source: &TranscriptSource<'_>, budget: usize) -> Result<usize> {
+    select(source, budget).map(|(.., bytes)| bytes)
+}
+
+fn take_input(source: &TranscriptSource<'_>, budget: usize) -> Result<TranscriptInput> {
+    let key = source.session.to_string();
+    let (session, worktree, kept, bytes) = select(source, budget)?;
     let mut session = session.clone();
     if let (Some(provider), Some(map)) = (source.provider, session.as_object_mut()) {
         map.insert("provider".into(), Value::String(provider.into()));
@@ -202,7 +226,7 @@ fn take_input(source: &TranscriptSource<'_>, budget: usize) -> Result<Transcript
     sessions.insert(key, session);
     let mut copy = serde_json::Map::new();
     copy.insert("sessions".into(), Value::Object(sessions));
-    if let Some(worktree) = worktree {
+    if let Some((worktree_key, worktree)) = worktree {
         let mut worktrees = serde_json::Map::new();
         worktrees.insert(worktree_key, worktree.clone());
         copy.insert("worktrees".into(), Value::Object(worktrees));
@@ -506,6 +530,11 @@ impl TranscriptJobs {
     pub fn finish(&mut self, id: JobId) {
         self.out.remove(&id);
         self.charged.remove(&id);
+    }
+
+    /// What is left of the input budget now.
+    pub fn budget_left(&self) -> usize {
+        MAX_TRANSCRIPT_BUDGET_BYTES.saturating_sub(self.charged_bytes())
     }
 
     /// Input bytes the reserved jobs hold now.

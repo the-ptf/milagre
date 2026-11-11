@@ -1124,6 +1124,12 @@ impl ChatHost {
         } else {
             None
         };
+        let restore_budget = self
+            .transcripts
+            .as_ref()
+            .map_or(crate::transcripts::MAX_TRANSCRIPT_BUDGET_BYTES, |jobs| {
+                jobs.budget_left()
+            });
         let mut restore: Option<(i64, Value)> = None; // divider id, the model handed from
 
         // What the change decides, read after it.
@@ -1459,6 +1465,22 @@ impl ChatHost {
                             if let Some(refused) = restore_refused.take() {
                                 return Err(refused);
                             }
+                            // Measured before anything is staged: a Chat too large to hand over (or over what the
+                            // jobs out leave of the budget) is refused with nothing saved, never failed after.
+                            crate::transcripts::measure(
+                                &TranscriptSource {
+                                    state: (&with_session).into(),
+                                    session: u64::try_from(session_id).unwrap_or(0),
+                                    before: None,
+                                    provider: Some(&provider),
+                                    catch_up_after: None,
+                                    clock: handover::Clock {
+                                        zone: handover::Zone::Utc,
+                                        now_ms: 0.0,
+                                    },
+                                },
+                                restore_budget,
+                            )?;
                             restore = Some((
                                 0,
                                 agent_runs::last_user_model(&with_session, session_id),
@@ -1474,7 +1496,17 @@ impl ChatHost {
                     .get("next_id")
                     .and_then(Value::as_f64)
                     .unwrap_or(f64::NAN);
-                // A restore's divider takes the next id, just before the message (Node's dividerId).
+                // A restore's divider takes the next id, just before the message (Node's dividerId). The ids must be
+                // whole numbers JavaScript holds exactly, or the divider couldn't be found again by its id.
+                if restore.is_some()
+                    && !(next_id.is_finite()
+                        && next_id.fract() == 0.0
+                        && (0.0..=9_007_199_254_740_989.0).contains(&next_id))
+                {
+                    return Err(StoreError::Invalid(
+                        "This Chat's next message id isn't a whole number, so it can't be handed over.".into(),
+                    ));
+                }
                 let divider = restore.as_mut().map(|(divider_id, from_model)| {
                     *divider_id = next_id as i64;
                     let mut from = Map::new();
