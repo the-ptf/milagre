@@ -53,27 +53,45 @@ Two things Node does on read are writes, so the plain readers do them differentl
 
 ## Sending and turns (isolated copies only)
 
-`chat_host::ChatHost` is the core of `agents/chat-host.cjs` over a `ProjectStates`, with agents behind a `Provider` trait. The host calls a provider and folds the events it answers with. No production provider is wired here: the adapters live in `rust-providers/rust-claude` at the root.
+`chat_host::ChatHost` is the core of `agents/chat-host.cjs` over a `ProjectStates`, with agents behind a `Provider` trait. No production provider is wired here: the adapters live in `rust-providers/` at the root and implement this trait.
 
 ```rust
-pub trait Provider {
+pub struct TurnId(pub u64);                     // the host's name for one turn it started
+pub trait Provider: Send {                      // every method returns at once; work happens on the adapter's tasks
     fn name(&self) -> &str;                                              // "claude", "codex", "kiro", …
-    fn start_turn(&mut self, request: &Value) -> Result<Value, String>; // SessionManager.startTurn's request → { turnId, steered }
-    fn interrupt(&mut self, chat: &str) -> Result<(), String>;          // agent:interrupt; its turn-cancelled follows as an event
-    fn take_events(&mut self) -> Vec<(String, Value)>;                  // (chatId, Node agent event), in order; ChatHost::pump folds them
+    fn start_turn(&mut self, turn: TurnId, request: &Value) -> Result<(), ProviderError>; // Err = refused at once
+    fn interrupt(&mut self, chat: &str, turn: TurnId) -> Result<(), ProviderError>;       // its turn-cancelled follows
+    fn respond_permission(&mut self, chat: &str, request_id: &str, decision: &str) -> Result<bool, ProviderError>;
+    fn answer_question(&mut self, chat: &str, request_id: &str, answers: &Value) -> Result<bool, ProviderError>;
+    fn close_chat(&mut self, chat: &str) -> Result<(), ProviderError>;
+    fn shutdown(&mut self);
+    fn take_events(&mut self) -> Vec<ProviderEvent>;                     // or push them with ChatHost::deliver
 }
+pub enum ProviderEvent {
+    Started { chat, turn, result },             // SessionManager.startTurn resolved ({ turnId, steered })
+    StartFailed { chat, turn, error },          // it rejected: the host folds turn-failed
+    Agent { chat, turn: Option<TurnId>, event },// a Node agent event; the turn is required except on Chat-level events
+    Exited { chat, error },                     // the process ended: the running turn fails
+}
+pub struct ProviderError { pub kind: ProviderErrorKind, pub message: String } // Unavailable, Refused, Timeout, Exited, Other; no credentials
 ```
 
+- **Turn identity.** An event naming another turn than the one running in its Chat is refused (a late `turn-cancelled` can't end the turn Send now started). A turn end, or anything streamed in a turn, must name its turn. A turn the agent starts by itself (`turn-started` with no turn) is gated. Events from a turn that already ended, with nothing running, fold as Node folds a runless event (no change).
+- **One spelling per Project.** Chat keys, runs and busy marks are keyed by the Project text, so `send`, `receive`, `interrupt` and the queue commands refuse any spelling of the path other than the states key (`ProjectStates::canonical`): `/p/` or `/x/../p` would otherwise make one Chat two.
+- **Nothing left busy by a failure.** Runs and sequence numbers change only when their fold was kept. A turn end whose fold fails (a save, a load, a Project that can't be opened) is kept and folded again by `pump`/`retry_stuck` (`stuck_ends()` lists them); the Chat stays busy until then. Failures of work the host does on its own (a queued start, the `turn-failed` of a failed start) come back as `Notice::Failed`, never dropped. Busy marks (no unload by a sweep) cover runs, starts and kept ends. `forget` refuses a Project with a turn running, and `shutdown` refuses while a turn runs (suspend and resume aren't ported).
 - **Sends.**
   - `send(request)` and `call("chat:send", [request])` take the daemon's request shape.
   - A `clientMessageId` already saved, or waiting in a queue, answers `{ sessionId, duplicate }` and starts nothing. This is checked before the save and again inside it.
+  - A Project open here whose lock was lost refuses the send before anything is staged (`assert_owned`).
   - The user message (ids from `next_id`; a new Chat in a Worktree reuses its empty Chat or gets the next id) is saved and **flushed** before the turn starts; a failed flush takes it back out.
-  - `message-sent` opens the run. A start that fails ends the turn with `turn-failed`.
+  - `message-sent` opens the run; the saved message is found again by id. The send answers with the `TurnId` it asked for without waiting; the start resolves as `Notice::Started`, and one that fails ends the turn with `turn-failed`.
 - **Queue.**
   - A message for a running turn whose provider can't steer, or sent with `delivery: "queue"`, waits in `session.queued` and is saved before it is answered.
   - A completed turn starts the oldest queued message; Stop and failures hold the queue.
   - `chat:queue-send` starts it now, or stops the running turn so it starts next. `chat:queue-remove` takes it out.
   - A queued entry outlives a crash and starts after the next completed turn.
+  - Send now while a turn runs keeps its pick only once the interrupt was asked for; a failed interrupt leaves no pick behind.
+  - A queued entry whose `clientMessageId` is already in the Chat leaves the queue and the next one starts (Node would retry it on every turn end).
 - **Events folded:** `session-started`, `session-reset`, `turn-started`, `text-delta`, `context-usage`, `subagents-waiting`, permission and question requests and resolutions (shown in the run), and the turn ends. A turn end saves the reply (`replyBody`, outcome, credits), marks the Chat unread unless it is `open_chat`, archives finished subagents and moves the queue on.
 - **Receipts.** `chat:send-status` answers from the saved message or queued entry. A resend after a crash with the same `clientMessageId` is a duplicate, because the message was flushed before its turn started.
 - **Notices.** What clients would hear comes back from `take_notices()`: events with their sequence numbers and whether they changed the state, broadcasts, title requests, and queue starts and removals.
@@ -86,7 +104,7 @@ pub trait Provider {
 - usage-limit continuations and account routing (`limitResumeId`, `expectedAccountId`, …);
 - Routines' messages, a wake's guarded turn, `canStart`, `delivery: "now"`;
 - images, and a handed-over Chat's brief;
-- answering permissions and questions (`respond`, `permission:respond`, `question:answer`);
+- answering permissions and questions (`respond`, `agent:respond-permission`, `agent:answer-question`; the trait has the methods, the host doesn't call them yet);
 - the agent events listed in `agent_runs::UNSUPPORTED`: tool steps, subagent updates, plans and tasks, suggestions, compaction progress, answers.
 
 Automatic compaction stays off (Node's default) and can't be turned on.
@@ -110,7 +128,7 @@ What remains different:
 
 ```sh
 cd experiments/rust-owner
-cargo test        # unit, reads (620 Node cases), writer (93 steps), runtime (109 steps), ChatHost (74 steps), locks, ownership, containment, CLI
+cargo test        # unit, reads (620 Node cases), writer (93 steps), runtime (109 steps), ChatHost (74 steps + 9 safety), locks, ownership, containment, CLI
 node fixtures/generate.cjs --check           # do the committed read fixtures still match current Node?
 node fixtures/generate.cjs                   # regenerate after a deliberate format change, then cargo test
 
@@ -162,6 +180,7 @@ The writer, lock and CLI tests run the real Node writers (`fixtures/writer-node.
 
   The traces cover a send with settings, provider session id, streamed text, context usage, a permission request and its resolution, duplicates of a saved and of a queued message, receipts, a completed turn starting the queue, a failed turn, a new Chat in the Worktree, Stop, a provider that fails to start, an empty-body prompt, a crash then a duplicate resend, queue hold and Remove, Send now while idle and while busy (stopping the turn), a queued message started after a crash with no sender, and an idle sweep keeping the running Chat in memory. `unsupported_features_are_refused_not_approximated` checks every gate and that a refused send saves nothing.
 
+- **ChatHost safety** (`tests/chat_safety.rs`, Rust only: Node has these bugs). Two spellings of one Project, a lost lock and a failed flush during a send (nothing staged or left busy, the same client id goes through afterwards), duplicate client ids while a start is in flight and while queued, a late `turn-cancelled` and an unnamed turn end after Send now (dropped, the new turn untouched), a provider exit failing the turn, Send now with a failed interrupt (no pick left), a turn end whose fold fails (kept, busy, folded once the Project opens again), a queued entry already in the Chat, a large message saved once, and `ChatHost: Send`.
 - **Ownership** (`tests/ownership_guard.rs`). A replaced token, a changed pid, a removed record or lock, or a lock swapped for a symbolic link stops every write, surfaces as `OwnershipLost` (never showing a token) and leaves the files byte-identical. In ProjectStates the failure stays as save status until a retry saves.
 - **Containment** (`tests/containment.rs`). `..` and absolute escapes, the root itself, symlinked path parts, a symlinked or hard-linked `.milagre`, chats.db, lock, details folder or sidecar, and a symlinked isolation root are all refused before anything is created or locked. A sentinel folder outside stays byte-identical.
 - **Locks** (`tests/locks.rs`, real Node `ownership.cjs`): Node refuses a Rust-held lock; Rust refuses a Node-held lock and Isolation refuses while it is held; a dead owner's lock and an old empty lock are refused and left as they were (Node itself takes the dead owner's over); release checks the token; nothing outside an Isolation can be opened.

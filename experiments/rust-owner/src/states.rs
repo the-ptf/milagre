@@ -183,6 +183,12 @@ impl ProjectStates {
         self.order.clone()
     }
 
+    /// The key these states hold a Project under (its path inside the isolation, resolved without creating anything):
+    /// one spelling per Project, for callers that key their own maps by it.
+    pub fn canonical(&self, project: &Path) -> Result<PathBuf> {
+        self.key(project)
+    }
+
     /// A Project's key: its path inside the isolation, resolved without creating anything.
     fn key(&self, project: &Path) -> Result<PathBuf> {
         self.isolation.resolve(project)

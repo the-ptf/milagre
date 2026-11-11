@@ -6,9 +6,9 @@
 
 mod common;
 
-use std::cell::Cell;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use milagre_owner_store::chat_host::{ChatHost, MockProvider, Notice};
 use milagre_owner_store::isolation::{Isolation, Policy};
@@ -21,16 +21,18 @@ struct Run {
     project: PathBuf,
     host: ChatHost,
     mock: MockProvider,
-    counter: Rc<Cell<u64>>,
+    counter: Arc<AtomicU64>,
     turns_seen: usize,
     interrupts_seen: usize,
+    /// Notices a step already took (to read a start's result), told with the step's line.
+    held: Vec<Notice>,
 }
 
 fn host_for(
     isolation: &Isolation,
     now: i64,
     mock: &MockProvider,
-    counter: &Rc<Cell<u64>>,
+    counter: &Arc<AtomicU64>,
 ) -> ChatHost {
     let mut host = ChatHost::new(ProjectStates::new(
         isolation.clone(),
@@ -40,8 +42,8 @@ fn host_for(
     host.register(Box::new(mock.clone()));
     let counter = counter.clone();
     host.set_ids(move || {
-        counter.set(counter.get() + 1);
-        format!("00000000-0000-4000-8000-{:012}", counter.get())
+        let next = counter.fetch_add(1, Ordering::SeqCst) + 1;
+        format!("00000000-0000-4000-8000-{next:012}")
     });
     host
 }
@@ -77,16 +79,27 @@ impl Run {
             "send" => {
                 let mut request = step["request"].clone();
                 request["projectPath"] = json!(p.display().to_string());
-                let result = self.host.send(&request).map(|sent| {
+                let result = self.host.send(&request);
+                // Node awaits `sent.started`: the start answers through the provider's events.
+                self.host.pump();
+                let notices = self.host.take_notices();
+                let result = result.map(|sent| {
                     let started = if sent.duplicate {
                         Value::Null
                     } else if sent.queued {
                         json!("waiting")
                     } else {
-                        sent.started.unwrap_or(Value::Null)
+                        notices
+                            .iter()
+                            .find_map(|notice| match notice {
+                                Notice::Started { turn, result, .. } if Some(*turn) == sent.turn => Some(result.clone()),
+                                _ => None,
+                            })
+                            .unwrap_or(Value::Null)
                     };
                     json!({ "sessionId": sent.session_id, "duplicate": sent.duplicate, "queued": sent.queued, "started": started })
                 });
+                self.held.extend(notices);
                 self.attempt(result)
             }
             "failNextStart" => {
@@ -150,10 +163,18 @@ impl Run {
     }
 
     fn line(&mut self, op: &str, result: Value) -> String {
-        let notices: Vec<Value> = self
+        // Starts the step asked for answer through the provider's events, as Node's settle waits for them.
+        let late: Vec<Value> = self
             .host
-            .take_notices()
+            .pump()
+            .iter()
+            .map(|error| json!({ "pumpError": self.clean(&error.to_string()) }))
+            .collect();
+        let mut taken = std::mem::take(&mut self.held);
+        taken.extend(self.host.take_notices());
+        let notices: Vec<Value> = taken
             .into_iter()
+            .filter(|notice| !matches!(notice, Notice::Started { .. }))
             .map(|notice| match notice {
                 Notice::Event {
                     event,
@@ -171,7 +192,10 @@ impl Run {
                     json!({ "queueRemovedWithoutSender": id })
                 }
                 Notice::Gap { what, .. } => json!({ "gap": what }),
+                Notice::Failed { what, error, .. } => json!({ "failed": what, "error": error }),
+                Notice::Started { .. } => unreachable!(),
             })
+            .chain(late)
             .collect();
         let (turns, interrupts) = {
             let state = self.mock.state.lock().unwrap();
@@ -280,7 +304,7 @@ fn rust_chat_host_matches_node() {
             steps.len()
         );
         let mock = MockProvider::new("kiro");
-        let counter = Rc::new(Cell::new(0));
+        let counter = Arc::new(AtomicU64::new(0));
         let host = host_for(
             &isolation,
             trace["start"].as_i64().unwrap(),
@@ -295,6 +319,7 @@ fn rust_chat_host_matches_node() {
             counter,
             turns_seen: 0,
             interrupts_seen: 0,
+            held: Vec::new(),
         };
         for (index, (step, node)) in steps.iter().zip(&lines).enumerate() {
             let op = step["op"].as_str().unwrap();
@@ -414,6 +439,7 @@ fn unsupported_features_are_refused_not_approximated() {
         let error = host
             .receive(
                 &format!("{path}#1"),
+                None,
                 &json!({ "type": kind, "step": { "id": "s" } }),
             )
             .unwrap_err()
