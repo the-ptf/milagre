@@ -68,4 +68,4 @@ node experiments/rust-remote/tests/registry-node.mjs
 node experiments/rust-remote/tests/policy-node.mjs
 ```
 
-Still missing: pending-proof service ownership, idle timers and hibernation restoration; service listeners; real identity/device stores and owner UI; atomic authority/registry event wiring; LAN/relay lifecycle/recovery/backpressure; production pre-auth carrier buffers and relay edge admission; HTTP forwarding; actual phone interoperability. No live access or push occurred.
+Still missing: pending-proof service ownership, idle timers and hibernation restoration; service listeners; real identity/device stores and owner UI; production authority/registry event routing (synthetic wiring is implemented in SUPERVISOR.md); LAN/relay lifecycle/recovery/backpressure; production pre-auth carrier buffers and relay edge admission; HTTP forwarding; actual phone interoperability. No live access or push occurred.

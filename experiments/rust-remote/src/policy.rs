@@ -174,13 +174,13 @@ struct Revocations {
     epochs: BTreeMap<String, u64>,
 }
 #[derive(Clone)]
-struct Access {
+pub(crate) struct Access {
     state: Arc<RwLock<Revocations>>,
     key: String,
     epoch: u64,
 }
 impl Access {
-    fn with<T>(&self, action: impl FnOnce() -> crate::Result<T>) -> crate::Result<T> {
+    pub(crate) fn with<T>(&self, action: impl FnOnce() -> crate::Result<T>) -> crate::Result<T> {
         let state = self.state.read().map_err(|_| crate::Error::Unauthorized)?;
         if state.retired || state.epochs.get(&self.key).copied().unwrap_or(0) != self.epoch {
             return Err(crate::Error::Unauthorized);
@@ -272,6 +272,9 @@ impl Session {
                 .open_encoded(bytes)
         })
     }
+    pub(crate) fn access(&self) -> Access {
+        self.access.clone()
+    }
     pub fn budget(&self) -> ConnectionBudget {
         self.budget.clone()
     }
@@ -320,6 +323,23 @@ impl TemporaryAuthority {
         limits: Limits,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<Self> {
+        Self::create_synthetic_in_pool(
+            host,
+            token,
+            desktop,
+            limits,
+            rng,
+            GlobalBudget::new(GLOBAL_BYTES)?,
+        )
+    }
+    pub(crate) fn create_synthetic_in_pool(
+        host: SecretKey,
+        token: String,
+        desktop: DesktopAccess,
+        limits: Limits,
+        rng: &mut (impl RngCore + CryptoRng),
+        global: GlobalBudget,
+    ) -> Result<Self> {
         if token.is_empty()
             || token.len() > 1024
             || limits.records == 0
@@ -341,7 +361,7 @@ impl TemporaryAuthority {
         Ok(Self {
             revocations: Arc::new(RwLock::new(Revocations::default())),
             instance,
-            global: GlobalBudget::new(GLOBAL_BYTES)?,
+            global,
             active: Arc::new(AtomicUsize::new(0)),
             devices: BTreeMap::new(),
             host,
@@ -521,6 +541,16 @@ impl TemporaryAuthority {
             return Err(PolicyError::Denied);
         }
         Ok(ticket.id)
+    }
+    pub(crate) fn is_retired(&self) -> bool {
+        self.retired
+    }
+    pub(crate) fn pending_deadline(&self, ticket: &Ticket) -> Result<u64> {
+        let id = self.ticket_id(ticket)?;
+        self.pending
+            .get(&id)
+            .map(|p| p.deadline)
+            .ok_or(PolicyError::Denied)
     }
     pub fn pending_device(&self, ticket: &Ticket) -> Result<&channel::Device> {
         let id = self.ticket_id(ticket)?;

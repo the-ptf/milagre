@@ -56,6 +56,15 @@ pub struct Handle {
     state: Arc<AtomicU8>,
 }
 impl Handle {
+    pub(crate) fn same(&self, other: &Self) -> bool {
+        self.owner == other.owner
+            && self.carrier == other.carrier
+            && self.generation == other.generation
+    }
+    pub(crate) fn carrier(&self) -> u64 {
+        self.carrier
+    }
+
     pub fn generation(&self) -> u64 {
         self.generation
     }
@@ -257,7 +266,7 @@ impl Drop for Active {
     }
 }
 enum State {
-    Pending { deadline: u64 },
+    Pending { deadline: u64, approval: bool },
     Active(Box<Active>),
 }
 struct Entry {
@@ -364,13 +373,29 @@ impl Registry {
         let pending = self
             .entries
             .values()
-            .filter(|e| matches!(e.state, State::Pending { .. }))
+            .filter(|e| {
+                matches!(
+                    e.state,
+                    State::Pending {
+                        approval: false,
+                        ..
+                    }
+                )
+            })
             .count();
         if pending >= self.limits.pending_carriers || self.entries.len() >= self.limits.carriers {
             let oldest = self
                 .entries
                 .values()
-                .filter(|e| matches!(e.state, State::Pending { .. }))
+                .filter(|e| {
+                    matches!(
+                        e.state,
+                        State::Pending {
+                            approval: false,
+                            ..
+                        }
+                    )
+                })
                 .min_by_key(|e| e.handle.generation)
                 .map(|e| e.handle.clone());
             if let Some(old) = oldest {
@@ -390,10 +415,27 @@ impl Registry {
             carrier,
             Entry {
                 handle: handle.clone(),
-                state: State::Pending { deadline },
+                state: State::Pending {
+                    deadline,
+                    approval: false,
+                },
             },
         );
         Ok(handle)
+    }
+    pub(crate) fn wait_approval(&mut self, h: &Handle, until: u64, now: u64) -> Result<()> {
+        self.clock(now)?;
+        if !self.current(h) {
+            return Err(RegistryError::Revoked);
+        }
+        match &mut self.entries.get_mut(&h.carrier).unwrap().state {
+            State::Pending { deadline, approval } if now < *deadline && now < until => {
+                *deadline = until;
+                *approval = true;
+                Ok(())
+            }
+            _ => Err(RegistryError::Revoked),
+        }
     }
     pub fn establish(&mut self, h: &Handle, session: Session, now: u64) -> Result<()> {
         self.clock(now)?;
@@ -401,7 +443,7 @@ impl Registry {
             return Err(RegistryError::Revoked);
         }
         let deadline = match self.entries[&h.carrier].state {
-            State::Pending { deadline } => deadline,
+            State::Pending { deadline, .. } => deadline,
             State::Active(_) => return Err(RegistryError::Revoked),
         };
         if now >= deadline {
@@ -742,7 +784,9 @@ impl Registry {
         let mut started = Vec::new();
         for h in handles {
             let reason = match &self.entries[&h.carrier].state {
-                State::Pending { deadline } if now >= *deadline => Some(CloseReason::HelloTimeout),
+                State::Pending { deadline, .. } if now >= *deadline => {
+                    Some(CloseReason::HelloTimeout)
+                }
                 State::Active(a) if a.session.is_revoked() => Some(CloseReason::Removed),
                 State::Active(a) if now >= a.idle_deadline => Some(CloseReason::IdleTimeout),
                 State::Active(a) if a.reader.deadline_ms().is_some_and(|d| now >= d) => {
@@ -782,7 +826,7 @@ impl Registry {
         self.entries
             .values()
             .map(|e| match &e.state {
-                State::Pending { deadline } => *deadline,
+                State::Pending { deadline, .. } => *deadline,
                 State::Active(a) => a
                     .reader
                     .deadline_ms()

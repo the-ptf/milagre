@@ -1,4 +1,4 @@
-//! No sockets, live profiles, credentials, or service ownership. Synthetic policy records use a new marked temporary directory only. See README for integration gates.
+//! No sockets, live profiles, credentials, or production service ownership. Synthetic policy records use a new marked temporary directory only. See README for integration gates.
 #![forbid(unsafe_code)]
 pub mod admission;
 pub mod budget;
@@ -10,6 +10,7 @@ pub mod phone;
 pub mod policy;
 mod raw_json;
 pub mod registry;
+pub mod supervisor;
 pub use crypto_box::{PublicKey, SecretKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
