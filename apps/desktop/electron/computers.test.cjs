@@ -96,7 +96,7 @@ const STATUS = { version: "9.8.7", methods: ["project:recent"], capabilities: ["
 
 /**
  * A Mac as peer-client.test.cjs fakes one, for any number of sockets. `mac.hello` is how the next hello is answered
- * ("accept", "pending" until mac.accept(), "full" or a refusal body) and can change while the desktop is connected.
+ * ("accept", "pending" until mac.accept(), "full", "offline" or a refusal body) and can change while the desktop is connected.
  * `mac.hold(socket, frame)` returning true keeps that reply back until `mac.release()`.
  */
 function fakeMac({ lan = [], hello = "accept" } = {}) {
@@ -172,6 +172,7 @@ function fakeMac({ lan = [], hello = "accept" } = {}) {
         if (!channel) {
           const mode = mac.hello;
           if (mode === "full") return socket.closeWith(4429);
+          if (mode === "offline") return socket.closeWith(4404);
           if (typeof mode === "object") return socket.deliver(new Uint8Array([0x04, ...encoder.encode(JSON.stringify({ t: "error", ...mode }))]));
           const accepted = hostAccept({ host, hello: bytes, isKnown: () => false, canPair: true, token: TOKEN, random });
           const accept = () => {
@@ -598,6 +599,41 @@ test("a computer that keeps refusing is dialed less and less often, and a connec
   await computers.setEnabled(false);
   assert.ok(Date.now() - started < steps[0], "off does not wait out the backoff");
   assert.equal(mac.open().length, 0);
+});
+
+test("a computer the relay says is offline is dialed every few minutes, and a call for it dials at once", async (t) => {
+  const mac = fakeMac();
+  const steps = [20, 40];
+  const offline = [400, 5000];
+  const { computers, state } = await paired(t, mac, {
+    backoffMs: steps,
+    offlineBackoffMs: offline,
+    reconnectMs: 5,
+    offlineAfterMs: 50,
+    reconnectWaitMs: 2000,
+  });
+  await computers.add(macLink(mac), { name: "studio" });
+  await computers.setEnabled(true);
+  await until(() => state() === "online", "online");
+  // The Mac goes to sleep: the relay turns every dial away with 4404.
+  const from = mac.urls.length;
+  mac.hello = "offline";
+  mac.drop();
+  await until(() => mac.urls.length >= from + 4, "four redials", 3000);
+  const times = mac.times.slice(from, from + 4);
+  assert.ok(times[3] - times[2] >= offline[0] - 20, `past the short steps it waits ${offline[0]}: ${times[3] - times[2]}ms`);
+  await until(() => state() === "offline", "offline");
+  // Now in the long wait: nothing dials on its own for a while.
+  const waiting = mac.urls.length;
+  await delay(300);
+  assert.equal(mac.urls.length, waiting, "no redial during the offline wait");
+  // The Mac wakes and someone opens its Chat: the call dials now instead of waiting the 5 s out.
+  mac.hello = "accept";
+  const id = computers.list()[0].id;
+  const started = Date.now();
+  assert.deepEqual(await computers.invoke(id, "project:recent", ["x"]), { echo: ["x"] });
+  assert.ok(Date.now() - started < 2000, `the call dialed at once: ${Date.now() - started}ms`);
+  assert.equal(state(), "online");
 });
 
 test("a keychain that can't be opened for a computer already here is shown and retried, not given up on", async (t) => {
