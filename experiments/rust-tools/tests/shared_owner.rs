@@ -188,11 +188,11 @@ async fn revocation_during_png_hides_reply_without_undoing_commit_or_blocking_re
     let grant = Arc::new(AtomicBool::new(true));
     let caller = caller("/alpha#1", grant.clone());
     let session = owner.session(caller.clone()).unwrap();
-    let task = tokio::spawn(async move {
-        session
-            .call("design_show", &show("Committed before PNG"))
-            .await
-    });
+    let accepted = session
+        .start_call("design_show", &show("Committed before PNG"))
+        .unwrap();
+    let receipt = accepted.receipt();
+    let task = tokio::spawn(accepted.wait());
     for _ in 0..500 {
         if entered.exists() {
             break;
@@ -200,6 +200,11 @@ async fn revocation_during_png_hides_reply_without_undoing_commit_or_blocking_re
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     assert!(entered.exists());
+    assert_eq!(
+        receipt.status().mutation,
+        milagre_tools::MutationOutcome::Committed
+    );
+    assert_eq!(receipt.status().phase, milagre_tools::CallPhase::Running);
     let desktop = caller::independent(&caller);
     let read = render(
         &owner,
@@ -518,5 +523,189 @@ async fn caller_root_and_lease_io_failures_during_commit_do_not_fault_other_chat
                 .await["isError"],
             false
         );
+    }
+}
+
+// A single executor thread must continue running timers while storage is blocked.
+#[tokio::test(flavor = "current_thread")]
+async fn accepted_cancellation_keeps_one_writer_and_bounded_receipts_off_executor() {
+    use milagre_tools::{CallPhase, MutationOutcome};
+    use std::sync::{Condvar, Mutex};
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let live = Arc::new(AtomicBool::new(true));
+    let owner = owner(isolation, None, live.clone());
+    let desktop = caller("/alpha#1", live.clone());
+    let regular = owner.session(desktop.clone()).unwrap();
+    assert_eq!(
+        regular.call("design_show", &show("First")).await["isError"],
+        false
+    );
+    let html = temp
+        .path()
+        .join("artifacts")
+        .join(milagre_content_store::chat_hash("/alpha#1"))
+        .join("screen/v2.html");
+    let entered = Arc::new(AtomicBool::new(false));
+    let gate = Arc::new((Mutex::new(false), Condvar::new()));
+    let mut blocked = desktop.clone();
+    blocked.assert_active = Arc::new({
+        let entered = entered.clone();
+        let gate = gate.clone();
+        move || {
+            if html.exists() && !entered.swap(true, Ordering::SeqCst) {
+                let lock = gate.0.lock().unwrap();
+                let (_released, timeout) = gate
+                    .1
+                    .wait_timeout_while(lock, Duration::from_secs(3), |released| !*released)
+                    .unwrap();
+                assert!(
+                    !timeout.timed_out(),
+                    "Executor did not release blocked storage"
+                );
+            }
+            Ok(())
+        }
+    });
+    let slow = owner.session(blocked).unwrap();
+    let other = owner.session(caller("/alpha#2", live)).unwrap();
+    let accepted = slow
+        .start_call("design_apply", &edit("Committed after cancellation"))
+        .unwrap();
+    let receipt = accepted.receipt();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while !entered.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(receipt.status().phase, CallPhase::Running);
+    assert_eq!(receipt.status().mutation, MutationOutcome::Uncertain);
+    drop(accepted);
+    assert!(receipt.status().cancelled);
+    // The same owner-wide limit applies across sessions and both Chat scopes.
+    let mut queued = Vec::new();
+    for _ in 0..15 {
+        let call = other
+            .start_call(
+                "artifact_show",
+                &json!({"title":"Must not save","html":"no"}),
+            )
+            .unwrap();
+        queued.push(call.receipt());
+        drop(call);
+    }
+    assert_eq!(
+        regular
+            .start_call("artifact_list", &json!({}))
+            .err()
+            .unwrap()
+            .code,
+        "CONTENT_BUSY"
+    );
+    for status in &queued {
+        assert_eq!(status.status().phase, CallPhase::CancelledBeforeStart);
+    }
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_all();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while receipt.status().phase != CallPhase::Finished {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(receipt.status().mutation, MutationOutcome::Committed);
+    let saved = render(
+        &owner,
+        &desktop,
+        "artifact:get",
+        &json!({"chatId":"/alpha#1","id":"screen","format":"design"}),
+    )
+    .unwrap();
+    assert_eq!(saved["version"], 2);
+    assert_eq!(
+        saved["document"]["nodes"][0]["text"],
+        "Committed after cancellation"
+    );
+    let other_scope = owner
+        .renderer_scope("/alpha#2", "/alpha", Arc::new(|| Ok(())))
+        .unwrap();
+    assert_eq!(
+        owner
+            .renderer(&other_scope, "artifact:list", &json!({"chatId":"/alpha#2"}))
+            .unwrap(),
+        json!([])
+    );
+    assert!(queued
+        .iter()
+        .all(|r| r.status().mutation == MutationOutcome::NotAttempted));
+    assert!(owner.storage_fault().is_none());
+}
+
+#[test]
+fn rpc_does_not_nest_blocking_workers_or_deadlock_a_single_worker_runtime() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .max_blocking_threads(1)
+        .build()
+        .unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let live = Arc::new(AtomicBool::new(true));
+    let owner = owner(isolation, None, live.clone());
+    let session = owner.session(caller("/alpha#1", live)).unwrap();
+    runtime.block_on(async {
+        let frame=jsjson::to_string(&json!({"jsonrpc":"2.0","id":"single-worker","method":"tools/call","params":{"name":"artifact_show","arguments":{"title":"From RPC","html":"<p>saved</p>"}}}));
+        let reply=tokio::time::timeout(Duration::from_secs(2),session.dispatch(frame.as_bytes())).await.unwrap().unwrap();
+        let reply=jsjson::parse_bytes(&reply).unwrap();
+        assert_eq!(reply["id"],"single-worker");assert_eq!(reply["result"]["isError"],false);
+    });
+}
+
+#[tokio::test]
+async fn receipts_distinguish_validation_read_commit_and_uncertain_mutation_errors() {
+    use milagre_tools::{CallPhase, MutationOutcome};
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let live = Arc::new(AtomicBool::new(true));
+    let owner = owner(isolation, None, live.clone());
+    let session = owner.session(caller("/alpha#1", live)).unwrap();
+    let cases = [
+        (
+            "design_show",
+            json!({}),
+            true,
+            MutationOutcome::NotAttempted,
+        ),
+        (
+            "artifact_list",
+            json!({}),
+            false,
+            MutationOutcome::NotAttempted,
+        ),
+        (
+            "design_show",
+            show("Saved"),
+            false,
+            MutationOutcome::Committed,
+        ),
+        // Conservative: once a write handler starts, an error is not proof that
+        // nothing committed. The adapter reads saved state and never replays.
+        (
+            "design_apply",
+            json!({"id":"screen","expectedVersion":90,"operations":[{"op":"update","id":"label","patch":{"text":"no"}}]}),
+            true,
+            MutationOutcome::Uncertain,
+        ),
+    ];
+    for (name, args, error, outcome) in cases {
+        let accepted = session.start_call(name, &args).unwrap();
+        let receipt = accepted.receipt();
+        assert_eq!(accepted.wait().await["isError"], error);
+        assert_eq!(receipt.status().phase, CallPhase::Finished);
+        assert_eq!(receipt.status().mutation, outcome);
+        assert!(!receipt.status().cancelled);
     }
 }

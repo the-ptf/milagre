@@ -1,4 +1,6 @@
 //! Native retained-content MCP tools. No listener, credentials, live-profile discovery or provider launch.
+mod accepted;
+pub use accepted::{AcceptedCall, CallPhase, CallReceipt, CallStatus, MutationOutcome};
 mod feedback;
 pub mod policy;
 mod schema;
@@ -87,6 +89,7 @@ pub struct ContentOwner {
     active: Arc<AtomicBool>,
     fault: Mutex<Option<String>>,
     wakes: Mutex<BTreeSet<String>>,
+    calls: Arc<tokio::sync::Semaphore>,
 }
 /// Renderer authority minted only by its owning ContentOwner. MCP Caller values
 /// and session handles cannot be converted into this capability.
@@ -95,10 +98,11 @@ pub struct RendererScope {
     owner: Weak<ContentOwner>,
     caller: Caller,
 }
+#[derive(Clone)]
 pub struct Dispatcher {
     caller: Caller,
     owner: Arc<ContentOwner>,
-    policy: HostPolicy,
+    policy: Arc<HostPolicy>,
 }
 impl ContentOwner {
     #[allow(clippy::too_many_arguments)]
@@ -138,6 +142,7 @@ impl ContentOwner {
             active: Arc::new(AtomicBool::new(true)),
             fault: Mutex::new(None),
             wakes: Mutex::new(BTreeSet::new()),
+            calls: Arc::new(tokio::sync::Semaphore::new(16)),
         }))
     }
     fn lock_fault(&self) -> MutexGuard<'_, Option<String>> {
@@ -232,7 +237,7 @@ impl ContentOwner {
             Ok(Dispatcher {
                 caller,
                 owner: self.clone(),
-                policy,
+                policy: Arc::new(policy),
             })
         })
     }
@@ -478,6 +483,74 @@ impl Dispatcher {
     /// One complete in-process JSON-RPC frame. Notifications produce no reply.
     /// Transport adapters enforce framing/authentication before passing a frame.
     pub async fn dispatch(&self, bytes: &[u8]) -> Option<Vec<u8>> {
+        if bytes.len() > MAX_DESIGN_BODY {
+            return Some(
+                jsjson::to_string(&protocol_error(
+                    Value::Null,
+                    -32000,
+                    &format!("Request exceeds the {MAX_DESIGN_BODY}-byte MCP limit."),
+                ))
+                .into_bytes(),
+            );
+        }
+        let permit = match self.owner.calls.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                return Some(
+                    jsjson::to_string(&protocol_error(
+                        Value::Null,
+                        -32000,
+                        "Content frame capacity reached; request was not accepted.",
+                    ))
+                    .into_bytes(),
+                )
+            }
+        };
+        let this = self.clone();
+        let bytes = bytes.to_vec();
+        let runtime = tokio::runtime::Handle::current();
+        let receipt = CallReceipt::new();
+        let observed = receipt.clone();
+        let _cancel = accepted::CancelOnDrop(receipt);
+        // Parsing, callbacks, serialization and sync layout stay off executor threads.
+        // An accepted frame can finish after its waiter disappears. Adapters must
+        // treat a lost RPC reply as uncertain and never automatically replay it.
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                runtime.block_on(this.dispatch_inline(&bytes, &observed))
+            }));
+            observed.finish();
+            match result {
+                Ok(reply) => reply,
+                Err(_) => {
+                    this.owner.latch_fault(
+                        "Content owner stopped after an internal frame worker panic.".into(),
+                    );
+                    Some(
+                        jsjson::to_string(&protocol_error(
+                            Value::Null,
+                            -32000,
+                            "Content frame worker stopped; do not replay mutations.",
+                        ))
+                        .into_bytes(),
+                    )
+                }
+            }
+        })
+        .await
+        .unwrap_or_else(|_| {
+            Some(
+                jsjson::to_string(&protocol_error(
+                    Value::Null,
+                    -32000,
+                    "Content frame worker stopped; do not replay mutations.",
+                ))
+                .into_bytes(),
+            )
+        })
+    }
+    async fn dispatch_inline(&self, bytes: &[u8], receipt: &CallReceipt) -> Option<Vec<u8>> {
         let value = if bytes.len() > MAX_DESIGN_BODY {
             protocol_error(
                 Value::Null,
@@ -534,13 +607,14 @@ impl Dispatcher {
                                         }
                                     },
                                     "tools/call" => {
-                                        self.call(
-                                            message["params"]["name"].as_str().unwrap_or(""),
-                                            message["params"]
-                                                .get("arguments")
-                                                .unwrap_or(&json!({})),
-                                        )
-                                        .await
+                                        let name = message["params"]["name"].as_str().unwrap_or("");
+                                        let empty = json!({});
+                                        let args =
+                                            message["params"].get("arguments").unwrap_or(&empty);
+                                        match self.policy.authorize(name, args) {
+                                            Ok(()) => self.call_inline(name, args, receipt).await,
+                                            Err(error) => tool_error(error.message),
+                                        }
                                     }
                                     _ => {
                                         return Some(
@@ -583,14 +657,54 @@ impl Dispatcher {
     pub fn budget_status(&self) -> BudgetStatus {
         self.policy.status()
     }
+    pub fn start_call(&self, name: &str, args: &Value) -> Result<AcceptedCall> {
+        // This bound covers queued work and feedback, shared across all sessions.
+        let permit = self.owner.calls.clone().try_acquire_owned().map_err(|_| {
+            Error::coded(
+                "CONTENT_BUSY",
+                "Content call capacity reached; request was not accepted.",
+            )
+        })?;
+        self.policy.authorize(name, args)?;
+        let runtime = tokio::runtime::Handle::try_current()
+            .map_err(|_| Error::new("Content calls require a Tokio runtime."))?;
+        let this = self.clone();
+        let name = name.to_owned();
+        let args = args.clone();
+        let receipt = CallReceipt::new();
+        let observed = receipt.clone();
+        let (send, reply) = tokio::sync::oneshot::channel();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                runtime.block_on(this.call_inline(&name, &args, &observed))
+            }));
+            let value = match result {
+                Ok(value) => value,
+                Err(_) => {
+                    this.owner.latch_fault(
+                        "Content owner stopped after an internal tool worker panic.".into(),
+                    );
+                    tool_error(
+                        "Content worker panicked; inspect saved state and do not replay mutations.",
+                    )
+                }
+            };
+            observed.finish();
+            let _ = send.send(value);
+        });
+        Ok(AcceptedCall { receipt, reply })
+    }
     pub async fn call(&self, name: &str, args: &Value) -> Value {
+        match self.start_call(name, args) {
+            Ok(call) => call.wait().await,
+            Err(e) => tool_error(e.message),
+        }
+    }
+    async fn call_inline(&self, name: &str, args: &Value, receipt: &CallReceipt) -> Value {
         if let Err(e) = self.active() {
             return tool_error(e.message);
         }
-        if let Err(e) = self.policy.authorize(name, args) {
-            return tool_error(e.message);
-        }
-
         let limit = if ["design_show", "design_apply"].contains(&name) {
             MAX_DESIGN_BODY
         } else {
@@ -607,13 +721,19 @@ impl Dispatcher {
             Ok(v) => v,
             Err(e) => return tool_error(e),
         };
+        let mutating = policy::read_only(name) == Some(false);
         let work = self.owner.with_stores(&self.caller, |artifacts, kits| {
-            Execution {
+            receipt.begin(mutating)?;
+            let result = Execution {
                 caller: &self.caller,
                 artifacts,
                 kits: RefCell::new(kits),
             }
-            .run(name, &args)
+            .run(name, &args);
+            if mutating && result.is_ok() {
+                receipt.committed();
+            }
+            result
         });
         let result = match work {
             Ok(Work::Done(value)) => Ok(value),
