@@ -164,6 +164,10 @@ pub enum ClientError {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Diagnostic {
     NonJsonLine(String),
+    /// Count only, never original content. U+FFFD replaced lone surrogates in known display fields.
+    TextReplaced {
+        strings: usize,
+    },
     /// Bytes after the last newline at EOF that did not parse (a write cut off mid-frame).
     TruncatedTail(String),
     /// A control_response for an id nobody waits on (timed out, dropped or never sent).
@@ -197,7 +201,7 @@ pub enum Diagnostic {
 
 #[derive(Debug, Clone)]
 pub enum ClaudeEvent {
-    /// A stdout frame that is not control traffic, exactly as written (all fields kept).
+    /// A stdout frame with all fields kept. Known display-text surrogate repairs have a separate diagnostic.
     Message(Value),
     Diagnostic(Diagnostic),
     /// The last event.
@@ -233,6 +237,7 @@ fn event_bytes(event: &ClaudeEvent) -> usize {
         ClaudeEvent::Message(value) => json_bytes(value),
         ClaudeEvent::Exit(info) => info.stderr_tail.len().saturating_add(128),
         ClaudeEvent::Diagnostic(diagnostic) => match diagnostic {
+            Diagnostic::TextReplaced { .. } => std::mem::size_of::<usize>(),
             Diagnostic::NonJsonLine(text) | Diagnostic::TruncatedTail(text) => text.len(),
             Diagnostic::UnmatchedResponse { request_id, raw } => request_id.len().saturating_add(json_bytes(raw)),
             Diagnostic::UnknownCancel { request_id } | Diagnostic::DuplicateRequest { request_id } => request_id.len(),
@@ -889,6 +894,10 @@ async fn reader_loop(shared: Arc<Shared>, handlers: Handlers, stdout: ChildStdou
         };
         let value = match frame::parse_line(&bytes) {
             Ok(Line::Json(value)) => value,
+            Ok(Line::JsonWithTextReplacement { value, strings }) => {
+                diagnose(&shared, Diagnostic::TextReplaced { strings });
+                value
+            }
             Ok(Line::Blank) => continue,
             Ok(Line::NonJson(text)) => {
                 diagnose(&shared, Diagnostic::NonJsonLine(text));

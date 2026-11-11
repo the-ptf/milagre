@@ -136,7 +136,8 @@ Lone UTF-16 surrogate escapes, real U+10FFFE and PUA survive exactly. `tools/lis
 bounded protocol fields and adds load metadata in one bounded serialization pass; nested schemas
 and descriptions remain raw. Ordinary tool replies are compacted in place for NDJSON. Direct
 legacy `message()` callers still receive Value and cannot represent lone surrogates; use the wire
-path. Incoming CLI frames still use serde Value, so lone-surrogate request arguments remain a gap.
+path. Incoming opaque fields and tool arguments still require valid Unicode; display-text repairs
+are described under Framing below.
 Notifications get a control acknowledgement without a JSON-RPC result. Analysis remains refused.
 See [INTEGRATION-GAPS.md](INTEGRATION-GAPS.md) for owner obligations and unsupported integration.
 
@@ -181,8 +182,8 @@ client.control("get_context_usage", Value::Null).await?; // any other subtype
 let exit = client.close().await;                      // stdin EOF, grace, SIGTERM group, SIGKILL group
 ```
 
-Events: `ClaudeEvent::Message(Value)` is every non-control stdout frame byte-for-byte as JSON (field
-order preserved, unknown fields kept) for the `events.cjs` mapper; `Diagnostic` is never
+Events: `ClaudeEvent::Message(Value)` carries every non-control stdout frame as JSON (field
+order preserved, unknown fields kept, with the display-text repair described below) for the `events.cjs` mapper; `Diagnostic` is never
 fatal; `Exit(ExitInfo)` is last. `session_id()` follows `system/init`; `initialization()` keeps the
 whole `initialize` reply, including envelope fields such as `pending_permission_requests`.
 
@@ -205,6 +206,15 @@ FnPermission(move |request, mut cancel| Box::pin(async move {
   `Diagnostic` (as the Python SDK skips them); a `{` line that does not parse, or a frame over
   `max_frame_bytes` (checked while it grows), ends the process as `ProtocolViolation`. An EOF tail is
   delivered when complete and reported as `TruncatedTail` otherwise.
+  Valid JSON with lone UTF-16 surrogate escapes is accepted only in known display-text paths:
+  text/thinking deltas and content blocks, user/assistant text and tool-result content, result/error
+  text, and stdout/stderr/output/file-content tool summaries. Each lone surrogate becomes U+FFFD;
+  valid pairs, literal escaped backslashes, real U+10FFFE and PUA remain unchanged. A count-only
+  `Diagnostic::TextReplaced { strings }` is emitted through the bounded best-effort diagnostic lane.
+  Opaque ids, session ids, object keys, tool arguments and unknown fields stay strict, including
+  invalid UTF-8 bytes. The fallback validates syntax before repair, never expands raw escape
+  buffers, limits nesting to 128 levels and shares the input frame and event queue budgets.
+  This is intentionally lossy for affected inbound display text; raw outbound MCP remains exact.
 - **Correlation**: ids `req_<n>_<hex>`, never reused; responses match in any order; error responses
   become `ClientError::Control { subtype, message, raw }`; at most `max_pending_requests` in flight
   (`TooManyPending`); per-request timeout (`Timeout`) also sends `control_cancel_request` for that id;

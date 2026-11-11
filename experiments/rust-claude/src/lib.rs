@@ -26,6 +26,7 @@ pub mod steps;
 pub mod subagents;
 pub mod tasks;
 pub mod text;
+mod text_json;
 
 pub use client::{ClaudeClient, ClaudeEvent, ClientError, ControlReply, Diagnostic, EventStream, ExitInfo, ExitReason, Limits};
 pub use handlers::{

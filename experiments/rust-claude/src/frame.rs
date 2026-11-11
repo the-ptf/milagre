@@ -15,6 +15,8 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 pub enum Line {
     /// A JSON object, exactly as the CLI wrote it (all fields kept).
     Json(Value),
+    /// Known display text contained lone UTF-16 surrogates; opaque fields remain strict.
+    JsonWithTextReplacement { value: Value, strings: usize },
     /// Nothing to deliver: whitespace only.
     Blank,
     /// Text that is not a JSON object. First 200 characters kept for diagnostics.
@@ -37,7 +39,7 @@ fn preview(text: &str) -> String {
 
 /// Classify one complete line. `\r` and surrounding whitespace are meaningless on a complete line.
 pub fn parse_line(bytes: &[u8]) -> Result<Line, FrameError> {
-    let text = String::from_utf8_lossy(bytes);
+    let text = std::str::from_utf8(bytes).map_err(|_| FrameError::Corrupt("invalid UTF-8 bytes".into()))?;
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Ok(Line::Blank);
@@ -48,7 +50,10 @@ pub fn parse_line(bytes: &[u8]) -> Result<Line, FrameError> {
     match serde_json::from_str::<Value>(trimmed) {
         Ok(value @ Value::Object(_)) => Ok(Line::Json(value)),
         Ok(_) => Err(FrameError::Corrupt(preview(trimmed))),
-        Err(error) => Err(FrameError::Corrupt(format!("{error}: {}", preview(trimmed)))),
+        Err(error) => match crate::text_json::parse(trimmed) {
+            Ok((value @ Value::Object(_), strings)) if strings > 0 => Ok(Line::JsonWithTextReplacement { value, strings }),
+            _ => Err(FrameError::Corrupt(format!("{error}: {}", preview(trimmed)))),
+        },
     }
 }
 

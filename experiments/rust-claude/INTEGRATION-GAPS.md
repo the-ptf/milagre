@@ -68,7 +68,10 @@ Raw outbound replies avoid Value reparsing and keep lone surrogates, U+10FFFE an
 Reply-buffer reservations cover two maximum-sized buffers per admitted call and remain held
 until stdin delivery or discard. Defaults are 4 MiB per reply and 32 MiB shared capacity; owner
 work/request memory and small protocol headers/indexes have separate bounds. Incoming lone-surrogate
-arguments and direct legacy Value-returning handler calls remain unsupported.
+arguments and direct legacy Value-returning handler calls remain unsupported. Known inbound
+display-text fields replace lone surrogates with U+FFFD and emit a bounded count-only diagnostic;
+opaque identifiers/keys/arguments stay strict. Inbound display repair is lossy, while raw outbound
+MCP content remains lossless.
 
 Analysis-only startup remains refused. Host read-only roles alone cannot restrict native Claude
 commands/settings/plugins; the full constrained launch policy must land before enabling them.
