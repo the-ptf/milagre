@@ -148,9 +148,10 @@ pub struct AnswerId(pub u64);
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum AnswerOutcome {
-    /// The session took it.
+    /// The adapter confirmed the session's transport accepted it (Codex: the reply frame was written; Claude: the
+    /// callback resolved). Says nothing about what the agent then does.
     Accepted,
-    /// Nothing waited on that request (answered already, withdrawn, or another session).
+    /// Proven that nothing waited on that request (answered already, withdrawn, or another session).
     NotWaiting,
     /// Proven not delivered: it never reached the session (refused before writing, dropped from the queue unwritten).
     Failed(ProviderError),
@@ -163,7 +164,8 @@ pub enum AnswerOutcome {
 /// What an answer came to, as told in [`Notice::AnswerSettled`] (and [`Notice::AnswerResolved`] later).
 #[derive(Clone, Debug, PartialEq)]
 pub enum AnswerResult {
-    /// Node's `true`.
+    /// Node's `true`: the adapter confirmed the session's transport accepted it (Codex: the reply frame was written;
+    /// Claude: the callback resolved). Not that a tool ran.
     Accepted,
     /// Node's `false`: nothing waited; the answers message was taken back.
     NotWaiting,
@@ -552,8 +554,10 @@ const FORMER_WORKTREE: &str = "This Run's Worktree was removed because the Run l
 const PERMISSION_MODES: [&str; 3] = ["ask", "auto", "full"];
 /// Longest answers summary (UTF-16 code units) shown as the user's message: 20 questions of 10,000 plus labels.
 pub const MAX_ANSWER_SUMMARY: usize = 210_000;
-/// Answers with an unknown delivery kept to block retries; past this the oldest stops blocking (its message stays).
-pub const MAX_UNCERTAIN_ANSWERS: usize = 256;
+/// Default slots for answers on their way plus answers with an unknown delivery (`ChatHost::answer_capacity`).
+pub const ANSWER_CAPACITY: usize = 256;
+/// The error code a command rejects with when every answer slot is taken.
+pub const ANSWERS_AT_CAPACITY: &str = "ANSWERS_AT_CAPACITY";
 /// How long a handed-over answer may wait for its settlement before the host fails it.
 pub const ANSWER_GRACE_MS: i64 = 30_000;
 /// How long an interrupted turn gets to end by itself before the host forces it.
@@ -670,10 +674,14 @@ pub struct ChatHost {
     dropped_notices: u64,
     next_answer: u64,
     pending_answers: BTreeMap<AnswerId, PendingAnswer>,
-    /// Answers told `Uncertain`, kept (bounded by `MAX_UNCERTAIN_ANSWERS`, oldest dropped) until a definitive
-    /// settlement or their session generation closes; each blocks a retry of its request in that generation.
+    /// Answers told `Uncertain`, kept until a definitive settlement or their session generation closes; each blocks a
+    /// retry of its request in that generation and holds a slot of `answer_capacity`.
     uncertain_answers: BTreeMap<AnswerId, PendingAnswer>,
-    /// How long a handed-over answer may wait for its settlement before `tick` fails it (ms of the states clock).
+    /// Slots for answers on their way plus answers with an unknown delivery (default `ANSWER_CAPACITY`); at capacity a
+    /// new answer is refused before anything is shown or handed over.
+    pub answer_capacity: usize,
+    /// How long a handed-over answer may wait for its settlement before `tick` settles it `Uncertain` (ms of the states
+    /// clock).
     pub answer_grace_ms: i64,
     /// Queued messages whose start is still in flight, by turn: told as `QueueStarted` once it resolves.
     queue_turns: HashMap<TurnId, (String, String)>,
@@ -711,6 +719,7 @@ impl ChatHost {
             next_answer: 0,
             pending_answers: BTreeMap::new(),
             uncertain_answers: BTreeMap::new(),
+            answer_capacity: ANSWER_CAPACITY,
             answer_grace_ms: ANSWER_GRACE_MS,
             queue_turns: HashMap::new(),
             seq: 0,
@@ -2602,9 +2611,7 @@ impl ChatHost {
             return Ok(AnswerTicket::Settled(false));
         };
         let id = jsjson::property_key(request_id);
-        if let Some(why) = self.answer_in_flight(&chat, turn, &id) {
-            return Err(StoreError::AnswerDeliveryUnknown(why.into()));
-        }
+        self.admit_answer(&chat, turn, &id)?;
         let answer = self.next_answer_id();
         self.provider(&provider)?
             .respond_permission(&chat, turn, answer, &id, decision)
@@ -2701,11 +2708,30 @@ impl ChatHost {
         )))
     }
 
+    /// Kept until a definitive settlement or its generation closes; never evicted (eviction would let the same request
+    /// be answered twice while that session lives). Its slot stays taken (see `admit_answer`).
     fn keep_uncertain(&mut self, answer: AnswerId, pending: PendingAnswer) {
         self.uncertain_answers.insert(answer, pending);
-        while self.uncertain_answers.len() > MAX_UNCERTAIN_ANSWERS {
-            self.uncertain_answers.pop_first();
+    }
+
+    /// Answers holding a slot: on their way, or with an unknown delivery.
+    pub fn answers_in_flight(&self) -> usize {
+        self.pending_answers.len() + self.uncertain_answers.len()
+    }
+
+    /// Whether another answer may be handed over: one per request and generation, and a free slot. Checked before
+    /// anything is shown or handed over; the slot is taken when the answer is held.
+    fn admit_answer(&self, chat: &str, turn: TurnId, request: &str) -> Result<()> {
+        if let Some(why) = self.answer_in_flight(chat, turn, request) {
+            return Err(StoreError::AnswerDeliveryUnknown(why.into()));
         }
+        if self.answers_in_flight() >= self.answer_capacity {
+            return Err(StoreError::AnswersAtCapacity(format!(
+                "{} answers are still waiting on the agents; try again once some are settled.",
+                self.answers_in_flight()
+            )));
+        }
+        Ok(())
     }
 
     /// Whether a request already has an answer on its way, or one whose delivery is unknown, in this session generation.
@@ -2816,9 +2842,7 @@ impl ChatHost {
         // before anything is shown.
         let request_key = jsjson::property_key(request_id);
         if let Some((turn, _)) = self.session_of(&chat) {
-            if let Some(why) = self.answer_in_flight(&chat, turn, &request_key) {
-                return Err(StoreError::AnswerDeliveryUnknown(why.into()));
-            }
+            self.admit_answer(&chat, turn, &request_key)?;
         }
         let recorded = match (jsjson::truthy(answers.as_ref()), summary) {
             (true, Some(summary)) if open => {

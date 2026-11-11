@@ -59,7 +59,8 @@ Adapter side:
 
 1. Enqueue only. `Err` means refused at once (that session is gone): nothing was handed over.
 2. Settle each `AnswerId` with one of:
-   - `Accepted`: the session took it (Claude: the callback resolved; Codex: the reply frame was written).
+   - `Accepted`: the adapter confirmed the session's transport accepted it (Codex: the reply frame was written,
+     `Ok(true)`; Claude: the callback resolved). Not that a tool ran or the agent acted on it.
    - `NotWaiting`: proven that nothing waited on that request id: Node's `false`.
    - `Failed(error)`: proven not delivered (refused before writing, or removed from the queue unwritten).
    - `Uncertain(error)`: it may have reached the session (written, or possibly written, then the pipe broke, the
@@ -93,11 +94,15 @@ Host side (`ChatHost::respond_permission` / `answer_question` return an `AnswerT
   - A session generation that closes with answers on its way settles them `Uncertain` too: forced end, `Exited`,
     `forget`, quit. Their messages stay, and that generation's kept answers stop blocking, since a new session has no
     such request.
-- **Kept uncertain answers**, by `AnswerId`: at most `MAX_UNCERTAIN_ANSWERS` (256), the oldest dropped first (it
-  stops blocking; its message stays). Each is removed by:
-  - a definitive settlement, told as `Notice::AnswerResolved`, where `NotWaiting` and `Failed` take the message back;
-  - its generation closing;
-  - eviction.
+- **Slots.** Answers on their way and kept uncertain answers share one capacity: `ChatHost::answer_capacity`
+  (default `ANSWER_CAPACITY`, 256; the runtime may set it lower, e.g. 32).
+  - A slot is checked before anything is shown or handed over and taken when the answer is handed over.
+  - At capacity a new answer is refused with `StoreError::AnswersAtCapacity` (code `ANSWERS_AT_CAPACITY`).
+  - An unresolved answer of a live generation is never evicted: eviction would let the same request be answered
+    twice while that session lives.
+  - A slot is freed only by a definitive settlement (`Accepted`, `NotWaiting`, `Failed`, including one told later as
+    `Notice::AnswerResolved`) or by its session generation closing. A closing generation keeps the answers messages
+    shown (history) and stops blocking. There is no manual clear.
 - Unknown, duplicate or other-Chat settlements are dropped (an error from `pump`/`deliver`).
 
 Runtime actor: keep the client's command reply for a `Pending` ticket and answer it from the matching

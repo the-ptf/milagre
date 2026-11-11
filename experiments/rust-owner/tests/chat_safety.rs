@@ -1130,3 +1130,108 @@ fn steering_is_gated_or_recorded_never_sent() {
         .to_string();
     assert!(error.contains("quitting"), "{error}");
 }
+
+/// Answer slots: answers on their way and answers with an unknown delivery share one capacity. At capacity a new
+/// answer is refused before anything is shown or handed over; the oldest uncertain answer stays blocked (never
+/// evicted); only a definitive settlement or the generation closing frees a slot.
+#[test]
+fn answer_slots_are_reserved_and_never_evicted() {
+    let mut copy = Copy::plain();
+    copy.host.answer_capacity = 2;
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    for request in ["q1", "q2", "q3"] {
+        ask(&mut copy, request);
+    }
+    copy.kiro.state.lock().unwrap().hold_answers = true;
+    let AnswerTicket::Pending(first) = answer(&mut copy, "q1", "Red") else {
+        panic!("settled at once")
+    };
+    let AnswerTicket::Pending(_) = answer(&mut copy, "q2", "Blue") else {
+        panic!("settled at once")
+    };
+    let start = copy.host.states.now();
+    copy.host.tick(start + copy.host.answer_grace_ms);
+    assert_eq!(
+        copy.host.answers_in_flight(),
+        2,
+        "uncertain answers gave their slots back"
+    );
+    let (shown, asked) = (copy.messages().len(), handed(&copy));
+    let third = json!({ "chatId": copy.chat(), "requestId": "q3", "answers": { "c": ["Green"] }, "summary": "Green" });
+    assert!(matches!(
+        copy.host.answer_question(&third),
+        Err(StoreError::AnswersAtCapacity(_))
+    ));
+    let permission = json!({ "chatId": copy.chat(), "requestId": "p1", "decision": "allow" });
+    assert!(matches!(
+        copy.host.respond_permission(&permission),
+        Err(StoreError::AnswersAtCapacity(_))
+    ));
+    assert_eq!(
+        (copy.messages().len(), handed(&copy)),
+        (shown, asked),
+        "a refused answer was shown or handed over"
+    );
+    // The oldest stays blocked.
+    let retry = json!({ "chatId": copy.chat(), "requestId": "q1", "answers": { "c": ["Red"] }, "summary": "Red" });
+    assert!(matches!(
+        copy.host.answer_question(&retry),
+        Err(StoreError::AnswerDeliveryUnknown(_))
+    ));
+    // A definitive settlement frees its slot.
+    let chat = copy.chat();
+    copy.kiro.push(ProviderEvent::AnswerSettled {
+        chat: chat.clone(),
+        answer: first,
+        outcome: AnswerOutcome::NotWaiting,
+    });
+    assert!(copy.host.pump().is_empty());
+    assert_eq!(copy.host.answers_in_flight(), 1);
+    let AnswerTicket::Pending(_) = copy.host.answer_question(&third).unwrap() else {
+        panic!("settled at once")
+    };
+    assert_eq!(copy.host.answers_in_flight(), 2);
+    // The generation closing frees every slot it held; the answers shown stay.
+    copy.host.interrupt(&chat).unwrap();
+    let now = copy.host.states.now();
+    copy.host.tick(now + copy.host.interrupt_grace_ms);
+    assert_eq!(copy.host.answers_in_flight(), 0);
+    let bodies = user_bodies(&copy.messages());
+    assert!(bodies.contains(&"Blue".to_string()) && bodies.contains(&"Green".to_string()));
+    assert!(
+        !bodies.contains(&"Red".to_string()),
+        "a proven non-delivery stayed shown"
+    );
+}
+
+/// More generations than slots, each closing with an uncertain answer: nothing leaks, each is admitted.
+#[test]
+fn closed_generations_leak_no_answer_slots() {
+    let mut copy = Copy::plain();
+    copy.host.answer_capacity = 2;
+    let chat = copy.chat();
+    for round in 0..5 {
+        copy.send(&format!("turn {round}"), &format!("c{round}"), json!({}))
+            .unwrap();
+        copy.host.pump();
+        if round == 0 {
+            copy.native();
+        }
+        ask(&mut copy, "q");
+        copy.kiro.state.lock().unwrap().uncertain_next_answer = Some("no confirmation".into());
+        let AnswerTicket::Pending(_) = answer(&mut copy, "q", &format!("answer {round}")) else {
+            panic!("round {round}: not admitted")
+        };
+        assert!(copy.host.pump().is_empty());
+        assert_eq!(copy.host.answers_in_flight(), 1);
+        copy.host.interrupt(&chat).unwrap();
+        let now = copy.host.states.now();
+        copy.host.tick(now + copy.host.interrupt_grace_ms);
+        assert_eq!(
+            copy.host.answers_in_flight(),
+            0,
+            "round {round}: a closed generation kept its slot"
+        );
+    }
+}

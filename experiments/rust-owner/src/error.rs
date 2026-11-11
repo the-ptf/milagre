@@ -53,6 +53,8 @@ pub enum StoreError {
     NotIsolated(String),
     /// An answer whose delivery to the agent is unknown, or a retry it blocks (`ANSWER_DELIVERY_UNKNOWN`).
     AnswerDeliveryUnknown(String),
+    /// Every answer slot is taken (`ANSWERS_AT_CAPACITY`): nothing was shown or handed over.
+    AnswersAtCapacity(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -181,6 +183,7 @@ impl fmt::Display for StoreError {
             }
             StoreError::NotIsolated(message) => write!(f, "{message}"),
             StoreError::AnswerDeliveryUnknown(message) => write!(f, "{message}"),
+            StoreError::AnswersAtCapacity(message) => write!(f, "{message}"),
             StoreError::OwnershipLost { lock, why } => write!(
                 f,
                 "This process no longer owns the Project ({why}: {}); nothing was written.",
