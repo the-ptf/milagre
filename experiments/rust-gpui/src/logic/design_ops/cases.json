@@ -1,0 +1,1212 @@
+{
+  "documents": {
+    "screen": {
+      "schemaVersion": 1,
+      "width": 390,
+      "height": 844,
+      "tokens": {
+        "brand": "#2255aa"
+      },
+      "nodes": [
+        {
+          "id": "frame",
+          "type": "frame",
+          "x": 20,
+          "y": 40,
+          "width": 350,
+          "height": 300,
+          "fill": "#ffffff",
+          "radius": 12
+        },
+        {
+          "id": "title",
+          "parentId": "frame",
+          "type": "text",
+          "x": 16,
+          "y": 16,
+          "width": 300,
+          "height": 40,
+          "text": "Hello",
+          "fontSize": 24,
+          "fill": "$brand"
+        },
+        {
+          "id": "button",
+          "parentId": "frame",
+          "type": "rectangle",
+          "x": 16,
+          "y": 80,
+          "width": 120,
+          "height": 44,
+          "fill": "#dce6df",
+          "radius": 8
+        },
+        {
+          "id": "close",
+          "type": "icon",
+          "icon": "x",
+          "x": 340,
+          "y": 10,
+          "width": 24,
+          "height": 24
+        },
+        {
+          "id": "row",
+          "type": "frame",
+          "layout": "horizontal",
+          "gap": 8,
+          "padding": 12,
+          "x": 20,
+          "y": 400,
+          "width": 350,
+          "height": 80,
+          "widthMode": "fixed",
+          "heightMode": "hug"
+        },
+        {
+          "id": "chip1",
+          "parentId": "row",
+          "type": "rectangle",
+          "width": 60,
+          "height": 30
+        },
+        {
+          "id": "chip2",
+          "parentId": "row",
+          "type": "ellipse",
+          "width": 30,
+          "height": 30,
+          "locked": true
+        }
+      ]
+    },
+    "kitted": {
+      "schemaVersion": 1,
+      "width": 400,
+      "height": 300,
+      "kit": {
+        "id": "brand",
+        "version": 2,
+        "title": "Brand",
+        "colors": {
+          "ink": "#111111",
+          "paper": "#fafafa"
+        },
+        "textStyles": {
+          "body": {
+            "fontSize": 15,
+            "lineHeight": 1.4,
+            "fontWeight": 400
+          },
+          "h1": {
+            "fontSize": 28,
+            "fontWeight": 700
+          }
+        },
+        "spacing": {
+          "sm": 8,
+          "md": 16
+        },
+        "radii": {
+          "card": 12
+        }
+      },
+      "tokens": {
+        "accent": "#3366ff"
+      },
+      "nodes": [
+        {
+          "id": "card",
+          "type": "frame",
+          "layout": "vertical",
+          "x": 10,
+          "y": 10,
+          "width": 300,
+          "height": 200,
+          "fill": "$paper",
+          "bindings": {
+            "padding": "md",
+            "gap": "sm",
+            "radius": "card"
+          }
+        },
+        {
+          "id": "h",
+          "parentId": "card",
+          "type": "text",
+          "text": "Title",
+          "width": 200,
+          "height": 40,
+          "textStyle": "h1",
+          "fill": "$ink"
+        },
+        {
+          "id": "p",
+          "parentId": "card",
+          "type": "text",
+          "text": "Body",
+          "width": 200,
+          "height": 40,
+          "textStyle": "body"
+        }
+      ]
+    },
+    "comp": {
+      "schemaVersion": 1,
+      "width": 400,
+      "height": 400,
+      "nodes": [
+        {
+          "id": "btn",
+          "type": "frame",
+          "component": true,
+          "x": 10,
+          "y": 10,
+          "width": 120,
+          "height": 40,
+          "fill": "#222222",
+          "componentProperties": {
+            "label": {
+              "nodeId": "btnLabel",
+              "field": "text"
+            },
+            "tone": {
+              "nodeId": "btn",
+              "field": "fill",
+              "options": ["#222222", "#aa0000"]
+            }
+          }
+        },
+        {
+          "id": "btnLabel",
+          "parentId": "btn",
+          "type": "text",
+          "x": 10,
+          "y": 10,
+          "width": 100,
+          "height": 20,
+          "text": "OK",
+          "fill": "#ffffff"
+        },
+        {
+          "id": "inst",
+          "type": "frame",
+          "componentId": "btn",
+          "x": 10,
+          "y": 100,
+          "width": 120,
+          "height": 40,
+          "componentValues": {
+            "label": "Cancel"
+          }
+        }
+      ]
+    }
+  },
+  "apply": [
+    {
+      "name": "update text",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "title",
+          "patch": {
+            "text": "Changed"
+          }
+        }
+      ]
+    },
+    {
+      "name": "update to a missing parent fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "title",
+          "patch": {
+            "parentId": "missing"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a non-frame parent fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "button",
+          "patch": {
+            "parentId": "title"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a circular parent fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "frame",
+          "patch": {
+            "parentId": "frame"
+          }
+        }
+      ]
+    },
+    {
+      "name": "insert a subtree child first",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "insert",
+          "node": {
+            "id": "child",
+            "parentId": "box",
+            "type": "rectangle",
+            "width": 10,
+            "height": 10
+          }
+        },
+        {
+          "op": "insert",
+          "node": {
+            "id": "box",
+            "type": "frame",
+            "width": 100,
+            "height": 100
+          }
+        }
+      ]
+    },
+    {
+      "name": "delete a frame deletes its descendants",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "delete",
+          "id": "frame"
+        }
+      ]
+    },
+    {
+      "name": "insert at an index",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "insert",
+          "index": 1,
+          "node": {
+            "id": "image",
+            "type": "image",
+            "width": 20,
+            "height": 20
+          }
+        }
+      ]
+    },
+    {
+      "name": "insert past the end fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "insert",
+          "index": 99,
+          "node": {
+            "id": "image",
+            "type": "image",
+            "width": 20,
+            "height": 20
+          }
+        }
+      ]
+    },
+    {
+      "name": "insert an existing id fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "insert",
+          "node": {
+            "id": "title",
+            "type": "image",
+            "width": 20,
+            "height": 20
+          }
+        }
+      ]
+    },
+    {
+      "name": "an unknown field fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "title",
+          "patch": {
+            "colour": "red"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an unknown token fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "title",
+          "patch": {
+            "fill": "$nope"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a bad colour fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "title",
+          "patch": {
+            "fill": "notacolor"
+          }
+        }
+      ]
+    },
+    {
+      "name": "css injection in a font family fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "title",
+          "patch": {
+            "fontFamily": "Arial; background:url(x)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a javascript src fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "button",
+          "patch": {
+            "src": "javascript:alert(1)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an unknown icon fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "close",
+          "patch": {
+            "icon": "crosss"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a known icon",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "close",
+          "patch": {
+            "icon": "check"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an icon with a stroke fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "close",
+          "patch": {
+            "stroke": "#000000"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a text layer with an icon fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "title",
+          "patch": {
+            "icon": "x"
+          }
+        }
+      ]
+    },
+    {
+      "name": "auto layout and hug",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "row",
+          "patch": {
+            "layout": "vertical",
+            "justify": "space-between",
+            "align": "center"
+          }
+        }
+      ]
+    },
+    {
+      "name": "hide a frame",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "frame",
+          "patch": {
+            "hidden": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "a width of zero fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "button",
+          "patch": {
+            "width": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "opacity above one fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "button",
+          "patch": {
+            "opacity": 2
+          }
+        }
+      ]
+    },
+    {
+      "name": "a fractional font weight fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "title",
+          "patch": {
+            "fontWeight": 450.5
+          }
+        }
+      ]
+    },
+    {
+      "name": "duplicate a frame",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "duplicate",
+          "id": "frame",
+          "newId": "frame2"
+        }
+      ]
+    },
+    {
+      "name": "duplicate at a place",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "duplicate",
+          "id": "frame",
+          "newId": "frame2",
+          "x": 5,
+          "y": 6
+        }
+      ]
+    },
+    {
+      "name": "duplicate onto an existing id fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "duplicate",
+          "id": "frame",
+          "newId": "title"
+        }
+      ]
+    },
+    {
+      "name": "duplicate a missing layer fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "duplicate",
+          "id": "nope",
+          "newId": "copy"
+        }
+      ]
+    },
+    {
+      "name": "document background and tokens",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "document",
+          "patch": {
+            "background": "#eeeeee",
+            "tokens": {
+              "extra": "#123456"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "document size",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "document",
+          "patch": {
+            "width": 800,
+            "height": 600
+          }
+        }
+      ]
+    },
+    {
+      "name": "document schemaVersion fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "document",
+          "patch": {
+            "schemaVersion": 2
+          }
+        }
+      ]
+    },
+    {
+      "name": "replace keeps consistency",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "replace",
+          "document": {
+            "schemaVersion": 1,
+            "width": 300,
+            "height": 300,
+            "nodes": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "unset parentId",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "unset",
+          "id": "title",
+          "fields": ["parentId"]
+        }
+      ]
+    },
+    {
+      "name": "unset an unknown field fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "unset",
+          "id": "title",
+          "fields": ["fill"]
+        }
+      ]
+    },
+    {
+      "name": "an empty batch fails",
+      "document": "screen",
+      "operations": []
+    },
+    {
+      "name": "a missing layer fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "ghost",
+          "patch": {
+            "x": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "a patch with an id fails",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "title",
+          "patch": {
+            "id": "other"
+          }
+        }
+      ]
+    },
+    {
+      "name": "font fields drop the text style",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "update",
+          "id": "h",
+          "patch": {
+            "fontSize": 30
+          }
+        }
+      ]
+    },
+    {
+      "name": "a new text style stays",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "update",
+          "id": "h",
+          "patch": {
+            "textStyle": "body",
+            "fontSize": 30
+          }
+        }
+      ]
+    },
+    {
+      "name": "padding drops its binding",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "update",
+          "id": "card",
+          "patch": {
+            "padding": 4
+          }
+        }
+      ]
+    },
+    {
+      "name": "every bound field drops every binding",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "update",
+          "id": "card",
+          "patch": {
+            "padding": 4,
+            "gap": 2,
+            "radius": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "an unknown text style fails",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "update",
+          "id": "h",
+          "patch": {
+            "textStyle": "nope"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a text style on a frame fails",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "update",
+          "id": "card",
+          "patch": {
+            "textStyle": "body"
+          }
+        }
+      ]
+    },
+    {
+      "name": "unset the text style",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "unset",
+          "id": "p",
+          "fields": ["textStyle"]
+        }
+      ]
+    },
+    {
+      "name": "unset the bindings",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "unset",
+          "id": "card",
+          "fields": ["bindings"]
+        }
+      ]
+    },
+    {
+      "name": "a new kit adopts its colours",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "document",
+          "patch": {
+            "kit": {
+              "id": "brand",
+              "version": 3,
+              "title": "Brand",
+              "colors": {
+                "ink": "#000000",
+                "paper": "#ffffff",
+                "line": "#dddddd"
+              },
+              "textStyles": {
+                "body": {
+                  "fontSize": 16
+                },
+                "h1": {
+                  "fontSize": 30
+                }
+              },
+              "spacing": {
+                "sm": 4,
+                "md": 12
+              },
+              "radii": {
+                "card": 6
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "kit tokens override",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "document",
+          "patch": {
+            "tokens": {
+              "ink": "#ff0000"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a token missing from the kit fails",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "update",
+          "id": "card",
+          "patch": {
+            "bindings": {
+              "padding": "xl"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "instances expand on validation",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "update",
+          "id": "inst",
+          "patch": {
+            "x": 50
+          }
+        }
+      ]
+    },
+    {
+      "name": "an instance property option",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "update",
+          "id": "inst",
+          "patch": {
+            "componentValues": {
+              "label": "Go",
+              "tone": "#aa0000"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "an option outside the list fails",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "update",
+          "id": "inst",
+          "patch": {
+            "componentValues": {
+              "tone": "#00ff00"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "an unknown property fails",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "update",
+          "id": "inst",
+          "patch": {
+            "componentValues": {
+              "size": "big"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "editing a generated layer fails",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "update",
+          "id": "inst",
+          "patch": {
+            "fill": "#00ff00"
+          }
+        }
+      ]
+    },
+    {
+      "name": "editing the main updates instances",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "update",
+          "id": "btnLabel",
+          "patch": {
+            "fill": "#00ff00",
+            "fontSize": 18
+          }
+        }
+      ]
+    },
+    {
+      "name": "deleting the main fails while instances remain",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "delete",
+          "id": "btn"
+        }
+      ]
+    },
+    {
+      "name": "detach then delete the main",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "detach",
+          "id": "inst"
+        },
+        {
+          "op": "delete",
+          "id": "btn"
+        }
+      ]
+    },
+    {
+      "name": "detach a plain frame fails",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "detach",
+          "id": "btn"
+        }
+      ]
+    },
+    {
+      "name": "insert into an instance fails",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "insert",
+          "node": {
+            "id": "extra",
+            "parentId": "inst",
+            "type": "rectangle",
+            "width": 5,
+            "height": 5
+          }
+        }
+      ]
+    },
+    {
+      "name": "a second instance",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "insert",
+          "node": {
+            "id": "inst2",
+            "type": "frame",
+            "componentId": "btn",
+            "x": 200,
+            "y": 100,
+            "width": 120,
+            "height": 40,
+            "name": "Button instance"
+          }
+        }
+      ]
+    },
+    {
+      "name": "duplicate an instance",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "duplicate",
+          "id": "inst",
+          "newId": "instCopy"
+        }
+      ]
+    },
+    {
+      "name": "unset componentValues on an instance",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "unset",
+          "id": "inst",
+          "fields": ["componentValues"]
+        }
+      ]
+    },
+    {
+      "name": "delete a main child prunes generated layers",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "update",
+          "id": "btn",
+          "patch": {
+            "componentProperties": {}
+          }
+        },
+        {
+          "op": "delete",
+          "id": "btnLabel"
+        }
+      ]
+    },
+    {
+      "name": "make a component",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "frame",
+          "patch": {
+            "component": true
+          }
+        }
+      ]
+    }
+  ],
+  "diff": [
+    {
+      "name": "a text edit is one update",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "title",
+          "patch": {
+            "text": "Short patch"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an insert",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "insert",
+          "index": 1,
+          "node": {
+            "id": "image",
+            "type": "image",
+            "width": 20,
+            "height": 20
+          }
+        }
+      ]
+    },
+    {
+      "name": "a delete",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "delete",
+          "id": "frame"
+        }
+      ]
+    },
+    {
+      "name": "a move",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "update",
+          "id": "button",
+          "patch": {
+            "x": 30,
+            "y": 90
+          }
+        }
+      ]
+    },
+    {
+      "name": "unsetting a field replaces",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "unset",
+          "id": "title",
+          "fields": ["parentId"]
+        }
+      ]
+    },
+    {
+      "name": "a reorder replaces",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "delete",
+          "id": "close"
+        },
+        {
+          "op": "insert",
+          "index": 0,
+          "node": {
+            "id": "close",
+            "type": "icon",
+            "icon": "x",
+            "x": 340,
+            "y": 10,
+            "width": 24,
+            "height": 24
+          }
+        }
+      ]
+    },
+    {
+      "name": "a metadata change replaces",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "document",
+          "patch": {
+            "background": "#000000"
+          }
+        }
+      ]
+    },
+    {
+      "name": "bindings always patch",
+      "document": "kitted",
+      "operations": [
+        {
+          "op": "update",
+          "id": "p",
+          "patch": {
+            "text": "Other"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an instance move",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "update",
+          "id": "inst",
+          "patch": {
+            "x": 70,
+            "y": 120
+          }
+        }
+      ]
+    },
+    {
+      "name": "a main edit",
+      "document": "comp",
+      "operations": [
+        {
+          "op": "update",
+          "id": "btnLabel",
+          "patch": {
+            "text": "Yes"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a duplicate",
+      "document": "screen",
+      "operations": [
+        {
+          "op": "duplicate",
+          "id": "frame",
+          "newId": "frame2"
+        }
+      ]
+    },
+    {
+      "name": "nothing",
+      "document": "screen",
+      "operations": null
+    }
+  ]
+}

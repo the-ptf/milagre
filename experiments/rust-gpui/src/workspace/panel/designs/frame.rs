@@ -206,13 +206,14 @@ fn controls(this: &DesignsView, id: &str, version: u32, last: u32, kit: String, 
         .child(previous)
         .child(version_text)
         .child(next)
-        // The design page editor is WP-55: Edit is shown where the desktop has it, and does nothing yet.
-        .child(
+        // Edit opens the design page editor (`editor/`) on this design.
+        .child({
+            let target = id.to_string();
             Button::new(SharedString::from(format!("design-edit-{id}")), "Edit")
                 .variant(ButtonVariant::Secondary)
                 .size(ButtonSize::S24)
-                .disabled(true),
-        )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_editor(&target, cx)))
+        })
         .child(delete)
         .child(choice)
 }

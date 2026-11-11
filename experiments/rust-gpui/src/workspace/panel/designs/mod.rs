@@ -8,9 +8,9 @@
 //!   design over a rasterized preview. Every zoom draws sharp, and nothing waits on a frame to load.
 //! - The canvas fills the panel body under a 40px bar, as the Artifact tab does, instead of a floating dock: the
 //!   dock's own title row is the panel's tab strip. The zoom bar floats over the canvas as on the desktop.
-//! - Fixture designs only (`fixture.rs`). Edit (the design page editor, WP-55), comment pins and their bubble, live
-//!   agent drafts and replays, Share and the transcript's design cards are not ported. Send records the choice as
-//!   sent, with no message.
+//! - Fixture designs only (`fixture.rs`). Comment pins and their bubble, live agent drafts and replays, Share and the
+//!   transcript's design cards are not ported. Send records the choice as sent, with no message.
+//! - Edit opens the design page editor (`editor/`, WP-55) over the window; its Save adds a version here.
 //!
 //! Pan: drag the background or a design that does not have the mouse, or scroll. Zoom: pinch, ⌘- or ctrl-scroll
 //! about the pointer, or the zoom bar about the middle. Until the user pans or zooms, the canvas keeps every design
@@ -18,6 +18,7 @@
 
 pub mod assets;
 pub mod board;
+pub mod editor;
 pub mod fixture;
 mod frame;
 pub mod render;
@@ -31,11 +32,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    App, ClickEvent, Context, FocusHandle, Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent,
-    Pixels, Point, RenderImage, ScrollEvent, SharedString, Window, canvas, div, point, prelude::*, px,
+    App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    PinchEvent, Pixels, Point, RenderImage, ScrollEvent, SharedString, Subscription, Window, anchored, canvas, deferred, div, point,
+    prelude::*, px,
 };
 
 use self::board::{Board, View};
+use self::editor::{DesignEditor, EditorEvent};
 use self::fixture::DesignArtifact;
 use self::scene::{IconCache, Scene};
 use crate::theme::{ActiveTheme, TEXT_11, TEXT_12, TEXT_13, TextStepExt, Theme};
@@ -77,6 +80,8 @@ pub struct DesignsView {
     /// The design whose Delete is armed.
     deleting: Option<String>,
     drag: Option<Drag>,
+    /// The design page editor, while it is open over the window.
+    editor: Option<(Entity<DesignEditor>, Subscription)>,
     focus_handle: FocusHandle,
     renders: usize,
 }
@@ -100,11 +105,60 @@ impl DesignsView {
             sent: None,
             deleting: None,
             drag: None,
+            editor: None,
             focus_handle: cx.focus_handle(),
             renders: 0,
         };
         this.apply_env_seed();
+        if !cfg!(test)
+            && let Ok(id) = std::env::var("MILAGRE_GPUI_DESIGNS_EDIT")
+            && !id.is_empty()
+        {
+            this.open_editor(&id, cx);
+            if let Some((editor, _)) = &this.editor {
+                editor.update(cx, |editor, cx| editor.apply_env_seed(cx));
+            }
+        }
         this
+    }
+
+    /// Edit: the design page editor on every design, this one active (`DesignPageEditor`).
+    pub fn open_editor(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.design(id).is_none() {
+            return;
+        }
+        let (designs, versions) = (self.designs.clone(), self.versions.clone());
+        let editor = cx.new(|cx| DesignEditor::new(&designs, &versions, id, cx));
+        let subscription = cx.subscribe(&editor, |this, _, event: &EditorEvent, cx| this.on_editor_event(event, cx));
+        self.editor = Some((editor, subscription));
+        self.active = None;
+        cx.notify();
+    }
+
+    pub fn editor(&self) -> Option<&Entity<DesignEditor>> {
+        self.editor.as_ref().map(|(editor, _)| editor)
+    }
+
+    fn on_editor_event(&mut self, event: &EditorEvent, cx: &mut Context<Self>) {
+        match event {
+            EditorEvent::Close => {
+                self.editor = None;
+            }
+            // Each saved draft is the design's newest version; the canvas follows it.
+            EditorEvent::Saved(saved) => {
+                for (id, document) in saved {
+                    if let Some(design) = self.designs.iter_mut().find(|d| d.id == *id) {
+                        match design.push_version(document.clone()) {
+                            Ok(_) => {
+                                self.versions.remove(id);
+                            }
+                            Err(error) => eprintln!("designs: the saved version of {id} does not read back: {error}"),
+                        }
+                    }
+                }
+            }
+        }
+        cx.notify();
     }
 
     /// Snapshot runs: `MILAGRE_GPUI_DESIGNS_FOCUS=<id>` fits one design, `MILAGRE_GPUI_DESIGNS_ACTIVE=<id>` gives it the
@@ -506,6 +560,10 @@ impl Render for DesignsView {
             frames.push(frame::frame(self, item, version, scene, &theme, cx));
         }
         let empty = self.designs.is_empty();
+        let editor = self
+            .editor
+            .as_ref()
+            .map(|(editor, _)| deferred(anchored().position(gpui::point(px(0.0), px(0.0))).child(editor.clone())).with_priority(10));
         let glyphs = [self.glyph("minus", theme.ink3, cx), self.glyph("scan", theme.ink3, cx)];
         div()
             .id("designs-panel")
@@ -552,6 +610,7 @@ impl Render for DesignsView {
                     })
                     .when(!empty, |el| el.child(frame::zoom_bar(self.view.scale, glyphs, &theme, cx))),
             )
+            .children(editor)
     }
 }
 
