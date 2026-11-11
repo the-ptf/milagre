@@ -39,11 +39,14 @@ use crate::workspace::chat::transcript_selection::{Keeper, SelectionTracker, Sha
 
 pub mod activity;
 pub mod cards;
+pub mod find;
+pub mod quote;
 pub mod step_row;
 pub mod summary;
 
 pub use activity::{Activity, RowState, StepItem};
 pub use cards::Card;
+pub use quote::{Passage, TranscriptEvent};
 pub use summary::Entry;
 
 /// The Chat content column, centred in the Chat column.
@@ -54,6 +57,8 @@ pub const BOTTOM_CLEARANCE: f32 = 48.0;
 pub const RUNNING_GAP: f32 = 12.0;
 /// Padding above the list's first item.
 pub const LIST_TOP_PAD: f32 = 16.0;
+/// More room above the first item while the find bar floats over the top (`pt-12` instead of `pt-7`).
+pub const FIND_TOP_PAD: f32 = 20.0;
 const USER_MAX_WIDTH: f32 = 420.0;
 /// Extra height laid out above and below the viewport, so scrolling does not pop items in.
 const OVERDRAW: f32 = 600.0;
@@ -185,6 +190,9 @@ pub struct Transcript {
     /// The text fields of open question cards, by (item, question).
     inputs: HashMap<(usize, usize), Entity<InputState>>,
     subscriptions: Vec<Subscription>,
+    /// Find in chat, while its bar is open (`transcript/find.rs`).
+    find: Option<find::FindState>,
+    search_index: find::SearchIndex,
 }
 
 impl Transcript {
@@ -259,6 +267,8 @@ impl Transcript {
             viewer: None,
             inputs: HashMap::new(),
             subscriptions: Vec::new(),
+            find: None,
+            search_index: find::SearchIndex::default(),
         }
     }
 
@@ -277,6 +287,10 @@ impl Transcript {
         self.all.borrow_mut().end(cx);
         self.row_views.clear();
         self.painted.borrow_mut().clear();
+        // The find bar belongs to one Chat (the Chat column closes it); its matches go with the old items.
+        self.search_index.clear();
+        self.find = None;
+        cx.emit(TranscriptEvent::Passage(None));
         cx.notify();
     }
 
@@ -351,6 +365,7 @@ impl Transcript {
         let ix = self.items.len();
         self.items.push(item);
         self.list.splice(ix..ix, 1);
+        self.refresh_find();
         cx.notify();
     }
 
@@ -441,6 +456,7 @@ impl Transcript {
             prose.text = stream.text.clone().into();
         }
         self.list.splice(ix..ix + 1, 1);
+        self.refresh_find();
         cx.notify();
     }
 
@@ -457,6 +473,7 @@ impl Transcript {
             *prose = Prose::new(stream.text);
         }
         self.list.splice(ix..ix + 1, 1);
+        self.refresh_find();
         cx.notify();
     }
 
@@ -614,14 +631,27 @@ impl Transcript {
             None => gpui::point(text.left() + px(40.0), text.top() + px(60.0)),
         };
         let to = gpui::point(text.left() + px(300.0), text.bottom() - px(130.0));
+        // `MILAGRE_GPUI_TRANSCRIPT_SELECT=word`: a double click on a word of the answer's second line instead (the
+        // Quote button's snapshot).
+        let word = std::env::var("MILAGRE_GPUI_TRANSCRIPT_SELECT").is_ok_and(|value| value == "word");
+        let (from, to) = if word {
+            (gpui::point(text.left() + px(40.0), text.top() + px(32.0)), gpui::point(text.left() + px(40.0), text.top() + px(32.0)))
+        } else {
+            (from, to)
+        };
+        let clicks = if word { 2 } else { 1 };
         window.defer(cx, move |window, cx| {
             let left = gpui::MouseButton::Left;
-            let down = gpui::MouseDownEvent { button: left, position: from, click_count: 1, ..Default::default() };
-            let moved = gpui::MouseMoveEvent { position: to, pressed_button: Some(left), ..Default::default() };
-            let up = gpui::MouseUpEvent { button: left, position: to, click_count: 1, ..Default::default() };
-            window.dispatch_event(gpui::PlatformInput::MouseDown(down), cx);
-            window.dispatch_event(gpui::PlatformInput::MouseMove(moved), cx);
-            window.dispatch_event(gpui::PlatformInput::MouseUp(up), cx);
+            for click_count in 1..=clicks {
+                let down = gpui::MouseDownEvent { button: left, position: from, click_count, ..Default::default() };
+                let moved = gpui::MouseMoveEvent { position: to, pressed_button: Some(left), ..Default::default() };
+                let up = gpui::MouseUpEvent { button: left, position: to, click_count, ..Default::default() };
+                window.dispatch_event(gpui::PlatformInput::MouseDown(down), cx);
+                if click_count == 1 && from != to {
+                    window.dispatch_event(gpui::PlatformInput::MouseMove(moved), cx);
+                }
+                window.dispatch_event(gpui::PlatformInput::MouseUp(up), cx);
+            }
         });
     }
 
@@ -689,6 +719,9 @@ impl Transcript {
         let previous = ix.checked_sub(1).and_then(|p| self.items.get(p));
         let top = top_gap(previous, &self.items[ix]);
         let selectable = self.ensure_views(ix, cx);
+        if selectable {
+            self.sync_find(ix, cx);
+        }
         if let Item::Card(card) = &self.items[ix] {
             let card = card.clone();
             let content = self.card_item(ix, &card, &theme, window, cx);
@@ -866,10 +899,11 @@ impl Render for Transcript {
             .child(
                 list(self.list.clone(), cx.processor(Self::render_item))
                     .size_full()
-                    .pt(px(LIST_TOP_PAD))
+                    .pt(px(LIST_TOP_PAD + if self.find.is_some() { FIND_TOP_PAD } else { 0.0 }))
                     .pb(px(BOTTOM_CLEARANCE) + self.footer),
             )
             .child(Keeper::new(self.tracker.clone(), self.painted.clone(), self.all.clone(), kept))
+            .child(self.passage_listener(cx))
             .children(overlay)
             .children(frame.map(|frame| {
                 // Zero-size and last: its paint runs after every item of this frame has painted.

@@ -437,6 +437,31 @@ pass. `MILAGRE_GPUI_TRANSCRIPT_TOP=<item>|rich` opens scrolled to an item (or th
 snapshot window that is never activated presents only its first frame when the display sleeps or covers it, so the
 selection shows only on a Mac whose screen is awake).
 
+## Find in chat
+
+Find in chat and quote selection (WP-28): `workspace/chat/find.rs` (the search text and `find-in-chat.ts`),
+`find_bar.rs` (the bar and the Chat column's ⌘F, ⌘G, ⇧⌘' and Escape), `transcript/find.rs` (matches, highlights,
+navigation), `transcript/quote.rs` (the passage and the Quote button), tests in `find_tests.rs`.
+
+- What is searched: the text of user messages and answers, drawn or not. Each message's search text is read once
+  from its Markdown source (blocks as the desktop's DOM walk groups text nodes, each piece keeping its source
+  bytes); a query scans the lowercased blocks only, so typing parses nothing. A hit is a source range, turned into
+  the text view's range (`RenderedText::range_for_source`) and set as a gpui-base range highlight when its message is
+  drawn (`orange` at 28%, the active one at 70%). Tool rows, approvals and cards are not searched (the desktop
+  searches the visible text of unfolded rows too), nor a code block's language label.
+- Stepping scrolls a match's message into the list when it is off screen, then `reveal_range` brings its line in.
+  The desktop centres the match; here it lands at the nearest edge. A streamed answer is searched again per batch
+  and the active match stays.
+- ⌘F works while focus is in the Chat column (composer, transcript, bar); the desktop's works window-wide, which needs
+  a hook on the Workspace root. Escape closes from the bar or the transcript, not from the composer.
+- Quote: a selection inside one message offers a Quote button under where the pointer let go (gpui-base does not
+  expose the selection's line boxes); its text is what ⌘C copies of that selection.
+
+Measured (`measure_find_over_two_thousand_messages`, 2,000 fixture messages, 0.3 MB of source, release test build,
+Apple M5 Pro; debug in brackets): the first query 25 ms, reading every message's search text once (138 ms); each
+keystroke after it median 0.9 ms, max 4.9 ms (5.2 / 31 ms); the frame after it 1.0 ms; a step to the next match with
+its frame median 0.7 ms, max 49 ms for the first jump into unmeasured history (7 / 488 ms).
+
 ## Composer notes
 
 The composer's editor (WP-24) is gpui-component's `Textarea` over the prompt string, in `workspace/chat/composer/`:

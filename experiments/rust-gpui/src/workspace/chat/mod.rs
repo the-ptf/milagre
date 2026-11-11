@@ -8,6 +8,8 @@
 //! size before it renders. It re-renders whenever this column does (one input, cheap).
 
 pub mod composer;
+pub mod find;
+pub mod find_bar;
 pub mod fixture;
 pub mod pills;
 pub mod running;
@@ -19,6 +21,8 @@ pub mod undo_panel;
 mod activity_tests;
 #[cfg(test)]
 mod cards_tests;
+#[cfg(test)]
+mod find_tests;
 #[cfg(test)]
 mod switch_tests;
 #[cfg(test)]
@@ -92,11 +96,16 @@ pub struct ChatView {
     _send: Subscription,
     /// The header's leading and trailing padding: the window's top bar and corner toggles reach over it (`shell`).
     header_insets: (Pixels, Pixels),
+    /// Find in chat and the Quote button (`find_bar.rs`).
+    find: find_bar::ChatFind,
+    _transcript_events: Subscription,
 }
 
 impl ChatView {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        find_bar::install_keys(cx);
         let transcript = cx.new(Transcript::new);
+        let transcript_events = cx.subscribe(&transcript, |this, _, event, cx| this.on_transcript_event(event, cx));
         let composer = cx.new(Composer::new);
         // The fixture Chat is mid-turn: 2m 18s in.
         let running = Some(cx.new(|_| RunningRow::new("2m 18s")));
@@ -157,6 +166,8 @@ impl ChatView {
             drafts: HashMap::new(),
             _send: send,
             header_insets: (px(16.0), px(16.0)),
+            find: find_bar::ChatFind::from_env(),
+            _transcript_events: transcript_events,
         }
     }
 
@@ -210,6 +221,8 @@ impl ChatView {
             let draft = self.drafts.get(&row.key).cloned().unwrap_or_default();
             self.composer.update(cx, |composer, cx| composer.set_text(&draft, window, cx));
         }
+        // The find bar belongs to the Chat it was opened in.
+        self.close_find(window, cx);
         let (key, title) = (row.key.clone(), row.title.clone());
         self.pills.update(cx, |pills, cx| pills.set_chat(&key, &title, cx));
         self.close_undo(cx);
@@ -329,7 +342,8 @@ impl Render for ChatView {
             (Some(menu), true, Some(key)) => Some(bookmark::family_menu_view(menu, key, self.bookmark.is_some(), &theme, cx)),
             _ => None,
         };
-        div()
+        let find_overlays = self.find_overlays(window, cx);
+        self.find_actions(div(), cx)
             .relative()
             .flex()
             .flex_col()
@@ -346,8 +360,10 @@ impl Render for ChatView {
                     .flex_1()
                     .min_h_0()
                     .child(AnyView::from(self.transcript.clone()).cached(StyleRefinement::default().size_full()))
+                    .on_key_down(cx.listener(Self::on_transcript_key))
                     .when_some(self.running.clone().zip(running_offset), |el, (running, offset)| el.child(running_row(running, offset)))
-                    .child(self.pills.clone()),
+                    .child(self.pills.clone())
+                    .children(find_overlays),
             )
             .child(div().flex_none().flex().justify_center().px_4().pb(px(COMPOSER_BOTTOM)).child(match &self.undo {
                 // The panel takes the composer's place, as wide as it.
