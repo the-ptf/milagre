@@ -21,6 +21,8 @@ pub mod registry;
 pub mod supervisor;
 #[cfg(unix)]
 pub mod synthetic_store;
+#[allow(dead_code)]
+mod tracked_output;
 pub use crypto_box::{PublicKey, SecretKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

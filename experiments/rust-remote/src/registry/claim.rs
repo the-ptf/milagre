@@ -37,6 +37,14 @@ impl Registry {
         token: &WorkToken,
         now: u64,
     ) -> std::result::Result<ConnectionBudget, AdmissionError> {
+        self.inspect_fixed_claim(token, now, None)
+    }
+    fn inspect_fixed_claim(
+        &mut self,
+        token: &WorkToken,
+        now: u64,
+        fence: Option<&crate::tracked_output::Fence>,
+    ) -> std::result::Result<ConnectionBudget, AdmissionError> {
         let limits = self.limits;
         let a = self.active(&token.handle, now)?;
         let Some(job) = a.jobs.get(&token.id) else {
@@ -68,6 +76,14 @@ impl Registry {
         // Uninspected legacy MemoryHttp jobs retain their existing promotion lifetime.
         let job = a.jobs.get_mut(&token.id).unwrap();
         job.deadline = job.deadline.min(scheduling);
+        if !fence.is_some_and(|f| {
+            f.active()
+                && a.fixed_fence
+                    .as_ref()
+                    .is_some_and(|current| current.active() && current.same(f))
+        }) {
+            a.egress_available()?;
+        }
         // The scoped authority owner prevents all other producers until output return.
         if !a.outbound.is_empty()
             || limits.outbound_bytes < FIXTURE_FRAME
@@ -82,7 +98,15 @@ impl Registry {
         token: &WorkToken,
         now: u64,
     ) -> std::result::Result<Permit, AdmissionError> {
-        self.inspect_claim(token, now)?;
+        self.claim_fixed_work(token, now, None)
+    }
+    pub(crate) fn claim_fixed_work(
+        &mut self,
+        token: &WorkToken,
+        now: u64,
+        fence: Option<&crate::tracked_output::Fence>,
+    ) -> std::result::Result<Permit, AdmissionError> {
+        self.inspect_fixed_claim(token, now, fence)?;
         let deadline = now.checked_add(345_000).ok_or(Error::Exhausted)?;
         let a = self.work(token, now)?;
         a.session.with_access(|| Ok(()))?;
@@ -142,6 +166,7 @@ impl Registry {
             return Err(Error::TooLarge.into());
         }
         let a = self.claimed(permit, now)?;
+        a.egress_available()?;
         if !a.outbound.is_empty() {
             return Err(Error::Budget.into());
         }
@@ -199,5 +224,35 @@ impl Registry {
         if failed {
             self.close(permit.handle(), CloseReason::Protocol);
         }
+    }
+}
+
+impl Registry {
+    pub(crate) fn fixed_registration(
+        &mut self,
+        handle: &Handle,
+    ) -> Result<(ConnectionBudget, crate::policy::Access)> {
+        let a = self.active(handle, self.now)?;
+        a.session
+            .with_access(|| Ok((a.budget(), a.session.access())))
+            .map_err(Into::into)
+    }
+    pub(crate) fn reserve_fixed_output(
+        &mut self,
+        token: &WorkToken,
+        fence: Arc<crate::tracked_output::Fence>,
+        now: u64,
+    ) -> Result<()> {
+        let limits = self.limits;
+        let a = self.work(token, now)?;
+        a.egress_available()?;
+        if !a.outbound.is_empty()
+            || limits.outbound_frames == 0
+            || limits.outbound_bytes < FIXTURE_FRAME
+        {
+            return Err(Error::Budget.into());
+        }
+        a.fixed_fence = Some(fence);
+        Ok(())
     }
 }

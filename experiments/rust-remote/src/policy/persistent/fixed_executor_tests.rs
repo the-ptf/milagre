@@ -848,3 +848,211 @@ fn failed_immediate_begin_does_not_cancel_or_join_another_owned_slot() {
     assert_eq!(a.observe_fixed(running).unwrap().status, Some(200));
     clean(a);
 }
+
+#[test]
+fn tracked_preflight_is_atomic_and_fences_every_competing_producer() {
+    use crate::supervisor::MemoryCarrier;
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(Default::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    let (h, mut peer, _) = pair(&mut a, 1, 4, 1);
+    let work = request(&mut a, &h, &mut peer, 1, 2).remove(0);
+    let sibling = request(&mut a, &h, &mut peer, 2, 2).remove(0);
+    let budget = a
+        .registry
+        .as_mut()
+        .unwrap()
+        .inspect_claim(&work, 2)
+        .unwrap();
+    let baseline = budget.used();
+    let memory = MemoryCarrier::new();
+    let pressure = budget
+        .reserve(64 * 1024 * 1024 - baseline - 4096 + 1)
+        .unwrap();
+    assert_eq!(
+        a.register_fixed_carrier(&h, memory.clone(), Default::default()),
+        Err(Fault::Full)
+    );
+    assert_eq!(budget.used(), 64 * 1024 * 1024 - 4096 + 1);
+    drop(pressure);
+    let target = a
+        .register_fixed_carrier(&h, memory.clone(), Default::default())
+        .unwrap();
+    assert_eq!(budget.used(), baseline + 4096);
+    let (_, c) = clock();
+    let pressure = budget
+        .reserve(64 * 1024 * 1024 - budget.used() - 2_172_416 + 1)
+        .unwrap();
+    assert_eq!(
+        a.start_fixed_tracked(work.clone(), target, Outcome::Success, &c),
+        Err(Fault::Full)
+    );
+    assert_eq!(a.fixed_occupied_slots(), 0);
+    assert_eq!(work.status(), WorkStatus::InFlight);
+    drop(pressure);
+    let pressure = budget
+        .reserve(64 * 1024 * 1024 - budget.used() - 2_172_416)
+        .unwrap();
+    let id = a
+        .start_fixed_tracked(work.clone(), target, Outcome::Success, &c)
+        .unwrap();
+    assert_eq!(budget.used(), 64 * 1024 * 1024);
+    let is_budget = |r: registry::Result<()>| {
+        assert!(matches!(
+            r,
+            Err(registry::RegistryError::Protocol(crate::Error::Budget))
+        ))
+    };
+    is_budget(a.registry.as_mut().unwrap().send_encoded(&h, b"null", 2));
+    is_budget(a.registry.as_mut().unwrap().send_peer(&h, "null", 2));
+    assert!(a
+        .take_output(&h, 2, |_| panic!("fence exported output"))
+        .is_err());
+    assert!(a.finish_request(&sibling, b"null", 2).is_err());
+    let http =
+        crate::http_dispatch::MemoryHttp::new(crate::http_dispatch::Outcome::Unavailable).unwrap();
+    assert!(a.dispatch_synthetic(&sibling, &http, 2).is_err());
+    assert_eq!(http.calls(), 0);
+    assert_eq!(sibling.status(), WorkStatus::InFlight);
+    assert!(memory.receive().is_none());
+    assert_eq!(memory.delivery_attempts(), 0);
+    assert_eq!(h.status(), CarrierStatus::Active);
+    joined(&mut a, id, 2);
+    a.discard_fixed(id, 2).unwrap();
+    drop(pressure);
+    a.registry
+        .as_mut()
+        .unwrap()
+        .send_encoded(&h, b"null", 2)
+        .unwrap();
+    a.take_output(&h, 2, |b| {
+        assert_eq!(peer.open_encoded(b).unwrap(), b"null");
+        Ok(())
+    })
+    .unwrap();
+    a.disconnect(&h);
+    assert!(memory.is_closed());
+    clean(a);
+}
+
+#[test]
+fn tracked_registration_identity_and_capacity_refusals_leave_mailbox_fresh() {
+    use crate::supervisor::{Limits as MailboxLimits, MemoryCarrier};
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(Default::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    let (h, mut peer, _) = pair(&mut a, 1, 4, 1);
+    let (other, mut peer2, _) = pair(&mut a, 2, 5, 1);
+    let memory = MemoryCarrier::new();
+    for limits in [
+        MailboxLimits {
+            carrier_bytes: 1023,
+            ..Default::default()
+        },
+        MailboxLimits {
+            carrier_frames: 0,
+            ..Default::default()
+        },
+    ] {
+        assert_eq!(
+            a.register_fixed_carrier(&h, memory.clone(), limits),
+            Err(Fault::Full)
+        );
+        assert!(!memory.is_closed());
+    }
+    let target = a
+        .register_fixed_carrier(
+            &h,
+            memory.clone(),
+            MailboxLimits {
+                carrier_bytes: 1024,
+                carrier_frames: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        a.register_fixed_carrier(&other, memory.clone(), Default::default()),
+        Err(Fault::Stale)
+    );
+    let (_, c) = clock();
+    let wrong = request(&mut a, &other, &mut peer2, 1, 2).remove(0);
+    assert_eq!(
+        a.start_fixed_tracked(wrong, target, Outcome::Success, &c),
+        Err(Fault::Stale)
+    );
+    let work = request(&mut a, &h, &mut peer, 1, 2).remove(0);
+    a.registry
+        .as_mut()
+        .unwrap()
+        .send_encoded(&h, b"null", 2)
+        .unwrap();
+    assert_eq!(
+        a.start_fixed_tracked(work.clone(), target, Outcome::Success, &c),
+        Err(Fault::Full)
+    );
+    a.take_output(&h, 2, |b| {
+        peer.open_encoded(b)?;
+        Ok(())
+    })
+    .unwrap();
+    let id = a
+        .start_fixed_tracked(work, target, Outcome::Success, &c)
+        .unwrap();
+    joined(&mut a, id, 2);
+    a.discard_fixed(id, 2).unwrap();
+    clean(a);
+    assert!(memory.is_closed());
+}
+
+#[test]
+fn inactive_rolled_back_fence_cannot_authorize_retry_with_same_serial() {
+    use crate::tracked_output::{Grant, TargetId};
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(Default::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    let (h, mut peer, _) = pair(&mut a, 1, 4, 1);
+    let work = request(&mut a, &h, &mut peer, 1, 2).remove(0);
+    let target = TargetId {
+        authority: a.core.as_ref().unwrap().instance,
+        serial: 1,
+    };
+    let rolled_back = Grant::new(target, 1);
+    let stale = rolled_back.0.clone();
+    a.registry
+        .as_mut()
+        .unwrap()
+        .reserve_fixed_output(&work, stale.clone(), 2)
+        .unwrap();
+    drop(rolled_back);
+    let retry = Grant::new(target, 1);
+    a.registry
+        .as_mut()
+        .unwrap()
+        .reserve_fixed_output(&work, retry.0.clone(), 2)
+        .unwrap();
+    assert!(a
+        .registry
+        .as_mut()
+        .unwrap()
+        .claim_fixed_work(&work, 2, Some(&stale))
+        .is_err());
+    assert_eq!(work.status(), WorkStatus::InFlight);
+    let permit = a
+        .registry
+        .as_mut()
+        .unwrap()
+        .claim_fixed_work(&work, 2, Some(&retry.0))
+        .unwrap();
+    a.registry
+        .as_mut()
+        .unwrap()
+        .end_claim(&permit, WorkStatus::Cancelled, 2);
+    assert!(retry.0.active());
+    assert_eq!(h.status(), CarrierStatus::Active);
+    drop(retry);
+    clean(a);
+}

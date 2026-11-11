@@ -113,6 +113,8 @@ struct Packet {
 #[derive(Default)]
 struct Mailbox {
     access: Option<policy::Access>,
+    fixed_target: Option<crate::tracked_output::TargetId>,
+    fixed_fence: Option<Arc<crate::tracked_output::Fence>>,
     bound: bool,
     closed: bool,
     bytes: usize,
@@ -140,7 +142,7 @@ impl MemoryCarrier {
         access
             .with(|| {
                 let mut m = self.0.lock().unwrap_or_else(|e| e.into_inner());
-                if m.closed {
+                if m.closed || m.fixed_fence.as_ref().is_some_and(|f| f.active()) {
                     return Ok(None);
                 }
                 let Some(packet) = m.packets.pop_front() else {
@@ -200,6 +202,9 @@ impl MemoryCarrier {
         let mut m = self.0.lock().unwrap_or_else(|e| e.into_inner());
         if m.closed {
             return Err(crate::Error::Unauthorized);
+        }
+        if m.fixed_fence.as_ref().is_some_and(|f| f.active()) {
+            return Err(crate::Error::Budget);
         }
         if m.packets.len() >= limits.carrier_frames
             || bytes.len() > limits.carrier_bytes.saturating_sub(m.bytes)
@@ -1172,6 +1177,52 @@ impl Drop for Actor {
         q.work_ready = false;
         self.shared.changed.notify_all();
     }
+}
+
+impl MemoryCarrier {
+    pub(crate) fn bind_fixed(
+        &self,
+        access: policy::Access,
+        target: crate::tracked_output::TargetId,
+    ) -> crate::Result<()> {
+        access.with(|| {
+            let mut m = self.0.lock().map_err(|_| crate::Error::Unauthorized)?;
+            if m.bound || m.closed || m.access.is_some() || !m.packets.is_empty() || m.bytes != 0 {
+                return Err(crate::Error::Unauthorized);
+            }
+            m.bound = true;
+            m.access = Some(access.clone());
+            m.fixed_target = Some(target);
+            Ok(())
+        })
+    }
+    pub(crate) fn reserve_fixed(
+        &self,
+        fence: Arc<crate::tracked_output::Fence>,
+        limits: Limits,
+    ) -> crate::Result<()> {
+        let mut m = self.0.lock().map_err(|_| crate::Error::Unauthorized)?;
+        if m.closed || m.fixed_target != Some(fence.target) {
+            return Err(crate::Error::Unauthorized);
+        }
+        if limits.carrier_frames == 0
+            || limits.carrier_bytes < crate::tracked_output::FRAME_BYTES
+            || !m.packets.is_empty()
+            || m.bytes != 0
+            || m.fixed_fence.as_ref().is_some_and(|f| f.active())
+        {
+            return Err(crate::Error::Budget);
+        }
+        m.fixed_fence = Some(fence);
+        Ok(())
+    }
+    pub(crate) fn fixed_cleanup_healthy(&self) -> bool {
+        !self.0.is_poisoned()
+    }
+}
+
+pub(crate) fn fixed_mailbox_bookkeeping() -> usize {
+    std::mem::size_of::<Mailbox>() + 2 * std::mem::size_of::<usize>()
 }
 
 #[cfg(test)]

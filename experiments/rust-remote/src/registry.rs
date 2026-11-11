@@ -194,6 +194,7 @@ struct Active {
     writer: FrameWriter,
     assembler: RequestAssembler,
     outbound: VecDeque<Bytes>,
+    fixed_fence: Option<Arc<crate::tracked_output::Fence>>,
     outbound_bytes: usize,
     jobs: BTreeMap<i64, Job>,
     queue: VecDeque<i64>,
@@ -204,6 +205,12 @@ struct Active {
     _lease: Reservation,
 }
 impl Active {
+    fn egress_available(&self) -> crate::Result<()> {
+        if self.fixed_fence.as_ref().is_some_and(|f| f.active()) {
+            return Err(Error::Budget);
+        }
+        Ok(())
+    }
     fn budget(&self) -> ConnectionBudget {
         self.session.budget()
     }
@@ -513,6 +520,7 @@ impl Registry {
                 writer,
                 assembler,
                 outbound: VecDeque::new(),
+                fixed_fence: None,
                 outbound_bytes: 0,
                 jobs: BTreeMap::new(),
                 queue: VecDeque::new(),
@@ -616,6 +624,7 @@ impl Registry {
     pub fn send_encoded(&mut self, h: &Handle, bytes: &[u8], now: u64) -> Result<()> {
         let limits = self.limits;
         let a = self.active(h, now)?;
+        a.egress_available()?;
         let result = (|| {
             if bytes.len() > MAX_PLAIN_BYTES {
                 return Err(Error::TooLarge);
@@ -628,6 +637,7 @@ impl Registry {
     pub fn send_peer(&mut self, h: &Handle, json: &str, now: u64) -> Result<()> {
         let limits = self.limits;
         let a = self.active(h, now)?;
+        a.egress_available()?;
         let result = (|| {
             if a.session.device().kind != crate::channel::DeviceKind::Desktop {
                 return Err(Error::Schema);
@@ -658,6 +668,7 @@ impl Registry {
         consume: impl FnOnce(Vec<u8>, Reservation) -> crate::Result<()>,
     ) -> Result<bool> {
         let a = self.active(h, now)?;
+        a.egress_available()?;
         let Some(buffer) = a.outbound.pop_front() else {
             return Ok(false);
         };
@@ -860,6 +871,7 @@ impl Registry {
     ) -> Result<Vec<WorkToken>> {
         let limits = self.limits;
         let a = self.work(t, now)?;
+        a.egress_available()?;
         let result = (|| {
             if response.len() > MAX_PLAIN_BYTES {
                 return Err(Error::TooLarge);
@@ -882,6 +894,7 @@ impl Registry {
         let exchange = http.prepare_exchange()?;
         let limits = self.limits;
         let a = self.work(t, now)?;
+        a.egress_available()?;
         let request = a.jobs[&t.id].request.request();
         let bounds = exchange.bounds(request)?;
         if bounds.parts > limits.outbound_frames.saturating_sub(a.outbound.len())

@@ -1,6 +1,6 @@
 # Checkpoint 2: private tracked fixed output
 
-Status: negotiation refinement of checkpoint 2 in [FIXED-CLAIM-SUPERVISOR-PROPOSAL.md](FIXED-CLAIM-SUPERVISOR-PROPOSAL.md), awaiting agreement. Checkpoint 1 and its failed-Begin fix remain the baseline. This document changes no implementation or admission gate. Only fixed 200/502/504 responses, synthetic keys and fresh marked profiles are in scope. No owner queue, automatic scheduler, public client API, HTTP or network adapter is added. Existing scoped Claim behavior remains independently tested.
+Status: agreed refinement of checkpoint 2 in [FIXED-CLAIM-SUPERVISOR-PROPOSAL.md](FIXED-CLAIM-SUPERVISOR-PROPOSAL.md). Checkpoint 1 and its failed-Begin fix remain the baseline. The [reservation/fence implementation boundary](TRACKED-OUTPUT-RESERVATIONS.md) is implemented and tested separately. Packet receipt evidence, fixed emit/consume, immediate physical-close reconciliation and pre-seal cancellation grant cleanup remain stage 2 work. This contract does not enable a public admission gate. Only fixed 200/502/504 responses, synthetic keys and fresh marked profiles are in scope. No owner queue, automatic scheduler, public client API, HTTP or network adapter is added. Existing scoped Claim behavior remains independently tested.
 
 ## 1. Internal ownership and API
 

@@ -1,6 +1,9 @@
-//! Private retained executor core. No egress, queue, scheduler or caller-owned worker.
+//! Private retained fixed executor. No owner queue, scheduler or caller-owned worker.
+mod output;
 use super::*;
 use crate::{budget::Reservation, registry::claim::Permit, supervisor::Clock};
+pub(crate) use output::TargetId;
+use output::{Target, Tracked, TRACKED_BYTES};
 use std::sync::{atomic::AtomicBool, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -127,6 +130,7 @@ struct Entry {
     completion_deadline: u64,
     timeout: bool,
     _metadata: Reservation,
+    tracked: Option<Tracked>,
 }
 impl Entry {
     fn cancel(&mut self, state: State) {
@@ -150,6 +154,8 @@ impl Entry {
 #[derive(Default)]
 pub(super) struct Core {
     entries: [Option<Entry>; 2],
+    targets: [Option<Target>; 16],
+    next_target: u64,
     next: u64,
     last_time: u64,
     failed: bool,
@@ -176,6 +182,17 @@ impl Core {
         self.entries.iter_mut().flatten().find(|e| e.id == id)
     }
     pub(super) fn cancel_closed(&mut self) {
+        for target in &mut self.targets {
+            if target
+                .as_ref()
+                .is_some_and(|t| matches!(t.handle.status(), registry::CarrierStatus::Closed(_)))
+            {
+                if !target.as_ref().unwrap().memory.fixed_cleanup_healthy() {
+                    self.failed = true;
+                }
+                drop(target.take());
+            }
+        }
         for e in self.entries.iter_mut().flatten() {
             if matches!(
                 e.permit.handle().status(),
@@ -192,6 +209,15 @@ impl Core {
     }
     pub(super) fn drain(&mut self) -> bool {
         self.cancel_all();
+        for target in &mut self.targets {
+            if target
+                .as_ref()
+                .is_some_and(|t| !t.memory.fixed_cleanup_healthy())
+            {
+                self.failed = true;
+            }
+            drop(target.take());
+        }
         // Keep ownership in the authority's table through every join.
         for slot in &mut self.entries {
             if let Some(e) = slot {
@@ -282,6 +308,16 @@ impl PersistentAuthority {
         clock: &Clock,
         hooks: Hooks,
     ) -> std::result::Result<Id, Fault> {
+        self.start_fixed_prepared(token, outcome, clock, hooks, None)
+    }
+    fn start_fixed_prepared(
+        &mut self,
+        token: WorkToken,
+        outcome: Outcome,
+        clock: &Clock,
+        hooks: Hooks,
+        target: Option<TargetId>,
+    ) -> std::result::Result<Id, Fault> {
         self.check_registry().map_err(|_| Fault::Stale)?;
         let now = clock.now();
         self.poll_fixed(now)?;
@@ -298,7 +334,6 @@ impl PersistentAuthority {
             .unwrap()
             .inspect_claim(&token, now)
             .map_err(admission)?;
-        let metadata = budget.reserve(METADATA_BYTES).map_err(|_| Fault::Full)?;
         let device = self
             .registry
             .as_mut()
@@ -315,7 +350,20 @@ impl PersistentAuthority {
             return Err(Fault::Full);
         }
         now.checked_add(345_000).ok_or(Fault::Expired)?;
-        let execution = budget.reserve(EXECUTION_BYTES).map_err(|_| Fault::Full)?;
+        let total = if target.is_some() {
+            TRACKED_BYTES
+        } else {
+            EXECUTION_BYTES + METADATA_BYTES
+        };
+        let mut prepaid = budget.reserve(total).map_err(|_| Fault::Full)?;
+        let metadata = prepaid.split(METADATA_BYTES).map_err(|_| Fault::Full)?;
+        let execution = prepaid.split(EXECUTION_BYTES).map_err(|_| Fault::Full)?;
+        let tracked = match target {
+            Some(target) => {
+                Some(self.prepare_fixed_output(&token, target, serial, clock, prepaid)?)
+            }
+            None => None,
+        };
         let signal = Arc::new(Signal {
             gate: Mutex::new(Gate::default()),
             wake: Condvar::new(),
@@ -364,7 +412,11 @@ impl PersistentAuthority {
                 .registry
                 .as_mut()
                 .unwrap()
-                .claim_work(&token, now)
+                .claim_fixed_work(
+                    &token,
+                    now,
+                    tracked.as_ref().map(|t| &*t.grant.as_ref().unwrap().0),
+                )
                 .map_err(admission)?;
             Ok((now, http, completion, permit))
         })();
@@ -387,6 +439,7 @@ impl PersistentAuthority {
             completion_deadline,
             timeout: false,
             _metadata: metadata,
+            tracked,
             observation: Observation {
                 state: State::Claimed,
                 execution: Execution::NotStarted,
