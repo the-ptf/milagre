@@ -83,6 +83,8 @@ struct Shared {
     stranded_lock_notices: AtomicU64,
     #[cfg(test)]
     observed_quit: Mutex<Option<QuitState>>,
+    #[cfg(test)]
+    ready_notices: AtomicUsize,
 }
 struct Actor {
     send: SyncSender<Request>,
@@ -358,18 +360,38 @@ impl Drop for State {
     }
 }
 impl State {
+    fn sync_readiness(&mut self) {
+        if !self.host.is_project_ready(&self.project) {
+            if self.opened {
+                self.opened = false;
+                if let Some(content) = &self.content {
+                    content.opened(false);
+                }
+            }
+            self.pending
+                .retain(|(channel, _)| channel != "project:state");
+        }
+    }
     fn project(&mut self) -> RpcResult {
+        self.host
+            .require_project_ready(&self.project)
+            .map_err(convert)?;
         Ok(
             json!({"path":self.project,"name":"actor","git":false,"state":self.host.states.whole_state(&self.project).map_err(convert)?}),
         )
     }
     fn cache(&mut self, shared: &Shared) {
-        let state = self
-            .host
-            .states
-            .current(&self.project)
-            .map(|state| state.to_value())
-            .unwrap_or_else(|| self.last.clone());
+        self.sync_readiness();
+        let ready = self.host.is_project_ready(&self.project);
+        let state = if ready {
+            self.host
+                .states
+                .current(&self.project)
+                .map(|state| state.to_value())
+                .unwrap_or_else(|| self.last.clone())
+        } else {
+            Value::Null
+        };
         if state != self.last {
             self.version += 1;
             self.last = state.clone();
@@ -379,10 +401,18 @@ impl State {
         } else {
             vec![]
         };
-        *shared.snapshot.lock().unwrap() = json!({"projects":projects,"links":[],"runs":{"runs":self.host.runs(),"seq":self.run_seq},"ports":{}});
+        let runs = if ready {
+            json!(self.host.runs())
+        } else {
+            json!({})
+        };
+        *shared.snapshot.lock().unwrap() = json!({"projects":projects,"links":[],"runs":{"runs":runs,"seq":self.run_seq},"ports":{}});
     }
     fn call(&mut self, method: &str, args: &[Value]) -> RpcResult {
         if crate::artifacts::METHODS.contains(&method) {
+            self.host
+                .require_project_ready(&self.project)
+                .map_err(convert)?;
             return self
                 .content
                 .as_ref()
@@ -391,14 +421,7 @@ impl State {
         }
         let path = self.project.to_string_lossy();
         match method {
-            "project:current" => {
-                let project = self.project()?;
-                self.opened = true;
-                if let Some(content) = &self.content {
-                    content.opened(true);
-                }
-                Ok(project)
-            }
+            "project:current" => self.project(),
             "project:open" | "project:switch" | "project:snapshot" | "state:read" => {
                 if args.first().and_then(Value::as_str) != Some(&path) {
                     return Err(RpcError::new(
@@ -406,11 +429,14 @@ impl State {
                         "Only this actor's copied fixture Project is admitted",
                     ));
                 }
-                let project = self.project()?;
-                self.opened = true;
-                if let Some(content) = &self.content {
-                    content.opened(true);
+                if matches!(method, "project:open" | "project:switch") {
+                    self.host.open_project(&self.project).map_err(convert)?;
+                    self.opened = true;
+                    if let Some(content) = &self.content {
+                        content.opened(true);
+                    }
                 }
+                let project = self.project()?;
                 if method == "state:read" {
                     Ok(
                         json!({"state":project["state"],"version":self.version,"epoch":format!("isolated-actor:{}",self.project.display())}),
@@ -475,6 +501,9 @@ impl State {
                         "Choose the fixture Project",
                     ));
                 }
+                self.host
+                    .require_project_ready(&self.project)
+                    .map_err(convert)?;
                 self.host.call(method, args).map_err(convert)
             }
         }
@@ -494,8 +523,19 @@ impl State {
         if shared.delivery_failed.load(Ordering::Acquire) {
             return Err(delivery_failed());
         }
+        self.sync_readiness();
         let notices = self.host.take_notices();
         for notice in &notices {
+            if let Notice::ProjectReady { project } = notice {
+                if project == &self.project && self.host.is_project_ready(project) {
+                    #[cfg(test)]
+                    shared.ready_notices.fetch_add(1, Ordering::AcqRel);
+                    self.opened = true;
+                    if let Some(content) = &self.content {
+                        content.opened(true);
+                    }
+                }
+            }
             if let Notice::Event { seq: Some(seq), .. } = notice {
                 self.run_seq = self.run_seq.max(*seq);
             }
@@ -511,6 +551,9 @@ impl State {
                     seq,
                     with_state,
                 } => {
+                    if !self.host.is_project_ready(&self.project) {
+                        continue;
+                    }
                     let mut payload = json!({"chatId":chat,"event":event});
                     if let Some(seq) = seq {
                         payload["seq"] = json!(seq);
@@ -520,7 +563,10 @@ impl State {
                     }
                     self.queue_event("agent:event", payload)?;
                 }
-                Notice::Broadcast { project } => {
+                Notice::Broadcast { project } | Notice::ProjectReady { project } => {
+                    if project != self.project || !self.host.is_project_ready(&project) {
+                        continue;
+                    }
                     self.queue_event("project:state", json!({"path":project,"state":self.last}))?;
                 }
                 Notice::SteerRequested { .. } => {
@@ -576,6 +622,9 @@ impl State {
         for event in self.host.states.take_events() {
             match event {
                 Event::Persistence { project, .. } | Event::Unloaded { project } => {
+                    if project != self.project || !self.host.is_project_ready(&project) {
+                        continue;
+                    }
                     self.queue_event("project:state", json!({"path":project,"state":self.last}))?;
                 }
                 Event::SaveFailed { error, .. } => {
@@ -875,6 +924,11 @@ fn start_provider(
     host.answer_grace_ms = 250;
     host.answer_capacity = 32;
     host.register(provider);
+    // This fixed fixture Project is admitted by trusted setup, never a saved path.
+    host.open_project(&project).map_err(convert)?;
+    if let Some(content) = &content {
+        content.opened(true);
+    }
     let shared = Arc::new(Shared {
         snapshot: Mutex::new(
             json!({"projects":[],"links":[],"runs":{"runs":{},"seq":0},"ports":{}}),
@@ -889,6 +943,8 @@ fn start_provider(
         stranded_lock_notices: AtomicU64::new(0),
         #[cfg(test)]
         observed_quit: Mutex::new(None),
+        #[cfg(test)]
+        ready_notices: AtomicUsize::new(0),
     });
     let (send, requests) = mpsc::sync_channel(QUEUE);
     let actor = Arc::new(Actor {
@@ -916,7 +972,7 @@ fn start_provider(
                 provider: provider_name,
                 content,
                 project,
-                opened: false,
+                opened: true,
                 version: 0,
                 last: Value::Null,
                 run_seq: 0,
@@ -1149,6 +1205,8 @@ mod tests {
             stranded_lock_notices: AtomicU64::new(0),
             #[cfg(test)]
             observed_quit: Mutex::new(None),
+            #[cfg(test)]
+            ready_notices: AtomicUsize::new(0),
         });
         (
             Actor {
@@ -1330,6 +1388,8 @@ mod publication_tests {
             stranded_lock_notices: AtomicU64::new(0),
             #[cfg(test)]
             observed_quit: Mutex::new(None),
+            #[cfg(test)]
+            ready_notices: AtomicUsize::new(0),
         };
         let mut state = State {
             host: ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0)),
@@ -1414,6 +1474,11 @@ mod job_tests {
         }
     }
     fn seeded() -> (IsolatedProfile, PathBuf, ChatHost) {
+        let (profile, project, mut host) = seeded_unopened();
+        host.open_project(&project).unwrap();
+        (profile, project, host)
+    }
+    fn seeded_unopened() -> (IsolatedProfile, PathBuf, ChatHost) {
         let profile = IsolatedProfile::create().unwrap();
         let isolation = Isolation::create(profile.path(), &Policy::default()).unwrap();
         let project = isolation.project(std::path::Path::new("fixture")).unwrap();
@@ -1426,8 +1491,7 @@ mod job_tests {
             );
         }
         fs::write(project.join(".milagre/coordination.json"), json!({"next_id":10,"worktrees":{"1":{"id":1,"path":project}},"sessions":sessions,"messages":[{"id":1,"session_id":1,"role":"user","body":"Transcript input"},{"id":2,"session_id":1,"role":"assistant","body":"Prior reply","outcome":"completed"}]}).to_string()).unwrap();
-        let mut host = ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0));
-        host.states.get(&project).unwrap();
+        let host = ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0));
         (profile, project, host)
     }
     struct Gate {
@@ -1499,6 +1563,19 @@ mod job_tests {
         host: ChatHost,
         workers: crate::jobs::Workers,
     ) -> (Arc<Server>, Arc<Actor>) {
+        running_content(profile, project, host, workers, None)
+    }
+    fn running_content(
+        profile: IsolatedProfile,
+        project: &std::path::Path,
+        host: ChatHost,
+        workers: crate::jobs::Workers,
+        content: Option<Arc<crate::claude_content::SharedContent>>,
+    ) -> (Arc<Server>, Arc<Actor>) {
+        let opened = host.is_project_ready(project);
+        if let Some(content) = &content {
+            content.opened(opened);
+        }
         let shared = Arc::new(Shared {
             snapshot: Mutex::new(json!({})),
             events: Mutex::new(None),
@@ -1511,6 +1588,8 @@ mod job_tests {
             stranded_lock_notices: AtomicU64::new(0),
             #[cfg(test)]
             observed_quit: Mutex::new(None),
+            #[cfg(test)]
+            ready_notices: AtomicUsize::new(0),
         });
         let (send, requests) = mpsc::sync_channel(QUEUE);
         let actor = Arc::new(Actor {
@@ -1518,7 +1597,7 @@ mod job_tests {
             shared: shared.clone(),
             thread: Mutex::new(None),
             project: project.to_string_lossy().into(),
-            content: false,
+            content: content.is_some(),
         });
         let profile_lease = profile.lease();
         let server = Arc::new(Server::bind(profile, actor.clone(), Config::default()).unwrap());
@@ -1527,9 +1606,9 @@ mod job_tests {
             host,
             jobs: workers,
             provider: "kiro",
-            content: None,
+            content,
             project: project.to_path_buf(),
-            opened: true,
+            opened,
             version: 0,
             last: Value::Null,
             run_seq: 0,
@@ -1668,8 +1747,8 @@ mod job_tests {
     fn real_restore_send_is_cancelled_by_fixture_quit_without_start_or_replay() {
         use milagre_owner_store::chat_host::{HandoffMode, MockProvider};
         let (profile, project, mut host) = seeded();
-        assert_eq!(host.handoff, HandoffMode::Gated);
-        host.handoff = HandoffMode::Restore; // Opt-in only in this cfg(test) fixture.
+        assert_eq!(host.handoff_mode(), HandoffMode::Gated);
+        host.enable_restore_for_tests().unwrap(); // Opt-in only in this cfg(test) fixture.
         let provider = MockProvider::new("kiro");
         host.register(Box::new(provider.clone()));
         let (workers, gate, entered) = workers(0);
@@ -1779,6 +1858,203 @@ mod job_tests {
                 .unwrap()["context"]["status"],
             "failed"
         );
+        drop(actor);
+        Server::finish(server).unwrap();
+    }
+
+    fn node_readiness(server: &Server, project: &std::path::Path, mode: &str) {
+        let node = std::process::Command::new("node")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/readiness-compat.cjs"
+            ))
+            .arg(server.profile_path())
+            .arg(project)
+            .arg(mode)
+            .output()
+            .unwrap();
+        assert!(
+            node.status.success(),
+            "{}",
+            String::from_utf8_lossy(&node.stderr)
+        );
+        assert!(String::from_utf8_lossy(&node.stdout).contains("Readiness conformance passed"));
+    }
+    #[test]
+    fn node_open_busy_keeps_partial_state_private_until_explicit_durable_retry() {
+        use milagre_owner_store::transcripts::TranscriptJobs;
+        let (profile, project, host) = seeded_unopened();
+        let file = project.join(".milagre/coordination.json");
+        let mut state: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        state["sessions"]["1"]["handoverPending"] = json!(true);
+        state["messages"].as_array_mut().unwrap().push(json!({"id":3,"session_id":1,"role":"assistant","body":"","context":{"kind":"handoff","status":"preparing","from":{"provider":"kiro"},"to":{"provider":"kiro"}}}));
+        fs::write(&file, state.to_string()).unwrap();
+        let held = TranscriptJobs::new(host.states.isolation()).unwrap();
+        let (server, actor) = running(profile, &project, host, Default::default());
+        node_readiness(&server, &project, "busy");
+        assert_eq!(actor.shared.ready_notices.load(Ordering::Acquire), 0);
+        for method in ["project:snapshot", "state:read"] {
+            assert_eq!(
+                actor
+                    .call(Command::Call(method.into(), vec![json!(project)]))
+                    .unwrap_err()
+                    .code,
+                "PROJECT_NOT_READY"
+            );
+        }
+        assert_eq!(actor.call(Command::Call("chat:send".into(),vec![json!({"projectPath":project,"sessionId":1,"provider":"kiro","body":"refused"})])).unwrap_err().code,"PROJECT_NOT_READY");
+        drop(held);
+        node_readiness(&server, &project, "recover");
+        assert_eq!(
+            actor.shared.ready_notices.load(Ordering::Acquire),
+            1,
+            "repeated ready open is silent"
+        );
+        server.shutdown().unwrap();
+        drop(actor);
+        Server::finish(server).unwrap();
+    }
+
+    #[test]
+    fn failed_recovery_save_exposes_no_partial_project_or_content_until_retry() {
+        let (profile, project, mut host) = seeded_unopened();
+        let file = project.join(".milagre/coordination.json");
+        let backup = project.join(".milagre/coordination.fixture-backup");
+        let mut state: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        state["sessions"]["1"]["handoverPending"] = json!(true);
+        state["messages"].as_array_mut().unwrap().push(json!({"id":3,"session_id":1,"role":"assistant","body":"","context":{"kind":"handoff","status":"preparing","from":{"provider":"kiro"},"to":{"provider":"kiro"}}}));
+        fs::write(&file, state.to_string()).unwrap();
+        // Deliberate preloaded state is not a ready bypass. Break only the final
+        // coordination rename so recovery can change memory before its flush fails.
+        host.states.get(&project).unwrap();
+        assert!(!host.is_project_ready(&project));
+        let content = crate::claude_content::SharedContent::new(
+            host.states.isolation().clone(),
+            project.clone(),
+        )
+        .unwrap();
+        fs::rename(&file, &backup).unwrap();
+        fs::create_dir(&file).unwrap();
+        let (server, actor) = running_content(
+            profile,
+            &project,
+            host,
+            Default::default(),
+            Some(content.clone()),
+        );
+        node_readiness(&server, &project, "save-failed");
+        assert_eq!(actor.shared.ready_notices.load(Ordering::Acquire), 0);
+        assert_eq!(actor.shared.snapshot.lock().unwrap()["projects"], json!([]));
+        assert!(content
+            .renderer(
+                "artifact:list",
+                &json!({"chatId":format!("{}#1",project.display())})
+            )
+            .is_err());
+        fs::remove_dir(&file).unwrap();
+        fs::rename(&backup, &file).unwrap();
+        assert_eq!(
+            actor
+                .call(Command::Call("project:current".into(), vec![]))
+                .unwrap_err()
+                .code,
+            "PROJECT_NOT_READY"
+        );
+        node_readiness(&server, &project, "recover");
+        assert_eq!(actor.shared.ready_notices.load(Ordering::Acquire), 1);
+        server.shutdown().unwrap();
+        drop(actor);
+        Server::finish(server).unwrap();
+    }
+    #[test]
+    fn failed_ready_store_check_revokes_content_and_retained_grants_until_explicit_open() {
+        let (profile, project, host) = seeded();
+        let store = profile.path().join(".owner/handovers");
+        let held = profile.path().join(".owner/held-handovers");
+        let content = crate::claude_content::SharedContent::new(
+            host.states.isolation().clone(),
+            project.clone(),
+        )
+        .unwrap();
+        let (server, actor) = running_content(
+            profile,
+            &project,
+            host,
+            Default::default(),
+            Some(content.clone()),
+        );
+        actor
+            .call(Command::Call("project:current".into(), vec![]))
+            .unwrap();
+        let chat = format!("{}#1", project.display());
+        let retained = content.dispatcher(&chat).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        assert_eq!(
+            rt.block_on(retained.call("artifact_list", &json!({})))["isError"],
+            false
+        );
+        fs::rename(&store, &held).unwrap();
+        fs::create_dir(&store).unwrap();
+        let refused = actor
+            .call(Command::Call(
+                "project:snapshot".into(),
+                vec![json!(project)],
+            ))
+            .unwrap_err();
+        assert_eq!(refused.code, "COMMAND_FAILED");
+        assert_eq!(
+            actor
+                .call(Command::Call("project:current".into(), vec![]))
+                .unwrap_err()
+                .code,
+            "PROJECT_NOT_READY"
+        );
+        assert_eq!(actor.shared.snapshot.lock().unwrap()["projects"], json!([]));
+        assert_eq!(
+            rt.block_on(retained.call("artifact_list", &json!({})))["isError"],
+            true
+        );
+        assert!(content
+            .renderer("artifact:list", &json!({"chatId":chat}))
+            .is_err());
+        fs::remove_dir(&store).unwrap();
+        fs::rename(&held, &store).unwrap();
+        assert_eq!(
+            actor
+                .call(Command::Call("state:read".into(), vec![json!(project)]))
+                .unwrap_err()
+                .code,
+            "PROJECT_NOT_READY",
+            "restoring the folder is not a retry"
+        );
+        actor
+            .call(Command::Call("project:open".into(), vec![json!(project)]))
+            .unwrap();
+        assert_eq!(actor.shared.ready_notices.load(Ordering::Acquire), 2);
+        assert_eq!(
+            rt.block_on(retained.call("artifact_list", &json!({})))["isError"],
+            true,
+            "old generation never revives"
+        );
+        assert_eq!(
+            rt.block_on(
+                content
+                    .dispatcher(&chat)
+                    .unwrap()
+                    .call("artifact_list", &json!({}))
+            )["isError"],
+            false
+        );
+        assert_eq!(
+            content
+                .renderer("artifact:list", &json!({"chatId":chat}))
+                .unwrap(),
+            json!([])
+        );
+        server.shutdown().unwrap();
         drop(actor);
         Server::finish(server).unwrap();
     }

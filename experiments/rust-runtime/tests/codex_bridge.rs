@@ -220,6 +220,7 @@ fn owner_persists_real_adapter_events_and_advances_a_queued_turn() {
     let project = p.project().to_path_buf();
     let mut host = ChatHost::new(ProjectStates::new(p.isolation(), Timing::default(), 1000));
     host.register(Box::new(p));
+    host.open_project(&project).unwrap();
     let chat = agent_runs::chat_key(project.to_str().unwrap(), &json!(1));
     let req = json!({"projectPath":project,"sessionId":1,"provider":"codex","body":"first","permissionMode":"ask","clientMessageId":"one"});
     host.send(&req).unwrap();
@@ -529,6 +530,7 @@ fn owner_question_ticket_waits_for_native_answer_and_preserves_unknown_request_s
     let project = p.project().to_path_buf();
     let mut host = ChatHost::new(ProjectStates::new(p.isolation(), Timing::default(), 1000));
     host.register(Box::new(p));
+    host.open_project(&project).unwrap();
     host.send(&json!({"projectPath":project,"sessionId":1,"provider":"codex","body":"question","permissionMode":"ask"})).unwrap();
     let chat = agent_runs::chat_key(project.to_str().unwrap(), &json!(1));
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -665,6 +667,7 @@ fn delayed_receipt_keeps_history_blocks_retry_and_resolves_without_second_rpc_no
     host.answer_capacity = 1;
     host.answer_grace_ms = 10;
     host.register(Box::new(p));
+    host.open_project(&project).unwrap();
     let chat = agent_runs::chat_key(project.to_str().unwrap(), &json!(1));
     host.send(&json!({"projectPath":project,"sessionId":1,"provider":"codex","body":"question","permissionMode":"ask"})).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -759,6 +762,7 @@ fn native_cli_receives_decoded_prompt_and_answers_while_disk_keeps_original_utf1
         1000,
     ));
     host.register(Box::new(p));
+    host.open_project(&project).unwrap();
     let chat = agent_runs::chat_key(project.to_str().unwrap(), &json!(1));
     let prefix = "prompt marker:\u{10fffe}\u{f0000} PUA:\u{e000} emoji:😀 halves:";
     let mut prompt_units: Vec<u16> = prefix.encode_utf16().collect();

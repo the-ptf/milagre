@@ -2,6 +2,10 @@
 
 The runtime still exposes saved-file reads, isolated content operations, PTYs, ports and Git fixture reads. `OwnedCopies` owns one `Mutex<ProjectStates>` and advances its clock only when a read arrives. It does not run ChatHost, providers, or periodic saves/sweeps. The separate `actor-runtime` now exercises the actor/timer/publication/shutdown-retry boundary on a synthetic Project and scripted provider only. The read/PTY/Git executables retain their existing behavior. Production integration below remains incomplete.
 
+## Current fixture readiness
+
+The actor fixture now opens its one trusted generated Project through ChatHost::open_project before binding the socket. Only project:open and project:switch may retry failed recovery. current, snapshots, state reads and renderer content use require_project_ready and cannot reopen forgotten Projects. Loaded but not-ready state is omitted from snapshots and state broadcasts; readiness loss also revokes content grants. See JOBS-INTEGRATION-PLAN.md for the failure/retry evidence and remaining Git/restore gates.
+
 ## One state owner and one publication order
 
 Replace the `OwnedCopies` state container with a single owner actor that owns `ChatHost`, and therefore its `ProjectStates`. Do not keep a second `ProjectStates` beside ChatHost: that would duplicate in-memory state and contend for Project locks. Read requests, domain commands, provider completions, timers and shutdown all enter this actor through a bounded queue.

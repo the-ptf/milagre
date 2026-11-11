@@ -210,6 +210,14 @@ async function run() {
       if (mode === "forgotten") {
         assert.equal(fs.existsSync(path.join(project, ".milagre/runtime.lock")), false, "late events cannot reopen a forgotten Project");
         assert.equal(snapshot.projects.length, 0);
+        for (const [method, args] of [
+          ["project:current", []],
+          ["project:snapshot", [project]],
+          ["state:read", [project]],
+        ]) {
+          await assert.rejects(client.call(method, args), { code: "PROJECT_NOT_READY" });
+        }
+        assert.equal(fs.existsSync(path.join(project, ".milagre/runtime.lock")), false, "reads never reopen the forgotten Project");
       }
       assert.equal(disk().filter((row) => row.role === "assistant").length, 1);
       await client.call("daemon:stop");

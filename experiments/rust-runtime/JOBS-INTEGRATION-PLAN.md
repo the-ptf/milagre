@@ -45,23 +45,25 @@ Implement restore only at first. Keep switch, provider capability changes and an
 - Delayed transcript commit, Stop and late completion preserve Unknown/no-replay and cannot start a replacement turn incorrectly.
 - Brief deadline, cancellation, malformed identity, oversize request/reply and stale result all fail closed without a live model or account.
 
-## Pending project-open and Git admission contract
+## Pending Git admission
 
 ChatHost::admit_worktree is available but this runtime does not call it yet. A saved worktree path does not grant authority. The existing GitService owns a separate IsolatedGit temporary root and cannot be admitted to an actor's different isolation. A future fixture must create its repository under the same actor isolation through trusted setup, admit that canonical path explicitly, and keep production Restore gated. TranscriptSource helpers use changed: None until that admission is agreed and tested.
 
-The proposed owner open_project boundary must load state, acquire and check the handover-store lease, sweep permitted leftovers, and recover interrupted dividers before runtime publishes the Project or opens content scope. Reopen must be idempotent for this host's active preparations; closing/forgotten lifecycle checks and failed-open retry remain owner responsibilities. Runtime will not reproduce those steps from separate calls. A proposed test-fixtures-only enable_restore_for_tests method replaces the public mutable mode; no release constructor may opt in.
-
 Successful restore coverage remains next: a fixture send should persist its done divider and committed transcript before one provider start, include the admitted worktree's exact changed-file list in the minimal brief, and preserve restart, cancellation and stale-result behavior. Current runtime evidence proves cancellation of a real restore only.
 
-## Agreed readiness adapter, awaiting owner checkpoint
+## Explicit Project readiness
 
-The owner negotiation requires explicit open_project before sends, queue operations, answers and provider events, including Projects already loaded through ProjectStates. Partial opening must retain ownership but remain not ready until an explicit retry durably completes recovery. The owner will emit one ProjectReady after success and preserve distinct OWNER_CLOSING, PROJECT_NOT_READY and HANDOVER_STORE_BUSY errors.
+The actor now uses ChatHost::open_project before sends, queue operations, answers and provider events. Trusted fixture startup explicitly opens its exact generated Project before binding the socket. This may make that Project visible in the initial fixture snapshot sooner than the former lazy open; it is a fixture compatibility change, not production migration wiring.
 
-Runtime adaptation is pending the concrete owner commits:
+Only project:open and project:switch retry opening, after the exact admitted path check. project:current, project:snapshot, state:read, other Project reads and renderer content operations use the non-recovering require_project_ready guard. They never reopen after forget or retry failed recovery. The four direct Codex owner fixtures and job fixtures also explicitly open. The Restore test uses enable_restore_for_tests; no release constructor enables it.
 
-1. Check the request against the actor's one exact admitted Project path before open_project. Publish or enable content scope only after success. On failed reopen, hide the Project and revoke its content generation while keeping explicit open available for retry; do not globally close the actor.
-2. Keep readiness separate from loaded state. Suppress Project state broadcasts from partial loading/recovery until successful open. Map ProjectReady onto the existing renderer state protocol rather than inventing a new renderer capability.
-3. Require ready state for project:current, project:snapshot and state:read; none may retry failed recovery or reopen after forget. Only project:open and project:switch retry. Trusted fixture startup may explicitly open before binding the server. A non-recovering owner readiness query/guard is requested so reads and publication do not trust a stale runtime flag after owner-side failures. Any changed initial-view behavior must remain documented as a fixture compatibility limit.
-4. Open the four direct Codex owner fixtures and the job seed fixture through the owner API. Replace the single test Restore assignment with enable_restore_for_tests; keep release construction gated and keep saved/owned read-only foundations outside this ChatHost migration.
+Publication checks is_project_ready rather than assuming loaded state is ready. ProjectReady is handled only for the actor's exact Project, mapped to existing project:state publication. Partial loading/recovery emits no Project snapshot, runs or state broadcast. Readiness loss clears visibility and revokes the content generation. A successful explicit retry allows new grants; old grants remain revoked. OWNER_CLOSING, PROJECT_NOT_READY and HANDOVER_STORE_BUSY retain the owner's distinct wire codes. Other storage failures retain the existing error mapping.
 
-Required new evidence: competing handover-store lease fails open with HANDOVER_STORE_BUSY and no ready publication; sends/events remain refused; releasing that lease plus explicit retry succeeds once and allows normal commands. Repeated ready opens must verify ownership, preserve active preparation, and avoid duplicate ProjectReady. A failed ready reopen must revoke existing content grants and retain locks/state for retry. No worktree admission is part of this adapter checkpoint.
+Verified through production Node clients and private fixture guards:
+
+- A competing handover-store lease refuses open, retains the Project lock, emits no ready/state publication, and blocks reads/sends. Releasing the lease does not reopen; explicit open recovers and produces one ProjectReady. Repeated ready open is silent.
+- A forced coordination rename failure after recovery leaves no visible partially recovered Project or content scope. Repairing that private file still requires explicit open; the retry durably recovers before publication.
+- Replacing the ready handover directory invalidates its identity check, hides Project state and revokes retained content grants. Restoring the directory alone does not reopen. Explicit open restores readiness but never revives the old grant generation.
+- Forget followed by current/snapshot/state:read stays refused; late provider events and reads do not recreate its lock.
+
+No Git worktree admission or successful restore integration is included.

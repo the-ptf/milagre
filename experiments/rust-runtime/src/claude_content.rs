@@ -255,7 +255,7 @@ impl SharedContent {
         }
     }
     #[cfg(test)]
-    fn dispatcher(&self, chat: &str) -> Result<milagre_tools::Dispatcher, Error> {
+    pub(crate) fn dispatcher(&self, chat: &str) -> Result<milagre_tools::Dispatcher, Error> {
         self.owner.session(self.caller(chat))
     }
     pub(crate) fn attach(
