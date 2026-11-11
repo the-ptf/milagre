@@ -1403,6 +1403,7 @@ mod job_tests {
                     before: None,
                     provider: Some("kiro"),
                     catch_up_after: None,
+                    changed: None,
                     clock: Clock {
                         zone: Zone::Utc,
                         now_ms: 0.0,
@@ -1557,6 +1558,7 @@ mod job_tests {
                     before: None,
                     provider: None,
                     catch_up_after: None,
+                    changed: None,
                     clock: Clock {
                         zone: Zone::Utc,
                         now_ms: 0.0

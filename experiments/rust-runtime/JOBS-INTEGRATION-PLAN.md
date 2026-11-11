@@ -44,3 +44,11 @@ Implement restore only at first. Keep switch, provider capability changes and an
 - Actual Node client restore after a completed nonresumable ACP turn, with the exact next native prompt asserted when the fixed fake supports it.
 - Delayed transcript commit, Stop and late completion preserve Unknown/no-replay and cannot start a replacement turn incorrectly.
 - Brief deadline, cancellation, malformed identity, oversize request/reply and stale result all fail closed without a live model or account.
+
+## Pending project-open and Git admission contract
+
+ChatHost::admit_worktree is available but this runtime does not call it yet. A saved worktree path does not grant authority. The existing GitService owns a separate IsolatedGit temporary root and cannot be admitted to an actor's different isolation. A future fixture must create its repository under the same actor isolation through trusted setup, admit that canonical path explicitly, and keep production Restore gated. TranscriptSource helpers use changed: None until that admission is agreed and tested.
+
+The proposed owner open_project boundary must load state, acquire and check the handover-store lease, sweep permitted leftovers, and recover interrupted dividers before runtime publishes the Project or opens content scope. Reopen must be idempotent for this host's active preparations; closing/forgotten lifecycle checks and failed-open retry remain owner responsibilities. Runtime will not reproduce those steps from separate calls. A proposed test-fixtures-only enable_restore_for_tests method replaces the public mutable mode; no release constructor may opt in.
+
+Successful restore coverage remains next: a fixture send should persist its done divider and committed transcript before one provider start, include the admitted worktree's exact changed-file list in the minimal brief, and preserve restart, cancellation and stale-result behavior. Current runtime evidence proves cancellation of a real restore only.
