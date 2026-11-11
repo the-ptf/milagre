@@ -81,6 +81,17 @@ fn the_top_row_is_the_same_height_and_place_in_all_four_states(cx: &mut TestAppC
 }
 
 #[gpui::test]
+fn a_short_gradient_fades_the_sidebar_into_the_page_in_the_top_row(cx: &mut TestAppContext) {
+    let (_workspace, cx) = testing::mount_workspace(cx);
+    let fade = cx.debug_bounds("top-row-fade").expect("the fade is drawn");
+    assert_eq!((fade.origin.x, fade.origin.y, fade.size.width, fade.size.height), (px(305.0), px(0.0), px(top_bar::EDGE_FADE), px(44.0)));
+    assert!(fade.size.width < px(top_bar::HEADER_PAD), "shorter than the Chat header's padding");
+    cx.simulate_keystrokes("cmd-b");
+    let fade = cx.debug_bounds("top-row-fade").expect("and as a rail");
+    assert_eq!((fade.origin.x, fade.origin.y), (px(RAIL_WIDTH + 1.0), px(0.0)));
+}
+
+#[gpui::test]
 fn the_corner_has_one_toggle_that_opens_and_closes_the_side_panel(cx: &mut TestAppContext) {
     let (workspace, cx) = testing::mount_workspace(cx);
     let panel = workspace.read_with(cx, |w, _| w.panel.clone());

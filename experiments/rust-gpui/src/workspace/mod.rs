@@ -292,6 +292,7 @@ impl Render for Workspace {
             .when(self.link.is_none(), |el| el.child(self.sidebar.clone()).child(hairline(&theme)))
             .child(columns)
             // Over the columns' headers, under Settings and the overlays.
+            .children(self.edge_fade(cx))
             .child(self.top_bar(cx))
             .children(self.corner(cx))
             .child(self.notices.clone())

@@ -14,7 +14,7 @@
 
 use std::rc::Rc;
 
-use gpui::{AnyElement, App, IntoElement, Pixels, SharedString, Window, div, prelude::*, px};
+use gpui::{AnyElement, App, IntoElement, Pixels, SharedString, Window, div, linear_color_stop, linear_gradient, prelude::*, px};
 
 use super::keys::shortcut_hint;
 use crate::theme::{ActiveTheme, HEADER_HEIGHT, Theme};
@@ -81,6 +81,24 @@ pub struct Bar {
     pub on_search: Handler,
     /// Link Projects: the Link Projects dialog, then the new Link's workspace (`sidebar/hooks.rs`).
     pub on_link_projects: Handler,
+}
+
+/// How wide the fade is: shorter than the Chat header's own 16px padding, so it never tints the header's text.
+pub const EDGE_FADE: f32 = 12.0;
+
+/// Where the sidebar's background meets the page's, in the top row: a short horizontal gradient from the sidebar's
+/// background to the page's, on the page side of the edge (`edge` is the sidebar's width: its full width open, the
+/// rail's as a rail), so the row fades instead of ending in a hard edge. Draws over the Chat header, under the bar.
+pub fn edge_fade(edge: f32, theme: &Theme) -> AnyElement {
+    div()
+        .debug_selector(|| "top-row-fade".into())
+        .absolute()
+        .top_0()
+        .left(px(edge + 1.0))
+        .w(px(EDGE_FADE))
+        .h(HEADER_HEIGHT)
+        .bg(linear_gradient(90., linear_color_stop(theme.canvas, 0.), linear_color_stop(theme.page, 1.)))
+        .into_any_element()
 }
 
 /// The bar, positioned absolutely in the window's top-left. It occludes what is under it, so a press on it never

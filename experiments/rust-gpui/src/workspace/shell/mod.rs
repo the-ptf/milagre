@@ -134,6 +134,16 @@ impl Workspace {
         .detach();
     }
 
+    /// The fade where the sidebar's background meets the page's in the top row; none over the Link workspace, which
+    /// has no sidebar.
+    pub(super) fn edge_fade(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.link.is_some() {
+            return None;
+        }
+        let edge = if self.sidebar.read(cx).is_collapsed() { RAIL_WIDTH } else { SIDEBAR_WIDTH };
+        Some(top_bar::edge_fade(edge, cx.theme()))
+    }
+
     /// The bar beside the traffic lights, for the root to draw over the columns.
     pub(super) fn top_bar(&self, cx: &mut Context<Self>) -> AnyElement {
         let collapsed = self.sidebar.read(cx).is_collapsed();
