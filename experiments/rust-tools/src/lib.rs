@@ -15,7 +15,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, OnceLock,
+        Arc, Mutex, MutexGuard, OnceLock,
     },
 };
 
@@ -133,8 +133,52 @@ impl ContentOwner {
             wakes: Mutex::new(BTreeSet::new()),
         }))
     }
+    fn lock_fault(&self) -> MutexGuard<'_, Option<String>> {
+        match self.fault.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                self.active.store(false, Ordering::Release);
+                let mut guard = poisoned.into_inner();
+                guard.get_or_insert_with(|| {
+                    "Content owner stopped after a poisoned state lock.".into()
+                });
+                guard
+            }
+        }
+    }
+    fn latch_fault(&self, message: String) {
+        self.active.store(false, Ordering::Release);
+        self.lock_fault().get_or_insert(message);
+    }
+    fn lock_state<'a, T>(&self, mutex: &'a Mutex<T>) -> MutexGuard<'a, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                self.latch_fault("Content owner stopped after a poisoned state lock.".into());
+                poisoned.into_inner()
+            }
+        }
+    }
+    fn isolated<T>(&self, operation: impl FnOnce() -> Result<T>) -> Result<T> {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation)) {
+            Ok(result) => result,
+            Err(_) => {
+                // Panic payloads can contain document content or callback secrets.
+                // Never put them in the public tool/renderer error or fault latch.
+                let message="Content owner stopped after an internal panic. Close it before reopening its stores.";
+                self.latch_fault(message.into());
+                Err(Error::coded("CONTENT_OWNER_PANIC", message))
+            }
+        }
+    }
+    fn notice_poison(&self) {
+        if self.stores.is_poisoned() || self.wakes.is_poisoned() || self.fault.is_poisoned() {
+            self.latch_fault("Content owner stopped after a poisoned state lock.".into());
+        }
+    }
     fn check(&self) -> Result<()> {
-        if let Some(fault) = self.fault.lock().unwrap().clone() {
+        self.notice_poison();
+        if let Some(fault) = self.lock_fault().clone() {
             return Err(Error::new(fault));
         }
         if !self.active.load(Ordering::Acquire) {
@@ -143,15 +187,17 @@ impl ContentOwner {
                 "The content owner is closed.",
             ));
         }
-        (self.owner_active)()
+        self.isolated(|| (self.owner_active)())
     }
     fn caller_check(&self, caller: &Caller) -> Result<()> {
-        self.check()?;
-        (caller.assert_active)()?;
-        if (self.project_for_chat)(&caller.chat_id)? != caller.project_id {
-            return Err(Error::new("Chat outside the caller's Project scope."));
-        }
-        Ok(())
+        self.isolated(|| {
+            self.check()?;
+            (caller.assert_active)()?;
+            if (self.project_for_chat)(&caller.chat_id)? != caller.project_id {
+                return Err(Error::new("Chat outside the caller's Project scope."));
+            }
+            Ok(())
+        })
     }
     pub fn session(self: &Arc<Self>, caller: Caller) -> Result<Dispatcher> {
         self.session_with_policy(caller, PolicyOptions::default())
@@ -161,65 +207,70 @@ impl ContentOwner {
         caller: Caller,
         options: PolicyOptions,
     ) -> Result<Dispatcher> {
-        let caller = normalize_caller(&self.isolation, caller)?;
-        let _lane = self.stores.lock().unwrap();
-        self.caller_check(&caller)?;
-        let policy = HostPolicy::new(&caller, options)?;
-        if let Some(wake) = policy.wake_id() {
-            let mut wakes = self.wakes.lock().unwrap();
-            if wakes.len() >= 256 || !wakes.insert(wake.into()) {
-                return Err(Error::coded(
-                    "UNSUPPORTED_POLICY",
-                    "Wake already admitted or owner wake limit reached.",
-                ));
+        self.isolated(|| {
+            let caller = normalize_caller(&self.isolation, caller)?;
+            let _lane = self.lock_state(&self.stores);
+            self.caller_check(&caller)?;
+            let policy = HostPolicy::new(&caller, options)?;
+            if let Some(wake) = policy.wake_id() {
+                let mut wakes = self.lock_state(&self.wakes);
+                self.check()?;
+                if wakes.len() >= 256 || !wakes.insert(wake.into()) {
+                    return Err(Error::coded(
+                        "UNSUPPORTED_POLICY",
+                        "Wake already admitted or owner wake limit reached.",
+                    ));
+                }
             }
-        }
-        Ok(Dispatcher {
-            caller,
-            owner: self.clone(),
-            policy,
+            Ok(Dispatcher {
+                caller,
+                owner: self.clone(),
+                policy,
+            })
         })
     }
+
     fn with_stores<T>(
         &self,
         caller: &Caller,
         operation: impl FnOnce(&mut ArtifactStore, &mut DesignKits) -> Result<T>,
     ) -> Result<T> {
-        let mut lane = self.stores.lock().unwrap();
-        self.caller_check(caller)?;
-        let stores = lane
-            .as_mut()
-            .ok_or_else(|| Error::new("The content owner is closed."))?;
-        let is_open = self.active.clone();
-        let caller_guard = caller.assert_active.clone();
-        let global = self.owner_active.clone();
-        let project = self.project_for_chat.clone();
-        let chat = caller.chat_id.clone();
-        let expected = caller.project_id.clone();
-        let guard: ActiveCheck = Arc::new(move || {
-            if !is_open.load(Ordering::Acquire) {
-                return Err(Error::coded(
-                    "CONTENT_OWNER_INACTIVE",
-                    "The content owner is closed.",
-                ));
-            }
-            global()?;
-            caller_guard()?;
-            if project(&chat)? != expected {
-                return Err(Error::new("Chat outside the caller's Project scope."));
-            }
-            Ok(())
-        });
-        let mut artifacts = stores.artifacts.authorized(guard.clone());
-        let mut kits = stores.kits.authorized(guard);
-        let result = operation(&mut artifacts, &mut kits).and_then(|value| {
+        let mut lane = self.lock_state(&self.stores);
+        let result = self.isolated(|| {
             self.caller_check(caller)?;
-            Ok(value)
+            let stores = lane
+                .as_mut()
+                .ok_or_else(|| Error::new("The content owner is closed."))?;
+            let is_open = self.active.clone();
+            let caller_guard = caller.assert_active.clone();
+            let global = self.owner_active.clone();
+            let project = self.project_for_chat.clone();
+            let chat = caller.chat_id.clone();
+            let expected = caller.project_id.clone();
+            let guard: ActiveCheck = Arc::new(move || {
+                if !is_open.load(Ordering::Acquire) {
+                    return Err(Error::coded(
+                        "CONTENT_OWNER_INACTIVE",
+                        "The content owner is closed.",
+                    ));
+                }
+                global()?;
+                caller_guard()?;
+                if project(&chat)? != expected {
+                    return Err(Error::new("Chat outside the caller's Project scope."));
+                }
+                Ok(())
+            });
+            let mut artifacts = stores.artifacts.authorized(guard.clone());
+            let mut kits = stores.kits.authorized(guard);
+            operation(&mut artifacts, &mut kits).and_then(|value| {
+                self.caller_check(caller)?;
+                Ok(value)
+            })
         });
         if let Err(error) = &result {
             if fatal(error) {
-                *self.fault.lock().unwrap() =
-                    Some(format!("Content storage stopped: {}", error.message));
+                self.latch_fault(format!("Content storage stopped: {}", error.message));
             }
         }
         result
@@ -262,13 +313,21 @@ impl ContentOwner {
         })
     }
     pub fn storage_fault(&self) -> Option<String> {
-        self.fault.lock().unwrap().clone()
+        self.notice_poison();
+        self.lock_fault().clone()
     }
     /// Invalidates every retained session and releases content-store locks before
     /// the runtime releases its outer owner lock. Idempotent.
     pub fn shutdown(&self) {
         self.active.store(false, Ordering::Release);
-        self.stores.lock().unwrap().take();
+        self.notice_poison();
+        let stores = self.lock_state(&self.stores).take();
+        // Release the lane before running any field destructors. Even a faulty
+        // trusted Runtime destructor must not escape shutdown.
+        let _ = self.isolated(|| {
+            drop(stores);
+            Ok(())
+        });
     }
 }
 fn fatal(error: &Error) -> bool {
@@ -863,3 +922,6 @@ fn concise(e: &Error) -> String {
         e.message.clone()
     }
 }
+
+#[cfg(test)]
+mod panic_tests;
