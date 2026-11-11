@@ -553,11 +553,11 @@ fn files_lists_the_prs_files_as_a_tree_and_a_click_shows_the_diff(cx: &mut TestA
     assert!(!drawn(cx, "pr-diff-pane"));
     click(cx, selector);
     assert_eq!(pr.read_with(cx, |pr, _| pr.selected()).as_deref(), Some(header));
-    assert!(drawn(cx, "pr-diff-pane") && drawn(cx, "pr-diff-body"));
-    assert!(drawn(cx, "pr-threads"), "its review thread sits above the diff");
+    assert!(drawn(cx, "pr-diff-pane") && drawn(cx, "diff-body"));
+    assert!(drawn(cx, "diff-threads"), "its review thread sits under its line in the diff");
     assert!(drawn(cx, "pr-thread-thread-1"));
     assert!(drawn(cx, "pr-review-bar"), "an open PR gets the review bar");
-    click(cx, "pr-diff-close");
+    click(cx, "diff-back");
     assert!(!drawn(cx, "pr-diff-pane"));
     assert_eq!(pr.read_with(cx, |pr, _| pr.selected()), None);
 }

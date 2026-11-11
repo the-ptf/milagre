@@ -2,10 +2,10 @@
 //! Reply (added to the viewer's pending review), Resolve and Fix in Chat, and the bar that submits the review with a
 //! verdict and an optional summary.
 //!
-//! The desktop draws a thread under its line in the diff (WP-31); here the picked file's threads gather in a strip
-//! above its diff, which is where the desktop puts the ones no row carries (outdated, or outside the hunks). The bar
-//! floats over the diff's bottom edge, as it does there, but picks its verdict with the segmented control rather
-//! than a select, because a select's menu would open below the window.
+//! The diff view draws each thread under its line through [`PrView::thread_card`] (the ones no row carries,
+//! outdated or outside the hunks, gather under their file). The bar floats over the diff's bottom edge, as it does
+//! there, but picks its verdict with the segmented control rather than a select, because a select's menu would open
+//! below the window.
 
 use std::collections::HashMap;
 
@@ -123,39 +123,8 @@ impl PrView {
         cx.emit(PrEvent::FixInChat(message));
     }
 
-    /// The strip of the picked file's threads above its diff.
-    pub(super) fn thread_cards(
-        &self,
-        pr: &PullRequestDetail,
-        path: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let theme = *cx.theme();
-        let threads: Vec<&Thread> = pr.threads.iter().filter(|thread| thread.path == path).collect();
-        if threads.is_empty() {
-            return None;
-        }
-        let cards: Vec<AnyElement> = threads.into_iter().map(|thread| self.thread_card(thread, &theme, window, cx)).collect();
-        Some(
-            div()
-                .id("pr-threads")
-                .debug_selector(|| "pr-threads".to_string())
-                .flex()
-                .flex_col()
-                .flex_none()
-                .gap(px(8.0))
-                .max_h(px(260.0))
-                .overflow_y_scroll()
-                .p(px(12.0))
-                .border_b_1()
-                .border_color(theme.line)
-                .children(cards)
-                .into_any_element(),
-        )
-    }
-
-    fn thread_card(&self, thread: &Thread, theme: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    /// One thread's card, as the diff draws it under its line.
+    pub(super) fn thread_card(&self, thread: &Thread, theme: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = *theme;
         let now = now_ms();
         let state = thread_state(thread);

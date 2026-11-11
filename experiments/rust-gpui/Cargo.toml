@@ -66,6 +66,11 @@ alacritty_terminal = { version = "=0.26.0", default-features = false }
 async-channel = "2"
 # Which process a Terminal runs in front (`tcgetpgrp`, `proc_name`), so closing a busy one asks first. Already in the tree.
 libc = "0.2"
+# Diff rows (src/workspace/panel/diff/highlight.rs): syntect over each hunk side, with two-face's grammars. The same
+# versions and features gpui-component's `syntect` feature already builds, so no new crate; its own highlighter
+# function is crate-private.
+syntect = { version = "5.3.0", default-features = false, features = ["parsing", "default-syntaxes", "regex-fancy"] }
+two-face = { version = "0.4.5", default-features = false, features = ["syntect-fancy"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Already in GPUI's tree at this version; used by src/snapshot.rs to find the window's NSView.

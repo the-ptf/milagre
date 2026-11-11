@@ -8,7 +8,8 @@
 //! optimistic `write(label, run, optimistic)`) and keeps while the bridge answers.
 
 use super::model::{
-    Comment, Label, MergeMethod, PrFile, PullRequestDetail, PullState, RepoLabel, ReviewEvent, Reviewer, ReviewerState, now_ms,
+    Comment, Label, MergeMethod, PrFile, PullRequestDetail, PullState, RepoLabel, ReviewEvent, Reviewer, ReviewerState, Side, Thread,
+    now_ms,
 };
 use crate::logic::diff::git::DiffFileResult;
 
@@ -35,6 +36,14 @@ pub enum Write {
     },
     Reply {
         thread: String,
+        body: String,
+    },
+    /// `pr:comment`: a new thread on lines of a file (`start_line` for a range), in the viewer's pending review.
+    Comment {
+        path: String,
+        side: Side,
+        line: u32,
+        start_line: Option<u32>,
         body: String,
     },
     Resolve {
@@ -102,6 +111,25 @@ pub fn apply(pr: &PullRequestDetail, write: &Write) -> PullRequestDetail {
                 thread.comments.push(Comment { id, author: next.author.clone(), body: body.clone(), created_at: now_ms(), pending: true });
                 next.pending_review = Some(next.pending_review.unwrap_or(0) + 1);
             }
+        }
+        Write::Comment { path, side, line, body, .. } => {
+            let id = format!("pending-{}", next.threads.len() + 1);
+            next.threads.push(Thread {
+                id: id.clone(),
+                path: path.clone(),
+                line: Some(*line),
+                side: *side,
+                resolved: false,
+                outdated: false,
+                comments: vec![Comment {
+                    id: format!("{id}-1"),
+                    author: next.author.clone(),
+                    body: body.clone(),
+                    created_at: now_ms(),
+                    pending: true,
+                }],
+            });
+            next.pending_review = Some(next.pending_review.unwrap_or(0) + 1);
         }
         Write::Resolve { thread, resolved } => {
             if let Some(thread) = next.threads.iter_mut().find(|entry| &entry.id == thread) {

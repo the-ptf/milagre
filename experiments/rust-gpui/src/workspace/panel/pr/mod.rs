@@ -7,9 +7,10 @@
 //! - Checks bar and the Summary / Files switch (`tabs.rs`).
 //! - Summary (`summary.rs`): reviewers and labels with their pickers (`properties.rs`), then Description (GitHub's
 //!   HTML through `github_html_to_markdown`), Checks and Comments, each a folding section.
-//! - Files (`files.rs`): the PR's files as the folder tree; a click shows a plain read-only unified diff under the
-//!   list, with the file's review threads and the review bar (`review.rs`). Split, wrap, line comments and threads
-//!   under their lines wait for WP-31 (the diff view).
+//! - Files (`files.rs`): the PR's files as the folder tree; a click opens the diff view under the list
+//!   (`workspace::panel::diff`, WP-31) with every file of the PR, scrolled to the one picked, its review threads
+//!   under their lines and the review bar over its bottom (`review.rs`). A line comment there goes to the viewer's
+//!   pending review ("Add to review") or waits for the Chat ("Send to Chat", then "Send N comments").
 //!
 //! One [`PrView`] serves every Chat: [`PrView::set_chat`] reads the PR the Chat names through the [`bridge::PrBridge`]
 //! (the fixture today) and brings back that PR's own tab, folds and picked file. Writes show at once and then go to
@@ -38,18 +39,19 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui::{AnyElement, Context, Entity, EventEmitter, ScrollHandle, SharedString, Task, Window, div, prelude::*, px, relative};
+use gpui::{
+    AnyElement, Context, Entity, EventEmitter, ScrollHandle, SharedString, Subscription, Task, Window, div, prelude::*, px, relative,
+};
 use gpui_base::TextViewState;
 
 use self::bridge::{PrBridge, Write, apply};
 use self::fixture::{FixtureBridge, Variant};
 use self::model::{MergeMethod, PullRequestDetail, ReviewEvent, repo_of};
 use self::review::ReviewForm;
-use crate::logic::diff::git::DiffFileResult;
 use crate::logic::files::github_markdown::github_html_to_markdown;
 use crate::theme::{ActiveTheme, TEXT_12, TextStepExt};
 use crate::ui::{EmptySize, EmptyState, IconName, ScrollArea, SpinnerRing};
-use crate::workspace::panel::changes::diff::DiffPane;
+use crate::workspace::panel::diff::DiffView;
 
 /// What the PR tab asks of the rest of the window.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,7 +130,14 @@ pub struct PrView {
     busy: Option<&'static str>,
     write_error: Option<String>,
     texts: HashMap<String, Entity<TextViewState>>,
-    diff: Option<DiffPane>,
+    /// The diff view, made on the first pick, and the PR and file it was opened on (if it is open).
+    diff: Option<Entity<DiffView>>,
+    diff_open: Option<SharedString>,
+    /// The file whose header the diff has pinned: the tree marks it.
+    visible: Option<String>,
+    /// What the diff's thread rows were last drawn from, so they are measured again only when it changes.
+    diff_threads: String,
+    _diff_sub: Option<Subscription>,
     review: ReviewForm,
     scroll: ScrollHandle,
     seeded: bool,
@@ -158,6 +167,10 @@ impl PrView {
             write_error: None,
             texts: HashMap::new(),
             diff: None,
+            diff_open: None,
+            visible: None,
+            diff_threads: String::new(),
+            _diff_sub: None,
             review: ReviewForm::default(),
             scroll: ScrollHandle::new(),
             seeded: false,
@@ -182,7 +195,7 @@ impl PrView {
     }
 
     fn load(&mut self, cx: &mut Context<Self>) {
-        self.diff = None;
+        self.diff_open = None;
         self.texts.clear();
         match self.number.map(|number| self.bridge.detail(number)) {
             Some(Ok(detail)) => {
@@ -324,30 +337,46 @@ impl PrView {
 
     pub fn close_file(&mut self, cx: &mut Context<Self>) {
         self.state_mut().selected = None;
-        self.diff = None;
+        self.diff_open = None;
+        self.visible = None;
         cx.notify();
     }
 
+    /// The diff view while it is open.
+    pub fn diff_view(&self) -> Option<Entity<DiffView>> {
+        self.diff_open.as_ref().and(self.diff.clone())
+    }
+
+    /// The file the diff has pinned at the top, which the tree marks.
+    pub fn visible_path(&self) -> Option<&str> {
+        self.visible.as_deref()
+    }
+
     fn rebuild_diff(&mut self, cx: &mut Context<Self>) {
-        let (Some(pr), Some(number)) = (&self.detail, self.number) else {
-            self.diff = None;
+        let (Some(pr), Some(number)) = (self.detail.clone(), self.number) else {
+            self.diff_open = None;
             return;
         };
         let Some(path) = self.state().selected else {
-            self.diff = None;
+            self.diff_open = None;
             return;
         };
-        let Some(file) = pr.files.iter().find(|file| file.path == path) else {
+        if !pr.files.iter().any(|file| file.path == path) {
             self.state_mut().selected = None;
-            self.diff = None;
-            return;
-        };
-        let key: SharedString = format!("{number}:{path}").into();
-        if self.diff.as_ref().is_some_and(|pane| pane.key == key) {
+            self.diff_open = None;
             return;
         }
-        let patch: Option<DiffFileResult> = self.bridge.file_patch(number, file);
-        self.diff = Some(DiffPane::build(key, &path, patch.as_ref(), crate::workspace::panel::changes::Layout::Unified, cx));
+        let key: SharedString = format!("{}:{number}:{path}", self.chat).into();
+        if self.diff_open.as_ref() == Some(&key) {
+            return;
+        }
+        let diff = self.diff_entity(cx);
+        let source = files::diff_source(&self.chat, &pr, number, self.bridge.clone());
+        diff.update(cx, |diff, cx| diff.set_source(source, Some(&path), cx));
+        self.diff_threads.clear();
+        self.visible = Some(path);
+        self.diff_open = Some(key);
+        self.sync_diff_threads(cx);
     }
 
     /// Runs a write: shows its change at once, asks the bridge, and takes the change back with the reason if the
@@ -369,6 +398,7 @@ impl PrView {
         };
         self.rebuild_texts(cx);
         self.rebuild_diff(cx);
+        self.sync_diff_threads(cx);
         cx.notify();
         ok
     }
@@ -474,7 +504,7 @@ impl Render for PrView {
         let root = div().id("pr-view").debug_selector(|| "pr-root".to_string()).flex().flex_col().size_full().text_color(theme.ink);
         let Some(pr) = self.detail.clone() else { return root.child(self.notice(&theme)) };
         let state = self.state();
-        let diff_open = state.tab == PrTab::Files && self.diff.is_some();
+        let diff_open = state.tab == PrTab::Files && self.diff_open.is_some();
         let content = match state.tab {
             PrTab::Summary => self.summary(&pr, &state, window, cx),
             PrTab::Files => self.files(&pr, &state, cx),
@@ -494,6 +524,9 @@ impl Render for PrView {
             .when(diff_open, |el| el.flex_none().h(relative(LIST_SHARE)))
             .when(!diff_open, |el| el.flex_1())
             .child(ScrollArea::new("pr-scroll", &self.scroll).child(column));
+        if diff_open {
+            self.sync_diff_threads(cx);
+        }
         let pane = diff_open.then(|| self.diff_pane(&pr, window, cx));
         root.child(list).children(pane)
     }

@@ -1,20 +1,23 @@
 //! The Files tab (`Files`, `FileTree` in `PullRequestPanel.tsx`): the PR's files as the folder tree, each with the
-//! open review threads on it and its counts. A click shows the file's diff under the list: a plain read-only
-//! unified diff (gpui-component's `Diff`, as the Changes panel draws it) with the file's review threads above it
-//! and the review bar floating over it. Split, wrap, line comments and threads under their lines wait for WP-31.
+//! open review threads on it and its counts. A click opens the diff view (`workspace::panel::diff`) under the list
+//! with every file of the PR, scrolled to the one picked: review threads under their lines (the ones no row carries
+//! below their file), line comments, and the review bar floating over its bottom.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
-use gpui::{AnyElement, ClickEvent, Context, Window, div, prelude::*, px};
-use gpui_component::diff::Diff;
+use gpui::{AnyElement, AnyView, ClickEvent, Context, Entity, SharedString, StyleRefinement, Window, div, prelude::*, px};
 
-use super::model::{PrFile, PullRequestDetail, PullState, open_threads};
-use super::{PrView, ViewState};
+use super::bridge::{PrBridge, Write};
+use super::model::{PrFile, PullRequestDetail, PullState, Side, open_threads};
+use super::{PrEvent, PrView, ViewState};
 use crate::logic::diff::build_diff_tree;
+use crate::logic::diff::git::DiffFileEntry;
 use crate::logic::diff::tree::{Counted, DiffTreeNode};
-use crate::theme::{ActiveTheme, TEXT_11, TEXT_12, TextStepExt, Theme, mono};
-use crate::ui::{EmptySize, EmptyState, Icon, IconButton, IconButtonSize, IconName, IconSize};
+use crate::theme::{ActiveTheme, TEXT_11, TEXT_12, TextStepExt, Theme};
+use crate::ui::{EmptySize, EmptyState, Icon, IconName, IconSize};
 use crate::workspace::panel::changes::files::counts_inline;
+use crate::workspace::panel::diff::{ChangesMode, DiffEvent, DiffSide, DiffSource, DiffView, ThreadAnchor, ThreadRenderer};
 
 const ROW: f32 = 28.0;
 /// Left padding of a row, and what each depth adds (`12 + depth * 12`).
@@ -101,7 +104,8 @@ impl PrView {
                 .into_any_element()
             }
             Row::File { name, file, depth } => {
-                let active = state.selected.as_deref() == Some(file.path.as_str());
+                // While the diff is open, the file whose header it has pinned.
+                let active = self.visible.as_deref().or(state.selected.as_deref()) == Some(file.path.as_str());
                 let path = file.path.clone();
                 let threads = counts.get(&file.path).copied().filter(|n| *n > 0);
                 base.debug_selector({
@@ -143,61 +147,86 @@ impl PrView {
         }
     }
 
-    /// The picked file's diff: a 32px header (path, counts, close), its review threads, the diff, and the review bar.
+    /// The diff view, made on the first pick, and its events.
+    pub(super) fn diff_entity(&mut self, cx: &mut Context<Self>) -> Entity<DiffView> {
+        if let Some(diff) = &self.diff {
+            return diff.clone();
+        }
+        let diff = cx.new(DiffView::new);
+        self._diff_sub = Some(cx.subscribe(&diff, |this, _, event: &DiffEvent, cx| match event {
+            DiffEvent::Close => this.close_file(cx),
+            DiffEvent::Send(message) => {
+                // Back to the Chat first, so the message shows up as it lands.
+                this.close_file(cx);
+                cx.emit(PrEvent::FixInChat(message.clone()));
+            }
+            DiffEvent::AddToReview { path, selection, body } => {
+                let side = match selection.side {
+                    DiffSide::Old => Side::Left,
+                    DiffSide::New => Side::Right,
+                };
+                let start = (selection.start != selection.end).then_some(selection.start);
+                this.write(
+                    "comment",
+                    Write::Comment { path: path.clone(), side, line: selection.end, start_line: start, body: body.clone() },
+                    cx,
+                );
+            }
+            DiffEvent::VisibleFile(path) => {
+                if this.visible != *path {
+                    this.visible = path.clone();
+                    cx.notify();
+                }
+            }
+            DiffEvent::Refresh => {}
+        }));
+        self.diff = Some(diff.clone());
+        diff
+    }
+
+    /// Gives the diff the PR's threads and how to draw them, when they (or a fold, or the reply field) changed.
+    pub(super) fn sync_diff_threads(&mut self, cx: &mut Context<Self>) {
+        let (Some(diff), Some(pr)) = (self.diff_view(), &self.detail) else { return };
+        let key = format!("{:?}{:?}{:?}", pr.threads, self.review.folded, self.review.replying);
+        if key == self.diff_threads {
+            return;
+        }
+        self.diff_threads = key;
+        let anchors: Vec<ThreadAnchor> = pr
+            .threads
+            .iter()
+            .map(|thread| ThreadAnchor {
+                id: thread.id.clone(),
+                path: thread.path.clone(),
+                line: thread.line,
+                side: match thread.side {
+                    Side::Left => DiffSide::Old,
+                    Side::Right => DiffSide::New,
+                },
+            })
+            .collect();
+        let view = cx.entity().downgrade();
+        let renderer: ThreadRenderer = Rc::new(move |ids: &[String], window: &mut Window, cx: &mut gpui::App| {
+            let ids = ids.to_vec();
+            view.update(cx, |this, cx| {
+                let theme = *cx.theme();
+                let Some(pr) = this.detail.clone() else { return div().into_any_element() };
+                let cards: Vec<AnyElement> = ids
+                    .iter()
+                    .filter_map(|id| pr.threads.iter().find(|t| &t.id == id))
+                    .map(|thread| this.thread_card(thread, &theme, window, cx))
+                    .collect();
+                div().flex().flex_col().gap(px(8.0)).children(cards).into_any_element()
+            })
+            .unwrap_or_else(|_| div().into_any_element())
+        });
+        diff.update(cx, |diff, cx| diff.set_threads(anchors, Some(renderer), cx));
+    }
+
+    /// The picked file's diff (the diff view, its own cached view) and the review bar over its bottom.
     pub(super) fn diff_pane(&self, pr: &PullRequestDetail, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = *cx.theme();
-        let Some(pane) = &self.diff else { return div().into_any_element() };
-        let file = pr.files.iter().find(|file| file.path == pane.path.as_ref());
-        let (dir, name) = match pane.path.rsplit_once('/') {
-            Some((dir, name)) => (Some(dir.to_string()), name.to_string()),
-            None => (None, pane.path.to_string()),
-        };
-        let header = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .h(px(32.0))
-            .pl(px(12.0))
-            .pr(px(8.0))
-            .gap(px(8.0))
-            .border_t_1()
-            .border_b_1()
-            .border_color(theme.line)
-            .child(
-                div()
-                    .flex()
-                    .min_w_0()
-                    .flex_1()
-                    .items_center()
-                    .gap(px(6.0))
-                    .text_step(TEXT_12)
-                    .child(div().flex_none().font_family(mono()).text_color(theme.ink).child(name))
-                    .when_some(dir, |el, dir| el.child(div().min_w_0().truncate().text_color(theme.ink3).child(dir))),
-            )
-            .when_some(file.filter(|_| pane.state.is_some()), |el, file| el.child(counts_inline(&theme, file.added(), file.removed())))
-            .child(
-                IconButton::new("pr-diff-close", IconName::Cancel01)
-                    .size(IconButtonSize::S24)
-                    .on_click(cx.listener(|this, _, _window, cx| this.close_file(cx))),
-            );
-        let body: AnyElement = match &pane.state {
-            Some(state) => div()
-                .id("pr-diff-body")
-                .debug_selector(|| "pr-diff-body".to_string())
-                .relative()
-                .flex_1()
-                .min_h_0()
-                .overflow_hidden()
-                .child(Diff::new(state).header_visible(false))
-                .into_any_element(),
-            None => div()
-                .flex_1()
-                .min_h_0()
-                .child(EmptyState::new().size(EmptySize::Compact).title(pane.note.unwrap_or("Nothing to show.")))
-                .into_any_element(),
-        };
-        let path = pane.path.to_string();
-        let threads = self.thread_cards(pr, &path, window, cx);
+        let Some(diff) = self.diff_view() else { return div().into_any_element() };
         let bar = (pr.state == PullState::Open).then(|| self.review_bar(pr, window, cx));
         div()
             .debug_selector(|| "pr-diff-pane".to_string())
@@ -206,10 +235,38 @@ impl PrView {
             .flex_col()
             .flex_1()
             .min_h_0()
-            .child(header)
-            .children(threads)
-            .child(body)
+            .border_t_1()
+            .border_color(theme.line)
+            .child(div().flex_1().min_h_0().child(AnyView::from(diff).cached(StyleRefinement::default().size_full())))
             .children(bar)
             .into_any_element()
+    }
+}
+
+/// The PR's files as the diff view reads them, and their patches through the bridge (`pr:diff-file`).
+pub fn diff_source(chat: &SharedString, pr: &PullRequestDetail, number: u32, bridge: Rc<dyn PrBridge>) -> DiffSource {
+    let files: Vec<DiffFileEntry> = pr
+        .files
+        .iter()
+        .map(|file| DiffFileEntry {
+            path: file.path.clone(),
+            old_path: None,
+            status: file.status,
+            added: file.additions,
+            removed: file.deletions,
+            binary: false,
+            untracked: false,
+        })
+        .collect();
+    let by_path: HashMap<String, PrFile> = pr.files.iter().map(|f| (f.path.clone(), f.clone())).collect();
+    DiffSource {
+        chat: chat.clone(),
+        mode: ChangesMode::Pr,
+        base: Some(format!("PR #{}", pr.number)),
+        files,
+        loader: Rc::new(move |entry| by_path.get(&entry.path).and_then(|file| bridge.file_patch(number, file))),
+        back_label: SharedString::default(),
+        review: pr.state == PullState::Open,
+        comments: true,
     }
 }

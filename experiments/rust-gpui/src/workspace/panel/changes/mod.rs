@@ -4,16 +4,17 @@
 //!   the branches `logic::diff::git::comparison_options` lists) beside the current branch, and the Files /
 //!   Commits segmented control.
 //! - Files: the list "Not committed" and the list "On this branch", each flat up to ten files and the folder
-//!   tree beyond (`files.rs`); a click shows the file's diff under the lists (`diff.rs`).
-//! - Commits: the commits since the base; a click opens one with its files (`commits.rs`).
+//!   tree beyond (`files.rs`); a click opens the diff view under the lists (`workspace::panel::diff`, WP-31) with
+//!   every file of that list, scrolled to the one picked; the list marks the file whose header is pinned.
+//! - Commits: the commits since the base; a click opens one with its files (`commits.rs`), and a file of it opens
+//!   the commit's files in the diff view, read-only.
 //!
 //! One [`ChangesView`] serves every Chat: [`ChangesView::set_chat`] swaps the data and brings back that Chat's
 //! own view, picked file, comparison and folded folders. It is mounted as a cached view by the panel, so it
 //! renders only when something it shows changes (typing in the composer never reaches it).
 //!
-//! Not built here (later packages, seams marked in `diff.rs`): line comments and the pinned file header
-//! (WP-31), the PR tabs and panel (WP-32), the Link variant, the refresh button and the "branch no longer
-//! exists" notice.
+//! "Send N comments" in the diff is a [`ChangesEvent::SendToChat`], which the panel sends to the Chat as it sends
+//! "Fix in Chat". Not built here: the Link variant, the refresh button and the "branch no longer exists" notice.
 
 pub mod commits;
 pub mod data;
@@ -26,10 +27,12 @@ mod tests;
 
 use std::collections::{HashMap, HashSet};
 
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, ScrollHandle, SharedString, Window, div, prelude::*, px, relative};
+use gpui::{
+    AnyElement, AnyView, ClickEvent, Context, Entity, EventEmitter, FontWeight, ScrollHandle, SharedString, StyleRefinement, Subscription,
+    Window, div, prelude::*, px, relative,
+};
 
 use self::data::{ChangesData, Section, WorktreeChanges};
-use self::diff::DiffPane;
 use self::files::{RowEnv, counts_inline};
 use crate::logic::diff::git::{DiffFileEntry, comparison_options};
 use crate::theme::{ActiveTheme, CONTROL_XS, RADIUS_CONTROL, TEXT_11, TEXT_12, TextStepExt, Theme, mono};
@@ -37,6 +40,7 @@ use crate::ui::{
     EmptySize, EmptyState, Icon, IconName, IconSize, ScrollArea, SectionLabel, Segmented, SegmentedOption, Select, SelectOption,
     SelectVariant, Skeleton, Tooltip,
 };
+use crate::workspace::panel::diff::{DiffEvent, DiffLayout, DiffPrefs, DiffView};
 
 /// Files or Commits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -46,13 +50,32 @@ pub enum View {
     Commits,
 }
 
-/// How the diff lays its two sides out; remembered for the session (the desktop remembers it across launches).
+/// How the diff lays its two sides out: the session's [`DiffPrefs`], shared with every diff (the desktop remembers it
+/// across launches).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Layout {
     #[default]
     Unified,
     Split,
 }
+
+impl From<Layout> for DiffLayout {
+    fn from(layout: Layout) -> Self {
+        match layout {
+            Layout::Unified => DiffLayout::Unified,
+            Layout::Split => DiffLayout::Split,
+        }
+    }
+}
+
+/// What the Changes panel asks of the window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChangesEvent {
+    /// "Send N comments" in the diff: the message for the Chat.
+    SendToChat(String),
+}
+
+impl EventEmitter<ChangesEvent> for ChangesView {}
 
 /// Where a file was picked: one of the two lists, or a commit's files.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -97,24 +120,38 @@ pub struct ChangesView {
     chat: SharedString,
     data: ChangesData,
     states: HashMap<SharedString, ViewState>,
-    layout: Layout,
-    diff: Option<DiffPane>,
+    /// The diff view, made on the first pick, and what it shows (source key and path), if it is open.
+    diff: Option<Entity<DiffView>>,
+    diff_open: Option<SharedString>,
+    /// The file whose header the diff has pinned: the list marks it.
+    visible: Option<String>,
+    _diff_sub: Option<Subscription>,
     list_scroll: ScrollHandle,
     renders: usize,
 }
 
 impl ChangesView {
-    pub fn new(_cx: &mut Context<Self>) -> Self {
-        let layout = match std::env::var("MILAGRE_GPUI_CHANGES_LAYOUT").as_deref() {
-            Ok("split") if cfg!(not(test)) => Layout::Split,
-            _ => Layout::Unified,
-        };
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        if cfg!(not(test)) {
+            let layout = match std::env::var("MILAGRE_GPUI_CHANGES_LAYOUT").as_deref() {
+                Ok("split") => Some(DiffLayout::Split),
+                Ok("unified") => Some(DiffLayout::Unified),
+                _ => None,
+            };
+            let wrap = std::env::var("MILAGRE_GPUI_DIFF_WRAP").is_ok();
+            if layout.is_some() || wrap {
+                let prefs = DiffPrefs::get(cx);
+                cx.set_global(DiffPrefs { layout: layout.unwrap_or(prefs.layout), wrap: wrap || prefs.wrap });
+            }
+        }
         Self {
             chat: SharedString::default(),
             data: ChangesData::Loading,
             states: HashMap::new(),
-            layout,
             diff: None,
+            diff_open: None,
+            visible: None,
+            _diff_sub: None,
             list_scroll: ScrollHandle::new(),
             renders: 0,
         }
@@ -143,17 +180,25 @@ impl ChangesView {
         self.state().view
     }
 
-    pub fn layout(&self) -> Layout {
-        self.layout
+    pub fn layout(&self, cx: &gpui::App) -> Layout {
+        match DiffPrefs::get(cx).layout {
+            DiffLayout::Unified => Layout::Unified,
+            DiffLayout::Split => Layout::Split,
+        }
     }
 
     pub fn selected(&self) -> Option<&Selected> {
         self.states.get(&self.chat).and_then(|s| s.selected.as_ref())
     }
 
-    /// The `DiffState` of the file on screen, if there is one.
-    pub fn diff_state(&self) -> Option<gpui::Entity<gpui_component::diff::DiffState>> {
-        self.diff.as_ref().and_then(|pane| pane.state.clone())
+    /// The diff view while it is open.
+    pub fn diff_view(&self) -> Option<Entity<DiffView>> {
+        self.diff_open.as_ref().and(self.diff.clone())
+    }
+
+    /// The file the diff has pinned at the top, which the list marks.
+    pub fn visible_path(&self) -> Option<&str> {
+        self.visible.as_deref()
     }
 
     pub fn comparison(&self) -> SharedString {
@@ -181,13 +226,6 @@ impl ChangesView {
         self.states.entry(self.chat.clone()).or_default()
     }
 
-    fn changes(&self) -> Option<&WorktreeChanges> {
-        match &self.data {
-            ChangesData::Ready(changes) => Some(changes),
-            _ => None,
-        }
-    }
-
     pub fn set_view(&mut self, view: View, cx: &mut Context<Self>) {
         self.state_mut().view = view;
         self.rebuild_diff(cx);
@@ -195,12 +233,15 @@ impl ChangesView {
     }
 
     pub fn set_layout(&mut self, layout: Layout, cx: &mut Context<Self>) {
-        if self.layout == layout {
+        if self.layout(cx) == layout {
             return;
         }
-        self.layout = layout;
-        if let Some(pane) = &self.diff {
-            pane.set_layout(layout, cx);
+        match &self.diff {
+            Some(diff) => diff.update(cx, |diff, cx| diff.set_layout(layout.into(), cx)),
+            None => {
+                let prefs = DiffPrefs::get(cx);
+                cx.set_global(DiffPrefs { layout: layout.into(), ..prefs });
+            }
         }
         cx.notify();
     }
@@ -239,27 +280,64 @@ impl ChangesView {
 
     pub fn close_diff(&mut self, cx: &mut Context<Self>) {
         self.state_mut().selected = None;
-        self.diff = None;
+        self.diff_open = None;
+        self.visible = None;
         cx.notify();
     }
 
-    /// Builds the diff of the picked file, when the data has it and the view shows its list.
+    fn diff_entity(&mut self, cx: &mut Context<Self>) -> Entity<DiffView> {
+        if let Some(diff) = &self.diff {
+            return diff.clone();
+        }
+        let diff = cx.new(DiffView::new);
+        self._diff_sub = Some(cx.subscribe(&diff, |this, _, event: &DiffEvent, cx| match event {
+            DiffEvent::Close => this.close_diff(cx),
+            DiffEvent::Send(message) => {
+                this.close_diff(cx);
+                cx.emit(ChangesEvent::SendToChat(message.clone()));
+            }
+            DiffEvent::VisibleFile(path) => {
+                if this.visible != *path {
+                    this.visible = path.clone();
+                    cx.notify();
+                }
+            }
+            DiffEvent::Refresh | DiffEvent::AddToReview { .. } => {}
+        }));
+        self.diff = Some(diff.clone());
+        diff
+    }
+
+    /// Opens the diff on the picked file, when the data has it and the view shows its list.
     fn rebuild_diff(&mut self, cx: &mut Context<Self>) {
         let state = self.state();
-        let pane = match (&state.selected, self.changes()) {
-            (Some(selected), Some(changes)) if self.selection_listed(&state, selected, changes) => {
-                let key: SharedString = format!("{}:{}", selected.source.key(), selected.path).into();
-                if self.diff.as_ref().is_some_and(|pane| pane.key == key) {
-                    return;
-                }
-                Some(DiffPane::build(key, &selected.path, changes.patches.get(&selected.path), self.layout, cx))
+        let source = match (&state.selected, &self.data) {
+            (Some(selected), ChangesData::Ready(changes)) if self.selection_listed(&state, selected, changes) => {
+                diff::source_for(&self.chat, &selected.source, changes).map(|source| (selected.clone(), source))
             }
             _ => None,
         };
-        if pane.is_none() && state.selected.is_some() {
-            self.state_mut().selected = None;
+        let Some((selected, source)) = source else {
+            if state.selected.is_some() {
+                self.state_mut().selected = None;
+            }
+            self.diff_open = None;
+            self.visible = None;
+            return;
+        };
+        // A refresh (new data) shows the new patches even for the same pick.
+        let data = match &self.data {
+            ChangesData::Ready(changes) => std::rc::Rc::as_ptr(changes) as usize,
+            _ => 0,
+        };
+        let key: SharedString = format!("{}:{data:x}:{}:{}", self.chat, selected.source.key(), selected.path).into();
+        if self.diff_open.as_ref() == Some(&key) {
+            return;
         }
-        self.diff = pane;
+        let diff = self.diff_entity(cx);
+        diff.update(cx, |diff, cx| diff.set_source(source, Some(&selected.path), cx));
+        self.visible = Some(selected.path.clone());
+        self.diff_open = Some(key);
     }
 
     /// Whether the picked file is still in the list it was picked from, and that list is on screen.
@@ -272,16 +350,6 @@ impl ChangesView {
             }
             _ => false,
         }
-    }
-
-    fn selected_entry(&self) -> Option<DiffFileEntry> {
-        let selected = self.selected()?;
-        let changes = self.changes()?;
-        let files = match &selected.source {
-            Source::Section(section) => &changes.list(*section).files,
-            Source::Commit(sha) => &changes.commit_files.get(sha)?.files,
-        };
-        files.iter().find(|f| f.path == selected.path).cloned()
     }
 }
 
@@ -369,8 +437,8 @@ impl ChangesView {
             .px(px(HEADER_PAD))
             .gap(px(2.0))
             .child(counts)
-            .child(layout_button("layout-unified", Layout::Unified, self.layout == Layout::Unified, &theme, cx))
-            .child(layout_button("layout-split", Layout::Split, self.layout == Layout::Split, &theme, cx));
+            .child(layout_button("layout-unified", Layout::Unified, self.layout(cx) == Layout::Unified, &theme, cx))
+            .child(layout_button("layout-split", Layout::Split, self.layout(cx) == Layout::Split, &theme, cx));
 
         let history = &changes.history;
         let branch = history
@@ -481,7 +549,8 @@ impl ChangesView {
                         continue;
                     }
                     let source = Source::Section(section);
-                    let selected = state.selected.as_ref().filter(|s| s.source == source).map(|s| s.path.as_str());
+                    let selected =
+                        state.selected.as_ref().filter(|s| s.source == source).map(|s| self.visible.as_deref().unwrap_or(s.path.as_str()));
                     let env = RowEnv { theme: *theme, source: &source, selected, collapsed: &state.collapsed };
                     out.push(self.section_header(section, files, theme));
                     out.extend(files::rows(files, &env, cx));
@@ -501,7 +570,8 @@ impl ChangesView {
             View::Commits => {
                 let open = state.open_commit.as_deref();
                 let source = Source::Commit(open.unwrap_or_default().to_string());
-                let selected = state.selected.as_ref().filter(|s| s.source == source).map(|s| s.path.as_str());
+                let selected =
+                    state.selected.as_ref().filter(|s| s.source == source).map(|s| self.visible.as_deref().unwrap_or(s.path.as_str()));
                 let env = RowEnv { theme: *theme, source: &source, selected, collapsed: &state.collapsed };
                 commits::render(changes, open, &env, theme, cx)
             }
@@ -524,9 +594,17 @@ impl Render for ChangesView {
         };
         let header = self.header(&changes, cx);
         let rows = self.rows(&changes, &theme, cx);
-        let has_diff = self.diff.is_some();
-        let entry = self.selected_entry();
-        let diff = self.diff.as_ref().map(|pane| diff::render(pane, entry.as_ref(), cx));
+        let has_diff = self.diff_open.is_some();
+        // The diff is its own cached view: what changes in it (a scroll, a drag) never rebuilds the lists.
+        let diff = self.diff_view().map(|diff| {
+            div()
+                .debug_selector(|| "diff-pane".to_string())
+                .flex_1()
+                .min_h_0()
+                .border_t_1()
+                .border_color(theme.line)
+                .child(AnyView::from(diff).cached(StyleRefinement::default().size_full()))
+        });
         let list =
             div().relative().min_h_0().when(has_diff, |el| el.flex_none().h(relative(LIST_SHARE))).when(!has_diff, |el| el.flex_1()).child(
                 ScrollArea::new("changes-list", &self.list_scroll).child(div().flex().flex_col().w_full().py(px(6.0)).children(rows)),

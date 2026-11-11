@@ -548,11 +548,37 @@ WP-22 (2026-11-11): the activity fold and the tool rows, in `workspace/chat/tran
   (`dock_tests.rs`); a view mounted cached sees the first key after a mouse press as a refresh, so tests type once before measuring.
 - Changes (`panel/changes/`): `data.rs` panel-local input types over `logic::diff::git`; `fixture.rs` 13 files not committed, 3 on the
   branch, 5 commits, patches whose counts are computed and tested against gpui-component's parser; `files.rs` flat list (<=10 files) and
-  folder tree with A/M/D/R badges and count columns; `diff.rs` gpui-component `Diff` under the list (unified/split from the two toolbar
-  buttons); `commits.rs` the Commits view. Snapshot seeds (never in tests): `MILAGRE_GPUI_PANEL_WIDTH`, `MILAGRE_GPUI_CHANGES_FILE`,
-  `MILAGRE_GPUI_CHANGES_LAYOUT=split`.
-- Diff colours are gpui-component's `success`/`danger` at 12%/30%: exact in dark, 3 to 9 units off in light. Split columns keep their content
-  width and scroll sideways, so at 640px only the left side shows.
+  folder tree with A/M/D/R badges and count columns; `diff.rs` the source for the diff view (below); `commits.rs` the Commits view.
+  Snapshot seeds (never in tests): `MILAGRE_GPUI_PANEL_WIDTH`, `MILAGRE_GPUI_CHANGES_FILE`, `MILAGRE_GPUI_CHANGES_LAYOUT=split`,
+  `MILAGRE_GPUI_DIFF_WRAP=1`, `MILAGRE_GPUI_DIFF_COMMENTS=1` (a comment, an outdated one and an open editor).
+
+## Diff notes
+
+`workspace/panel/diff/` (WP-31, P-06, P-07, C-07) replaces gpui-component's `Diff` in both the Changes panel and the PR Files tab. It is
+our own rather than a wrap of `Diff` (the fit check's suggestion): sticky file headers, the held file, our parser's comment anchoring
+(`lib/diff-comments.ts`, ported with its vectors in `comments_tests.rs`) and DESIGN.md's `diff-*` colours each fought `Diff`'s internals.
+The module comment in `diff/mod.rs` lists the files and every deliberate difference from the DOM.
+
+- Every file of the list in one GPUI `list` (virtualized, variable heights): a file is its header, body rows and end, each row drawing its
+  slice of the card. The sticky header is a copy over the list's top, pushed up by the end of its card. Unified, split (always wraps, two
+  equal columns) and wrap; the choice is the session's `DiffPrefs` global, shared by every diff.
+- Syntax runs: syntect with gpui-component's grammars, mapped to the same Shiki buckets code blocks use (`ui::markdown::highlight`); word
+  marks from `logic::diff::word_changes` under them. Hunks up to 120 lines are highlighted in the frame; longer ones on a background thread,
+  400 lines at a time (syntect costs about 0.25 ms a TypeScript line here, 0.07 ms a Rust one), plain until their chunk lands.
+- The picked file is held at the top until the reader scrolls, presses or something else moves the list; patches load when their rows
+  come within 60 rows of the screen; files over 3,000 changed lines wait for "Show diff"; binary, too large, renamed and empty files say so.
+- Line comments: press the row's "+" and drag (Shift extends), the editor opens under the range (⌘↵ saves, Esc cancels); cards with
+  label, Outdated, a clamped body, Edit and Delete; outdated ones under their file, ones whose file left at the top. "Send N comments" sends
+  `formatCommentsMessage` to the Chat through `PanelEvent::FixInChat`. Kept per Chat in memory (the desktop's `localStorage`).
+- PR: threads under their lines through `PrView::thread_card`, the rest under the file; the editor's "Add to review" is `Write::Comment`.
+- Code selection is the diff's own (WP-16's `ui::selection` serialises Markdown): a drag selects text in one column, ⌘C copies it as lines.
+- Placement: under the panel's list, where the old pane was. The desktop draws it over the Chat column; that is a hook in
+  `workspace/mod.rs`, not built.
+
+10,000-line patch (`diff/tests.rs` `ten_thousand_line_patch_timing`, test platform, `cargo test --release -- --ignored --nocapture
+ten_thousand`, Apple M5 Pro, three runs): first frame after open and Show diff 4.4 to 7.9 ms; 240 scroll frames (200 screens down, 40
+back) median 1.08 ms, p95 1.12 to 1.15 ms, max 1.17 to 1.53 ms, about 125 rows drawn a frame; the whole file's syntax parse 2.4 s on the
+background thread. The test platform's text system has fixed advances and no GPU, so real frames cost more; not yet measured in a window.
 
 ## Daemon adapter
 
@@ -653,10 +679,10 @@ a `1120 × 800` `rounded-window` (`12px`) surface, a `248px` `bg-canvas` left na
   work package.
 - **Snapshot env var**: `MILAGRE_GPUI_SETTINGS=1` (or a section id such as `MILAGRE_GPUI_SETTINGS=general` or `models`)
   opens Settings on that section before snapshot capture.
-images and context. The default fixture's two Chats have no messages, so the sidebar mounted from it lists no row
-(the shared rule leaves empty starter Chats out). `real::populated::*` uses `FixtureGuard::launch_populated()` (Chat 1:
-two turns, 4 messages; Chat 2: one turn, 2): the sidebar draws exactly those two rows, Chat 2 first (`ChatOrder::Created`:
-newest first message first), and both transcripts and their before/turns/limit pages read in order.
+  images and context. The default fixture's two Chats have no messages, so the sidebar mounted from it lists no row
+  (the shared rule leaves empty starter Chats out). `real::populated::*` uses `FixtureGuard::launch_populated()` (Chat 1:
+  two turns, 4 messages; Chat 2: one turn, 2): the sidebar draws exactly those two rows, Chat 2 first (`ChatOrder::Created`:
+  newest first message first), and both transcripts and their before/turns/limit pages read in order.
 
 ## Cards notes
 

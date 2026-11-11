@@ -2,7 +2,7 @@
 //! the empty and loading states, and the per-Chat view.
 
 use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
-use gpui_component::diff::{DiffFile, DiffMode};
+use gpui_component::diff::DiffFile;
 
 use super::data::{ChangesData, Section};
 use super::files::{badge_colors, badge_letter};
@@ -12,6 +12,7 @@ use crate::logic::diff::git::DiffStatus;
 use crate::logic::diff::tree::Counted;
 use crate::testing::{self, leak};
 use crate::theme::Theme;
+use crate::workspace::panel::diff::DiffLayout;
 
 const PANEL: &str = "apps/desktop/app/src/components/changes/ChangesPanel.tsx";
 const TREE: &str = "apps/desktop/app/src/components/changes/DiffTree.tsx";
@@ -114,16 +115,22 @@ fn selecting_a_file_shows_its_diff_and_the_layout_buttons_switch_modes(cx: &mut 
     let list = cx.debug_bounds("changes-list").expect("the list");
     assert!(body.top() > list.bottom() - gpui::px(2.0), "below the list");
     let mode = |cx: &mut VisualTestContext| {
-        let pane = changes.read_with(cx, |c, _| c.diff_state());
-        pane.map(|state| state.read_with(cx, |s, _| s.mode()))
+        let view = changes.read_with(cx, |c, _| c.diff_view());
+        view.map(|view| view.read_with(cx, |v, _| v.layout()))
     };
-    assert_eq!(mode(cx), Some(DiffMode::Unified));
+    assert_eq!(mode(cx), Some(DiffLayout::Unified));
+    assert_eq!(
+        changes.read_with(cx, |c, _| c.visible_path().map(str::to_string)).as_deref(),
+        Some(PANEL),
+        "the list marks the picked file"
+    );
     click(cx, "layout-split".to_string());
-    assert_eq!(changes.read_with(cx, |c, _| c.layout()), Layout::Split);
-    assert_eq!(mode(cx), Some(DiffMode::Split));
-    click(cx, "layout-unified".to_string());
-    assert_eq!(mode(cx), Some(DiffMode::Unified));
-    click(cx, "diff-close".to_string());
+    assert_eq!(changes.read_with(cx, |c, cx| c.layout(cx)), Layout::Split);
+    assert_eq!(mode(cx), Some(DiffLayout::Split));
+    click(cx, "diff-layout-unified".to_string());
+    assert_eq!(mode(cx), Some(DiffLayout::Unified), "the diff bar's toolbar switches it too");
+    assert_eq!(changes.read_with(cx, |c, cx| c.layout(cx)), Layout::Unified);
+    click(cx, "diff-back".to_string());
     assert!(cx.debug_bounds("diff-pane").is_none());
 }
 
@@ -132,8 +139,7 @@ fn a_binary_file_says_so_instead_of_drawing_a_diff(cx: &mut TestAppContext) {
     let (changes, cx) = mount(cx);
     click(cx, "file-u-apps/desktop/app/public/milagre-mark.png".to_string());
     assert!(cx.debug_bounds("diff-pane").is_some());
-    assert!(cx.debug_bounds("diff-body").is_none(), "no diff view for a binary file");
-    assert!(cx.debug_bounds("empty-state").is_some());
+    assert!(cx.debug_bounds("diff-message-apps/desktop/app/public/milagre-mark.png").is_some(), "the binary file says so in the diff");
     assert!(changes.read_with(cx, |c, _| c.selected().is_some()));
 }
 

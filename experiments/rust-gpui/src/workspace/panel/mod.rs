@@ -13,6 +13,7 @@ pub mod artifacts;
 pub mod body;
 pub mod changes;
 pub mod designs;
+pub mod diff;
 pub mod dock;
 pub mod fixture;
 pub mod pr;
@@ -131,6 +132,11 @@ impl Panel {
         let content = fixture::content_for(&chat, seeded.as_deref());
         let changes = cx.new(ChangesView::new);
         changes.update(cx, |changes, cx| changes.set_chat(chat.clone(), content.changes.clone(), cx));
+        // "Send N comments" from the diff goes to the Chat the way "Fix in Chat" does.
+        cx.subscribe(&changes, |_, _, event: &changes::ChangesEvent, cx| match event {
+            changes::ChangesEvent::SendToChat(text) => cx.emit(PanelEvent::FixInChat(text.clone())),
+        })
+        .detach();
         let pr = cx.new(PrView::new);
         pr.update(cx, |pr, cx| pr.set_chat(chat.clone(), content.pr, pr::local_files(&content.changes), cx));
         cx.subscribe(&pr, |panel, _, event: &PrEvent, cx| match event {

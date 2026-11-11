@@ -4546,6 +4546,8 @@ dependencies = [
  "pulldown-cmark",
  "raw-window-handle",
  "serde_json",
+ "syntect",
+ "two-face",
  "unicode-segmentation",
 ]
 
