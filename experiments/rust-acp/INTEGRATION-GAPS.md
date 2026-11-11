@@ -1,6 +1,6 @@
 # ACP integration inventory
 
-Source review: 2026-11-11. This crate implements process/protocol transport only. Codex runtime
+Source review: 2026-11-11. This crate implements process/protocol transport and pure event mapping. Codex runtime
 bridge ownership stays with its existing agent. No owner/runtime/provider crate was edited.
 No proprietary SDK implementation was copied; only repository-owned Node and Rust code was used.
 
@@ -12,11 +12,18 @@ model/effort/mode selection, pending permission/question lifetimes, turn termina
 and throwaway-session deletion. The new Rust client supplies explicit wire calls only. Loaded
 history is forwarded raw, not suppressed. Native session IDs are not owner logical `TurnId`s.
 
-Port [acp-events.cjs](../../packages/core/src/agents/acp-events.cjs) separately: text/thinking,
-tool-call merging and failure details, edits, plans, token usage, model/config options, context
-resets, tool images, refusal annotations and provider-specific schemas. Preserve unknown updates
-at the protocol boundary. Current Node traces verify raw data; they do not claim Milagre event
-parity or a complete session state machine.
+The pure [acp-events.cjs](../../packages/core/src/agents/acp-events.cjs) mapper is now ported in
+`events`: text/thinking, ordered tool-call merging, edits/approval diff reuse, plans, usage,
+model/config updates, Kiro credits, heartbeat references and stop reasons. It has 921 deterministic
+Node parity traces plus three explicit surrogate-boundary deviation fixtures. The recorder calls
+actual Node functions and checks source hashes. See README for schema/Unicode/POSIX boundaries.
+
+Still outside the mapper: session/update session/turn validation, replay suppression, subagent
+routing, permission lifecycle, tool images, refusal overlays and turn settlement. A pure
+`stop_reason_event` is not owner terminal attribution. The mapper retains tool metadata and raw
+call inputs; owner policy must consume the original request, not presentation/redacted output.
+State is caller-owned and unbounded across updates; the session layer must enforce retained
+call/diff/thinking budgets as well as the existing transport budget before runtime use.
 
 Owner adapters must bind every Agent/Exited event to a logical `TurnId` before consuming updates,
 respect `tick(now)`, `shutdown(force)` and `forget(project, force)`, and coordinate prompt/cancel
@@ -81,10 +88,9 @@ instructions all remain owner or later-checkpoint responsibilities.
 
 ## Next bounded work
 
-1. Port pure `acp-events.cjs` mapping with Node state-in/events-out fixtures.
-2. Build a fake-only session state machine for load replay, prompt queueing and cancellation,
+1. Build a fake-only session state machine for load replay, prompt queueing and cancellation,
    with explicit immutable policy inputs and fail-closed unsupported roles.
-3. Finish vendor process-tree/profile isolation and host guard contracts before proposing any
+2. Finish vendor process-tree/profile isolation and host guard contracts before proposing any
    real provider or owner-runtime integration.
 
 ## Transport compatibility and watchdog gaps

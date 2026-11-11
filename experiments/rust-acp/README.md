@@ -1,6 +1,6 @@
-# Rust ACP process/protocol checkpoint
+# Rust ACP process, protocol and event checkpoint
 
-Standalone `milagre-acp`, additive to the existing provider crates. This is a process and wire
+Standalone `milagre-acp`, additive to the existing provider crates. This is a process, wire and pure event
 foundation for Kiro and Antigravity, not a runtime provider adapter or a completed `AcpSession`
 port. No proprietary SDK code is included. The transport design and generic regression cases
 are adapted from this repository's Rust Codex checkpoint; that crate is neither modified nor a
@@ -24,6 +24,9 @@ dependency. Vendor behavior comes from the repository-owned Node ACP sources.
   The default owns none: unsupported requests receive `-32601` through the bounded writer.
   A permission consumer must explicitly claim `session/request_permission` and settle pending
   requests when a turn stops. Owning a method does not authorize its actions.
+- `events`: pure `acp-events.cjs` presentation mapping and helpers, explicit millisecond clock,
+  ordered map/set snapshots, thinking/text/tool/plan/usage/config/credit updates and stop reasons.
+  It does not filter sessions, route subagents, enforce policy or settle turns.
 - `launch`: pure Kiro ACP argument constants and Antigravity environment scrubbing/default
   argument shaping. No executable discovery, installs, account probes, browser or filesystem
   operations. The owner supplies the exact harness, profile, temporary directory and environment.
@@ -32,6 +35,37 @@ dependency. Vendor behavior comes from the repository-owned Node ACP sources.
 returns client, initialize result and receiver. Drain events while waiting for prompts. Process
 errors preserve JSON-RPC code/message/data; only `RpcError::Server` means the agent answered
 with a rejection. Transports never turn timeouts or crashes into automatic fallback.
+
+## Pure mapper contract
+
+`events::map_acp_update(update, &mut state, now_ms)` accepts the inner `session/update.update`.
+`AcpEventState::new(turn_id)` starts empty call/step/diff state; `from_snapshot` and `snapshot`
+round-trip JSON with ordered `[key, value]` arrays for `calls`/`editDiffs` and an ordered `steps`
+array. Missing properties remain missing. Container and thinking snapshot shapes are validated.
+`close_thinking` uses the same explicit clock. `read_config_options`, `stop_reason_event` and
+step/diff/command/path helpers are available independently. No hidden clock or host I/O is used.
+
+The 921 Node traces check exact output event order and state after each call, including pending
+approval diff caching, borrow/removal by a later execution, shallow rawInput merge, completed
+calls without a start, repeated completions, question-call suppression, paragraph breaks, model
+and effort resets, heartbeat provenance, metadata redaction, output clipping and credit sums.
+One Node quirk is preserved: a suppressed "approved but never executed" failure clears thinking
+and sets textBreak while returning no completion event. This is presentation compatibility,
+not a claim that an approval or tool was cancelled safely.
+
+Parity applies to the JSON inputs in the fixture corpus, with POSIX basename behavior. Windows
+basename mapping is not ported. Rust strings cannot contain lone UTF-16 surrogates: truncation
+that splits a supplementary character drops the fragment. Three Node-recorded UTF-16-unit
+fixtures test that explicit difference. Malformed non-array locations are ignored instead of
+throwing as Node does; malformed non-object rawInput string spread is scalar-based in Rust,
+not UTF-16-based. JS presentation-number coercion is separate from lossless RPC IDs. This
+checkpoint does not claim exhaustive ECMAScript coercion parity for malformed vendor payloads.
+
+Mapper state has no independent lifetime/size bound. The future session layer must bound calls,
+diffs and accumulated thinking, reset the appropriate turn fields, suppress loaded history and
+reject stale/session-mismatched/child updates before calling it. Draining the bounded transport
+into an unbounded mapper or owner queue would remove the transport's memory protection. Native
+session IDs are not owner `TurnId`s. No runtime dispatch is implemented or enabled here.
 
 ## Bounds, cancellation and cleanup
 
@@ -110,13 +144,20 @@ cargo test --offline --manifest-path experiments/rust-acp/Cargo.toml
 cargo clippy --offline --manifest-path experiments/rust-acp/Cargo.toml --all-targets -- -D warnings
 cargo fmt --manifest-path experiments/rust-acp/Cargo.toml --check
 node experiments/rust-acp/scripts/record-traces.cjs --check
+node experiments/rust-acp/scripts/record-events.cjs --check
 ```
 
-This checkpoint passes 50 Rust tests. The recorder executes repository Node ACP helpers and fake agents only. It captures 11 outgoing
+This checkpoint passes 56 Rust tests. The recorder executes repository Node ACP helpers and fake agents only. It captures 11 outgoing
 frames, 12 envelope cases, 128 permission outcomes, 3 environment cases and 10 full fake-session
 traces (including Kiro tool shapes, load history, edits, questions, thought chunks and plans).
 Checkout-root path prefixes alone normalize to `/fixture`; source hashes detect drift. Rust
-replays the raw session events and response shapes, not their eventual Milagre UI mapping.
+replays the raw session events and response shapes. The separate pure-mapper recorder executes
+actual `acp-events.cjs`, `steps.cjs`, `tasks.cjs`, `permissions.cjs` and shared presentation helpers
+to capture state-in, explicit clock reads, return values and state-out. It imports only pure
+presentation dependencies and stubs unused host imports; unexpected imports/calls fail. Its
+fixture includes source hashes and the raw Node fake traces. `--check` verifies deterministic
+regeneration, also run by the Rust mapper tests. The three Unicode divergence cases are separate
+from the 921 exact-parity traces.
 Node is required for those tests; they do not silently skip.
 
 Rust fault-injection tests cover out-of-order answers, timeouts/late replies, mixed and large IDs,

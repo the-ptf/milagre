@@ -1,5 +1,7 @@
-//! ACP process/protocol foundation. No runtime adapter, permission policy or account bootstrap.
+//! ACP process/protocol and pure event mapping foundation. No runtime adapter, permission policy or account bootstrap.
 pub mod client;
+pub mod events;
+mod events_js;
 pub mod launch;
 pub mod protocol;
 pub mod queue;
