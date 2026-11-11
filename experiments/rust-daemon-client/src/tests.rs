@@ -95,6 +95,7 @@ fn pair() -> (FixtureGuard, Peer) {
     let (client, server) = UnixStream::pair().unwrap();
     let connection = Mutex::new(Some(client));
     let authority = Arc::new(Authority {
+        launcher: None,
         project: PROJECT.into(),
         pid: PID,
         connect: Box::new(move || connection.lock().unwrap().take().ok_or(Error::Disconnected)),
@@ -619,6 +620,7 @@ fn reconnect_is_explicit_and_uses_the_same_retained_guard() {
     ]));
     let guard = FixtureGuard {
         authority: Arc::new(Authority {
+            launcher: None,
             project: PROJECT.into(),
             pid: PID,
             connect: Box::new(move || {
@@ -777,6 +779,7 @@ fn invalid_options_never_enter_the_private_connector() {
         let counter = entered.clone();
         let guard = FixtureGuard {
             authority: Arc::new(Authority {
+                launcher: None,
                 project: PROJECT.into(),
                 pid: PID,
                 connect: Box::new(move || {
@@ -906,6 +909,7 @@ fn dropping_connect_wait_retains_authority_until_its_worker_closes() {
     let retained = Dropped(dropped_tx);
     let guard = FixtureGuard {
         authority: Arc::new(Authority {
+            launcher: None,
             project: PROJECT.into(),
             pid: PID,
             connect: Box::new(move || {

@@ -1,12 +1,13 @@
 //! Read facade for one explicitly owned app fixture. No Tauri, GPUI or caller runtime.
 //!
-//! This first checkpoint has no public launcher or endpoint constructor. Only the
-//! future backend-owned child launcher may mint [`FixtureGuard`]. The protocol
-//! engine is exercised through crate-private Unix-pair contract tests, not a
-//! fabricated public authority. It is not yet usable by a GPUI application.
+//! [`FixtureGuard::launch`] owns the fixed sibling `app-fixture` on macOS and is
+//! the only public source of endpoint authority. There is no arbitrary path or
+//! socket constructor. The launcher and protocol have isolated real-daemon and
+//! Unix-pair tests. Oversized event hydration and app adoption remain separate.
 #![cfg(unix)]
 
 mod client;
+mod launcher;
 mod notify;
 mod protocol;
 mod reply;
@@ -15,6 +16,7 @@ use serde_json::Value;
 use std::{collections::BTreeSet, os::unix::net::UnixStream, sync::Arc, time::Duration};
 
 pub use client::Client;
+pub use launcher::{Cleanup, FixtureInfo, ShutdownReport};
 pub use notify::Notifications;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -36,6 +38,10 @@ pub enum Error {
         required: String,
     },
     Protocol {
+        message: String,
+    },
+    Launch {
+        code: &'static str,
         message: String,
     },
     Remote {
@@ -183,10 +189,11 @@ struct Authority {
     pid: u32,
     // Private even to external fixture callers. No path, callback or stream constructor is exposed.
     connect: Box<dyn Fn() -> Result<UnixStream> + Send + Sync>,
+    launcher: Option<Arc<launcher::Handle>>,
 }
 
-/// Retains the launch authority. No public constructor exists in checkpoint 1.
-/// A future launcher must retain the exact child and its profile lease here.
+/// Retains the exact launched child and generated storage through its lifecycle worker.
+/// Only [`Self::launch`] can create public authority; paths are never credentials.
 ///
 /// Arbitrary profile adoption is deliberately unavailable:
 /// ```compile_fail
@@ -197,6 +204,24 @@ pub struct FixtureGuard {
     authority: Arc<Authority>,
 }
 impl FixtureGuard {
+    /// Spawn only the owned `app-fixture` beside this executable. No path or environment override.
+    pub async fn launch() -> Result<Self> {
+        launcher::launch().await
+    }
+    pub fn info(&self) -> Option<&FixtureInfo> {
+        self.authority.launcher.as_ref().map(|handle| &handle.info)
+    }
+    /// Bounded wait, not a force-stop. Pending/Unknown retain child and storage ownership.
+    pub async fn shutdown(&self) -> Result<ShutdownReport> {
+        self.authority
+            .launcher
+            .as_ref()
+            .ok_or_else(|| Error::Capability {
+                required: "owned-fixture-launcher".into(),
+            })?
+            .shutdown()
+            .await
+    }
     /// Mint another endpoint for an explicit reconnect to this same retained fixture.
     pub fn endpoint(&self) -> FixtureEndpoint {
         FixtureEndpoint {

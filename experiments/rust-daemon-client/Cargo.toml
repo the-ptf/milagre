@@ -9,6 +9,9 @@ description = "Fixture-only local daemon client contracts; production launcher r
 
 [dependencies]
 serde_json = { version = "1", features = ["preserve_order"] }
+libc = "0.2"
+sha2 = "0.10"
+tempfile = "3"
 
 [dev-dependencies]
 futures = "0.3"
