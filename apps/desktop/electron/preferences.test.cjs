@@ -25,11 +25,36 @@ test("preferences survive process restart, app relocation and deletion", (t) => 
   assert.throws(() => updated.set("unrelated", "bad"));
 });
 
-test("corrupt preferences are preserved instead of silently overwritten with defaults", (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-preferences-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const file = path.join(dir, "preferences.json");
-  fs.writeFileSync(file, "{incomplete");
-  assert.throws(() => createPreferencesStore(file));
-  assert.equal(fs.readFileSync(file, "utf8"), "{incomplete");
+for (const corrupt of ["{incomplete", "null", "[]", "42"])
+  test(`corrupt preferences recover and preserve the original: ${corrupt}`, (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-preferences-"));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const file = path.join(dir, "preferences.json");
+    const warn = t.mock.method(console, "warn", () => {});
+    fs.writeFileSync(file, corrupt);
+    const store = createPreferencesStore(file);
+    assert.equal(store.get("milagre-settings"), undefined);
+    const backup = fs.readdirSync(dir).find((name) => /^preferences.json.corrupt-\d+$/.test(name));
+    assert.ok(backup);
+    assert.equal(fs.readFileSync(path.join(dir, backup), "utf8"), corrupt);
+    assert.equal(warn.mock.calls[0].arguments[1], file);
+    store.set("milagre-settings", "fresh");
+    assert.equal(createPreferencesStore(file).get("milagre-settings"), "fresh");
+  });
+
+test("preferences still throw real I/O errors", (t) => {
+  const error = Object.assign(new Error("access denied"), { code: "EACCES" });
+  t.mock.method(fs, "readFileSync", () => {
+    throw error;
+  });
+  assert.throws(() => createPreferencesStore("/preferences.json"), error);
+});
+
+test("preferences recover even when preserving the corrupt file fails", (t) => {
+  t.mock.method(fs, "readFileSync", () => "{");
+  t.mock.method(fs, "renameSync", () => {
+    throw new Error("access denied");
+  });
+  t.mock.method(console, "warn", () => {});
+  assert.equal(createPreferencesStore("/preferences.json").get("milagre-settings"), undefined);
 });

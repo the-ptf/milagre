@@ -279,9 +279,20 @@ async function connectDesktopRuntime(options) {
             isLinkScopeKey(projectPath) ? projectPath.slice("milagre-link:".length) : projectPath,
           ]);
         } catch (error) {
-          // A Project removed while the host was offline must not prevent the
-          // remaining Projects, or the folder picker, from becoming usable.
-          if (!(error instanceof Error) || !("code" in error) || !["ENOENT", "ENOTDIR"].includes(String(error.code))) throw error;
+          const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+          const message = error instanceof Error ? error.message : String(error);
+          // A broken Project must not prevent the remaining Projects from becoming usable. Connection failures
+          // still retry the reconnect; local and paired clients also report close/deadline failures without codes.
+          if (
+            ["DAEMON_CLOSED", "CLOSING", "UNAUTHORIZED", "ETIMEDOUT", "ECONNRESET", "ECONNABORTED", "EPIPE", "FRAME_TOO_LARGE", "INVALID_REQUEST"].includes(
+              code,
+            ) ||
+            /^(Daemon connection closed|Timed out:|Incompatible daemon protocol|The daemon sent an invalid paged response|The daemon's paged response is too large)/.test(
+              message,
+            )
+          )
+            throw error;
+          console.warn("[runtime] couldn't reopen Project:", projectPath, message);
           projects.delete(projectPath);
           if (currentProject === projectPath) {
             currentProject = null;

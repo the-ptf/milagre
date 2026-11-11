@@ -366,28 +366,44 @@ function createPullRequestReview({
     const token = (await gh(cwd, ["auth", "token", "--hostname", "github.com"])).trim();
     const headers = token ? { Authorization: `token ${token}` } : {};
     if (source.kind === "repository") headers.Accept = "application/vnd.github.raw+json";
-    let image = await fetch(source.url, { redirect: "manual", headers });
-    let redirects = 0;
-    while (image.status >= 300 && image.status < 400) {
-      const location = image.headers.get("location");
-      if (++redirects > 3 || !location?.startsWith("https://")) throw new ReviewError("GitHub didn't send this image.");
-      const target = new URL(location);
-      if (target.username || target.password) throw new ReviewError("GitHub didn't send this image.");
-      // A renamed repository redirects within the contents API; keep its raw media type and authentication.
-      // Signed storage receives neither credentials nor GitHub's API headers.
-      image = await fetch(location, {
-        redirect: "manual",
-        ...(source.kind === "repository" && target.origin === "https://api.github.com" ? { headers } : {}),
-      });
+    try {
+      let image = await fetch(source.url, { redirect: "manual", headers, signal: AbortSignal.timeout(20_000) });
+      let redirects = 0;
+      while (image.status >= 300 && image.status < 400) {
+        const location = image.headers.get("location");
+        if (++redirects > 3 || !location?.startsWith("https://")) throw new ReviewError("GitHub didn't send this image.");
+        const target = new URL(location);
+        if (target.username || target.password) throw new ReviewError("GitHub didn't send this image.");
+        // A renamed repository redirects within the contents API; keep its raw media type and authentication.
+        // Signed storage receives neither credentials nor GitHub's API headers.
+        image = await fetch(location, {
+          redirect: "manual",
+          signal: AbortSignal.timeout(20_000),
+          ...(source.kind === "repository" && target.origin === "https://api.github.com" ? { headers } : {}),
+        });
+      }
+      let type = image.headers.get("content-type")?.split(";")[0].trim() ?? "";
+      // The contents API labels raw bytes with its negotiated media type, rather than the image's MIME type.
+      if (source.kind === "repository" && type === "application/vnd.github.raw+json") type = source.mime;
+      if (!image.ok || !type.startsWith("image/") || !image.body) throw new ReviewError("GitHub didn't send this image.");
+      if (Number(image.headers.get("content-length")) > MAX_IMAGE) {
+        await image.body.cancel();
+        throw new ReviewError("This image is too large to show here.");
+      }
+      const chunks = [];
+      let size = 0;
+      // Leaving the async iterator on error cancels the stream before any more bytes are buffered.
+      for await (const chunk of image.body) {
+        size += chunk.length;
+        if (size > MAX_IMAGE) throw new ReviewError("This image is too large to show here.");
+        chunks.push(chunk);
+      }
+      const bytes = Buffer.concat(chunks);
+      return `data:${type};base64,${bytes.toString("base64")}`;
+    } catch (error) {
+      if (error?.name === "AbortError" || error?.name === "TimeoutError") throw new ReviewError("GitHub didn't send this image.");
+      throw error;
     }
-    let type = image.headers.get("content-type")?.split(";")[0].trim() ?? "";
-    // The contents API labels raw bytes with its negotiated media type, rather than the image's MIME type.
-    if (source.kind === "repository" && type === "application/vnd.github.raw+json") type = source.mime;
-    if (!image.ok || !type.startsWith("image/")) throw new ReviewError("GitHub didn't send this image.");
-    if (Number(image.headers.get("content-length")) > MAX_IMAGE) throw new ReviewError("This image is too large to show here.");
-    const bytes = Buffer.from(await image.arrayBuffer());
-    if (bytes.length > MAX_IMAGE) throw new ReviewError("This image is too large to show here.");
-    return `data:${type};base64,${bytes.toString("base64")}`;
   }
 
   return {
