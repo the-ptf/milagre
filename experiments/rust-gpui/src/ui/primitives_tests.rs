@@ -220,6 +220,32 @@ fn the_arrow_keys_move_the_one_highlight_and_enter_presses_a_row(cx: &mut TestAp
     assert_eq!(counts.archive.get(), 1, "three downs reach the last row");
 }
 
+fn long_menu(count: usize) -> impl Fn(&mut Window, &mut App) -> AnyElement {
+    move |_, _| {
+        (0..count)
+            .fold(MenuList::new("long-menu"), |list, ix| list.row(MenuRow::new(format!("long-row-{ix}"), format!("Row {ix}"))))
+            .into_any_element()
+    }
+}
+
+#[gpui::test]
+fn a_menu_taller_than_408px_is_not_cut_there(cx: &mut TestAppContext) {
+    // 12 rows are 12 x 32 + 11 x 1 = 395px; 14 are 459px, past the old fixed 408px cap and well inside the window.
+    let (_, cx) = mount_host(cx, Theme::dark(), long_menu(14));
+    assert_eq!(bounds(cx, "long-menu").size.height, px(14.0 * 32.0 + 13.0));
+    assert!(cx.debug_bounds("long-row-13").is_some());
+}
+
+#[gpui::test]
+fn a_menu_taller_than_the_window_stops_at_the_window_and_scrolls(cx: &mut TestAppContext) {
+    let (_, cx) = mount_host(cx, Theme::dark(), long_menu(80));
+    let viewport = cx.update(|window, _| window.viewport_size());
+    let list = bounds(cx, "long-menu");
+    assert!(list.size.height > px(408.0), "uses the window, not a fixed cap: {:?}", list.size);
+    assert!(list.size.height <= viewport.height - px(16.0), "stays inside the window less the 8px insets");
+    assert!(list.size.height < px(80.0 * 33.0), "scrolls past that");
+}
+
 fn open_dialog(cx: &mut VisualTestContext, dialog: Dialog) {
     cx.update(|window, cx| dialog.open(window, cx));
     settle(cx);

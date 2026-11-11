@@ -42,6 +42,9 @@ use super::focus::{RovingAxis, focused_index, inset_ring, item_focus, roving_ind
 use super::{Icon, IconName, IconSize, SectionLabel, ShortcutKeys};
 use crate::theme::{ActiveTheme, RADIUS_CARD, RADIUS_INLINE, TEXT_11, TEXT_12, TEXT_13, TextStepExt};
 
+/// How far a menu keeps from the window's edges (`INSET` in `Popover.tsx`).
+const WINDOW_INSET: Pixels = px(8.0);
+
 type WindowFn = Rc<dyn Fn(&mut Window, &mut App)>;
 type OpenChange = Rc<dyn Fn(bool, &mut Window, &mut App)>;
 
@@ -447,15 +450,20 @@ impl RenderOnce for MenuList {
                 window.defer(cx, move |window, cx| first.focus(window, cx));
             }
         }
+        // Fits its rows, up to the window's height less the popover inset (`Popover.tsx`'s `INSET`): it scrolls
+        // only past that, never at a fixed height.
+        let available = (window.viewport_size().height - WINDOW_INSET * 2.0).max(px(0.0));
         let key_handles = handles.clone();
         let mut next = handles.clone().into_iter();
         let dismiss = self.dismiss;
+        let selector = self.id.to_string();
         div()
             .id(self.id)
+            .debug_selector(move || selector.clone())
             .flex()
             .flex_col()
             .gap(px(1.0))
-            .max_h(px(408.0))
+            .max_h(available)
             .overflow_y_scroll()
             .on_key_down(move |event: &KeyDownEvent, window, cx| {
                 let current = focused_index(&key_handles, window);
