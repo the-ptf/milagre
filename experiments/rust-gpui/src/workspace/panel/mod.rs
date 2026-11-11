@@ -17,6 +17,7 @@ pub mod diff;
 pub mod dock;
 pub mod fixture;
 pub mod pr;
+pub mod simulator;
 pub mod terminal;
 
 #[cfg(test)]
@@ -38,6 +39,7 @@ use self::changes::ChangesView;
 use self::designs::DesignsView;
 use self::fixture::ChatContent;
 use self::pr::{PrEvent, PrView};
+use self::simulator::{SimulatorEvent, SimulatorView};
 use crate::theme::ActiveTheme;
 use crate::ui::{IconButton, IconButtonSize, IconName, IconSize, Tab};
 use crate::workspace::chrome::{self, NoDrag};
@@ -53,6 +55,8 @@ pub enum PanelTab {
     Designs,
     Artifact,
     Pr,
+    /// Shown only while the Chat has a simulator attached, after the others (not in `ALL`).
+    Simulator,
 }
 
 impl PanelTab {
@@ -66,6 +70,7 @@ impl PanelTab {
             PanelTab::Designs => "Designs",
             PanelTab::Artifact => "Artifact",
             PanelTab::Pr => "PR",
+            PanelTab::Simulator => "Simulator",
         }
     }
 
@@ -77,6 +82,7 @@ impl PanelTab {
             PanelTab::Designs => IconName::PaintBoard,
             PanelTab::Artifact => IconName::File01,
             PanelTab::Pr => IconName::GitPullRequest,
+            PanelTab::Simulator => IconName::Smartphone,
         }
     }
 }
@@ -120,6 +126,7 @@ pub struct Panel {
     artifacts: Entity<ArtifactsView>,
     designs: Entity<DesignsView>,
     pr: Entity<PrView>,
+    simulator: Entity<SimulatorView>,
     placeholders: HashMap<PanelTab, Entity<TabPlaceholder>>,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
     renders: usize,
@@ -144,6 +151,16 @@ impl Panel {
             PrEvent::FixInChat(text) => cx.emit(PanelEvent::FixInChat(text.clone())),
         })
         .detach();
+        // The Chat open at startup gets a simulator only when a snapshot asks for the Simulator tab.
+        let seeded_simulator = !cfg!(test) && std::env::var("MILAGRE_GPUI_PANEL_TAB").is_ok_and(|tab| tab == "Simulator");
+        let simulator = cx.new(|cx| {
+            let seeded = seeded.clone();
+            SimulatorView::fixture(move |chat| simulator::fixture::attached_at_start(chat, seeded.as_deref(), seeded_simulator), cx)
+        });
+        cx.subscribe(&simulator, |panel, _, event: &SimulatorEvent, cx| match *event {
+            SimulatorEvent::Attached(count) => panel.set_simulator_attached(count > 0, cx),
+        })
+        .detach();
         let placeholders = PanelTab::ALL
             .into_iter()
             .filter(|tab| !matches!(tab, PanelTab::Changes | PanelTab::Pr))
@@ -164,11 +181,38 @@ impl Panel {
             },
             pr,
             designs: cx.new(DesignsView::new),
+            simulator,
             placeholders,
             renders: 0,
         };
+        panel.load_simulator(cx);
         panel.apply_env_seed(cx);
         panel
+    }
+
+    /// Shows this Chat's simulators; the fixture answers at once, so the tab is known before the fallback below.
+    fn load_simulator(&mut self, cx: &mut Context<Self>) {
+        let chat = self.chat.clone();
+        self.simulator.update(cx, |view, cx| view.set_chat(chat, cx));
+        self.content.simulator = self.simulator.read(cx).attached_count() > 0;
+    }
+
+    /// A device was attached or detached: the tab comes and goes with it.
+    fn set_simulator_attached(&mut self, attached: bool, cx: &mut Context<Self>) {
+        if self.content.simulator == attached {
+            return;
+        }
+        self.content.simulator = attached;
+        if !attached && self.active() == PanelTab::Simulator {
+            self.state_mut().tab = PanelTab::Changes;
+            self.relayout(cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    pub fn simulator(&self) -> &Entity<SimulatorView> {
+        &self.simulator
     }
 
     /// Snapshot runs pick a width and a file through the environment (never in tests).
@@ -179,7 +223,10 @@ impl Panel {
         if let Some(width) = std::env::var("MILAGRE_GPUI_PANEL_WIDTH").ok().and_then(|w| w.parse::<f32>().ok()) {
             self.set_width(width);
         }
-        if let Some(tab) = std::env::var("MILAGRE_GPUI_PANEL_TAB").ok().and_then(|n| PanelTab::ALL.into_iter().find(|t| t.label() == n)) {
+        if let Some(tab) = std::env::var("MILAGRE_GPUI_PANEL_TAB")
+            .ok()
+            .and_then(|n| PanelTab::ALL.into_iter().chain([PanelTab::Simulator]).find(|t| t.label() == n))
+        {
             self.state_mut().tab = tab;
         }
         if let Ok(path) = std::env::var("MILAGRE_GPUI_CHANGES_FILE") {
@@ -214,7 +261,7 @@ impl Panel {
 
     /// The tabs the Chat on screen has, in order.
     pub fn visible_tabs(&self) -> Vec<PanelTab> {
-        PanelTab::ALL.into_iter().filter(|tab| self.content.has(*tab)).collect()
+        PanelTab::ALL.into_iter().chain([PanelTab::Simulator]).filter(|tab| self.content.has(*tab)).collect()
     }
 
     /// The open tab's width: dragged this session, else its default.
@@ -237,6 +284,7 @@ impl Panel {
             PanelTab::Artifact => Some(self.artifacts.clone().into()),
             PanelTab::Designs => Some(self.designs.clone().into()),
             PanelTab::Pr => Some(self.pr.clone().into()),
+            PanelTab::Simulator => Some(self.simulator.clone().into()),
             other => self.placeholders.get(&other).map(|view| view.clone().into()),
         }
     }
@@ -277,6 +325,7 @@ impl Panel {
         }
         self.chat = chat;
         self.content = fixture::content_for(&self.chat, self.seeded.as_deref());
+        self.load_simulator(cx);
         // A tab this Chat has no content for falls back to Changes.
         if !self.content.has(self.state().tab) {
             self.state_mut().tab = PanelTab::Changes;

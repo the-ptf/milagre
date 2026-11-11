@@ -149,7 +149,7 @@ pub struct CornerItem {
 /// order (Artifacts, Designs, the pull request, Changes). `showing` is the panel tab on screen, if any.
 pub fn corner_items(tabs: &[PanelTab], showing: Option<PanelTab>, terminal_open: bool) -> Vec<CornerItem> {
     let mut items = vec![CornerItem { corner: Corner::Terminal, pressed: terminal_open }];
-    for tab in [PanelTab::Artifact, PanelTab::Designs, PanelTab::Pr, PanelTab::Changes] {
+    for tab in [PanelTab::Artifact, PanelTab::Designs, PanelTab::Simulator, PanelTab::Pr, PanelTab::Changes] {
         if tabs.contains(&tab) {
             items.push(CornerItem { corner: Corner::Tab(tab), pressed: showing == Some(tab) });
         }
@@ -166,6 +166,7 @@ impl Corner {
             Corner::Tab(PanelTab::Pr) => "toggle-pr",
             Corner::Tab(PanelTab::Changes) => "toggle-changes",
             Corner::Tab(PanelTab::Browser) => "toggle-browser",
+            Corner::Tab(PanelTab::Simulator) => "toggle-simulator",
         }
     }
 
@@ -185,6 +186,7 @@ impl Corner {
             Corner::Tab(PanelTab::Pr) => return "Pull request".into(),
             Corner::Tab(PanelTab::Changes) => "Changes",
             Corner::Tab(PanelTab::Browser) => "Browser panel",
+            Corner::Tab(PanelTab::Simulator) => "simulator",
         };
         format!("{} {name}", if pressed { "Hide" } else { "Show" }).into()
     }
@@ -196,6 +198,7 @@ impl Corner {
             Corner::Tab(PanelTab::Designs) => Some("designs.toggle"),
             Corner::Tab(PanelTab::Changes) => Some("changes.toggle"),
             Corner::Tab(PanelTab::Browser) => Some("browser.toggle"),
+            Corner::Tab(PanelTab::Simulator) => Some("simulator.toggle"),
             Corner::Tab(PanelTab::Pr) => None,
         }
     }

@@ -41,6 +41,7 @@ impl PanelTab {
             PanelTab::Changes | PanelTab::Pr => WidthRule { min: 280.0, default: 320.0, max: 640.0 },
             PanelTab::Browser => WidthRule { min: 360.0, default: 440.0, max: 1400.0 },
             PanelTab::Designs | PanelTab::Artifact => WidthRule { min: 440.0, default: 560.0, max: 1400.0 },
+            PanelTab::Simulator => WidthRule { min: 320.0, default: 400.0, max: 800.0 },
         }
     }
 

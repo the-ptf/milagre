@@ -13,6 +13,8 @@ pub struct ChatContent {
     pub designs: bool,
     pub artifacts: bool,
     pub pr: Option<u32>,
+    /// Whether a simulator is attached (the Simulator tab reads it from `simulator/`, not from here).
+    pub simulator: bool,
 }
 
 impl ChatContent {
@@ -24,6 +26,7 @@ impl ChatContent {
             PanelTab::Designs => self.designs,
             PanelTab::Artifact => self.artifacts,
             PanelTab::Pr => self.pr.is_some(),
+            PanelTab::Simulator => self.simulator,
         }
     }
 }
@@ -36,7 +39,7 @@ fn spread(key: &str) -> u64 {
 /// The seeded Chat (the one open at startup) has everything; the others vary by key.
 pub fn content_for(key: &str, seeded: Option<&str>) -> ChatContent {
     if Some(key) == seeded {
-        return ChatContent { changes: fixture::data(Variant::Full), designs: true, artifacts: true, pr: Some(412) };
+        return ChatContent { changes: fixture::data(Variant::Full), designs: true, artifacts: true, pr: Some(412), simulator: false };
     }
     let bits = spread(key);
     let variant = match bits % 5 {
@@ -50,5 +53,6 @@ pub fn content_for(key: &str, seeded: Option<&str>) -> ChatContent {
         designs: bits & 0x100 != 0,
         artifacts: bits & 0x200 != 0,
         pr: (bits & 0x400 != 0).then_some(100 + (bits % 400) as u32),
+        simulator: false,
     }
 }

@@ -4565,6 +4565,7 @@ dependencies = [
  "gpui-pre",
  "gpui-pre-platform",
  "gpui-webview",
+ "image",
  "lb-wry",
  "libc",
  "mermaid-rs-renderer",
