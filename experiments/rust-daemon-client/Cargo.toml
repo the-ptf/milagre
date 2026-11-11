@@ -1,0 +1,14 @@
+[package]
+name = "milagre-daemon-client"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Fixture-only local daemon client contracts; production launcher remains unavailable"
+
+[workspace]
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[dev-dependencies]
+futures = "0.3"
