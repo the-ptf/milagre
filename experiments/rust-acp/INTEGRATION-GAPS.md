@@ -91,10 +91,11 @@ instructions all remain owner or later-checkpoint responsibilities.
 
 ## Next bounded work
 
-1. Review `SESSION-CONTRACT.md` with parent/owner10960: owner TurnId, tick/shutdown/forget,
-   event backpressure, permission lifecycle and same-session late-update attribution.
-2. Finish vendor process-tree/profile isolation and host guard contracts before proposing any
-   real provider or owner-runtime integration.
+The concrete constructor/account/lifecycle inventory and proposed next checkpoint are in
+[PRODUCTION-CONTRACT.md](PRODUCTION-CONTRACT.md). The next proposed implementation is pure vendor
+launch planning with actual Node helper fixtures and synthetic account/install observations.
+It must remain disconnected from spawn and runtime; plans are not account or executable authority.
+The parent must agree the real lease/guard/cleanup contract before any production constructor.
 
 ## Transport compatibility and watchdog gaps
 
