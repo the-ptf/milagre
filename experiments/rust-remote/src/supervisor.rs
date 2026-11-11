@@ -1189,6 +1189,28 @@ impl Drop for Actor {
 }
 
 impl MemoryCarrier {
+    /// Caller holds this exact session access guard before taking the mailbox lock.
+    pub(crate) fn inspect_fixed_peer(
+        &self,
+        target: crate::tracked_output::TargetId,
+        access: &policy::Access,
+    ) -> crate::Result<()> {
+        let m = self.0.lock().map_err(|_| crate::Error::Unauthorized)?;
+        if m.closed
+            || m.fixed_target != Some(target)
+            || !m.access.as_ref().is_some_and(|a| a.same(access))
+        {
+            return Err(crate::Error::Unauthorized);
+        }
+        if !m.packets.is_empty()
+            || m.bytes != 0
+            || m.fixed_packet.is_some()
+            || m.fixed_fence.as_ref().is_some_and(|f| f.active())
+        {
+            return Err(crate::Error::Budget);
+        }
+        Ok(())
+    }
     pub(crate) fn bind_fixed(
         &self,
         access: policy::Access,

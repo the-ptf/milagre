@@ -1,5 +1,6 @@
 //! Private owner admission and retained core lifecycle. No delivery pump.
 mod lifecycle;
+pub(super) mod peer;
 use super::*;
 use crate::persistent::fixed_executor::{self as executor, TargetId};
 use crate::{
@@ -142,6 +143,7 @@ impl BoundMailbox {
 #[derive(Default)]
 pub(super) struct RuntimeFixed {
     targets: [Option<(Handle, TargetId)>; 16],
+    peers: [Option<peer::PeerBinding>; 16],
 }
 struct Row {
     id: FixedId,
@@ -178,14 +180,20 @@ impl RowOwnership {
 struct ReplyCell {
     generation: u64,
     result: Option<Result<PreparedReply, PrepareRefusal>>,
+    pinned: bool,
+    abandoned: bool,
 }
 enum PreparedReply {
     Attempt(FixedId),
     Adopted(TargetId),
+    PeerReady(TargetId),
+    Requested,
 }
 enum Operation {
     Prepare(WorkToken),
     Adopt(Handle),
+    AdoptPeer(peer::QueuedPeer),
+    RequestFixture(peer::PeerId, i64),
 }
 struct Pending {
     slot: usize,
@@ -238,6 +246,9 @@ pub(super) struct State {
     operations: Ring<Pending, QUEUE_SLOTS>,
     replies: [Option<ReplyCell>; QUEUE_SLOTS],
     submissions: Ring<Submission, QUEUE_SLOTS>,
+    roster: [Option<peer::Descriptor>; 16],
+    peers: [Option<peer::PeerCell>; 16],
+    next_peer: u64,
     #[cfg(test)]
     pause_dispatch: bool,
     _lease: Reservation,
@@ -245,6 +256,9 @@ pub(super) struct State {
 impl State {
     pub(super) fn new(global: &GlobalBudget) -> crate::Result<Box<Self>> {
         let bytes = backing_bytes().ok_or(crate::Error::Budget)?;
+        if !peer::allowance_fits() {
+            return Err(crate::Error::Budget);
+        }
         let lease = global.connection(bytes)?.reserve(bytes)?;
         let mut scope = [0; 16];
         rand_core::RngCore::fill_bytes(&mut OsRng, &mut scope);
@@ -256,6 +270,9 @@ impl State {
             operations: Ring::default(),
             replies: std::array::from_fn(|_| None),
             submissions: Ring::default(),
+            roster: std::array::from_fn(|_| None),
+            peers: std::array::from_fn(|_| None),
+            next_peer: 0,
             #[cfg(test)]
             pause_dispatch: false,
             _lease: lease,
@@ -336,6 +353,8 @@ impl FixedOwnerClient {
         fixed.replies[slot] = Some(ReplyCell {
             generation,
             result: None,
+            pinned: false,
+            abandoned: false,
         });
         fixed.operations.push(Pending {
             slot,
@@ -552,6 +571,12 @@ impl Drop for ReplyHandle {
             let mut q = shared.queues();
             if let Some(fixed) = q.fixed.as_mut() {
                 if fixed.reply(self.slot, self.generation).is_some() {
+                    let cell = fixed.replies[self.slot].as_mut().unwrap();
+                    if cell.pinned && cell.result.is_none() {
+                        cell.abandoned = true;
+                        shared.wake.notify_one();
+                        return;
+                    }
                     let reply = fixed.replies[self.slot].take().unwrap();
                     if let Some(Ok(PreparedReply::Attempt(id))) = reply.result {
                         if let Some(row) = fixed.row_mut(id) {
@@ -596,6 +621,7 @@ impl PersistentSupervisor {
 }
 impl Runtime {
     pub(super) fn fixed_maintain(&mut self, shared: &Shared) {
+        self.fixed_peer_maintain(shared);
         let now = self.clock.now();
         let mut q = shared.queues();
         let Some(fixed) = q.fixed.as_mut() else {
@@ -671,6 +697,12 @@ impl Runtime {
             Operation::Prepare(token) => self
                 .fixed_prepare(shared, token)
                 .map(PreparedReply::Attempt),
+            Operation::AdoptPeer(queued) => self
+                .fixed_adopt_peer(shared, queued)
+                .map(PreparedReply::PeerReady),
+            Operation::RequestFixture(id, request) => self
+                .fixed_request_fixture(id, request, shared)
+                .map(|()| PreparedReply::Requested),
         };
         self.reconcile(shared);
         self.publish_fixed_readiness(shared);
@@ -682,7 +714,11 @@ impl Runtime {
             return;
         };
         if fixed.reply(pending.slot, pending.generation).is_some() {
-            fixed.replies[pending.slot].as_mut().unwrap().result = Some(result);
+            if fixed.replies[pending.slot].as_ref().unwrap().abandoned {
+                fixed.replies[pending.slot] = None;
+            } else {
+                fixed.replies[pending.slot].as_mut().unwrap().result = Some(result);
+            }
         } else if let Ok(PreparedReply::Attempt(id)) = result {
             if let Some(row) = fixed.row_mut(id) {
                 row.cancel = true;
@@ -732,6 +768,13 @@ impl Runtime {
                 }
             })?;
         self.fixed.as_mut().unwrap().targets[index] = Some((handle.clone(), target));
+        if let Ok(budget) = self.authority.inspect_fixed_peer(target, handle) {
+            shared.queues().fixed.as_mut().unwrap().roster[index] = Some(peer::Descriptor {
+                handle: handle.clone(),
+                target,
+                budget,
+            });
+        }
         Ok(target)
     }
     fn fixed_prepare(
@@ -874,8 +917,8 @@ mod layout_tests {
         ];
         #[cfg(target_pointer_width = "64")]
         {
-            assert_eq!(sizes, [220_776, 2048, 424, 48, 136, 40]);
-            assert_eq!(backing_bytes(), Some(226_920));
+            assert_eq!(sizes, [227_568, 5760, 424, 56, 248, 40]);
+            assert_eq!(backing_bytes(), Some(237_424));
         }
         assert!(sizes[2] <= STATUS_BYTES);
     }

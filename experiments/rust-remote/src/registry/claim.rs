@@ -40,6 +40,27 @@ impl Permit {
     }
 }
 impl Registry {
+    pub(crate) fn fixed_peer_budget(
+        &mut self,
+        handle: &Handle,
+    ) -> Result<(ConnectionBudget, crate::policy::Access)> {
+        let a = self.active(handle, self.now)?;
+        a.session
+            .with_access(|| {
+                if a.session.device().kind != crate::channel::DeviceKind::Phone {
+                    return Err(Error::Unauthorized);
+                }
+                a.egress_available()?;
+                if !a.outbound.is_empty()
+                    || a.fixed_packet.is_some()
+                    || a.jobs.values().any(|j| j.claimed)
+                {
+                    return Err(Error::Budget);
+                }
+                Ok((a.budget(), a.session.access()))
+            })
+            .map_err(Into::into)
+    }
     pub(crate) fn claim_device_key(&mut self, token: &WorkToken, now: u64) -> Result<String> {
         Ok(self.work(token, now)?.session.device().key.clone())
     }

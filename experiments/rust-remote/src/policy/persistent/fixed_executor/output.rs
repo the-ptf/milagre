@@ -61,6 +61,66 @@ fn encode(id: i64, status: u16) -> std::result::Result<Vec<u8>, Fault> {
     Ok(plain)
 }
 impl PersistentAuthority {
+    pub(crate) fn inspect_fixed_peer(
+        &mut self,
+        target: TargetId,
+        handle: &Handle,
+    ) -> std::result::Result<crate::budget::ConnectionBudget, Fault> {
+        let result = (|| {
+            self.check_registry().map_err(|_| Fault::Stale)?;
+            let registered = self
+                .fixed
+                .targets
+                .iter()
+                .flatten()
+                .find(|t| t.id == target && t.handle.same(handle))
+                .ok_or(Fault::Stale)?;
+            if !registered.memory.fixed_cleanup_healthy() {
+                return Err(Fault::Worker);
+            }
+            if self
+                .fixed
+                .entries
+                .iter()
+                .flatten()
+                .any(|e| e.permit.handle().same(handle))
+            {
+                return Err(Fault::Full);
+            }
+            let map = |e| {
+                if e == crate::Error::Budget {
+                    Fault::Full
+                } else {
+                    Fault::Stale
+                }
+            };
+            let (budget, access) = self
+                .registry
+                .as_mut()
+                .unwrap()
+                .fixed_peer_budget(handle)
+                .map_err(|e| match e {
+                    registry::RegistryError::Protocol(e) => map(e),
+                    _ => Fault::Stale,
+                })?;
+            access
+                .with(|| registered.memory.inspect_fixed_peer(target, &access))
+                .map_err(map)?;
+            Ok(budget)
+        })();
+        let poisoned = self
+            .fixed
+            .targets
+            .iter()
+            .flatten()
+            .any(|t| t.id == target && !t.memory.fixed_cleanup_healthy());
+        self.reconcile_bound();
+        if poisoned || matches!(result, Err(Fault::Worker)) || self.fixed.failed {
+            self.abort_in_place();
+            return Err(Fault::Worker);
+        }
+        result
+    }
     pub(crate) fn register_fixed_carrier(
         &mut self,
         handle: &Handle,

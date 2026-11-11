@@ -1,5 +1,7 @@
 # Private owner delivery, wakes and fair turns
 
+[Increment 2B.1 implementation evidence](FIXED-OWNER-PEER-SETUP.md) records charged peer setup and fixed requests. It leaves Ready retained without response delivery; 2B.2 and 2B.3 remain separate.
+
 Status: root reviewed and agreed increment 2B.1 only. Its charged private peer setup may be implemented; 2B.2 delivery and 2B.3 wake/fairness code wait for separate review. Baseline is stage 2A at `18229be6`: 335 Rust tests, 9 doctests, strict Clippy/fmt and seven Node checks; independent source review found no P1/P2. This makes the remaining [owner-pump proposal](FIXED-OWNER-PUMP-PROPOSAL.md) concrete while preserving [lifecycle ownership](FIXED-OWNER-LIFECYCLE.md) and the [tracked-output contract](TRACKED-OUTPUT-CONTRACT.md).
 
 Use three separately reviewable increments: charged private peer setup; real owner delivery/completion on existing ticks; then completion wakes and fair turns. All remain inside the fresh synthetic fixture. There is no public executor, network/HTTP adapter, existing profile, real phone, provider, mobile or GUI work. Remote remains independent of both frontend candidates.

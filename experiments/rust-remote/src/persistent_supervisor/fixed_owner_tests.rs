@@ -268,6 +268,9 @@ impl Drop for UnparkOnDrop {
 #[path = "fixed_lifecycle_tests.rs"]
 mod fixed_lifecycle_tests;
 
+#[path = "fixed_peer_tests.rs"]
+mod fixed_peer_tests;
+
 #[test]
 fn fixed_all_512_statuses_remain_charged_across_device_churn_until_ack() {
     let _disk = crate::synthetic_store::testing_lock();

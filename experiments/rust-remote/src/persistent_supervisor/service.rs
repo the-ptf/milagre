@@ -791,13 +791,16 @@ impl Runtime {
             }
             C::Send { handle, encoded } => {
                 self.current(&handle)?;
+                self.fixed_peer_outbound(&handle)?;
                 self.authority.send_for_carrier(&handle, &encoded, now)?;
             }
             C::Finish { token, response } => {
+                self.fixed_peer_outbound(token.handle())?;
                 let started = self.authority.finish_request(&token, &response, now)?;
                 Self::work_available(shared, started);
             }
             C::DispatchSynthetic { token, http } => {
+                self.fixed_peer_outbound(token.handle())?;
                 let (record, started) = self.authority.dispatch_synthetic(&token, &http, now)?;
                 Self::work_available(shared, started);
                 return Ok(Reply::Dispatched(record));
