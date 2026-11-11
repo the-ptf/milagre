@@ -19,12 +19,12 @@ use milagre_gpui_spike::workspace::sidebar::{Sidebar, SidebarData, SidebarSeed, 
 
 use crate::{NotAvailable, Reducer, SyncError, connect_and_sync};
 
-fn body(name: &str, value: &serde_json::Value) {
+pub(super) fn body(name: &str, value: &serde_json::Value) {
     println!("GPUI_ADAPTER_BODY {name} {value}");
 }
 
 /// `Complete` with exit 0, stop acknowledged, and profile, socket and launch storage all gone.
-async fn shut_down(guard: &FixtureGuard) {
+pub(super) async fn shut_down(guard: &FixtureGuard) {
     let report = guard.shutdown().await.expect("shutdown");
     println!("GPUI_ADAPTER_SHUTDOWN {report:?}");
     let ShutdownReport::Complete(cleanup) = report else { panic!("fixture not cleanly stopped: {report:?}") };
@@ -186,7 +186,7 @@ fn events_are_released_only_after_the_snapshot_is_applied_and_accepted() {
             reducer.apply_notice(notice).expect("only events above the watermark");
             released += 1;
         }
-        assert!(reducer.released().iter().all(|event| event.wire_seq > snapshot.event_seq));
+        assert!(reducer.released().tail().all(|event| event.wire_seq > snapshot.event_seq));
         // A second capture invalidates the first receipt.
         let second = client.runtime_snapshot().await.unwrap();
         assert_eq!(client.accept_snapshot(&snapshot).await.unwrap_err(), Error::StaleSnapshot);
@@ -206,10 +206,10 @@ fn events_are_released_only_after_the_snapshot_is_applied_and_accepted() {
 /// The adapter's reads, fetched once, answered synchronously to the sidebar. `computers:list` and `project:recent`
 /// are not in the client, so this test shell (not the adapter) lists only this computer and the fixture's Project;
 /// PRs and usage stay unavailable.
-struct AdapterFed {
-    project: Project,
-    state: StateRead,
-    runs: ChatRuns,
+pub(super) struct AdapterFed {
+    pub(super) project: Project,
+    pub(super) state: StateRead,
+    pub(super) runs: ChatRuns,
 }
 
 impl DataSource for AdapterFed {
@@ -296,3 +296,5 @@ fn sidebar_mounts_from_the_adapter(cx: &mut TestAppContext) {
     cx.foreground_executor().block_test(shut_down(&guard));
     println!("GPUI_ADAPTER_EVIDENCE sidebar scopes=1 project={path:?} chats=[1,2] listed_rows={rows}");
 }
+
+mod populated;

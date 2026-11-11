@@ -124,3 +124,84 @@ fn an_oversized_project_event_is_an_error_not_an_empty_state() {
     assert_eq!(reducer.state().unwrap_err(), expected, "the reducer keeps answering the error");
     assert_eq!(expected.to_string(), format!("the Project's state is too large to stream: read {PATH} again with project:read"));
 }
+
+#[test]
+fn released_events_are_counted_but_only_a_bounded_tail_is_kept() {
+    // The default bounds are the client's own notification bounds.
+    let client = milagre_daemon_client::ClientOptions::default();
+    let mut reducer = Reducer::default();
+    reducer.apply_body(&body("snapshot"), 1).unwrap();
+    for seq in 2..2 + client.max_notification_events as u64 + 5 {
+        reducer.apply_notice(Notice::Event { wire_seq: seq, scope: None, channel: "x".into(), payload: json!({}) }).unwrap();
+    }
+    assert_eq!(reducer.released().count(), client.max_notification_events as u64 + 5);
+    assert_eq!(reducer.released().tail().len(), client.max_notification_events);
+    assert_eq!(reducer.released().tail().next().unwrap().wire_seq, 7, "the oldest five were dropped from the tail");
+
+    // Small bounds: three events, or 20 payload bytes, whichever is reached first.
+    let mut reducer = Reducer::with_bounds(3, 20);
+    reducer.apply_body(&body("snapshot"), 1).unwrap();
+    let event = |seq: u64, text: &str| Notice::Event { wire_seq: seq, scope: None, channel: "x".into(), payload: json!(text) };
+    for seq in 2..7 {
+        reducer.apply_notice(event(seq, "ab")).unwrap(); // `"ab"`: 4 bytes
+    }
+    assert_eq!(reducer.released().tail().map(|e| e.wire_seq).collect::<Vec<_>>(), vec![4, 5, 6]);
+    assert_eq!(reducer.released().bytes(), 12);
+    reducer.apply_notice(event(7, "0123456789abcdef")).unwrap(); // 18 bytes: only it fits
+    assert_eq!(reducer.released().tail().map(|e| e.wire_seq).collect::<Vec<_>>(), vec![7]);
+    assert_eq!((reducer.released().count(), reducer.released().bytes()), (6, 18));
+    // An event at or below the watermark is refused, not recorded.
+    assert_eq!(reducer.apply_notice(event(1, "")).unwrap_err(), SyncError::StaleEvent { wire_seq: 1, watermark: 1 });
+    assert_eq!(reducer.released().count(), 6);
+}
+
+#[test]
+fn populated_state_maps_both_chats_with_their_owner_summaries() {
+    use milagre_gpui_spike::data::Outcome;
+    let raw = body("populated_state_read");
+    let read = map::state_read(&milagre_daemon_client::StateRead {
+        state: raw["state"].clone(),
+        version: raw["version"].clone(),
+        epoch: raw["epoch"].clone(),
+    })
+    .unwrap();
+    assert_eq!(read.stamp.version, raw["version"].as_u64());
+    assert_eq!(read.stamp.epoch.as_deref(), raw["epoch"].as_str());
+    let sessions = &read.state.sessions;
+    assert_eq!(sessions.keys().copied().collect::<Vec<_>>(), vec![1, 2]);
+    for (id, count, first, last, title) in [(1, 4, 10, 13, "Fixture history: first turn"), (2, 2, 14, 15, "Fixture history: another Chat")]
+    {
+        let summary = sessions[&id].summary.as_ref().unwrap();
+        let wire = &raw["state"]["sessions"][id.to_string()]["summary"];
+        assert_eq!((summary.count, summary.first_id, summary.last_id), (count, Some(first), Some(last)));
+        assert_eq!(summary.title_line.as_deref(), Some(title));
+        assert_eq!(summary.last_model.as_deref(), Some("scripted"));
+        assert_eq!(summary.last_outcome, Some(Outcome::Completed));
+        assert_eq!((summary.first_at, summary.last_at), (wire["firstAt"].as_i64(), wire["lastAt"].as_i64()));
+    }
+    let (one, two) = (sessions[&1].summary.as_ref().unwrap(), sessions[&2].summary.as_ref().unwrap());
+    assert!(two.first_at > one.first_at && two.last_at > one.last_at, "Chat 2 started and ended later");
+}
+
+#[test]
+fn populated_transcripts_and_a_one_turn_page_map_in_order() {
+    let ids = |page: &MessagePage| page.messages.iter().map(|m| m.id).collect::<Vec<_>>();
+    let chat1 = map::message_page(&body("populated_chat1_open")).unwrap();
+    assert_eq!((ids(&chat1), chat1.total, chat1.has_more), (vec![10, 11, 12, 13], 4, false));
+    let bodies: Vec<_> = chat1.messages.iter().map(|m| (m.role, m.body.as_ref())).collect();
+    use milagre_gpui_spike::data::Role::{Assistant, User};
+    assert_eq!(
+        bodies,
+        [
+            (User, "Fixture history: first turn"),
+            (Assistant, "Scripted isolated reply"),
+            (User, "Fixture history: second turn"),
+            (Assistant, "Scripted isolated reply")
+        ]
+    );
+    assert!(chat1.messages.iter().all(|m| m.chat == 1 && m.model.as_deref() == Some("scripted") && m.context.is_none()));
+    let chat2 = map::message_page(&body("populated_chat2_open")).unwrap();
+    assert_eq!((ids(&chat2), chat2.total, chat2.has_more), (vec![14, 15], 2, false));
+    let last = map::message_page(&body("populated_chat1_last_turn")).unwrap();
+    assert_eq!((ids(&last), last.total, last.has_more), (vec![12, 13], 4, true));
+}
