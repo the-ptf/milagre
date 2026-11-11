@@ -1,0 +1,2467 @@
+{
+ "id": "settings",
+ "title": "Notification settings",
+ "group": "Settings",
+ "versions": [
+  {
+   "schemaVersion": 1,
+   "width": 1280,
+   "height": 800,
+   "background": "$page",
+   "kit": {
+    "id": "studio",
+    "version": 3,
+    "title": "Studio",
+    "colors": {
+     "page": "#f7f7f5",
+     "panel": "#ffffff",
+     "ink": "#1b1d1c",
+     "muted": "#6b706d",
+     "line": "#e4e6e3",
+     "accent": "#3b5bdb",
+     "accentSoft": "#e7ecfc",
+     "ok": "#2f9e44"
+    },
+    "textStyles": {
+     "title": {
+      "fontSize": 24,
+      "fontWeight": 700,
+      "lineHeight": 1.25
+     },
+     "heading": {
+      "fontSize": 15,
+      "fontWeight": 600
+     },
+     "body": {
+      "fontSize": 14,
+      "lineHeight": 1.45
+     },
+     "small": {
+      "fontSize": 12,
+      "fontWeight": 500
+     }
+    },
+    "spacing": {
+     "s": 8,
+     "m": 16,
+     "l": 24
+    },
+    "radii": {
+     "card": 12,
+     "pill": 999
+    }
+   },
+   "nodes": [
+    {
+     "id": "side",
+     "type": "frame",
+     "x": 0,
+     "y": 0,
+     "width": 248,
+     "height": 800,
+     "layout": "vertical",
+     "padding": 20,
+     "gap": 4,
+     "fill": "$panel",
+     "stroke": "$line"
+    },
+    {
+     "id": "brand",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 40,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "gap": 10,
+     "align": "center"
+    },
+    {
+     "id": "logo",
+     "parentId": "brand",
+     "type": "rectangle",
+     "width": 28,
+     "height": 28,
+     "fill": "$accent",
+     "radius": 8
+    },
+    {
+     "id": "brand-name",
+     "parentId": "brand",
+     "type": "text",
+     "text": "Northwind",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "nav-gap",
+     "parentId": "side",
+     "type": "rectangle",
+     "width": 10,
+     "height": 16,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-0",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-0-icon",
+     "parentId": "nav-0",
+     "type": "icon",
+     "icon": "settings",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-0-label",
+     "parentId": "nav-0",
+     "type": "text",
+     "text": "General",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-1",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-1-icon",
+     "parentId": "nav-1",
+     "type": "icon",
+     "icon": "user",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-1-label",
+     "parentId": "nav-1",
+     "type": "text",
+     "text": "Profile",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-2",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "$accentSoft"
+    },
+    {
+     "id": "nav-2-icon",
+     "parentId": "nav-2",
+     "type": "icon",
+     "icon": "bell",
+     "width": 16,
+     "height": 16,
+     "fill": "$accent"
+    },
+    {
+     "id": "nav-2-label",
+     "parentId": "nav-2",
+     "type": "text",
+     "text": "Notifications",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$accent",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-3",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-3-icon",
+     "parentId": "nav-3",
+     "type": "icon",
+     "icon": "credit-card",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-3-label",
+     "parentId": "nav-3",
+     "type": "text",
+     "text": "Billing",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-4",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-4-icon",
+     "parentId": "nav-4",
+     "type": "icon",
+     "icon": "users",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-4-label",
+     "parentId": "nav-4",
+     "type": "text",
+     "text": "Members",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-5",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-5-icon",
+     "parentId": "nav-5",
+     "type": "icon",
+     "icon": "plug",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-5-label",
+     "parentId": "nav-5",
+     "type": "text",
+     "text": "Integrations",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "main",
+     "type": "frame",
+     "x": 248,
+     "y": 0,
+     "width": 1032,
+     "height": 800,
+     "layout": "vertical",
+     "padding": 40,
+     "gap": 24,
+     "bindings": {
+      "gap": "l"
+     }
+    },
+    {
+     "id": "head",
+     "parentId": "main",
+     "type": "frame",
+     "width": 952,
+     "height": 60,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "horizontal",
+     "align": "end",
+     "justify": "space-between"
+    },
+    {
+     "id": "head-text",
+     "parentId": "head",
+     "type": "frame",
+     "width": 400,
+     "height": 60,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 4
+    },
+    {
+     "id": "page-title",
+     "parentId": "head-text",
+     "type": "text",
+     "text": "Notifications",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "title",
+     "fill": "$ink"
+    },
+    {
+     "id": "page-sub",
+     "parentId": "head-text",
+     "type": "text",
+     "text": "Choose what reaches you, and where.",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$muted"
+    },
+    {
+     "id": "save",
+     "parentId": "head",
+     "type": "frame",
+     "width": 120,
+     "height": 36,
+     "widthMode": "hug",
+     "layout": "horizontal",
+     "padding": 16,
+     "align": "center",
+     "fill": "$ink",
+     "radius": 8
+    },
+    {
+     "id": "save-label",
+     "parentId": "save",
+     "type": "text",
+     "text": "Save changes",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "small",
+     "fill": "#ffffff"
+    },
+    {
+     "id": "cards",
+     "parentId": "main",
+     "type": "frame",
+     "width": 952,
+     "height": 120,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "horizontal",
+     "gap": 16,
+     "bindings": {
+      "gap": "m"
+     }
+    },
+    {
+     "id": "card-0",
+     "parentId": "cards",
+     "type": "frame",
+     "width": 100,
+     "height": 120,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "padding": 20,
+     "gap": 10,
+     "fill": "$panel",
+     "stroke": "$line",
+     "bindings": {
+      "radius": "card",
+      "padding": "l"
+     }
+    },
+    {
+     "id": "card-0-icon",
+     "parentId": "card-0",
+     "type": "icon",
+     "icon": "mail",
+     "width": 22,
+     "height": 22,
+     "fill": "$accent"
+    },
+    {
+     "id": "card-0-label",
+     "parentId": "card-0",
+     "type": "text",
+     "text": "Email",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "card-0-status",
+     "parentId": "card-0",
+     "type": "text",
+     "text": "3 of 5 on",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "small",
+     "fill": "$ok"
+    },
+    {
+     "id": "card-1",
+     "parentId": "cards",
+     "type": "frame",
+     "width": 100,
+     "height": 120,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "padding": 20,
+     "gap": 10,
+     "fill": "$panel",
+     "stroke": "$line",
+     "bindings": {
+      "radius": "card",
+      "padding": "l"
+     }
+    },
+    {
+     "id": "card-1-icon",
+     "parentId": "card-1",
+     "type": "icon",
+     "icon": "smartphone",
+     "width": 22,
+     "height": 22,
+     "fill": "$accent"
+    },
+    {
+     "id": "card-1-label",
+     "parentId": "card-1",
+     "type": "text",
+     "text": "Push",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "card-1-status",
+     "parentId": "card-1",
+     "type": "text",
+     "text": "All on",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "small",
+     "fill": "$ok"
+    },
+    {
+     "id": "card-2",
+     "parentId": "cards",
+     "type": "frame",
+     "width": 100,
+     "height": 120,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "padding": 20,
+     "gap": 10,
+     "fill": "$panel",
+     "stroke": "$line",
+     "bindings": {
+      "radius": "card",
+      "padding": "l"
+     }
+    },
+    {
+     "id": "card-2-icon",
+     "parentId": "card-2",
+     "type": "icon",
+     "icon": "message-square",
+     "width": 22,
+     "height": 22,
+     "fill": "$accent"
+    },
+    {
+     "id": "card-2-label",
+     "parentId": "card-2",
+     "type": "text",
+     "text": "Slack",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "card-2-status",
+     "parentId": "card-2",
+     "type": "text",
+     "text": "Not connected",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "small",
+     "fill": "$muted"
+    },
+    {
+     "id": "list",
+     "parentId": "main",
+     "type": "frame",
+     "width": 952,
+     "height": 200,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "fill": "$panel",
+     "stroke": "$line",
+     "bindings": {
+      "radius": "card"
+     }
+    },
+    {
+     "id": "row-0",
+     "parentId": "list",
+     "type": "frame",
+     "width": 952,
+     "height": 72,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 20,
+     "gap": 16,
+     "align": "center"
+    },
+    {
+     "id": "row-0-text",
+     "parentId": "row-0",
+     "type": "frame",
+     "width": 100,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 2
+    },
+    {
+     "id": "row-0-label",
+     "parentId": "row-0-text",
+     "type": "text",
+     "text": "Product updates",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "row-0-help",
+     "parentId": "row-0-text",
+     "type": "text",
+     "text": "News about features and releases.",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$muted"
+    },
+    {
+     "id": "row-0-toggle",
+     "parentId": "row-0",
+     "type": "frame",
+     "width": 40,
+     "height": 24,
+     "layout": "horizontal",
+     "padding": 3,
+     "align": "center",
+     "justify": "end",
+     "fill": "$accent",
+     "bindings": {
+      "radius": "pill"
+     }
+    },
+    {
+     "id": "row-0-knob",
+     "parentId": "row-0-toggle",
+     "type": "ellipse",
+     "width": 18,
+     "height": 18,
+     "fill": "#ffffff"
+    },
+    {
+     "id": "row-0-rule",
+     "parentId": "list",
+     "type": "rectangle",
+     "width": 952,
+     "height": 1,
+     "widthMode": "fill",
+     "fill": "$line"
+    },
+    {
+     "id": "row-1",
+     "parentId": "list",
+     "type": "frame",
+     "width": 952,
+     "height": 72,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 20,
+     "gap": 16,
+     "align": "center"
+    },
+    {
+     "id": "row-1-text",
+     "parentId": "row-1",
+     "type": "frame",
+     "width": 100,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 2
+    },
+    {
+     "id": "row-1-label",
+     "parentId": "row-1-text",
+     "type": "text",
+     "text": "Weekly digest",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "row-1-help",
+     "parentId": "row-1-text",
+     "type": "text",
+     "text": "A summary of your workspace every Monday.",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$muted"
+    },
+    {
+     "id": "row-1-toggle",
+     "parentId": "row-1",
+     "type": "frame",
+     "width": 40,
+     "height": 24,
+     "layout": "horizontal",
+     "padding": 3,
+     "align": "center",
+     "justify": "start",
+     "fill": "#d4d7d5",
+     "bindings": {
+      "radius": "pill"
+     }
+    },
+    {
+     "id": "row-1-knob",
+     "parentId": "row-1-toggle",
+     "type": "ellipse",
+     "width": 18,
+     "height": 18,
+     "fill": "#ffffff"
+    },
+    {
+     "id": "row-1-rule",
+     "parentId": "list",
+     "type": "rectangle",
+     "width": 952,
+     "height": 1,
+     "widthMode": "fill",
+     "fill": "$line"
+    },
+    {
+     "id": "row-2",
+     "parentId": "list",
+     "type": "frame",
+     "width": 952,
+     "height": 72,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 20,
+     "gap": 16,
+     "align": "center"
+    },
+    {
+     "id": "row-2-text",
+     "parentId": "row-2",
+     "type": "frame",
+     "width": 100,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 2
+    },
+    {
+     "id": "row-2-label",
+     "parentId": "row-2-text",
+     "type": "text",
+     "text": "Mentions",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "row-2-help",
+     "parentId": "row-2-text",
+     "type": "text",
+     "text": "When someone mentions you in a comment.",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$muted"
+    },
+    {
+     "id": "row-2-toggle",
+     "parentId": "row-2",
+     "type": "frame",
+     "width": 40,
+     "height": 24,
+     "layout": "horizontal",
+     "padding": 3,
+     "align": "center",
+     "justify": "end",
+     "fill": "$accent",
+     "bindings": {
+      "radius": "pill"
+     }
+    },
+    {
+     "id": "row-2-knob",
+     "parentId": "row-2-toggle",
+     "type": "ellipse",
+     "width": 18,
+     "height": 18,
+     "fill": "#ffffff"
+    }
+   ]
+  },
+  {
+   "schemaVersion": 1,
+   "width": 1280,
+   "height": 800,
+   "background": "$page",
+   "kit": {
+    "id": "studio",
+    "version": 3,
+    "title": "Studio",
+    "colors": {
+     "page": "#f7f7f5",
+     "panel": "#ffffff",
+     "ink": "#1b1d1c",
+     "muted": "#6b706d",
+     "line": "#e4e6e3",
+     "accent": "#3b5bdb",
+     "accentSoft": "#e7ecfc",
+     "ok": "#2f9e44"
+    },
+    "textStyles": {
+     "title": {
+      "fontSize": 24,
+      "fontWeight": 700,
+      "lineHeight": 1.25
+     },
+     "heading": {
+      "fontSize": 15,
+      "fontWeight": 600
+     },
+     "body": {
+      "fontSize": 14,
+      "lineHeight": 1.45
+     },
+     "small": {
+      "fontSize": 12,
+      "fontWeight": 500
+     }
+    },
+    "spacing": {
+     "s": 8,
+     "m": 16,
+     "l": 24
+    },
+    "radii": {
+     "card": 12,
+     "pill": 999
+    }
+   },
+   "nodes": [
+    {
+     "id": "side",
+     "type": "frame",
+     "x": 0,
+     "y": 0,
+     "width": 248,
+     "height": 800,
+     "layout": "vertical",
+     "padding": 20,
+     "gap": 4,
+     "fill": "$panel",
+     "stroke": "$line"
+    },
+    {
+     "id": "brand",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 40,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "gap": 10,
+     "align": "center"
+    },
+    {
+     "id": "logo",
+     "parentId": "brand",
+     "type": "rectangle",
+     "width": 28,
+     "height": 28,
+     "fill": "$accent",
+     "radius": 8
+    },
+    {
+     "id": "brand-name",
+     "parentId": "brand",
+     "type": "text",
+     "text": "Northwind",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "nav-gap",
+     "parentId": "side",
+     "type": "rectangle",
+     "width": 10,
+     "height": 16,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-0",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-0-icon",
+     "parentId": "nav-0",
+     "type": "icon",
+     "icon": "settings",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-0-label",
+     "parentId": "nav-0",
+     "type": "text",
+     "text": "General",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-1",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-1-icon",
+     "parentId": "nav-1",
+     "type": "icon",
+     "icon": "user",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-1-label",
+     "parentId": "nav-1",
+     "type": "text",
+     "text": "Profile",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-2",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "$accentSoft"
+    },
+    {
+     "id": "nav-2-icon",
+     "parentId": "nav-2",
+     "type": "icon",
+     "icon": "bell",
+     "width": 16,
+     "height": 16,
+     "fill": "$accent"
+    },
+    {
+     "id": "nav-2-label",
+     "parentId": "nav-2",
+     "type": "text",
+     "text": "Notifications",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$accent",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-3",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-3-icon",
+     "parentId": "nav-3",
+     "type": "icon",
+     "icon": "credit-card",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-3-label",
+     "parentId": "nav-3",
+     "type": "text",
+     "text": "Billing",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-4",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-4-icon",
+     "parentId": "nav-4",
+     "type": "icon",
+     "icon": "users",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-4-label",
+     "parentId": "nav-4",
+     "type": "text",
+     "text": "Members",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-5",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-5-icon",
+     "parentId": "nav-5",
+     "type": "icon",
+     "icon": "plug",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-5-label",
+     "parentId": "nav-5",
+     "type": "text",
+     "text": "Integrations",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "main",
+     "type": "frame",
+     "x": 248,
+     "y": 0,
+     "width": 1032,
+     "height": 800,
+     "layout": "vertical",
+     "padding": 40,
+     "gap": 24,
+     "bindings": {
+      "gap": "l"
+     }
+    },
+    {
+     "id": "head",
+     "parentId": "main",
+     "type": "frame",
+     "width": 952,
+     "height": 60,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "horizontal",
+     "align": "end",
+     "justify": "space-between"
+    },
+    {
+     "id": "head-text",
+     "parentId": "head",
+     "type": "frame",
+     "width": 400,
+     "height": 60,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 4
+    },
+    {
+     "id": "page-title",
+     "parentId": "head-text",
+     "type": "text",
+     "text": "Notifications",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "title",
+     "fill": "$ink"
+    },
+    {
+     "id": "page-sub",
+     "parentId": "head-text",
+     "type": "text",
+     "text": "Choose what reaches you, and where.",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$muted"
+    },
+    {
+     "id": "save",
+     "parentId": "head",
+     "type": "frame",
+     "width": 120,
+     "height": 36,
+     "widthMode": "hug",
+     "layout": "horizontal",
+     "padding": 16,
+     "align": "center",
+     "fill": "$accent",
+     "radius": 8
+    },
+    {
+     "id": "save-label",
+     "parentId": "save",
+     "type": "text",
+     "text": "Save changes",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "small",
+     "fill": "#ffffff"
+    },
+    {
+     "id": "cards",
+     "parentId": "main",
+     "type": "frame",
+     "width": 952,
+     "height": 120,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "horizontal",
+     "gap": 16,
+     "bindings": {
+      "gap": "m"
+     }
+    },
+    {
+     "id": "card-0",
+     "parentId": "cards",
+     "type": "frame",
+     "width": 100,
+     "height": 120,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "padding": 20,
+     "gap": 10,
+     "fill": "$panel",
+     "stroke": "$line",
+     "bindings": {
+      "radius": "card",
+      "padding": "l"
+     }
+    },
+    {
+     "id": "card-0-icon",
+     "parentId": "card-0",
+     "type": "icon",
+     "icon": "mail",
+     "width": 22,
+     "height": 22,
+     "fill": "$accent"
+    },
+    {
+     "id": "card-0-label",
+     "parentId": "card-0",
+     "type": "text",
+     "text": "Email",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "card-0-status",
+     "parentId": "card-0",
+     "type": "text",
+     "text": "3 of 5 on",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "small",
+     "fill": "$ok"
+    },
+    {
+     "id": "card-1",
+     "parentId": "cards",
+     "type": "frame",
+     "width": 100,
+     "height": 120,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "padding": 20,
+     "gap": 10,
+     "fill": "$panel",
+     "stroke": "$line",
+     "bindings": {
+      "radius": "card",
+      "padding": "l"
+     }
+    },
+    {
+     "id": "card-1-icon",
+     "parentId": "card-1",
+     "type": "icon",
+     "icon": "smartphone",
+     "width": 22,
+     "height": 22,
+     "fill": "$accent"
+    },
+    {
+     "id": "card-1-label",
+     "parentId": "card-1",
+     "type": "text",
+     "text": "Push",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "card-1-status",
+     "parentId": "card-1",
+     "type": "text",
+     "text": "All on",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "small",
+     "fill": "$ok"
+    },
+    {
+     "id": "card-2",
+     "parentId": "cards",
+     "type": "frame",
+     "width": 100,
+     "height": 120,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "padding": 20,
+     "gap": 10,
+     "fill": "$panel",
+     "stroke": "$line",
+     "bindings": {
+      "radius": "card",
+      "padding": "l"
+     }
+    },
+    {
+     "id": "card-2-icon",
+     "parentId": "card-2",
+     "type": "icon",
+     "icon": "message-square",
+     "width": 22,
+     "height": 22,
+     "fill": "$accent"
+    },
+    {
+     "id": "card-2-label",
+     "parentId": "card-2",
+     "type": "text",
+     "text": "Slack",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "card-2-status",
+     "parentId": "card-2",
+     "type": "text",
+     "text": "Connected",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "small",
+     "fill": "$ok"
+    },
+    {
+     "id": "list",
+     "parentId": "main",
+     "type": "frame",
+     "width": 952,
+     "height": 200,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "fill": "$panel",
+     "stroke": "$line",
+     "bindings": {
+      "radius": "card"
+     }
+    },
+    {
+     "id": "row-0",
+     "parentId": "list",
+     "type": "frame",
+     "width": 952,
+     "height": 72,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 20,
+     "gap": 16,
+     "align": "center"
+    },
+    {
+     "id": "row-0-text",
+     "parentId": "row-0",
+     "type": "frame",
+     "width": 100,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 2
+    },
+    {
+     "id": "row-0-label",
+     "parentId": "row-0-text",
+     "type": "text",
+     "text": "Product updates",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "row-0-help",
+     "parentId": "row-0-text",
+     "type": "text",
+     "text": "News about features and releases.",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$muted"
+    },
+    {
+     "id": "row-0-toggle",
+     "parentId": "row-0",
+     "type": "frame",
+     "width": 40,
+     "height": 24,
+     "layout": "horizontal",
+     "padding": 3,
+     "align": "center",
+     "justify": "end",
+     "fill": "$accent",
+     "bindings": {
+      "radius": "pill"
+     }
+    },
+    {
+     "id": "row-0-knob",
+     "parentId": "row-0-toggle",
+     "type": "ellipse",
+     "width": 18,
+     "height": 18,
+     "fill": "#ffffff"
+    },
+    {
+     "id": "row-0-rule",
+     "parentId": "list",
+     "type": "rectangle",
+     "width": 952,
+     "height": 1,
+     "widthMode": "fill",
+     "fill": "$line"
+    },
+    {
+     "id": "row-1",
+     "parentId": "list",
+     "type": "frame",
+     "width": 952,
+     "height": 72,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 20,
+     "gap": 16,
+     "align": "center"
+    },
+    {
+     "id": "row-1-text",
+     "parentId": "row-1",
+     "type": "frame",
+     "width": 100,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 2
+    },
+    {
+     "id": "row-1-label",
+     "parentId": "row-1-text",
+     "type": "text",
+     "text": "Weekly digest",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "row-1-help",
+     "parentId": "row-1-text",
+     "type": "text",
+     "text": "A summary of your workspace every Monday.",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$muted"
+    },
+    {
+     "id": "row-1-toggle",
+     "parentId": "row-1",
+     "type": "frame",
+     "width": 40,
+     "height": 24,
+     "layout": "horizontal",
+     "padding": 3,
+     "align": "center",
+     "justify": "end",
+     "fill": "$accent",
+     "bindings": {
+      "radius": "pill"
+     }
+    },
+    {
+     "id": "row-1-knob",
+     "parentId": "row-1-toggle",
+     "type": "ellipse",
+     "width": 18,
+     "height": 18,
+     "fill": "#ffffff"
+    },
+    {
+     "id": "row-1-rule",
+     "parentId": "list",
+     "type": "rectangle",
+     "width": 952,
+     "height": 1,
+     "widthMode": "fill",
+     "fill": "$line"
+    },
+    {
+     "id": "row-2",
+     "parentId": "list",
+     "type": "frame",
+     "width": 952,
+     "height": 72,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 20,
+     "gap": 16,
+     "align": "center"
+    },
+    {
+     "id": "row-2-text",
+     "parentId": "row-2",
+     "type": "frame",
+     "width": 100,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 2
+    },
+    {
+     "id": "row-2-label",
+     "parentId": "row-2-text",
+     "type": "text",
+     "text": "Mentions",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "row-2-help",
+     "parentId": "row-2-text",
+     "type": "text",
+     "text": "When someone mentions you in a comment.",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$muted"
+    },
+    {
+     "id": "row-2-toggle",
+     "parentId": "row-2",
+     "type": "frame",
+     "width": 40,
+     "height": 24,
+     "layout": "horizontal",
+     "padding": 3,
+     "align": "center",
+     "justify": "end",
+     "fill": "$accent",
+     "bindings": {
+      "radius": "pill"
+     }
+    },
+    {
+     "id": "row-2-knob",
+     "parentId": "row-2-toggle",
+     "type": "ellipse",
+     "width": 18,
+     "height": 18,
+     "fill": "#ffffff"
+    }
+   ]
+  },
+  {
+   "schemaVersion": 1,
+   "width": 1280,
+   "height": 800,
+   "background": "$page",
+   "kit": {
+    "id": "studio",
+    "version": 3,
+    "title": "Studio",
+    "colors": {
+     "page": "#f7f7f5",
+     "panel": "#ffffff",
+     "ink": "#1b1d1c",
+     "muted": "#6b706d",
+     "line": "#e4e6e3",
+     "accent": "#3b5bdb",
+     "accentSoft": "#e7ecfc",
+     "ok": "#2f9e44"
+    },
+    "textStyles": {
+     "title": {
+      "fontSize": 24,
+      "fontWeight": 700,
+      "lineHeight": 1.25
+     },
+     "heading": {
+      "fontSize": 15,
+      "fontWeight": 600
+     },
+     "body": {
+      "fontSize": 14,
+      "lineHeight": 1.45
+     },
+     "small": {
+      "fontSize": 12,
+      "fontWeight": 500
+     }
+    },
+    "spacing": {
+     "s": 8,
+     "m": 16,
+     "l": 24
+    },
+    "radii": {
+     "card": 12,
+     "pill": 999
+    }
+   },
+   "consistency": {
+    "mode": "strict"
+   },
+   "nodes": [
+    {
+     "id": "side",
+     "type": "frame",
+     "x": 0,
+     "y": 0,
+     "width": 248,
+     "height": 800,
+     "layout": "vertical",
+     "padding": 20,
+     "gap": 4,
+     "fill": "$panel",
+     "stroke": "$line"
+    },
+    {
+     "id": "brand",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 40,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "gap": 10,
+     "align": "center"
+    },
+    {
+     "id": "logo",
+     "parentId": "brand",
+     "type": "rectangle",
+     "width": 28,
+     "height": 28,
+     "fill": "$accent",
+     "radius": 8
+    },
+    {
+     "id": "brand-name",
+     "parentId": "brand",
+     "type": "text",
+     "text": "Northwind",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "nav-gap",
+     "parentId": "side",
+     "type": "rectangle",
+     "width": 10,
+     "height": 16,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-0",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-0-icon",
+     "parentId": "nav-0",
+     "type": "icon",
+     "icon": "settings",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-0-label",
+     "parentId": "nav-0",
+     "type": "text",
+     "text": "General",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-1",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-1-icon",
+     "parentId": "nav-1",
+     "type": "icon",
+     "icon": "user",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-1-label",
+     "parentId": "nav-1",
+     "type": "text",
+     "text": "Profile",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-2",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "$accentSoft"
+    },
+    {
+     "id": "nav-2-icon",
+     "parentId": "nav-2",
+     "type": "icon",
+     "icon": "bell",
+     "width": 16,
+     "height": 16,
+     "fill": "$accent"
+    },
+    {
+     "id": "nav-2-label",
+     "parentId": "nav-2",
+     "type": "text",
+     "text": "Notifications",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$accent",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-3",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-3-icon",
+     "parentId": "nav-3",
+     "type": "icon",
+     "icon": "credit-card",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-3-label",
+     "parentId": "nav-3",
+     "type": "text",
+     "text": "Billing",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-4",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-4-icon",
+     "parentId": "nav-4",
+     "type": "icon",
+     "icon": "users",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-4-label",
+     "parentId": "nav-4",
+     "type": "text",
+     "text": "Members",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "nav-5",
+     "parentId": "side",
+     "type": "frame",
+     "width": 208,
+     "height": 36,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 10,
+     "align": "center",
+     "radius": 8,
+     "fill": "transparent"
+    },
+    {
+     "id": "nav-5-icon",
+     "parentId": "nav-5",
+     "type": "icon",
+     "icon": "plug",
+     "width": 16,
+     "height": 16,
+     "fill": "$muted"
+    },
+    {
+     "id": "nav-5-label",
+     "parentId": "nav-5",
+     "type": "text",
+     "text": "Integrations",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$ink",
+     "fontWeight": 500
+    },
+    {
+     "id": "main",
+     "type": "frame",
+     "x": 248,
+     "y": 0,
+     "width": 1032,
+     "height": 800,
+     "layout": "vertical",
+     "padding": 40,
+     "gap": 24,
+     "bindings": {
+      "gap": "l"
+     }
+    },
+    {
+     "id": "head",
+     "parentId": "main",
+     "type": "frame",
+     "width": 952,
+     "height": 60,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "horizontal",
+     "align": "end",
+     "justify": "space-between"
+    },
+    {
+     "id": "head-text",
+     "parentId": "head",
+     "type": "frame",
+     "width": 400,
+     "height": 60,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 4
+    },
+    {
+     "id": "page-title",
+     "parentId": "head-text",
+     "type": "text",
+     "text": "Notifications",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "title",
+     "fill": "$ink"
+    },
+    {
+     "id": "page-sub",
+     "parentId": "head-text",
+     "type": "text",
+     "text": "Choose what reaches you, and where.",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$muted"
+    },
+    {
+     "id": "save",
+     "parentId": "head",
+     "type": "frame",
+     "width": 120,
+     "height": 36,
+     "widthMode": "hug",
+     "layout": "horizontal",
+     "padding": 16,
+     "align": "center",
+     "fill": "$accent",
+     "radius": 8
+    },
+    {
+     "id": "save-label",
+     "parentId": "save",
+     "type": "text",
+     "text": "Save changes",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "small",
+     "fill": "#ffffff"
+    },
+    {
+     "id": "cards",
+     "parentId": "main",
+     "type": "frame",
+     "width": 952,
+     "height": 120,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "horizontal",
+     "gap": 16,
+     "bindings": {
+      "gap": "m"
+     }
+    },
+    {
+     "id": "card-0",
+     "parentId": "cards",
+     "type": "frame",
+     "width": 100,
+     "height": 120,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "padding": 20,
+     "gap": 10,
+     "fill": "$panel",
+     "stroke": "$line",
+     "bindings": {
+      "radius": "card",
+      "padding": "l"
+     }
+    },
+    {
+     "id": "card-0-icon",
+     "parentId": "card-0",
+     "type": "icon",
+     "icon": "mail",
+     "width": 22,
+     "height": 22,
+     "fill": "$accent"
+    },
+    {
+     "id": "card-0-label",
+     "parentId": "card-0",
+     "type": "text",
+     "text": "Email",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "card-0-status",
+     "parentId": "card-0",
+     "type": "text",
+     "text": "3 of 5 on",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "small",
+     "fill": "$ok"
+    },
+    {
+     "id": "card-1",
+     "parentId": "cards",
+     "type": "frame",
+     "width": 100,
+     "height": 120,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "padding": 20,
+     "gap": 10,
+     "fill": "$panel",
+     "stroke": "$line",
+     "bindings": {
+      "radius": "card",
+      "padding": "l"
+     }
+    },
+    {
+     "id": "card-1-icon",
+     "parentId": "card-1",
+     "type": "icon",
+     "icon": "smartphone",
+     "width": 22,
+     "height": 22,
+     "fill": "$accent"
+    },
+    {
+     "id": "card-1-label",
+     "parentId": "card-1",
+     "type": "text",
+     "text": "Push",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "card-1-status",
+     "parentId": "card-1",
+     "type": "text",
+     "text": "All on",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "small",
+     "fill": "$ok"
+    },
+    {
+     "id": "card-2",
+     "parentId": "cards",
+     "type": "frame",
+     "width": 100,
+     "height": 120,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "padding": 20,
+     "gap": 10,
+     "fill": "$panel",
+     "stroke": "$line",
+     "bindings": {
+      "radius": "card",
+      "padding": "l"
+     }
+    },
+    {
+     "id": "card-2-icon",
+     "parentId": "card-2",
+     "type": "icon",
+     "icon": "message-square",
+     "width": 22,
+     "height": 22,
+     "fill": "$accent"
+    },
+    {
+     "id": "card-2-label",
+     "parentId": "card-2",
+     "type": "text",
+     "text": "Slack",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "card-2-status",
+     "parentId": "card-2",
+     "type": "text",
+     "text": "Connected",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "small",
+     "fill": "$ok"
+    },
+    {
+     "id": "list",
+     "parentId": "main",
+     "type": "frame",
+     "width": 952,
+     "height": 200,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "fill": "$panel",
+     "stroke": "$line",
+     "bindings": {
+      "radius": "card"
+     }
+    },
+    {
+     "id": "row-0",
+     "parentId": "list",
+     "type": "frame",
+     "width": 952,
+     "height": 72,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 20,
+     "gap": 16,
+     "align": "center"
+    },
+    {
+     "id": "row-0-text",
+     "parentId": "row-0",
+     "type": "frame",
+     "width": 100,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 2
+    },
+    {
+     "id": "row-0-label",
+     "parentId": "row-0-text",
+     "type": "text",
+     "text": "Product updates",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "row-0-help",
+     "parentId": "row-0-text",
+     "type": "text",
+     "text": "News about features and releases.",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$muted"
+    },
+    {
+     "id": "row-0-toggle",
+     "parentId": "row-0",
+     "type": "frame",
+     "width": 40,
+     "height": 24,
+     "layout": "horizontal",
+     "padding": 3,
+     "align": "center",
+     "justify": "end",
+     "fill": "$accent",
+     "bindings": {
+      "radius": "pill"
+     }
+    },
+    {
+     "id": "row-0-knob",
+     "parentId": "row-0-toggle",
+     "type": "ellipse",
+     "width": 18,
+     "height": 18,
+     "fill": "#ffffff"
+    },
+    {
+     "id": "row-0-rule",
+     "parentId": "list",
+     "type": "rectangle",
+     "width": 952,
+     "height": 1,
+     "widthMode": "fill",
+     "fill": "$line"
+    },
+    {
+     "id": "row-1",
+     "parentId": "list",
+     "type": "frame",
+     "width": 952,
+     "height": 72,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 20,
+     "gap": 16,
+     "align": "center"
+    },
+    {
+     "id": "row-1-text",
+     "parentId": "row-1",
+     "type": "frame",
+     "width": 100,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 2
+    },
+    {
+     "id": "row-1-label",
+     "parentId": "row-1-text",
+     "type": "text",
+     "text": "Weekly digest",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "row-1-help",
+     "parentId": "row-1-text",
+     "type": "text",
+     "text": "A summary of your workspace every Monday.",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$muted"
+    },
+    {
+     "id": "row-1-toggle",
+     "parentId": "row-1",
+     "type": "frame",
+     "width": 40,
+     "height": 24,
+     "layout": "horizontal",
+     "padding": 3,
+     "align": "center",
+     "justify": "end",
+     "fill": "$accent",
+     "bindings": {
+      "radius": "pill"
+     }
+    },
+    {
+     "id": "row-1-knob",
+     "parentId": "row-1-toggle",
+     "type": "ellipse",
+     "width": 18,
+     "height": 18,
+     "fill": "#ffffff"
+    },
+    {
+     "id": "row-1-rule",
+     "parentId": "list",
+     "type": "rectangle",
+     "width": 952,
+     "height": 1,
+     "widthMode": "fill",
+     "fill": "$line"
+    },
+    {
+     "id": "row-2",
+     "parentId": "list",
+     "type": "frame",
+     "width": 952,
+     "height": 72,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "padding": 20,
+     "gap": 16,
+     "align": "center"
+    },
+    {
+     "id": "row-2-text",
+     "parentId": "row-2",
+     "type": "frame",
+     "width": 100,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 2
+    },
+    {
+     "id": "row-2-label",
+     "parentId": "row-2-text",
+     "type": "text",
+     "text": "Mentions",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fill": "$ink"
+    },
+    {
+     "id": "row-2-help",
+     "parentId": "row-2-text",
+     "type": "text",
+     "text": "When someone mentions you in a comment.",
+     "width": 100,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "textStyle": "body",
+     "fill": "$muted"
+    },
+    {
+     "id": "row-2-toggle",
+     "parentId": "row-2",
+     "type": "frame",
+     "width": 40,
+     "height": 24,
+     "layout": "horizontal",
+     "padding": 3,
+     "align": "center",
+     "justify": "end",
+     "fill": "$accent",
+     "bindings": {
+      "radius": "pill"
+     }
+    },
+    {
+     "id": "row-2-knob",
+     "parentId": "row-2-toggle",
+     "type": "ellipse",
+     "width": 18,
+     "height": 18,
+     "fill": "#ffffff"
+    },
+    {
+     "id": "hidden-note",
+     "parentId": "main",
+     "type": "text",
+     "text": "Hidden draft note",
+     "width": 200,
+     "height": 20,
+     "hidden": true
+    }
+   ]
+  }
+ ]
+}

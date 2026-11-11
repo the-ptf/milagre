@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod copy;
+pub mod design_layout;
 pub mod diff;
 pub mod files;
 pub mod identity;

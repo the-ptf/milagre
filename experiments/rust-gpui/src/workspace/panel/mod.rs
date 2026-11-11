@@ -12,6 +12,7 @@
 pub mod artifacts;
 pub mod body;
 pub mod changes;
+pub mod designs;
 pub mod dock;
 pub mod fixture;
 pub mod pr;
@@ -33,6 +34,7 @@ use gpui_component::resizable::ResizableState;
 use self::artifacts::ArtifactsView;
 use self::body::TabPlaceholder;
 use self::changes::ChangesView;
+use self::designs::DesignsView;
 use self::fixture::ChatContent;
 use self::pr::{PrEvent, PrView};
 use crate::theme::ActiveTheme;
@@ -113,6 +115,7 @@ pub struct Panel {
     tabs_scroll: ScrollHandle,
     changes: Entity<ChangesView>,
     artifacts: Entity<ArtifactsView>,
+    designs: Entity<DesignsView>,
     pr: Entity<PrView>,
     placeholders: HashMap<PanelTab, Entity<TabPlaceholder>>,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
@@ -153,6 +156,7 @@ impl Panel {
                 cx.new(|cx| ArtifactsView::new(&panel, cx))
             },
             pr,
+            designs: cx.new(DesignsView::new),
             placeholders,
             renders: 0,
         };
@@ -224,6 +228,7 @@ impl Panel {
         match tab {
             PanelTab::Changes => Some(self.changes.clone().into()),
             PanelTab::Artifact => Some(self.artifacts.clone().into()),
+            PanelTab::Designs => Some(self.designs.clone().into()),
             PanelTab::Pr => Some(self.pr.clone().into()),
             other => self.placeholders.get(&other).map(|view| view.clone().into()),
         }
