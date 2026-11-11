@@ -87,7 +87,11 @@ cap are separate constraints. Production media and dense payload support need me
 not a larger unreviewed limit. The 5 ms actor timer and whole-state accounting remain performance
 work, not correctness evidence for runtime wiring.
 
-## Proposed next checkpoint: pure launch planning and refusal fixtures
+## Pure launch planning checkpoint
+
+Implemented as the opt-in `launch-planning` feature, documented in [LAUNCH-PLANNING.md](LAUNCH-PLANNING.md).
+The scope agreed below remains the boundary: synthetic observations only, with no authority or
+spawn connection. The host binding and production gate at the end remain outstanding.
 
 Implement only inside this crate, with no real launcher, account lookup or filesystem authority:
 

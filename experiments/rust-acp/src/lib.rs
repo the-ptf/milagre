@@ -11,3 +11,6 @@ pub use rpc::{AcpRpc, Diagnostic, ExitInfo, ExitReason, Limits, RpcError, Server
 
 #[cfg(feature = "fake-session")]
 pub mod session;
+
+#[cfg(feature = "launch-planning")]
+pub mod planning;

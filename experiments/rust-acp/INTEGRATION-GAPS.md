@@ -92,9 +92,9 @@ instructions all remain owner or later-checkpoint responsibilities.
 ## Next bounded work
 
 The concrete constructor/account/lifecycle inventory and proposed next checkpoint are in
-[PRODUCTION-CONTRACT.md](PRODUCTION-CONTRACT.md). The next proposed implementation is pure vendor
-launch planning with actual Node helper fixtures and synthetic account/install observations.
-It must remain disconnected from spawn and runtime; plans are not account or executable authority.
+[PRODUCTION-CONTRACT.md](PRODUCTION-CONTRACT.md). The opt-in pure vendor launch planner is now implemented with actual Node helper fixtures and
+synthetic account/install observations; see [LAUNCH-PLANNING.md](LAUNCH-PLANNING.md).
+It remains disconnected from spawn and runtime; plans are not account or executable authority.
 The parent must agree the real lease/guard/cleanup contract before any production constructor.
 
 ## Transport compatibility and watchdog gaps

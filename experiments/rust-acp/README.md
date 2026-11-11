@@ -189,3 +189,13 @@ and exact bytes after mid-write timeout. Tests never launch Kiro/Antigravity, us
 read a profile or connect to an MCP endpoint. URI strings in fixtures are inert test data.
 
 See [INTEGRATION-GAPS.md](INTEGRATION-GAPS.md) before proposing runtime wiring.
+
+## Opt-in synthetic launch planner
+
+`--features launch-planning` enables the pure typed `planning` API. It produces bounded review
+plans or typed refusals from synthetic account/install/environment observations, and never spawns
+or issues authority. See [LAUNCH-PLANNING.md](LAUNCH-PLANNING.md) for limits and stricter deviations.
+Its 11 tests replay 111 actual Node launch/model cases and 360 failure cases; the recorder blocks
+real host/profile/install reads. Run `node scripts/record-planning.cjs --check` from this crate.
+Default remains 58 tests; fake-session alone remains 93; planner alone adds 11, and all features
+run 104 tests. Production constructor/account/guard integration remains disabled.

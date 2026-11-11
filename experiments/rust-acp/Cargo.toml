@@ -9,6 +9,7 @@ description = "Isolated bounded ACP process/protocol checkpoint for Milagre"
 [features]
 default = []
 fake-session = ["dep:sha2"]
+launch-planning = []
 
 [workspace]
 
