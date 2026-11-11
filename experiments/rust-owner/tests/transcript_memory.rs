@@ -229,4 +229,53 @@ fn transcript_jobs_stay_within_their_byte_bounds() {
     drop(job);
     jobs.take_outcomes();
     jobs.finish(id);
+
+    drop(jobs);
+
+    // 9. Through the host: a restore send in a Project whose other Chats hold 60 MiB (loaded, saved) allocates about
+    //    its own Chat, not the Project.
+    let base = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(&base.path().join("copies"), &Policy::default()).unwrap();
+    let project = isolation.project(Path::new("p")).unwrap();
+    std::fs::create_dir_all(project.join(".milagre")).unwrap();
+    let mut seed = state(&[1_000, 30 * MIB, 30 * MIB]);
+    seed["next_id"] = json!(100);
+    seed["sessions"]["1"]["provider"] = json!("kiro");
+    // Chat 2 resumes its native session: an ordinary send, the baseline.
+    seed["sessions"]["2"]["native_session_id"] = json!("native-2");
+    for id in 1..=3 {
+        seed["sessions"][id.to_string()]["id"] = json!(id);
+    }
+    seed["messages"].as_array_mut().unwrap().push(
+        json!({ "id": 50, "session_id": 1, "role": "assistant", "body": "Done.", "outcome": "completed" }),
+    );
+    std::fs::write(project.join(".milagre/coordination.json"), seed.to_string()).unwrap();
+    drop(seed);
+    let mut host = milagre_owner_store::chat_host::ChatHost::new(
+        milagre_owner_store::states::ProjectStates::new(
+            isolation,
+            milagre_owner_store::states::Timing::default(),
+            0,
+        ),
+    );
+    host.handoff = milagre_owner_store::chat_host::HandoffMode::Restore;
+    host.register(Box::new(milagre_owner_store::chat_host::MockProvider::new(
+        "kiro",
+    )));
+    host.states.get(&project).unwrap();
+    host.states.flush(Some(&project)).unwrap();
+    let send = |session: i64| {
+        json!({ "projectPath": project.display().to_string(), "sessionId": session, "provider": "kiro",
+            "model": "m", "body": "Next", "clientMessageId": format!("c{session}") })
+    };
+    // The save behind every send costs about the loaded messages today (tracked separately); a restore must add
+    // only about its own Chat on top of that, never a copy of the Project.
+    let (_, ordinary) = peak_of(|| host.send(&send(2)).unwrap());
+    let (sent, restore) = peak_of(|| host.send(&send(1)).unwrap());
+    assert!(sent.turn.is_some());
+    assert_eq!(host.take_jobs().len(), 1, "the restore wasn't staged");
+    assert!(
+        restore < ordinary + 2 * MIB,
+        "a restore send allocated {restore} bytes, an ordinary one {ordinary}"
+    );
 }
