@@ -7,10 +7,10 @@
 //! of them ([`chat_leading_inset`], the desktop's `useControlsClearance`). The Canvas button is left out: the Canvas
 //! view is not migrated.
 //!
-//! The corner (`PanelToggles.tsx`): Terminals, Artifacts, Designs, the pull request and Changes, right to left from
-//! 12px in, 40px apart, each pressed while its panel shows. Design A keeps the panel's own tab strip, so the corner
-//! is the Chat column's top-right rather than the window's; the Chat header ends short of it
-//! ([`chat_trailing_inset`]).
+//! The corner (`PanelToggles.tsx`): Terminals, and Simulators while one is attached, right to left from 12px in,
+//! 40px apart, each pressed while its panel shows. Design A keeps the panel's own tab strip, which already has
+//! Changes, the pull request, Designs and Artifacts, so those four have no toggle here. The corner is the Chat
+//! column's top-right rather than the window's; the Chat header ends short of it ([`chat_trailing_inset`]).
 
 use std::rc::Rc;
 
@@ -151,14 +151,13 @@ pub struct CornerItem {
     pub pressed: bool,
 }
 
-/// The toggles the Chat on screen offers, left to right: Terminals, then each panel tab it has in the desktop's
-/// order (Artifacts, Designs, the pull request, Changes). `showing` is the panel tab on screen, if any.
+/// The toggles the Chat on screen offers, left to right: Terminals, then Simulators when it has one attached. The
+/// panel's other tabs (Artifacts, Designs, the pull request, Changes) have no toggle here: the panel's own tab strip
+/// shows them, and their shortcuts still work. `showing` is the panel tab on screen, if any.
 pub fn corner_items(tabs: &[PanelTab], showing: Option<PanelTab>, terminal_open: bool) -> Vec<CornerItem> {
     let mut items = vec![CornerItem { corner: Corner::Terminal, pressed: terminal_open }];
-    for tab in [PanelTab::Artifact, PanelTab::Designs, PanelTab::Simulator, PanelTab::Pr, PanelTab::Changes] {
-        if tabs.contains(&tab) {
-            items.push(CornerItem { corner: Corner::Tab(tab), pressed: showing == Some(tab) });
-        }
+    if tabs.contains(&PanelTab::Simulator) {
+        items.push(CornerItem { corner: Corner::Tab(PanelTab::Simulator), pressed: showing == Some(PanelTab::Simulator) });
     }
     items
 }

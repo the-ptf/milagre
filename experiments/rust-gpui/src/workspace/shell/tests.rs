@@ -50,51 +50,35 @@ fn the_collapsed_rail_keeps_the_chat_header_clear_of_the_lights_and_the_bar(cx: 
 }
 
 #[gpui::test]
-fn the_corner_toggles_show_and_hide_panels(cx: &mut TestAppContext) {
+fn the_corner_has_the_terminal_toggle_and_none_for_the_panels_own_tabs(cx: &mut TestAppContext) {
     let (workspace, cx) = testing::mount_workspace(cx);
-    let (panel, terminals) = workspace.read_with(cx, |w, _| (w.panel.clone(), w.terminals.clone()));
+    let terminals = workspace.read_with(cx, |w, _| w.terminals.clone());
     let items = workspace.read_with(cx, |w, cx| w.corner_items(cx));
-    assert_eq!(items.first().map(|i| i.corner), Some(Corner::Terminal));
-    assert_eq!(items.last().map(|i| i.corner), Some(Corner::Tab(PanelTab::Changes)), "Changes is rightmost");
-    // The fixture opens on Changes: its toggle is pressed, 12px from the Chat column's right edge.
-    assert!(items.last().unwrap().pressed);
-    let changes = cx.debug_bounds("toggle-changes").expect("the Changes toggle is drawn");
-    let corner = cx.debug_bounds("corner-toggles").unwrap();
-    assert_eq!(corner.right(), changes.right());
-    assert_eq!(changes.size.width, px(32.0));
-    let terminal = cx.debug_bounds("toggle-terminal").unwrap();
-    assert_eq!(terminal.origin.x, corner.origin.x, "Terminals is leftmost");
-    cx.simulate_click(changes.center(), Modifiers::none());
-    assert!(!panel.read_with(cx, |p, _| p.is_open()), "pressing it hides the panel");
-    // The Chat column is wider now: the corner moved with its right edge.
-    let terminal = cx.debug_bounds("toggle-terminal").unwrap();
-    assert!(terminal.origin.x > corner.origin.x);
+    assert_eq!(items.iter().map(|i| i.corner).collect::<Vec<_>>(), [Corner::Terminal], "no simulator is attached");
+    for gone in ["toggle-changes", "toggle-pr", "toggle-designs", "toggle-artifacts"] {
+        assert!(cx.debug_bounds(gone).is_none(), "{gone}: the panel's own tab strip has it");
+    }
+    let corner = cx.debug_bounds("corner-toggles").expect("the corner is drawn");
+    let terminal = cx.debug_bounds("toggle-terminal").expect("the Terminals toggle");
+    assert_eq!(corner.right(), terminal.right(), "12px from the Chat column's right edge");
+    assert_eq!(terminal.size.width, px(32.0));
     cx.simulate_click(terminal.center(), Modifiers::none());
     assert!(terminals.read_with(cx, |t, _| t.is_open()), "the Terminals toggle opens the drawer");
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
-    // The grid's own buttons (the layout toggle, and Subchats on a family) sit left of the panel toggles (WP-48).
     let count = workspace.read_with(cx, |w, cx| w.corner_items(cx).len() + crate::workspace::grid::corner_count(w.grid.read(cx)));
     assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(count));
 }
 
 #[test]
-fn corner_items_follow_the_desktop_order() {
+fn corner_items_are_the_terminal_and_an_attached_simulator() {
     let tabs = [PanelTab::Changes, PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr];
     let items = top_bar::corner_items(&tabs, Some(PanelTab::Designs), true);
-    let order: Vec<Corner> = items.iter().map(|i| i.corner).collect();
+    assert_eq!(items, [CornerItem { corner: Corner::Terminal, pressed: true }]);
+    let with_simulator = top_bar::corner_items(&[PanelTab::Changes, PanelTab::Simulator], Some(PanelTab::Simulator), false);
     assert_eq!(
-        order,
-        [
-            Corner::Terminal,
-            Corner::Tab(PanelTab::Artifact),
-            Corner::Tab(PanelTab::Designs),
-            Corner::Tab(PanelTab::Pr),
-            Corner::Tab(PanelTab::Changes)
-        ]
+        with_simulator,
+        [CornerItem { corner: Corner::Terminal, pressed: false }, CornerItem { corner: Corner::Tab(PanelTab::Simulator), pressed: true }]
     );
-    assert_eq!(items[0], CornerItem { corner: Corner::Terminal, pressed: true });
-    assert!(items[2].pressed && !items[4].pressed);
-    assert_eq!(top_bar::corner_items(&[PanelTab::Changes], None, false).len(), 2);
 }
 
 #[test]
