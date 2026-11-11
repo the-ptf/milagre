@@ -6,9 +6,7 @@
 
 use std::sync::Arc;
 
-use gpui::{
-    App, ElementId, InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Styled as _, Window, div, px,
-};
+use gpui::{App, ElementId, InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Styled as _, Window, div, px};
 use gpui_base::{MarkdownNode, MarkdownParseContext, TextView, TextViewStyle, markdown_ast as mdast};
 
 use super::stream::is_markdown_fence;
