@@ -1,0 +1,33 @@
+//! No sockets, persistence, credentials, or service ownership. See README for integration gates.
+#![forbid(unsafe_code)]
+pub mod channel;
+pub mod envelope;
+pub mod peer;
+pub use crypto_box::{PublicKey, SecretKey};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum Error {
+    #[error("bad-hello")]
+    BadHello,
+    #[error("bad-token")]
+    BadToken,
+    #[error("unknown-phone")]
+    UnknownPhone,
+    #[error("invalid schema or JSON")]
+    Schema,
+    #[error("frame too large")]
+    TooLarge,
+    #[error("invalid envelope")]
+    Envelope,
+    #[error("bad part")]
+    BadPart,
+    #[error("out of order or replayed frame")]
+    Order,
+    #[error("authentication failed")]
+    Authentication,
+    #[error("counter exhausted")]
+    Exhausted,
+}
+pub type Result<T> = std::result::Result<T, Error>;
+/// JSON numeric identifiers must round-trip through JavaScript safely.
+pub const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
