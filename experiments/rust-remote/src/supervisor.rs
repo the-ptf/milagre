@@ -4,7 +4,9 @@ use crate::{
     budget::{ConnectionBudget, GlobalBudget, Reservation},
     channel::{DesktopAccess, DeviceKind, MAX_HELLO_BYTES, MAX_PLAIN_BYTES},
     policy::{self, TemporaryAuthority, Ticket},
-    registry::{self, CarrierStatus, CloseReason, Handle, Registry, WorkToken},
+    registry::{
+        self, CarrierStatus, CloseReason, Handle, Registry, WorkCursor, WorkPage, WorkToken,
+    },
     SecretKey,
 };
 use rand_core::OsRng;
@@ -217,10 +219,14 @@ pub enum Event {
         permit: Approval,
         device_key: String,
     },
-    Work(WorkToken),
+    WorkAvailable,
     Closed(Handle),
 }
 pub enum Command {
+    DrainWork {
+        cursor: Option<WorkCursor>,
+        limit: usize,
+    },
     OpenPairing,
     Attach {
         id: u64,
@@ -252,7 +258,9 @@ pub enum Command {
 impl Command {
     fn delivery_target(&self) -> Option<Handle> {
         match self {
-            Self::Hello { handle, .. } | Self::Send { handle, .. } => Some(handle.clone()),
+            Self::Hello { handle, .. }
+            | Self::Request { handle, .. }
+            | Self::Send { handle, .. } => Some(handle.clone()),
             Self::Approve(permit) => Some(permit.handle.clone()),
             Self::Finish { token, .. } => Some(token.handle().clone()),
             _ => None,
@@ -282,6 +290,7 @@ impl Command {
     }
 }
 pub enum Reply {
+    Work(WorkPage),
     Done,
     Attached(Handle),
 }
@@ -311,6 +320,7 @@ impl Envelope {
 }
 struct Notification {
     event: Event,
+    created: Instant,
     _lease: Reservation,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -325,6 +335,7 @@ pub enum StopReason {
 struct Queues {
     commands: VecDeque<Envelope>,
     events: VecDeque<Notification>,
+    work_ready: bool,
 }
 struct Shared {
     queues: Mutex<Queues>,
@@ -368,10 +379,59 @@ pub struct EventStats {
     pub authoritative: usize,
     pub advisory: usize,
     pub closed_dropped: u64,
+    pub oldest_advisory_age_ms: Option<u64>,
 }
 #[derive(Clone)]
-pub struct Client(Arc<Shared>);
-impl Client {
+pub struct OwnerClient(Arc<Shared>);
+/// Compatibility name for the full trusted owner capability.
+pub type Client = OwnerClient;
+/// Commands accepted by a capability bound to one carrier generation and source.
+pub enum CarrierCommand {
+    Hello(Vec<u8>),
+    Request(Vec<u8>),
+    Disconnect,
+}
+/// A transport capability cannot change identity/approval policy or read owner work.
+/// ```compile_fail
+/// use milagre_remote::supervisor::{CarrierClient,Command};
+/// fn escalate(c:CarrierClient) { c.submit(Command::Retire); }
+/// ```
+/// ```compile_fail
+/// use milagre_remote::supervisor::CarrierClient;
+/// fn steal(c:CarrierClient) { c.next_event(std::time::Duration::ZERO); }
+/// ```
+#[derive(Clone)]
+pub struct CarrierClient {
+    owner: OwnerClient,
+    handle: Handle,
+    source: Source,
+}
+impl CarrierClient {
+    pub fn submit(&self, command: CarrierCommand) -> Result<Receipt> {
+        let handle = self.handle.clone();
+        self.owner.submit(match command {
+            CarrierCommand::Hello(bytes) => Command::Hello {
+                handle,
+                source: self.source,
+                bytes,
+            },
+            CarrierCommand::Request(bytes) => Command::Request { handle, bytes },
+            CarrierCommand::Disconnect => Command::Disconnect(handle),
+        })
+    }
+    pub fn status(&self) -> CarrierStatus {
+        self.handle.status()
+    }
+}
+impl OwnerClient {
+    /// Mint only after the trusted carrier router assigned the handle and origin.
+    pub fn carrier(&self, handle: Handle, source: Source) -> CarrierClient {
+        CarrierClient {
+            owner: self.clone(),
+            handle,
+            source,
+        }
+    }
     pub fn submit(&self, command: Command) -> Result<Receipt> {
         let cost = command.cost().ok_or(Error::Full)?;
         let mut q = self.0.queues.lock().unwrap_or_else(|e| e.into_inner());
@@ -397,9 +457,14 @@ impl Client {
             .0
             .changed
             .wait_timeout_while(q, timeout, |q| {
-                q.events.is_empty() && !self.0.finished.load(Ordering::SeqCst)
+                q.events.is_empty() && !q.work_ready && !self.0.finished.load(Ordering::SeqCst)
             })
             .unwrap_or_else(|e| e.into_inner());
+        // One fixed readiness bit is independent of event-queue capacity.
+        if q.work_ready {
+            q.work_ready = false;
+            return Some(Event::WorkAvailable);
+        }
         // Authoritative FIFO has priority over lossy closure diagnostics.
         let index = q
             .events
@@ -416,9 +481,15 @@ impl Client {
             .filter(|n| matches!(n.event, Event::Closed(_)))
             .count();
         EventStats {
-            authoritative: q.events.len() - advisory,
+            authoritative: q.events.len() - advisory + usize::from(q.work_ready),
             advisory,
             closed_dropped: self.0.closed_dropped.load(Ordering::SeqCst),
+            oldest_advisory_age_ms: q
+                .events
+                .iter()
+                .filter(|n| matches!(n.event, Event::Closed(_)))
+                .map(|n| n.created.elapsed().as_millis().min(u64::MAX as u128) as u64)
+                .max(),
         }
     }
     pub fn stop_reason(&self) -> StopReason {
@@ -445,7 +516,7 @@ impl Client {
     }
 }
 pub struct Supervisor {
-    client: Client,
+    client: OwnerClient,
     worker: Option<JoinHandle<()>>,
     initial_directory: PathBuf,
 }
@@ -477,6 +548,7 @@ impl Supervisor {
             queues: Mutex::new(Queues {
                 commands: VecDeque::new(),
                 events: VecDeque::new(),
+                work_ready: false,
             }),
             wake: Condvar::new(),
             changed: Condvar::new(),
@@ -490,7 +562,7 @@ impl Supervisor {
             global,
             limits,
         });
-        let client = Client(shared.clone());
+        let client = OwnerClient(shared.clone());
         let worker = thread::Builder::new()
             .name("synthetic-remote".into())
             .spawn(move || {
@@ -514,7 +586,10 @@ impl Supervisor {
             initial_directory,
         })
     }
-    pub fn client(&self) -> Client {
+    pub fn owner(&self) -> OwnerClient {
+        self.client.clone()
+    }
+    pub fn client(&self) -> OwnerClient {
         self.client.clone()
     }
     /// Test artifact observation only. No import/adoption API exists.
@@ -574,6 +649,16 @@ struct Actor {
     serial: u64,
 }
 impl Actor {
+    fn work_available(&self, started: Vec<WorkToken>) {
+        if started.is_empty() {
+            return;
+        }
+        let mut q = self.shared.queues.lock().unwrap_or_else(|e| e.into_inner());
+        if self.shared.stop.load(Ordering::SeqCst) == 0 {
+            q.work_ready = true;
+            self.shared.changed.notify_all();
+        }
+    }
     fn emit(&self, event: Event) {
         let mut q = self.shared.queues.lock().unwrap_or_else(|e| e.into_inner());
         if self.shared.stop.load(Ordering::SeqCst) != 0 {
@@ -623,6 +708,7 @@ impl Actor {
         match reservation {
             Ok(lease) => q.events.push_back(Notification {
                 event,
+                created: Instant::now(),
                 _lease: lease,
             }),
             Err(_) if advisory => self.shared.dropped_closure(),
@@ -678,9 +764,8 @@ impl Actor {
     fn maintain(&mut self) -> Result<()> {
         let now = self.clock.now();
         self.authority.expire(now)?;
-        for token in self.registry.tick(now)? {
-            self.emit(Event::Work(token));
-        }
+        let started = self.registry.tick(now)?;
+        self.work_available(started);
         self.reconcile();
         self.shared.ticks.fetch_add(1, Ordering::SeqCst);
         Ok(())
@@ -791,6 +876,13 @@ impl Actor {
     fn apply(&mut self, command: Command) -> Result<Reply> {
         let now = self.clock.now();
         match command {
+            Command::DrainWork { cursor, limit } => {
+                return Ok(Reply::Work(self.registry.drain_work(
+                    cursor.as_ref(),
+                    limit,
+                    now,
+                )?))
+            }
             Command::OpenPairing => self.authority.open_pairing(now)?,
             Command::Attach { id, carrier } => {
                 carrier.bind()?;
@@ -864,14 +956,12 @@ impl Actor {
             }
             Command::Request { handle, bytes } => {
                 self.current(&handle)?;
-                for token in self.registry.receive_request(&handle, &bytes, now)? {
-                    self.emit(Event::Work(token));
-                }
+                let started = self.registry.receive_request(&handle, &bytes, now)?;
+                self.work_available(started);
             }
             Command::Finish { token, response } => {
-                for next in self.registry.finish_request(&token, &response, now)? {
-                    self.emit(Event::Work(next));
-                }
+                let started = self.registry.finish_request(&token, &response, now)?;
+                self.work_available(started);
             }
             Command::Send { handle, encoded } => {
                 self.current(&handle)?;
@@ -953,6 +1043,7 @@ impl Drop for Actor {
             envelope.reject();
         }
         q.events.clear();
+        q.work_ready = false;
         self.shared.changed.notify_all();
     }
 }
@@ -962,7 +1053,7 @@ mod tests {
     use super::*;
     // A test-only launch gate makes queue and cancellation order deterministic.
     // Production has no pausing API or arbitrary worker callbacks.
-    fn fixture(limits: Limits) -> (Actor, Client, ManualClock, PathBuf) {
+    fn fixture(limits: Limits) -> (Actor, OwnerClient, ManualClock, PathBuf) {
         let global = GlobalBudget::new(256 * 1024 * 1024).unwrap();
         let authority = make_authority(
             SyntheticIdentity {
@@ -980,6 +1071,7 @@ mod tests {
             queues: Mutex::new(Queues {
                 commands: VecDeque::new(),
                 events: VecDeque::new(),
+                work_ready: false,
             }),
             wake: Condvar::new(),
             changed: Condvar::new(),
@@ -993,7 +1085,7 @@ mod tests {
             global,
             limits,
         });
-        let client = Client(shared.clone());
+        let client = OwnerClient(shared.clone());
         let clock = ManualClock::default();
         let actor = Actor {
             shared,
@@ -1006,7 +1098,7 @@ mod tests {
         };
         (actor, client, clock, initial_directory)
     }
-    fn gated(limits: Limits) -> (Supervisor, Client, ManualClock, mpsc::SyncSender<()>) {
+    fn gated(limits: Limits) -> (Supervisor, OwnerClient, ManualClock, mpsc::SyncSender<()>) {
         let (actor, client, clock, initial_directory) = fixture(limits);
         let (release, gate) = mpsc::sync_channel(1);
         let done_shared = actor.shared.clone();
@@ -1221,7 +1313,16 @@ mod tests {
             })
             .unwrap();
         let token = match c.next_event(Duration::ZERO).unwrap() {
-            Event::Work(token) => token,
+            Event::WorkAvailable => match actor
+                .execute(Command::DrainWork {
+                    cursor: None,
+                    limit: 1,
+                })
+                .unwrap()
+            {
+                Reply::Work(mut page) => page.tokens.pop().unwrap(),
+                _ => panic!(),
+            },
             _ => panic!(),
         };
         actor.registry.send_encoded(&b, b"null", 0).unwrap();
@@ -1249,6 +1350,73 @@ mod tests {
             CarrierStatus::Closed(CloseReason::CarrierFailure)
         );
         assert_eq!(c.stop_reason(), StopReason::Running);
+        drop(actor);
+        assert_eq!(c.retained_bytes(), 0);
+    }
+    #[test]
+    fn sixteen_failed_approvals_leave_no_protected_registry_carriers() {
+        let limits = Limits {
+            authority: policy::Limits {
+                records: 1,
+                admission: crate::admission::Limits {
+                    enrollment_crypto_units: 64,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let (mut actor, c, _, _) = fixture(limits);
+        actor.execute(Command::OpenPairing).unwrap();
+        let (phone, _) = attach_direct(&mut actor, 1);
+        let (bytes, _) = synthetic_hello(2, DeviceKind::Phone);
+        actor
+            .execute(Command::Hello {
+                handle: phone,
+                source: Source::Relay,
+                bytes,
+            })
+            .unwrap();
+        for seed in 3..19 {
+            let (h, m) = attach_direct(&mut actor, u64::from(seed));
+            let (bytes, _) = synthetic_hello(seed, DeviceKind::Desktop);
+            actor
+                .execute(Command::Hello {
+                    handle: h,
+                    source: Source::Relay,
+                    bytes,
+                })
+                .unwrap();
+            let permit = match c.next_event(Duration::ZERO).unwrap() {
+                Event::Approval { permit, .. } => permit,
+                _ => panic!(),
+            };
+            assert!(actor.execute(Command::Approve(permit)).is_err());
+            assert_eq!(actor.registry.carriers(), 1);
+            assert!(actor.pending.is_empty());
+            assert!(m.is_closed());
+        }
+        drop(actor);
+        assert_eq!(c.retained_bytes(), 0);
+    }
+    #[test]
+    fn approval_serial_exhaustion_cancels_ticket_instead_of_wrapping() {
+        let (mut actor, c, _, _) = fixture(Limits::default());
+        actor.execute(Command::OpenPairing).unwrap();
+        let (h, m) = attach_direct(&mut actor, 1);
+        let (bytes, _) = synthetic_hello(2, DeviceKind::Desktop);
+        actor.serial = u64::MAX;
+        assert!(matches!(
+            actor.execute(Command::Hello {
+                handle: h,
+                source: Source::Relay,
+                bytes
+            }),
+            Err(Error::Configuration)
+        ));
+        assert_eq!(actor.registry.carriers(), 0);
+        assert!(m.is_closed());
+        assert_eq!(actor.authority.expire(600000).unwrap(), 0);
         drop(actor);
         assert_eq!(c.retained_bytes(), 0);
     }

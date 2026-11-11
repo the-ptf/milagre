@@ -92,7 +92,16 @@ fn work(c: &Client, h: &Handle, ch: &mut Channel, id: i64) {
 }
 fn next_work(c: &Client) -> WorkToken {
     match c.next_event(WAIT).expect("work event") {
-        Event::Work(t) => t,
+        Event::WorkAvailable => match run(
+            c,
+            Command::DrainWork {
+                cursor: None,
+                limit: 1,
+            },
+        ) {
+            Reply::Work(mut page) => page.tokens.pop().unwrap(),
+            _ => panic!(),
+        },
         _ => panic!("not work"),
     }
 }
@@ -335,30 +344,31 @@ fn unknown_delivery_is_closed_and_never_replayed() {
     drop(s);
 }
 #[test]
-fn event_overflow_retires_all_work_instead_of_blocking_deadlines() {
+fn work_readiness_survives_a_one_slot_event_queue() {
     let (s, c, _) = start(Limits {
         events: 1,
         ..Default::default()
     });
     run(&c, Command::OpenPairing);
     let (h, m, mut ch) = phone(&c, 1, 2);
-    work(&c, &h, &mut ch, 1); // leave Work in queue
-    let bytes=ch.seal_encoded(br#"{"t":"req","id":2,"method":"GET","path":"/rpc","headers":{},"chunk":"","more":false}"#).unwrap();
-    assert!(matches!(
-        c.submit(Command::Request {
-            handle: h.clone(),
-            bytes
-        })
-        .unwrap()
-        .wait(WAIT),
-        Err(Error::UnknownOutcome)
-    )); // another event exceeds bound
+    work(&c, &h, &mut ch, 1);
+    work(&c, &h, &mut ch, 2);
+    assert_eq!(c.event_stats().authoritative, 1);
+    assert_eq!(c.stop_reason(), StopReason::Running);
+    assert!(matches!(c.next_event(WAIT), Some(Event::WorkAvailable)));
+    match run(
+        &c,
+        Command::DrainWork {
+            cursor: None,
+            limit: 64,
+        },
+    ) {
+        Reply::Work(page) => assert_eq!(page.tokens.len(), 2),
+        _ => panic!(),
+    }
+    assert!(!m.is_closed());
     drop(s);
-    assert!(c.is_finished());
-    assert_eq!(c.stop_reason(), StopReason::EventOverflow);
-    assert!(m.is_closed());
     assert_eq!(c.retained_bytes(), 0);
-    assert!(matches!(c.submit(Command::Retire), Err(Error::NotExecuted)));
 }
 #[test]
 fn disposal_joins_worker_closes_all_owned_work_and_clears_undelivered_buffers() {
@@ -533,6 +543,7 @@ fn thousand_pending_evictions_without_event_consumer_preserve_phones_and_authori
     assert_eq!(stats.advisory, 64);
     assert_eq!(stats.authoritative, 0);
     assert!(stats.closed_dropped > 900);
+    assert!(stats.oldest_advisory_age_ms.is_some());
     work(&c, &phone_handle, &mut channel, 1);
     let (desktop, memory) = attach(&c, 1002);
     let pending = hello(&c, &desktop, 3, 1, DeviceKind::Desktop);
@@ -594,27 +605,29 @@ fn authoritative_event_evicts_advisory_from_full_queue() {
     });
     run(&c, Command::OpenPairing);
     attach(&c, 9);
-    attach(&c, 9); // one advisory
-    let (h, _, mut ch) = phone(&c, 1, 2);
-    work(&c, &h, &mut ch, 1); // fills queue
+    attach(&c, 9);
+    let (a, ma) = attach(&c, 1);
+    let pa = hello(&c, &a, 2, 1, DeviceKind::Desktop);
     assert_eq!(c.event_stats().advisory, 1);
     assert_eq!(c.event_stats().authoritative, 1);
-    let (d, m) = attach(&c, 2);
-    let pending = hello(&c, &d, 3, 1, DeviceKind::Desktop);
+    let (b, mb) = attach(&c, 2);
+    let pb = hello(&c, &b, 3, 1, DeviceKind::Desktop);
     assert_eq!(c.event_stats().advisory, 0);
     assert_eq!(c.event_stats().authoritative, 2);
     assert_eq!(c.event_stats().closed_dropped, 1);
-    next_work(&c);
-    let permit = match c.next_event(WAIT).unwrap() {
-        Event::Approval { permit, .. } => permit,
-        _ => panic!(),
-    };
-    run(&c, Command::Approve(permit));
-    pending.finish(&m.receive().unwrap()).unwrap();
+    for pending in [pa, pb] {
+        let permit = match c.next_event(WAIT).unwrap() {
+            Event::Approval { permit, .. } => permit,
+            _ => panic!(),
+        };
+        run(&c, Command::Approve(permit));
+        pending
+            .finish(&ma.receive().or_else(|| mb.receive()).unwrap())
+            .unwrap();
+    }
     drop(s);
     assert_eq!(c.retained_bytes(), 0);
 }
-
 #[test]
 fn failed_approval_releases_protected_slot_and_ticket_immediately() {
     let limits = Limits {
@@ -689,4 +702,219 @@ fn failed_replace_reports_retired_running_state_and_valid_retry_recovers() {
     drop(s);
     assert!(c.is_retired() && c.is_finished());
     assert_eq!(c.retained_bytes(), 0);
+}
+
+#[test]
+fn default_256_inflight_requests_use_one_signal_and_all_tokens_are_drainable() {
+    let (s, c, clock) = start(Limits::default());
+    run(&c, Command::OpenPairing);
+    let mut phones = Vec::new();
+    for id in 1..=16 {
+        phones.push(phone(&c, id, (id + 1) as u8));
+    }
+    for (h, _, ch) in &mut phones {
+        for id in 1..=16 {
+            work(&c, h, ch, id);
+        }
+    }
+    assert_eq!(c.stop_reason(), StopReason::Running);
+    assert_eq!(c.event_stats().authoritative, 1);
+    assert!(matches!(c.next_event(WAIT), Some(Event::WorkAvailable)));
+    let lost = c
+        .submit(Command::DrainWork {
+            cursor: None,
+            limit: 64,
+        })
+        .unwrap();
+    drop(lost);
+    let mut cursor = None;
+    let mut tokens = Vec::new();
+    loop {
+        let page = match run(&c, Command::DrainWork { cursor, limit: 64 }) {
+            Reply::Work(p) => p,
+            _ => panic!(),
+        };
+        assert!(page.tokens.len() <= 64);
+        tokens.extend(page.tokens);
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(tokens.len(), 256);
+    assert!(tokens.iter().all(|t| t.status() == WorkStatus::InFlight));
+    for (h, m, _) in &phones {
+        assert_eq!(h.status(), CarrierStatus::Active);
+        assert!(!m.is_closed());
+    }
+    clock.advance_to(45001).unwrap();
+    // An owner read does not extend deadlines, claim work or replay a request.
+    let page = match run(
+        &c,
+        Command::DrainWork {
+            cursor: None,
+            limit: 64,
+        },
+    ) {
+        Reply::Work(p) => p,
+        _ => panic!(),
+    };
+    assert!(page.tokens.is_empty());
+    assert!(tokens.iter().all(|t| t.status() == WorkStatus::Cancelled));
+    drop(s);
+    assert_eq!(c.retained_bytes(), 0);
+}
+#[test]
+fn carrier_capability_is_bound_to_source_and_generation() {
+    use milagre_remote::supervisor::CarrierCommand;
+    let (s, c, _) = start(Limits::default());
+    run(&c, Command::OpenPairing);
+    let (old, m) = attach(&c, 1);
+    let transport = c.carrier(old.clone(), Source::Relay);
+    let (bytes, pending) = channel::phone_hello(
+        &SecretKey::from([2; 32]),
+        &SecretKey::from([1; 32]).public_key(),
+        TOKEN,
+        HelloOptions::default(),
+        &mut OsRng,
+    )
+    .unwrap();
+    transport
+        .submit(CarrierCommand::Hello(bytes))
+        .unwrap()
+        .wait(WAIT)
+        .unwrap();
+    pending.finish(&m.receive().unwrap()).unwrap();
+    let (next, nm) = attach(&c, 1);
+    assert!(transport
+        .submit(CarrierCommand::Disconnect)
+        .unwrap()
+        .wait(WAIT)
+        .is_err());
+    assert_eq!(next.status(), CarrierStatus::Pending);
+    assert!(!nm.is_closed());
+    assert_eq!(
+        transport.status(),
+        CarrierStatus::Closed(CloseReason::Replaced)
+    );
+    drop(s);
+}
+#[test]
+fn replaced_same_key_approval_cannot_touch_new_hello() {
+    let (s, c, _) = start(Limits::default());
+    run(&c, Command::OpenPairing);
+    let (old, m) = attach(&c, 1);
+    hello(&c, &old, 2, 1, DeviceKind::Desktop);
+    let stale = match c.next_event(WAIT).unwrap() {
+        Event::Approval { permit, .. } => permit,
+        _ => panic!(),
+    };
+    let (new, nm) = attach(&c, 2);
+    let pending = hello(&c, &new, 2, 1, DeviceKind::Desktop);
+    let fresh = match c.next_event(WAIT).unwrap() {
+        Event::Approval { permit, .. } => permit,
+        _ => panic!(),
+    };
+    assert!(c
+        .submit(Command::Approve(stale))
+        .unwrap()
+        .wait(WAIT)
+        .is_err());
+    assert!(m.is_closed());
+    assert_eq!(m.delivery_attempts(), 0);
+    assert_eq!(new.status(), CarrierStatus::Pending);
+    run(&c, Command::Approve(fresh));
+    pending.finish(&nm.receive().unwrap()).unwrap();
+    drop(s);
+}
+#[test]
+fn finish_after_flush_closed_carrier_cannot_deliver_or_touch_successor() {
+    let (s, c, _) = start(Limits::default());
+    run(&c, Command::OpenPairing);
+    let (h, m, mut ch) = phone(&c, 1, 2);
+    work(&c, &h, &mut ch, 1);
+    let token = next_work(&c);
+    m.inject_unknown_delivery();
+    assert!(matches!(
+        c.submit(Command::Send {
+            handle: h,
+            encoded: b"null".to_vec()
+        })
+        .unwrap()
+        .wait(WAIT),
+        Err(Error::DeliveryUnknown)
+    ));
+    let attempts = m.delivery_attempts();
+    let (new, nm, _) = phone(&c, 1, 2);
+    assert_eq!(token.status(), WorkStatus::Cancelled);
+    assert!(c
+        .submit(Command::Finish {
+            token,
+            response: b"null".to_vec()
+        })
+        .unwrap()
+        .wait(WAIT)
+        .is_err());
+    assert_eq!(m.delivery_attempts(), attempts);
+    assert_eq!(new.status(), CarrierStatus::Active);
+    assert_eq!(nm.delivery_attempts(), 1);
+    drop(s);
+}
+
+#[test]
+fn work_pages_retry_without_claiming_and_replacement_rejects_old_cursor() {
+    let (s, c, _) = start(Limits::default());
+    run(&c, Command::OpenPairing);
+    let (h, _, mut ch) = phone(&c, 1, 2);
+    work(&c, &h, &mut ch, 1);
+    work(&c, &h, &mut ch, 2);
+    let first = match run(
+        &c,
+        Command::DrainWork {
+            cursor: None,
+            limit: 1,
+        },
+    ) {
+        Reply::Work(page) => page,
+        _ => panic!(),
+    };
+    assert_eq!(first.tokens[0].id(), 1);
+    let again = match run(
+        &c,
+        Command::DrainWork {
+            cursor: None,
+            limit: 1,
+        },
+    ) {
+        Reply::Work(page) => page,
+        _ => panic!(),
+    };
+    assert_eq!(again.tokens[0].id(), 1);
+    let cursor = first.next.unwrap();
+    let second = match run(
+        &c,
+        Command::DrainWork {
+            cursor: Some(cursor.clone()),
+            limit: 1,
+        },
+    ) {
+        Reply::Work(page) => page,
+        _ => panic!(),
+    };
+    assert_eq!(second.tokens[0].id(), 2);
+    run(&c, Command::Replace(identity(9)));
+    assert!(c
+        .submit(Command::DrainWork {
+            cursor: Some(cursor),
+            limit: 1
+        })
+        .unwrap()
+        .wait(WAIT)
+        .is_err());
+    assert!(first
+        .tokens
+        .iter()
+        .chain(&second.tokens)
+        .all(|t| t.status() == WorkStatus::Cancelled));
+    drop(s);
 }

@@ -120,6 +120,16 @@ impl WorkToken {
         }
     }
 }
+/// A read-only pagination position bound to one registry identity.
+#[derive(Clone)]
+pub struct WorkCursor {
+    owner: [u8; 16],
+    after: (u64, u64),
+}
+pub struct WorkPage {
+    pub tokens: Vec<WorkToken>,
+    pub next: Option<WorkCursor>,
+}
 #[derive(Clone, Copy)]
 pub struct Limits {
     pub carriers: usize,
@@ -734,6 +744,49 @@ impl Registry {
                 .ok_or(RegistryError::Revoked),
             _ => Err(RegistryError::Revoked),
         }
+    }
+    /// Non-consuming inspection. Retrying a lost page never claims or executes work.
+    /// New promotions set supervisor readiness; restart from None for that new edge.
+    pub fn drain_work(
+        &mut self,
+        cursor: Option<&WorkCursor>,
+        limit: usize,
+        now: u64,
+    ) -> Result<WorkPage> {
+        self.clock(now)?;
+        if limit == 0 || limit > 64 {
+            return Err(Error::TooLarge.into());
+        }
+        if cursor.is_some_and(|c| c.owner != self.owner) {
+            return Err(RegistryError::Revoked);
+        }
+        let mut ready = Vec::new();
+        for entry in self.entries.values() {
+            if let State::Active(a) = &entry.state {
+                if a.session.is_revoked()
+                    || now >= a.idle_deadline
+                    || a.reader.deadline_ms().is_some_and(|d| now >= d)
+                {
+                    continue;
+                }
+                for job in a.jobs.values() {
+                    let order = (entry.handle.generation, job.token.serial);
+                    if job.token.status() == WorkStatus::InFlight
+                        && now < job.deadline
+                        && cursor.is_none_or(|c| order > c.after)
+                    {
+                        ready.push((order, job.token.clone()));
+                    }
+                }
+            }
+        }
+        ready.sort_by_key(|(order, _)| *order);
+        let next = (ready.len() > limit).then(|| WorkCursor {
+            owner: self.owner,
+            after: ready[limit - 1].0,
+        });
+        let tokens = ready.into_iter().take(limit).map(|(_, t)| t).collect();
+        Ok(WorkPage { tokens, next })
     }
     fn work(&mut self, t: &WorkToken, now: u64) -> Result<&mut Active> {
         let a = self.active(&t.handle, now)?;
