@@ -15,7 +15,8 @@
 //!   aliases of at most 256 bytes, at most [`MAX_MEMBERS`] members.
 //! - **Pipes read without threads.** Nonblocking reads on the running thread until both pipes close; past the deadline
 //!   the process group is killed (before Git is reaped); after Git exits the pipes may stay open half a second (a
-//!   descendant), then they are closed and the run gives no list. Nothing of a run outlives it.
+//!   descendant), then they are closed and the run gives no list. A read or wait that fails (other than an interrupted
+//!   read, retried) is no list too, never the output read so far.
 //! - **Off the actor.** It runs inside the transcript job (`TranscriptJob::run`), on the runtime's blocking worker.
 //!
 //! Node's answer for anything that fails (a member not admitted, Git failing, a timeout) is no list at all
@@ -26,7 +27,8 @@
 //! modes, symlinks, ctime, stat, line ends), and submodules are never opened, so a submodule's own changes aren't
 //! listed.
 //! - **The repository's own Git folder isn't Git's.** Each run gets a private Git folder in `.owner/git` (removed
-//!   after): a plain config with only that allow-list (read by `git config --no-includes` as data, values checked),
+//!   after): a plain config with only that allow-list (read by `git config --no-includes -z` as data, each value
+//!   read as Git reads it; one Git wouldn't take is no list),
 //!   HEAD as the commit it names, a copy of the index and `info/exclude`, and the repository's objects through one
 //!   alternate. All of it is read through descriptors from the held `.git` down (a link anywhere on the way is no
 //!   list), and `git config` reads a private copy of the config bytes, never the repository's path. So no filter, hook, fsmonitor, include, `worktreeConfig`, replace ref or submodule the repository
@@ -232,18 +234,47 @@ pub fn changed_files(copy: &Path, plan: &ChangedPlan) -> Option<Vec<String>> {
     Some(files)
 }
 
-/// The settings of the repository's own config the run keeps (how the working folder is read, never commands),
-/// each with the values it may take.
-const KEPT: [(&str, &[&str]); 8] = [
-    ("core.ignorecase", &["true", "false"]),
-    ("core.precomposeunicode", &["true", "false"]),
-    ("core.filemode", &["true", "false"]),
-    ("core.symlinks", &["true", "false"]),
-    ("core.trustctime", &["true", "false"]),
-    ("core.checkstat", &["default", "minimal"]),
-    ("core.autocrlf", &["true", "false", "input"]),
-    ("core.eol", &["lf", "crlf", "native"]),
+/// The settings of the repository's own config the run keeps (how the working folder is read, never commands).
+const KEPT: [&str; 8] = [
+    "core.ignorecase",
+    "core.precomposeunicode",
+    "core.filemode",
+    "core.symlinks",
+    "core.trustctime",
+    "core.checkstat",
+    "core.autocrlf",
+    "core.eol",
 ];
+
+/// A Git boolean as Git reads it (valueless is true, empty is false, any nonzero integer is true); `Err` where Git
+/// would refuse the value.
+fn git_bool(value: Option<&str>) -> std::result::Result<bool, ()> {
+    let Some(value) = value else { return Ok(true) };
+    match value.to_ascii_lowercase().as_str() {
+        "true" | "yes" | "on" => Ok(true),
+        "" | "false" | "no" | "off" => Ok(false),
+        other => other.parse::<i64>().map(|n| n != 0).map_err(|_| ()),
+    }
+}
+
+/// A kept setting's value written as Git would take it, or `Err` when Git would refuse it, or (`core.eol`) read it as
+/// unset: the run gives no list rather than reading the folder another way than Git would.
+fn kept_value(key: &str, value: Option<&str>) -> std::result::Result<String, ()> {
+    let lower = value.map(str::to_ascii_lowercase);
+    match key {
+        "core.checkstat" => match lower.as_deref() {
+            Some(word @ ("default" | "minimal")) => Ok(word.to_string()),
+            _ => Err(()),
+        },
+        "core.autocrlf" if lower.as_deref() == Some("input") => Ok("input".into()),
+        "core.eol" => match lower.as_deref() {
+            Some(word @ ("lf" | "crlf" | "native")) => Ok(word.to_string()),
+            _ => Err(()),
+        },
+        _ if KEPT.contains(&key) => git_bool(value).map(|on| on.to_string()),
+        _ => Err(()),
+    }
+}
 
 const DIR_FLAGS: OFlags = OFlags::RDONLY
     .union(OFlags::DIRECTORY)
@@ -576,22 +607,22 @@ impl Scratch {
             .arg(self.path.join("source-config"))
             .args([
                 "--no-includes",
+                "-z",
                 "--get-regexp",
                 "^core\\.(ignorecase|precomposeunicode|filemode|symlinks|trustctime|checkstat|autocrlf|eol)$",
             ]);
         let listed = run_bounded(read, deadline, 64 * 1024, true);
         rustix::fs::unlinkat(dir, "source-config", AtFlags::empty()).ok()?;
         let listed = listed.filter(|_| self.holds())?;
-        for line in listed.lines() {
-            let Some((key, value)) = line.split_once(' ') else {
-                continue;
+        // `-z`: each entry is `key\nvalue\0`, or `key\0` when valueless. Every one is kept, in order (the last wins, as
+        // in Git), or the run gives no list.
+        for entry in listed.split('\0').filter(|entry| !entry.is_empty()) {
+            let (key, value) = match entry.split_once('\n') {
+                Some((key, value)) => (key, Some(value)),
+                None => (entry, None),
             };
-            let value = value.trim().to_ascii_lowercase();
-            if let Some((name, allowed)) = KEPT.iter().find(|(name, _)| *name == key) {
-                if allowed.contains(&value.as_str()) {
-                    kept.push_str(&format!("\t{} = {value}\n", &name[5..]));
-                }
-            }
+            let value = kept_value(key, value).ok()?;
+            kept.push_str(&format!("\t{} = {value}\n", &key[5..]));
         }
         write_at(dir, "config", kept.as_bytes())?;
         Some(())
@@ -655,6 +686,15 @@ fn status(copy: &Path, folder: &Path, deadline: Instant, limit: usize) -> Option
     output
 }
 
+/// One nonblocking read of a pipe (tests can make the next one fail).
+fn read_pipe(pipe: &mut impl Read, buffer: &mut [u8]) -> std::io::Result<usize> {
+    #[cfg(feature = "test-fixtures")]
+    if let Some(kind) = test_hooks::take_read_failure() {
+        return Err(std::io::Error::from(kind));
+    }
+    pipe.read(buffer)
+}
+
 /// Runs `command` in its own process group, reading its pipes without threads (nonblocking, on this thread): `None`
 /// past `deadline` (the whole group killed before it is reaped), past `limit` bytes of output, when it fails (unless
 /// `exit_one_ok` and it exits 1), or when its pipes are still open DRAIN after it exits. The pipes are closed when this
@@ -690,10 +730,11 @@ fn run_bounded(
     let mut status = None;
     let mut drained_by: Option<Instant> = None;
     let mut buffer = [0u8; 8192];
-    let killed = loop {
+    // `true`: a timeout or a failed read or wait; no list.
+    let failed = loop {
         let mut progress = false;
         if out_open {
-            match stdout.read(&mut buffer) {
+            match read_pipe(&mut stdout, &mut buffer) {
                 Ok(0) => out_open = false,
                 Ok(read) => {
                     progress = true;
@@ -702,24 +743,31 @@ fn run_bounded(
                     out.extend_from_slice(&buffer[..keep]);
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(_) => out_open = false,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => progress = true,
+                // A read that fails isn't the end of the output: no list, never what was read so far.
+                Err(_) => break true,
             }
         }
         if err_open {
-            match stderr.read(&mut buffer) {
+            match read_pipe(&mut stderr, &mut buffer) {
                 Ok(0) => err_open = false,
                 Ok(read) => {
                     progress = true;
                     ignored += read;
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(_) => err_open = false,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => progress = true,
+                Err(_) => break true,
             }
         }
         if status.is_none() {
-            status = child.try_wait().ok().flatten();
-            if status.is_some() {
-                drained_by = Some(Instant::now() + DRAIN);
+            match child.try_wait() {
+                Ok(Some(exited)) => {
+                    status = Some(exited);
+                    drained_by = Some(Instant::now() + DRAIN);
+                }
+                Ok(None) => {}
+                Err(_) => break true,
             }
         }
         if status.is_some() && !out_open && !err_open {
@@ -738,11 +786,14 @@ fn run_bounded(
         }
     };
     let _ = ignored;
-    if killed {
-        // Not reaped yet, so its group id is still its own: the whole group goes, then Git is reaped.
-        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
-        let _ = child.kill();
-        let _ = child.wait();
+    if failed {
+        // Not reaped yet, its group id is still its own: the whole group goes, then Git is reaped. Once reaped (a
+        // read failing after Git exited) the id may be reused, so nothing is signalled; the pipes close below.
+        if status.is_none() {
+            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+            let _ = child.kill();
+            let _ = child.wait();
+        }
         return None;
     }
     let status = status?;
@@ -762,6 +813,16 @@ pub mod test_hooks {
     thread_local! {
         static AFTER_GIT: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
         static BEFORE_STATUS: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+        static READ_FAILURE: std::cell::Cell<Option<std::io::ErrorKind>> = const { std::cell::Cell::new(None) };
+    }
+
+    /// The next pipe read of a bounded run (on this thread) fails with `kind` before reading anything.
+    pub fn fail_next_read(kind: std::io::ErrorKind) {
+        READ_FAILURE.with(|slot| slot.set(Some(kind)));
+    }
+
+    pub(super) fn take_read_failure() -> Option<std::io::ErrorKind> {
+        READ_FAILURE.with(|slot| slot.take())
     }
 
     /// Runs `hook` once, after the private Git folder is filled (its config read) and before `git status` runs.

@@ -604,3 +604,78 @@ fn a_link_above_git_metadata_gives_no_list() {
     node.sort();
     assert_eq!(rust, node);
 }
+
+/// A pipe read that fails ends the run with no list, never with what was read so far; an interrupted read is retried.
+#[test]
+fn a_failed_pipe_read_gives_no_output() {
+    use milagre_owner_store::changed_files::test_hooks::{fail_next_read, run_bounded};
+    use std::time::Duration;
+    let run = || run_bounded("/bin/sh", &["-c", "echo ok"], Duration::from_secs(2), 1024);
+    fail_next_read(std::io::ErrorKind::BrokenPipe);
+    assert_eq!(
+        run(),
+        None,
+        "a failed read was taken for the end of the output"
+    );
+    fail_next_read(std::io::ErrorKind::Interrupted);
+    assert_eq!(run().as_deref(), Some("ok\n"));
+    assert_eq!(run().as_deref(), Some("ok\n"));
+}
+
+/// The kept `core` settings are read as Git reads them: `off` is false (a mode change isn't listed, as Node's run
+/// doesn't list it), a valueless key is true, and a value Git would refuse gives no list instead of being dropped.
+#[test]
+fn kept_settings_are_read_as_git_reads_them() {
+    use std::os::unix::fs::PermissionsExt;
+    let Some((_base, copy)) = setup() else { return };
+    let mut grants = GitGrants::new(&copy);
+    let with = |name: &str, extra: &str| {
+        let repo = repository(&copy, name);
+        let config = repo.join(".git/config");
+        let mut text = std::fs::read_to_string(&config).unwrap();
+        text.push_str(extra);
+        std::fs::write(&config, text).unwrap();
+        std::fs::set_permissions(
+            repo.join("kept.txt"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        repo
+    };
+    let sorted = |mut list: Vec<String>| {
+        list.sort();
+        list
+    };
+    for (name, extra, mode_listed) in [
+        ("off", "[core]\n\tfilemode = off\n", false),
+        ("zero", "[core]\n\tfilemode = 0\n", false),
+        ("valueless", "[core]\n\tfilemode = off\n\tfilemode\n", true),
+    ] {
+        let repo = with(name, extra);
+        grants.admit(&repo).unwrap();
+        let rust = changed_files(&copy, &grants.plan(Some(&repo.display().to_string()), None))
+            .unwrap_or_else(|| panic!("{name}: no list"));
+        assert_eq!(
+            rust.iter().any(|file| file == "kept.txt"),
+            mode_listed,
+            "{name}: {rust:?}"
+        );
+        assert_eq!(
+            sorted(rust),
+            sorted(node_changed(&copy, &[(None, &repo)])),
+            "{name}"
+        );
+    }
+    for (name, extra) in [
+        ("maybe", "[core]\n\tfilemode = maybe\n"),
+        ("checkstat", "[core]\n\tcheckstat = sometimes\n"),
+        ("eol", "[core]\n\teol = cr\n"),
+    ] {
+        let repo = with(name, extra);
+        grants.admit(&repo).unwrap();
+        assert!(
+            changed_files(&copy, &grants.plan(Some(&repo.display().to_string()), None)).is_none(),
+            "{name}: a value Git wouldn't take was dropped"
+        );
+    }
+}
