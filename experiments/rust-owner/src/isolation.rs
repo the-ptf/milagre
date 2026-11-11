@@ -197,6 +197,40 @@ impl Isolation {
     /// folded, never through the file system) must be strictly inside the root, and every part of it that exists must be
     /// a real folder (no symlink, no file). Then the Project's `.milagre` is checked: see [`Isolation::check_contents`].
     pub fn resolve(&self, path: &Path) -> Result<PathBuf> {
+        let normal = self.normalize(path)?;
+        let refuse = |why: &str| {
+            StoreError::NotIsolated(format!(
+                "{} {why} (isolated copy {}).",
+                path.display(),
+                self.root.display()
+            ))
+        };
+        let relative = normal
+            .strip_prefix(&self.root)
+            .expect("normalized inside the root")
+            .to_path_buf();
+        let mut walked = self.root.clone();
+        for part in relative.components() {
+            walked.push(part);
+            match std::fs::symlink_metadata(&walked) {
+                Ok(meta) if meta.file_type().is_symlink() => {
+                    return Err(refuse("goes through a symbolic link"))
+                }
+                Ok(meta) if !meta.is_dir() => return Err(refuse("goes through a file")),
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error) => return Err(StoreError::io(error, "lstat", &walked)),
+            }
+        }
+        if walked == normal {
+            Self::check_contents(&normal)?;
+        }
+        Ok(normal)
+    }
+
+    /// The path a Project has inside this copy, worked out from its text alone (`.` and `..` folded): the first half of
+    /// [`Isolation::resolve`], without touching the disk. Fails for a path outside the copy or the copy itself.
+    pub fn normalize(&self, path: &Path) -> Result<PathBuf> {
         let refuse = |why: &str| {
             StoreError::NotIsolated(format!(
                 "{} {why} (isolated copy {}).",
@@ -227,22 +261,6 @@ impl Isolation {
             .to_path_buf();
         if relative.as_os_str().is_empty() {
             return Err(refuse("is the isolated copy itself, not a Project in it"));
-        }
-        let mut walked = self.root.clone();
-        for part in relative.components() {
-            walked.push(part);
-            match std::fs::symlink_metadata(&walked) {
-                Ok(meta) if meta.file_type().is_symlink() => {
-                    return Err(refuse("goes through a symbolic link"))
-                }
-                Ok(meta) if !meta.is_dir() => return Err(refuse("goes through a file")),
-                Ok(_) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
-                Err(error) => return Err(StoreError::io(error, "lstat", &walked)),
-            }
-        }
-        if walked == normal {
-            Self::check_contents(&normal)?;
         }
         Ok(normal)
     }

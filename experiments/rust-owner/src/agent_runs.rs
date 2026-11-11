@@ -106,6 +106,19 @@ pub fn start_run(
     next
 }
 
+/// startRun, in place.
+fn start_run_mut(
+    runs: &mut Runs,
+    chat: &str,
+    model: &Value,
+    permission_mode: Option<&Value>,
+    now: i64,
+) {
+    let run = start_run(&Runs::new(), chat, model, permission_mode, now);
+    let (_, run) = run.into_iter().next().expect("one run");
+    runs.insert(chat.into(), run);
+}
+
 fn array<'a>(run: &'a Map<String, Value>, key: &str) -> &'a [Value] {
     run.get(key)
         .and_then(Value::as_array)
@@ -167,49 +180,64 @@ pub fn apply_run_event(
     model: &Value,
     now: i64,
 ) -> Result<Runs, Unsupported> {
+    let mut next = runs.clone();
+    apply_run_event_mut(&mut next, chat, event, model, now)?;
+    Ok(next)
+}
+
+/// applyRunEvent in place: only the Chat's run changes, and only what the event changes (a streamed delta appends to
+/// the text it has). An error leaves `runs` untouched: every check comes before the first change.
+pub fn apply_run_event_mut(
+    runs: &mut Runs,
+    chat: &str,
+    event: &Value,
+    model: &Value,
+    now: i64,
+) -> Result<(), Unsupported> {
     let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
     if UNSUPPORTED.contains(&kind) {
         return Err(Unsupported(kind.into()));
     }
-    let run = runs.get(chat).and_then(Value::as_object);
-    let with = |run: Map<String, Value>| {
-        let mut next = runs.clone();
-        next.insert(chat.into(), Value::Object(run));
-        next
-    };
-    Ok(match kind {
-        "message-sent" => match run {
-            None => start_run(
+    if kind == "step-started" && !event.get("step").is_some_and(Value::is_object) {
+        return Err(malformed(kind, "a step"));
+    }
+    if is_turn_end(event) {
+        runs.shift_remove(chat);
+        return Ok(());
+    }
+    let has_run = runs.get(chat).is_some_and(Value::is_object);
+    match kind {
+        "message-sent" if !has_run => {
+            start_run_mut(
                 runs,
                 chat,
                 event.get("model").unwrap_or(&Value::Null),
                 event.get("permissionMode"),
                 now,
-            ),
-            Some(run) => split_run(run).map(with).unwrap_or_else(|| runs.clone()),
-        },
+            );
+            return Ok(());
+        }
+        "turn-started" if !has_run => start_run_mut(runs, chat, model, None, now),
+        _ if !has_run => return Ok(()),
+        _ => {}
+    }
+    let Some(Value::Object(run)) = runs.get_mut(chat) else {
+        return Ok(());
+    };
+    match kind {
+        "message-sent" => {
+            if let Some(split) = split_run(run) {
+                *run = split;
+            }
+        }
         "turn-started" => {
-            let next = if run.is_some() {
-                runs.clone()
-            } else {
-                start_run(runs, chat, model, None, now)
-            };
-            let current = next[chat].as_object().cloned().unwrap_or_default();
-            match event.get("turnId") {
-                Some(turn) if current.get("turnId") != Some(turn) => {
-                    let mut current = current;
-                    current.insert("turnId".into(), turn.clone());
-                    let mut next = next;
-                    next.insert(chat.into(), Value::Object(current));
-                    next
+            if let Some(turn) = event.get("turnId") {
+                if run.get("turnId") != Some(turn) {
+                    run.insert("turnId".into(), turn.clone());
                 }
-                _ => next,
             }
         }
         "permission-request" | "question-request" => {
-            let Some(run) = run else {
-                return Ok(runs.clone());
-            };
             let list = if kind == "permission-request" {
                 "approvals"
             } else {
@@ -219,14 +247,9 @@ pub fn apply_run_event(
             request.shift_remove("type");
             let mut items = without_request(array(run, list), request.get("requestId"));
             items.push(Value::Object(request));
-            let mut run = run.clone();
             run.insert(list.into(), Value::Array(items));
-            with(run)
         }
         "permission-resolved" | "question-resolved" => {
-            let Some(run) = run else {
-                return Ok(runs.clone());
-            };
             let list = if kind == "permission-resolved" {
                 "approvals"
             } else {
@@ -235,108 +258,117 @@ pub fn apply_run_event(
             let id = event.get("requestId");
             let items = without_request(array(run, list), id);
             let key = jsjson::property_key(id);
-            let answered = run
-                .get("answered")
-                .and_then(Value::as_object)
-                .cloned()
-                .unwrap_or_default();
-            if items.len() == array(run, list).len() && !answered.contains_key(&key) {
-                return Ok(runs.clone());
+            let answered = run.get("answered").and_then(Value::as_object);
+            if items.len() == array(run, list).len()
+                && !answered.is_some_and(|answered| answered.contains_key(&key))
+            {
+                return Ok(());
             }
-            let mut answered = answered;
+            let mut answered = answered.cloned().unwrap_or_default();
             answered.shift_remove(&key);
-            let mut run = run.clone();
             run.insert(list.into(), Value::Array(items));
             run.insert("answered".into(), Value::Object(answered));
-            with(run)
         }
-        "subagents-waiting" => match run {
-            Some(run) => {
-                let mut run = run.clone();
-                run.insert(
-                    "waitingForSubagents".into(),
-                    event.get("waiting").cloned().unwrap_or(Value::Null),
-                );
-                with(run)
-            }
-            None => runs.clone(),
-        },
-        "context-usage" => match run {
-            Some(run) => {
-                let mut run = run.clone();
-                run.insert(
-                    "contextUsage".into(),
-                    json!({ "used": event.get("used"), "size": event.get("size") }),
-                );
-                with(run)
-            }
-            None => runs.clone(),
-        },
-        "text-delta" => match run {
-            Some(run) => {
-                let mut run = run.clone();
-                let text = format!(
-                    "{}{}",
-                    text_of(&run),
-                    jsjson::property_key(event.get("text"))
-                );
-                run.insert("text".into(), Value::String(text));
-                if jsjson::truthy(run.get("waitingForSubagents")) {
-                    run.insert("waitingForSubagents".into(), json!(false));
+        "subagents-waiting" => {
+            run.insert(
+                "waitingForSubagents".into(),
+                event.get("waiting").cloned().unwrap_or(Value::Null),
+            );
+        }
+        "context-usage" => {
+            run.insert(
+                "contextUsage".into(),
+                json!({ "used": event.get("used"), "size": event.get("size") }),
+            );
+        }
+        "text-delta" => {
+            let delta = jsjson::property_key(event.get("text"));
+            match run.get_mut("text") {
+                Some(Value::String(text)) => text.push_str(&delta),
+                _ => {
+                    let text = format!("{}{delta}", text_of(run));
+                    run.insert("text".into(), Value::String(text));
                 }
-                with(run)
             }
-            None => runs.clone(),
-        },
-        "turn-completed" | "turn-cancelled" | "turn-failed" => {
-            let mut next = runs.clone();
-            next.shift_remove(chat);
-            next
+            if jsjson::truthy(run.get("waitingForSubagents")) {
+                run.insert("waitingForSubagents".into(), json!(false));
+            }
         }
-        "answers-sent" => match run {
-            Some(run) => with(split_run(run).unwrap_or_else(|| {
-                let mut run = run.clone();
+        "answers-sent" => match split_run(run) {
+            Some(split) => *run = split,
+            None => {
                 run.insert("split".into(), json!(true));
-                run
-            })),
-            None => runs.clone(),
+            }
         },
         "step-started" => {
-            let Some(step) = event.get("step").and_then(Value::as_object) else {
-                return Err(malformed(kind, "a step"));
-            };
-            match run {
-                Some(run) => step_started(run, step)
-                    .map(with)
-                    .unwrap_or_else(|| runs.clone()),
-                None => runs.clone(),
+            let step = event
+                .get("step")
+                .and_then(Value::as_object)
+                .expect("checked above");
+            step_started_mut(run, step);
+        }
+        "step-output" => {
+            if let Some(step) = step_mut(run, event.get("id")) {
+                if step.get("status").and_then(Value::as_str) == Some("running") {
+                    let delta = js_text_opt(event.get("text"));
+                    match step.get_mut("detail") {
+                        Some(Value::String(detail)) => {
+                            detail.push_str(&delta);
+                            cap_output_in_place(detail);
+                        }
+                        _ => {
+                            let detail = match jsjson::nullish(step.get("detail"), None) {
+                                Some(detail) => js_text(detail),
+                                None => String::new(),
+                            };
+                            step.insert(
+                                "detail".into(),
+                                Value::String(cap_output(&format!("{detail}{delta}"))),
+                            );
+                        }
+                    }
+                }
             }
         }
-        "step-output" => match run.and_then(|run| {
-            update_step(run, event.get("id"), |step| {
-                (step.get("status").and_then(Value::as_str) == Some("running")).then(|| {
-                    let mut step = step.clone();
-                    let detail = match jsjson::nullish(step.get("detail"), None) {
-                        Some(detail) => js_text(detail),
-                        None => String::new(),
-                    };
-                    let text = format!("{detail}{}", js_text_opt(event.get("text")));
-                    step.insert("detail".into(), Value::String(cap_output(&text)));
-                    step
-                })
-            })
-        }) {
-            Some(next) => with(next),
-            None => runs.clone(),
-        },
-        "step-completed" => match run
-            .and_then(|run| update_step(run, event.get("id"), |step| Some(end_step(step, event))))
-        {
-            Some(next) => with(next),
-            None => runs.clone(),
-        },
-        _ => runs.clone(),
-    })
+        "step-completed" => {
+            if let Some(step) = step_mut(run, event.get("id")) {
+                let ended = end_step(step, event);
+                *step = ended;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// capOutput on a string that grew: its end kept (UTF-16 counted) once it passes `MAX_OUTPUT`.
+fn cap_output_in_place(text: &mut String) {
+    if text.len() > crate::tool_activity::MAX_OUTPUT {
+        let capped = cap_output(text);
+        if capped != *text {
+            *text = capped;
+        }
+    }
+}
+
+/// The step with `id` (strict equality; a missing id matches a missing id), as updateStep finds it.
+fn step_mut<'a>(
+    run: &'a mut Map<String, Value>,
+    id: Option<&Value>,
+) -> Option<&'a mut Map<String, Value>> {
+    let Some(Value::Array(steps)) = run.get_mut("steps") else {
+        return None;
+    };
+    steps
+        .iter_mut()
+        .find(
+            |step| match (jsjson::defined(step.get("id")), jsjson::defined(id)) {
+                (Some(a), Some(b)) => jsjson::strict_equals(a, b),
+                (None, None) => true,
+                _ => false,
+            },
+        )
+        .and_then(Value::as_object_mut)
 }
 
 /// `String(value)` of a string-like value (strings as they are).
@@ -359,84 +391,44 @@ fn is_viewed_image(step: &Value) -> bool {
         && step.get("imageOrigin").and_then(Value::as_str) == Some("viewed")
 }
 
-/// step-started on a run: the step running at the end of the text so far (a viewed image past the 16th is dropped).
-fn step_started(
-    run: &Map<String, Value>,
-    started: &Map<String, Value>,
-) -> Option<Map<String, Value>> {
-    let steps = array(run, "steps");
+/// step-started on a run, in place: the step running at the end of the text so far (a viewed image past the 16th is
+/// dropped).
+fn step_started_mut(run: &mut Map<String, Value>, started: &Map<String, Value>) {
     let id = started.get("id");
     let same = |step: &Value| match (jsjson::defined(step.get("id")), jsjson::defined(id)) {
         (Some(a), Some(b)) => jsjson::strict_equals(a, b),
         (None, None) => true,
         _ => false,
     };
-    let viewed = is_viewed_image(&Value::Object(started.clone()));
+    let viewed = started.get("kind").and_then(Value::as_str) == Some("image")
+        && started.get("imageOrigin").and_then(Value::as_str) == Some("viewed");
+    let offset = jsjson::utf16_len(text_of(run));
+    let steps = array(run, "steps");
     let existing = steps.iter().position(same);
     let admitted = existing.is_some_and(|at| is_viewed_image(&steps[at]));
     if viewed && !admitted && steps.iter().filter(|step| is_viewed_image(step)).count() >= 16 {
-        return None;
+        return;
     }
     let mut step = started.clone();
     if let Some(Value::String(detail)) = jsjson::defined(started.get("detail")) {
         step.insert("detail".into(), Value::String(cap_output(detail)));
     }
     step.insert("status".into(), json!("running"));
-    step.insert("offset".into(), json!(jsjson::utf16_len(text_of(run))));
+    step.insert("offset".into(), json!(offset));
     let step = Value::Object(step);
-    let steps: Vec<Value> = match existing {
-        Some(at) if viewed => steps
-            .iter()
-            .enumerate()
-            .map(|(index, item)| {
-                if index == at {
-                    step.clone()
-                } else {
-                    item.clone()
-                }
-            })
-            .collect(),
-        _ => steps
-            .iter()
-            .filter(|item| !same(item))
-            .cloned()
-            .chain(std::iter::once(step))
-            .collect(),
+    if !matches!(run.get("steps"), Some(Value::Array(_))) {
+        run.insert("steps".into(), json!([]));
+    }
+    let Some(Value::Array(steps)) = run.get_mut("steps") else {
+        unreachable!("set above")
     };
-    let mut next = run.clone();
-    next.insert("steps".into(), Value::Array(steps));
-    Some(next)
-}
-
-/// updateStep: the run with one step changed, or None when it has no such step or `update` declines.
-fn update_step(
-    run: &Map<String, Value>,
-    id: Option<&Value>,
-    update: impl FnOnce(&Map<String, Value>) -> Option<Map<String, Value>>,
-) -> Option<Map<String, Value>> {
-    let steps = array(run, "steps");
-    let at = steps.iter().position(|step| {
-        match (jsjson::defined(step.get("id")), jsjson::defined(id)) {
-            (Some(a), Some(b)) => jsjson::strict_equals(a, b),
-            (None, None) => true,
-            _ => false,
+    match existing {
+        Some(at) if viewed => steps[at] = step,
+        _ => {
+            steps.retain(|item| !same(item));
+            steps.push(step);
         }
-    })?;
-    let changed = update(steps[at].as_object()?)?;
-    let mut next = run.clone();
-    let steps: Vec<Value> = steps
-        .iter()
-        .enumerate()
-        .map(|(index, step)| {
-            if index == at {
-                Value::Object(changed.clone())
-            } else {
-                step.clone()
-            }
-        })
-        .collect();
-    next.insert("steps".into(), Value::Array(steps));
-    Some(next)
+    }
 }
 
 /// endStep: tool completion replaces its output; a missing reasoning summary keeps the one already streamed.
@@ -608,8 +600,49 @@ fn append(state: &ProjectState, message: Map<String, Value>, next_id: f64) -> Pr
         .with_field("next_id", jsjson::number(next_id))
 }
 
+/// splitRunForSteer in place: the state with the reply so far saved, and whether it changed; the run is split.
+pub fn split_run_for_steer_mut(
+    state: &ProjectState,
+    runs: &mut Runs,
+    project: &str,
+    chat: &str,
+) -> (ProjectState, bool) {
+    let (next, split, changed) = split_message(state, runs, project, chat);
+    if let Some(split) = split {
+        if let Some(run) = runs.get_mut(chat) {
+            *run = Value::Object(split);
+        }
+    }
+    (next, changed)
+}
+
 /// splitRunForSteer: the reply so far saved as its own message before a steering message joins the turn.
 pub fn split_run_for_steer(
+    state: &ProjectState,
+    runs: &Runs,
+    project: &str,
+    chat: &str,
+) -> (ProjectState, Runs, bool) {
+    let mut next_runs = runs.clone();
+    let (next, changed) = split_run_for_steer_mut(state, &mut next_runs, project, chat);
+    (next, next_runs, changed)
+}
+
+/// The state with the reply so far saved, and the run split, without touching `runs`.
+fn split_message(
+    state: &ProjectState,
+    runs: &Runs,
+    project: &str,
+    chat: &str,
+) -> (ProjectState, Option<Map<String, Value>>, bool) {
+    let (next, next_runs, changed) = split_on_copy(state, runs, project, chat);
+    let split = changed
+        .then(|| next_runs.get(chat).and_then(Value::as_object).cloned())
+        .flatten();
+    (next, split, changed)
+}
+
+fn split_on_copy(
     state: &ProjectState,
     runs: &Runs,
     project: &str,
@@ -651,15 +684,16 @@ pub fn split_run_for_steer(
     (append(state, message, next_id + 1.0), next_runs, true)
 }
 
-/// applyAgentEvent: the state and runs after one event, and whether the state changed and must be saved.
-pub fn apply_agent_event(
+/// applyAgentEvent in place: the state after one event and whether it changed and must be saved; only the Chat's run
+/// changes in `runs`. An error leaves `runs` untouched (every check comes before the first change).
+pub fn apply_agent_event_mut(
     state: &ProjectState,
-    runs: &Runs,
+    runs: &mut Runs,
     project: &str,
     chat: &str,
     event: &Value,
     now: i64,
-) -> Result<(ProjectState, Runs, bool), Unsupported> {
+) -> Result<(ProjectState, bool), Unsupported> {
     let kind = event
         .get("type")
         .and_then(Value::as_str)
@@ -669,16 +703,39 @@ pub fn apply_agent_event(
         return Err(Unsupported(kind));
     }
     let Some(session_id) = session_of_key(chat) else {
-        return Ok((state.clone(), runs.clone(), false));
+        return Ok((state.clone(), false));
     };
-    let Some(mut session) = session_map(state, session_id) else {
-        return Ok((state.clone(), runs.clone(), false));
-    };
-    if !chat_in_project(project, chat) {
-        return Ok((state.clone(), runs.clone(), false));
+    let has_session = state
+        .sessions()
+        .and_then(|sessions| sessions.get(&session_id.to_string()))
+        .is_some_and(Value::is_object);
+    if !has_session || !chat_in_project(project, chat) {
+        return Ok((state.clone(), false));
     }
+    // Event types folded into the run alone (streamed text, steps' output and ends, usage, requests): the session
+    // isn't read or copied.
+    if !matches!(
+        kind.as_str(),
+        "session-started"
+            | "session-reset"
+            | "message-sent"
+            | "prompt-suggestion"
+            | "subagent-update"
+            | "background-tasks"
+            | "plan-updated"
+            | "tasks-updated"
+            | "step-started"
+            | "turn-started"
+            | "turn-completed"
+            | "turn-cancelled"
+            | "turn-failed"
+    ) {
+        apply_run_event_mut(runs, chat, event, &Value::Null, now)?;
+        return Ok((state.clone(), false));
+    }
+    let mut session = session_map(state, session_id).expect("checked above");
     let mut state = state.clone();
-    let run = runs.get(chat).and_then(Value::as_object).cloned();
+    let has_run = runs.get(chat).is_some_and(Value::is_object);
     let clear = matches!(
         kind.as_str(),
         "message-sent" | "turn-started" | "session-reset"
@@ -693,69 +750,56 @@ pub fn apply_agent_event(
     Ok(match kind.as_str() {
         "session-started" => {
             if session.get("native_session_id") == event.get("nativeId") {
-                (state, runs.clone(), false)
+                (state, false)
             } else {
                 session.insert(
                     "native_session_id".into(),
                     event.get("nativeId").cloned().unwrap_or(Value::Null),
                 );
-                (
-                    with_session(&state, session_id, session),
-                    runs.clone(),
-                    true,
-                )
+                (with_session(&state, session_id, session), true)
             }
         }
         "session-reset" => {
             if !jsjson::truthy(session.get("native_session_id")) {
-                (state, runs.clone(), suggestion_changed)
+                (state, suggestion_changed)
             } else {
                 session.shift_remove("native_session_id");
-                (
-                    with_session(&state, session_id, session),
-                    runs.clone(),
-                    true,
-                )
+                (with_session(&state, session_id, session), true)
             }
         }
         "message-sent" => {
-            if run.is_some() {
-                let (next, mut next_runs, changed) =
-                    split_run_for_steer(&state, runs, project, chat);
-                if let Some(Value::Object(current)) = next_runs.get_mut(chat) {
+            if has_run {
+                let (next, changed) = split_run_for_steer_mut(&state, runs, project, chat);
+                if let Some(Value::Object(current)) = runs.get_mut(chat) {
                     current.insert("steered".into(), json!(true));
                 }
-                (next, next_runs, changed || suggestion_changed)
+                (next, changed || suggestion_changed)
             } else {
-                let next_runs = apply_run_event(runs, chat, event, &Value::Null, now)?;
-                (state, next_runs, suggestion_changed)
+                apply_run_event_mut(runs, chat, event, &Value::Null, now)?;
+                (state, suggestion_changed)
             }
         }
         "prompt-suggestion" => {
             let text = event.get("text").and_then(Value::as_str);
             let turn = event.get("turnId");
-            let suggested = run.is_none()
+            let suggested = !has_run
                 && session.get("provider").and_then(Value::as_str) == Some("claude")
                 && jsjson::truthy(turn)
                 && matches!((turn, session.get("suggestionTurnId")), (Some(a), Some(b)) if jsjson::strict_equals(a, b))
                 && text.is_some_and(|text| !js_trim(text).is_empty());
             if !suggested {
-                return Ok((state, runs.clone(), false));
+                return Ok((state, false));
             }
             session.insert("suggestion".into(), json!({ "text": text, "turnId": turn }));
-            (
-                with_session(&state, session_id, session),
-                runs.clone(),
-                true,
-            )
+            (with_session(&state, session_id, session), true)
         }
         "subagent-update" => {
             let Some(agent) = event.get("agent").and_then(Value::as_object) else {
                 return Err(malformed(&kind, "an agent"));
             };
             match subagent_update(&session, agent) {
-                Some(next) => (with_session(&state, session_id, next), runs.clone(), true),
-                None => (state, runs.clone(), false),
+                Some(next) => (with_session(&state, session_id, next), true),
+                None => (state, false),
             }
         }
         "background-tasks" => {
@@ -767,45 +811,33 @@ pub fn apply_agent_event(
                 .cloned()
                 .unwrap_or(json!([]));
             if jsjson::to_string(&Value::Array(tasks.clone())) == jsjson::to_string(&previous) {
-                return Ok((state, runs.clone(), false));
+                return Ok((state, false));
             }
             session.shift_remove("backgroundTasks");
             if !tasks.is_empty() {
                 session.insert("backgroundTasks".into(), Value::Array(tasks));
             }
-            (
-                with_session(&state, session_id, session),
-                runs.clone(),
-                true,
-            )
+            (with_session(&state, session_id, session), true)
         }
         "plan-updated" => {
             session.shift_remove("plan");
             if let Some(plan) = event.get("plan").filter(|plan| jsjson::truthy(Some(plan))) {
                 session.insert("plan".into(), plan.clone());
             }
-            (
-                with_session(&state, session_id, session),
-                runs.clone(),
-                true,
-            )
+            (with_session(&state, session_id, session), true)
         }
         "tasks-updated" => {
             let Some(Value::Array(tasks)) = event.get("tasks") else {
                 return Err(malformed(&kind, "tasks"));
             };
             match native_plan(session.get("plan"), tasks, now) {
-                NativePlan::Same => (state, runs.clone(), false),
+                NativePlan::Same => (state, false),
                 plan => {
                     session.shift_remove("plan");
                     if let NativePlan::New(plan) = plan {
                         session.insert("plan".into(), plan);
                     }
-                    (
-                        with_session(&state, session_id, session),
-                        runs.clone(),
-                        true,
-                    )
+                    (with_session(&state, session_id, session), true)
                 }
             }
         }
@@ -818,40 +850,39 @@ pub fn apply_agent_event(
                 .and_then(Value::as_str)
                 .is_some_and(|id| id.starts_with("compact-"));
             if compaction_step && pending_compaction(&state, session_id).is_some() {
-                return Ok((state, runs.clone(), false));
+                return Ok((state, false));
             }
-            let steered = run.as_ref().is_some_and(|run| {
-                jsjson::truthy(run.get("steered")) && !js_trim(text_of(run)).is_empty()
-            });
+            let steered = runs
+                .get(chat)
+                .and_then(Value::as_object)
+                .is_some_and(|run| {
+                    jsjson::truthy(run.get("steered")) && !js_trim(text_of(run)).is_empty()
+                });
             if steered {
-                let (split_state, mut split_runs, changed) =
-                    split_run_for_steer(&state, runs, project, chat);
-                if let Some(Value::Object(current)) = split_runs.get_mut(chat) {
+                let (split_state, changed) = split_run_for_steer_mut(&state, runs, project, chat);
+                if let Some(Value::Object(current)) = runs.get_mut(chat) {
                     current.shift_remove("steered");
                 }
-                let next_runs = apply_run_event(&split_runs, chat, event, &Value::Null, now)?;
-                (split_state, next_runs, changed)
+                apply_run_event_mut(runs, chat, event, &Value::Null, now)?;
+                (split_state, changed)
             } else {
-                (
-                    state,
-                    apply_run_event(runs, chat, event, &Value::Null, now)?,
-                    false,
-                )
+                apply_run_event_mut(runs, chat, event, &Value::Null, now)?;
+                (state, false)
             }
         }
         "turn-started" => {
             let model = last_user_model(&state, session_id);
-            (
-                state,
-                apply_run_event(runs, chat, event, &model, now)?,
-                suggestion_changed,
-            )
+            apply_run_event_mut(runs, chat, event, &model, now)?;
+            (state, suggestion_changed)
         }
         "turn-completed" | "turn-cancelled" | "turn-failed" => {
-            let Some(run) = run else {
-                return Ok((state, runs.clone(), false));
+            if !has_run {
+                return Ok((state, false));
+            }
+            // The run ends here: taken out (no copy), as applyRunEvent removes it.
+            let Some(Value::Object(run)) = runs.shift_remove(chat) else {
+                unreachable!("has a run")
             };
-            let remaining = apply_run_event(runs, chat, event, &Value::Null, now)?;
             let completed = kind == "turn-completed";
             let suggestion_turn =
                 if completed && session.get("provider").and_then(Value::as_str) == Some("claude") {
@@ -889,7 +920,7 @@ pub fn apply_agent_event(
                 state = with_context(&state, request, Value::Object(context));
             }
             let text = text_of(&run).to_string();
-            let steps = array(&run, "steps").to_vec();
+            let steps = array(&run, "steps");
             if completed
                 && jsjson::truthy(run.get("split"))
                 && js_trim(&text).is_empty()
@@ -897,7 +928,6 @@ pub fn apply_agent_event(
             {
                 return Ok((
                     state,
-                    remaining,
                     context_usage.is_some() || unfinished.is_some() || suggestion_updated,
                 ));
             }
@@ -912,7 +942,7 @@ pub fn apply_agent_event(
                     == Some("compaction")
             });
             if completed && js_trim(&text).is_empty() && steps.is_empty() && compaction_request {
-                return Ok((state, remaining, true));
+                return Ok((state, true));
             }
             let next_id = state
                 .get("next_id")
@@ -959,17 +989,49 @@ pub fn apply_agent_event(
             }
             saved_steps(
                 &text,
-                &steps,
+                steps,
                 if completed { "done" } else { "failed" },
                 &mut message,
             );
-            (append(&state, message, next_id + 1.0), remaining, true)
+            (append(&state, message, next_id + 1.0), true)
         }
         _ => {
-            let next_runs = apply_run_event(runs, chat, event, &Value::Null, now)?;
-            (state, next_runs, false)
+            apply_run_event_mut(runs, chat, event, &Value::Null, now)?;
+            (state, false)
         }
     })
+}
+
+/// applyAgentEvent: the state and runs after one event, and whether the state changed and must be saved.
+pub fn apply_agent_event(
+    state: &ProjectState,
+    runs: &Runs,
+    project: &str,
+    chat: &str,
+    event: &Value,
+    now: i64,
+) -> Result<(ProjectState, Runs, bool), Unsupported> {
+    let mut next = runs.clone();
+    let (state, changed) = apply_agent_event_mut(state, &mut next, project, chat, event, now)?;
+    Ok((state, next, changed))
+}
+
+/// Event types whose fold may change the saved state and the Chat's run together: the fold keeps a copy of that run
+/// to put back if the change can't be kept (`ChatHost::fold`). Every other type changes either the run alone (never
+/// failing after it does) or the state alone.
+pub fn may_change_run_and_state(event: &Value, runs: &Runs, chat: &str) -> bool {
+    match event.get("type").and_then(Value::as_str) {
+        Some(
+            "message-sent" | "turn-started" | "turn-completed" | "turn-cancelled" | "turn-failed",
+        ) => true,
+        Some("step-started") => runs
+            .get(chat)
+            .and_then(Value::as_object)
+            .is_some_and(|run| {
+                jsjson::truthy(run.get("steered")) && !js_trim(text_of(run)).is_empty()
+            }),
+        _ => false,
+    }
 }
 
 /// patchSession for the fields the host sets on a turn's end (`unread`).

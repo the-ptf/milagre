@@ -157,8 +157,7 @@ impl ProjectStates {
     }
 
     pub fn has(&self, project: &Path) -> bool {
-        self.isolation
-            .resolve(project)
+        self.key(project)
             .is_ok_and(|key| self.slots.contains_key(&key))
     }
 
@@ -175,7 +174,7 @@ impl ProjectStates {
 
     /// The state a Project holds in memory now, if it is open (no read, no load).
     pub fn current(&self, project: &Path) -> Option<ProjectState> {
-        let key = self.isolation.resolve(project).ok()?;
+        let key = self.key(project).ok()?;
         self.slots.get(&key).map(|slot| slot.state.clone())
     }
 
@@ -190,7 +189,16 @@ impl ProjectStates {
     }
 
     /// A Project's key: its path inside the isolation, resolved without creating anything.
+    ///
+    /// A Project open here was checked in full when it opened (no link on its path, nothing linked in its
+    /// `.milagre`), and every write checks again what a write could follow (`OwnedProject::verify_owned`): its key is
+    /// its path worked out from the text alone. Any other path is resolved in full (`Isolation::resolve`), which walks
+    /// the disk.
     fn key(&self, project: &Path) -> Result<PathBuf> {
+        let normal = self.isolation.normalize(project)?;
+        if self.slots.contains_key(&normal) {
+            return Ok(normal);
+        }
         self.isolation.resolve(project)
     }
 

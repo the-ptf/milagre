@@ -126,6 +126,35 @@ Two things are only reported, not done:
 - reply image capture (`chat-images.cjs`) shows as `Notice::Gap` for a reply with Markdown images;
 - a usage-limit turn end's `limitTurn` shows as a `Notice::Gap` too.
 
+## Streaming cost
+
+`cargo run --release --example streaming [-- <repeats> [<workload>]]` (`examples/streaming.rs`) replays deterministic
+workloads through ChatHost over an isolated copy with the scripted provider, 50 events per pump, then ends every turn
+and flushes. It prints the best of the repeats, events per second, and a digest of every notice, the runs before the
+end and the saved state, so a change can show it computes the same thing.
+
+| Workload (events)                                             | Before (events/s) | After (events/s) | Digest           |
+| ------------------------------------------------------------- | ----------------: | ---------------: | ---------------- |
+| long-reply: 4,000 deltas of 50 B (4,000)                      |            10,718 |          258,520 | a83c5872ff2a1974 |
+| many-steps: 1,500 shell steps, 2 x 500 B output each (6,150)  |               553 |           36,555 | 9a00f30b4c5b5926 |
+| subagents: 10 agents x 100 updates, 20-entry tails (1,100)    |             1,359 |            2,069 | 4f71607886841c96 |
+| multi-chat: the three plus a mixed Chat, interleaved (12,750) |               786 |           17,539 | 2b7bb99cc4f0a63e |
+
+Best of 3, release build, Apple M5 Pro, rustc 1.99.1; before is `ed32aa05`. Same digests before and after. What
+changed:
+
+- A fold changes only the affected Chat's run, in place (a delta appends to the text it has); before, every event
+  copied every Chat's run twice. Only events that can change the state and the run together (`message-sent`,
+  `turn-started`, the turn ends, a steered step split) copy that one run first, put back in its place if the save
+  or load behind the change fails. Node traces and the rollback tests are unchanged.
+- An open Project's key is its path worked out from the text: the full `.milagre` walk (`Isolation::resolve`) ran
+  several times per event and grew with every sidecar. Opening still walks it; every write still checks what it could
+  follow (`verify_owned`).
+- Events folded into the run alone don't copy the session; step stamps read the steps without copying them.
+
+Subagent updates stay the slowest: each copies the Chat's session (its subagents and transcripts) and the sessions map,
+because the state is plain JSON values. Sharing sessions behind `Arc` is the next step if that matters.
+
 ## Unpaired surrogates
 
 JavaScript strings can hold half a surrogate pair (a `slice` through an emoji). `JSON.stringify` writes it as `\ud83d` and `JSON.parse` reads it back; serde_json refuses it and a Rust `String` can't hold it. `jsjson::parse` (used for every coordination.json, sidecar and chats.db payload) now keeps it without loss. Inside the `String`, an unpaired surrogate `s` is U+10FFFE followed by `char(0xF0000 + s - 0xD800)`, and a real U+10FFFE is doubled. The mapping is injective. `jsjson::to_string` writes `\udxxx` back, `utf16_len`, `to_utf16` and `from_utf16` work on the JavaScript string (detail lengths, `slice(-1000)` of subagent text), and `to_sqlite_text` binds what node:sqlite binds (U+FFFD for the unpaired half).
@@ -213,6 +242,6 @@ Recorded with Node 24.13.0 (SQLite 3.50.4); the crate bundles SQLite 3.50.2. A c
   - The runtime's `read` here is readProjectState only; Worktree discovery and reconciliation (`reconcileState`) come with the Worktree domain.
 - **Commands not ported:** `state:read`/snapshots, the turn commands behind the gates above (handoffs, compaction, limits, permissions, questions, steering), attachment access, Link scopes, the chats home, and the unopened-Project registry check of `chat:messages`. Quit-time suspension and resume (`suspendRunning`, `resumeInterrupted`) are not ported: a crash or close mid-turn leaves the user message saved and no reply, and nothing resumes.
 - **Not a runtime.** There are no tool permissions, Worktree setup or Git, MCP tools, provider processes or wire socket. ChatHost here is the send and turn state machine over storage, behind a library boundary.
-- **Containment is checked at open.** A symbolic link planted inside the copy later by another process isn't caught (a time-of-check race); isolated copies have no other writer.
+- **Containment is checked at open.** A symbolic link planted inside the copy later by another process isn't caught, except where each write checks (`.milagre`, `chats.db`, its journal, `coordination.json`); isolated copies have no other writer.
 - **Differences that stay:** JSON syntax error texts differ from Node's. I/O errors use Node's text for the common codes (ENOENT, EACCES, EEXIST, EISDIR, ENOTDIR, ELOOP, ENOTEMPTY, EPERM, EXDEV, ENOSPC). node:sqlite reads an object bound in the first position as named parameters and fails with another message. Ownership probing is macOS/Linux only (`ps -o lstart=`); the Windows probe isn't ported.
 - The project-store LRU of 50 settled Projects is per `OwnedProject` here (one Project each).

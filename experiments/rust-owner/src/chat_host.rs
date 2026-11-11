@@ -1982,9 +1982,20 @@ impl ChatHost {
         let session_id = session_of_key(chat)
             .ok_or_else(|| StoreError::Invalid(format!("{chat} isn't a Chat.")))?;
         let now = self.states.now();
-        let mut runs = self.runs.clone();
         let mut seq = self.seq;
         let mut event = event.clone();
+        // ChatHost.fold's stamps read the run as it stands, before the event changes it.
+        enrich_step_event(&mut event, &self.runs, chat, now);
+        // The fold changes the Chat's run in place. Only an event that can change the state and the run together can
+        // fail after the run changed (a save or load behind a changed state): for those, that one run is copied first
+        // and put back, in its place, if the change can't be kept.
+        let backup = agent_runs::may_change_run_and_state(&event, &self.runs, chat).then(|| {
+            (
+                self.runs.keys().position(|key| key == chat),
+                self.runs.get(chat).cloned(),
+            )
+        });
+        let runs = &mut self.runs;
         let mut added: Vec<MsgRef> = Vec::new();
         let open = self.open_chat.clone();
         let turn = self.turns.get(chat).cloned();
@@ -1999,7 +2010,6 @@ impl ChatHost {
         let folded = self
             .states
             .try_update(&project, Some(&[session_id]), persist, |state| {
-                enrich_step_event(&mut event, &runs, chat, now);
                 let session_value_id = json!(session_id);
                 let last = session_messages(state, &session_value_id)
                     .filter(|m| m.get("role").and_then(Value::as_str) == Some("user"))
@@ -2014,16 +2024,23 @@ impl ChatHost {
                 if is_turn_end(&event) && quiet_compaction {
                     event["quiet"] = json!(true);
                 }
-                let (next, next_runs, changed) =
-                    agent_runs::apply_agent_event(state, &runs, &project_text, chat, &event, now)
-                        .map_err(|unsupported| gate(&unsupported.0))?;
-                runs = next_runs;
+                let (next, changed) = agent_runs::apply_agent_event_mut(
+                    state,
+                    runs,
+                    &project_text,
+                    chat,
+                    &event,
+                    now,
+                )
+                .map_err(|unsupported| gate(&unsupported.0))?;
                 seq += 1;
                 if !changed {
                     return Ok(None);
                 }
                 let visible = open.as_deref() == Some(chat);
-                let archived = session_value(&next, &json!(session_id))
+                let archived = next
+                    .sessions()
+                    .and_then(|sessions| sessions.get(&session_id.to_string()))
                     .is_some_and(|s| jsjson::truthy(s.get("archived")));
                 let unread = is_turn_end(&event)
                     && !jsjson::truthy(event.get("quiet"))
@@ -2061,16 +2078,33 @@ impl ChatHost {
                     .collect();
                 Ok(Some(recorded))
             });
+        if folded.is_err() {
+            if let Some((position, run)) = backup {
+                match run {
+                    Some(run) => match self.runs.get_mut(chat) {
+                        Some(current) => *current = run,
+                        None => {
+                            let at = position.unwrap_or(self.runs.len()).min(self.runs.len());
+                            self.runs.shift_insert(at, chat.to_string(), run);
+                        }
+                    },
+                    None => {
+                        self.runs.shift_remove(chat);
+                    }
+                }
+            }
+        }
         let (state, changed) = folded?;
-        self.runs = runs;
         self.seq = seq;
         // A subagent update goes out with the merged agent, and without the state.
         let published = if kind == "subagent-update" && changed {
             let mut merged = event.clone();
-            let agent = session_value(&state, &json!(session_id))
-                .and_then(|session| session.get("subagents").and_then(Value::as_array).cloned())
+            let agent = state
+                .sessions()
+                .and_then(|sessions| sessions.get(&session_id.to_string()))
+                .and_then(|session| session.get("subagents").and_then(Value::as_array))
                 .and_then(|agents| {
-                    agents.into_iter().find(|agent| {
+                    agents.iter().find(|agent| {
                         match (
                             agent.get("id"),
                             event.get("agent").and_then(|a| a.get("id")),
@@ -2081,7 +2115,7 @@ impl ChatHost {
                         }
                     })
                 });
-            merged["agent"] = agent.unwrap_or_else(jsjson::undefined);
+            merged["agent"] = agent.cloned().unwrap_or_else(jsjson::undefined);
             merged
         } else {
             event.clone()
@@ -3168,12 +3202,12 @@ fn agent_runs_session(state: &ProjectState, session: i64) -> Option<Map<String, 
 /// of itself (a title update while it waits for approval) and gets its command as `input`; a completed one gets its
 /// end, duration and summarizeStep's facts.
 fn enrich_step_event(event: &mut Value, runs: &Runs, chat: &str, now: i64) {
-    let steps = runs
+    let steps: &[Value] = runs
         .get(chat)
         .and_then(|run| run.get("steps"))
         .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
     let same = |a: Option<&Value>, b: Option<&Value>| match (jsjson::defined(a), jsjson::defined(b))
     {
         (Some(a), Some(b)) => jsjson::strict_equals(a, b),
