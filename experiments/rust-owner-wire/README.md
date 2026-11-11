@@ -25,6 +25,7 @@ The public `Handler` trait provides:
 - `decode_request(bytes)`, `encode_request_id(value)` and `string_len(text)` pair the incoming representation with echoed IDs and UTF-16 limits. Default handlers use serde Unicode. The runtime opts into its owner lossless JSON decoder; wire rejects nesting beyond 128 levels before invoking it.
 - `encode_result(value)` for domain JSON serialization, including JavaScript lone-surrogate escapes. Ordinary results, snapshot captures and event payloads use it; page fragments bypass it because they are already serialized text.
 - `view_changed(context)`, `disconnected(client_id)` and `shutdown()` lifecycle hooks. `disconnected` must not block, publish events or reenter the server. Resources that need draining belong in `shutdown`.
+- `shutdown_attempt()` returns a typed `ShutdownError`. Its default maps every legacy shutdown error to `Incomplete`, which keeps admission closed for a later stop retry. An owner may return `Refused` only when that exact attempt left it running and normal admission is safe. The wire reopens admission only for this explicit refusal; save failures, pending cleanup and ambiguous errors remain closed.
 
 `ClientContext` supplies a generated connection ID, its own `ClientView`, connection status and an `EventSink`. Request arguments never choose the acting client. View state tracks the selected Project or Link, Chat and focus. A Project switch on one socket cannot change another socket's view. Disconnect discards that socket's view and page captures.
 

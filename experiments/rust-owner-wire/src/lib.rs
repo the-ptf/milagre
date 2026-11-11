@@ -11,4 +11,6 @@ pub mod state_patch;
 
 pub use profile::{IsolatedProfile, ProfileLease};
 pub use protocol::{RpcError, RpcResult, MAX_FRAME_BYTES, MAX_PENDING, VERSION};
-pub use server::{ClientContext, ClientView, Config, EventSink, Handler, Publication, Server};
+pub use server::{
+    ClientContext, ClientView, Config, EventSink, Handler, Publication, Server, ShutdownError,
+};

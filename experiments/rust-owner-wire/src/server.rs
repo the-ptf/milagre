@@ -85,6 +85,13 @@ impl ClientContext {
     }
 }
 
+/// A refusal guarantees that shutdown did not begin and normal admission is safe.
+/// All failures after shutdown starts must remain `Incomplete` for explicit retry.
+pub enum ShutdownError {
+    Refused(RpcError),
+    Incomplete(RpcError),
+}
+
 /// A future owner adapter implements this boundary. No Project or provider implementation is implied.
 pub trait Handler: Send + Sync + 'static {
     /// Decode one bounded frame. The same representation must be used by encode_request_id,
@@ -114,6 +121,13 @@ pub trait Handler: Send + Sync + 'static {
     /// Accepted commands have completed before this runs. Failure leaves the listener available for another stop.
     fn shutdown(&self) -> RpcResult {
         Ok(Value::Null)
+    }
+    /// Typed admission decision for this attempt. Existing handlers fail closed.
+    /// Override only when the owner can prove that a refusal left it running.
+    fn shutdown_attempt(&self) -> Result<(), ShutdownError> {
+        self.shutdown()
+            .map(|_| ())
+            .map_err(ShutdownError::Incomplete)
     }
     /// Notification only. Must not block, publish events or reenter the server. Resource owners must drain in shutdown.
     fn disconnected(&self, _client_id: u64) {}
@@ -419,7 +433,14 @@ impl Inner {
             active = self.drained.wait_timeout(active, remaining).unwrap().0;
         }
         drop(active);
-        self.handler.shutdown()?;
+        match self.handler.shutdown_attempt() {
+            Ok(()) => {}
+            Err(ShutdownError::Refused(error)) => {
+                self.closing.store(false, Ordering::Release);
+                return Err(error);
+            }
+            Err(ShutdownError::Incomplete(error)) => return Err(error),
+        }
         if let Some((client, id)) = acknowledgement {
             client.send(&json!({"v":VERSION,"id":id,"result":{"stopping":true}}))?;
         }
@@ -1094,6 +1115,63 @@ mod tests {
         assert_eq!(server.shutdown().unwrap_err().code, "SAVE_FAILED");
         assert!(!server.is_stopped());
         assert!(UnixStream::connect(server.socket_path()).is_ok());
+        server.shutdown().unwrap();
+        assert!(server.is_stopped());
+    }
+    #[test]
+    fn only_explicit_shutdown_refusal_reopens_wire_admission() {
+        use std::io::BufRead;
+        struct RefusalThenFailure(AtomicUsize);
+        impl Handler for RefusalThenFailure {
+            fn methods(&self) -> Vec<String> {
+                vec!["probe".into()]
+            }
+            fn invoke(&self, _: &str, _: &[Value], _: &ClientContext) -> RpcResult {
+                Ok(json!("admitted"))
+            }
+            fn snapshot(&self, _: &ClientContext) -> RpcResult {
+                Ok(json!({}))
+            }
+            fn shutdown_attempt(&self) -> Result<(), ShutdownError> {
+                match self.0.fetch_add(1, Ordering::AcqRel) {
+                    0 => Err(ShutdownError::Refused(RpcError::new("BUSY", "Preparing"))),
+                    1 => Err(ShutdownError::Incomplete(RpcError::new(
+                        "SAVE_FAILED",
+                        "Save failed",
+                    ))),
+                    _ => Ok(()),
+                }
+            }
+        }
+        let server = Server::bind(
+            IsolatedProfile::create().unwrap(),
+            Arc::new(RefusalThenFailure(AtomicUsize::new(0))),
+            Config {
+                require_authentication: false,
+                ..Config::default()
+            },
+        )
+        .unwrap();
+        let mut client = UnixStream::connect(server.socket_path()).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut reader = BufReader::new(client.try_clone().unwrap());
+        let mut probe = |id: u64| {
+            writeln!(
+                client,
+                "{}",
+                json!({"v":1,"id":id,"method":"probe","args":[]})
+            )
+            .unwrap();
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            serde_json::from_str::<Value>(&line).unwrap()
+        };
+        assert_eq!(server.shutdown().unwrap_err().code, "BUSY");
+        assert_eq!(probe(1)["result"], "admitted");
+        assert_eq!(server.shutdown().unwrap_err().code, "SAVE_FAILED");
+        assert_eq!(probe(2)["error"]["code"], "CLOSING");
         server.shutdown().unwrap();
         assert!(server.is_stopped());
     }
