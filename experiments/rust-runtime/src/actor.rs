@@ -52,6 +52,15 @@ const METHODS: &[&str] = &[
     "chat:queue-remove",
 ];
 
+fn app_methods(enabled: bool) -> &'static [&'static str] {
+    #[cfg(feature = "app-fixture")]
+    if enabled {
+        return crate::app_fixture::METHODS;
+    }
+    let _ = enabled;
+    &[]
+}
+
 enum Command {
     Call(String, Vec<Value>),
     Shutdown {
@@ -103,6 +112,7 @@ struct Actor {
     thread: Mutex<Option<JoinHandle<()>>>,
     project: String,
     content: bool,
+    app_fixture: bool,
 }
 impl Actor {
     fn call(&self, command: Command) -> RpcResult {
@@ -185,11 +195,13 @@ impl Handler for Actor {
                 .iter()
                 .copied(),
             )
+            .chain(app_methods(self.app_fixture).iter().copied())
             .map(str::to_owned)
             .collect()
     }
     fn invoke(&self, method: &str, args: &[Value], context: &ClientContext) -> RpcResult {
         if !METHODS.contains(&method)
+            && !app_methods(self.app_fixture).contains(&method)
             && !(self.content && crate::artifacts::METHODS.contains(&method))
         {
             return Err(RpcError::new(
@@ -200,7 +212,8 @@ impl Handler for Actor {
         if !matches!(
             method,
             "project:open" | "project:switch" | "project:current"
-        ) && context.view().project_path.as_deref() != Some(&self.project)
+        ) && !app_methods(self.app_fixture).contains(&method)
+            && context.view().project_path.as_deref() != Some(&self.project)
         {
             return Err(RpcError::new(
                 "ISOLATED_SCOPE_ONLY",
@@ -362,6 +375,8 @@ struct State {
     answers: HashMap<AnswerId, SyncSender<RpcResult>>,
     settled_answers: Vec<(SyncSender<RpcResult>, RpcResult)>,
     // Drop after jobs join and the host releases its locks, even on forced teardown.
+    #[cfg(feature = "app-fixture")]
+    bootstrap: Option<crate::app_fixture::Bootstrap>,
     _profile: ProfileLease,
 }
 impl Drop for State {
@@ -384,12 +399,19 @@ impl State {
                 .retain(|(channel, _)| channel != "project:state");
         }
     }
+    fn project_name(&self) -> &'static str {
+        #[cfg(feature = "app-fixture")]
+        if self.bootstrap.is_some() {
+            return "fixture";
+        }
+        "actor"
+    }
     fn project(&mut self) -> RpcResult {
         self.host
             .require_project_ready(&self.project)
             .map_err(convert)?;
         Ok(
-            json!({"path":self.project,"name":"actor","git":false,"state":self.host.states.whole_state(&self.project).map_err(convert)?}),
+            json!({"path":self.project,"name":self.project_name(),"git":false,"state":self.host.states.whole_state(&self.project).map_err(convert)?}),
         )
     }
     fn cache(&mut self, shared: &Shared) {
@@ -417,7 +439,7 @@ impl State {
             self.last = state.clone();
         }
         let projects = if self.opened {
-            vec![json!({"path":self.project,"name":"actor","git":false,"state":state})]
+            vec![json!({"path":self.project,"name":self.project_name(),"git":false,"state":state})]
         } else {
             vec![]
         };
@@ -429,6 +451,45 @@ impl State {
         *shared.snapshot.lock().unwrap() = json!({"projects":projects,"links":[],"runs":{"runs":runs,"seq":self.run_seq},"ports":{}});
     }
     fn call(&mut self, method: &str, args: &[Value]) -> RpcResult {
+        #[cfg(feature = "app-fixture")]
+        if self.bootstrap.is_some() && crate::app_fixture::METHODS.contains(&method) {
+            self.host
+                .require_project_ready(&self.project)
+                .map_err(convert)?;
+            self.bootstrap.as_ref().unwrap().check()?;
+            if method == "project:read" {
+                if args.first().and_then(Value::as_str) != self.project.to_str() {
+                    return Err(RpcError::new(
+                        "ISOLATED_SCOPE_ONLY",
+                        "Choose this generated Project",
+                    ));
+                }
+                let mut result = self.project()?;
+                result["version"] = json!(self.version);
+                result["epoch"] = json!(format!("isolated-actor:{}", self.project.display()));
+                if args.get(1).is_some_and(|v| v["state"] == false) {
+                    result.as_object_mut().unwrap().remove("state");
+                }
+                return Ok(result);
+            }
+            if method == "chat:runs" {
+                return Ok(json!({"runs":self.host.runs(),"seq":self.run_seq}));
+            }
+            let state = if method == "canvas:snapshot" {
+                self.host
+                    .states
+                    .whole_state(&self.project)
+                    .map_err(convert)?
+            } else {
+                Value::Null
+            };
+            return self
+                .bootstrap
+                .as_ref()
+                .unwrap()
+                .call(method, args, &self.project, state);
+        }
+
         if crate::artifacts::METHODS.contains(&method) {
             self.host
                 .require_project_ready(&self.project)
@@ -483,6 +544,10 @@ impl State {
             }
             "chat:send" => {
                 let request = args.first().cloned().unwrap_or(Value::Null);
+                #[cfg(feature = "app-fixture")]
+                if let Some(bootstrap) = &self.bootstrap {
+                    bootstrap.validate_send(&request)?;
+                }
                 if request["projectPath"].as_str() != Some(&path)
                     || request["provider"] != self.provider
                 {
@@ -832,8 +897,7 @@ fn run(
         if let Some(request) = request {
             shared.bytes.fetch_sub(request.bytes, Ordering::AcqRel);
             let shutdown = matches!(request.command, Command::Shutdown { .. });
-            let state_read =
-                matches!(&request.command,Command::Call(method,_) if method=="state:read");
+            let state_read = matches!(&request.command,Command::Call(method,_) if method=="state:read" || method=="project:read");
             let refusal = match &request.command {
                 Command::Shutdown { refused, .. } => Some(refused.clone()),
                 _ => None,
@@ -939,7 +1003,38 @@ pub fn start() -> Result<(Server, Value), RpcError> {
         Box::new(Scripted::default()),
         "kiro",
         None,
+        #[cfg(feature = "app-fixture")]
+        None,
     )
+}
+
+#[cfg(feature = "app-fixture")]
+pub(crate) fn start_app_fixture() -> Result<(Server, Value), RpcError> {
+    let profile = IsolatedProfile::create()?;
+    let isolation = Isolation::create(profile.path(), &Policy::system()).map_err(convert)?;
+    let project = isolation
+        .project(std::path::Path::new("fixture"))
+        .map_err(convert)?;
+    fs::create_dir(project.join(".milagre"))?;
+    let fixture = crate::app_fixture::generated(&project);
+    fs::write(
+        project.join(".milagre/coordination.json"),
+        fixture["seed"].to_string(),
+    )?;
+    let bootstrap = crate::app_fixture::Bootstrap::new(isolation.clone(), &project)?;
+    let (server, mut metadata) = start_provider(
+        profile,
+        isolation,
+        project,
+        Box::new(Scripted::default()),
+        "kiro",
+        None,
+        Some(bootstrap),
+    )?;
+    metadata["appFixture"] = json!(true);
+    metadata["handoff"] = json!("gated");
+    metadata["steering"] = json!("gated");
+    Ok((server, metadata))
 }
 
 /// Separate fake-CLI owner fixture. It never adopts the wire profile or a production account.
@@ -961,6 +1056,8 @@ pub fn start_claude(
         Box::new(provider),
         "claude",
         content,
+        #[cfg(feature = "app-fixture")]
+        None,
     )?;
     Ok((server, metadata, monitor))
 }
@@ -978,6 +1075,8 @@ pub fn start_acp(
         Box::new(provider),
         "kiro",
         None,
+        #[cfg(feature = "app-fixture")]
+        None,
     )?;
     metadata["scriptedProvider"] = json!(false);
     metadata["fakeAcp"] = json!(true);
@@ -990,6 +1089,7 @@ fn start_provider(
     provider: Box<dyn Provider>,
     provider_name: &'static str,
     content: Option<Arc<crate::claude_content::SharedContent>>,
+    #[cfg(feature = "app-fixture")] bootstrap: Option<crate::app_fixture::Bootstrap>,
 ) -> Result<(Server, Value), RpcError> {
     let epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1049,6 +1149,16 @@ fn start_provider(
         thread: Mutex::new(None),
         project: project.to_string_lossy().into_owned(),
         content: content.is_some(),
+        app_fixture: {
+            #[cfg(feature = "app-fixture")]
+            {
+                bootstrap.is_some()
+            }
+            #[cfg(not(feature = "app-fixture"))]
+            {
+                false
+            }
+        },
     });
     let profile_lease = profile.lease();
     let mut state = State {
@@ -1065,6 +1175,8 @@ fn start_provider(
         pending: VecDeque::new(),
         answers: HashMap::new(),
         settled_answers: Vec::new(),
+        #[cfg(feature = "app-fixture")]
+        bootstrap,
         _profile: profile_lease,
     };
     state.cache(&shared);
@@ -1321,6 +1433,7 @@ mod tests {
                 thread: Mutex::new(None),
                 project: "fixture".into(),
                 content: false,
+                app_fixture: false,
             },
             receive,
         )
@@ -1521,6 +1634,8 @@ mod publication_tests {
             pending: VecDeque::new(),
             answers: HashMap::new(),
             settled_answers: Vec::new(),
+            #[cfg(feature = "app-fixture")]
+            bootstrap: None,
             _profile: profile.lease(),
         };
         state.pending.push_back((
@@ -1735,6 +1850,7 @@ mod job_tests {
             thread: Mutex::new(None),
             project: project.to_string_lossy().into(),
             content: content.is_some(),
+            app_fixture: false,
         });
         let profile_lease = profile.lease();
         let mut state = State {
@@ -1751,6 +1867,8 @@ mod job_tests {
             pending: VecDeque::new(),
             answers: HashMap::new(),
             settled_answers: vec![],
+            #[cfg(feature = "app-fixture")]
+            bootstrap: None,
             _profile: profile_lease,
         };
         state.cache(&shared);

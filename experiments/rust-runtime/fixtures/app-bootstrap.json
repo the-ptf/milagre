@@ -1,0 +1,477 @@
+{
+  "seed": {
+    "next_id": 10,
+    "name": "actor",
+    "worktrees": {
+      "1": {
+        "id": 1,
+        "path": "$PROJECT",
+        "name": "fixture",
+        "project_id": 1
+      }
+    },
+    "sessions": {
+      "1": {
+        "id": 1,
+        "worktree_id": 1,
+        "agent_name": "fixture",
+        "summary": {
+          "count": 0
+        }
+      },
+      "2": {
+        "id": 2,
+        "worktree_id": 1,
+        "agent_name": "fixture",
+        "summary": {
+          "count": 0
+        }
+      }
+    },
+    "messages": [],
+    "projects": {
+      "1": {
+        "id": 1,
+        "name": "fixture"
+      }
+    },
+    "tasks": {}
+  },
+  "registry": {
+    "scanned": true,
+    "projects": [
+      {
+        "id": "$PROJECT",
+        "path": "$PROJECT",
+        "name": "fixture",
+        "git": false,
+        "position": null,
+        "openedAt": "2026-01-01T00:00:00.000Z"
+      }
+    ],
+    "links": [],
+    "projectGroups": [],
+    "worktreePositions": {}
+  },
+  "recent": [
+    {
+      "path": "$PROJECT",
+      "name": "fixture",
+      "openedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "catalog": {
+    "claude": [],
+    "codex": [],
+    "antigravity": [],
+    "kiro": [
+      {
+        "id": "scripted",
+        "name": "Scripted Rust fixture",
+        "description": "In-process simulation. No vendor CLI, account or network.",
+        "recommended": true,
+        "efforts": [],
+        "ultracode": false,
+        "fastMode": false
+      }
+    ]
+  },
+  "status": {
+    "claude": {
+      "state": "missing",
+      "message": "Unavailable in the Rust fixture."
+    },
+    "codex": {
+      "state": "missing",
+      "message": "Unavailable in the Rust fixture."
+    },
+    "antigravity": {
+      "state": "missing",
+      "message": "Unavailable in the Rust fixture."
+    },
+    "kiro": {
+      "state": "ready",
+      "message": "In-process scripted fixture. No vendor CLI or account is inspected."
+    }
+  },
+  "cases": [
+    {
+      "method": "project:read",
+      "args": ["$PROJECT"],
+      "result": {
+        "path": "$PROJECT",
+        "name": "fixture",
+        "git": false,
+        "state": {
+          "next_id": 10,
+          "name": "actor",
+          "worktrees": {
+            "1": {
+              "id": 1,
+              "path": "$PROJECT",
+              "name": "fixture",
+              "project_id": 1
+            }
+          },
+          "sessions": {
+            "1": {
+              "id": 1,
+              "worktree_id": 1,
+              "agent_name": "fixture",
+              "summary": {
+                "count": 0
+              }
+            },
+            "2": {
+              "id": 2,
+              "worktree_id": 1,
+              "agent_name": "fixture",
+              "summary": {
+                "count": 0
+              }
+            }
+          },
+          "messages": [],
+          "projects": {
+            "1": {
+              "id": 1,
+              "name": "fixture"
+            }
+          },
+          "tasks": {}
+        }
+      }
+    },
+    {
+      "method": "project:read",
+      "args": [
+        "$PROJECT",
+        {
+          "state": false
+        }
+      ],
+      "result": {
+        "path": "$PROJECT",
+        "name": "fixture",
+        "git": false
+      }
+    },
+    {
+      "method": "chat:runs",
+      "args": [],
+      "result": {
+        "runs": {},
+        "seq": 0
+      }
+    },
+    {
+      "method": "project:registry",
+      "args": [],
+      "result": [
+        {
+          "id": "$PROJECT",
+          "path": "$PROJECT",
+          "name": "fixture",
+          "git": false,
+          "position": null,
+          "openedAt": "2026-01-01T00:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "method": "project:recent",
+      "args": [],
+      "result": [
+        {
+          "path": "$PROJECT",
+          "name": "fixture",
+          "openedAt": "2026-01-01T00:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "method": "project:known",
+      "args": [],
+      "result": [
+        {
+          "path": "$PROJECT",
+          "name": "fixture",
+          "openedAt": "2026-01-01T00:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "method": "canvas:links",
+      "args": [],
+      "result": []
+    },
+    {
+      "method": "link:list",
+      "args": [],
+      "result": []
+    },
+    {
+      "method": "canvas:snapshot",
+      "args": [],
+      "result": {
+        "projects": [
+          {
+            "id": "$PROJECT",
+            "path": "$PROJECT",
+            "name": "fixture",
+            "git": false,
+            "position": null,
+            "openedAt": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "links": [],
+        "projectGroups": [],
+        "worktreePositions": {},
+        "states": [
+          {
+            "path": "$PROJECT",
+            "state": {
+              "next_id": 10,
+              "name": "actor",
+              "worktrees": {
+                "1": {
+                  "id": 1,
+                  "path": "$PROJECT",
+                  "name": "fixture",
+                  "project_id": 1
+                }
+              },
+              "sessions": {
+                "1": {
+                  "id": 1,
+                  "worktree_id": 1,
+                  "agent_name": "fixture",
+                  "summary": {
+                    "count": 0
+                  }
+                },
+                "2": {
+                  "id": 2,
+                  "worktree_id": 1,
+                  "agent_name": "fixture",
+                  "summary": {
+                    "count": 0
+                  }
+                }
+              },
+              "messages": [],
+              "projects": {
+                "1": {
+                  "id": 1,
+                  "name": "fixture"
+                }
+              },
+              "tasks": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "accounts:scopes",
+      "args": [],
+      "result": [
+        {
+          "key": "$PROJECT",
+          "name": "fixture",
+          "kind": "project",
+          "projects": [
+            {
+              "id": "$PROJECT",
+              "path": "$PROJECT",
+              "name": "fixture"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "method": "agent:models",
+      "args": [],
+      "result": {
+        "claude": [],
+        "codex": [],
+        "antigravity": [],
+        "kiro": [
+          {
+            "id": "scripted",
+            "name": "Scripted Rust fixture",
+            "description": "In-process simulation. No vendor CLI, account or network.",
+            "recommended": true,
+            "efforts": [],
+            "ultracode": false,
+            "fastMode": false
+          }
+        ]
+      }
+    },
+    {
+      "method": "agent:models",
+      "args": ["$PROJECT"],
+      "result": {
+        "claude": [],
+        "codex": [],
+        "antigravity": [],
+        "kiro": [
+          {
+            "id": "scripted",
+            "name": "Scripted Rust fixture",
+            "description": "In-process simulation. No vendor CLI, account or network.",
+            "recommended": true,
+            "efforts": [],
+            "ultracode": false,
+            "fastMode": false
+          }
+        ]
+      }
+    },
+    {
+      "method": "agent:cli-status",
+      "args": ["$PROJECT"],
+      "result": {
+        "claude": {
+          "state": "missing",
+          "message": "Unavailable in the Rust fixture."
+        },
+        "codex": {
+          "state": "missing",
+          "message": "Unavailable in the Rust fixture."
+        },
+        "antigravity": {
+          "state": "missing",
+          "message": "Unavailable in the Rust fixture."
+        },
+        "kiro": {
+          "state": "ready",
+          "message": "In-process scripted fixture. No vendor CLI or account is inspected."
+        }
+      }
+    },
+    {
+      "method": "accounts:list",
+      "args": [],
+      "result": {
+        "providers": [
+          {
+            "provider": "codex",
+            "selectedId": "default",
+            "accounts": [
+              {
+                "id": "default",
+                "provider": "codex",
+                "label": "Connected CLI account",
+                "state": "unknown"
+              }
+            ]
+          },
+          {
+            "provider": "claude",
+            "selectedId": "default",
+            "accounts": [
+              {
+                "id": "default",
+                "provider": "claude",
+                "label": "Connected CLI account",
+                "state": "unknown"
+              }
+            ]
+          },
+          {
+            "provider": "antigravity",
+            "selectedId": "default",
+            "accounts": [
+              {
+                "id": "default",
+                "provider": "antigravity",
+                "label": "Default account",
+                "state": "unknown"
+              }
+            ]
+          },
+          {
+            "provider": "kiro",
+            "selectedId": "default",
+            "accounts": [
+              {
+                "id": "default",
+                "provider": "kiro",
+                "label": "Connected CLI account",
+                "state": "unknown"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "method": "accounts:scope",
+      "args": ["$PROJECT"],
+      "result": {
+        "scopeKey": "$PROJECT",
+        "providers": [
+          {
+            "provider": "codex",
+            "accountId": null,
+            "effectiveId": "default",
+            "defaultId": "default",
+            "accounts": [
+              {
+                "id": "default",
+                "provider": "codex",
+                "label": "Connected CLI account",
+                "state": "unknown"
+              }
+            ]
+          },
+          {
+            "provider": "claude",
+            "accountId": null,
+            "effectiveId": "default",
+            "defaultId": "default",
+            "accounts": [
+              {
+                "id": "default",
+                "provider": "claude",
+                "label": "Connected CLI account",
+                "state": "unknown"
+              }
+            ]
+          },
+          {
+            "provider": "antigravity",
+            "accountId": null,
+            "effectiveId": "default",
+            "defaultId": "default",
+            "accounts": [
+              {
+                "id": "default",
+                "provider": "antigravity",
+                "label": "Default account",
+                "state": "unknown"
+              }
+            ]
+          },
+          {
+            "provider": "kiro",
+            "accountId": null,
+            "effectiveId": "default",
+            "defaultId": "default",
+            "accounts": [
+              {
+                "id": "default",
+                "provider": "kiro",
+                "label": "Connected CLI account",
+                "state": "unknown"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

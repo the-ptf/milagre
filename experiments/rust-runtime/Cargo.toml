@@ -9,8 +9,11 @@ description = "Isolated read integration of Milagre's Rust wire server and saved
 [features]
 default = []
 acp-fixture = ["dep:milagre-acp"]
+app-fixture = ["dep:milagre-registry", "dep:milagre-accounts"]
 
 [dependencies]
+milagre-registry = { path = "../rust-registry", optional = true }
+milagre-accounts = { path = "../rust-accounts", optional = true }
 milagre-acp = { path = "../rust-acp", features = ["fake-session"], optional = true }
 libc = "0.2"
 milagre-owner-store = { path = "../rust-owner" }
@@ -42,3 +45,8 @@ doc = false
 name = "acp-runtime"
 path = "src/bin/acp-runtime.rs"
 required-features = ["acp-fixture"]
+
+[[bin]]
+name = "app-fixture"
+path = "src/bin/app-fixture.rs"
+required-features = ["app-fixture"]
