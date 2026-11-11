@@ -64,7 +64,15 @@ async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   app.setPath("userData", require("node:fs").mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-chat-scroll-")));
   await app.whenReady();
-  const window = new BrowserWindow({ width: 800, height: 600, useContentSize: true, show: false, webPreferences: { backgroundThrottling: false } });
+  // Xvfb must map the Linux window for foreground compositor/input scheduling. An unmapped window batches
+  // wheel/scroll events at roughly 1Hz even with backgroundThrottling disabled. macOS stays hidden.
+  const window = new BrowserWindow({
+    width: 800,
+    height: 600,
+    useContentSize: true,
+    show: process.platform === "linux",
+    webPreferences: { backgroundThrottling: false },
+  });
   window.webContents.on("console-message", (event) => {
     if (event.level === "error") console.error(event.message);
   });
@@ -80,8 +88,13 @@ async function browserChecks() {
       if (await evaluate(source)) return;
       await delay(25);
     }
-    throw new Error(`Timed out: ${source}`);
+    const state = await evaluate(`(() => {
+      const v = document.querySelector('[aria-label="Conversation"]');
+      return {top:v?.scrollTop, height:v?.scrollHeight, viewport:v?.clientHeight, deliveredWheelDelta:window.deliveredWheelDelta};
+    })()`);
+    throw new Error(`Timed out: ${source}; scroll state: ${JSON.stringify(state)}`);
   }
+  const rendered = () => evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
   const viewport = `document.querySelector('[aria-label="Conversation"]')`;
   const distance = `(() => { const v = ${viewport}; return Math.round(v.scrollHeight - v.clientHeight - v.scrollTop); })()`;
   const jumpButton = `!!document.querySelector('button[aria-label="Go to bottom"]')`;
@@ -99,6 +112,9 @@ async function browserChecks() {
     assert.ok(opened.distance <= 1 && !opened.jump, "A Chat opens at its end");
 
     window.webContents.debugger.attach("1.3");
+    // Keep the hidden macOS page focused for native keyboard input without focusing the app.
+    await window.webContents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
+    await waitFor("document.hasFocus()");
     const position = (selector = viewport) =>
       evaluate(`(() => { const r = ${selector}.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
     const wheel = (pos, deltaY, extra = {}) =>
@@ -120,6 +136,21 @@ async function browserChecks() {
         modifiers: shift ? 8 : 0,
       });
     };
+    const page = async (shift, condition) => {
+      // Wait for the native page animation to finish before reversing direction or requesting the end.
+      // Canceling the prior automatic jump can emit its own scrollend before the key's default scroll starts.
+      await evaluate(`(() => {
+        window.pageScrollEnded = false;
+        const onEnd = () => {
+          if (!(${condition})) return;
+          window.pageScrollEnded = true;
+          ${viewport}.removeEventListener('scrollend', onEnd);
+        };
+        ${viewport}.addEventListener('scrollend', onEnd);
+      })()`);
+      await key(shift);
+      await waitFor("window.pageScrollEnded");
+    };
     const end = async () => {
       await evaluate(`${viewport}.dispatchEvent(new Event('milagre:transcript-end'))`);
       await waitFor(`${distance} <= 1`);
@@ -132,7 +163,16 @@ async function browserChecks() {
       await settled();
       await end();
       const pos = await position();
-      const before = await evaluate(`${viewport}.scrollTop`);
+      await evaluate(`(() => {
+        window.deliveredWheelDelta = 0;
+        const onWheel = (event) => {
+          // Output may legitimately follow until the first queued gesture reaches the viewport.
+          if (window.deliveredWheelDelta === 0) window.gestureStartTop = ${viewport}.scrollTop;
+          window.deliveredWheelDelta += event.deltaY;
+          if (window.deliveredWheelDelta <= -1000) ${viewport}.removeEventListener('wheel', onWheel);
+        };
+        ${viewport}.addEventListener('wheel', onWheel, {passive:true});
+      })()`);
       await evaluate(`window.tick=0; window.growth=setInterval(() => {
         window.tick++;
         if (${text}) window.stream('Wrapping text changes the height of the reply. '.repeat(tick*2));
@@ -145,9 +185,13 @@ async function browserChecks() {
         pending.push(wheel(pos, -8));
       }
       await Promise.all(pending);
-      await delay(80);
+      // CDP acknowledges queued input before Chromium delivers it. On Linux a late upward wheel otherwise
+      // arrives after Go to bottom and correctly cancels that jump. Drain the full gesture, including coalesced
+      // deltas, and let its default scroll render before measuring or beginning a different user action.
+      await waitFor("window.deliveredWheelDelta === -1000");
+      await rendered();
       await evaluate("clearInterval(window.growth)");
-      const moved = before - (await evaluate(`${viewport}.scrollTop`));
+      const moved = await evaluate(`window.gestureStartTop - ${viewport}.scrollTop`);
       assert.ok(moved > 800, `125 small upward inputs must escape ${text ? "text and tools" : "tools"}: moved ${moved}px`);
       const reading = await evaluate(`${viewport}.scrollTop`);
       await evaluate(`window.stream('New lines.\\n\\n'.repeat(200))`);
@@ -165,24 +209,24 @@ async function browserChecks() {
     );
     await delay(120);
     const beforeKey = await evaluate(`${viewport}.scrollTop`);
-    await key(true);
-    await delay(600);
+    await page(true, `${beforeKey} - ${viewport}.scrollTop > 200`);
     assert.ok(beforeKey - (await evaluate(`${viewport}.scrollTop`)) > 200, "Shift+Space interrupts smooth following during tool updates");
     await evaluate("clearInterval(window.growth)");
     const beforeSpace = await evaluate(`${viewport}.scrollTop`);
-    await key(false);
-    await delay(600);
+    await page(false, `${viewport}.scrollTop > ${beforeSpace} + 200`);
     assert.ok((await evaluate(`${viewport}.scrollTop`)) > beforeSpace + 200, "Space still pages down");
     await end();
     const pos = await position();
     await wheel(pos, -8);
-    await delay(80);
+    await rendered();
     const nearEnd = await evaluate(`${viewport}.scrollTop`);
     await evaluate(`window.stream('Another line.\\n\\n'.repeat(20))`);
     await delay(200);
     assert.ok(Math.abs((await evaluate(`${viewport}.scrollTop`)) - nearEnd) <= 1, "Even an 8px upward gesture pauses growth");
     await wheel(pos, 10000);
     await waitFor(`${distance} <= 1`);
+    // The compositor can reach the end before React receives its scroll event and resumes following.
+    await rendered();
     await evaluate(`window.stream('Another line.\\n\\n'.repeat(30))`);
     await waitFor(`${distance} <= 1`);
     console.log("PASS: Shift+Space, Space, manual return to the end and explicit end events preserve follow semantics");
@@ -192,21 +236,22 @@ async function browserChecks() {
     const nested = `document.querySelector('[data-nested]')`;
     await evaluate(`${nested}.scrollTop=100`);
     await wheel(await position(nested), -8);
-    await delay(100);
+    await waitFor(`${nested}.scrollTop < 100`);
     assert.ok(await evaluate(`${nested}.scrollTop < 100`), "The nested output scrolls");
     assert.equal(await evaluate("window.following"), true, "A nested output gesture does not pause the transcript");
     await evaluate(`document.querySelector('[data-control]').focus()`);
     await key(true);
+    await rendered();
     assert.equal(await evaluate("window.following"), true, "Space on a button does not pause the transcript");
     await evaluate(`${nested}.scrollTop=0`);
     await wheel(await position(nested), -8);
-    await delay(100);
+    await waitFor("window.following === false");
     assert.equal(await evaluate("window.following"), false, "A gesture at the nested output's top chains to the transcript");
     await end();
     assert.equal(await evaluate("window.following"), true, "Explicit end restores following after nested scroll-away");
     await evaluate(`${nested}.style.overscrollBehaviorY='contain'`);
     await wheel(await position(nested), -8);
-    await delay(100);
+    await rendered();
     assert.equal(await evaluate("window.following"), true, "A contained nested scroller never hands its gesture to the transcript");
     console.log("PASS: nested scrollers and button activation keep their own input");
     app.exit(0);
