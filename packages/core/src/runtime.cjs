@@ -1291,6 +1291,7 @@ function createRuntime(options) {
   const pullRequestWatch = injectedPullRequests
     ? null
     : createPullRequestWatch({
+        exec: options.pullRequestExec,
         onChange: (folders) => {
           for (const projectPath of new Set(folders.map((folder) => states.worktreeProject(folder)).filter(Boolean)))
             emit("pull-requests:changed", { projectPath });

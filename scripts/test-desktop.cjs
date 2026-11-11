@@ -96,7 +96,10 @@ async function stopFixtureHost(client, profile) {
     // The ownership lock is released before the transport closes. Wait for both the acknowledgment and close,
     // so a replacement cannot accidentally attach to the host that is still stopping.
     await Promise.all([client.call("daemon:stop"), closed]);
-    console.log(`PASS: daemon:stop acknowledged and transport closed (${Date.now() - started} ms)`);
+    const elapsed = Date.now() - started;
+    // Keep the 31 s diagnostic deadline, but never accept the old 30 s gh timeout as successful shutdown.
+    assert.ok(elapsed < 5000, `daemon:stop acknowledgment and transport close took ${elapsed} ms (limit 5000 ms)`);
+    console.log(`PASS: daemon:stop acknowledged and transport closed (${elapsed} ms)`);
   } catch (error) {
     let diagnostic;
     try {
@@ -546,6 +549,8 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       cwd: project,
       chatsHome: path.join(profile, "chats-home"),
       executable,
+      // This check runs in plain Node, where bootstrap has no process.resourcesPath to forward.
+      env: { ...env, ...(args.length ? {} : { MILAGRE_BUNDLED_BIN_DIR: path.join(resources, "bin") }) },
       // Restart the runtime being tested, including its installed asar, rather than the harness's external Node.
       entry: args.length ? path.join(root, "apps/daemon/src/cli.cjs") : path.join(resources, "app.asar/node_modules/@milagre/daemon/src/cli.cjs"),
     });

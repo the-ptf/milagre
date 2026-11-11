@@ -30,6 +30,8 @@ export interface RuntimeOptions {
   expandSkills?: boolean;
   /** worktree:pull-request; the default asks `gh`. */
   readPullRequest?: (worktreePath: string) => Promise<unknown>;
+  /** Raw, unscheduled gh executor for the shared PR watcher. The watcher owns process-lane scheduling and cancellation. */
+  pullRequestExec?: (command: string, args: string[], options: import("node:child_process").ExecFileOptions) => Promise<{ stdout: string }>;
   /** worktree:link-issue's PR lookup: `known: false` when it couldn't ask; the default asks `gh`. */
   readPullRequestState?: (worktreePath: string) => Promise<{ known: boolean; pr: unknown }>;
   /**

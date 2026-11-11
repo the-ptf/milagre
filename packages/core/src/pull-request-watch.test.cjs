@@ -13,6 +13,34 @@ const node = (number, state = "OPEN", rollup = "SUCCESS") => ({
   commits: { nodes: [{ commit: { statusCheckRollup: rollup ? { state: rollup } : null } }] },
 });
 
+test("raw PR executors fill the background lane without nested scheduling", { timeout: 5000 }, async () => {
+  const { lanes } = require("./process-lanes.cjs");
+  const full = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  let calls = 0;
+  const watch = createPullRequestWatch({
+    git: { commonDir: async (cwd) => `${cwd}/.git`, out: async () => "main" },
+    exec: async () => {
+      if (++calls === 3) full.resolve();
+      await release.promise;
+      return { stdout: JSON.stringify({ data: { repository: {} } }) };
+    },
+  });
+  const reads = Promise.all(["/a", "/b", "/c", "/d"].map((cwd) => watch.branch(cwd)));
+  try {
+    await full.promise;
+    assert.equal(lanes.stats("gh").running, 3, "each raw executor owns exactly one slot");
+    assert.equal(calls, 3, "background leaves the fourth slot for interactive work");
+    release.resolve();
+    await reads;
+    assert.equal(calls, 4, "queued repository progresses when a slot is released");
+  } finally {
+    release.resolve();
+    watch.close();
+    await reads;
+  }
+});
+
 test("closing settles pending PR reads and cancels GitHub before its request timeout", async () => {
   const started = Promise.withResolvers();
   const request = Promise.withResolvers();

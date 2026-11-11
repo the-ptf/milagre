@@ -57,6 +57,8 @@ function queries(items) {
   return documents;
 }
 
+// `exec` must be raw (not wrapped in scheduled): this watcher and readPullRequests acquire their own slots.
+// Scheduling twice can fill a background lane with outer calls waiting for their own inner calls.
 function createPullRequestWatch({
   exec = promisify(execFile),
   git,

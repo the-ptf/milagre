@@ -5,28 +5,16 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { connect } = require("./client.cjs");
+const { startDaemon } = require("./server.cjs");
+const { once } = require("node:events");
 
-test("stop acknowledges with pending PR reads, preserves accepted Chat changes, and tolerates repeated cleanup", { timeout: 60000 }, async (t) => {
+test("stop acknowledges with pending PR reads, preserves accepted Chat changes, and tolerates repeated cleanup", { timeout: 60000 }, async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-stop-pending-"));
   const project = path.join(directory, "project");
   const dataDir = path.join(directory, "profile");
   const request = Promise.withResolvers();
   const started = Promise.withResolvers();
   const stopped = Promise.withResolvers();
-  const watcher = require("../../../packages/core/src/pull-request-watch.cjs");
-  const createWatch = watcher.createPullRequestWatch;
-  // This file has its own node:test process. Load the real runtime after replacing only the slow external gh call.
-  t.mock.method(watcher, "createPullRequestWatch", (options) =>
-    createWatch({
-      ...options,
-      exec: async (_command, _args, options) => {
-        options.signal?.addEventListener("abort", () => request.reject(options.signal.reason), { once: true });
-        started.resolve();
-        return request.promise;
-      },
-    }),
-  );
-  const { startDaemon } = require("./server.cjs");
   await fs.mkdir(path.join(project, ".milagre"), { recursive: true });
   execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
   const messages = [{ id: 3, session_id: 2, role: "user", body: "Keep the saved Chat", context: null }];
@@ -43,7 +31,16 @@ test("stop acknowledges with pending PR reads, preserves accepted Chat changes, 
   const daemon = await startDaemon({
     dataDir,
     version: "0.1.0",
-    runtimeOptions: { cwd: project, chatsHome: path.join(directory, "chats"), environmentReady: Promise.resolve() },
+    runtimeOptions: {
+      cwd: project,
+      chatsHome: path.join(directory, "chats"),
+      environmentReady: Promise.resolve(),
+      pullRequestExec: async (_command, _args, options) => {
+        options.signal?.addEventListener("abort", () => request.reject(options.signal.reason), { once: true });
+        started.resolve();
+        return request.promise;
+      },
+    },
     onStopped: stopped.resolve,
   });
   const clients = [];
@@ -57,7 +54,11 @@ test("stop acknowledges with pending PR reads, preserves accepted Chat changes, 
     await started.promise;
     // A mutation accepted while metadata is pending must still survive shutdown.
     await reader.call("chat:patch", [project, 2, { title: "Saved before stopping" }]);
-    assert.deepEqual(await control.call("daemon:stop"), { stopping: true });
+    const stopStarted = Date.now();
+    const closed = once(control, "close", { signal: AbortSignal.timeout(5000) });
+    const [ack] = await Promise.all([control.call("daemon:stop"), closed, stopped.promise]);
+    assert.deepEqual(ack, { stopping: true });
+    assert.ok(Date.now() - stopStarted < 5000, "acknowledgment, transport close and daemon shutdown finish within 5 s");
     assert.equal(await reading, null);
     await stopped.promise;
     await daemon.close();
