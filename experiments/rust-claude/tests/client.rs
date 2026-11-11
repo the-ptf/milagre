@@ -777,3 +777,103 @@ async fn private_argument_files_are_removed_at_exit() {
     client.wait().await;
     assert!(!file.exists() && !file.parent().unwrap().exists(), "argument files removed");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn close_cancels_handlers_and_late_replies_preserve_flush_grace() {
+    let (options, _) = fake(
+        "close-handlers",
+        json!([
+            permission_request("p1", "Bash", json!({"command":"ls"}), json!({})),
+            {"wait_eof":true},
+            // This request also arrives during close: no new handler should be dispatched.
+            permission_request("p2", "Bash", json!({"command":"ls"}), json!({})),
+            {"sleep_ms":200}, {"emit":{"type":"flushed"}}, {"exit":0}
+        ]),
+    );
+    let (started_tx, mut started_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::unbounded_channel();
+    let handlers = Handlers {
+        permissions: Some(Arc::new(FnPermission(
+            move |request: milagre_claude::PermissionRequest, mut cancel: milagre_claude::CancelSignal| {
+                let started = started_tx.clone();
+                let cancelled = cancel_tx.clone();
+                Box::pin(async move {
+                    started.send(request.request_id).unwrap();
+                    let reason = cancel.cancelled().await;
+                    cancelled.send(reason).unwrap();
+                    // A callback that completes after the writer has delivered EOF is harmless.
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    Ok(PermissionResult::Allow { updated_input: None, updated_permissions: None })
+                }) as milagre_claude::BoxFuture<_>
+            },
+        ))),
+        ..Handlers::default()
+    };
+    let limits = Limits { close_grace: Duration::from_secs(2), ..quick_limits() };
+    let (client, mut events) = ClaudeClient::spawn(&options, handlers, limits).unwrap();
+    assert_eq!(tokio::time::timeout(Duration::from_secs(3), started_rx.recv()).await.unwrap().unwrap(), "p1");
+    let (info, reason) = tokio::join!(client.close(), async {
+        tokio::time::timeout(Duration::from_millis(150), cancel_rx.recv()).await.expect("close cancels before process exit").unwrap()
+    });
+    assert_eq!(reason, CancelReason::Closed);
+    assert_eq!((info.reason, info.code, info.signal), (ExitReason::Closed, Some(0), None));
+    assert!(started_rx.try_recv().is_err(), "close must reject new callbacks");
+    let trace = drain(&mut events).await;
+    assert!(trace.iter().any(|event| matches!(event,ClaudeEvent::Message(v) if v["type"]=="flushed")));
+    assert!(!trace.iter().any(|event| matches!(event, ClaudeEvent::Diagnostic(Diagnostic::ReplyNotWritten { .. }))));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn broken_stdin_stops_live_process_and_settles_waiters() {
+    for reply in [false, true] {
+        let mut script = vec![json!({"close_stdin":true}), json!({"emit":{"type":"stdin_closed"}})];
+        if reply {
+            script.push(permission_request("p1", "Bash", json!({"command":"ls"}), json!({})));
+        }
+        script.push(json!({"sleep_ms":10000}));
+        let (mut options, _) = fake("broken-stdin", Value::Array(script));
+        options.env.as_mut().unwrap().push(("FAKE_CLAUDE_NO_STDIN".into(), "1".into()));
+        let (client, mut events) = ClaudeClient::spawn(&options, deny_now(), quick_limits()).unwrap();
+        let pid = client.pid().unwrap();
+        assert_eq!(next_message(&mut events).await["type"], "stdin_closed");
+        if !reply {
+            let error = tokio::time::timeout(Duration::from_secs(3), client.request_with_timeout(json!({"subtype":"mcp_status"}), None))
+                .await
+                .expect("broken stdin must fail an unbounded control waiter")
+                .unwrap_err();
+            assert!(matches!(error,ClientError::Exited(ref info) if matches!(info.reason,ExitReason::WriteError(_))), "{error:?}");
+        }
+        let info = tokio::time::timeout(Duration::from_secs(3), client.wait()).await.expect("broken writer must stop live process");
+        assert!(matches!(info.reason, ExitReason::WriteError(_)), "{info:?}");
+        assert!(matches!(client.send_user_text("later").await, Err(ClientError::Exited(_))));
+        assert!(wait_dead(pid as i32).await);
+        assert!(matches!(drain(&mut events).await.last(), Some(ClaudeEvent::Exit(_))));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn connect_enforces_event_and_byte_budgets_before_initialize() {
+    for byte_limit in [false, true] {
+        let (options, _) = fake(
+            "connect-budget",
+            json!([
+                {"expect":{"subtype":"initialize"}},
+                {"emit_many":{"count":100,"frame":{"type":"early","text":"a".repeat(256)}}},
+                {"sleep_ms":10000}
+            ]),
+        );
+        let limits = Limits {
+            max_initialize_events: if byte_limit { 1000 } else { 3 },
+            max_initialize_bytes: if byte_limit { 100 } else { 100000 },
+            event_capacity: 2,
+            ..quick_limits()
+        };
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            ClaudeClient::connect(&options, &InitializeOptions::default(), Handlers::default(), limits),
+        )
+        .await
+        .expect("budget must fail before initialize timeout");
+        assert!(matches!(result, Err(ClientError::InitializeBufferFull { .. })), "{result:?}");
+    }
+}

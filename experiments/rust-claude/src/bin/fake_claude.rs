@@ -191,6 +191,12 @@ fn main() {
             "cancel" => out.line(&json!({ "type": "control_cancel_request", "request_id": arg })),
             "sleep_ms" => std::thread::sleep(Duration::from_millis(arg.as_u64().unwrap_or(0))),
             "exit" => std::process::exit(arg.as_i64().unwrap_or(0) as i32),
+            "close_stdin" => {
+                // Use with FAKE_CLAUDE_NO_STDIN=1 so no blocked reader retains the pipe.
+                unsafe {
+                    libc::close(0);
+                }
+            }
             "close_stdout" => {
                 out.0 = None;
                 // SAFETY: closing our own stdout descriptor.

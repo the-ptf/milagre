@@ -23,6 +23,8 @@ pub enum CancelReason {
     Withdrawn,
     /// The CLI process ended.
     Exited,
+    /// The owner called close() or kill(); no further reply should be sent.
+    Closed,
 }
 
 /// Fires once when the request no longer needs an answer.

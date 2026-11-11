@@ -55,6 +55,10 @@ pub struct Limits {
     /// Default per-request timeout (`None` waits until exit). The Python SDK's default is 60 s.
     pub request_timeout: Option<Duration>,
     pub initialize_timeout: Duration,
+    /// `connect()` buffers at most this many events while waiting for initialize.
+    pub max_initialize_events: usize,
+    /// Maximum serialized payload bytes held by `connect()` before initialize completes.
+    pub max_initialize_bytes: usize,
     /// stdout closed but the process still runs: kill it after this long. Also how long the reader
     /// may lag behind an exited process (a descendant holding stdout open).
     pub drain_grace: Duration,
@@ -78,6 +82,8 @@ impl Default for Limits {
             stall_timeout: Duration::from_secs(30),
             request_timeout: Some(Duration::from_secs(60)),
             initialize_timeout: Duration::from_secs(60),
+            max_initialize_events: 1024,
+            max_initialize_bytes: 8 * 1024 * 1024,
             drain_grace: Duration::from_secs(2),
             close_grace: Duration::from_secs(5),
             kill_grace: Duration::from_secs(5),
@@ -100,6 +106,8 @@ pub enum ExitReason {
     StdoutClosed,
     /// A stdin write blocked for `stall_timeout`; the process was killed.
     InputStalled,
+    /// stdin write/flush failed while the process was still running; it was killed.
+    WriteError(String),
     /// A handler's reply to the CLI could not be written (stdin closed, or the reply lane full); the
     /// process was killed rather than left waiting on an answer that will never come.
     ReplyLost,
@@ -144,6 +152,8 @@ pub enum ClientError {
     Backpressure(Duration),
     #[error("{0} control requests already in flight")]
     TooManyPending(usize),
+    #[error("initialize output exceeded its buffer budget ({events} events, {bytes} bytes)")]
+    InitializeBufferFull { events: usize, bytes: usize },
     #[error("control request {subtype} got no reply within {after:?}")]
     Timeout { subtype: String, after: Duration },
     #[error("control request {subtype} failed: {message}")]
@@ -202,6 +212,37 @@ pub struct ControlReply {
     pub raw: Value,
 }
 
+/// Serialized payload size, without allocating a second copy of a potentially large frame.
+fn event_bytes(event: &ClaudeEvent) -> usize {
+    struct Counter(usize);
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(bytes.len());
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let json_bytes = |value: &Value| {
+        let mut counter = Counter(0);
+        serde_json::to_writer(&mut counter, value).expect("JSON values serialize");
+        counter.0
+    };
+    match event {
+        ClaudeEvent::Message(value) => json_bytes(value),
+        ClaudeEvent::Exit(info) => info.stderr_tail.len().saturating_add(128),
+        ClaudeEvent::Diagnostic(diagnostic) => match diagnostic {
+            Diagnostic::NonJsonLine(text) | Diagnostic::TruncatedTail(text) => text.len(),
+            Diagnostic::UnmatchedResponse { request_id, raw } => request_id.len().saturating_add(json_bytes(raw)),
+            Diagnostic::UnknownCancel { request_id } | Diagnostic::DuplicateRequest { request_id } => request_id.len(),
+            Diagnostic::Malformed { reason, raw } => reason.len().saturating_add(json_bytes(raw)),
+            Diagnostic::ReplyNotWritten { request_id, error } => request_id.len().saturating_add(error.len()),
+            Diagnostic::Unanswered { request_id, subtype } => request_id.len().saturating_add(subtype.len()),
+        },
+    }
+}
+
 enum WriterCmd {
     Frame(Vec<u8>),
     /// A control request: skipped when its caller gave up before it was written.
@@ -241,6 +282,7 @@ struct Shared {
     stalled: AtomicBool,
     /// A reply could not be delivered and the process was killed for it.
     reply_lost: AtomicBool,
+    write_error: Mutex<Option<String>>,
     /// The leader was reaped; the group id is only signalled while members remain.
     reaped: AtomicBool,
     /// The group is known empty: its id may belong to someone else and is never signalled again.
@@ -276,8 +318,34 @@ impl Shared {
 
     /// Stop the process because the protocol can no longer be kept (a lost reply).
     fn fail_reply(&self) {
-        self.reply_lost.store(true, Ordering::SeqCst);
-        self.signal(Signal::Kill);
+        // Serialize failure with close's transition: a late reply cannot interrupt session flush.
+        let _inflight = self.inflight.lock().unwrap();
+        if !self.closing.load(Ordering::SeqCst) {
+            self.reply_lost.store(true, Ordering::SeqCst);
+            self.signal(Signal::Kill);
+        }
+    }
+
+    fn fail_write(&self, error: std::io::Error) {
+        let _inflight = self.inflight.lock().unwrap();
+        if !self.closing.load(Ordering::SeqCst) {
+            *self.write_error.lock().unwrap() = Some(error.to_string());
+            self.signal(Signal::Kill);
+        }
+    }
+
+    fn cancel_handlers(&self, reason: CancelReason) {
+        let triggers = {
+            let mut inflight = self.inflight.lock().unwrap();
+            if reason == CancelReason::Closed {
+                self.closing.store(true, Ordering::SeqCst);
+            }
+            inflight.closed = true;
+            std::mem::take(&mut inflight.triggers)
+        };
+        for trigger in triggers.values() {
+            trigger.fire(reason);
+        }
     }
 }
 
@@ -385,6 +453,7 @@ impl ClaudeClient {
             emitting: AtomicBool::new(false),
             stalled: AtomicBool::new(false),
             reply_lost: AtomicBool::new(false),
+            write_error: Mutex::new(None),
             reaped: AtomicBool::new(false),
             group_gone: AtomicBool::new(false),
             exit_rx: exit_rx.clone(),
@@ -411,17 +480,26 @@ impl ClaudeClient {
         handlers: Handlers,
         limits: Limits,
     ) -> Result<(Self, EventStream, ControlReply), ClientError> {
+        let max_events = limits.max_initialize_events;
+        let max_bytes = limits.max_initialize_bytes;
         let (client, mut events) = Self::spawn(options, handlers, limits)?;
         // Drain while waiting, so output before the reply can never stall the reader behind a full channel.
         let result = {
             let initialize = client.initialize(init);
             tokio::pin!(initialize);
             let mut open = true;
+            let mut buffered_bytes = 0usize;
             loop {
                 tokio::select! {
                     result = &mut initialize => break result,
                     event = events.rx.recv(), if open => match event {
-                        Some(event) => events.buffered.push_back(event),
+                        Some(event) => {
+                            buffered_bytes = buffered_bytes.saturating_add(event_bytes(&event));
+                            if events.buffered.len() >= max_events || buffered_bytes > max_bytes {
+                                break Err(ClientError::InitializeBufferFull { events: max_events, bytes: max_bytes });
+                            }
+                            events.buffered.push_back(event);
+                        },
                         None => open = false,
                     },
                 }
@@ -598,7 +676,7 @@ impl ClaudeClient {
 
     /// Close stdin, give the CLI `close_grace` to exit, then SIGTERM the group, then SIGKILL it.
     pub async fn close(&self) -> ExitInfo {
-        self.shared.closing.store(true, Ordering::SeqCst);
+        self.shared.cancel_handlers(CancelReason::Closed);
         if self.exit_info().is_none() && !self.shared.input_ended.swap(true, Ordering::SeqCst) {
             // The reserved lane always has room; user frames still queued behind it are dropped.
             let _ = self.shared.control.try_send(WriterCmd::End);
@@ -616,7 +694,7 @@ impl ClaudeClient {
 
     /// SIGKILL the group now and wait for the exit.
     pub async fn kill(&self) -> ExitInfo {
-        self.shared.closing.store(true, Ordering::SeqCst);
+        self.shared.cancel_handlers(CancelReason::Closed);
         if self.exit_info().is_none() {
             self.shared.signal(Signal::Kill);
         }
@@ -729,6 +807,9 @@ async fn writer_loop(shared: Arc<Shared>, stdin: ChildStdin, mut user: mpsc::Rec
                 bytes
             }
             WriterCmd::Reply(bytes) => {
+                if shared.closing.load(Ordering::SeqCst) {
+                    continue;
+                }
                 if stdin.is_none() {
                     // stdin was closed first: the CLI would wait on this answer forever.
                     shared.fail_reply();
@@ -752,8 +833,12 @@ async fn writer_loop(shared: Arc<Shared>, stdin: ChildStdin, mut user: mpsc::Rec
         .await
         {
             Ok(Ok(())) => {}
-            // Broken pipe: the process is going away; callers learn it from the exit.
-            Ok(Err(_)) => return,
+            // A CLI may close stdin and keep stdout/process alive. Stop it so accepted frames and
+            // control waiters cannot disappear into a dead writer while the process hangs forever.
+            Ok(Err(error)) => {
+                shared.fail_write(error);
+                return;
+            }
             Err(_) => {
                 shared.stalled.store(true, Ordering::SeqCst);
                 shared.signal(Signal::Kill);
@@ -940,6 +1025,9 @@ async fn handle(handlers: Handlers, request: IncomingRequest, cancel: CancelSign
 /// Queue a reply on the reserved lane. A reply that cannot be delivered stops the process: the CLI
 /// would otherwise wait on it forever.
 async fn write_reply(shared: &Shared, request_id: &str, reply: Option<Result<Value, String>>) {
+    if shared.closing.load(Ordering::SeqCst) {
+        return;
+    }
     let frame = match reply {
         None => return,
         Some(Ok(payload)) => protocol::success_response(request_id, payload),
@@ -1020,9 +1108,11 @@ async fn supervise(
     }
     remove_dir(&arg_dir);
     let _ = timeout(Duration::from_millis(500), stderr_task).await;
+    let write_error = shared.write_error.lock().unwrap().clone();
     let reason = match forced {
         _ if shared.stalled.load(Ordering::SeqCst) => ExitReason::InputStalled,
         _ if shared.reply_lost.load(Ordering::SeqCst) => ExitReason::ReplyLost,
+        _ if write_error.is_some() => ExitReason::WriteError(write_error.unwrap()),
         Some(reason) => reason,
         None if shared.closing.load(Ordering::SeqCst) => ExitReason::Closed,
         None => ExitReason::Exited,
@@ -1037,14 +1127,7 @@ async fn supervise(
     shared.pending.lock().unwrap().exit = Some(info.clone());
     shared.input_ended.store(true, Ordering::SeqCst);
     let _ = exit_tx.send(Some(info.clone()));
-    let triggers = {
-        let mut inflight = shared.inflight.lock().unwrap();
-        inflight.closed = true;
-        std::mem::take(&mut inflight.triggers)
-    };
-    for trigger in triggers.values() {
-        trigger.fire(CancelReason::Exited);
-    }
+    shared.cancel_handlers(CancelReason::Exited);
 
     // Replies already in the pipe get `drain_grace` to reach their waiters; after that every waiter
     // fails, even when the owner has stopped draining events.
