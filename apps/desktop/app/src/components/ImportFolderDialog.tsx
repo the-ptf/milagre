@@ -22,7 +22,7 @@ const folderName = (folder: string) => folder.split("/").findLast(Boolean) ?? fo
  * ones open as Projects and, two or more, get a Named Link named after the folder, which the Tree layout draws with them
  * under it. "Open as one Project" opens the folder itself instead. Mounted only while open.
  */
-export function ImportFolderDialog({
+function ImportFolderDialog({
   scan,
   onClose,
   onOpenSingle,
