@@ -19,7 +19,7 @@ use std::{
     fs,
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError},
         Arc, Mutex,
     },
@@ -68,6 +68,7 @@ struct Shared {
     stop: AtomicBool,
     failure: Mutex<Option<String>>,
     delivery_failed: AtomicBool,
+    forgotten_answers: AtomicU64,
 }
 struct Actor {
     send: SyncSender<Request>,
@@ -187,11 +188,28 @@ impl Handler for Actor {
         if self.shared.delivery_failed.load(Ordering::Acquire) {
             return Err(delivery_failed());
         }
-        Ok(self.shared.snapshot.lock().unwrap().clone())
+        Ok(diagnostic_snapshot(&self.shared))
     }
     fn shutdown(&self) -> RpcResult {
         self.call(Command::Shutdown)
     }
+}
+fn record_forgotten_answer(shared: &Shared) {
+    // Saturating constant-space audit. Never write to a potentially blocked stderr pipe.
+    let _ = shared
+        .forgotten_answers
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            Some(count.saturating_add(1))
+        });
+}
+fn diagnostic_snapshot(shared: &Shared) -> Value {
+    let mut snapshot = shared.snapshot.lock().unwrap().clone();
+    if !snapshot.is_object() {
+        snapshot = json!({});
+    }
+    snapshot["diagnostics"] =
+        json!({"answerHistoryForgotten":shared.forgotten_answers.load(Ordering::Acquire)});
+    snapshot
 }
 fn record_failure(shared: &Shared, error: String) {
     let bounded: String = error.chars().take(4096).collect();
@@ -433,16 +451,7 @@ impl State {
                 // The original command already settled as unknown. Any rollback/state
                 // changes are published through the owner's ordinary notices, never a second reply.
                 Notice::AnswerResolved { .. } => {}
-                Notice::AnswerForgotten { chat, answer } => {
-                    // History eviction is an audit fact, never a delivery result or another RPC reply.
-                    eprintln!(
-                        "{}",
-                        jsjson::to_string(&json!({
-                            "type":"answer-history-forgotten","chatId":chat,"answerId":answer.0,
-                            "delivery":"unknown","lateReconciliation":false
-                        }))
-                    );
-                }
+                Notice::AnswerForgotten { .. } => record_forgotten_answer(shared),
                 Notice::Failed { error, .. } | Notice::Gap { what: error, .. } => {
                     record_failure(shared, error);
                 }
@@ -718,6 +727,7 @@ fn start_provider(
         stop: AtomicBool::new(false),
         failure: Mutex::new(None),
         delivery_failed: AtomicBool::new(false),
+        forgotten_answers: AtomicU64::new(0),
     });
     let (send, requests) = mpsc::sync_channel(QUEUE);
     let actor = Arc::new(Actor {
@@ -971,6 +981,7 @@ mod tests {
             stop: AtomicBool::new(false),
             failure: Mutex::new(None),
             delivery_failed: AtomicBool::new(false),
+            forgotten_answers: AtomicU64::new(0),
         });
         (
             Actor {
@@ -1011,6 +1022,28 @@ mod tests {
             "OWNER_BUSY"
         );
         assert_eq!(actor.shared.bytes.load(Ordering::Acquire), 0);
+    }
+    #[test]
+    fn forgotten_answer_audit_is_bounded_and_snapshot_visible_without_rpc_work() {
+        let (actor, receive) = dormant();
+        for _ in 0..10000 {
+            record_forgotten_answer(&actor.shared);
+        }
+        assert_eq!(
+            diagnostic_snapshot(&actor.shared)["diagnostics"]["answerHistoryForgotten"],
+            10000
+        );
+        assert!(receive.try_recv().is_err());
+        actor
+            .shared
+            .forgotten_answers
+            .store(u64::MAX - 1, Ordering::Release);
+        record_forgotten_answer(&actor.shared);
+        record_forgotten_answer(&actor.shared);
+        assert_eq!(
+            diagnostic_snapshot(&actor.shared)["diagnostics"]["answerHistoryForgotten"],
+            json!(u64::MAX)
+        );
     }
     #[test]
     fn closing_refuses_mutation_before_queueing() {
@@ -1073,6 +1106,7 @@ mod publication_tests {
             stop: AtomicBool::new(false),
             failure: Mutex::new(None),
             delivery_failed: AtomicBool::new(false),
+            forgotten_answers: AtomicU64::new(0),
         };
         let mut state = State {
             host: ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0)),

@@ -1,6 +1,6 @@
 //! Opt-in fixed ACP fake only. Each host turn owns one process; native reuse is refused.
 use milagre_acp::{
-    session::{Answer, Delivery, FakeOptions, FakeSession, SessionEvent},
+    session::{Answer, Delivery, FakeOptions, FakeSession, SessionError, SessionEvent},
     RequestId,
 };
 use milagre_owner_store::{
@@ -63,6 +63,22 @@ fn error(message: &str) -> ProviderError {
 }
 fn stopped() -> ProviderError {
     error("The isolated ACP process stopped")
+}
+fn answer_outcome(result: Result<Delivery, SessionError>) -> AnswerOutcome {
+    match result {
+        Ok(Delivery::WrittenUnacknowledged) => AnswerOutcome::Accepted,
+        Ok(Delivery::NotSent) | Err(SessionError::UnknownPermission) => AnswerOutcome::NotWaiting,
+        Err(
+            SessionError::Closed
+            | SessionError::Busy
+            | SessionError::PromptTooLarge
+            | SessionError::UnsupportedPolicy
+            | SessionError::Configuration,
+        ) => AnswerOutcome::Failed(stopped()),
+        Ok(Delivery::Uncertain) | Err(SessionError::UncertainDelivery) => {
+            AnswerOutcome::Uncertain(stopped())
+        }
+    }
 }
 fn terminal(v: &Value) -> bool {
     matches!(
@@ -555,11 +571,13 @@ impl Worker {
                #[cfg(test)]
                if matches!(self.scenario,Scenario::PanicAnswer){panic!("fixed ACP answer panic");}
                let token=reply.request.clone();let shared=self.shared.clone();let chat=self.chat.clone();let turn=self.turn;
-               answering=Some(Box::pin(async move{let result=receipt.wait().await;let outcome=match result{
-                Ok(Delivery::WrittenUnacknowledged)=>{shared.emit(ProviderEvent::Agent{chat,turn,event:RawJson(json!({"type":"permission-resolved","requestId":token,"decision":if reply.answer==Answer::AllowOnce{"allow"}else{"deny"}}))},true);AnswerOutcome::Accepted},
-                Ok(Delivery::NotSent)=>AnswerOutcome::NotWaiting,
-                _=>AnswerOutcome::Uncertain(stopped()),
-               };reply.receipt.settle(outcome);}));
+               answering=Some(Box::pin(async move{
+                let result=receipt.wait().await;
+                if matches!(result,Ok(Delivery::WrittenUnacknowledged)){
+                    shared.emit(ProviderEvent::Agent{chat,turn,event:RawJson(json!({"type":"permission-resolved","requestId":token,"decision":if reply.answer==Answer::AllowOnce{"allow"}else{"deny"}}))},true);
+                }
+                reply.receipt.settle(answer_outcome(result));
+               }));
               }else{reply.receipt.settle(AnswerOutcome::NotWaiting);}
              },
             }
@@ -686,5 +704,74 @@ mod panic_tests {
                 "no duplicate terminal or answer later"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod delivery_tests {
+    use super::*;
+    #[test]
+    fn stopped_session_distinguishes_stalled_write_from_unclaimed_queued_answers() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let mut options = FakeOptions {
+                scenario: "blocked-answer".into(),
+                ..Default::default()
+            };
+            options.limits.cancel_grace = Duration::from_millis(500);
+            let (session, mut events) = FakeSession::launch(options).unwrap();
+            let turn = session.send("fixture").unwrap();
+            let request = loop {
+                match tokio::time::timeout(Duration::from_secs(2), events.recv())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                {
+                    SessionEvent::Permission { request_id, .. } => break request_id,
+                    _ => continue,
+                }
+            };
+            let writing = session
+                .admit_answer(turn, request.clone(), Answer::AllowOnce)
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    if !session.inspect().await.unwrap()["writingPermission"].is_null() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .unwrap();
+            // Both are synchronously admitted, but the request is already claimed by the stalled write.
+            // Closing before yielding leaves these queued decisions provably unattempted.
+            let queued_a = session
+                .admit_answer(turn, request.clone(), Answer::Deny)
+                .unwrap();
+            let queued_b = session.admit_answer(turn, request, Answer::Deny).unwrap();
+            session.shutdown().await;
+            assert!(matches!(
+                answer_outcome(writing.wait().await),
+                AnswerOutcome::Uncertain(_)
+            ));
+            for receipt in [queued_a, queued_b] {
+                let result = receipt.wait().await;
+                assert!(
+                    matches!(
+                        result,
+                        Err(SessionError::Closed | SessionError::UnknownPermission)
+                    ),
+                    "{result:?}"
+                );
+                assert!(matches!(
+                    answer_outcome(result),
+                    AnswerOutcome::Failed(_) | AnswerOutcome::NotWaiting
+                ));
+            }
+        });
     }
 }

@@ -42,7 +42,11 @@ impl SessionContent {
     }
     pub(crate) fn revoke(&self) {
         self.active.store(false, Ordering::Release);
-        let registration = self.registration.lock().unwrap().take();
+        let registration = self
+            .registration
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
         if let Some(registration) = registration {
             registration.revoke();
         }
@@ -64,8 +68,12 @@ impl SessionContent {
         caller
     }
     fn install(&self, registration: Arc<McpRegistration>) -> Result<(), Error> {
-        let mut current = self.registration.lock().unwrap();
+        let mut current = self
+            .registration
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         if self.check().is_err() || current.is_some() {
+            drop(current);
             registration.revoke();
             return Err(Error::coded(
                 "FIXTURE_SESSION_REVOKED",
@@ -420,6 +428,13 @@ mod tests {
         let mut installed = options.launch.allowed_tools.clone();
         installed.sort();
         assert_eq!(installed, expected);
+        let poison = session_scope.clone();
+        assert!(std::thread::spawn(move || {
+            let _held = poison.registration.lock().unwrap();
+            panic!("fixed lease poison");
+        })
+        .join()
+        .is_err());
         session_scope.revoke();
         let mut refused_options =
             SessionOptions::new(milagre_claude::LaunchOptions::new("unused-fixture"));

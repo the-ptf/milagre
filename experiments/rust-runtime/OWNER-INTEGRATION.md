@@ -70,3 +70,5 @@ Outbound fixture requests decode the owner codec before reaching Codex. Only tex
 copies replace lone UTF-16 units with U+FFFD; their saved originals remain lossless. Opaque
 identities stay strict. A bounded Node-fake receive probe verifies actual provider payloads and
 an owner reopen verifies the original disk records.
+
+Answer-history eviction increments a saturating constant-space counter exposed as `daemon:snapshot.diagnostics.answerHistoryForgotten`. It emits neither stderr lines nor another answer RPC result. The actor retains no per-eviction Chat or answer strings; the count means delivery remained unknown when late-reconciliation history was discarded.
