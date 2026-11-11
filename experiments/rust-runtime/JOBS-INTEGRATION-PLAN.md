@@ -41,15 +41,25 @@ Implement restore only at first. Keep switch, provider capability changes and an
 
 ## Remaining fixture evidence
 
-- Actual Node client restore after a completed nonresumable ACP turn, with the exact next native prompt asserted when the fixed fake supports it.
+- The exact restored prompt at the native ACP process boundary. The successful fixture below currently observes the Provider admission request; the fixed FakeSession has no received-prompt accessor yet.
 - Delayed transcript commit, Stop and late completion preserve Unknown/no-replay and cannot start a replacement turn incorrectly.
 - Brief deadline, cancellation, malformed identity, oversize request/reply and stale result all fail closed without a live model or account.
 
 ## Pending Git admission
 
-ChatHost::admit_worktree is available but this runtime does not call it yet. A saved worktree path does not grant authority. The existing GitService owns a separate IsolatedGit temporary root and cannot be admitted to an actor's different isolation. A future fixture must create its repository under the same actor isolation through trusted setup, admit that canonical path explicitly, and keep production Restore gated. TranscriptSource helpers use changed: None until that admission is agreed and tested.
+Production and executable runtime constructors do not call ChatHost::admit_worktree. One cfg(test) successful-restore fixture now admits a newly created own-.git repository under its ACP provider Isolation. A saved worktree path does not grant authority. The existing GitService owns a separate IsolatedGit temporary root and cannot be admitted to an actor's different isolation. The test creates its repository through trusted setup, admits that exact canonical path explicitly, and keeps production Restore gated. Direct TranscriptSource helpers still use changed: None; the successful send obtains its changed-files plan from the owner.
 
-Successful restore coverage remains next: a fixture send should persist its done divider and committed transcript before one provider start, include the admitted worktree's exact changed-file list in the minimal brief, and preserve restart, cancellation and stale-result behavior. Current runtime evidence proves cancellation of a real restore only.
+## Successful restore fixture
+
+The acp-fixture unit test successful_restore_is_saved_before_the_second_acp_process_and_never_replayed drives the actual Node client through two turns in one Chat. Only that test calls enable_restore_for_tests. Every executable still uses Gated.
+
+1. The first fixed ACP process replies Hello and is reaped. The Node client changes edited.txt and creates fresh.txt in the new private repository, then sends the second message.
+2. A handshake pauses the owner-issued transcript job on its worker thread. The actor remains responsive. Saved storage contains exactly one second user message and a preparing divider; no transcript is committed and the second provider has not started.
+3. Releasing the worker lets the owner commit its transcript and use its no-model minimal brief. A test-only Provider wrapper reads saved storage before forwarding admission to AcpFixture. It observes a done divider and a framed prompt with both exact changed filenames. The transcript worker and provider-admission actor have different thread IDs.
+4. The second fixed ACP process completes once. The Node client sees one second user message, one assistant reply after it, and one done divider. Resending the same clientMessageId starts no third process. A second handshake keeps the owner alive while Rust inspects the committed transcript and confirms no temporary file remains.
+5. Node then requests daemon:stop. The test checks QuitState::Done, no stranded-lock notices, two distinct reaped child PIDs, no cleanup failure, and deletion of the private profile after joined teardown.
+
+This proves adapter-boundary prompt framing, durable ordering, no-model changed files, transcript-worker separation and two-process lifecycle. It does not yet prove the exact bytes consumed by the native fake, successful model-generated briefs, restart/resume, arbitrary repository admission or production handoff. The first full run exposed a test race reading the transcript after successful shutdown had deleted the profile; the explicit restored/stop handshake fixes that ordering without delaying teardown.
 
 ## Explicit Project readiness
 
@@ -66,4 +76,4 @@ Verified through production Node clients and private fixture guards:
 - Replacing the ready handover directory invalidates its identity check, hides Project state and revokes retained content grants. Restoring the directory alone does not reopen. Explicit open restores readiness but never revives the old grant generation.
 - Forget followed by current/snapshot/state:read stays refused; late provider events and reads do not recreate its lock.
 
-No Git worktree admission or successful restore integration is included.
+Only the cfg(test) successful-restore fixture admits its own fresh Git repository. Release constructors still expose no Git admission or successful Restore.

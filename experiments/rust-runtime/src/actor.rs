@@ -2091,4 +2091,5 @@ mod job_tests {
             "last lease follows worker and host destruction"
         );
     }
+    include!("actor_restore_tests.rs");
 }
