@@ -128,6 +128,14 @@ fn the_corner_has_one_toggle_that_opens_and_closes_the_side_panel(cx: &mut TestA
 }
 
 #[test]
+fn the_toggle_wears_a_right_panel_icon_and_a_show_or_hide_tooltip_with_its_shortcut() {
+    assert_eq!(Corner::Panel.icon(), crate::ui::IconName::SidebarRight01, "never the active tab's icon");
+    assert_eq!(Corner::Panel.label(false), "Show panel");
+    assert_eq!(Corner::Panel.label(true), "Hide panel");
+    assert!(Corner::Panel.command().and_then(super::keys::shortcut_hint).is_some(), "the tooltip shows a shortcut");
+}
+
+#[test]
 fn the_corner_item_is_one_panel_toggle() {
     assert_eq!(top_bar::corner_items(false), [CornerItem { corner: Corner::Panel, pressed: false }]);
     assert_eq!(top_bar::corner_items(true), [CornerItem { corner: Corner::Panel, pressed: true }]);

@@ -178,17 +178,17 @@ impl Corner {
     }
 
     /// A right-panel glyph, whatever tab the panel shows.
-    fn icon(self) -> IconName {
+    pub fn icon(self) -> IconName {
         IconName::SidebarRight01
     }
 
     /// The tooltip: "Show panel" or "Hide panel".
-    fn label(self, pressed: bool) -> SharedString {
+    pub fn label(self, pressed: bool) -> SharedString {
         if pressed { "Hide panel".into() } else { "Show panel".into() }
     }
 
     /// The command whose key the tooltip shows: the panel's default tab (Changes, ⇧⌘D).
-    fn command(self) -> Option<&'static str> {
+    pub fn command(self) -> Option<&'static str> {
         Some("changes.toggle")
     }
 }
