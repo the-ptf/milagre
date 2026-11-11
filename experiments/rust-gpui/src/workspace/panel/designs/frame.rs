@@ -2,14 +2,9 @@
 //! block and name, the dot grid and the zoom bar. Positions are on screen, from the board's canvas units and the
 //! view.
 
-use std::f32::consts::PI;
 use std::rc::Rc;
-use std::sync::Arc;
 
-use gpui::{
-    AnyElement, ClickEvent, Context, FontWeight, ObjectFit, Pixels, RenderImage, Rgba, SharedString, StyledImage, Transformation, Window,
-    div, img, point, prelude::*, px, radians, size, svg,
-};
+use gpui::{AnyElement, ClickEvent, Context, FontWeight, Pixels, Rgba, SharedString, Window, div, point, prelude::*, px, size};
 
 use super::DesignsView;
 use super::board::{self, FrameBox, GroupBox, HeaderFit, View};
@@ -97,24 +92,9 @@ fn glyph_button(id: impl Into<SharedString>, glyph: AnyElement, pill: bool, disa
         .child(glyph)
 }
 
-/// A Hugeicons chevron; `left` turns the right one around (the set has no `ArrowLeft01` yet).
+/// A 14px Hugeicons chevron: `ArrowLeft01` for the previous version, `ArrowRight01` for the next.
 fn chevron(left: bool, color: Rgba) -> AnyElement {
-    let size = IconSize::S14;
-    svg()
-        .path(IconName::ArrowRight01.path(size))
-        .flex_none()
-        .size(px(size.px()))
-        .text_color(color)
-        .when(left, |el| el.with_transformation(Transformation::rotate(radians(PI))))
-        .into_any_element()
-}
-
-/// A Lucide glyph drawn as an image (the zoom bar's minus and fit, which the app's Hugeicons set lacks).
-fn lucide(image: Option<Arc<RenderImage>>) -> AnyElement {
-    match image {
-        Some(image) => img(image).size(px(16.0)).object_fit(ObjectFit::Contain).into_any_element(),
-        None => div().size(px(16.0)).into_any_element(),
-    }
+    Icon::new(if left { IconName::ArrowLeft01 } else { IconName::ArrowRight01 }).size(IconSize::S14).color(color).into_any_element()
 }
 
 /// Stops a press on a control from starting a pan of the canvas behind it.
@@ -352,8 +332,7 @@ pub fn frame(
 }
 
 /// The floating zoom bar (`ZoomBar`): zoom out, the zoom (back to 100%), zoom in, Fit.
-pub fn zoom_bar(scale: f64, glyphs: [Option<Arc<RenderImage>>; 2], theme: &Theme, cx: &mut Context<DesignsView>) -> AnyElement {
-    let [minus, fit] = glyphs;
+pub fn zoom_bar(scale: f64, theme: &Theme, cx: &mut Context<DesignsView>) -> AnyElement {
     let ink3 = theme.ink3;
     let hover = theme.hover;
     let can_out = scale > board::MIN_SCALE + 1e-9;
@@ -371,8 +350,14 @@ pub fn zoom_bar(scale: f64, glyphs: [Option<Arc<RenderImage>>; 2], theme: &Theme
         .shadow(theme.shadow_raised())
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
-            glyph_button("designs-zoom-out", lucide(minus), true, !can_out, theme)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.zoom_by(1.0 / board::ZOOM_STEP, cx))),
+            glyph_button(
+                "designs-zoom-out",
+                Icon::new(IconName::MinusSign).size(IconSize::S16).color(ink3).into_any_element(),
+                true,
+                !can_out,
+                theme,
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.zoom_by(1.0 / board::ZOOM_STEP, cx))),
         )
         .child(
             div()
@@ -404,8 +389,14 @@ pub fn zoom_bar(scale: f64, glyphs: [Option<Arc<RenderImage>>; 2], theme: &Theme
         )
         .child(div().mx(px(2.0)).h(px(16.0)).w(px(1.0)).bg(theme.line))
         .child(
-            glyph_button("designs-fit", lucide(fit), true, false, theme)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.fit_all(cx))),
+            glyph_button(
+                "designs-fit",
+                Icon::new(IconName::FitToScreen).size(IconSize::S16).color(ink3).into_any_element(),
+                true,
+                false,
+                theme,
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.fit_all(cx))),
         )
         .into_any_element()
 }

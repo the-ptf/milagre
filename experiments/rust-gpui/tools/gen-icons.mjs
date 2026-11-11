@@ -207,6 +207,22 @@ const ICONS = [
   "ArrowRight02",
   "ArrowUpRight01",
   "Maps",
+  // Round 9 (replaces the stand-ins): Subchats button (ChangesChrome), Designs zoom bar and Artifact zoom (ZoomBar), design
+  // editor toolbar (DesignPageEditor, DesignTools), diff bar (DiffPrefs), terminal right-click menu (TerminalMenu).
+  // PlusSign, ArrowLeft01 and Copy01 are in other blocks.
+  "HierarchySquare02",
+  "MinusSign",
+  "FitToScreen",
+  "Undo",
+  "Redo",
+  "Layers01",
+  "Frame",
+  "Square",
+  "Star",
+  "LayoutTop",
+  "Layout2Column",
+  "TextWrap",
+  "ClipboardPaste",
 ];
 
 /** The stroke written into every icon file; `src/assets` replaces it for the 12px (1.6) and 18px (2) sizes. */

@@ -29,12 +29,10 @@ mod tests;
 
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use gpui::{
     App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    PinchEvent, Pixels, Point, RenderImage, ScrollEvent, SharedString, Subscription, Window, anchored, canvas, deferred, div, point,
-    prelude::*, px,
+    PinchEvent, Pixels, Point, ScrollEvent, SharedString, Subscription, Window, anchored, canvas, deferred, div, point, prelude::*, px,
 };
 
 use self::board::{Board, View};
@@ -234,21 +232,6 @@ impl DesignsView {
         let scene = Rc::new(Scene::build(document, &mut self.icons, cx));
         self.scenes.insert(key, scene.clone());
         Some(scene)
-    }
-
-    /// A Lucide glyph for the UI around the designs, 16px at a 1.8 stroke like the app's icons, decoded once.
-    fn glyph(&mut self, name: &str, color: gpui::Rgba, cx: &App) -> Option<Arc<RenderImage>> {
-        let hex = format!(
-            "#{:02x}{:02x}{:02x}",
-            (color.r * 255.0).round() as u8,
-            (color.g * 255.0).round() as u8,
-            (color.b * 255.0).round() as u8
-        );
-        let key = format!("ui|{name}|{hex}|{}", color.a);
-        self.icons
-            .entry(key)
-            .or_insert_with(|| assets::icon_svg(name, &hex, f64::from(color.a), 1.8, 32).and_then(|svg| assets::render_svg(&svg, cx)))
-            .clone()
     }
 
     /// The canvas's size and place changed (it measures itself as it paints): fits again unless the user moved.
@@ -564,7 +547,6 @@ impl Render for DesignsView {
             .editor
             .as_ref()
             .map(|(editor, _)| deferred(anchored().position(gpui::point(px(0.0), px(0.0))).child(editor.clone())).with_priority(10));
-        let glyphs = [self.glyph("minus", theme.ink3, cx), self.glyph("scan", theme.ink3, cx)];
         div()
             .id("designs-panel")
             .debug_selector(|| "panel-body-Designs".to_string())
@@ -608,7 +590,7 @@ impl Render for DesignsView {
                             ),
                         )
                     })
-                    .when(!empty, |el| el.child(frame::zoom_bar(self.view.scale, glyphs, &theme, cx))),
+                    .when(!empty, |el| el.child(frame::zoom_bar(self.view.scale, &theme, cx))),
             )
             .children(editor)
     }

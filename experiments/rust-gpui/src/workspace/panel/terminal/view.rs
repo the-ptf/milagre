@@ -25,7 +25,7 @@ use super::grid::{GridState, Metrics, TerminalGrid};
 use super::keys::{self, KeyOptions, KeyRoute};
 use super::session::{GridSize, Session};
 use crate::theme::{ActiveTheme, RADIUS_CARD};
-use crate::ui::{MenuList, MenuRow};
+use crate::ui::{IconName, MenuList, MenuRow};
 
 actions!(terminal, [Copy, Paste, CloseTerminal]);
 
@@ -323,10 +323,17 @@ impl TerminalView {
             }
         };
         let list = MenuList::new("terminal-menu")
-            .row(MenuRow::new("terminal-menu-copy", "Copy").trailing_shortcut("⌘C").disabled(!can_copy).on_click(run(|view, cx| {
-                view.copy(cx);
-            })))
-            .row(MenuRow::new("terminal-menu-paste", "Paste").trailing_shortcut("⌘V").on_click(run(|view, cx| view.paste(cx))));
+            .row(MenuRow::new("terminal-menu-copy", "Copy").icon(IconName::Copy01).trailing_shortcut("⌘C").disabled(!can_copy).on_click(
+                run(|view, cx| {
+                    view.copy(cx);
+                }),
+            ))
+            .row(
+                MenuRow::new("terminal-menu-paste", "Paste")
+                    .icon(IconName::ClipboardPaste)
+                    .trailing_shortcut("⌘V")
+                    .on_click(run(|view, cx| view.paste(cx))),
+            );
         let surface = div()
             .id("terminal-menu-surface")
             .debug_selector(|| "terminal-menu".to_string())

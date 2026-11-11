@@ -5,9 +5,7 @@
 //! The confirmation is drawn inside the editor rather than through `ui::Dialog`: the editor is a deferred layer
 //! over the window, above the app root's dialog layer, so a root dialog would open under it.
 
-use std::sync::Arc;
-
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, ObjectFit, RenderImage, StyledImage, div, img, prelude::*, px};
+use gpui::{AnyElement, ClickEvent, Context, FontWeight, div, prelude::*, px};
 
 use super::DesignEditor;
 use super::page::{self, MAX_SCALE, MIN_SCALE, ZOOM_STEP};
@@ -61,14 +59,7 @@ pub fn heading(editor: &DesignEditor, theme: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-fn lucide(image: Option<Arc<RenderImage>>) -> AnyElement {
-    match image {
-        Some(image) => img(image).size(px(16.0)).object_fit(ObjectFit::Contain).into_any_element(),
-        None => div().size(px(16.0)).into_any_element(),
-    }
-}
-
-/// A 32px pill button around a Lucide glyph (Undo and Redo, which the app's icon set lacks).
+/// A 32px pill button around a glyph (Undo and Redo).
 fn pill(id: &'static str, glyph: AnyElement, tooltip: Tooltip, disabled: bool, theme: &Theme) -> gpui::Stateful<gpui::Div> {
     let hover = theme.hover;
     div()
@@ -93,8 +84,8 @@ pub fn actions(editor: &mut DesignEditor, theme: &Theme, cx: &mut Context<Design
     let (can_undo, can_redo) = editor.active().map(|s| (s.history.can_undo(), s.history.can_redo())).unwrap_or_default();
     let can_save = editor.changed() > 0;
     let ink2 = theme.ink2;
-    let undo = lucide(editor.glyph("undo-2", ink2, cx));
-    let redo = lucide(editor.glyph("redo-2", ink2, cx));
+    let undo = Icon::new(IconName::Undo).size(IconSize::S16).color(ink2).into_any_element();
+    let redo = Icon::new(IconName::Redo).size(IconSize::S16).color(ink2).into_any_element();
     div()
         .debug_selector(|| "design-page-actions".to_string())
         .absolute()
@@ -139,8 +130,8 @@ pub fn actions(editor: &mut DesignEditor, theme: &Theme, cx: &mut Context<Design
 pub fn zoom_bar(editor: &mut DesignEditor, theme: &Theme, cx: &mut Context<DesignEditor>) -> AnyElement {
     let scale = editor.view.scale;
     let ink3 = theme.ink3;
-    let minus = lucide(editor.glyph("minus", ink3, cx));
-    let fit = lucide(editor.glyph("scan", ink3, cx));
+    let minus = Icon::new(IconName::MinusSign).size(IconSize::S16).color(ink3).into_any_element();
+    let fit = Icon::new(IconName::FitToScreen).size(IconSize::S16).color(ink3).into_any_element();
     let (centre, _) = page::zoom_centre(editor.room, editor.layers_open);
     let hover = theme.hover;
     let button = |id: &'static str, glyph: AnyElement, disabled: bool| {

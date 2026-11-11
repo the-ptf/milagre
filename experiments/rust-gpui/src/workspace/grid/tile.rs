@@ -354,8 +354,7 @@ pub fn corner_buttons(grid: &gpui::Entity<ChatGrid>, offset: usize, cx: &App) ->
             .tooltip(Tooltip::new(label).build())
             .child(
                 div().debug_selector(|| "subchats-toggle".into()).child(
-                    // HierarchySquare02 is not in the port's icon set yet: FolderTree stands in.
-                    IconButton::new("subchats-toggle", IconName::FolderTree)
+                    IconButton::new("subchats-toggle", IconName::HierarchySquare02)
                         .size(IconButtonSize::S32)
                         .glyph(IconSize::S16)
                         .pressed(shown)

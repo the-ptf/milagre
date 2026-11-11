@@ -3,9 +3,8 @@
 //! active one expanded), and the main components to place.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, ObjectFit, RenderImage, SharedString, StyledImage, div, img, prelude::*, px};
+use gpui::{AnyElement, ClickEvent, Context, FontWeight, SharedString, div, prelude::*, px};
 
 use super::DesignEditor;
 use crate::logic::design_ops::editor::{self as ops, LayerRow, TOOLS};
@@ -23,17 +22,14 @@ const ROOT_ROW: f32 = 36.0;
 const HEADER: f32 = 41.0;
 const INDENT: f32 = 12.0;
 
-/// A glyph for a rail button: the app's icon where it has one, Lucide where it does not.
+/// A glyph for a rail button.
 enum Glyph {
     App(IconName),
-    Lucide(Option<Arc<RenderImage>>),
 }
 
 fn glyph_element(glyph: Glyph, theme: &Theme) -> AnyElement {
     match glyph {
         Glyph::App(name) => Icon::new(name).size(IconSize::S16).color(theme.ink2).into_any_element(),
-        Glyph::Lucide(Some(image)) => img(image).size(px(16.0)).object_fit(ObjectFit::Contain).into_any_element(),
-        Glyph::Lucide(None) => div().size(px(16.0)).into_any_element(),
     }
 }
 
@@ -56,8 +52,7 @@ fn rail_button(id: &str, label: &'static str, glyph: Glyph, pressed: bool, theme
 }
 
 pub fn rail(editor: &mut DesignEditor, theme: &Theme, cx: &mut Context<DesignEditor>) -> AnyElement {
-    let ink2 = theme.ink2;
-    let layers = Glyph::Lucide(editor.glyph("layers", ink2, cx));
+    let layers = Glyph::App(IconName::Layers01);
     let open = editor.layers_open;
     let mut column = div()
         .debug_selector(|| "design-tool-rail".to_string())
@@ -79,12 +74,12 @@ pub fn rail(editor: &mut DesignEditor, theme: &Theme, cx: &mut Context<DesignEdi
         .child(div().mx_1().my(px(2.0)).h(px(1.0)).bg(theme.line));
     for (kind, label) in TOOLS {
         let glyph = match kind {
-            "frame" => Glyph::Lucide(editor.glyph("frame", ink2, cx)),
-            "rectangle" => Glyph::Lucide(editor.glyph("square", ink2, cx)),
+            "frame" => Glyph::App(IconName::Frame),
+            "rectangle" => Glyph::App(IconName::Square),
             "ellipse" => Glyph::App(IconName::Circle),
             "text" => Glyph::App(IconName::TextFont),
             "image" => Glyph::App(IconName::Image01),
-            _ => Glyph::Lucide(editor.glyph("star", ink2, cx)),
+            _ => Glyph::App(IconName::Star),
         };
         column = column.child(
             rail_button(&format!("design-add-{kind}"), label, glyph, false, theme)

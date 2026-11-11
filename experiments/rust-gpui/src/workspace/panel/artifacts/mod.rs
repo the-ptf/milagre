@@ -39,7 +39,7 @@ use self::protocol::Previews;
 use super::{Panel, PanelTab};
 use crate::platform::webview::{HostRequest, WebEvent, WebHost, WebHostOptions};
 use crate::theme::{ActiveTheme, Appearance, TEXT_12, TEXT_13, TextStepExt, Theme};
-use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconName, IconSize, Tab};
+use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconButton, IconButtonSize, IconName, IconSize, Tab};
 
 /// The page bar under the panel's tab strip: the title or the page's tabs, and the zoom.
 const PAGE_BAR_HEIGHT: Pixels = px(40.0);
@@ -391,11 +391,11 @@ impl ArtifactsView {
                 .child(self.page.title.clone())
                 .into_any_element()
         };
-        let button = |id: &'static str, label: &'static str, on_click: fn(&mut Self, &mut Context<Self>)| {
-            Button::new(id, label)
-                .variant(ButtonVariant::Ghost)
-                .size(ButtonSize::S24)
-                .selector(id)
+        // The page's zoom bar (`ZoomBar.tsx`): Hugeicons MinusSign, PlusSign and FitToScreen in 28px pill buttons.
+        let button = |id: &'static str, icon: IconName, on_click: fn(&mut Self, &mut Context<Self>)| {
+            IconButton::new(id, icon)
+                .size(IconButtonSize::S28)
+                .pill()
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
         };
         let zoom = format!("{}%", (self.scale * 100.0).round());
@@ -414,7 +414,7 @@ impl ArtifactsView {
                     .flex()
                     .items_center()
                     .gap(px(2.0))
-                    .child(button("artifact-zoom-out", "\u{2212}", |this, cx| this.zoom_by(1.0 / ZOOM_STEP, cx)))
+                    .child(button("artifact-zoom-out", IconName::MinusSign, |this, cx| this.zoom_by(1.0 / ZOOM_STEP, cx)))
                     .child(
                         Button::new("artifact-zoom", zoom)
                             .variant(ButtonVariant::Ghost)
@@ -422,9 +422,9 @@ impl ArtifactsView {
                             .selector("artifact-zoom")
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.zoom_to(1.0, None, cx))),
                     )
-                    .child(button("artifact-zoom-in", "+", |this, cx| this.zoom_by(ZOOM_STEP, cx)))
+                    .child(button("artifact-zoom-in", IconName::PlusSign, |this, cx| this.zoom_by(ZOOM_STEP, cx)))
                     .child(div().mx(px(2.0)).h(px(16.0)).w(px(1.0)).bg(theme.line))
-                    .child(button("artifact-fit", "Fit", Self::fit)),
+                    .child(button("artifact-fit", IconName::FitToScreen, Self::fit)),
             )
     }
 }

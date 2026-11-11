@@ -19,8 +19,7 @@
 //! What differs: the editor is drawn over the window from the Designs panel (`deferred`), not portalled into the
 //! page; Save writes the new version into the fixture (`DesignsView`), standing in for `artifact:apply`; a newer
 //! version arriving while editing (rebase and merge review), the kept-draft cache, Export and Share are not ported.
-//! The rail's glyphs that the app's Hugeicons set lacks (Layers, Frame, Rectangle, Icon, Undo, Redo) are drawn from
-//! Lucide, as the canvas's zoom bar does. The inspector has no kit controls on the desktop either: a text style or a
+//! The inspector has no kit controls on the desktop either: a text style or a
 //! binding is kept until a field it sets is edited, as `applyDesignOperations` does.
 
 mod canvas;
@@ -38,7 +37,7 @@ use std::sync::Arc;
 
 use gpui::{
     App, Context, EventEmitter, FocusHandle, Focusable, KeyDownEvent, KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, PinchEvent, Pixels, Point, RenderImage, ScrollEvent, ScrollHandle, Subscription, Window, div, point, prelude::*, px,
+    MouseUpEvent, PinchEvent, Pixels, Point, ScrollEvent, ScrollHandle, Subscription, Window, div, point, prelude::*, px,
 };
 use serde_json::{Map, Value};
 
@@ -907,21 +906,6 @@ impl DesignEditor {
             moved: false,
         });
         self.drag_to(&design, &targets, rect, false, raw, false, false, cx);
-    }
-
-    /// A Lucide glyph for the editor's chrome, decoded once (16px, the app's 1.8 stroke).
-    fn glyph(&mut self, name: &str, color: gpui::Rgba, cx: &App) -> Option<Arc<RenderImage>> {
-        let hex = format!(
-            "#{:02x}{:02x}{:02x}",
-            (color.r * 255.0).round() as u8,
-            (color.g * 255.0).round() as u8,
-            (color.b * 255.0).round() as u8
-        );
-        let key = format!("ui|{name}|{hex}|{}", color.a);
-        self.icons
-            .entry(key)
-            .or_insert_with(|| assets::icon_svg(name, &hex, f64::from(color.a), 1.8, 32).and_then(|svg| assets::render_svg(&svg, cx)))
-            .clone()
     }
 }
 

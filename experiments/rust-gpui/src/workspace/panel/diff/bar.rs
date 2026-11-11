@@ -1,9 +1,6 @@
 //! The diff bar (C-07, `DiffBar` and `DiffToolbar` in `ChangesChrome.tsx`/`DiffPrefs.tsx`): Back to the Chat and
 //! "Send N comments" on the left; Unified and Split, a divider, Wrap and Refresh on the right.
 //!
-//! The toolbar's glyphs are drawn (a frame with a bar across the top or down the middle, three lines with a hook)
-//! until `LayoutTop`, `Layout2Column` and `TextWrap` are generated into `IconName`; regenerating the icon files
-//! belongs to whoever next runs `tools/gen-icons.mjs` with nothing else pending.
 
 use gpui::{AnyElement, ClickEvent, Context, FontWeight, SharedString, div, prelude::*, px};
 
@@ -23,43 +20,14 @@ enum Glyph {
     Wrap,
 }
 
+/// The toolbar's 16px Hugeicons (`DiffPrefs.tsx`): `LayoutTop`, `Layout2Column` and `TextWrap`.
 fn glyph(kind: Glyph, color: gpui::Rgba) -> AnyElement {
-    let frame = div().relative().flex_none().size(px(14.0));
-    match kind {
-        Glyph::Unified | Glyph::Split => {
-            let bar = div().absolute().bg(color);
-            frame
-                .rounded(px(3.0))
-                .border_1()
-                .border_color(color)
-                .child(match kind {
-                    Glyph::Unified => bar.left_0().right_0().top(px(3.5)).h(px(1.0)),
-                    _ => bar.top_0().bottom_0().left(px(5.5)).w(px(1.0)),
-                })
-                .into_any_element()
-        }
-        Glyph::Wrap => {
-            let line =
-                |top: f32, width: f32| div().absolute().left(px(1.0)).top(px(top)).w(px(width)).h(px(1.5)).rounded(px(1.0)).bg(color);
-            frame
-                .child(line(2.0, 12.0))
-                .child(line(6.25, 9.0))
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(9.0))
-                        .top(px(6.25))
-                        .w(px(3.0))
-                        .h(px(5.0))
-                        .border_r(px(1.5))
-                        .border_b(px(1.5))
-                        .rounded_br(px(2.0))
-                        .border_color(color),
-                )
-                .child(line(10.5, 5.0))
-                .into_any_element()
-        }
-    }
+    let name = match kind {
+        Glyph::Unified => IconName::LayoutTop,
+        Glyph::Split => IconName::Layout2Column,
+        Glyph::Wrap => IconName::TextWrap,
+    };
+    Icon::new(name).size(IconSize::S16).color(color).into_any_element()
 }
 
 impl DiffView {
