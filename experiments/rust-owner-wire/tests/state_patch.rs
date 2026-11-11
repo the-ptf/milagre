@@ -65,7 +65,7 @@ fn recorded_chat_host_run_states_match_production_patches() {
     let pairs: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         pairs.len(),
-        224,
+        231,
         "update the recorded trace coverage explicitly"
     );
     let mut cases = Vec::new();
