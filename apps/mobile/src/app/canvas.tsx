@@ -4,7 +4,16 @@ import { Pressable, RefreshControl, Text, View } from "react-native";
 import { lineHeight, radius, type } from "../design-tokens";
 import { Redirect, Stack, router, type Href } from "expo-router";
 import { ArrowRight01Icon, GitBranchIcon, Link04Icon } from "@hugeicons/core-free-icons";
-import { CHAT_MODE_COPY, linkedEndLabel, type CanvasLink, type LinkEnd } from "@milagre/shared/chat-links";
+import {
+  CHAT_MODE_COPY,
+  chatModeActions,
+  chatModeLabel,
+  chatModeEndLabel,
+  sharedChatEligibility,
+  linkedEndLabel,
+  type CanvasLink,
+  type LinkEnd,
+} from "@milagre/shared/chat-links";
 import { confirmSheet } from "../confirm-store";
 import {
   canvasAttention,
@@ -153,6 +162,14 @@ export default function CanvasScreen() {
     if (router.canDismiss()) router.dismissAll();
     router.replace(href);
   };
+  const modeEndLabel = (end: LinkEnd) =>
+    chatModeEndLabel(
+      end,
+      links.projects,
+      Object.values(copyOf(links.projects.find((project) => project.id === end.project_id)?.path ?? "")?.project.state.worktrees ?? {}).find(
+        (worktree) => worktree.path === end.worktree_path,
+      )?.name,
+    );
   const changeMode = (link: CanvasLink) => {
     const client = session.client;
     if (!client) return;
@@ -162,16 +179,18 @@ export default function CanvasScreen() {
       void client
         .call("canvas:chat-mode", [link.id, mode])
         .then(() => refresh())
-        .catch((cause: Error) => setError(cause.message))
+        .catch(async (cause: Error) => {
+          await links.refresh();
+          setError(cause.message);
+        })
         .finally(() => setChangingMode(false));
     };
     confirmSheet(
       "Chat mode",
-      `${CHAT_MODE_COPY.shareDetail}\n\n${link.sharedChat ? CHAT_MODE_COPY.separateDetail + "\n\n" : ""}${link.a.worktree_path}\n${link.b.worktree_path}`,
+      `${chatModeLabel(link)}\n\n${link.sharedChat ? CHAT_MODE_COPY.separateDetail : CHAT_MODE_COPY.shareDetail}\n\n${sharedChatEligibility(link, links.projects) && !link.sharedChat ? sharedChatEligibility(link, links.projects) + "\n\n" : ""}${modeEndLabel(link.a)}\n${modeEndLabel(link.b)}`,
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Use separate Chats", onPress: () => choose("separate") },
-        { text: "Use shared Chat", onPress: () => choose("shared") },
+        ...chatModeActions(link, links.projects).map((action) => ({ text: action.label, onPress: () => choose(action.mode) })),
       ],
     );
   };
@@ -201,9 +220,9 @@ export default function CanvasScreen() {
           .filter((link) => link.a.worktree_path && link.b.worktree_path)
           .map((link) => (
             <View key={link.id} style={[styles.card, { gap: 8 }]}>
-              <Text style={styles.muted}>{[link.a, link.b].map((end) => end.worktree_path!.split("/").at(-1)).join(" + ")}</Text>
-              <Text style={styles.footnote}>{link.sharedChat ? CHAT_MODE_COPY.shared : CHAT_MODE_COPY.separate}</Text>
-              <PillButton title="Chat mode…" disabled={changingMode} onPress={() => changeMode(link)} />
+              <Text style={styles.muted}>{[link.a, link.b].map(modeEndLabel).join(" + ")}</Text>
+              <Text style={styles.footnote}>{chatModeLabel(link)}</Text>
+              <PillButton title={link.chatModeTransition ? "Finish switching…" : "Chat mode…"} disabled={changingMode} onPress={() => changeMode(link)} />
             </View>
           ))}
         {loading ? (

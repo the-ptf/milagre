@@ -94,12 +94,13 @@ function createChatScopes({ projects, links, validateLink }) {
       const scope = scopeFromKey(key);
       return scope.kind === "link" ? links.directory(scope.linkId) : scope.projectPath;
     },
-    async executionContext(key, sessionId) {
+    async executionContext(key, sessionId, { readOnly = false } = {}) {
       const [store, id] = target(key);
       const state = await store.get(id);
       const session = state.sessions[sessionId];
       if (!session) throw new Error("Chat no longer exists");
-      if (session.readOnlyReason) throw new Error(session.readOnlyReason);
+      if (!readOnly && session.readOnlyReason) throw new Error(session.readOnlyReason);
+      if (readOnly && isLinkScopeKey(key)) return { cwd: session.workspacePath, workspaceRoots: session.worktrees.map((member) => member.worktreePath) };
       if (!isLinkScopeKey(key)) return { cwd: state.worktrees[session.worktree_id]?.path };
       // The Link's Projects, each { id, name, path }: the ones without a Worktree in this Chat yet are read from their main checkout.
       const projectsOfLink = (await validateLink(id)) ?? [];

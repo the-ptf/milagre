@@ -2210,6 +2210,12 @@ function createRuntime(options) {
 
   const checkpoints = registerCheckpoints(commands, {
     directory: path.join(dataDir, "checkpoints"),
+    assertWritable: async (chatId) => {
+      const scope = projectOfKey(chatId);
+      const state = await scopeStates.get(scope);
+      const session = state.sessions[sessionIdFromKey(chatId)];
+      canvasChatModes.assertWritable(scope, state, session, state.worktrees?.[session?.worktree_id]);
+    },
     states: scopeStates,
     ready: () => environmentReady,
     busy: (chatId) => chats.isBusy(chatId) || agents.isTurnActive(chatId) || Boolean(agents.sessions.get(chatId)?.activeChildren?.size),
@@ -2678,6 +2684,10 @@ function createRuntime(options) {
   // both come through here.
   async function setPermissionMode(chatId, mode) {
     if (!PERMISSION_MODES.has(mode)) throw new Error(`Unknown permission mode: ${mode}`);
+    const scope = projectOfKey(chatId);
+    const state = await scopeStates.get(scope);
+    const session = state.sessions[sessionIdFromKey(chatId)];
+    canvasChatModes.assertWritable(scope, state, session, state.worktrees?.[session?.worktree_id]);
     if (mode !== "full") await advisors?.stopExecution(chatId);
     const result = await chats.setPermissionMode(chatId, mode, (id, picked) => agents.setPermissionMode(id, picked));
     if (mode === "full") advisors?.resumeExecution(chatId);
@@ -2722,7 +2732,7 @@ function createRuntime(options) {
   }
   // The sidebar's Link icons follow Links drawn or removed anywhere: the canvas, the sidebar, the phone.
   async function linksChanged() {
-    const links = (await projectRegistry().snapshot()).links;
+    const links = await canvasChatModes.describe((await projectRegistry().snapshot()).links);
     emit("canvas:links-changed", { links });
     return links;
   }
@@ -3423,7 +3433,7 @@ function createRuntime(options) {
     }
     registry.projects = registry.projects.filter((project) => sidebarPaths.has(project.path) || linkedIds.has(project.id));
     const statesByPath = await Promise.all(registry.projects.map(async (project) => ({ path: project.path, state: (await readProject(project.path)).state })));
-    return { ...registry, states: statesByPath };
+    return { ...registry, links: await canvasChatModes.describe(registry.links), states: statesByPath };
   });
   async function addLink(a, b) {
     const active = await canvasActiveWorktrees();
@@ -3447,6 +3457,7 @@ function createRuntime(options) {
   const canvasChatModes = require("./canvas-chat-mode.cjs").createCanvasChatModes({
     registry: projectRegistry(),
     store: linkStore,
+    scheduled: () => routines.list().routines,
     states,
     readProject,
     ownProject,
@@ -3474,7 +3485,7 @@ function createRuntime(options) {
       linksPrune = { ...linksPrune, running };
     }
     await linksPrune.running;
-    return (await projectRegistry().snapshot()).links;
+    return canvasChatModes.describe((await projectRegistry().snapshot()).links);
   });
   commands.handle("linked:grant", (_event, chatId, linkId) => linked.grant(chatId, linkId));
   commands.handle("canvas:worktree-position", (_event, id, worktreePath, position) => projectRegistry().setWorktreePosition(id, worktreePath, position));

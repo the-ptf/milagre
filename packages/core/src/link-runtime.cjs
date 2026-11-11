@@ -206,13 +206,8 @@ function registerLinkRuntime({
           if (state.releasedAt) throw new Error("This shared Chat is read-only. Continue in a new Chat in either Worktree.");
           sessionId ??= 1;
           if (!state.sessions[sessionId]) throw new Error("Open the existing shared Chat from the canvas.");
-          // Adoption starts in Ask, regardless of the client's last-used mode in another Chat.
-          if (
-            !state.sessions[sessionId].native_session_id &&
-            !(state.sessions[sessionId].summary?.count > 0) &&
-            !state.messages.some((message) => message.role === "user" && message.session_id === sessionId)
-          )
-            started.message.permissionMode = state.sessions[sessionId].permissionMode ?? "ask";
+          // Only the established permission picker/MCP approval path changes shared permissions.
+          started.message.permissionMode = state.sessions[sessionId].permissionMode ?? "ask";
         }
         if (sessionId == null) {
           sessionId = Object.values(state.preparations).find((prep) => prep.operationId === operationId)?.chatId ?? state.next_id;

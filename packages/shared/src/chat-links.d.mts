@@ -1,6 +1,13 @@
 /** One end of a canvas Link: a whole Project, or one of its Worktrees. */
 export type LinkEnd = { project_id: string; worktree_path?: string };
-export type CanvasLink = { id: string; a: LinkEnd; b: LinkEnd; created_at: string; sharedChat?: { linkId: string; sessionId: number } };
+export type CanvasLink = {
+  id: string;
+  a: LinkEnd;
+  b: LinkEnd;
+  created_at: string;
+  sharedChat?: { linkId: string; sessionId: number };
+  chatModeTransition?: "shared" | "separate";
+};
 export const CHAT_MODE_COPY: { shared: string; separate: string; shareDetail: string; separateDetail: string };
 /** A Chat's Worktree as a Link sees it. */
 export type LinkWorktree = { project_id: string; worktree_path: string };
@@ -21,3 +28,8 @@ export function linkAskMessage(
   text: string,
   target: { label: string; chatRef: string; worktreePath: string; projectName?: string; branch?: string },
 ): { body: string; prompt: string };
+
+export function sharedChatEligibility(link: CanvasLink | undefined, projects: readonly { id: string; path: string }[]): string | null;
+export function chatModeLabel(link: CanvasLink): string;
+export function chatModeActions(link: CanvasLink, projects: readonly { id: string; path: string }[]): { mode: "shared" | "separate"; label: string }[];
+export function chatModeEndLabel(end: LinkEnd, projects: readonly { id: string; name: string }[], branch?: string): string;

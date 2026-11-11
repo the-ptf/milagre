@@ -275,7 +275,8 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
       }),
     removeLink: (id) =>
       update(async (data) => {
-        if (!data.links.some((link) => link.id === id)) throw new Error("Link does not exist.");
+        if (!data.links.some((link) => link.id === id) && !data.projectGroups?.some((group) => group.canvasLinkId === id))
+          throw new Error("Link does not exist.");
         data.links = data.links.filter((link) => link.id !== id);
         return data;
       }),

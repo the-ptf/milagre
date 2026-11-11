@@ -8100,6 +8100,9 @@
         },
         "sharedChat": {
           "$ref": "#/$defs/T194"
+        },
+        "chatModeTransition": {
+          "enum": ["separate", "shared"]
         }
       },
       "required": ["id", "a", "b", "created_at"],

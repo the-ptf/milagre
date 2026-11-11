@@ -18,7 +18,7 @@ const frontend = state(
   [tree(1, "/a", "main", { added: 212, removed: 148 }), tree(4, "/a-finished", "finished-work"), tree(6, "/a-starter", "starter"), tree(8, "/a-filters", "sidebar-filters", { added: 410, removed: 96 })],
   [chat(2, 1, "Build UI"), chat(5, 4, "Archived", { archived: true }), chat(7, 6, "Starter", { summary: { count: 0 } }), chat(9, 8, "Sidebar filters"), chat(10, 8, "Review filters", { provider: "codex" })],
 );
-const backend = state([tree(1, "/b", "main", { added: 38, removed: 12 })], [chat(2, 1, "Add API", { provider: "codex" })]);
+const backend = state([tree(1, "/b-feature", "main", { added: 38, removed: 12 })], [chat(2, 1, "Add API", { provider: "codex" })]);
 const empty = state([tree(1, "/c", "main")], [chat(2, 1, "Old work", { archived: true })]);
 const projects = [
   { id: "a", path: "/a", name: "Frontend", openedAt: "2026-10-03T10:00:00Z", position: { x: 0, y: 0 } },
@@ -98,8 +98,8 @@ async function browserChecks() {
     assert.equal(await evaluate(`${card("/a")}.dataset.attention`), "waiting");
     assert.match(await evaluate(`${card("/a")}.textContent`), /Build UI.*Waiting for you.*main/);
     assert.match(await evaluate(`${card("/a-filters")}.textContent`), /Sidebar filters.*Idle · 25m ago.*Review filters.*Asking you.*sidebar-filters/);
-    assert.match(await evaluate(`${card("/b")}.textContent`), /Add API.*Running/);
-    assert.equal(await evaluate(`${card("/b")}.querySelectorAll("svg").length > 1`), true, "the card shows its provider logo");
+    assert.match(await evaluate(`${card("/b-feature")}.textContent`), /Add API.*Running/);
+    assert.equal(await evaluate(`${card("/b-feature")}.querySelectorAll("svg").length > 1`), true, "the card shows its provider logo");
     // React Flow's own controls and attribution are gone; the canvas has its own zoom.
     assert.equal(await evaluate('Boolean(document.querySelector(".react-flow__attribution, .react-flow__controls"))'), false);
     assert.equal(await evaluate('Boolean(document.querySelector("[data-canvas-zoom]"))'), true);
@@ -113,11 +113,11 @@ async function browserChecks() {
     // The filter dims cards with nothing to show, and counts what each keeps.
     assert.match(await evaluate("document.querySelector('[data-canvas-filter=\"needs-you\"]').textContent"), /Needs you\s*2/);
     await evaluate("document.querySelector('[data-canvas-filter=\"needs-you\"]').click()");
-    await waitFor(`${card("/b")}.classList.contains("opacity-35")`);
+    await waitFor(`${card("/b-feature")}.classList.contains("opacity-35")`);
     assert.equal(await evaluate(`${card("/a")}.classList.contains("opacity-35")`), false);
     await screenshot("needs-you");
     await evaluate("document.querySelector('[data-canvas-filter=\"all\"]').click()");
-    await waitFor(`!${card("/b")}.classList.contains("opacity-35")`);
+    await waitFor(`!${card("/b-feature")}.classList.contains("opacity-35")`);
     const from = await point("Frontend", "right");
     const to = await point("Backend", "left");
     assert.ok(from && to, "project handles are rendered");
@@ -161,7 +161,7 @@ async function browserChecks() {
     await delay(300);
     await screenshot("dark");
     await evaluate(`{
-      const links = [{ id: "worktree-link", a: { project_id: "a", worktree_path: "/a-filters" }, b: { project_id: "b", worktree_path: "/b" }, created_at: "" }];
+      const links = [{ id: "worktree-link", a: { project_id: "a", worktree_path: "/a-filters" }, b: { project_id: "b", worktree_path: "/b-feature" }, created_at: "" }];
       localStorage.setItem("canvas-test-links", JSON.stringify(links)); window.__linksChanged(links);
     }`);
     await waitFor('Boolean(document.querySelector(".react-flow__edge[data-id=worktree-link]"))');

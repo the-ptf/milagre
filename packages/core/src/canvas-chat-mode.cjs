@@ -4,6 +4,8 @@ const { randomUUID } = require("node:crypto");
 const { scopeKey } = require("@milagre/shared/chat-scopes");
 const { processWork } = require("@milagre/shared/chat-activity");
 
+const { sharedChatEligibility } = require("@milagre/shared/chat-links");
+
 const HISTORY = "This Chat is read-only. Choose a current Chat from the canvas.";
 const SEPARATED = "This shared Chat is read-only. Continue in a new Chat in either Worktree.";
 
@@ -12,7 +14,7 @@ const SEPARATED = "This shared Chat is read-only. Continue in a new Chat in eith
  * Project reconciliation; retrying the same mode finishes an interrupted transfer. Release is also idempotent.
  * The synchronous guard is called inside ChatHost's serialized send, closing the race with a concurrent client.
  */
-function createCanvasChatModes({ registry, store, states, readProject, ownProject, chats, agents, broadcast, changed, git }) {
+function createCanvasChatModes({ registry, store, states, readProject, ownProject, chats, agents, broadcast, changed, git, scheduled = () => [] }) {
   let queue = Promise.resolve();
   const changing = new Set();
   function assertWritable(scope, state, session, worktree) {
@@ -31,6 +33,8 @@ function createCanvasChatModes({ registry, store, states, readProject, ownProjec
     const busy = chats.busyChats();
     for (const session of sessions) {
       const key = `${scope}#${session.id}`;
+      if (scheduled().some((routine) => !routine.completedAt && routine.target.kind === "chat" && routine.target.chatId === key))
+        throw new Error("End this Chat's Heartbeats (including Babysit PR) before changing Chat mode.");
       if (busy.has(key) || agents.backgroundWork(key) || processWork(session).length || session.queued?.length || session.resumeTurn || session.limitResume)
         throw new Error(`${session.title || session.agent_name || "A Chat"} has work pending. Finish or stop it before changing Chat mode.`);
     }
@@ -75,8 +79,6 @@ function createCanvasChatModes({ registry, store, states, readProject, ownProjec
     saved = await store.get(group.id);
     broadcast(scope, saved);
     await registry.setLinkChat(link.id, null);
-    for (const projectPath of new Set(Object.values(saved.sessions).flatMap((session) => session.worktrees.map((member) => member.projectPath))))
-      await readProject(projectPath);
   }
   async function share(link, group, projects) {
     if (group && (await store.get(group.id)).separating) throw new Error("Finish switching to separate Chats before sharing again.");
@@ -84,6 +86,17 @@ function createCanvasChatModes({ registry, store, states, readProject, ownProjec
       await registry.setLinkChat(link.id, { linkId: group.id, sessionId: 1 });
       return;
     }
+    if (group) {
+      const saved = await store.get(group.id);
+      const messages = await store.allMessages(group.id);
+      if (
+        messages.length ||
+        Object.values(saved.sessions).some((session) => session.native_session_id || session.summary?.count || session.status !== "Created")
+      )
+        throw new Error("This interrupted switch has conversation history. Switch to separate Chats to preserve it before sharing again.");
+    }
+    const problem = sharedChatEligibility(link, projects);
+    if (problem) throw new Error(problem);
     const owned = await store.ownedWorktrees();
     const members = [];
     for (const [index, end] of [link.a, link.b].entries()) {
@@ -187,23 +200,44 @@ function createCanvasChatModes({ registry, store, states, readProject, ownProjec
       else {
         await separate(link, group);
         // Also finishes a release whose final Project refresh was interrupted.
-        for (const id of new Set([link.a.project_id, link.b.project_id])) {
-          const project = snapshot.projects.find((item) => item.id === id);
-          if (project) await readProject(project.path);
+        for (const projectId of new Set([link.a.project_id, link.b.project_id])) {
+          const project = (await registry.list()).find((item) => item.id === projectId);
+          if (
+            project &&
+            (await fs.stat(project.path).then(
+              (s) => s.isDirectory(),
+              () => false,
+            ))
+          )
+            await readProject(project.path);
         }
       }
       return await changed();
+    } catch (error) {
+      await changed().catch(() => {});
+      throw error;
     } finally {
       for (const folder of paths) changing.delete(folder);
     }
   }
   return {
     assertWritable,
+    async describe(links) {
+      return Promise.all(
+        links.map(async (link) => {
+          if (!link.sharedChat) return link;
+          const saved = await store.get(link.sharedChat.linkId);
+          return saved.adoptionPending || !saved.sessions[1] ? { ...link, chatModeTransition: saved.separating ? "separate" : "shared" } : link;
+        }),
+      );
+    },
     remove(id, action) {
       const run = queue
         .catch(() => {})
         .then(async () => {
           if (await groupFor(id)) throw new Error("Switch this Link to separate Chats before removing it.");
+          const snapshot = await registry.snapshot();
+          if (!snapshot.links.some((link) => link.id === id) && snapshot.projectGroups?.some((group) => group.canvasLinkId === id)) return changed();
           return action();
         });
       queue = run;

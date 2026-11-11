@@ -255,7 +255,9 @@ export function LinkWorkspace({
   );
   const chatMessagesOf = (id: number) => (lean ? (id === sessionId ? messages : []) : state.messages.filter((message) => message.session_id === id));
   const composerPrefs = useComposerPreferences(`${owner}#${sessionId ?? "new"}`);
-  const permissionMode = composerPrefs.pickedPermissionMode ?? session?.permissionMode ?? composerPrefs.permissionMode;
+  const permissionMode = opened.link.canvasLinkId
+    ? (session?.permissionMode ?? "ask")
+    : (composerPrefs.pickedPermissionMode ?? session?.permissionMode ?? composerPrefs.permissionMode);
   const linear = useLinear();
   // As a Project Chat's: Ultracode and Fast only count for a model that has them, so a Codex pick drops a Claude Ultracode.
   const ultracode = Boolean(preferences.capability?.ultracode) && composerPrefs.ultracode;
@@ -839,6 +841,7 @@ export function LinkWorkspace({
                         onSendPageComments={(text, images) => send(text, true, false, undefined, undefined, images)}
                         onStop={chatId && run ? () => void agents.interrupt(chatId) : undefined}
                         isSending={Boolean(run && !approval && !question) || (pendingHere && !run)}
+                        readOnlyHistory={!!session?.readOnlyReason}
                         sendBlocked={preparing || !!session?.readOnlyReason}
                         composerNote={session?.readOnlyReason}
                         offlineName={offline ? computerNameOf(computerOfKey(owner)) : null}
@@ -899,8 +902,12 @@ export function LinkWorkspace({
                           if (session) void bridge.archiveFinishedSubagents(owner, session.id).catch((error) => setError(ipcErrorMessage(error)));
                         }}
                         onPermissionModeChange={(mode) => {
-                          composerPrefs.setPermissionMode(mode);
-                          if (chatId) void bridge.setAgentPermissionMode(chatId, mode).catch((failure) => setError(ipcErrorMessage(failure)));
+                          if (chatId)
+                            void bridge
+                              .setAgentPermissionMode(chatId, mode)
+                              .then(() => composerPrefs.setPermissionMode(mode))
+                              .catch((failure) => setError(ipcErrorMessage(failure)));
+                          else composerPrefs.setPermissionMode(mode);
                         }}
                         onRecommendationSelect={(option) => void send(option)}
                         worktrees={[]}

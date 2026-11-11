@@ -29,17 +29,19 @@ const FILE_ICONS = { replace: FileEditIcon, delete: FileAddIcon, create: FileRem
  */
 export function UndoPanel({
   review,
+  readOnly = false,
   intent,
   onOpenFile,
 }: {
   review: CheckpointReview;
+  readOnly?: boolean;
   intent: UndoIntent;
   /** Opens a file's diff; absent where the phone can't show it (a shared Link Chat). */
   onOpenFile?: (file: CheckpointFile) => void;
 }) {
   const { colors } = useTheme();
   const preview = review.view === "preview" ? review.preview : null;
-  const title = review.view === "list" ? "Undo changes" : `${intent} changes`;
+  const title = readOnly ? "Checkpoint history" : review.view === "list" ? "Undo changes" : `${intent} changes`;
   const count = review.resolved ? review.restoreCount : (preview?.files.length ?? 0);
   const label =
     review.pending && preview
@@ -160,6 +162,7 @@ export function UndoPanel({
                 <FileRow
                   key={file.key}
                   file={file}
+                  readOnly={readOnly}
                   intent={intent}
                   first={index === 0}
                   decision={review.decisions[file.key]}
@@ -170,7 +173,7 @@ export function UndoPanel({
             </PageScroll>
           )}
           {!!review.error && <InlineError message={review.error} />}
-          {review.conflicts > 0 && !review.error && (
+          {!readOnly && review.conflicts > 0 && !review.error && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Icon icon={Alert02Icon} tone="orange" size={16} />
               <Text style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
@@ -178,13 +181,15 @@ export function UndoPanel({
               </Text>
             </View>
           )}
-          <PillButton
-            title={label}
-            disabled={review.pending || !review.resolved || review.restoreCount === 0}
-            loading={review.pending && !!preview}
-            onPress={() => void review.restore()}
-          />
-          {!!preview?.files.length && (
+          {!readOnly && (
+            <PillButton
+              title={label}
+              disabled={review.pending || !review.resolved || review.restoreCount === 0}
+              loading={review.pending && !!preview}
+              onPress={() => void review.restore()}
+            />
+          )}
+          {!readOnly && !!preview?.files.length && (
             <Text
               style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote, textAlign: "center" }}
             >{`You can ${intent === "Undo" ? "redo" : "undo"} this.`}</Text>
@@ -197,6 +202,7 @@ export function UndoPanel({
 
 function FileRow({
   file,
+  readOnly = false,
   intent,
   first,
   decision,
@@ -204,6 +210,7 @@ function FileRow({
   onOpen,
 }: {
   file: CheckpointFile;
+  readOnly?: boolean;
   intent: UndoIntent;
   first: boolean;
   decision: "keep" | "restore" | undefined;
@@ -238,7 +245,7 @@ function FileRow({
         {!file.conflict && <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{effect}</Text>}
         {onOpen && <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />}
       </Pressable>
-      {file.conflict && (
+      {file.conflict && !readOnly && (
         <Segmented
           label={`${name}: keep it or ${intent.toLowerCase()} it`}
           value={decision ?? ""}

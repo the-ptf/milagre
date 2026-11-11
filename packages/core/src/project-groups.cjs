@@ -23,7 +23,11 @@ function membership(groups, projects, request, previous) {
   if (!Array.isArray(ids) || ids.length < 2 || new Set(ids).size !== ids.length) throw new Error("Choose at least two distinct Projects.");
   if (ids.some((id) => typeof id !== "string" || !(projects.some((project) => project.id === id) || previous?.projectIds.includes(id))))
     throw new Error("Open each member Project in Milagre first.");
-  if (groups.some((group) => group !== previous && group.projectIds.length === ids.length && ids.every((id) => group.projectIds.includes(id))))
+  if (
+    groups.some(
+      (group) => !group.canvasLinkId && group !== previous && group.projectIds.length === ids.length && ids.every((id) => group.projectIds.includes(id)),
+    )
+  )
     throw new Error("A Link with these Projects already exists.");
   const hidden = typeof request?.hidden === "boolean" ? request.hidden : previous?.hidden;
   const result = { name, projectIds: [...ids], hidden: hidden === true };

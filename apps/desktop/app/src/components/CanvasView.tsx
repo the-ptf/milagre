@@ -1,5 +1,5 @@
 import { scopeKey } from "@milagre/shared/chat-scopes";
-import { CHAT_MODE_COPY } from "@milagre/shared/chat-links";
+import { CHAT_MODE_COPY, chatModeActions, chatModeLabel, chatModeEndLabel, sharedChatEligibility } from "@milagre/shared/chat-links";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ReactFlow,
@@ -662,7 +662,7 @@ export function CanvasView({
               link.a.project_id === b.project_id &&
               link.a.worktree_path === b.worktree_path),
         );
-        if (made?.a.worktree_path && made.b.worktree_path) {
+        if (made && !sharedChatEligibility(made, snapshot?.projects ?? [])) {
           setSelectedLink(made.id);
           setModeLink(made.id);
           setModeError(null);
@@ -687,6 +687,13 @@ export function CanvasView({
   };
   const selectedEdge = snapshot?.links.find((link) => link.id === selectedLink);
   const modeEdge = snapshot?.links.find((link) => link.id === modeLink);
+  const modeActions = modeEdge ? chatModeActions(modeEdge, snapshot?.projects ?? []) : [];
+  const modeEndLabel = (end: LinkEndpoint) =>
+    chatModeEndLabel(
+      end,
+      snapshot?.projects ?? [],
+      snapshot?.states.flatMap((entry) => Object.values(entry.state.worktrees)).find((worktree) => worktree.path === end.worktree_path)?.name,
+    );
   const changeMode = async (mode: "shared" | "separate") => {
     if (!modeEdge || changingMode) return;
     setChangingMode(true);
@@ -697,6 +704,7 @@ export function CanvasView({
       setModeLink(null);
     } catch (cause) {
       setModeError(cause instanceof Error ? cause.message : String(cause));
+      setSnapshot(await window.milagre.getCanvas());
     } finally {
       setChangingMode(false);
     }
@@ -721,22 +729,25 @@ export function CanvasView({
               <Button variant="ghost" disabled={changingMode} onClick={() => setModeLink(null)}>
                 Cancel
               </Button>
-              <Button variant="secondary" disabled={changingMode} onClick={() => void changeMode("separate")}>
-                Use separate Chats
-              </Button>
-              <Button disabled={changingMode} onClick={() => void changeMode("shared")}>
-                {changingMode ? "Changing…" : "Use shared Chat"}
-              </Button>
+              {modeActions.map((action) => (
+                <Button key={action.mode} disabled={changingMode} onClick={() => void changeMode(action.mode)}>
+                  {changingMode ? "Switching…" : action.label}
+                </Button>
+              ))}
             </>
           }
         >
-          <p className="mt-3 text-13 text-ink-2">Current mode: {modeEdge.sharedChat ? CHAT_MODE_COPY.shared : CHAT_MODE_COPY.separate}</p>
-          <p className="mt-3 text-13">{CHAT_MODE_COPY.shareDetail}</p>
+          <p className="mt-3 text-13 text-ink-2">{chatModeLabel(modeEdge)}</p>
+          {!modeEdge.sharedChat && <p className="mt-3 text-13">{CHAT_MODE_COPY.shareDetail}</p>}
+          {!modeEdge.sharedChat && sharedChatEligibility(modeEdge, snapshot?.projects ?? []) && (
+            <p className="mt-3 text-13 text-ink-2">{sharedChatEligibility(modeEdge, snapshot?.projects ?? [])}</p>
+          )}
+          {modeEdge.chatModeTransition && <p className="mt-3 text-13">This switch is unfinished. Finish switching before sending another message.</p>}
           {modeEdge.sharedChat && <p className="mt-3 text-13">{CHAT_MODE_COPY.separateDetail}</p>}
           <p className="mt-3 break-all text-12 text-ink-2">
-            {modeEdge.a.worktree_path}
+            {modeEndLabel(modeEdge.a)}
             <br />
-            {modeEdge.b.worktree_path}
+            {modeEndLabel(modeEdge.b)}
           </p>
           <InlineError>{modeError}</InlineError>
         </Dialog>
@@ -754,7 +765,7 @@ export function CanvasView({
                   setModeLink(selectedEdge.id);
                 }}
               >
-                Chat mode…
+                {selectedEdge.chatModeTransition ? "Finish switching…" : "Chat mode…"}
               </Button>
             )}
             {selectedLink && (

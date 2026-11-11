@@ -4150,6 +4150,7 @@ function App() {
                           showGit && selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined
                         }
                         isSending={isSending}
+                        readOnlyHistory={!!selectedSession?.readOnlyReason}
                         sendBlocked={preparingHere || Boolean(selectedSession?.formerWorktree || selectedSession?.readOnlyReason)}
                         offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
                         offlineTray={

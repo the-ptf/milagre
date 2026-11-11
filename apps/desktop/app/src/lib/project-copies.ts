@@ -385,6 +385,6 @@ export function useNamedLinks(enabled: boolean): NamedProjectLink[] {
 }
 
 /** The Links the new-chat picker offers: not hidden, by name. */
-export function pickerLinks<T extends { name: string; hidden?: boolean }>(links: readonly T[]): T[] {
-  return links.filter((link) => !link.hidden).toSorted((a, b) => a.name.localeCompare(b.name));
+export function pickerLinks<T extends { name: string; hidden?: boolean; canvasLinkId?: string }>(links: readonly T[]): T[] {
+  return links.filter((link) => !link.hidden && !link.canvasLinkId).toSorted((a, b) => a.name.localeCompare(b.name));
 }

@@ -63,6 +63,7 @@ async function main() {
     execFileSync("git", ["-C", folder, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "Fixture"]);
   }
   let providerCalls = 0;
+  const permissionModes = [];
   const options = {
     cwd: projects[0],
     registryRoots: [],
@@ -74,11 +75,12 @@ async function main() {
     agentCli: async () => ({ command: "/fake" }),
     createSession: (provider, context) => ({
       turnActive: false,
-      async startTurn() {
+      async startTurn(request) {
+        permissionModes.push(request.permissionMode);
         providerCalls++;
         // A shared Chat starts with no Worktree: the agent makes one in each Project it is about to change.
         const create = context.linked.tools.find((tool) => tool.name === "link_worktree_create");
-        for (const project of projects) await create.run({ project: path.basename(project) });
+        if (!context.access.roots.length) for (const project of projects) await create.run({ project: path.basename(project) });
         assert.equal(context.access.roots.length, 2);
         for (const member of context.access.roots) await fs.writeFile(path.join(member, "status.txt"), "Shared edit\n");
         context.emit({ type: "session-started", nativeId: "shared-session" });
@@ -663,6 +665,45 @@ async function main() {
     client = await connectHost({ dataDir: profile });
     assert.equal(await chatOnHost(session.id), undefined, "deletion survives a host restart");
     assert.equal(await chatCount(), before - 1);
+    // Existing isolated Worktrees use one saved permission mode, initially Ask even on a Full-default client.
+    const adoptedPaths = projects.map((project, index) => path.join(dir, `adopted-${index}`));
+    for (const [index, project] of projects.entries()) {
+      execFileSync("git", ["-C", project, "worktree", "add", "-qb", `adopted-${index}`, adoptedPaths[index]]);
+      await client.call("project:open", [project]);
+    }
+    const registered = await client.call("project:registry");
+    const endpoints = projects.map((project, index) => ({
+      project_id: registered.find((item) => item.path === project).id,
+      worktree_path: adoptedPaths[index],
+    }));
+    const canvasLinks = await client.call("canvas:link-add", endpoints);
+    const edge = canvasLinks.find((item) => item.a.worktree_path === adoptedPaths[0]);
+    const adopted = (await client.call("canvas:chat-mode", [edge.id, "shared"])).find((item) => item.id === edge.id).sharedChat;
+    await evaluate(`document.querySelector('[data-sidebar-tools] button[aria-label="Canvas"]').click()`);
+    const adoptedRow = `[data-canvas-worktree=${JSON.stringify(adoptedPaths[0])}] [data-canvas-chat]`;
+    await waitFor(() => evaluate(`!!document.querySelector(${JSON.stringify(adoptedRow)})`), "adopted canvas Chat");
+    await evaluate(`document.querySelector(${JSON.stringify(adoptedRow)}).click()`);
+    const mode = () => evaluate(`document.querySelector('[data-promptbar] [data-permission-mode]')?.dataset.permissionMode`);
+    await waitFor(async () => (await mode()) === "ask", "adopted Chat initially shows Ask");
+    await evaluate(`document.querySelector('[data-promptbar] [data-permission-mode]').click()`);
+    await waitFor(() => evaluate(`!!document.querySelector('[data-permission-footer] button[aria-label="Agent permissions"]')`), "permission footer");
+    await evaluate(`document.querySelector('[data-permission-footer] button[aria-label="Agent permissions"]').click()`);
+    await waitFor(() => evaluate(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('Full permissions'))`), "Full choice");
+    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Full permissions')).click()`);
+    await waitFor(async () => (await mode()) === "full", "explicit Full is acknowledged and displayed");
+    assert.equal((await client.call("link:snapshot", [adopted.linkId])).state.sessions[1].permissionMode, "full");
+    await client.call("link:send", [
+      {
+        linkId: adopted.linkId,
+        sessionId: 1,
+        operationId: require("node:crypto").randomUUID(),
+        provider: "codex",
+        model: "gpt-6.1-sol",
+        permissionMode: "ask",
+        body: "Shared explicit permission",
+      },
+    ]);
+    await waitFor(() => permissionModes.at(-1) === "full", "first shared turn honors the explicit permission change");
     console.log(
       "PASS: real desktop creates a named Link, owns two Worktrees in one Chat, chooses Git scope, preserves scoped drafts, reconnects without new Worktrees, and deletes a Link Chat on one click with failure recovery and persistence.",
     );

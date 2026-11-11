@@ -766,3 +766,152 @@ test("a Link lists its member Projects' skills, and a shared Chat its Worktrees'
   assert.ok(catalog.skills.find((skill) => skill.name === "web-skill").path.startsWith(web.path));
   await assert.rejects(runtime.invoke("skills:list", [scopeKey({ kind: "link", linkId: randomUUID() })]), /Link/);
 });
+
+test("adopted Chat permissions start Ask and only the permission-change path can escalate", async (t) => {
+  const f = await fixture(t);
+  f.edits.length = 0;
+  const { link } = await existingLink(f);
+  const shared = (await f.runtime.invoke("canvas:chat-mode", [link.id, "shared"])).find((item) => item.id === link.id).sharedChat;
+  const chatId = chatKeyForScope({ kind: "link", linkId: shared.linkId }, 1);
+  await f.runtime.invoke("link:open", [shared.linkId]);
+  assert.equal((await f.runtime.invoke("link:snapshot", [shared.linkId])).state.sessions[1].permissionMode, "ask");
+  await f.runtime.invoke("agent:set-permission-mode", [{ chatId, mode: "full" }]);
+  const request = { linkId: shared.linkId, sessionId: 1, provider: "codex", model: "test", body: "Explicit Full", permissionMode: "ask" };
+  await f.runtime.invoke("link:send", [{ ...request, operationId: randomUUID() }]);
+  await f.settle(1);
+  assert.equal((await f.runtime.invoke("link:snapshot", [shared.linkId])).state.sessions[1].permissionMode, "full");
+  await f.runtime.close();
+  const restarted = f.make();
+  await restarted.invoke("link:open", [shared.linkId]);
+  await restarted.invoke("agent:set-permission-mode", [{ chatId, mode: "ask" }]);
+  await restarted.invoke("link:send", [{ ...request, permissionMode: "full", operationId: randomUUID() }]);
+  await f.settle(2, restarted);
+  assert.equal((await restarted.invoke("link:snapshot", [shared.linkId])).state.sessions[1].permissionMode, "ask");
+});
+
+test("canvas conversion refuses scheduled Heartbeats, and read-only histories cannot acquire new ones", async (t) => {
+  const f = await fixture(t);
+  const { sides, link } = await existingLink(f);
+  const target = { kind: "chat", chatId: `${sides[0].project.path}#${sides[0].session.id}` };
+  const input = { name: "Watch", prompt: "Watch CI", trigger: { kind: "schedule", cron: "0 0 1 1 *", timezone: "UTC" }, target };
+  const { routine } = await f.runtime.invoke("routines:create", [input]);
+  await assert.rejects(f.runtime.invoke("canvas:chat-mode", [link.id, "shared"]), /End.*Heartbeats.*Babysit/);
+  assert.equal((await f.runtime.invoke("routines:list")).routines[0].completedAt, undefined, "conversion does not silently end scheduled work");
+  await f.runtime.invoke("routines:delete", [routine.id]);
+  const shared = (await f.runtime.invoke("canvas:chat-mode", [link.id, "shared"])).find((item) => item.id === link.id).sharedChat;
+  await assert.rejects(f.runtime.invoke("routines:create", [input]), /read-only/);
+  // Existing lifecycle: Named/shared Chats cannot schedule Heartbeats or Babysit PR in the first place.
+  await assert.rejects(
+    f.runtime.invoke("routines:create", [{ ...input, target: { kind: "chat", chatId: chatKeyForScope({ kind: "link", linkId: shared.linkId }, 1) } }]),
+    /Project|listed/,
+  );
+  await f.runtime.invoke("canvas:chat-mode", [link.id, "separate"]);
+  await assert.rejects(f.runtime.invoke("routines:create", [input]), /read-only/);
+  const state = (await f.runtime.openProject(sides[0].project.path)).state;
+  const fresh = Object.values(state.sessions).find((session) => session.worktree_id === sides[0].worktree.id && !session.readOnlyReason);
+  await f.runtime.invoke("routines:create", [{ ...input, target: { kind: "chat", chatId: `${sides[0].project.path}#${fresh.id}` } }]);
+});
+
+for (const removal of ["missing", "forgotten"]) {
+  test(`${removal} Project can release shared ownership and remove its Link without reopening it`, async (t) => {
+    const f = await fixture(t);
+    const { sides, link } = await existingLink(f);
+    const shared = (await f.runtime.invoke("canvas:chat-mode", [link.id, "shared"])).find((item) => item.id === link.id).sharedChat;
+    const removed = sides[0].project.path;
+    if (removal === "missing") {
+      await fs.rename(removed, `${removed}-moved`);
+      await f.runtime.invoke("project:registry");
+    } else await f.runtime.invoke("project:forget", [removed]);
+    await f.runtime.invoke("canvas:chat-mode", [link.id, "separate"]);
+    await f.runtime.invoke("canvas:link-remove", [link.id]);
+    if (removal === "missing") assert.ok(!(await f.runtime.invoke("project:registry")).some((project) => project.path === removed));
+    else assert.ok(!(await f.runtime.invoke("project:recent")).some((project) => project.path === removed));
+    const sharedState = (await f.runtime.invoke("link:snapshot", [shared.linkId])).state;
+    assert.ok(sharedState.releasedAt);
+    assert.ok(sharedState.sessions[1].readOnlyReason);
+    assert.ok((await fs.stat(sides[1].worktree.path)).isDirectory());
+  });
+}
+
+test("pending adoption with a nonempty conversation refuses to overwrite it and offers recovery", async (t) => {
+  const f = await fixture(t);
+  f.edits.length = 0;
+  const { link } = await existingLink(f);
+  const shared = (await f.runtime.invoke("canvas:chat-mode", [link.id, "shared"])).find((item) => item.id === link.id).sharedChat;
+  await f.runtime.invoke("link:send", [
+    { linkId: shared.linkId, sessionId: 1, operationId: randomUUID(), provider: "codex", model: "test", body: "Keep this conversation" },
+  ]);
+  await f.settle(1);
+  await f.runtime.close();
+  const { createLinkStore } = require("./link-store.cjs");
+  const store = createLinkStore({ dataDir: path.join(f.dir, "profile") });
+  await store.update(shared.linkId, (state) => ({ ...state, adoptionPending: true }), { chats: [] });
+  await store.close();
+  const restarted = f.make();
+  assert.equal((await restarted.invoke("canvas:links")).find((item) => item.id === link.id).chatModeTransition, "shared");
+  await assert.rejects(restarted.invoke("canvas:chat-mode", [link.id, "shared"]), /conversation history/);
+  await restarted.invoke("canvas:chat-mode", [link.id, "separate"]);
+  const saved = (await restarted.invoke("link:open", [shared.linkId])).state;
+  assert.ok(saved.messages.some((message) => message.body === "Keep this conversation"));
+  assert.ok(saved.sessions[1].readOnlyReason);
+});
+
+test("repeated adoption does not reserve ordinary Named Link choices or deduplicate them", async (t) => {
+  const f = await fixture(t);
+  const { link } = await existingLink(f);
+  for (let i = 0; i < 2; i++) {
+    await f.runtime.invoke("canvas:chat-mode", [link.id, "shared"]);
+    await f.runtime.invoke("canvas:chat-mode", [link.id, "separate"]);
+  }
+  const named = await f.runtime.invoke("link:create", [{ name: "Independent", projectIds: f.projects.map((p) => p.id) }]);
+  assert.equal(named.canvasLinkId, undefined);
+  assert.equal((await f.runtime.invoke("link:list")).filter((group) => group.canvasLinkId).length, 2);
+});
+
+test("read-only original and released shared Chats retain checkpoint previews but refuse Undo and Redo", async (t) => {
+  let finish;
+  let held = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const f = await fixture(t, { hold: () => held });
+  f.edits.length = 0;
+  const { sides, link } = await existingLink(f);
+  const side = sides[0];
+  const chatId = `${side.project.path}#${side.session.id}`;
+  const file = path.join(side.worktree.path, "keep.txt");
+  const wait = require("./agents/test-helpers.cjs").waitUntil;
+  await f.runtime.invoke("chat:send", [{ projectPath: side.project.path, sessionId: side.session.id, body: "Edit", provider: "codex", model: "test" }]);
+  await wait(() => f.created.length === 1);
+  await fs.writeFile(file, "original agent edit");
+  finish();
+  await f.settle(1);
+  await wait(async () => (await f.runtime.invoke("checkpoint:list", [{ chatId }]))[0]?.completedAt);
+  const checkpoint = (await f.runtime.invoke("checkpoint:list", [{ chatId }]))[0];
+  const preview = await f.runtime.invoke("checkpoint:preview", [{ chatId, id: checkpoint.id }]);
+  const undoRequest = { chatId, token: preview.token, approved: true, decisions: Object.fromEntries(preview.files.map((file) => [file.key, "restore"])) };
+  const restored = await f.runtime.invoke("checkpoint:restore", [undoRequest]);
+  assert.equal(restored.restored, 1);
+  const redo = await f.runtime.invoke("checkpoint:preview", [{ chatId, id: restored.recoveryId }]);
+  const shared = (await f.runtime.invoke("canvas:chat-mode", [link.id, "shared"])).find((item) => item.id === link.id).sharedChat;
+  await assert.rejects(f.runtime.invoke("checkpoint:restore", [{ ...undoRequest, token: redo.token }]), /read-only/);
+  assert.ok((await f.runtime.invoke("checkpoint:list", [{ chatId }])).length >= 2);
+  assert.ok((await f.runtime.invoke("checkpoint:preview", [{ chatId, id: restored.recoveryId }])).files.length);
+  const sharedId = chatKeyForScope({ kind: "link", linkId: shared.linkId }, 1);
+  held = new Promise((resolve) => {
+    finish = resolve;
+  });
+  await f.runtime.invoke("link:send", [
+    { linkId: shared.linkId, sessionId: 1, operationId: randomUUID(), provider: "codex", model: "test", body: "Shared edit" },
+  ]);
+  await wait(() => f.created.length === 2);
+  await fs.writeFile(file, "shared agent edit");
+  finish();
+  await f.settle(2);
+  await wait(async () => (await f.runtime.invoke("checkpoint:list", [{ chatId: sharedId }]))[0]?.completedAt);
+  const sharedCheckpoint = (await f.runtime.invoke("checkpoint:list", [{ chatId: sharedId }]))[0];
+  const sharedPreview = await f.runtime.invoke("checkpoint:preview", [{ chatId: sharedId, id: sharedCheckpoint.id }]);
+  await f.runtime.invoke("canvas:chat-mode", [link.id, "separate"]);
+  await assert.rejects(f.runtime.invoke("checkpoint:restore", [{ chatId: sharedId, token: sharedPreview.token, approved: true, decisions: {} }]), /read-only/);
+  assert.ok((await f.runtime.invoke("checkpoint:preview", [{ chatId: sharedId, id: sharedCheckpoint.id }])).files.length);
+  assert.equal(await fs.readFile(file, "utf8"), "shared agent edit");
+});

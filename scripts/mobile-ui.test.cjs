@@ -16987,6 +16987,8 @@ function canvasHost() {
 
 test("phone canvas changes Chat mode only after explaining ownership and permissions", async () => {
   const host = canvasHost();
+  host.links.links[0].a.worktree_path = "/a-filters";
+  host.links.links[0].b.worktree_path = "/b-feature";
   find(host.render(), (node) => node.type === "PillButton" && node.props.title === "Chat mode…").props.onPress();
   const [title, message, buttons] = host.confirmations[0];
   assert.equal(title, "Chat mode");
@@ -17167,10 +17169,11 @@ test("undo changes on the phone: task list, conflict-only choice, stale preview 
   const strings = (node) =>
     typeof node === "string" ? [node] : !node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(strings) : strings(node.props?.children);
   let review;
+  let readOnly = false;
   const render = () => {
     react.begin();
     review = hook.useCheckpoints(api, "/p#1");
-    return review.view === "closed" ? [] : nodes(expand(panel.UndoPanel({ review, intent: "Undo", onOpenFile: (file) => opened.push(file.path) })));
+    return review.view === "closed" ? [] : nodes(expand(panel.UndoPanel({ review, readOnly, intent: "Undo", onOpenFile: (file) => opened.push(file.path) })));
   };
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
   const primary = () => render().find((node) => node.type === "PillButton");
@@ -17190,6 +17193,15 @@ test("undo changes on the phone: task list, conflict-only choice, stale preview 
   assert.ok(strings(tree).includes("Edited after this task"));
   assert.deepEqual(primary().props.title, "Undo 3 files");
   assert.equal(primary().props.disabled, true);
+  readOnly = true;
+  const history = render();
+  assert.equal(
+    history.some((node) => node.type === "PillButton" || node.type === "Segmented"),
+    false,
+  );
+  assert.ok(strings(history).includes("Checkpoint history"));
+  assert.equal(history.filter((node) => node.props?.testID === "undo-file").length, 3);
+  readOnly = false;
   tree.find((node) => node.props?.accessibilityLabel === "src/redirect.ts. Delete").props.onPress();
   assert.deepEqual(opened, ["src/redirect.ts"]);
   // Only the file edited after the task asks; the others are undone.
@@ -22405,4 +22417,100 @@ test("mobile Browser preserves edits made while a send is pending and sends them
   tree = render();
   assert.equal(submitted[1][0].text, "Edited during send");
   assert.equal(web().props.pins.filter((pin) => pin.state === "pending").length, 0);
+});
+
+test("phone canvas hides unsupported sharing and exposes unfinished transfers", () => {
+  const host = canvasHost();
+  find(host.render(), (node) => node.type === "PillButton" && node.props.title === "Chat mode…").props.onPress();
+  assert.equal(host.confirmations[0][2].length, 1, "main checkouts only offer Cancel");
+  host.links.links[0].sharedChat = { linkId: "shared", sessionId: 1 };
+  host.links.links[0].chatModeTransition = "separate";
+  find(host.render(), (node) => node.type === "PillButton" && node.props.title === "Finish switching…").props.onPress();
+  assert.match(host.confirmations[1][1], /Switching to separate Chats/);
+  assert.deepEqual(
+    Array.from(host.confirmations[1][2], (button) => button.text),
+    ["Cancel", "Finish switching"],
+  );
+});
+
+test("phone shared permission picker starts Ask, waits for the host, and reports rejected explicit changes", async () => {
+  const react = hookHost();
+  let preferences = {};
+  const defaults = { permissionMode: "full", effort: "high" };
+  const chatId = "milagre-link:shared#1";
+  const gate = deferred();
+  const calls = [];
+  const composer = {
+    get preferences() {
+      return preferences;
+    },
+    defaults,
+    setPreferences: (update) => {
+      preferences = update(preferences);
+    },
+    setDefaultPermission() {},
+  };
+  const session = {
+    client: {
+      call: (...args) => {
+        calls.push(args);
+        return gate.promise;
+      },
+    },
+    snapshot: { project: { path: "milagre-link:shared", state: { sessions: { 1: { permissionMode: "ask" } } } }, runs: { runs: {} } },
+  };
+  let back = 0;
+  const { default: Sheet } = load("app/permission-sheet.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { ScrollView: "ScrollView", Text: "Text", View: "View" },
+    "expo-router": { router: { back: () => back++ }, useLocalSearchParams: () => ({ chatId }) },
+    "@hugeicons/core-free-icons": {},
+    "../agent-controls": { PermissionIcon: "PermissionIcon" },
+    "../session": { useComposer: () => composer, useSession: () => session },
+    "../ui": { CheckRow: "CheckRow", CircleButton: "CircleButton", Group: "Group", SheetHeader: "SheetHeader", useStyles: () => ({}) },
+    "../turn-options": require("../apps/mobile/src/turn-options.ts"),
+  });
+  const render = () => {
+    react.begin();
+    return Sheet();
+  };
+  assert.equal(find(render(), (node) => node.type === "CheckRow" && node.props.title === "Ask for approval").props.checked, true);
+  find(render(), (node) => node.type === "CheckRow" && node.props.title === "Full permissions").props.onPress();
+  assert.equal(preferences[chatId], undefined, "Full is not displayed before acknowledgement");
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [["agent:set-permission-mode", [{ chatId, mode: "full" }]]]);
+  gate.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(preferences[chatId].permissionMode, "full");
+  assert.equal(back, 1);
+  session.client.call = async () => {
+    throw new Error("Host refused change");
+  };
+  find(render(), (node) => node.type === "CheckRow" && node.props.title === "Ask for approval").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(preferences[chatId].permissionMode, "full");
+  assert.match(textOf(render()), /Host refused change/);
+});
+
+test("read-only phone history keeps restore notes and hides Undo and Redo actions", () => {
+  const chat = chatHost();
+  chat.params.id = "7";
+  const state = chat.session.snapshot.project.state;
+  state.sessions[7] = { id: 7, worktree_id: 1, readOnlyReason: "Preserved history" };
+  state.messages.push({
+    id: 2,
+    session_id: 7,
+    role: "assistant",
+    body: "Undid 2 files",
+    context: { kind: "checkpoint-restore", checkpointId: "t", recoveryId: "r", restored: 2, kept: 0, redo: false },
+  });
+  const tree = chat.render();
+  assert.equal(find(tree, (node) => node.type === "CheckpointRestoreDivider").props.onPreview, undefined);
+  assert.equal(chatMenuEntry(tree, "Undo changes"), undefined);
+  assert.equal(
+    chat.field().commands.some((command) => command.name === "undo"),
+    false,
+  );
+  chatMenuEntry(tree, "View checkpoints").props.onPress();
+  assert.equal(find(chat.render(), (node) => node.type === "UndoPanel").props.readOnly, true, "history previews remain read-only");
 });
