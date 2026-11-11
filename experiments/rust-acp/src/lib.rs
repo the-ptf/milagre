@@ -14,3 +14,6 @@ pub mod session;
 
 #[cfg(feature = "launch-planning")]
 pub mod planning;
+
+#[cfg(feature = "macos-private-copy-fixture")]
+pub mod private_copy;

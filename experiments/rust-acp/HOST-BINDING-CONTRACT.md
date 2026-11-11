@@ -1,7 +1,8 @@
 # Synthetic Kiro host binding: proposed agreement
 
-Status: proposal only, pending parent agreement. No new feature, dependency, constructor or launch
-permission is implemented here. The first binding would exercise the real Rust owner, accounts
+Status: host composition remains a proposal. The separately approved, default-off
+[MacOsPrivateCopyFixture backend](PRIVATE-COPY-FIXTURE.md) implements a cooperative same-UID
+native execution checkpoint only. It does not implement this host composition or strong B06. The first binding would exercise the real Rust owner, accounts
 and registry implementations against newly created synthetic copies and one fixed native fake.
 It would remove Node from this test's orchestration path. Production providers stay disabled.
 The pure `launch-planning` module remains unable to issue launch authority.
@@ -242,7 +243,11 @@ that `/dev/fd/N` exec works securely. macOS/Windows must return `UnsupportedDesc
 until a fixed-native-fake test proves a reviewed backend on that OS. The proposed Linux-first
 success path needs actual supported-target validation before the binding milestone can be called
 implemented; macOS-only refusal tests are insufficient. No platform implementation was run here.
-Parent may choose a macOS backend investigation first, within this same binding milestone.
+Parent approved a separately named B06-Mac cooperative same-UID fixture backend first;
+see [PRIVATE-COPY-FIXTURE.md](PRIVATE-COPY-FIXTURE.md). It uses verified private-path execution,
+explicitly excludes malicious same-UID mutation after final validation, and makes no immutable
+execution or general descendant-cleanup claim. That approval does not satisfy strong B06 or
+authorize production fallback.
 
 Environment is built from scratch: no inherited PATH/auth/HOME/loader variables. If the fake needs
 HOME/TMPDIR, both name retained empty fixture-owned directories; neither points to account storage.

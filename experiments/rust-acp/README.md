@@ -199,3 +199,12 @@ Its 11 tests replay 111 actual Node launch/model cases and 360 failure cases; th
 real host/profile/install reads. Run `node scripts/record-planning.cjs --check` from this crate.
 Default remains 58 tests; fake-session alone remains 93; planner alone adds 11, and all features
 run 104 tests. Production constructor/account/guard integration remains disabled.
+
+## macOS private-copy native backend
+
+The default-off `macos-private-copy-fixture` feature adds one cooperative same-UID native fixture
+backend. It pins and hashes a fixed sibling artifact, copies it into private executable storage,
+validates native consumed-input evidence and retains its exact Child through cleanup. This is
+B06-Mac, not immutable-descriptor B06, host binding, production authority or a fallback. It does
+not reuse the current ACP process supervisor or depend on the Node fake. See
+[PRIVATE-COPY-FIXTURE.md](PRIVATE-COPY-FIXTURE.md) for its limits and explicit native test command.

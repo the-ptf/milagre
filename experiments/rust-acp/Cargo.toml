@@ -10,6 +10,7 @@ description = "Isolated bounded ACP process/protocol checkpoint for Milagre"
 default = []
 fake-session = ["dep:sha2"]
 launch-planning = []
+macos-private-copy-fixture = ["dep:sha2", "dep:tempfile"]
 
 [workspace]
 
@@ -19,7 +20,15 @@ path = "src/bin/fake_acp_agent.rs"
 test = false
 doc = false
 
+[[bin]]
+name = "native-acp-copy-fixture"
+path = "src/bin/native_acp_copy_fixture.rs"
+required-features = ["macos-private-copy-fixture"]
+test = false
+doc = false
+
 [dependencies]
+tempfile = { version = "3", optional = true }
 sha2 = { version = "0.10", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
