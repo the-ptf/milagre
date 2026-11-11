@@ -310,7 +310,7 @@ pub fn mcp_request(id: &RequestId, params: &Value) -> Option<Value> {
 
 /// `JSON.stringify(value, null, 2)`.
 fn pretty_json_like_node(value: &Value) -> String {
-    serde_json::to_string_pretty(value).unwrap_or_default()
+    crate::codex::js::stringify_pretty(value, None)
 }
 
 /// The tool a milagre MCP approval is about, from Codex's message
