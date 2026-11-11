@@ -215,7 +215,7 @@ impl AppearanceOptions {
 /// The platform's font list as a probe for [`AppearanceOptions::live_style`].
 fn installed_probe(cx: &App) -> impl Fn(&str) -> bool + use<> {
     let names: std::collections::HashSet<String> = cx.text_system().all_font_names().into_iter().collect();
-    move |family| names.contains(family)
+    move |family| names.contains(family) || crate::theme::fonts::is_bundled(family)
 }
 
 /// Everything Appearance edits: the mode, the colour theme, the custom theme and the options.

@@ -92,3 +92,5 @@ getrandom = "0.3"
 [dev-dependencies]
 # `test-support` adds GPUI's headless test platform (`#[gpui::test]`, `TestAppContext`, `debug_selector`).
 gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
+# CoreText itself for the bundled-font tests (`theme/fonts.rs`); already in the tree under gpui-pre-platform.
+gpui_apple = { package = "gpui-pre-apple", version = "=0.3.12", features = ["font-kit"] }

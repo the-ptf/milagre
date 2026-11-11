@@ -73,6 +73,7 @@ pub fn init(cx: &mut App) {
     cx.set_global(Theme::from_env());
     // Where views get their data. Only the fixture exists; a daemon client implements the same trait.
     install_fixture(cx);
+    crate::theme::fonts::register(cx);
     crate::theme::init_fonts(cx);
     crate::ui::preload_logos(cx);
     // gpui-component's globals, theme and key bindings, so its widgets can be used in any view.

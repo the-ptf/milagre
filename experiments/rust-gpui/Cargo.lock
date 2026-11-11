@@ -4563,6 +4563,7 @@ dependencies = [
  "gpui-component",
  "gpui-kit-assets",
  "gpui-pre",
+ "gpui-pre-apple",
  "gpui-pre-platform",
  "gpui-webview",
  "image",

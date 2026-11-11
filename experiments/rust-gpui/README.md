@@ -161,8 +161,14 @@ in the `"panel-body"` div in `workspace/panel/mod.rs`.
 - **Fonts.** Text is the system UI font (`.SystemUIFont`, SF Pro). Code is **SF Mono through the private family
   `.AppleSystemUIFontMonospaced`**: CoreText resolves it (every glyph 1266 units wide, unlike Menlo's 1233), so the app gets
   what CSS `ui-monospace` gives the Electron app without bundling a font (Apple's licence does not allow shipping SF Mono).
-  `theme::init_fonts` checks at startup and falls back to Menlo, which ships with every macOS. Bundling a mono font was
-  rejected: it would not match the desktop, and the system copy needs nothing.
+  `theme::init_fonts` checks at startup and falls back to Menlo, which ships with every macOS. Bundling a mono font as
+  the default was rejected: it would not match the desktop, and the system copy needs nothing.
+- **Bundled fonts.** The families the desktop ships through fontsource for Settings › Appearance (Inter, Geist, Geist
+  Mono, JetBrains Mono, all SIL OFL 1.1, licence texts in `assets/fonts/<family>/OFL.txt`) are embedded and registered
+  at startup (`theme/fonts.rs`), so choosing one applies without it installed. They are the upstream static faces
+  (Inter 4.1, Geist 1.9.2, JetBrains Mono 2.304) at 400, 500, 600, 700 and italic, not the variable fonts: GPUI picks a
+  face by weight and does not set a variable font's axes. The platform's font list leaves out fonts added from
+  memory, so the Appearance probe also asks `fonts::is_bundled`.
 
 ## Window chrome
 

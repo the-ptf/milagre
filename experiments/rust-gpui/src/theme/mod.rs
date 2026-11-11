@@ -19,6 +19,7 @@
 mod colors;
 pub mod component_bridge;
 mod elevation;
+pub mod fonts;
 pub mod live;
 mod metrics;
 mod typography;
