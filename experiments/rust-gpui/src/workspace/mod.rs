@@ -109,7 +109,6 @@ impl Workspace {
                 this.routines_open = false;
                 this.chat.update(cx, |chat, cx| chat.composer.update(cx, |composer, cx| composer.start_new_chat(cx)))
             }
-            SidebarEvent::Routines => this.open_routines(cx),
         });
         let open_chat = cx.subscribe(&chat, |this, _, event: &ChatEvent, cx| {
             if let ChatEvent::OpenChat(key) = event {

@@ -1,4 +1,4 @@
-//! Sidebar column (304px, `canvas`): header with three icon buttons, destinations, the Pinned rows, the
+//! Sidebar column (304px, `canvas`): header with the New Chat button, the Pinned rows, the
 //! "All Chats" label and a virtualized Chat list, and a pinned bottom group (Done, usage, footer: `bottom.rs`).
 //!
 //! The rows come from the app's [`Data`] source through `list.rs`, which runs the shared list rules
@@ -50,22 +50,22 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, AnyView, Bounds, Context, Entity, FocusHandle, FontWeight, KeyDownEvent, MouseButton, Pixels, ScrollStrategy, SharedString,
+    AnyElement, AnyView, Bounds, Context, Entity, FocusHandle, KeyDownEvent, MouseButton, Pixels, ScrollStrategy, SharedString,
     StyleRefinement, Subscription, UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
 };
 
 use crate::data::{Data, Polled, poll_once};
 use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::lists::order::ChatOrder;
-use crate::theme::{ActiveTheme, CONTROL_MD, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_13, TextStepExt, Theme, sidebar_step};
-use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, SectionLabel};
+use crate::theme::{ActiveTheme, ROW_TWO_LINE};
+use crate::ui::{IconButton, IconButtonSize, IconName, IconSize, SectionLabel};
 use crate::workspace::chat::pills::bookmark::FamilyChat;
 use crate::workspace::chrome::{self, NoDrag};
 pub use actions::{Actions, ArchiveMode, ChatPatch, RecordingActions, SidebarActions, SidebarCall};
 use list::ListFilters;
 pub use list::{ChatLists, SidebarData, SidebarSeed};
 pub use row::ChatRow;
-use row::{ChatRowView, ROW_INSET, RowEvent, RowMeta, dot_mark};
+use row::{ChatRowView, ROW_INSET, RowEvent, RowMeta};
 
 pub const SIDEBAR_WIDTH: f32 = 304.0;
 const SECTION_HEIGHT: f32 = 28.0;
@@ -139,8 +139,6 @@ pub struct Sidebar {
 pub enum SidebarEvent {
     /// The New Chat button: the Chat column opens its new-Chat composer.
     NewChat,
-    /// The Routines button: the window shows the Routines page in place of the Chat column.
-    Routines,
 }
 
 impl gpui::EventEmitter<SidebarEvent> for Sidebar {}
@@ -556,15 +554,6 @@ impl Render for Sidebar {
                 let sidebar = cx.entity();
                 move |_, cx| sidebar.update(cx, |_, cx| cx.emit(SidebarEvent::NewChat))
             }))
-            .child(destination("canvas", "Canvas", IconName::FlowConnection, false, &theme))
-            .child(div().id("routines-button").on_click(cx.listener(|_, _, _, cx| cx.emit(SidebarEvent::Routines))).child(destination(
-                "routines",
-                "Routines",
-                IconName::TimeSchedule,
-                true,
-                &theme,
-            )))
-            .child(destination("links", "Links", IconName::Link04, false, &theme))
             .when(!pinned.is_empty(), |el| {
                 el.child(
                     div()
@@ -613,27 +602,6 @@ fn header(on_new_chat: impl Fn(&mut Window, &mut gpui::App) + 'static) -> impl I
                 .glyph(IconSize::S16)
                 .on_click(move |_, window, cx| on_new_chat(window, cx)),
         ),
-    )
-}
-
-/// A 32px destination row: icon at x 12, label at x 40, optional accent dot at x 268.
-fn destination(id: &'static str, label: &'static str, icon: IconName, dot: bool, theme: &Theme) -> impl IntoElement + use<> {
-    let hover = theme.hover;
-    div().flex_none().px(px(ROW_INSET)).child(
-        div()
-            .id(id)
-            .h(CONTROL_MD)
-            .pl(px(4.0))
-            .pr(px(20.0))
-            .flex()
-            .items_center()
-            .gap(px(12.0))
-            .rounded(RADIUS_CONTROL)
-            .cursor_pointer()
-            .hover(move |style| style.bg(hover))
-            .child(Icon::new(icon).color(theme.ink3))
-            .child(div().flex_1().text_step(sidebar_step(TEXT_13)).font_weight(FontWeight::MEDIUM).text_color(theme.ink2).child(label))
-            .when(dot, |el| el.child(dot_mark(theme.accent))),
     )
 }
 
