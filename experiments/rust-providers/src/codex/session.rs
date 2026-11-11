@@ -1101,8 +1101,9 @@ impl Inner {
                 }
                 if method == methods::COMMAND_APPROVAL {
                     let command = params.get("command").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
-                    let actions =
-                        command.and_then(|command| self.options.command_classifier.as_ref().map(|classifier| classifier.actions(command)));
+                    let actions = command.and_then(|command| {
+                        self.options.command_classifier.as_ref().map(|classifier| guard::classify_command(classifier.as_ref(), command))
+                    });
                     let writes_remote = !matches!(&actions, Some(Ok(actions)) if actions.is_empty());
                     if let SessionRole::Babysit { level, resolve_threads } = self.options.role {
                         let denial = match &actions {

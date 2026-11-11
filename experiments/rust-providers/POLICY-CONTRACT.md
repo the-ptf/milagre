@@ -51,7 +51,30 @@ parser handles wrappers, quoting, aliases, command substitutions and nested scri
 implementation must meet that contract and reject syntax it cannot classify. An empty vector
 means a positively classified command without remote writes. It must not mean unknown syntax.
 The callback runs synchronously: no blocking I/O or panics, and no secrets in errors or Debug.
-A missing classifier refuses Babysit startup; a failed classification refuses that command.
+The adapter catches unwinding classifier panics as classification failure, without forwarding
+the panic payload into events. Babysit refuses the command even in Full; ordinary mode retains
+its normal one-time approval behavior but cannot offer persistent approval. A subsequent
+request and terminal event still run. This does not catch process aborts or bound an arbitrary
+callback's runtime. Rust's process panic hook is unchanged, so the host must keep panic messages
+free of secrets too. A missing classifier refuses Babysit startup; failed classification refuses
+that Babysit command.
+
+The separate `milagre-command-policy::ShellClassifier` checkpoint `0927a695` implements this
+trait directly. Source review confirms per-call state, whole-command failure on unsupported
+syntax, static error messages and bounded parsing/traversal. Its 218 Node traces, 60 adversarial
+cases and 1,000 malformed cases belong to that crate's checkpoint, not provider integration
+coverage. No dependency or runtime wiring was added here. The provider's Node decision oracle
+remains explicitly test-only, and the new panic regressions use a deliberately broken test
+classifier.
+
+Before runtime wiring, the owner must establish the classifier README's execution preconditions:
+known noninteractive Bash, controlled PATH/environment with no inherited functions/startup
+scripts, trusted Git/gh binaries and trusted Git configuration/hooks/helpers. The classifier is
+source analysis, not a sandbox; its supported static subset deliberately refuses ordinary opaque
+workflows such as package/test scripts. Owner tests still need to exercise the real classifier
+through the provider boundary. Constrained roles also require independently guarded MCP dispatch,
+including manifest membership, exact wake targets and the escalation budget with the adapter
+bypassed. Parser availability alone does not authorize enabling those roles.
 
 For ordinary sessions the classifier is optional, but without it no shell approval offers
 `allowForChat`. Remote-writing commands never offer persistent approval, even if the current

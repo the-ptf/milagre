@@ -472,3 +472,65 @@ async fn budget_timeout_cannot_kill_the_next_turn_but_kills_a_stalled_one() {
         session.close().await;
     }
 }
+
+#[derive(Debug)]
+struct PanickingClassifier;
+impl CommandClassifier for PanickingClassifier {
+    fn actions(&self, command: &str) -> Result<Vec<RemoteAction>, String> {
+        if command == "git status" {
+            return Ok(vec![]);
+        }
+        panic!("private classifier diagnostic");
+    }
+}
+
+#[tokio::test]
+async fn classifier_panic_declines_babysit_even_in_full_and_keeps_pump_alive() {
+    let mut opts = options(SessionRole::Babysit { level: 5, resolve_threads: true }, "slow");
+    opts.command_classifier = Some(Arc::new(PanickingClassifier));
+    let (session, mut events) = start(opts).await;
+    session.send(message()).await.unwrap();
+    assert!(session.send(message()).await.unwrap().steered);
+    assert_eq!(
+        ask(&session, &mut events, "panic", "item/commandExecution/requestApproval", json!({"command":"panic","itemId":"panic-step"}))
+            .await["decision"],
+        "decline"
+    );
+    session.set_permission_mode(PermissionMode::Full).await;
+    assert!(session.open_requests().is_empty());
+    assert!(!session.respond_to_permission("panic", milagre_providers::codex::approvals::Decision::Allow).await.unwrap());
+    assert_eq!(
+        ask(&session, &mut events, "safe", "item/commandExecution/requestApproval", json!({"command":"git status"})).await["decision"],
+        "accept"
+    );
+    session.client().rpc().request("fake/notify",json!({"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"commandExecution","id":"panic-step","command":"panic","status":"declined","exitCode":1}}})).await.unwrap();
+    let done = next(&mut events, |e| matches!(e,SessionEvent::Agent(v) if v["type"]=="step-completed" && v["id"]=="panic-step")).await;
+    assert!(
+        matches!(done,SessionEvent::Agent(v) if !v.to_string().contains("private classifier diagnostic") && v.to_string().contains("cannot classify"))
+    );
+    session.interrupt().await;
+    next(&mut events, |e| matches!(e, SessionEvent::TurnEnded { .. })).await;
+    session.close().await;
+}
+
+#[tokio::test]
+async fn classifier_panic_in_ordinary_mode_cannot_offer_persistent_approval() {
+    let mut opts = options(SessionRole::Ordinary, "slow");
+    opts.command_classifier = Some(Arc::new(PanickingClassifier));
+    let (session, mut events) = start(opts).await;
+    session.send(message()).await.unwrap();
+    session.set_permission_mode(PermissionMode::Ask).await;
+    session
+        .client()
+        .rpc()
+        .request("fake/server-request", json!({"id":"panic","method":"item/commandExecution/requestApproval","params":{"command":"panic"}}))
+        .await
+        .unwrap();
+    let card = next(&mut events, |e| matches!(e,SessionEvent::Agent(v) if v["type"]=="permission-request")).await;
+    assert!(matches!(card,SessionEvent::Agent(v) if v["allowForChat"]==false));
+    assert!(session.respond_to_permission("panic", milagre_providers::codex::approvals::Decision::AllowForChat).await.unwrap());
+    let answer =
+        next(&mut events, |e| matches!(e,SessionEvent::Notification(n) if n.method=="fake/answered" && n.params["id"]=="panic")).await;
+    assert!(matches!(answer,SessionEvent::Notification(n) if n.params["answer"]["decision"]=="accept"));
+    session.close().await;
+}

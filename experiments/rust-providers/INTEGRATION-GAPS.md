@@ -11,7 +11,9 @@ See [POLICY-CONTRACT.md](POLICY-CONTRACT.md) for the implemented session roles, 
 inputs, stricter compatibility choices and tests. The adapter now enforces immutable Analysis,
 Babysit and Escalation roles across Full mode and steering, installs constrained startup config,
 and refuses unsupported execution-advisor/custom policy inputs. Babysit requires an owner
-`CommandClassifier`; it does not contain a production Rust shell parser. Host MCP dispatch must
+`CommandClassifier`; the separate `rust-command-policy` checkpoint `0927a695` implements it,
+but no runtime wiring or trusted execution environment is established here. Classifier unwind
+panics now fail closed for Babysit without killing the pump. Host MCP dispatch must
 independently enforce read-only tools and exact wake targets.
 
 Still missing: per-turn role transitions within an existing session, `WorkspaceAccess` read-only
@@ -60,8 +62,14 @@ Sources: [Rust input construction](src/codex/session.rs), [Rust image steps](src
 
 ## Suggested next task
 
-Agree on the owner `CommandClassifier` and host MCP guard service using the policy contract,
-then integrate extras discovery and linked endpoint lifetime. Execution advisors and dynamic
+Verify the owner execution preconditions and real-classifier provider boundary tests, then
+provide the independent host MCP guard service and integrate extras/linked endpoint lifetime. Execution advisors and dynamic
 workspace access need another bounded policy checkpoint. Image host wiring can proceed
 independently using the completed contract. Windows Job-object tree termination and command shims remain separate
 gaps. Current validation is fake-server/fixture testing on macOS, without live provider turns.
+
+Owner `e1b3ea89` requires a logical `TurnId` on every Agent/Exited event plus `tick(now)`,
+`shutdown(force)` and `forget(project, force)`. Those are future adapter obligations, not methods
+implemented by this process crate. The owner must bind logical turns before consuming fast
+provider events and keep steering/fallback boundaries explicit. This checkpoint changes no
+owner traits and does not claim that the runtime adapter is ready.

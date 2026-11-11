@@ -60,6 +60,14 @@ pub trait CommandClassifier: std::fmt::Debug + Send + Sync {
     fn actions(&self, command: &str) -> Result<Vec<RemoteAction>, String>;
 }
 
+/// A broken host classifier must not unwind through the session pump. Treat panic as unknown
+/// syntax; never include its payload in a permission result or transcript. This cannot recover
+/// aborting panics, nor enforce the callback's synchronous runtime bound.
+pub(crate) fn classify_command(classifier: &dyn CommandClassifier, command: &str) -> Result<Vec<RemoteAction>, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| classifier.actions(command)))
+        .unwrap_or_else(|_| Err("Command classifier failed.".into()))
+}
+
 pub fn babysit_denial(actions: &[RemoteAction], level: u8, resolve_threads: bool) -> Option<String> {
     use RemoteAction::*;
     for (action, reason) in [
