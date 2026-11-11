@@ -18,6 +18,8 @@ Root960489f6 preflights borrowed state-patch plans before copying replacement pa
 
 Native Design PNG feedback is verified only through the fixture route; automatic transcript-image persistence remains unsupported. Installed shell source is unchanged and still depends on the Node host. [MIGRATION-STATUS.md](MIGRATION-STATUS.md) records current validation and remaining gates; inventory counts below include historical checkpoints.
 
+The latest paired owner/runtime checkpoint is `57f4ceb9` + `025b3c89` + `8ab550d9`: explicit durable Project readiness, read/publication gates and revoked content access after ownership loss. Root151 owner tests,17 wire tests and67 runtime tests with ACP pass. Restore remains test-only, runtime Git admission is disabled, and the installed shell still uses the production Node daemon. See migration status for logs and remaining review gates.
+
 ## What has moved
 
 | Layer                                                                                                               | Current implementation                                                             | Remaining dependency                                                                                                       |
