@@ -27,8 +27,9 @@ use gpui_component::Root;
 use crate::theme::Theme;
 use crate::workspace::Workspace;
 
-/// What the app's `init` sets up that views need: the dark theme, gpui-component and the theme bridge
-/// that feeds gpui-component's theme from ours.
+/// What the app's `init` sets up that views need: the dark theme, the fixture data source (`data::Data`) and the
+/// sidebar's seed (`app::install_fixture`), gpui-component and the theme bridge that feeds gpui-component's theme
+/// from ours.
 pub fn init(cx: &mut TestAppContext) {
     init_with(cx, Theme::dark());
 }
@@ -36,6 +37,7 @@ pub fn init(cx: &mut TestAppContext) {
 pub fn init_with(cx: &mut TestAppContext, theme: Theme) {
     cx.update(|cx| {
         cx.set_global(theme);
+        crate::app::install_fixture(cx);
         gpui_component::init(cx);
         crate::theme::component_bridge::init(cx);
     });

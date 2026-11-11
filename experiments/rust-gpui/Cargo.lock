@@ -4499,6 +4499,7 @@ dependencies = [
  "lb-wry",
  "pulldown-cmark",
  "raw-window-handle",
+ "serde_json",
  "unicode-segmentation",
 ]
 

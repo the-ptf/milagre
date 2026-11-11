@@ -49,6 +49,9 @@ gpui-webview = { version = "=0.9.1", optional = true }
 wry = { package = "lb-wry", version = "=0.53.3", optional = true }
 # Errors in the asset source and the data layer. Already in GPUI's tree (its `Result` is anyhow's).
 anyhow = "1"
+# A message context kind src/data does not type (`ChatContext::Other`) keeps its whole JSON object. Already in
+# GPUI's tree (Cargo.lock), so it adds no new crate.
+serde_json = "1"
 # Transcript markdown (src/workspace/chat/markdown.rs): CommonMark events, turned into GPUI blocks by hand.
 pulldown-cmark = { version = "0.13", default-features = false }
 # Composer caret movement and backspace by grapheme cluster, as GPUI's own `input` example does.

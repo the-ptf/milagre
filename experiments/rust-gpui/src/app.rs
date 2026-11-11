@@ -66,7 +66,7 @@ pub fn run() {
 pub fn init(cx: &mut App) {
     cx.set_global(Theme::from_env());
     // Where views get their data. Only the fixture exists; a daemon client implements the same trait.
-    cx.set_global(crate::data::Data(std::sync::Arc::new(crate::data::FixtureSource::new())));
+    install_fixture(cx);
     crate::theme::init_fonts(cx);
     crate::ui::preload_logos(cx);
     // gpui-component's globals, theme and key bindings, so its widgets can be used in any view.
@@ -84,6 +84,18 @@ pub fn init(cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// The fixture data source as the app's `data::Data`, and the sidebar's device state (opened Subchat families, the
+/// Chat on screen) seeded from it until a preference store exists.
+pub fn install_fixture(cx: &mut App) {
+    let source = crate::data::FixtureSource::new();
+    let data = source.data();
+    cx.set_global(crate::workspace::sidebar::SidebarSeed {
+        open_families: data.open_families.iter().cloned().collect(),
+        open_chat: Some(data.open_chat.clone()),
+    });
+    cx.set_global(crate::data::Data(std::sync::Arc::new(source)));
 }
 
 /// The one Milagre window: 1440 x 900 centred, a transparent title bar under our own 44px headers.
