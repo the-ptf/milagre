@@ -107,9 +107,15 @@ impl Workspace {
                 this.chat.update(cx, |chat, cx| chat.composer.update(cx, |composer, cx| composer.start_new_chat(cx)))
             }
         });
+        // A Subchat picked in the Details panel opens although the sidebar has no row for it.
+        let details = panel.read(cx).details().clone();
+        let open_subchat = cx.subscribe(&details, |this, _, event: &crate::workspace::panel::details::DetailsEvent, cx| {
+            let crate::workspace::panel::details::DetailsEvent::OpenChat(key) = event;
+            this.open_chat_key(key, cx);
+        });
         let open_chat = cx.subscribe(&chat, |this, _, event: &ChatEvent, cx| {
             if let ChatEvent::OpenChat(key) = event {
-                this.sidebar.update(cx, |sidebar, cx| sidebar.select_key(key, cx));
+                this.open_chat_key(key, cx);
             }
         });
         Self::install_window_keys(cx);
@@ -141,8 +147,26 @@ impl Workspace {
             routines,
             routines_open,
             routines_at,
-            _subscriptions: vec![layout, follow, web, palette_web, new_chat, open_chat, palette_events, notice_events, first_chat],
+            _subscriptions: vec![
+                layout,
+                follow,
+                web,
+                palette_web,
+                new_chat,
+                open_chat,
+                open_subchat,
+                palette_events,
+                notice_events,
+                first_chat,
+            ],
         }
+    }
+
+    /// Opens a Chat by key, with or without a sidebar row (the sidebar lists top-level Chats only). The Details panel's
+    /// `DetailsEvent::OpenChat(key)` calls this.
+    pub fn open_chat_key(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.sidebar.update(cx, |sidebar, cx| sidebar.open_key(key, cx));
+        cx.notify();
     }
 
     /// The sidebar's Routines button: the Routines page takes the Chat column's place until another Chat is picked.
