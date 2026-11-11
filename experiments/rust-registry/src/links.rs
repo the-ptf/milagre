@@ -13,15 +13,27 @@ pub fn valid_group(group: &Value) -> bool {
                     == ids.len()
         })
 }
-/// Admission shape for saved canvas metadata. This validates syntax only, not
-/// existence, scope or authority. Pure Node helpers below retain Node semantics.
+/// Syntactically meaningful endpoints can be preserved without being admitted.
+/// Includes foreign absolute paths, which the native owner treats as outside.
 pub(crate) fn saved_edge_shape(link: &Value) -> bool {
-    link["id"].as_str().is_some_and(|id| !id.is_empty())
+    ["a", "b"].iter().all(|side| {
+        let endpoint = &link[*side];
+        endpoint.is_object()
+            && absolute(&endpoint["project_id"])
+            && endpoint.get("worktree_path").is_none_or(absolute)
+    })
+}
+/// A grant/duplicate-check candidate additionally needs a usable edge id and
+/// native path syntax. Identity, active Worktrees and owner checks still follow.
+pub(crate) fn admitted_edge_shape(link: &Value) -> bool {
+    saved_edge_shape(link)
+        && link["id"].as_str().is_some_and(|id| !id.is_empty())
         && ["a", "b"].iter().all(|side| {
             let endpoint = &link[*side];
-            endpoint.is_object()
-                && absolute(&endpoint["project_id"])
-                && endpoint.get("worktree_path").is_none_or(absolute)
+            Path::new(endpoint["project_id"].as_str().unwrap()).is_absolute()
+                && endpoint
+                    .get("worktree_path")
+                    .is_none_or(|path| Path::new(path.as_str().unwrap()).is_absolute())
         })
 }
 fn active_has(active: &Value, id: &Value, path: &Value) -> bool {

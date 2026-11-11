@@ -578,7 +578,7 @@ impl Writer {
                 };
                 let (a, b) = (&saved["a"], &saved["b"]);
                 let admission_shape = json!({"id":"requested","a":a,"b":b});
-                if !links::saved_edge_shape(&admission_shape) {
+                if !links::admitted_edge_shape(&admission_shape) {
                     return Err(WriteError::refused("These endpoints cannot be linked."));
                 }
                 if method == "link:restore"
@@ -596,7 +596,8 @@ impl Writer {
                 };
                 if data["links"].as_array().unwrap().iter().any(|link| {
                     (method == "link:restore" && link["id"] == saved["id"])
-                        || ((same(&link["a"], a) || same(&link["b"], a))
+                        || (links::admitted_edge_shape(link)
+                            && (same(&link["a"], a) || same(&link["b"], a))
                             && (same(&link["a"], b) || same(&link["b"], b)))
                 }) {
                     return Err(WriteError::refused("Link already exists."));
@@ -642,8 +643,7 @@ impl Writer {
                 if let Some(positions) = data["worktreePositions"].as_object() {
                     for (id, entries) in positions {
                         if let Some(entries) = entries.as_object() {
-                            for path in entries.keys().filter(|path| Path::new(path).is_absolute())
-                            {
+                            for path in entries.keys().filter(|path| absolute(&json!(path))) {
                                 if self
                                     .registry
                                     .outside(Path::new(path))
@@ -656,7 +656,7 @@ impl Writer {
                                 }
                             }
                         }
-                        if Path::new(id).is_absolute()
+                        if absolute(&json!(id))
                             && self
                                 .registry
                                 .outside(Path::new(id))

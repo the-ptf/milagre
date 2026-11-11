@@ -697,9 +697,9 @@ async fn malformed_saved_endpoints_are_pruned_without_blocking_valid_registry_wo
     );
     let mut edges = malformed;
     edges.push(valid.clone());
-    // A missing canvas id is invalid admission metadata even if Node's pure
-    // endpoint helper accepts both endpoints. It must not wedge valid edges.
-    edges.push(json!({"a":{"project_id":a},"b":{"project_id":b}}));
+    // Preserve meaningful endpoints without an id; they cannot mint a grant.
+    let idless = json!({"a":{"project_id":a},"b":{"project_id":b}});
+    edges.push(idless.clone());
     let seed = json!({"projects":projects,"links":edges});
     let copy = RegistryCopy::create(
         isolation,
@@ -733,7 +733,10 @@ async fn malformed_saved_endpoints_are_pruned_without_blocking_valid_registry_wo
         .unwrap();
     writer.call("register", &json!({"path":c})).await.unwrap();
     let after = bytes(copy.path(), "project-registry.json").unwrap();
-    assert_eq!(jsjson::parse(&after).unwrap()["links"], json!([valid]));
+    assert_eq!(
+        jsjson::parse(&after).unwrap()["links"],
+        json!([valid, idless])
+    );
     assert!(writer
         .call(
             "link:add",
@@ -748,4 +751,161 @@ async fn malformed_saved_endpoints_are_pruned_without_blocking_valid_registry_wo
     assert_eq!(linked.len(), 1);
     assert_eq!(linked[0].worktree(), b);
     linked[0].check().await.unwrap();
+}
+
+#[tokio::test]
+async fn node_positive_kept_set_matches_while_unidentified_and_foreign_edges_never_grant() {
+    use milagre_registry::Probe;
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let a = isolation.root().join("a");
+    let b = isolation.root().join("b");
+    let c = isolation.root().join("c");
+    for path in [&a, &b, &c] {
+        std::fs::create_dir(path).unwrap();
+    }
+    let drive = r"C:\Original\repo";
+    let unc = r"\\original-machine\projects\repo";
+    let unc_tree = r"\\original-machine\projects\branch";
+    let projects = json!([{"id":a,"path":a},{"id":b,"path":b},{"id":drive,"path":drive,"unknown":"keep drive"},{"id":unc,"path":unc,"unknown":"keep UNC"}]);
+    let edges = json!([
+        {"id":"whole","a":{"project_id":a,"worktree_path":a},"b":{"project_id":b}},
+        {"a":{"project_id":a},"b":{"project_id":b},"unknown":"keep idless"},
+        {"id":7,"a":{"project_id":a},"b":{"project_id":b},"unknown":"keep numeric"},
+        {"id":"","a":{"project_id":a},"b":{"project_id":b},"unknown":"keep empty"},
+        {"id":"worktree","a":{"project_id":a},"b":{"project_id":b,"worktree_path":b}},
+        {"id":"drive","a":{"project_id":a},"b":{"project_id":drive}},
+        {"id":"unc","a":{"project_id":a},"b":{"project_id":unc,"worktree_path":unc_tree}},
+        {"id":"bad-relative","a":{"project_id":a},"b":{"project_id":"C:relative"}},
+        {"id":"bad-drive-relative-tree","a":{"project_id":a},"b":{"project_id":b,"worktree_path":"C:relative"}}
+    ]);
+    let active =
+        json!({a.to_str().unwrap():[a],b.to_str().unwrap():[b],drive:[drive],unc:[unc,unc_tree]});
+    let input = json!({"links":edges,"projects":projects,"active":active});
+    let output = Command::new("node").args(["-e","const {pruneLinks}=require(process.argv[1]); const x=JSON.parse(process.argv[2]); process.stdout.write(JSON.stringify(pruneLinks(x.links,x.projects,x.active)))"])
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/core/src/project-links.cjs"))
+        .arg(input.to_string()).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(expected.as_array().unwrap().len(), 7);
+    let seed = json!({"projects":projects,"links":edges,"worktreePositions":{drive:{drive:{"x":1,"y":2}},a.to_str().unwrap():{unc_tree:{"x":3,"y":4}}}});
+    let copy = RegistryCopy::create(
+        isolation,
+        Seeds {
+            registry: Some(seed.to_string().into_bytes()),
+            recent: None,
+        },
+    )
+    .unwrap();
+    let reader = copy.reader(Arc::new(|| Ok(()))).unwrap();
+    for path in [drive, "Z:/original/repo", unc, unc_tree] {
+        assert!(matches!(reader.probe(path).await.unwrap(), Probe::Outside));
+        assert!(reader.snapshot().unwrap().project(path).await.is_err());
+    }
+    assert!(reader.probe("C:relative").await.is_err());
+    let mut writer = copy
+        .writer(Arc::new(|| Ok(())), clock(Arc::new(AtomicUsize::new(0))))
+        .unwrap();
+    writer.call("register", &json!({"path":c})).await.unwrap();
+    writer.call("link:prune", &json!({})).await.unwrap();
+    let saved = jsjson::parse(&bytes(copy.path(), "project-registry.json").unwrap()).unwrap();
+    assert_eq!(
+        saved["links"], expected,
+        "Rust and Node kept sets match in both directions"
+    );
+    for foreign in [drive, unc] {
+        assert_eq!(
+            saved["projects"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["id"] == foreign),
+            projects
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["id"] == foreign)
+        );
+    }
+    assert_eq!(saved["worktreePositions"], seed["worktreePositions"]);
+    let snapshot = reader.snapshot().unwrap();
+    let source = snapshot.project(&a).await.unwrap();
+    let grants = snapshot.reachable(&source, &a).await.unwrap();
+    assert_eq!(grants.len(), 1);
+    assert_eq!(grants[0].link_ids(), ["whole", "worktree"]);
+    grants[0].check().await.unwrap();
+    // The idless/numeric whole-Project pair cannot block creation of a usable id.
+    writer
+        .call(
+            "link:add",
+            &json!({"a":{"project_id":a},"b":{"project_id":b}}),
+        )
+        .await
+        .unwrap();
+    let after = jsjson::parse(&bytes(copy.path(), "project-registry.json").unwrap()).unwrap();
+    assert_eq!(
+        &after["links"].as_array().unwrap()[..7],
+        expected.as_array().unwrap()
+    );
+    assert_eq!(after["links"].as_array().unwrap().len(), 8);
+    let before = bytes(copy.path(), "project-registry.json");
+    assert!(writer.call("link:restore",&json!({"link":{"id":7,"created_at":"before","a":{"project_id":a},"b":{"project_id":b}}})).await.is_err());
+    assert_eq!(before, bytes(copy.path(), "project-registry.json"));
+    assert!(writer.call("link:restore", &json!({"link":{"id":"drive","created_at":"before","a":{"project_id":a},"b":{"project_id":b}}})).await.is_err());
+    assert_eq!(before, bytes(copy.path(), "project-registry.json"));
+    assert_eq!(
+        reader.snapshot().unwrap().link("7").await.err().unwrap(),
+        "Invalid Link id."
+    );
+}
+
+#[tokio::test]
+async fn already_first_register_retains_relative_edge_without_rewrite_like_node() {
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let a = isolation.root().join("a");
+    let b = isolation.root().join("b");
+    std::fs::create_dir(&a).unwrap();
+    std::fs::create_dir(&b).unwrap();
+    let seed = json!({"scanned":true,"projects":[{"id":a,"path":a,"name":"a","git":false},{"id":b,"path":b,"name":"b","git":false}],"links":[{"id":"relative","a":{"project_id":a},"b":{"project_id":b,"worktree_path":"relative"}}]}).to_string();
+    let root = isolation.root();
+    let request = json!({"profile":root.join("node-profile"),"registry":seed,"recent":null,"operations":[{"method":"register","args":{"path":a}}],"output":root.join("result.json")});
+    std::fs::write(root.join("request.json"), request.to_string()).unwrap();
+    let output = Command::new("node")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/writer.cjs"))
+        .arg(root.join("request.json"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Value =
+        jsjson::parse_bytes(&std::fs::read(root.join("result.json")).unwrap()).unwrap();
+    let copy = RegistryCopy::create(
+        isolation,
+        Seeds {
+            registry: Some(seed.as_bytes().to_vec()),
+            recent: None,
+        },
+    )
+    .unwrap();
+    let mut writer = copy
+        .writer(Arc::new(|| Ok(())), clock(Arc::new(AtomicUsize::new(0))))
+        .unwrap();
+    let before = inode(copy.path(), "project-registry.json");
+    let result = writer.call("register", &json!({"path":a})).await.unwrap();
+    assert_eq!(result, expected[0]["result"]);
+    assert_eq!(bytes(copy.path(), "project-registry.json"), Some(seed));
+    assert_eq!(
+        expected[0]["registry"],
+        json!(bytes(copy.path(), "project-registry.json"))
+    );
+    assert_eq!(inode(copy.path(), "project-registry.json"), before);
+    assert_eq!(expected[0]["changed"], json!([false, false]));
 }

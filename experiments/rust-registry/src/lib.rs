@@ -61,8 +61,21 @@ pub struct LinkGrant {
 fn error(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
+fn foreign_absolute(path: &str) -> bool {
+    let drive = path.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+        && path.as_bytes().get(1) == Some(&b':')
+        && matches!(path.as_bytes().get(2), Some(b'/' | b'\\'));
+    let unc = path.strip_prefix("\\\\").is_some_and(|tail| {
+        let mut parts = tail.split('\\');
+        parts.next().is_some_and(|server| !server.is_empty())
+            && parts.next().is_some_and(|share| !share.is_empty())
+    });
+    drive || unc
+}
 fn absolute(value: &Value) -> bool {
-    value.as_str().is_some_and(|s| Path::new(s).is_absolute())
+    value
+        .as_str()
+        .is_some_and(|s| Path::new(s).is_absolute() || foreign_absolute(s))
 }
 fn directory_stamp(path: &Path) -> Result<(u64, u64)> {
     let meta = std::fs::symlink_metadata(path).map_err(error)?;
@@ -268,6 +281,9 @@ impl Registry {
     /// Scope classification does not inspect the contents of an outside path.
     fn outside(&self, requested: &Path) -> Result<bool> {
         self.check()?;
+        if !requested.is_absolute() && requested.to_str().is_some_and(foreign_absolute) {
+            return Ok(true);
+        }
         if !requested.is_absolute() {
             return Err("An absolute registry path is required.".into());
         }
@@ -659,7 +675,7 @@ impl Snapshot {
             .collect::<Vec<_>>();
         let mut scoped = Vec::new();
         for mut link in relevant {
-            if !links::saved_edge_shape(&link) {
+            if !links::admitted_edge_shape(&link) {
                 continue;
             }
             let mut outside = false;
