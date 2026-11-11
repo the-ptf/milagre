@@ -137,8 +137,9 @@ fn unsupported_configuration_is_refused_before_spawn() {
     let mut p = ClaudeFixture::create(Scenario::Reply).unwrap();
     for (k, v) in [
         ("role", json!("babysit")),
-        ("permissionMode", json!("auto")),
-        ("permissionMode", json!("full")),
+        ("permissionMode", json!("plan")),
+        ("permissionMode", json!("Full")),
+        ("permissionMode", json!(1)),
         ("images", json!(["x"])),
         ("fastMode", json!(1)),
         ("ultracode", json!(null)),
@@ -646,4 +647,151 @@ fn ordinary_turns_reuse_then_restart_on_tldr_change_with_a_late_old_exit() {
     p.shutdown();
     assert!(m.wait_stopped(Duration::from_secs(3)));
     assert!(!m.cleanup_failed());
+}
+
+fn modes_trace() -> Value {
+    serde_json::from_str(include_str!(
+        "../../rust-claude/tests/fixtures/conformance/claude-modes.json"
+    ))
+    .unwrap()
+}
+fn modes_request(p: &ClaudeFixture, trace: &Value, index: usize) -> RawJson {
+    let mut req = trace["request"].clone();
+    req["chatId"] = json!("fixture");
+    req["cwd"] = json!(p.project());
+    for (k, v) in trace["turns"][index].as_object().unwrap() {
+        req[k] = v.clone();
+    }
+    RawJson(req)
+}
+fn cards(events: &[ProviderEvent]) -> Vec<Value> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            ProviderEvent::Agent {
+                event: RawJson(v), ..
+            } if v["type"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("permission-")) =>
+            {
+                Some(v.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Full, Auto and Ask through the fixture adapter. The fake child asserts Node's launch mode
+/// (bypassPermissions), the setPermissionMode/effort order and each recorded `can_use_tool` answer.
+#[test]
+fn full_auto_ask_turns_match_node_and_settle_cards_through_the_owner_contract() {
+    let trace = modes_trace();
+    let mut p = ClaudeFixture::create(Scenario::Modes).unwrap();
+    let m = p.monitor();
+    let mut all = Vec::new();
+    let mut pid = None;
+    for (index, decision) in [(0, None), (1, Some("allow")), (2, Some("deny"))] {
+        let turn = TurnId(index as u64 + 1);
+        p.start_turn(turn, &modes_request(&p, &trace, index))
+            .unwrap();
+        if let Some(decision) = decision {
+            let seen = collect(&mut p, |e| !cards(e).is_empty());
+            let card = cards(&seen)[0].clone();
+            all.extend(seen);
+            p.respond_permission(
+                "fixture",
+                turn,
+                AnswerId(index as u64),
+                card["requestId"].as_str().unwrap(),
+                decision,
+            )
+            .unwrap();
+        }
+        all.extend(collect(&mut p, |e| e.iter().any(terminal)));
+        assert!(
+            pid.is_none_or(|pid| m.pid("fixture") == Some(pid)),
+            "mode changes keep the process"
+        );
+        pid = m.pid("fixture");
+    }
+    assert_eq!(json!(cards(&all)), trace["cards"]);
+    assert_eq!(
+        all.iter()
+            .filter(|e| matches!(
+                e,
+                ProviderEvent::AnswerSettled {
+                    outcome: AnswerOutcome::Accepted,
+                    ..
+                }
+            ))
+            .count(),
+        2
+    );
+    for event in &all {
+        if let ProviderEvent::Agent {
+            event: RawJson(v), ..
+        } = event
+        {
+            assert!(
+                v["type"] != "turn-failed" && v["type"] != "turn-cancelled",
+                "{v}"
+            );
+        }
+    }
+    let argv = ps_command(pid.unwrap());
+    assert!(
+        argv.contains("--permission-mode bypassPermissions"),
+        "{argv}"
+    );
+    assert!(
+        argv.contains("--allow-dangerously-skip-permissions"),
+        "{argv}"
+    );
+    p.shutdown();
+    assert!(m.wait_stopped(Duration::from_secs(3)));
+    assert!(!m.cleanup_failed());
+}
+
+/// A card pending in Auto cannot be answered once its session is closed: the turn is cancelled,
+/// its process reaped, and a late answer for that generation is refused before enqueue.
+#[test]
+fn pending_auto_card_is_revoked_by_close_and_late_answers_are_refused() {
+    let trace = modes_trace();
+    let mut p = ClaudeFixture::create(Scenario::Modes).unwrap();
+    let m = p.monitor();
+    p.start_turn(TurnId(1), &modes_request(&p, &trace, 0))
+        .unwrap();
+    collect(&mut p, |e| e.iter().any(terminal));
+    p.start_turn(TurnId(2), &modes_request(&p, &trace, 1))
+        .unwrap();
+    let seen = collect(&mut p, |e| !cards(e).is_empty());
+    let card = cards(&seen)[0].clone();
+    let pid = m.pid("fixture").unwrap();
+    p.close_chat("fixture", TurnId(2)).unwrap();
+    assert!(p
+        .respond_permission(
+            "fixture",
+            TurnId(2),
+            AnswerId(9),
+            card["requestId"].as_str().unwrap(),
+            "allow"
+        )
+        .is_err());
+    let events = collect(&mut p, |e| {
+        e.iter().any(|e| {
+            matches!(
+                e,
+                ProviderEvent::Exited {
+                    turn: TurnId(2),
+                    ..
+                }
+            )
+        })
+    });
+    assert!(events.iter().any(|e| matches!(e, ProviderEvent::Agent { turn: TurnId(2), event: RawJson(v), .. } if v["type"] == "turn-cancelled")));
+    assert!(cards(&events)
+        .iter()
+        .any(|c| c["type"] == "permission-resolved" && c["decision"] == "cancelled"));
+    assert!(m.wait_stopped(Duration::from_secs(3)));
+    assert!(!alive(pid));
 }

@@ -49,6 +49,7 @@ async function scenario(name) {
     await runtime.openProject(project);
     const chatId = project + "#1";
     if (name === "ordinary") await ordinary({ client, events, project, child });
+    else if (name === "modes") await modes({ client, events, project, child });
     else {
       const body = name === "unicode" ? "native \u{10fffe} \ue123 \ud83d" : "fixture input";
       await client.call("chat:send", [
@@ -218,6 +219,54 @@ async function scenario(name) {
     }
   }
 }
+// Full, Auto and Ask sends in the composer's shape. The fake child asserts Node's launch mode, mode-switch order and
+// each can_use_tool answer; this answers the Auto and Ask cards through the production client.
+async function modes({ client, events, project, child }) {
+  const trace = require("../../rust-claude/tests/fixtures/conformance/claude-modes.json");
+  const chatId = project + "#1";
+  const terminals = () => events.filter((e) => ["turn-completed", "turn-failed", "turn-cancelled"].includes(e.type));
+  const nativePids = () => execFileSync("pgrep", ["-P", String(child.pid)], { encoding: "utf8" }).trim().split("\n").map(Number);
+  const answers = { full: null, auto: "allow", ask: "deny" };
+  const pids = [];
+  for (const [index, turn] of trace.turns.entries()) {
+    await client.call("chat:send", [
+      {
+        projectPath: project,
+        clientMessageId: "modes-" + index,
+        sessionId: 1,
+        worktreeId: 1,
+        body: turn.prompt,
+        images: [],
+        files: [],
+        prompt: turn.prompt,
+        provider: "claude",
+        model: trace.request.model,
+        permissionMode: turn.permissionMode,
+        effort: turn.effort,
+        ultracode: false,
+        fastMode: false,
+        replies: trace.request.replies,
+        tldrEnabled: true,
+      },
+    ]);
+    const decision = answers[turn.permissionMode];
+    if (decision) {
+      const before = events.filter((e) => e.type === "permission-request").length;
+      await until("card " + index, () => events.filter((e) => e.type === "permission-request").length === before + 1);
+      const card = events.filter((e) => e.type === "permission-request").at(-1);
+      assert.equal(await client.call("agent:respond-permission", [{ chatId, requestId: card.requestId, decision }]), true);
+    }
+    await until("modes turn " + (index + 1), () => terminals().length === index + 1);
+    pids.push(...nativePids());
+  }
+  assert.deepEqual(terminals().map((e) => e.type), ["turn-completed", "turn-completed", "turn-completed"]);
+  assert.equal(new Set(pids).size, 1, "mode changes keep one native process: " + pids);
+  assert.deepEqual(events.filter((e) => e.type.startsWith("permission-")), trace.cards);
+  const argv = execFileSync("ps", ["-p", String(pids[0]), "-o", "command="], { encoding: "utf8" });
+  assert.ok(argv.includes("--permission-mode bypassPermissions"), argv);
+  const snapshot = await client.call("project:snapshot", [project]);
+  assert.equal(snapshot.state.sessions["1"].permissionMode, "ask", "the owner keeps the last turn's mode");
+}
 // Three composer-shaped sends (the desktop's agentRuns.send payload, default Settings first) through the
 // production Node client. The fake child asserts the Node-recorded launch options and control order
 // itself; this checks processes, generations and the saved transcript.
@@ -288,9 +337,9 @@ async function ordinary({ client, events, project, child }) {
   assert.equal(messages.messages.filter((m) => m.body === "Claude fixture hello").length, 3);
 }
 (async () => {
-  for (const name of ["reply", "permission", "question", "stop", "crash", "unicode", "content", "queue", "design", "content-allow", "content-deny", "ordinary"])
+  for (const name of ["reply", "permission", "question", "stop", "crash", "unicode", "content", "queue", "design", "content-allow", "content-deny", "ordinary", "modes"])
     await scenario(name);
-  console.log("Claude owner Node client conformance passed (12 scenarios)");
+  console.log("Claude owner Node client conformance passed (13 scenarios)");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

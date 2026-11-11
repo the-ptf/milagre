@@ -268,9 +268,175 @@ async function ordinary() {
     };
     const verb = record(path.join(__dirname, "../tests/fixtures/conformance/claude-ordinary.json"), output, 1);
     console.log(`${verb} ordinary trace: ${queries.length} queries, ${suggestions.length} suggestion cases`);
+    await modes({ OrdinarySession, SessionManager, events, host, config, bundle: output.bundle, core });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
   if (fs.existsSync(root)) throw Error(`temporary oracle root ${root} was not removed`);
   console.log("ordinary temporary root removed");
+}
+
+// Permission modes through the actual SessionManager and ClaudeSession: a first turn in Full, then Auto with a new effort,
+// then Ask. Each turn's fake CLI asks canUseTool for one Bash command; cards are answered through the manager (Auto
+// allow, Ask deny) and each result is recorded. Then WorkspaceAccess.answer over a real temporary layout.
+async function modes({ OrdinarySession, SessionManager, events, host, config, bundle, core }) {
+  const queries = [];
+  const permissions = [];
+  const sent = [];
+  let ended;
+  let manager;
+  const sdk = () => ({
+    query: ({ prompt, options }) => {
+      const record = { options, controls: [] };
+      queries.push(record);
+      const input = prompt[Symbol.asyncIterator]();
+      const pending = [];
+      let wake = null;
+      let done = false;
+      let turn = 0;
+      void (async () => {
+        for (;;) {
+          const next = await input.next();
+          if (next.done) break;
+          record.controls.push({ user: next.value.message.content });
+          const index = turn++;
+          pending.push({ type: "system", subtype: "init", session_id: "fixture-session" });
+          wake?.();
+          const request = { requestId: `perm-${index}`, toolUseID: `tool-${index}`, suggestions: [], signal: new AbortController().signal };
+          const result = await options.canUseTool("Bash", { command: "ls" }, request);
+          permissions.push({ turn: index, request: { requestId: request.requestId, toolUseID: request.toolUseID }, result });
+          pending.push(text("mode reply"), result);
+          pending.push({ type: "result", subtype: "success", num_turns: 1, result: "done" });
+          pending.splice(pending.indexOf(result), 1);
+          wake?.();
+        }
+        done = true;
+        wake?.();
+      })();
+      const call = (name) => async (...args) => {
+        record.controls.push({ [name]: args });
+      };
+      return {
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+        async next() {
+          while (!pending.length && !done) await new Promise((resolve) => (wake = resolve));
+          await new Promise(setImmediate);
+          return pending.length ? { value: pending.shift(), done: false } : { done: true };
+        },
+        async return() {
+          done = true;
+          wake?.();
+          return { done: true };
+        },
+        setModel: call("setModel"),
+        setPermissionMode: call("setPermissionMode"),
+        applyFlagSettings: call("applyFlagSettings"),
+        setMaxThinkingTokens: call("setMaxThinkingTokens"),
+        toggleMcpServer: call("toggleMcpServer"),
+        interrupt: call("interrupt"),
+      };
+    },
+  });
+  const answers = { auto: "allow", ask: "deny" };
+  let currentMode = null;
+  manager = new SessionManager({
+    createSession: (_provider, options) =>
+      new OrdinarySession({ ...options, command: "/fake/claude", defaultConfigDir: config, env: {}, loadSdk: async () => sdk() }),
+    send: (chatId, event) => {
+      sent.push(event);
+      if (event.type === "permission-request") setImmediate(() => manager.respondToPermission(chatId, event.requestId, answers[currentMode]));
+      if (events.isTerminal(event)) ended?.();
+    },
+    hostInstructions: () => events.hostNetworkInstructions(host),
+    batchMs: 0,
+  });
+  const base = { chatId: "/fixture#1", provider: "claude", cwd: "/fixture", model: "sonnet", ultracode: false, fastMode: false, replies: "concise", tldrEnabled: true };
+  const turns = [
+    { prompt: "full turn", permissionMode: "full", effort: "high" },
+    { prompt: "auto turn", permissionMode: "auto", effort: "low" },
+    { prompt: "ask turn", permissionMode: "ask", effort: "low" },
+  ];
+  for (const turn of turns) {
+    currentMode = turn.permissionMode;
+    const done = new Promise((resolve) => (ended = resolve));
+    await manager.startTurn({ ...base, ...turn });
+    await done;
+  }
+  const recorded = [];
+  for (const { options, controls } of queries)
+    recorded.push({
+      options: JSON.parse(JSON.stringify(options)),
+      settingsText: JSON.stringify(options.settings),
+      functions: Object.keys(options).filter((key) => typeof options[key] === "function"),
+      subagentStart: options.hooks?.SubagentStart ? await options.hooks.SubagentStart[0].hooks[0]({}) : null,
+      preToolUse: options.hooks?.PreToolUse ? await options.hooks.PreToolUse[0].hooks[0]({ tool_name: "Bash", tool_input: { command: "ls" } }) : null,
+      controls,
+    });
+  // WorkspaceAccess.answer for a Project Chat over a real layout; paths are recorded with a <root> placeholder.
+  const { WorkspaceAccess } = require(path.join(core, "agents/permissions.cjs"));
+  const root = "/tmp/milagre-access-oracle";
+  fs.mkdirSync(root, { mode: 0o700 });
+  const layout = {
+    dirs: ["project", "skills", "skills/sub", "outside"],
+    files: ["project/notes.txt", "skills/doc.md", "skills/sub/inner.md", "outside/secret.md"],
+    links: [
+      ["project/skills-link", "../skills"],
+      ["skills/escape", "../outside"],
+      ["skills/dangling", "missing-target"],
+    ],
+  };
+  const cases = [];
+  try {
+    for (const dir of layout.dirs) fs.mkdirSync(path.join(root, dir));
+    for (const file of layout.files) fs.writeFileSync(path.join(root, file), "x");
+    for (const [link, target] of layout.links) fs.symlinkSync(target, path.join(root, link));
+    const access = new WorkspaceAccess({ cwd: path.join(root, "project"), skillsDirectory: path.join(root, "skills") });
+    const R = (file) => file.replaceAll("<root>", root);
+    const specs = [
+      ["read", ["<root>/skills/doc.md"]],
+      ["read", ["<root>/skills/new.md"]],
+      ["read", ["<root>/skills/sub/missing/deep.md"]],
+      ["read", ["<root>/skills"]],
+      ["read", ["<root>/skills/"]],
+      ["read", ["<root>/skills/escape/secret.md"]],
+      ["read", ["<root>/skills/dangling"]],
+      ["read", ["skills-link/doc.md"]],
+      ["read", ["../skills/doc.md"]],
+      ["read", ["./../skills/./sub//inner.md"]],
+      ["read", ["<root>/skills/../outside/secret.md"]],
+      ["read", ["<root>/skills/doc.md/child"]],
+      ["read", []],
+      ["read", ["<root>/skills/doc.md", "<root>/outside/secret.md"]],
+      ["read", ["<root>/skills/doc.md", "../skills/sub/inner.md"]],
+      ["read", ["notes.txt"]],
+      ["read", ["<root>/skills\u0000x"]],
+      ["edit", ["<root>/skills/doc.md"]],
+      ["command", []],
+      ["other", ["<root>/skills/doc.md"]],
+    ];
+    for (const mode of ["ask", "auto", "full"])
+      for (const [kind, files] of specs) cases.push({ mode, kind, files, answer: access.answer({ kind, files: files.map(R) }, mode) });
+    const missing = new WorkspaceAccess({ cwd: path.join(root, "project"), skillsDirectory: path.join(root, "no-skills") });
+    cases.push({ mode: "ask", kind: "read", files: ["<root>/no-skills/doc.md"], skills: "<root>/no-skills", answer: missing.answer({ kind: "read", files: [R("<root>/no-skills/doc.md")] }, "ask") });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  if (fs.existsSync(root)) throw Error(`temporary oracle root ${root} was not removed`);
+  const output = {
+    generatedBy: "scripts/generate-session.cjs (modes)",
+    node: process.version,
+    bundle,
+    host,
+    request: base,
+    turns,
+    queries: recorded,
+    permissions,
+    cards: sent.filter((event) => event.type === "permission-request" || event.type === "permission-resolved"),
+    events: sent.filter((event) => ["turn-started", "session-started", "turn-completed"].includes(event.type)).map((event) => event.type),
+    access: { layout, cases },
+  };
+  const verb = record(path.join(__dirname, "../tests/fixtures/conformance/claude-modes.json"), output, 1);
+  console.log(`${verb} modes trace: ${queries.length} queries, ${permissions.length} permission answers, ${cases.length} access cases; access root removed`);
 }

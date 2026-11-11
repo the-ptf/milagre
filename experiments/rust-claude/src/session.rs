@@ -31,6 +31,80 @@ use crate::text::Obj;
 pub const PRE_TOOL_USE_HOOK: &str = "milagre_pre_tool_use";
 pub const SUBAGENT_START_HOOK: &str = "milagre_subagent_start";
 const CONCISE_STYLE: &str = "Concise";
+/// Concurrent access-policy evaluations a session runs on the blocking pool. Each holds a permit
+/// until its blocking work actually finishes (queued or running); `close` waits for all of them.
+pub const ACCESS_WORKERS: u32 = 8;
+/// An access check that failed (panic, lost task, closed session) refuses in every mode.
+pub const ACCESS_FAILED_MESSAGE: &str = "Milagre could not check this request's access, so it was refused.";
+/// The mode kept changing while every re-evaluation ran.
+pub const ACCESS_UNSETTLED_MESSAGE: &str = "The permission mode changed while Milagre checked this request, so it was refused.";
+const ACCESS_ATTEMPTS: usize = 3;
+
+/// Admission of access-policy callbacks, serialized against close and drop. A callback is admitted
+/// at its actual entry (after the permit wait and any blocking-pool queueing), under this lock and
+/// only while the session lives, is open, its turn is the one it was asked in and it was not
+/// withdrawn. Once `shut`, nothing more is admitted; `close` waits only for admitted callbacks.
+/// Lock order: this gate, then the session state.
+#[derive(Default)]
+struct AccessGate {
+    state: Mutex<GateState>,
+    drained: Notify,
+}
+
+#[derive(Default)]
+struct GateState {
+    closed: bool,
+    entered: usize,
+}
+
+/// One admitted callback; leaving (also by panic) may wake `close`.
+struct EnteredAccess(Arc<AccessGate>);
+
+impl Drop for EnteredAccess {
+    fn drop(&mut self) {
+        let mut gate = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+        gate.entered -= 1;
+        if gate.entered == 0 {
+            self.0.drained.notify_waiters();
+        }
+    }
+}
+
+impl AccessGate {
+    fn shut(&self) {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).closed = true;
+    }
+
+    fn enter(self: &Arc<Self>, valid: impl FnOnce() -> bool) -> Option<EnteredAccess> {
+        let mut gate = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if gate.closed || !valid() {
+            return None;
+        }
+        gate.entered += 1;
+        Some(EnteredAccess(self.clone()))
+    }
+
+    fn entered(&self) -> usize {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).entered
+    }
+
+    async fn drained(&self) {
+        loop {
+            let notified = self.drained.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.entered() == 0 {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
+/// Whether a request bound to `turn_epoch` no longer has a turn to answer in.
+fn stale_turn(state: &State, turn_epoch: u64, cancel: &CancelSignal) -> bool {
+    state.turn_epoch != turn_epoch || !state.turn_active || state.cancel_requested || state.closed || cancel.reason().is_some()
+}
 const EXECUTION_QUESTION_DENIAL: &str = "Report questions or blockers to the parent Chat; execution agents cannot ask the human.";
 
 /// A PreToolUse guard (babysit level, wake escalation): a reason denies the call, in every mode.
@@ -315,6 +389,10 @@ struct State {
     announced_id: bool,
     last_turn_id: Option<String>,
     permission_mode: String,
+    /// Bumped on every permission-mode assignment (so Ask -> Full -> Ask is a change).
+    mode_epoch: u64,
+    /// Bumped whenever a turn starts or ends: a decision begun in one turn never serves another.
+    turn_epoch: u64,
     permissions: Vec<PendingPermission>,
     questions: Vec<PendingQuestion>,
     turn_ready: Gate,
@@ -332,10 +410,16 @@ struct Inner {
     state: Mutex<State>,
     queue: Arc<EventQueue>,
     operations: AsyncMutex<()>,
+    /// Permits for access-policy work on the blocking pool (`ACCESS_WORKERS`).
+    access_slots: Arc<tokio::sync::Semaphore>,
+    access_gate: Arc<AccessGate>,
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
+        // No queued access check may enter its policy for a dropped session.
+        self.access_gate.shut();
+        self.access_slots.close();
         self.queue.close();
         if let Ok(state) = self.state.get_mut() {
             if let Some(timer) = state.interrupt_timer.take() {
@@ -461,6 +545,26 @@ fn inside_root(root: Option<&std::path::Path>, files: &[String]) -> bool {
         })
 }
 
+/// Read-only view of a session's access-policy work (diagnostics and tests).
+#[derive(Clone)]
+pub struct AccessMonitor {
+    slots: Arc<tokio::sync::Semaphore>,
+    gate: Arc<AccessGate>,
+}
+
+impl AccessMonitor {
+    /// Permits held by spawned checks: waiting in the blocking pool, deciding admission or running.
+    /// Nothing else holds these permits.
+    pub fn held(&self) -> usize {
+        ACCESS_WORKERS as usize - self.slots.available_permits()
+    }
+
+    /// Policy callbacks admitted and still inside `AccessPolicy::answer`.
+    pub fn entered(&self) -> usize {
+        self.gate.entered()
+    }
+}
+
 impl ClaudeSession {
     pub fn new(options: SessionOptions) -> (Self, SessionEvents) {
         let queue = Arc::new(EventQueue {
@@ -502,6 +606,8 @@ impl ClaudeSession {
             announced_id: false,
             last_turn_id: None,
             permission_mode: "ask".into(),
+            mode_epoch: 0,
+            turn_epoch: 0,
             permissions: Vec::new(),
             questions: Vec::new(),
             turn_ready: Gate::open_now(),
@@ -513,13 +619,32 @@ impl ClaudeSession {
             mcp_off: options.mcp_off.clone(),
             background: Vec::new(),
         };
-        let inner = Arc::new(Inner { options, state: Mutex::new(state), queue: queue.clone(), operations: AsyncMutex::new(()) });
+        let inner = Arc::new(Inner {
+            options,
+            state: Mutex::new(state),
+            queue: queue.clone(),
+            operations: AsyncMutex::new(()),
+            access_slots: Arc::new(tokio::sync::Semaphore::new(ACCESS_WORKERS as usize)),
+            access_gate: Arc::new(AccessGate::default()),
+        });
         (Self { inner }, SessionEvents(queue))
     }
 
     /// The Claude session id (`nativeId`): the resumed one until `system/init` reports one.
     pub fn native_id(&self) -> Option<String> {
         self.inner.state.lock().unwrap().mapper.session_id.clone()
+    }
+
+    /// Inbound control-request handlers still running for the session's current client, withdrawn ones
+    /// included. Diagnostic only: 0 when there is no client (before start, or once close removed it),
+    /// even if handlers of an earlier client have not finished.
+    pub fn live_inbound(&self) -> usize {
+        self.inner.state.lock().unwrap().client.as_ref().map_or(0, ClaudeClient::live_inbound)
+    }
+
+    /// Observes this session's access-policy work; usable after the session is closed or dropped.
+    pub fn access_monitor(&self) -> AccessMonitor {
+        AccessMonitor { slots: self.inner.access_slots.clone(), gate: self.inner.access_gate.clone() }
     }
 
     pub fn pid(&self) -> Option<u32> {
@@ -673,6 +798,7 @@ impl Inner {
                     Next::Steer
                 } else {
                     state.turn_active = true;
+                    state.turn_epoch += 1;
                     state.implicit_turn = false;
                     state.steered_turn = false;
                     state.announced_id = false;
@@ -696,6 +822,15 @@ impl Inner {
     async fn begin_turn(self: &Arc<Self>, request: TurnRequest) -> TurnStart {
         let turn_id = uuid();
         let mode = request.permission_mode.clone().unwrap_or_else(|| "ask".into());
+        // Without an eligibility check, follow Node's beginTurn order: the mode is the session's at once
+        // (`permissions.setMode`), the CLI launches in it, and a running CLI switches right after the model.
+        // With one, the mode waits for the recheck below so an obsolete turn never raises it.
+        // Local only (no card is pending between turns): the CLI hears the mode at launch or after set_model.
+        if request.can_start.is_none() && !self.options.analysis_only {
+            let mut state = self.state.lock().unwrap();
+            state.permission_mode = mode.clone();
+            state.mode_epoch += 1;
+        }
         let needs_start = {
             let mut state = self.state.lock().unwrap();
             state.mapper.turn_id = Some(turn_id.clone());
@@ -780,7 +915,7 @@ impl Inner {
     }
 
     /// Start the CLI if needed, then bring model, mode, effort, fast mode and reply style up to date.
-    async fn prepare(self: &Arc<Self>, request: &TurnRequest, _mode: &str, needs_start: bool) -> Result<(), ClientError> {
+    async fn prepare(self: &Arc<Self>, request: &TurnRequest, mode: &str, needs_start: bool) -> Result<(), ClientError> {
         if needs_start {
             let current = self.state.lock().unwrap().permission_mode.clone();
             self.start(request, self.native_mode(&current)).await?;
@@ -796,6 +931,13 @@ impl Inner {
         if self.state.lock().unwrap().model.as_deref() != Some(request.model.as_str()) {
             client.set_model(Some(&request.model)).await?;
             self.state.lock().unwrap().model = Some(request.model.clone());
+        }
+        // The user may have switched modes while Claude Code was starting (Node: after setModel).
+        if request.can_start.is_none() {
+            self.set_permission_mode(mode).await;
+            if self.state.lock().unwrap().closed {
+                return Ok(());
+            }
         }
         // A new effort level alone turns ultracode off, so both keys always travel together.
         let effort_change = {
@@ -1115,6 +1257,12 @@ impl Inner {
                 }
             }
         }
+        // No further access callback is admitted (queued ones, including permit waiters, refuse at
+        // entry); close returns once every callback admitted before this point has left the policy.
+        // Their late results are discarded (closed state).
+        self.access_gate.shut();
+        self.access_slots.close();
+        self.access_gate.drained().await;
     }
 
     async fn set_permission_mode(self: &Arc<Self>, mode: &str) {
@@ -1128,6 +1276,7 @@ impl Inner {
                 return;
             }
             state.permission_mode = mode.into();
+            state.mode_epoch += 1;
             state.permissions.iter().map(|p| (p.id.clone(), p.token.clone(), p.auto_files.clone())).collect::<Vec<_>>()
         };
         let allowed = if mode == "auto" {
@@ -1230,6 +1379,7 @@ impl Inner {
         let completed = event.as_ref().and_then(|e| e["type"].as_str()) == Some("turn-completed");
         state.mapper.suggestion_turn_id = if completed && !state.steered_turn { state.mapper.turn_id.clone() } else { None };
         state.turn_active = false;
+        state.turn_epoch += 1;
         state.last_turn_id = state.mapper.turn_id.clone();
         if let Some(timer) = state.interrupt_timer.take() {
             timer.abort();
@@ -1244,6 +1394,7 @@ impl Inner {
 
     fn begin_implicit_turn(&self, state: &mut State, turn_id: String) {
         state.turn_active = true;
+        state.turn_epoch += 1;
         state.announced_id = false;
         state.cancel_requested = false;
         state.mapper.turn_id = Some(turn_id.clone());
@@ -1468,47 +1619,21 @@ impl PermissionHandler for SessionHandler {
     fn can_use_tool(&self, request: PermissionRequest, mut cancel: CancelSignal) -> BoxFuture<Result<PermissionResult, String>> {
         let weak = self.0.clone();
         Box::pin(async move {
-            let Some(inner) = weak.upgrade() else { return Ok(cancelled_result()) };
             let input = request.input.clone();
-            let rx = {
-                let mut state = inner.state.lock().unwrap();
-                // A request that arrives once its turn has stopped has nobody to ask.
-                if !state.turn_active || state.cancel_requested || state.closed || cancel.reason().is_some() {
-                    return Ok(milagre::permission_result(Decision::Cancelled, &input, &[]));
-                }
-                let card = milagre::permission_card(&request);
-                // A command the guard refuses (a Claude Code that skipped the hook).
-                if card["kind"] == "command" {
-                    if let Some(reason) = inner
-                        .options
-                        .pre_tool_use
-                        .as_ref()
-                        .and_then(|guard| guard.deny_reason(&json!({ "tool_name": request.tool_name, "tool_input": input })))
-                    {
-                        return Ok(PermissionResult::Deny { message: reason, interrupt: None });
-                    }
-                }
-                let read_file = ["Read", "Grep", "Glob"]
-                    .contains(&request.tool_name.as_str())
-                    .then(|| input.get("file_path").or_else(|| input.get("path")).and_then(Value::as_str).filter(|f| !f.is_empty()))
-                    .flatten();
-                let (kind, files) = match read_file {
-                    Some(file) => ("read".to_owned(), vec![file.to_owned()]),
-                    None => (kind_of(&card), files_of(&card)),
-                };
-                if let Some(decision) =
-                    inner.options.access.as_ref().and_then(|access| access.answer(&kind, &files, &state.permission_mode))
-                {
-                    return Ok(match decision {
-                        AccessDecision::Deny { message } => PermissionResult::Deny { message, interrupt: None },
-                        AccessDecision::Allow { learn } => PermissionResult::Allow {
-                            updated_input: Some(input),
-                            updated_permissions: (!learn.is_empty())
-                                .then(|| vec![json!({ "type": "addDirectories", "directories": learn, "destination": "session" })]),
-                        },
-                    });
-                }
-                let (tx, rx) = oneshot::channel();
+            let cancelled = || Ok(milagre::permission_result(Decision::Cancelled, &input, &[]));
+            let allowed = |learn: Vec<String>| PermissionResult::Allow {
+                updated_input: Some(input.clone()),
+                updated_permissions: (!learn.is_empty())
+                    .then(|| vec![json!({ "type": "addDirectories", "directories": learn, "destination": "session" })]),
+            };
+            let deny = |message: &str| Ok(PermissionResult::Deny { message: message.into(), interrupt: None });
+            // `WorkspaceAccess.answer` runs before any card (Node decides it synchronously). Here it may touch
+            // the filesystem, so it runs on the blocking pool under a session permit, bound to the turn and
+            // mode it was asked for. A Deny always stands; an answer from another turn is cancelled; a mode
+            // change since the check re-evaluates it; a failed check refuses in every mode.
+            // Registers the card (or Full's allow) under the caller's lock, the one that validated the request.
+            let register = |inner: &Inner, state: &mut State, card: Value| {
+                let (tx, rx) = oneshot::channel::<String>();
                 let token = uuid();
                 let id = card["requestId"].as_str().unwrap_or_default().to_owned();
                 if state.permission_mode == "full" {
@@ -1539,7 +1664,103 @@ impl PermissionHandler for SessionHandler {
                 }
                 (id, token, rx)
             };
-            drop(inner);
+            let mut attempts = 0;
+            // The turn the request arrived in; every re-evaluation stays bound to it.
+            let mut origin: Option<u64> = None;
+            let rx = loop {
+                // Only a weak reference is kept across the awaits: a blocked check never keeps a dropped session.
+                let Some(inner) = weak.upgrade() else { return cancelled() };
+                // Scoped so no guard is held across the awaits below.
+                let step = {
+                    let mut state = inner.state.lock().unwrap();
+                    // A request that arrives once its turn has stopped has nobody to ask.
+                    if !state.turn_active
+                        || state.cancel_requested
+                        || state.closed
+                        || cancel.reason().is_some()
+                        || origin.is_some_and(|turn| turn != state.turn_epoch)
+                    {
+                        return cancelled();
+                    }
+                    origin = Some(state.turn_epoch);
+                    let card = milagre::permission_card(&request);
+                    // A command the guard refuses (a Claude Code that skipped the hook).
+                    if card["kind"] == "command" {
+                        if let Some(reason) = inner
+                            .options
+                            .pre_tool_use
+                            .as_ref()
+                            .and_then(|guard| guard.deny_reason(&json!({ "tool_name": request.tool_name, "tool_input": input })))
+                        {
+                            return Ok(PermissionResult::Deny { message: reason, interrupt: None });
+                        }
+                    }
+                    let Some(access) = inner.options.access.clone() else {
+                        break register(&inner, &mut state, card);
+                    };
+                    let read_file = ["Read", "Grep", "Glob"]
+                        .contains(&request.tool_name.as_str())
+                        .then(|| {
+                            // `input?.file_path ?? input?.path`: null falls through, any other value is kept.
+                            input
+                                .get("file_path")
+                                .filter(|v| !v.is_null())
+                                .or_else(|| input.get("path"))
+                                .and_then(Value::as_str)
+                                .filter(|f| !f.is_empty())
+                        })
+                        .flatten();
+                    let (kind, files) = match read_file {
+                        Some(file) => ("read".to_owned(), vec![file.to_owned()]),
+                        None => (kind_of(&card), files_of(&card)),
+                    };
+                    (access, kind, files, card, state.permission_mode.clone(), state.mode_epoch, state.turn_epoch)
+                };
+                let (access, kind, files, card, mode, mode_epoch, turn_epoch) = step;
+                let slots = inner.access_slots.clone();
+                let gate = inner.access_gate.clone();
+                drop(inner);
+                if attempts == ACCESS_ATTEMPTS {
+                    return deny(ACCESS_UNSETTLED_MESSAGE);
+                }
+                attempts += 1;
+                // The permit moves into the blocking closure: it is released only when that work finishes
+                // (queued or running), even if this future is dropped first. A closed session refuses checks.
+                let Ok(permit) = slots.acquire_owned().await else { return cancelled() };
+                let (owner, signal) = (weak.clone(), cancel.clone());
+                let work = tokio::task::spawn_blocking(move || {
+                    let _permit = permit;
+                    // Admission at actual entry, after the permit wait and blocking-pool queueing. The strong
+                    // reference is taken outside the gate lock and released before the policy runs, so a
+                    // last-reference drop never runs under the gate.
+                    let session = owner.upgrade()?;
+                    let entered = gate.enter(|| !stale_turn(&session.state.lock().unwrap_or_else(|e| e.into_inner()), turn_epoch, &signal));
+                    drop(session);
+                    let _entered = entered?;
+                    Some(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| access.answer(&kind, &files, &mode))))
+                });
+                let answer = match work.await {
+                    Ok(Some(Ok(answer))) => answer,
+                    // Not admitted: the session closed or dropped, the turn moved on, or the request was withdrawn.
+                    Ok(None) => return cancelled(),
+                    // Panic or lost task: refuse, whatever the mode (never fall through to Full's allow).
+                    _ => return deny(ACCESS_FAILED_MESSAGE),
+                };
+                let Some(inner) = weak.upgrade() else { return cancelled() };
+                let mut state = inner.state.lock().unwrap();
+                if stale_turn(&state, turn_epoch, &cancel) {
+                    return cancelled();
+                }
+                match answer {
+                    // A refusal stands in every mode the user may have switched to since.
+                    Some(AccessDecision::Deny { message }) => return Ok(PermissionResult::Deny { message, interrupt: None }),
+                    // Asked under a mode the user has since left (including Ask -> Full -> Ask): ask again.
+                    _ if state.mode_epoch != mode_epoch => continue,
+                    Some(AccessDecision::Allow { learn }) => return Ok(allowed(learn)),
+                    // No access answer for this turn and mode: the card path decides under this same lock.
+                    None => break register(&inner, &mut state, card),
+                }
+            };
             let (id, token, mut rx) = rx;
             let decision = tokio::select! {
                 decision = &mut rx => decision.unwrap_or_else(|_| "cancelled".into()),

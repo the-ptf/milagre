@@ -268,7 +268,20 @@ struct Pending {
 
 struct Inflight {
     triggers: HashMap<String, CancelTrigger>,
+    /// Handler tasks still running, withdrawn ones included: a withdrawal stops the reply, not the
+    /// handler's work, so its slot is released only when the task actually finishes.
+    live: usize,
     closed: bool,
+}
+
+/// Releases one `Inflight::live` slot when its handler task ends (also on panic or abort).
+struct LiveSlot(Arc<Shared>);
+
+impl Drop for LiveSlot {
+    fn drop(&mut self) {
+        let mut inflight = self.0.inflight.lock().unwrap_or_else(|e| e.into_inner());
+        inflight.live = inflight.live.saturating_sub(1);
+    }
 }
 
 struct Shared {
@@ -450,7 +463,7 @@ impl ClaudeClient {
             writer: writer_tx,
             control: control_tx,
             pending: Mutex::new(Pending { waiters: HashMap::new(), exit: None }),
-            inflight: Mutex::new(Inflight { triggers: HashMap::new(), closed: false }),
+            inflight: Mutex::new(Inflight { triggers: HashMap::new(), live: 0, closed: false }),
             session_id: Mutex::new(options.resume.clone()),
             initialize: Mutex::new(None),
             input_ended: AtomicBool::new(false),
@@ -521,6 +534,11 @@ impl ClaudeClient {
 
     pub fn pid(&self) -> Option<u32> {
         self.exit_info().is_none().then_some(self.shared.pgid).flatten()
+    }
+
+    /// Inbound request handlers still running, withdrawn ones included (`max_inbound_requests` admission).
+    pub fn live_inbound(&self) -> usize {
+        self.shared.inflight.lock().unwrap().live
     }
 
     /// The conversation id: the resumed id until the CLI's `system/init` reports one.
@@ -955,7 +973,7 @@ fn dispatch(shared: &Arc<Shared>, handlers: &Handlers, request: IncomingRequest)
             diagnose(shared, Diagnostic::DuplicateRequest { request_id: id });
             return;
         }
-        if inflight.triggers.len() >= shared.limits.max_inbound_requests {
+        if inflight.live >= shared.limits.max_inbound_requests {
             drop(inflight);
             let shared = shared.clone();
             tokio::spawn(async move {
@@ -965,11 +983,14 @@ fn dispatch(shared: &Arc<Shared>, handlers: &Handlers, request: IncomingRequest)
         }
         let (trigger, signal) = cancel_pair();
         inflight.triggers.insert(id.clone(), trigger);
+        inflight.live += 1;
         signal
     };
     let handlers = handlers.clone();
     let shared = shared.clone();
+    let slot = LiveSlot(shared.clone());
     tokio::spawn(async move {
+        let _slot = slot;
         let subtype = request.subtype.clone();
         let work = tokio::spawn(handle(handlers, request, signal.clone()));
         let reply = match work.await {

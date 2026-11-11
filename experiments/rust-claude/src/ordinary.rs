@@ -6,8 +6,9 @@
 //! PreToolUse hook, summarized thinking, reply style). This plan adds the rest of Node's ordinary
 //! launch: the appended system prompt, `settingSources`, `additionalDirectories`, the QA agents,
 //! SubagentStart context and prompt suggestions. Every one is required: a missing one is refused,
-//! never silently dropped. Advisor roles, Auto/Full, images, account routing and user MCP extras are
-//! outside this plan and refused (`tests/ordinary.rs` compares with the Node trace).
+//! never silently dropped. Ask/Auto/Full are admitted for Project Chats. Advisor roles, images,
+//! account routing and user MCP extras remain outside this plan and refused (`tests/ordinary.rs`
+//! and `tests/modes.rs` compare with the Node traces).
 //!
 //! Transport difference (kept deliberately): SDK 0.3.288 sends `appendSystemPrompt` in `initialize`;
 //! this crate passes the same bytes through `--append-system-prompt-file` (a private 0600 file) and
@@ -31,8 +32,10 @@ pub enum OrdinaryError {
     Missing,
     #[error("The launch already carries a system prompt, agents or setting sources")]
     Preset,
-    #[error("Only ordinary Ask mode is admitted")]
+    #[error("Only the ask, auto and full permission modes are admitted")]
     Mode,
+    #[error("The ordinary launch needs an absolute working directory for workspace access")]
+    Workspace,
     #[error("Invalid ordinary turn setting: {0}")]
     Setting(&'static str),
 }
@@ -50,6 +53,9 @@ pub struct OrdinaryLaunch {
     pub prompt_suggestions: bool,
     /// `access.roots` minus `cwd`.
     pub additional_directories: Vec<PathBuf>,
+    /// The bundled-skills directory `WorkspaceAccess` lets the agent read in every mode (Node's
+    /// `BUNDLED_SKILLS_DIRECTORY`, supplied explicitly). A missing directory grants nothing.
+    pub skills_directory: PathBuf,
 }
 
 impl OrdinaryLaunch {
@@ -65,9 +71,12 @@ impl OrdinaryLaunch {
             || !options.init.agents.is_empty()
             || options.launch.setting_sources.is_some()
             || options.subagent_context.is_some()
+            || options.access.is_some()
         {
             return Err(OrdinaryError::Preset);
         }
+        let cwd = options.launch.cwd.clone().filter(|cwd| cwd.is_absolute()).ok_or(OrdinaryError::Workspace)?;
+        options.access = Some(std::sync::Arc::new(ProjectAccess { cwd, skills_directory: self.skills_directory }));
         options.launch.system_prompt = SystemPrompt::Preset { append: Some(self.system_append) };
         options.launch.setting_sources = Some(SETTING_SOURCES.map(String::from).to_vec());
         options.launch.add_dirs = self.additional_directories;
@@ -89,6 +98,8 @@ pub struct OrdinaryTurn {
     pub replies: Option<String>,
     /// `request.tldrEnabled !== false`; only a boolean is admitted.
     pub tldr_enabled: bool,
+    /// `"ask"`, `"auto"` or `"full"`; absent or null is Ask (Node `turnMode`, then `CLAUDE_MODES` default).
+    pub permission_mode: String,
 }
 
 fn flag(request: &Value, key: &'static str) -> Result<Option<bool>, OrdinaryError> {
@@ -103,11 +114,12 @@ impl OrdinaryTurn {
     /// Admit only correctly typed values. Stricter than Node, which coerces: a non-boolean flag, an
     /// unknown reply style or an empty effort is refused rather than reinterpreted.
     pub fn parse(request: &Value) -> Result<Self, OrdinaryError> {
-        match request.get("permissionMode") {
-            None | Some(Value::Null) => {}
-            Some(Value::String(mode)) if mode == "ask" => {}
+        // Node maps an unknown mode to Ask (`turnMode`); a typed refusal is stricter.
+        let permission_mode = match request.get("permissionMode") {
+            None | Some(Value::Null) => "ask".to_owned(),
+            Some(Value::String(mode)) if ["ask", "auto", "full"].contains(&mode.as_str()) => mode.clone(),
             Some(_) => return Err(OrdinaryError::Mode),
-        }
+        };
         let model = match request.get("model") {
             Some(Value::String(model)) if !model.is_empty() && model.len() <= 256 => model.clone(),
             _ => return Err(OrdinaryError::Setting("model")),
@@ -135,6 +147,7 @@ impl OrdinaryTurn {
             fast_mode: flag(request, "fastMode")?.unwrap_or(false),
             replies,
             tldr_enabled: flag(request, "tldrEnabled")?.unwrap_or(true),
+            permission_mode,
         })
     }
 
@@ -143,7 +156,7 @@ impl OrdinaryTurn {
         TurnRequest {
             content,
             model: self.model.clone(),
-            permission_mode: Some("ask".into()),
+            permission_mode: Some(self.permission_mode.clone()),
             effort: self.effort.clone(),
             ultracode: self.ultracode,
             fast_mode: self.fast_mode,
@@ -165,8 +178,9 @@ mod tests {
         let defaults = OrdinaryTurn::parse(&json!({"model":"sonnet"})).unwrap();
         assert_eq!((defaults.ultracode, defaults.fast_mode, defaults.tldr_enabled, defaults.replies), (false, false, true, None));
         for (key, value) in [
-            ("permissionMode", json!("auto")),
-            ("permissionMode", json!("full")),
+            ("permissionMode", json!("plan")),
+            ("permissionMode", json!("Full")),
+            ("permissionMode", json!(true)),
             ("tldrEnabled", json!("no")),
             ("tldrEnabled", json!(null)),
             ("fastMode", json!(1)),
@@ -191,6 +205,7 @@ mod tests {
             agents: json!({"qa":{"description":"d","prompt":"p"}}).as_object().unwrap().clone(),
             prompt_suggestions: false,
             additional_directories: vec![],
+            skills_directory: PathBuf::from("/nonexistent-skills"),
         };
         let fresh = || SessionOptions::new(crate::launch::LaunchOptions::new("/bin/claude"));
         let mut options = fresh();
@@ -203,10 +218,72 @@ mod tests {
         options.launch.setting_sources = Some(vec![]);
         assert_eq!(plan.clone().apply(&mut options), Err(OrdinaryError::Preset));
         let mut options = fresh();
+        assert_eq!(plan.clone().apply(&mut options), Err(OrdinaryError::Workspace), "a relative or missing cwd is refused");
+        let mut options = fresh();
+        options.launch.cwd = Some("/fixture".into());
         plan.apply(&mut options).unwrap();
+        assert!(options.access.is_some());
         assert_eq!(options.launch.setting_sources.as_deref(), Some(&SETTING_SOURCES.map(String::from)[..]));
         assert!(!options.prompt_suggestions);
     }
+}
+
+/// `WorkspaceAccess` for a Project Chat (packages/core/src/agents/permissions.cjs): no Link roots,
+/// no read-only roots, so `answer` only allows reads inside the bundled-skills directory, in every
+/// mode. Paths follow Node's `insideWorkspace`: `path.resolve(cwd, file)` lexically, then realpath,
+/// a missing tail joined to its resolved parent, any other resolution error refusing. Shared-Link
+/// roots, read-only checkouts and late-root learning are not ported; such Chats are refused upstream.
+#[derive(Debug, Clone)]
+pub struct ProjectAccess {
+    pub cwd: PathBuf,
+    pub skills_directory: PathBuf,
+}
+
+impl crate::session::AccessPolicy for ProjectAccess {
+    fn answer(&self, kind: &str, files: &[String], _mode: &str) -> Option<crate::session::AccessDecision> {
+        (kind == "read" && inside_workspace(&[self.skills_directory.as_path()], files, &self.cwd))
+            .then(|| crate::session::AccessDecision::Allow { learn: vec![] })
+    }
+}
+
+/// Node `path.resolve(base, file)` on POSIX: lexical, `..` folded, never touching the filesystem.
+pub fn js_resolve(base: &std::path::Path, file: &str) -> PathBuf {
+    let joined = if file.starts_with('/') { PathBuf::from(file) } else { base.join(file) };
+    let mut parts: Vec<std::ffi::OsString> = Vec::new();
+    for component in joined.components() {
+        match component {
+            std::path::Component::Normal(part) => parts.push(part.to_owned()),
+            std::path::Component::ParentDir => {
+                parts.pop();
+            }
+            _ => {}
+        }
+    }
+    let mut out = PathBuf::from("/");
+    out.extend(parts);
+    out
+}
+
+/// Node `insideWorkspace(roots, files, cwd)`.
+pub fn inside_workspace(roots: &[&std::path::Path], files: &[String], cwd: &std::path::Path) -> bool {
+    fn resolve(path: &std::path::Path) -> std::io::Result<PathBuf> {
+        match std::fs::canonicalize(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else { return Err(error) };
+                Ok(resolve(parent)?.join(name))
+            }
+            other => other,
+        }
+    }
+    let Ok(roots) = roots.iter().map(std::fs::canonicalize).collect::<Result<Vec<_>, _>>() else { return false };
+    !files.is_empty()
+        && files.iter().all(|file| {
+            if !cwd.is_absolute() {
+                return false;
+            }
+            let Ok(resolved) = resolve(&js_resolve(cwd, file)) else { return false };
+            roots.iter().any(|root| resolved != *root && resolved.starts_with(root))
+        })
 }
 
 /// Expected native CLI frames for a recorded Node `sdk.query` call (the ordinary trace from

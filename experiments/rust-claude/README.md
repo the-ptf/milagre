@@ -346,7 +346,10 @@ Owner integration and remaining mapping:
    and control call to fake-CLI assertions and errors on an unmapped one. `tests/ordinary.rs`
    replays the actual Node three-turn trace (`scripts/generate-session.cjs`,
    `claude-ordinary.json`) with four negative controls; the instructions themselves are ported in
-   `rust-runtime/src/instructions.rs`. Access and pre-tool guard interfaces accept owner-supplied decisions, but
+   `rust-runtime/src/instructions.rs`. `OrdinaryTurn` admits `ask`/`auto`/`full`; an ungated start
+   launches in the turn's mode and switches a running CLI right after `set_model` (Node order), and
+   `ProjectAccess` ports Project-Chat `WorkspaceAccess` (bundled-skills reads); `tests/modes.rs`
+   compares both with `claude-modes.json`. Link/read-only roots and mid-turn switches stay gated. Access and pre-tool guard interfaces accept owner-supplied decisions, but
    do not supply safe analysis/advisor policies on their own. `analysis_only` sessions now fail
    before spawn with `SessionError::UnsupportedAnalysis`, regardless of mode or launch allow rules. Execution-advisor disallowed tools,
    question denial, SubagentStart context, MCP off toggles, prompt-suggestion gating, reply style,

@@ -8,7 +8,12 @@ use common::*;
 use milagre_claude::ordinary::{node_trace, OrdinaryLaunch, OrdinaryTurn, SETTING_SOURCES};
 use milagre_claude::session::{ClaudeSession, SessionEvents, SessionOptions};
 use serde_json::{json, Value};
+use std::path::PathBuf;
 use std::time::Duration;
+
+fn skills() -> PathBuf {
+    PathBuf::from(oracle()["bundle"]["skillsDir"].as_str().unwrap())
+}
 
 fn oracle() -> Value {
     serde_json::from_str(include_str!("fixtures/conformance/claude-ordinary.json")).unwrap()
@@ -44,6 +49,7 @@ fn session(query: &Value, resume: Option<String>) -> (ClaudeSession, SessionEven
         agents: node["agents"].as_object().unwrap().clone(),
         prompt_suggestions: node["promptSuggestions"].as_bool().unwrap(),
         additional_directories: vec![],
+        skills_directory: skills(),
     }
     .apply(&mut options)
     .unwrap();
@@ -156,6 +162,7 @@ async fn the_fake_child_rejects_changed_prompt_settings_env_and_control_order() 
             agents: node["agents"].as_object().unwrap().clone(),
             prompt_suggestions: true,
             additional_directories: vec![],
+            skills_directory: skills(),
         }
         .apply(&mut options)
         .unwrap();

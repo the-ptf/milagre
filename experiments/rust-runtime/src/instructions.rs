@@ -108,6 +108,11 @@ impl Bundle {
         })
     }
 
+    /// The bundled-skills directory as supplied (also `WorkspaceAccess.skillsDirectory`).
+    pub fn skills_dir(&self) -> &str {
+        &self.skills_dir
+    }
+
     /// `path.join(BUNDLED_SKILLS_DIRECTORY, name, "SKILL.md")` for this directory.
     fn skill(&self, name: &str) -> String {
         format!("{}/{name}/SKILL.md", self.skills_dir)

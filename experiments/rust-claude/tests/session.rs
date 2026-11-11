@@ -465,7 +465,10 @@ async fn turn_settings_apply_in_order_and_task_output_is_shaped() {
         json!({"expect":{"type":"user"}}),
         init(),
         result(),
+        // Node beginTurn order: model, mode, effort/ultracode, fast mode, reply style.
         json!({"expect":{"subtype":"set_model","fields":{"/request/model":"opus"}}}),
+        json!({"reply":{}}),
+        json!({"expect":{"subtype":"set_permission_mode","fields":{"/request/mode":"acceptEdits"}}}),
         json!({"reply":{}}),
         json!({"expect":{"subtype":"apply_flag_settings","fields":{"/request/settings":{"effortLevel":"high","ultracode":true}}}}),
         json!({"reply":{}}),
@@ -473,8 +476,6 @@ async fn turn_settings_apply_in_order_and_task_output_is_shaped() {
         json!({"reply":{}}),
         json!({"expect":{"subtype":"apply_flag_settings","fields":{"/request/settings":{"outputStyle":"Concise"}}}}),
         json!({"reply_error":"unsupported style"}),
-        json!({"expect":{"subtype":"set_permission_mode","fields":{"/request/mode":"acceptEdits"}}}),
-        json!({"reply":{}}),
         json!({"expect":{"type":"user"}}),
         result(),
         json!({"expect":{"subtype":"get_task_output","fields":{"/request/task_id":"task1"}}}),
@@ -502,8 +503,9 @@ async fn turn_settings_apply_in_order_and_task_output_is_shaped() {
 
 #[tokio::test]
 async fn question_answers_are_filtered_and_full_still_asks() {
-    let mut script = handshake();
-    script.extend([json!({"expect":{"subtype":"set_permission_mode"}}), json!({"reply":{}})]);
+    // A first turn in Full launches in bypassPermissions (Node start()), with no later mode control.
+    let mut script = vec![json!({"expect_launch":{"pairs":[["--permission-mode","bypassPermissions"]]}})];
+    script.extend(handshake());
     script.extend([json!({"expect":{"type":"user"}}),question("q1"),
         json!({"expect":{"type":"control_response","fields":{"/response/response/behavior":"allow","/response/response/updatedInput/answers":{"Which?":"A"}}}}),result()]);
     let (session, mut events) = session(script);

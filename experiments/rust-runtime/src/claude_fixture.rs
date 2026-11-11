@@ -48,12 +48,18 @@ pub enum Scenario {
     Queue,
     /// Three ordinary turns checked against the recorded Node launch options and control order.
     Ordinary,
+    /// Full, Auto and Ask turns in one process, checked against the recorded Node launch mode,
+    /// mode-switch order and each `can_use_tool` answer.
+    Modes,
 }
 /// The Node ordinary trace (actual SessionManager/ClaudeSession over an explicit synthetic
 /// bundle, `rust-claude/scripts/generate-session.cjs`). Its bundle and host are this fixture's
 /// explicit instruction inputs; its recorded options become the fake child's launch assertions.
 const ORDINARY_TRACE: &str =
     include_str!("../../rust-claude/tests/fixtures/conformance/claude-ordinary.json");
+/// The Node permission-mode trace (same explicit bundle and host), `generate-session.cjs`.
+const MODES_TRACE: &str =
+    include_str!("../../rust-claude/tests/fixtures/conformance/claude-modes.json");
 /// Explicit ordinary instruction inputs. Nothing is discovered from the install or host.
 struct OrdinaryFacts {
     bundle: Bundle,
@@ -318,6 +324,7 @@ impl ClaudeFixture {
         let mut scripts = Vec::new();
         let bodies = match scenario {
             Scenario::Ordinary => ordinary_scripts(&trace)?,
+            Scenario::Modes => vec![modes_script(&serde_json::from_str(MODES_TRACE)?)?],
             _ => vec![script_for(scenario, &profile.path().join("queue-release"))],
         };
         for (index, body) in bodies.into_iter().enumerate() {
@@ -469,11 +476,12 @@ fn native_request(request: &Value, project: &Path) -> Result<(Value, OrdinaryTur
             "Only this isolated Claude fixture Project is admitted",
         ));
     }
-    // Typed ordinary Ask settings: model, effort, ultracode, fastMode, replies and tldrEnabled.
-    // Auto/Full and mistyped values are refused, never coerced as Node would.
+    // Typed ordinary settings: mode, model, effort, ultracode, fastMode, replies and tldrEnabled.
+    // `ask`/`auto`/`full` are admitted; unknown modes and mistyped values are refused, never coerced
+    // as Node would (Node turns an unknown mode into Ask).
     let turn = OrdinaryTurn::parse(request).map_err(|e| match e {
         milagre_claude::ordinary::OrdinaryError::Mode => {
-            refused("Only ordinary Ask mode is implemented")
+            refused("Only the ask, auto and full permission modes are implemented")
         }
         _ => refused("Invalid fixture turn setting"),
     })?;
@@ -809,6 +817,9 @@ impl Worker {
             agents: self.facts.agents.clone(),
             prompt_suggestions: instructions::prompt_suggestions_enabled(settings.as_deref(), None),
             additional_directories: vec![],
+            // Node's WorkspaceAccess skills read allowance over the same explicit directory string the
+            // instructions name. This synthetic path does not exist, so (as in Node) it allows nothing.
+            skills_directory: PathBuf::from(self.facts.bundle.skills_dir()),
         }
         .apply(options)?;
         Ok(())
@@ -1042,6 +1053,29 @@ fn ordinary_scripts(trace: &Value) -> Result<Vec<Value>, Box<dyn std::error::Err
         scripts.push(Value::Array(steps));
     }
     Ok(scripts)
+}
+/// The Node mode trace as one fake process: launch in Full (bypassPermissions), then per turn Node's
+/// mode/effort controls, the user message and one Bash `can_use_tool` whose answer must equal the
+/// recorded Node answer (Full allows without a card; Auto/Ask wait for the owner's answer).
+fn modes_script(trace: &Value) -> Result<Value, Box<dyn std::error::Error>> {
+    let query = &trace["queries"][0];
+    let permissions = trace["permissions"]
+        .as_array()
+        .ok_or("trace permissions")?
+        .clone();
+    let mut steps = node_trace::launch_steps(query)?;
+    steps.extend(node_trace::control_steps(query["controls"].as_array().ok_or("trace controls")?, |turn| {
+        let p = &permissions[turn];
+        let id = p["request"]["requestId"].clone();
+        vec![
+            json!({"emit":{"type":"system","subtype":"init","session_id":"fixture-session"}}),
+            json!({"request":{"id":id,"request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"},"tool_use_id":p["request"]["toolUseID"]}}}),
+            json!({"expect":{"type":"control_response","fields":{"/response/request_id":id,"/response/response":p["result"]}}}),
+            json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Claude fixture hello"}}}}),
+            json!({"emit":{"type":"result","subtype":"success","num_turns":1,"result":"done"}}),
+        ]
+    })?);
+    Ok(Value::Array(steps))
 }
 fn script_for(scenario: Scenario, queue_release: &Path) -> Value {
     let mut steps = vec![json!({"expect":{"subtype":"initialize"}})];
