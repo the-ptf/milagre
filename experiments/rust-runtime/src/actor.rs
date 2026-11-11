@@ -1038,6 +1038,9 @@ fn start_provider(
         actor.clone(),
         Config {
             max_frame_bytes: 4096,
+            // Tiny frames exercise paging; the independent bounded reply budget
+            // accommodates the fixture's concurrent requests without enlarging frames.
+            outgoing_budget_bytes: Some(128 * 1024),
             ..Config::default()
         },
     )?;

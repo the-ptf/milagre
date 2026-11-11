@@ -80,3 +80,11 @@ Answer-history eviction increments a saturating constant-space counter exposed a
 Owner LockStranded notices set the sticky `daemon:snapshot.diagnostics.rustOwnerAudit.ownerLockStranded` flag and increment the saturating `ownerLockStrandedNotices` counter. The runtime emits no per-notice stderr output and retains no lock path, reason string or token in this audit. The flag means a lock may require operator recovery; it never means the runtime removed that lock or recovered ownership.
 
 Runtime audit fields live in the reserved `diagnostics.rustOwnerAudit` object. Snapshot augmentation merges only the three owned counters/flag, preserving unrelated diagnostics and namespace members. A pre-existing non-object diagnostics or rustOwnerAudit value returns `DIAGNOSTIC_SCHEMA_CONFLICT` without rewriting the stored snapshot or hiding the ownership warning.
+
+## Isolated reply capacity and disconnect investigation
+
+The shared isolated actor constructor keeps its 4 KiB frame limit for paging tests and now sets a separate 128 KiB outgoing byte budget. The wire still caps each connection at 64 queued frames and 32 pending requests. Its default budget remains twice the frame limit; only these small-frame actor fixtures choose the explicit allowance. The 20-concurrent-snapshot assertion remains unchanged.
+
+An intermittent Fixture 2 disconnect was reproduced with EPIPE while a second connection reached the same owner PID and reported closing:false. This rules out owner shutdown in that reproduction. Ten traced ordinary runs, a diagnostic of 100 repeated 20-request bursts and two original parallel test workloads did not reach the temporary wire byte-budget marker. The exact original disconnect cause is therefore unproven. The independent budget correction follows deterministic wire boundary tests; a green runtime rerun does not close the original investigation by itself.
+
+The Node fixture now wraps each request error instead of repeatedly mutating the shared Error used by the production client's failure fan-out. On failure only, it records a bounded stderr tail, child exit/signal and a one-second independent owner status probe. No temporary wire tracing or response contents are retained in source.

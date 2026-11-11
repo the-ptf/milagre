@@ -39,8 +39,9 @@ async function fixture(test) {
       try {
         return await call(...args);
       } catch (error) {
-        error.message = `Fixture ${scenario}, ${args[0]}: ${error.message}`;
-        throw error;
+        // The Node client can reject several requests with the same Error object.
+        // Wrap per call instead of repeatedly mutating that shared error's message.
+        throw Object.assign(new Error(`Fixture ${scenario}, ${args[0]}: ${error.message}`, { cause: error }), { code: error.code });
       }
     };
     const events = [];
@@ -67,6 +68,27 @@ async function fixture(test) {
       }
     };
     await test({ child, client, runtime, project, events, send, disk, metadata });
+  } catch (error) {
+    let probe;
+    let owner = null;
+    try {
+      if (metadata?.profile) {
+        probe = await connect({ dataDir: metadata.profile, timeoutMs: 1000 });
+        const status = await probe.call("daemon:status");
+        owner = { sameProcess: status.pid === child.pid, closing: status.closing };
+      }
+    } catch (probeError) {
+      owner = { error: probeError.code ?? probeError.message };
+    } finally {
+      probe?.close();
+    }
+    throw Object.assign(
+      new Error(
+        `${error.message}; fixture diagnostic ${JSON.stringify({ scenario, exitCode: child.exitCode, signalCode: child.signalCode, owner, stderrTail: stderr.slice(-4096) })}`,
+        { cause: error },
+      ),
+      { code: error.code },
+    );
   } finally {
     if (runtime) {
       await runtime.close().catch((error) => {
