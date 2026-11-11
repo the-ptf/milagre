@@ -26,8 +26,9 @@
 //!   handle) and portable-pty 0.9.0 (resets `SIGCHLD` only in the child's `pre_exec`; waits its exact child) keep this;
 //!   this crate's only other child, `ps` in ownership checks, is waited on by pid. If something still reaps Git first,
 //!   the run loses it: `waitid` fails (`ECHILD`), Git's pid is never signalled or waited on again (it may be another
-//!   process's by then), its group isn't killed, and the run gives no list. The first loss in a process is reported
-//!   once on stderr (no path or name in it); later ones only count. A reaper racing between the last check and the
+//!   process's by then), its group isn't killed, and the run gives no list. Each lost child counts once (a failed
+//!   wait, or a failed reap after the signal); the first in a process is reported once on stderr (no path or name in
+//!   it; a failed write is ignored, never a panic), later ones only count. A reaper racing between the last check and the
 //!   group kill can't be ruled out from inside this process; the requirement above is what rules it out.
 //! - **Off the actor.** It runs inside the transcript job (`TranscriptJob::run`), on the runtime's blocking worker.
 //!
@@ -773,15 +774,26 @@ enum Ownership {
 impl Owned {
     fn new(child: std::process::Child) -> Owned {
         let group = rustix::process::Pid::from_raw(child.id() as i32);
-        Owned {
+        let mut owned = Owned {
             child,
             group,
-            state: if group.is_some() {
-                Ownership::Held
-            } else {
-                Ownership::Lost
-            },
+            state: Ownership::Held,
+        };
+        if group.is_none() {
+            owned.lose("no pid");
         }
+        owned
+    }
+
+    /// Held → lost, counted (and the first in the process reported) exactly once per child.
+    fn lose(&mut self, why: &str) {
+        if self.state != Ownership::Held {
+            return;
+        }
+        self.state = Ownership::Lost;
+        lost_child(why);
+        #[cfg(feature = "test-fixtures")]
+        test_hooks::log("lost", self.child.id());
     }
 
     /// One `waitid(EXITED|NOHANG|NOWAIT)`, never reaping, retried on `EINTR`; any other failure loses the child.
@@ -805,10 +817,7 @@ impl Owned {
                 Ok(status) => return Ok(status.is_some()),
                 Err(rustix::io::Errno::INTR) => continue,
                 Err(errno) => {
-                    self.state = Ownership::Lost;
-                    lost_child(errno);
-                    #[cfg(feature = "test-fixtures")]
-                    test_hooks::log("lost", self.child.id());
+                    self.lose(&errno.to_string());
                     return Err(errno.into());
                 }
             }
@@ -831,28 +840,39 @@ impl Owned {
         let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
         // Unreaped, the pid is still its own: signalling it is safe even if it already exited.
         let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
-        let status = self.child.wait();
-        self.state = if status.is_ok() {
-            Ownership::Reaped
-        } else {
-            Ownership::Lost
-        };
         #[cfg(feature = "test-fixtures")]
-        test_hooks::log(
-            if status.is_ok() { "reap" } else { "lost" },
-            self.child.id(),
-        );
-        status.ok()
+        let status = match test_hooks::take_reap_failure() {
+            true => Err(std::io::Error::from_raw_os_error(libc::ECHILD)),
+            false => self.child.wait(),
+        };
+        #[cfg(not(feature = "test-fixtures"))]
+        let status = self.child.wait();
+        match status {
+            Ok(status) => {
+                self.state = Ownership::Reaped;
+                #[cfg(feature = "test-fixtures")]
+                test_hooks::log("reap", self.child.id());
+                Some(status)
+            }
+            Err(error) => {
+                // Signalled, then the reap failed: something else reaped it (maybe before the signal).
+                self.lose(&error.to_string());
+                None
+            }
+        }
     }
 }
 
-/// How many Git children this process lost (see `Owned`); the first is reported once on stderr.
+/// How many Git children this process lost (see `Owned`): each child at most once. The first is reported once on
+/// stderr; a write that fails (stderr closed, a pipe with no reader) is ignored, never a panic (this runs in `Drop`).
 static LOST_CHILDREN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-fn lost_child(errno: rustix::io::Errno) {
+fn lost_child(why: &str) {
     if LOST_CHILDREN.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
-        eprintln!(
-            "milagre owner: a Git child could not be waited on ({errno}); something else reaps child processes \
+        use std::io::Write;
+        let _ = writeln!(
+            std::io::stderr(),
+            "milagre owner: a Git child could not be waited on ({why}); something else reaps child processes \
              (SIGCHLD ignored, SA_NOCLDWAIT or a wait-any reaper). Changed files are left out of handoff briefs \
              while that lasts; later losses aren't reported."
         );
@@ -968,6 +988,7 @@ pub mod test_hooks {
         static BEFORE_SETUP: RefCell<Option<SetupHook>> = const { RefCell::new(None) };
         static LOG: RefCell<Vec<(&'static str, u32)>> = const { RefCell::new(Vec::new()) };
         static WAIT_FAILURE: std::cell::Cell<Option<rustix::io::Errno>> = const { std::cell::Cell::new(None) };
+        static REAP_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
         static AFTER_GIT: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
         static BEFORE_STATUS: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
         static READ_FAILURE: std::cell::Cell<Option<std::io::ErrorKind>> = const { std::cell::Cell::new(None) };
@@ -1013,6 +1034,15 @@ pub mod test_hooks {
     /// How many Git children this process lost so far (all threads).
     pub fn lost_children() -> u64 {
         super::LOST_CHILDREN.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// The next reap of a bounded run on this thread fails (`ECHILD`) without waiting (the child is left to the test).
+    pub fn fail_next_reap() {
+        REAP_FAILURE.with(|slot| slot.set(true));
+    }
+
+    pub(super) fn take_reap_failure() -> bool {
+        REAP_FAILURE.with(|slot| slot.replace(false))
     }
 
     pub(super) fn take_wait_failure() -> Option<rustix::io::Errno> {
