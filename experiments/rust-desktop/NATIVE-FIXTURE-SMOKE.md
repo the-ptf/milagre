@@ -280,7 +280,7 @@ installed, no live provider or production host was used, and nothing was pushed.
 
 ## Fixture content checkpoint
 
-Build the separate shell with `--features fixture-content-smoke` and run the same
+Build the separate shell with `--features fixture-content-smoke` and invoke `node experiments/rust-desktop/native-fixture-smoke.mjs --content`. The fixed flag independently requires the content scenario; it accepts no path or executable. Use the same
 fixed observer. It retains the scripted send and leave-and-reopen checks, then
 uses production Artifacts and Designs toolbar buttons, the real Design editor's
 Text inspector and Save button. The runtime's one SharedContent writer seeds
@@ -393,3 +393,48 @@ and diff checks pass. Logs: `/tmp/milagre-content-final-tests.log`,
 `/tmp/milagre-content-final-clippy.log`, `/tmp/milagre-content-native-final.log`.
 The parent separately validates and installs the default shell. This native
 checkpoint installs nothing and never contacts the production host.
+
+## Explicit content-health evidence
+
+The content probe now checks that its saved assistant message remains rendered after
+content actions in both phases. After reload it closes the production Design editor,
+then records the exact assistant message id, active Chat and a positive rectangle
+intersecting the viewport. This is geometric DOM evidence, not a general proof against
+ancestor clipping, transparency or occlusion. The native screenshot supplies separate
+visual evidence for the observed run.
+
+The main document's uncaught JavaScript errors, unhandled rejections and console.error
+calls are counted throughout the content phase. Their retained text is bounded at
+eight entries; a nonzero count fails even when text is capped. A single listener counts
+all main-document CSP violations during that phase, retaining at most 16. Only the two
+intentional img-src probe targets are allowed, both must occur, and a count/list mismatch
+fails. Startup, iframe errors and non-bubbling element resource errors remain outside
+this observation. These assertions do not broaden the existing filesystem or network
+isolation claims.
+
+The external observer independently checks these observations. The explicit `--content`
+invocation also rejects a missing, storage or send scenario, so the wrong build cannot
+pass the content gate. The no-flag observer remains available for other smoke scenarios.
+The failure summary now names the content stage when content work fails.
+
+Two fresh runs passed with explicit `expectedScenario: "content"` in
+`/private/tmp/milagre-native-fixture-observer-Hix1TF/observer.json`. All four phases record
+Chat 1 / assistant 11, a 560 by 50.390625 rectangle intersecting the viewport, zero observed
+errors and exactly the two intended CSP refusals. Both retain Design version 2 after
+reload with zero repeated sends or saves. Stores are nonpersistent, exits are zero with
+empty stderr, owner Stop and shell Exit cleanup succeed, and both generated roots remain
+absent through five seconds. The preference observation is no-change-observed for its
+two files only, unattributed, with no isolation claim.
+
+The first strengthened run `Q5709f` also passed; its run-one after-reload PNG was viewed
+by root and an independent reviewer and shows the reply beside the edited Design. The
+final Hix1TF run adds the independent scenario assertion using the same compiled native
+probe. These are synthetic fixture test images, not real-provider PR screenshots.
+
+Root validation: 53 shell-target tests and 38 fixture-target tests pass with one ignored
+case in each; nine helper/reduced-motion tests pass, including eleven rejected content
+evidence mutations and wrong-scenario refusals. Strict content-feature all-target Clippy,
+targeted JavaScript lint/format and rebuilt renderer/shell/daemon pass. Logs use
+`/tmp/milagre-content-health-{tests,clippy,helper,renderer,build,daemon,native-final}.log`.
+Independent source and artifact review found no P1/P2 and closed the scenario-gate P3.
+No production components changed, no full persona fleet ran, and no fixture was installed.

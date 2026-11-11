@@ -3,7 +3,14 @@ import test from "node:test";
 import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installedApplications, preferenceObservation, preferenceFingerprint, fixtureFailure } from "./fixture-observation.mjs";
+import {
+  installedApplications,
+  preferenceObservation,
+  preferenceFingerprint,
+  fixtureFailure,
+  assertContentHealth,
+  assertFixtureScenario,
+} from "./fixture-observation.mjs";
 
 test("live app metadata includes only installed executable identities, not fixture or command arguments", () => {
   const result = installedApplications(`16468 1 Tue Nov 10 23:32:28 2026 /Users/test/Applications/Milagre Rust.app/Contents/MacOS/milagre-rust
@@ -91,4 +98,101 @@ test("preference read detects a real file changing between its two metadata chec
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("content evidence rejects lost transcripts, renderer errors and unexpected or truncated CSP reports", () => {
+  const valid = {
+    rendererErrorCount: 0,
+    rendererErrors: [],
+    violationCount: 2,
+    violations: [
+      { directive: "img-src", blockedURI: "https://fixture.invalid/offline-probe.png" },
+      { directive: "img-src", blockedURI: "milagre-media://file/?path=/fixture-csp-canary.png" },
+    ],
+    retainedChat: { messageId: 11, activeChatId: "1", replyVisible: true, inViewport: true, width: 400, height: 50 },
+  };
+  const transcript = { sessionId: 1, assistantId: 11 };
+  assert.doesNotThrow(() => assertContentHealth(valid, transcript));
+  const cases = [
+    [
+      "reply missing",
+      (value) => {
+        value.retainedChat.replyVisible = false;
+      },
+    ],
+    [
+      "wrong message",
+      (value) => {
+        value.retainedChat.messageId = 12;
+      },
+    ],
+    [
+      "wrong Chat",
+      (value) => {
+        value.retainedChat.activeChatId = "2";
+      },
+    ],
+    [
+      "offscreen",
+      (value) => {
+        value.retainedChat.inViewport = false;
+      },
+    ],
+    [
+      "empty area",
+      (value) => {
+        value.retainedChat.width = 0;
+      },
+    ],
+    [
+      "error counter",
+      (value) => {
+        value.rendererErrorCount = 1;
+      },
+    ],
+    [
+      "recorded error",
+      (value) => {
+        value.rendererErrors.push("renderer failed");
+      },
+    ],
+    [
+      "truncated violations",
+      (value) => {
+        value.violationCount = 3;
+      },
+    ],
+    [
+      "wrong directive",
+      (value) => {
+        value.violations[0].directive = "connect-src";
+      },
+    ],
+    [
+      "unexpected target",
+      (value) => {
+        value.violations[0].blockedURI = "https://unexpected.invalid";
+      },
+    ],
+    [
+      "missing probe",
+      (value) => {
+        value.violations[1] = value.violations[0];
+      },
+    ],
+  ];
+  for (const [name, mutate] of cases) {
+    const value = structuredClone(valid);
+    mutate(value);
+    assert.throws(() => assertContentHealth(value, transcript), { name: "AssertionError" }, name);
+  }
+  assert.equal(
+    fixtureFailure({ report: { stages: [{ passed: false, content: { stage: "retained-chat-after-content" }, send: { stage: "complete" } }] } }).stage,
+    "retained-chat-after-content",
+  );
+});
+
+test("an explicitly requested content run cannot pass a storage or send build", () => {
+  assert.doesNotThrow(() => assertFixtureScenario({ scenario: "content" }, "content"));
+  for (const scenario of [undefined, "storage", "send"]) assert.throws(() => assertFixtureScenario({ scenario }, "content"), /wrong smoke scenario/);
 });

@@ -10,11 +10,24 @@ window.__fixtureContentPhase = async (context, { bounded, wait }) => {
   });
   const bridge = window.milagre;
   trace.rendererErrors = [];
+  trace.rendererErrorCount = 0;
+  const recordError = (value) => {
+    trace.rendererErrorCount += 1;
+    if (trace.rendererErrors.length < 8) trace.rendererErrors.push(String(value).slice(0, 2500));
+  };
   const onError = (event) => {
-    if (trace.rendererErrors.length < 8) trace.rendererErrors.push(String(event.error?.stack ?? event.message ?? event.reason).slice(0, 2500));
+    recordError(event.error?.stack ?? event.message ?? event.reason);
+  };
+  trace.violations = [];
+  trace.violationCount = 0;
+  const onViolation = (event) => {
+    trace.violationCount += 1;
+    if (trace.violations.length < 16)
+      trace.violations.push({ directive: event.effectiveDirective, violated: event.violatedDirective, blockedURI: event.blockedURI });
   };
   window.addEventListener("error", onError);
   window.addEventListener("unhandledrejection", onError);
+  document.addEventListener("securitypolicyviolation", onViolation);
   trace.transitions = [];
   let lastTransition;
   const mutations = new MutationObserver(() => {
@@ -33,13 +46,7 @@ window.__fixtureContentPhase = async (context, { bounded, wait }) => {
   mutations.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
   const previousError = console.error;
   console.error = (...args) => {
-    if (trace.rendererErrors.length < 8)
-      trace.rendererErrors.push(
-        args
-          .map((value) => String(value?.stack ?? value))
-          .join(" ")
-          .slice(0, 2500),
-      );
+    recordError(args.map((value) => String(value?.stack ?? value)).join(" "));
     previousError.apply(console, args);
   };
   const previousApply = bridge.artifacts.apply;
@@ -62,7 +69,6 @@ window.__fixtureContentPhase = async (context, { bounded, wait }) => {
     const native = (method, args) => bounded(window.__TAURI__.core.invoke("native_call", { method, args }), method);
     const get = (id) => bounded(bridge.artifacts.get({ chatId, id }), `artifact ${id}`);
     trace.policies = [...document.querySelectorAll('meta[http-equiv="Content-Security-Policy"]')].map((node) => node.content);
-    trace.violations = [];
     const blockedImage = async (src) => {
       trace.stage = `csp ${src}`;
       let observed;
@@ -71,8 +77,6 @@ window.__fixtureContentPhase = async (context, { bounded, wait }) => {
         finish = resolve;
       });
       const listener = (event) => {
-        if (trace.violations.length < 8)
-          trace.violations.push({ directive: event.effectiveDirective, violated: event.violatedDirective, blockedURI: event.blockedURI });
         if (event.effectiveDirective === "img-src" && src.startsWith(event.blockedURI)) {
           observed = { directive: event.effectiveDirective, blockedURI: event.blockedURI };
           finish();
@@ -247,7 +251,33 @@ window.__fixtureContentPhase = async (context, { bounded, wait }) => {
       trace.retainedPreview = await native("fixture:preview-check", [retained.src]);
       if (trace.retainedPreview.status !== 200) throw Error("Preview was already revoked before reload");
       localStorage.setItem("__fixturePreviewUrl", retained.src);
+    } else {
+      button("Close design editor").click();
+      await wait(() => !document.querySelector('[data-slot="design-editor"]'), "reloaded editor closed");
     }
+    trace.stage = "retained-chat-after-content";
+    trace.retainedChat = await wait(() => {
+      const id = window.__fixtureSendTrace?.transcript?.assistantId;
+      const message = document.getElementById(`message-${id}`);
+      if (!message?.innerText.includes("Scripted isolated reply")) return null;
+      const rectangle = message.getBoundingClientRect();
+      const style = getComputedStyle(message);
+      const activeChatId = document.querySelector('[data-chat-id] button[aria-current="page"]')?.closest("[data-chat-id]")?.dataset.chatId;
+      const inViewport =
+        rectangle.width > 0 &&
+        rectangle.height > 0 &&
+        rectangle.right > 0 &&
+        rectangle.bottom > 0 &&
+        rectangle.left < innerWidth &&
+        rectangle.top < innerHeight;
+      if (activeChatId !== "1" || !inViewport || style.display === "none" || style.visibility !== "visible") return null;
+      return { messageId: id, activeChatId, replyVisible: true, width: rectangle.width, height: rectangle.height, inViewport };
+    }, "saved reply remains rendered after content actions");
+    trace.healthScope = "main document during the content phase; expected image CSP probes only";
+    if (trace.rendererErrorCount !== 0) throw Error("Renderer errors occurred during content actions");
+    const allowed = new Set(["https://fixture.invalid/offline-probe.png", "milagre-media://file/?path=/fixture-csp-canary.png"]);
+    if (trace.violationCount !== trace.violations.length || trace.violations.some((value) => value.directive !== "img-src" || !allowed.has(value.blockedURI)))
+      throw Error("Unexpected or truncated main-document CSP violation evidence");
     trace.stage = "complete";
     return trace;
   } finally {
@@ -256,6 +286,7 @@ window.__fixtureContentPhase = async (context, { bounded, wait }) => {
     mutations.disconnect();
     window.removeEventListener("error", onError);
     window.removeEventListener("unhandledrejection", onError);
+    document.removeEventListener("securitypolicyviolation", onViolation);
     bridge.artifacts.apply = previousApply;
   }
 };

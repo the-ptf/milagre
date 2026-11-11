@@ -67,9 +67,37 @@ export function fixtureFailure(entry) {
   return {
     reason: String(reason).slice(0, 512),
     phase: failed?.phase ?? null,
-    stage: failed?.send?.stage ?? failed?.nativeDocumentProbe?.sendProbe?.stage ?? null,
+    stage: failed?.content?.stage ?? failed?.send?.stage ?? failed?.nativeDocumentProbe?.sendProbe?.stage ?? null,
     exitCode: entry.status?.code ?? null,
     signal: entry.status?.signal ?? null,
     timedOut: entry.timedOut === true,
   };
+}
+
+// Independent assertions over the native content probe's bounded observations.
+// These cover the main document during content actions, not all frames or startup.
+export function assertContentHealth(content, transcript) {
+  assert.equal(content.rendererErrorCount, 0, "Content phase renderer error count");
+  assert.deepEqual(content.rendererErrors, [], "Content phase renderer errors");
+  assert.ok(Array.isArray(content.violations), "Main-document CSP observations missing");
+  assert.equal(content.violationCount, content.violations.length, "CSP observations truncated");
+  assert.ok(content.violationCount >= 2 && content.violationCount <= 16, "CSP observation count");
+  const expected = new Set(["https://fixture.invalid/offline-probe.png", "milagre-media://file/?path=/fixture-csp-canary.png"]);
+  const seen = new Set();
+  for (const violation of content.violations) {
+    assert.equal(violation.directive, "img-src", "Unexpected main-document CSP directive");
+    assert.ok(expected.has(violation.blockedURI), "Unexpected main-document CSP target");
+    seen.add(violation.blockedURI);
+  }
+  assert.deepEqual(seen, expected, "Both intentional image probes must be observed");
+  assert.equal(content.retainedChat?.replyVisible, true, "Saved reply missing after content actions");
+  assert.equal(content.retainedChat.messageId, transcript.assistantId, "Wrong retained assistant message");
+  assert.equal(content.retainedChat.activeChatId, String(transcript.sessionId), "Wrong active Chat after content actions");
+  assert.equal(content.retainedChat.inViewport, true, "Saved reply is outside the viewport");
+  for (const dimension of [content.retainedChat.width, content.retainedChat.height])
+    assert.ok(Number.isFinite(dimension) && dimension > 0, "Saved reply has no rendered area");
+}
+
+export function assertFixtureScenario(report, expected) {
+  if (expected !== null) assert.equal(report.scenario, expected, "Fixture was built for the wrong smoke scenario");
 }

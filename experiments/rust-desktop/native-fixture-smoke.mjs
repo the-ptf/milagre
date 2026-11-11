@@ -1,6 +1,13 @@
 // Fixed isolated binaries only. This never installs or discovers a live daemon.
 import assert from "node:assert/strict";
-import { installedApplications, preferenceObservation, preferenceFingerprint, fixtureFailure } from "./fixture-observation.mjs";
+import {
+  installedApplications,
+  preferenceObservation,
+  preferenceFingerprint,
+  fixtureFailure,
+  assertContentHealth,
+  assertFixtureScenario,
+} from "./fixture-observation.mjs";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
@@ -9,7 +16,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as pause } from "node:timers/promises";
 
-assert.equal(process.argv.length, 2, "This observer accepts no inputs");
+assert.ok(
+  process.argv.length === 2 || (process.argv.length === 3 && process.argv[2] === "--content"),
+  "Only the fixed --content scenario assertion is accepted",
+);
+const expectedScenario = process.argv[2] === "--content" ? "content" : null;
 const source = dirname(fileURLToPath(import.meta.url));
 const temp = await realpath("/tmp");
 const root = await mkdtemp(join(temp, "milagre-native-fixture-observer-"));
@@ -57,6 +68,7 @@ const binaries = await Promise.all(
 const summary = {
   schemaVersion: 2,
   source: "isolated background WKWebView fixture, scripted Rust owner",
+  expectedScenario,
   root,
   binaries,
   liveApplicationsBefore: liveApplications(),
@@ -155,6 +167,7 @@ async function run(index) {
     throw Error(`Fixture run ${index} failed: ${entry.failure.reason}. Evidence ${root}`);
   }
   await save();
+  assertFixtureScenario(entry.report, expectedScenario);
   assert.equal(overflow, false);
   assert.equal(entry.report.passed, true);
   assert.equal(entry.report.isPersistent, false);
@@ -187,7 +200,8 @@ async function run(index) {
     assert.equal(first.design.saveClicks, 1);
     assert.equal(second.design.saveClicks, 0);
     assert.deepEqual(first.design.saved, second.design.saved);
-    for (const content of [first, second]) {
+    for (const [phaseIndex, content] of [first, second].entries()) {
+      assertContentHealth(content, entry.report.stages[phaseIndex].send.transcript);
       assert.equal(content.csp.positiveInlineImage, true);
       assert.equal(content.csp.externalImage.directive, "img-src");
       assert.equal(content.csp.absoluteMediaScheme.directive, "img-src");
