@@ -103,10 +103,11 @@ fn settings_nav_switches_between_simple_sections_and_placeholders(cx: &mut TestA
     assert_eq!(settings.read_with(cx, |s, _| s.selected_section_id()), SettingsSectionId::General);
     assert!(cx.debug_bounds("settings-section-general").is_some());
 
-    // Appearance is a WP-40 placeholder.
+    // Appearance draws its full page (WP-40).
     click(cx, "settings-nav-appearance");
     assert_eq!(settings.read_with(cx, |s, _| s.selected_section_id()), SettingsSectionId::Appearance);
-    assert!(cx.debug_bounds("settings-placeholder-WP-40").is_some());
+    assert!(cx.debug_bounds("settings-section-appearance").is_some());
+    assert!(cx.debug_bounds("settings-placeholder-WP-40").is_none());
 
     // Voice and Keybindings are WP-41 placeholders.
     click(cx, "settings-nav-voice");

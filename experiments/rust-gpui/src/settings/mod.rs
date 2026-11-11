@@ -8,6 +8,7 @@
 //! entries, and clicking or pressing `Enter` on a result opens its section and highlights the matching row.
 
 pub mod about;
+pub mod appearance;
 pub mod browser;
 pub mod chat;
 pub mod church;
@@ -49,6 +50,7 @@ pub fn init(cx: &mut App) {
     if !cx.has_global::<SettingsStore>() {
         cx.set_global(SettingsStore::default());
     }
+    appearance::init(cx);
     cx.bind_keys([KeyBinding::new("cmd-,", ToggleSettings, None), KeyBinding::new("cmd-f", FindInSettings, Some("SettingsModal"))]);
 }
 
@@ -67,6 +69,7 @@ pub struct SettingsModal {
     this_mac_name: String,
     computers: Vec<(String, String, bool)>,
     projects: Vec<(String, String)>,
+    appearance: Entity<appearance::AppearanceView>,
 }
 
 impl SettingsModal {
@@ -88,6 +91,11 @@ impl SettingsModal {
             None => (false, SelectedSection::Section(SettingsSectionId::General)),
         };
 
+        let body_scroll = ScrollHandle::new();
+        // Snapshot aid: `MILAGRE_GPUI_SETTINGS_SCROLL=<px>` opens with the body scrolled down.
+        if let Some(px_down) = std::env::var("MILAGRE_GPUI_SETTINGS_SCROLL").ok().and_then(|v| v.parse::<f32>().ok()) {
+            body_scroll.set_offset(gpui::point(px(0.0), px(-px_down)));
+        }
         Self {
             open,
             selected,
@@ -95,14 +103,19 @@ impl SettingsModal {
             focus: cx.focus_handle(),
             nav_scroll: ScrollHandle::new(),
             search_scroll: ScrollHandle::new(),
-            body_scroll: ScrollHandle::new(),
+            body_scroll,
             search_input: None,
             search_sub: None,
             active_hit: 0,
             this_mac_name,
             computers,
             projects,
+            appearance: cx.new(appearance::AppearanceView::new),
         }
+    }
+
+    pub fn appearance_view(&self) -> &Entity<appearance::AppearanceView> {
+        &self.appearance
     }
 
     pub fn is_open(&self) -> bool {
@@ -353,7 +366,11 @@ impl Render for SettingsModal {
             on_clear_search,
         };
 
-        let section_body = render_section_body(&selected, highlighted.as_deref(), &this_mac_name, &computers, cx);
+        let appearance_view = self.appearance.clone();
+        if selected == SelectedSection::Section(SettingsSectionId::Appearance) {
+            appearance_view.update(cx, |v, cx| v.set_found(highlighted.as_deref(), cx));
+        }
+        let section_body = render_section_body(&selected, highlighted.as_deref(), &this_mac_name, &computers, &appearance_view, cx);
 
         let theme = *cx.theme();
         let close_entity = entity.clone();
@@ -429,9 +446,11 @@ fn render_section_body(
     highlighted: Option<&str>,
     this_mac_name: &str,
     computers: &[(String, String, bool)],
+    appearance_view: &Entity<appearance::AppearanceView>,
     cx: &App,
 ) -> AnyElement {
     match selected {
+        SelectedSection::Section(SettingsSectionId::Appearance) => appearance_view.clone().into_any_element(),
         SelectedSection::Section(SettingsSectionId::General) => general::render_general(highlighted, cx).into_any_element(),
         SelectedSection::Section(SettingsSectionId::Chat) => chat::render_chat(highlighted, cx).into_any_element(),
         SelectedSection::Section(SettingsSectionId::Notifications) => {

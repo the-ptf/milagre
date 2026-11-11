@@ -40,8 +40,14 @@ pub fn init(cx: &mut App) {
 /// colours, fonts and radii) and refreshes every window.
 pub fn apply(cx: &mut App) {
     let theme = *cx.global::<Theme>();
-    let (light, dark) = (Rc::new(config(&Theme::light())), Rc::new(config(&Theme::dark())));
-    let active = if theme.appearance == Appearance::Dark { dark.clone() } else { light.clone() };
+    // The active slot wears the theme actually set (any of Settings > Appearance's themes); the other scheme's
+    // slot keeps Milagre Blue until that scheme is chosen.
+    let current = Rc::new(config(&theme));
+    let (light, dark) = match theme.appearance {
+        Appearance::Light => (current.clone(), Rc::new(config(&Theme::dark()))),
+        Appearance::Dark => (Rc::new(config(&Theme::light())), current.clone()),
+    };
+    let active = current;
     gpui_component::Theme::update(cx, move |component| {
         component.light_theme = light;
         component.dark_theme = dark;

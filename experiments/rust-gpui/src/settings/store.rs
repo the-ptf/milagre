@@ -446,6 +446,9 @@ pub struct SettingsStore {
     pub delegate_to_other_computers: bool,
     pub device_notes: bool,
 
+    // Appearance (WP-40)
+    pub appearance: super::appearance::AppearanceState,
+
     // About
     pub release_channel: ReleaseChannel,
     pub auto_update: bool,
@@ -505,6 +508,7 @@ impl Default for SettingsStore {
             device_notes: false,
 
             // About
+            appearance: super::appearance::AppearanceState::default(),
             release_channel: ReleaseChannel::Stable,
             auto_update: false,
             update_checks: 0,
