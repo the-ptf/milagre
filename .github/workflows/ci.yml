@@ -92,7 +92,13 @@ jobs:
           # Node built-ins plus the rpm and repository tools; this was the Linux leg of native-tests.
           - name: Test real Linux repository signing
             run: |-
-              sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm createrepo-c gnupg
+              # The hosted image's Azure mirror can fail DNS on successive runners. Keep its official Ubuntu fallbacks.
+              if [ -f /etc/apt/apt-mirrors.txt ]; then
+                sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+              fi
+              APT_OPTS=(-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+              sudo apt-get "${APT_OPTS[@]}" update
+              sudo apt-get "${APT_OPTS[@]}" install -y --no-install-recommends rpm createrepo-c gnupg
               export GNUPGHOME="$RUNNER_TEMP/milagre-test-key"
               mkdir -m 700 "$GNUPGHOME"
               gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Milagre CI fixture' rsa3072 sign 1d
