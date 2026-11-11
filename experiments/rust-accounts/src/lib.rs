@@ -1,11 +1,22 @@
-//! Account selection and explicit environment preparation plans. No filesystem,
-//! credential, process, login or profile writes occur in this crate.
+//! Account selection, environment plans and Unix isolated-copy metadata persistence.
+//! No live profile, credential, process or login operations.
+#[cfg(unix)]
+mod service;
+#[cfg(unix)]
+mod store;
 use serde_json::{json, Map, Value};
+#[cfg(unix)]
+pub use service::{
+    AccountEvent, AccountService, Availability, IdentityState, Observation, PendingCreation,
+    Readiness,
+};
 use std::{
     collections::BTreeMap,
     fmt,
     path::{Component, Path, PathBuf},
 };
+#[cfg(unix)]
+pub use store::AccountSandbox;
 
 pub const PROVIDERS: [&str; 4] = ["codex", "claude", "antigravity", "kiro"];
 pub const READ_ERROR: &str =

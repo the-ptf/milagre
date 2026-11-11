@@ -10,3 +10,6 @@ description = "Pure account selection and environment planning for the isolated 
 [dependencies]
 serde_json = { version = "1", features = ["preserve_order"] }
 
+uuid = { version = "1", features = ["v4"] }
+libc = "0.2"
+tempfile = "3"

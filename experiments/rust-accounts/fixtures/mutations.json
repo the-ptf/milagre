@@ -1,0 +1,2133 @@
+[
+  {
+    "name": "saved",
+    "seed": "{\"extra\":\"dropped on mutation\",\"accounts\":[{\"id\":\"00000001-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\",\"extra\":\"dropped\"},{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000001-1111-4111-8111-111111111111\",\"future\":\"ignored\"},\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}}}",
+    "operations": [
+      {
+        "call": {
+          "method": "snapshot"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "00000001-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000001-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000002-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"extra\":\"dropped on mutation\",\"accounts\":[{\"id\":\"00000001-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\",\"extra\":\"dropped\"},{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000001-1111-4111-8111-111111111111\",\"future\":\"ignored\"},\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "select",
+          "provider": "codex",
+          "id": "00000001-1111-4111-8111-111111111111",
+          "state": "unknown"
+        },
+        "newId": null,
+        "result": {
+          "error": "Sign in to this account, then refresh before using it."
+        },
+        "metadata": "{\"extra\":\"dropped on mutation\",\"accounts\":[{\"id\":\"00000001-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\",\"extra\":\"dropped\"},{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000001-1111-4111-8111-111111111111\",\"future\":\"ignored\"},\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "select",
+          "provider": "codex",
+          "id": "00000001-1111-4111-8111-111111111111",
+          "state": "ready"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "00000001-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000001-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000002-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000001-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"},{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000001-1111-4111-8111-111111111111\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["codex"],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "assign",
+          "scope": "/new",
+          "provider": "claude",
+          "id": "00000002-1111-4111-8111-111111111111",
+          "state": "signed-out"
+        },
+        "newId": null,
+        "result": {
+          "error": "Sign in to this account, then refresh before using it."
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000001-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"},{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000001-1111-4111-8111-111111111111\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "assign",
+          "scope": "/new",
+          "provider": "claude",
+          "id": "00000002-1111-4111-8111-111111111111",
+          "state": "ready"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "accountId": null,
+                "effectiveId": "00000001-1111-4111-8111-111111111111",
+                "defaultId": "00000001-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000001-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "accountId": "00000002-1111-4111-8111-111111111111",
+                "effectiveId": "00000002-1111-4111-8111-111111111111",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000002-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ],
+            "scopeKey": "/new"
+          }
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"},\"/new\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000001-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"},{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000001-1111-4111-8111-111111111111\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["claude"],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "assign",
+          "scope": "/new",
+          "provider": "codex",
+          "id": "default",
+          "state": "ready"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "accountId": "default",
+                "effectiveId": "default",
+                "defaultId": "00000001-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000001-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "accountId": "00000002-1111-4111-8111-111111111111",
+                "effectiveId": "00000002-1111-4111-8111-111111111111",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000002-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ],
+            "scopeKey": "/new"
+          }
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"},\"/new\":{\"claude\":\"00000002-1111-4111-8111-111111111111\",\"codex\":\"default\"}},\"accounts\":[{\"id\":\"00000001-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"},{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000001-1111-4111-8111-111111111111\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["codex"],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "assign",
+          "scope": "/new",
+          "provider": "claude",
+          "id": null
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "accountId": "default",
+                "effectiveId": "default",
+                "defaultId": "00000001-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000001-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000002-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ],
+            "scopeKey": "/new"
+          }
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"},\"/new\":{\"codex\":\"default\"}},\"accounts\":[{\"id\":\"00000001-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"},{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000001-1111-4111-8111-111111111111\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["claude"],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "assign",
+          "scope": "/new",
+          "provider": "codex",
+          "id": null
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "accountId": null,
+                "effectiveId": "00000001-1111-4111-8111-111111111111",
+                "defaultId": "00000001-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000001-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000002-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ],
+            "scopeKey": "/new"
+          }
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000001-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"},{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000001-1111-4111-8111-111111111111\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["codex"],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "assign",
+          "scope": "/keep",
+          "provider": "codex",
+          "id": "00000001-1111-4111-8111-111111111111",
+          "state": "ready"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "accountId": "00000001-1111-4111-8111-111111111111",
+                "effectiveId": "00000001-1111-4111-8111-111111111111",
+                "defaultId": "00000001-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000001-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000002-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ],
+            "scopeKey": "/keep"
+          }
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000001-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"},{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000001-1111-4111-8111-111111111111\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["codex"],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "remove",
+          "provider": "codex",
+          "id": "00000001-1111-4111-8111-111111111111"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000002-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["codex"],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "scope",
+          "scope": "/keep"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "accountId": "00000001-1111-4111-8111-111111111111",
+                "effectiveId": "00000001-1111-4111-8111-111111111111",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000001-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Removed account",
+                    "state": "error",
+                    "missing": true,
+                    "message": "This assigned account was removed. Choose another account or use the computer default."
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000002-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ],
+            "scopeKey": "/keep"
+          }
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "reopen"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000002-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "scope",
+          "scope": "/removed"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "accountId": "00000099-1111-4111-8111-111111111111",
+                "effectiveId": "00000099-1111-4111-8111-111111111111",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000002-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  },
+                  {
+                    "id": "00000099-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Removed account",
+                    "state": "error",
+                    "missing": true,
+                    "message": "This assigned account was removed. Choose another account or use the computer default."
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ],
+            "scopeKey": "/removed"
+          }
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "remove",
+          "provider": "claude",
+          "id": "default"
+        },
+        "newId": null,
+        "result": {
+          "error": "The connected CLI account cannot be removed here."
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "remove",
+          "provider": "claude",
+          "id": "00000099-1111-4111-8111-111111111111"
+        },
+        "newId": null,
+        "result": {
+          "error": "Account not found. Refresh and try again."
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "assign",
+          "scope": "../bad",
+          "provider": "claude",
+          "id": null
+        },
+        "newId": null,
+        "result": {
+          "error": "Choose a valid Project or Link."
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "assign",
+          "scope": "/a",
+          "provider": "unknown",
+          "id": null
+        },
+        "newId": null,
+        "result": {
+          "error": "Unknown account provider."
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "assign",
+          "scope": "/a",
+          "provider": "claude",
+          "id": "00000099-1111-4111-8111-111111111111"
+        },
+        "newId": null,
+        "result": {
+          "error": "Account not found. Refresh and try again."
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "select",
+          "provider": "unknown",
+          "id": "default"
+        },
+        "newId": null,
+        "result": {
+          "error": "Unknown account provider."
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "select",
+          "provider": "claude",
+          "id": "../../auth.json"
+        },
+        "newId": null,
+        "result": {
+          "error": "Account not found. Refresh and try again."
+        },
+        "metadata": "{\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      }
+    ]
+  },
+  {
+    "name": "created",
+    "seed": null,
+    "operations": [
+      {
+        "call": {
+          "method": "create",
+          "provider": "codex",
+          "label": "  Work  ",
+          "as": "one"
+        },
+        "newId": "00000050-1111-4111-8111-111111111111",
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000050-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{},\"accounts\":[{\"id\":\"00000050-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "select",
+          "provider": "codex",
+          "id": "one",
+          "state": "ready"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "00000050-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000050-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{},\"accounts\":[{\"id\":\"00000050-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"}],\"selected\":{\"codex\":\"00000050-1111-4111-8111-111111111111\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["codex"],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "assign",
+          "scope": "remote|/project",
+          "provider": "codex",
+          "id": "one",
+          "state": "ready"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "accountId": "00000050-1111-4111-8111-111111111111",
+                "effectiveId": "00000050-1111-4111-8111-111111111111",
+                "defaultId": "00000050-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000050-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ],
+            "scopeKey": "remote|/project"
+          }
+        },
+        "metadata": "{\"scopes\":{\"remote|/project\":{\"codex\":\"00000050-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000050-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"}],\"selected\":{\"codex\":\"00000050-1111-4111-8111-111111111111\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["codex"],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "create",
+          "provider": "claude",
+          "label": "﻿ Personal ",
+          "as": "two"
+        },
+        "newId": "00000051-1111-4111-8111-111111111111",
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "00000050-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000050-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000051-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{\"remote|/project\":{\"codex\":\"00000050-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000050-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"},{\"id\":\"00000051-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000050-1111-4111-8111-111111111111\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "select",
+          "provider": "claude",
+          "id": "two",
+          "state": "ready"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "00000050-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000050-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "00000051-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000051-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{\"remote|/project\":{\"codex\":\"00000050-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000050-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"},{\"id\":\"00000051-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000050-1111-4111-8111-111111111111\",\"claude\":\"00000051-1111-4111-8111-111111111111\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["claude"],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "assign",
+          "scope": "milagre-link:peer|11111111-1111-4111-8111-111111111111",
+          "provider": "claude",
+          "id": "two",
+          "state": "ready"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "accountId": null,
+                "effectiveId": "00000050-1111-4111-8111-111111111111",
+                "defaultId": "00000050-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000050-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Work"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "accountId": "00000051-1111-4111-8111-111111111111",
+                "effectiveId": "00000051-1111-4111-8111-111111111111",
+                "defaultId": "00000051-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000051-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ],
+            "scopeKey": "milagre-link:peer|11111111-1111-4111-8111-111111111111"
+          }
+        },
+        "metadata": "{\"scopes\":{\"remote|/project\":{\"codex\":\"00000050-1111-4111-8111-111111111111\"},\"milagre-link:peer|11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000051-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000050-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Work\"},{\"id\":\"00000051-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"00000050-1111-4111-8111-111111111111\",\"claude\":\"00000051-1111-4111-8111-111111111111\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["claude"],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "remove",
+          "provider": "codex",
+          "id": "one"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "00000051-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000051-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{\"remote|/project\":{\"codex\":\"00000050-1111-4111-8111-111111111111\"},\"milagre-link:peer|11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000051-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000051-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"00000051-1111-4111-8111-111111111111\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["codex"],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "scope",
+          "scope": "remote|/project"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "accountId": "00000050-1111-4111-8111-111111111111",
+                "effectiveId": "00000050-1111-4111-8111-111111111111",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000050-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "Removed account",
+                    "state": "error",
+                    "missing": true,
+                    "message": "This assigned account was removed. Choose another account or use the computer default."
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "accountId": null,
+                "effectiveId": "00000051-1111-4111-8111-111111111111",
+                "defaultId": "00000051-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000051-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "accountId": null,
+                "effectiveId": "default",
+                "defaultId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ],
+            "scopeKey": "remote|/project"
+          }
+        },
+        "metadata": "{\"scopes\":{\"remote|/project\":{\"codex\":\"00000050-1111-4111-8111-111111111111\"},\"milagre-link:peer|11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000051-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000051-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"00000051-1111-4111-8111-111111111111\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "reopen"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "00000051-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000051-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{\"remote|/project\":{\"codex\":\"00000050-1111-4111-8111-111111111111\"},\"milagre-link:peer|11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000051-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000051-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"00000051-1111-4111-8111-111111111111\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "create",
+          "provider": "antigravity",
+          "label": "Cloud",
+          "as": "three"
+        },
+        "newId": "00000052-1111-4111-8111-111111111111",
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "00000051-1111-4111-8111-111111111111",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000051-1111-4111-8111-111111111111",
+                    "provider": "claude",
+                    "label": "Personal"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  },
+                  {
+                    "id": "00000052-1111-4111-8111-111111111111",
+                    "provider": "antigravity",
+                    "label": "Cloud"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{\"remote|/project\":{\"codex\":\"00000050-1111-4111-8111-111111111111\"},\"milagre-link:peer|11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000051-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000051-1111-4111-8111-111111111111\",\"provider\":\"claude\",\"label\":\"Personal\"},{\"id\":\"00000052-1111-4111-8111-111111111111\",\"provider\":\"antigravity\",\"label\":\"Cloud\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"00000051-1111-4111-8111-111111111111\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "remove",
+          "provider": "claude",
+          "id": "two"
+        },
+        "newId": null,
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  },
+                  {
+                    "id": "00000052-1111-4111-8111-111111111111",
+                    "provider": "antigravity",
+                    "label": "Cloud"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{\"remote|/project\":{\"codex\":\"00000050-1111-4111-8111-111111111111\"},\"milagre-link:peer|11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000051-1111-4111-8111-111111111111\"}},\"accounts\":[{\"id\":\"00000052-1111-4111-8111-111111111111\",\"provider\":\"antigravity\",\"label\":\"Cloud\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": ["claude"],
+        "mode": 384
+      }
+    ]
+  },
+  {
+    "name": "validation",
+    "seed": null,
+    "operations": [
+      {
+        "call": {
+          "method": "create",
+          "provider": "../codex",
+          "label": "x"
+        },
+        "newId": null,
+        "result": {
+          "error": "Unknown account provider."
+        },
+        "metadata": null,
+        "events": [],
+        "mode": null
+      },
+      {
+        "call": {
+          "method": "create",
+          "provider": "kiro",
+          "label": "x"
+        },
+        "newId": null,
+        "result": {
+          "error": "Kiro uses the account kiro-cli is signed in to. Run `kiro-cli login` in a terminal to sign in or switch, then refresh."
+        },
+        "metadata": null,
+        "events": [],
+        "mode": null
+      },
+      {
+        "call": {
+          "method": "create",
+          "provider": "codex",
+          "label": "",
+          "as": "label0"
+        },
+        "newId": null,
+        "result": {
+          "error": "Enter an account name of 1 to 80 characters."
+        },
+        "metadata": null,
+        "events": [],
+        "mode": null
+      },
+      {
+        "call": {
+          "method": "create",
+          "provider": "codex",
+          "label": "  ",
+          "as": "label1"
+        },
+        "newId": null,
+        "result": {
+          "error": "Enter an account name of 1 to 80 characters."
+        },
+        "metadata": null,
+        "events": [],
+        "mode": null
+      },
+      {
+        "call": {
+          "method": "create",
+          "provider": "codex",
+          "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "as": "label2"
+        },
+        "newId": null,
+        "result": {
+          "error": "Enter an account name of 1 to 80 characters."
+        },
+        "metadata": null,
+        "events": [],
+        "mode": null
+      },
+      {
+        "call": {
+          "method": "create",
+          "provider": "codex",
+          "label": "💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫",
+          "as": "label3"
+        },
+        "newId": null,
+        "result": {
+          "error": "Enter an account name of 1 to 80 characters."
+        },
+        "metadata": null,
+        "events": [],
+        "mode": null
+      },
+      {
+        "call": {
+          "method": "create",
+          "provider": "codex",
+          "label": "",
+          "as": "label4"
+        },
+        "newId": "00000050-1111-4111-8111-111111111111",
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000050-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": ""
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{},\"accounts\":[{\"id\":\"00000050-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "create",
+          "provider": "codex",
+          "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "as": "label5"
+        },
+        "newId": "00000051-1111-4111-8111-111111111111",
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000050-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": ""
+                  },
+                  {
+                    "id": "00000051-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{},\"accounts\":[{\"id\":\"00000050-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"\"},{\"id\":\"00000051-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "create",
+          "provider": "codex",
+          "label": "💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫",
+          "as": "label6"
+        },
+        "newId": "00000052-1111-4111-8111-111111111111",
+        "result": {
+          "ok": {
+            "providers": [
+              {
+                "provider": "codex",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "codex",
+                    "label": "Connected CLI account"
+                  },
+                  {
+                    "id": "00000050-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": ""
+                  },
+                  {
+                    "id": "00000051-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  },
+                  {
+                    "id": "00000052-1111-4111-8111-111111111111",
+                    "provider": "codex",
+                    "label": "💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫"
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "claude",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              },
+              {
+                "provider": "antigravity",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "antigravity",
+                    "label": "Default account"
+                  }
+                ]
+              },
+              {
+                "provider": "kiro",
+                "selectedId": "default",
+                "accounts": [
+                  {
+                    "id": "default",
+                    "provider": "kiro",
+                    "label": "Connected CLI account"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": "{\"scopes\":{},\"accounts\":[{\"id\":\"00000050-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"\"},{\"id\":\"00000051-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},{\"id\":\"00000052-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      },
+      {
+        "call": {
+          "method": "create",
+          "provider": "claude",
+          "label": "Missing CLI",
+          "available": false
+        },
+        "newId": null,
+        "result": {
+          "error": "Install the provider CLI first."
+        },
+        "metadata": "{\"scopes\":{},\"accounts\":[{\"id\":\"00000050-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"\"},{\"id\":\"00000051-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},{\"id\":\"00000052-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫💫\"}],\"selected\":{\"codex\":\"default\",\"claude\":\"default\",\"antigravity\":\"default\",\"kiro\":\"default\"}}",
+        "events": [],
+        "mode": 384
+      }
+    ]
+  },
+  {
+    "name": "limit",
+    "seed": "{\"accounts\":[{\"id\":\"00000001-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 0\"},{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 1\"},{\"id\":\"00000003-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 2\"},{\"id\":\"00000004-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 3\"},{\"id\":\"00000005-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 4\"},{\"id\":\"00000006-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 5\"},{\"id\":\"00000007-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 6\"},{\"id\":\"00000008-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 7\"},{\"id\":\"00000009-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 8\"},{\"id\":\"00000010-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 9\"},{\"id\":\"00000011-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 10\"},{\"id\":\"00000012-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 11\"},{\"id\":\"00000013-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 12\"},{\"id\":\"00000014-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 13\"},{\"id\":\"00000015-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 14\"},{\"id\":\"00000016-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 15\"},{\"id\":\"00000017-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 16\"},{\"id\":\"00000018-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 17\"},{\"id\":\"00000019-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 18\"},{\"id\":\"00000020-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 19\"}],\"selected\":{}}",
+    "operations": [
+      {
+        "call": {
+          "method": "create",
+          "provider": "codex",
+          "label": "too many"
+        },
+        "newId": null,
+        "result": {
+          "error": "You can save up to 20 accounts."
+        },
+        "metadata": "{\"accounts\":[{\"id\":\"00000001-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 0\"},{\"id\":\"00000002-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 1\"},{\"id\":\"00000003-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 2\"},{\"id\":\"00000004-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 3\"},{\"id\":\"00000005-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 4\"},{\"id\":\"00000006-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 5\"},{\"id\":\"00000007-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 6\"},{\"id\":\"00000008-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 7\"},{\"id\":\"00000009-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 8\"},{\"id\":\"00000010-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 9\"},{\"id\":\"00000011-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 10\"},{\"id\":\"00000012-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 11\"},{\"id\":\"00000013-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 12\"},{\"id\":\"00000014-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 13\"},{\"id\":\"00000015-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 14\"},{\"id\":\"00000016-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 15\"},{\"id\":\"00000017-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 16\"},{\"id\":\"00000018-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 17\"},{\"id\":\"00000019-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 18\"},{\"id\":\"00000020-1111-4111-8111-111111111111\",\"provider\":\"codex\",\"label\":\"Account 19\"}],\"selected\":{}}",
+        "events": [],
+        "mode": 384
+      }
+    ]
+  },
+  {
+    "name": "bad-json",
+    "seed": "{",
+    "operations": [],
+    "error": "Could not read saved accounts. Restore accounts/accounts.json before switching accounts."
+  },
+  {
+    "name": "bad-id",
+    "seed": "{\"extra\":\"dropped on mutation\",\"accounts\":[{\"id\":\"../x\",\"provider\":\"codex\",\"label\":\"x\"}],\"selected\":{\"codex\":\"00000001-1111-4111-8111-111111111111\",\"future\":\"ignored\"},\"scopes\":{\"/keep\":{\"codex\":\"00000001-1111-4111-8111-111111111111\"},\"/removed\":{\"claude\":\"00000099-1111-4111-8111-111111111111\"},\"milagre-link:11111111-1111-4111-8111-111111111111\":{\"claude\":\"00000002-1111-4111-8111-111111111111\"}}}",
+    "operations": [],
+    "error": "Could not read saved accounts. Restore accounts/accounts.json before switching accounts."
+  }
+]
