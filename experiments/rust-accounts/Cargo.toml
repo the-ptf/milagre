@@ -15,3 +15,6 @@ libc = "0.2"
 tempfile = "3"
 regex = "1"
 ryu-js = "1.0.3"
+
+serde = { version = "1", features = ["derive"] }
+blake3 = "1"

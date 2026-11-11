@@ -1,4 +1,4 @@
-//! Metadata-only service. Observations are trusted owner inputs, never renderer claims.
+//! Isolated metadata and synthetic profile service. Observations are trusted owner inputs, never renderer claims.
 use crate::{store::Writer, AccountError, AccountSandbox, Accounts, Result, Selection};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -65,7 +65,7 @@ pub struct AccountEvent {
     pub provider: String,
     pub generation: u64,
 }
-/// This is explicitly not Node's completed `accounts:add` response. Profile setup and login are pending.
+/// This is not Node's completed `accounts:add` response. Login remains pending; profile status is separate.
 #[derive(Debug, Clone)]
 pub struct PendingCreation {
     owner: Uuid,
@@ -246,14 +246,14 @@ impl AccountService {
         }
         Ok(())
     }
-    /// Metadata checkpoint only. Real `add` also prepares profile/config/history and starts login.
+    /// Validate and allocate metadata without writing it or starting any provider.
     /// `availability` is trusted owner input; this service never discovers or launches a CLI.
-    pub fn create(
-        &mut self,
+    fn new_account(
+        &self,
         provider: &str,
         label: &str,
         availability: Availability,
-    ) -> Result<PendingCreation> {
+    ) -> Result<Value> {
         self.active()?;
         crate::provider_check(provider)?;
         if provider == "kiro" {
@@ -270,12 +270,15 @@ impl AccountService {
         {
             return Err(AccountError("Finish or cancel the current sign-in first."));
         }
-        if self.accounts.saved()["accounts"]
+        let saved = self.accounts.saved()["accounts"]
             .as_array()
-            .ok_or(AccountError(crate::READ_ERROR))?
-            .len()
-            >= 20
-        {
+            .ok_or(AccountError(crate::READ_ERROR))?;
+        let reserved = self
+            .recoverable_creations()?
+            .iter()
+            .filter(|pending| !saved.iter().any(|a| a["id"] == pending.account["id"]))
+            .count();
+        if saved.len() + reserved >= 20 {
             return Err(AccountError("You can save up to 20 accounts."));
         }
         if matches!(availability, Availability::Missing) {
@@ -291,6 +294,20 @@ impl AccountService {
             return Err(AccountError("Could not allocate a unique account ID."));
         }
         let account = json!({"id":id,"provider":provider,"label":label_trimmed});
+        Ok(account)
+    }
+    /// Metadata checkpoint only. Use create_prepared for journaled profile-before-metadata creation.
+    pub fn create(
+        &mut self,
+        provider: &str,
+        label: &str,
+        availability: Availability,
+    ) -> Result<PendingCreation> {
+        let account = self.new_account(provider, label, availability)?;
+        let id = account["id"]
+            .as_str()
+            .ok_or(AccountError(crate::READ_ERROR))?
+            .to_owned();
         let mut next = self.accounts.saved().clone();
         next["accounts"]
             .as_array_mut()
@@ -306,6 +323,139 @@ impl AccountService {
             snapshot: self.snapshot(),
         })
     }
+    /// Synthetic equivalent of Node's ordering: finish the private profile, then publish metadata.
+    /// A failed call is discoverable through recoverable_creations; no login is started.
+    pub fn create_prepared(
+        &mut self,
+        provider: &str,
+        label: &str,
+        availability: Availability,
+    ) -> Result<PendingCreation> {
+        let account = self.new_account(provider, label, availability)?;
+        let id = account["id"]
+            .as_str()
+            .ok_or(AccountError(crate::READ_ERROR))?;
+        self.writer
+            .as_ref()
+            .ok_or(AccountError(CLOSED))?
+            .prepare_profile_creation(provider, id, Some(&account))?;
+        self.publish_creation(provider, id)
+    }
+    /// A pending journal publication is distinct from a signed-in or selected account.
+    pub fn recoverable_creations(&self) -> Result<Vec<crate::RecoverableCreation>> {
+        self.active()?;
+        Ok(self
+            .writer
+            .as_ref()
+            .ok_or(AccountError(CLOSED))?
+            .creations()?
+            .into_iter()
+            .filter_map(|(_, entry)| {
+                let creation = entry.creation?;
+                (creation.publication == crate::journal::Publication::Pending).then_some(
+                    crate::RecoverableCreation {
+                        account: creation.account,
+                        preparation: if entry.complete {
+                            crate::PreparationStatus::Complete
+                        } else {
+                            crate::PreparationStatus::Pending
+                        },
+                    },
+                )
+            })
+            .collect())
+    }
+    pub fn recover_creation(&mut self, provider: &str, id: &str) -> Result<PendingCreation> {
+        self.active()?;
+        crate::provider_check(provider)?;
+        let key = format!("profile:{provider}:{id}");
+        let entry = self
+            .writer
+            .as_ref()
+            .ok_or(AccountError(CLOSED))?
+            .entry(&key)?
+            .ok_or(AccountError(crate::MISSING_ACCOUNT))?;
+        let creation = entry.creation.ok_or(AccountError(crate::MISSING_ACCOUNT))?;
+        if creation.publication == crate::journal::Publication::Removed {
+            return Err(AccountError(crate::MISSING_ACCOUNT));
+        }
+        self.writer
+            .as_ref()
+            .ok_or(AccountError(CLOSED))?
+            .run_plan(&key)?;
+        self.publish_creation(provider, id)
+    }
+    fn publish_creation(&mut self, provider: &str, id: &str) -> Result<PendingCreation> {
+        self.active()?;
+        let key = format!("profile:{provider}:{id}");
+        let entry = self
+            .writer
+            .as_ref()
+            .ok_or(AccountError(CLOSED))?
+            .entry(&key)?
+            .ok_or(AccountError(crate::MISSING_ACCOUNT))?;
+        if !entry.complete {
+            return Err(AccountError(
+                "Complete private profile preparation before publishing account metadata.",
+            ));
+        }
+        let creation = entry.creation.ok_or(AccountError(crate::MISSING_ACCOUNT))?;
+        if creation.publication == crate::journal::Publication::Removed {
+            return Err(AccountError(crate::MISSING_ACCOUNT));
+        }
+        let account = creation.account;
+        let existing = self.accounts.saved()["accounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["id"] == id);
+        match existing {
+            Some(existing) if *existing != account => {
+                return Err(AccountError(
+                    "Account metadata conflicts with its saved creation plan.",
+                ))
+            }
+            None if creation.publication == crate::journal::Publication::Published => {
+                return Err(AccountError(crate::MISSING_ACCOUNT))
+            }
+            None => {
+                if self.accounts.saved()["accounts"].as_array().unwrap().len() >= 20 {
+                    return Err(AccountError("You can save up to 20 accounts."));
+                }
+                crate::journal::checkpoint("creation-before-metadata")?;
+                let mut next = self.accounts.saved().clone();
+                next["accounts"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(account.clone());
+                self.persist(next, None)?;
+                crate::journal::checkpoint("creation-after-metadata")?;
+            }
+            _ => {}
+        }
+        if creation.publication != crate::journal::Publication::Published {
+            self.writer
+                .as_ref()
+                .ok_or(AccountError(CLOSED))?
+                .journal_change(|j| {
+                    j.entries
+                        .get_mut(&key)
+                        .and_then(|e| e.creation.as_mut())
+                        .ok_or(AccountError(crate::MISSING_ACCOUNT))?
+                        .publication = crate::journal::Publication::Published;
+                    Ok(())
+                })?;
+        }
+        crate::journal::checkpoint("creation-published")?;
+        Ok(PendingCreation {
+            owner: self.owner,
+            provider: provider.into(),
+            id: id.into(),
+            preparation: crate::PreparationStatus::Complete,
+            account,
+            snapshot: self.snapshot(),
+        })
+    }
     /// Seed a fresh copy from supplied synthetic text. Never discovers HOME or opens caller paths.
     pub fn seed_synthetic_sources(&mut self, sources: &crate::SyntheticSources) -> Result<()> {
         self.active()?;
@@ -313,6 +463,14 @@ impl AccountService {
             .as_ref()
             .ok_or(AccountError(CLOSED))?
             .seed_sources(sources)
+    }
+    /// Resume the authenticated saved synthetic source plan without resupplying source text.
+    pub fn resume_synthetic_sources(&mut self) -> Result<()> {
+        self.active()?;
+        self.writer
+            .as_ref()
+            .ok_or(AccountError(CLOSED))?
+            .run_plan("synthetic-sources")
     }
     /// Prepares this owner's newly created profile. It neither observes identity nor starts login.
     pub fn prepare_creation(&mut self, pending: &mut PendingCreation) -> Result<()> {
@@ -332,6 +490,39 @@ impl AccountService {
             .prepare_profile(&pending.provider, &pending.id)?;
         pending.preparation = crate::PreparationStatus::Complete;
         Ok(())
+    }
+    /// Mint a new owner-scoped ticket for an existing account in this fresh copy, then resume
+    /// its saved plan. Existing unjournaled profile directories are still refused.
+    pub fn resume_preparation(&mut self, provider: &str, id: &str) -> Result<PendingCreation> {
+        self.active()?;
+        if id == "default" {
+            return Err(AccountError("Use explicit default-profile preparation."));
+        }
+        let account = self.accounts.account(provider, id)?;
+        let mut pending = PendingCreation {
+            owner: self.owner,
+            provider: provider.into(),
+            id: id.into(),
+            preparation: crate::PreparationStatus::Pending,
+            account,
+            snapshot: self.snapshot(),
+        };
+        self.prepare_creation(&mut pending)?;
+        Ok(pending)
+    }
+    pub fn preparation_status(&self, provider: &str, id: &str) -> Result<crate::PreparationStatus> {
+        self.active()?;
+        self.accounts.account(provider, id)?;
+        let complete = self
+            .writer
+            .as_ref()
+            .ok_or(AccountError(CLOSED))?
+            .prepared(&format!("profile:{provider}:{id}"))?;
+        Ok(if complete {
+            crate::PreparationStatus::Complete
+        } else {
+            crate::PreparationStatus::Pending
+        })
     }
     pub fn prepare_synthetic_antigravity_default(&mut self) -> Result<()> {
         self.active()?;
@@ -419,6 +610,10 @@ impl AccountService {
         if next["selected"][provider] == id {
             next["selected"][provider] = json!("default");
         }
+        self.writer
+            .as_ref()
+            .ok_or(AccountError(CLOSED))?
+            .forget_creation(&format!("profile:{provider}:{id}"))?;
         // Scopes intentionally keep removed IDs, and no profile directory is touched.
         self.persist(next, Some(provider))?;
         self.identities.remove(&(provider.into(), id.into()));

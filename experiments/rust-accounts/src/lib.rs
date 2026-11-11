@@ -3,9 +3,11 @@
 #[cfg(unix)]
 mod config;
 #[cfg(unix)]
+mod journal;
+#[cfg(unix)]
 mod preparation;
 #[cfg(unix)]
-pub use preparation::{McpRefresh, PreparationStatus, SyntheticSources};
+pub use preparation::{McpRefresh, PreparationStatus, RecoverableCreation, SyntheticSources};
 #[cfg(unix)]
 mod service;
 #[cfg(unix)]

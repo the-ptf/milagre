@@ -1,9 +1,14 @@
 //! Synthetic profile preparation. No source path, HOME discovery, credential read or process.
-use crate::{config, store::Writer, AccountError, Result};
+use crate::{
+    config,
+    journal::{self, Step},
+    store::Writer,
+    AccountError, Result,
+};
 
 /// Text from a synthetic fixture, not paths to existing profiles. Debug never prints contents.
 /// Set skill flags only to create empty synthetic Gemini skill folders.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, serde::Serialize)]
 pub struct SyntheticSources {
     pub codex_config: Option<String>,
     pub codex_instructions: Option<String>,
@@ -24,6 +29,11 @@ pub enum PreparationStatus {
     Pending,
     Complete,
 }
+#[derive(Debug, Clone)]
+pub struct RecoverableCreation {
+    pub account: serde_json::Value,
+    pub preparation: PreparationStatus,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct McpRefresh {
     pub config_changed: bool,
@@ -40,12 +50,20 @@ impl Writer {
                 "Synthetic account sources have already been seeded.",
             ));
         }
+        let tag = blake3::hash(
+            &serde_json::to_vec(sources).map_err(|_| AccountError(crate::READ_ERROR))?,
+        )
+        .to_hex()
+        .to_string();
+        if self.entry(SOURCES)?.is_some() {
+            self.begin_plan(SOURCES, tag, vec![], None)?;
+            return self.run_plan(SOURCES);
+        }
         if !self.profile_absent(&["home"])? {
             return Err(AccountError(
                 "Synthetic source home already exists and cannot be adopted.",
             ));
         }
-        // Size validation precedes filesystem changes. Provider-specific parsing happens at preparation.
         for text in [
             &sources.codex_config,
             &sources.codex_instructions,
@@ -60,8 +78,9 @@ impl Writer {
                 return Err(AccountError(crate::READ_ERROR));
             }
         }
-        self.profile_directory(&["home", ".codex"])?;
-        self.profile_directory(&["home", ".claude"])?;
+        let mut steps = vec![];
+        journal::directory(&mut steps, &["home", ".codex"]);
+        journal::directory(&mut steps, &["home", ".claude"]);
         for (parts, name, text) in [
             (
                 &["home", ".codex"][..],
@@ -86,31 +105,50 @@ impl Writer {
             (&["home"][..], ".claude.json", &sources.claude_mcp),
         ] {
             if let Some(text) = text {
-                self.profile_write(parts, name, text)?;
+                journal::file(&mut steps, parts, name, text.clone());
             }
         }
-        for (yes, part) in [
+        for (present, part) in [
             (sources.gemini_config_skills, "config"),
             (sources.gemini_cli_skills, "antigravity-cli"),
         ] {
-            if yes {
-                self.profile_directory(&["home", ".gemini", part, "skills"])?;
+            if present {
+                journal::directory(&mut steps, &["home", ".gemini", part, "skills"]);
             }
         }
-        self.mark_prepared(SOURCES)
+        self.begin_plan(SOURCES, tag, steps, None)?;
+        self.run_plan(SOURCES)
     }
     pub(crate) fn prepare_profile(&self, provider: &str, id: &str) -> Result<()> {
+        self.prepare_profile_creation(provider, id, None)
+    }
+    pub(crate) fn prepare_profile_creation(
+        &self,
+        provider: &str,
+        id: &str,
+        creation: Option<&serde_json::Value>,
+    ) -> Result<()> {
         if !self.prepared(SOURCES)? {
             return Err(AccountError(MISSING));
         }
         let key = format!("profile:{provider}:{id}");
-        if self.prepared(&key)? {
-            return Ok(());
+        if let Some(entry) = self.entry(&key)? {
+            if creation.is_some_and(|account| {
+                entry
+                    .creation
+                    .as_ref()
+                    .is_none_or(|c| c.account != *account)
+            }) {
+                return Err(AccountError(
+                    "Preparation account differs from its saved creation plan.",
+                ));
+            }
+            return self.run_plan(&key);
         }
-        let target = ["accounts", id];
-        if !self.profile_absent(&target)? {
+        if !self.profile_absent(&["accounts", id])? {
             return Err(AccountError(EXISTS));
         }
+        let mut steps = vec![];
         match provider {
             "codex" | "claude" => {
                 let codex = provider == "codex";
@@ -121,7 +159,7 @@ impl Writer {
                     "settings.json"
                 };
                 let source_config = self.profile_read(&source, filename)?;
-                let config = if codex {
+                let mut target = if codex {
                     Some(config::codex_config(
                         source_config.as_deref().unwrap_or(""),
                         self.root_path()
@@ -137,7 +175,7 @@ impl Writer {
                 };
                 let instructions_name = if codex { "AGENTS.md" } else { "CLAUDE.md" };
                 let instructions = self.profile_read(&source, instructions_name)?;
-                self.profile_directory(&target)?;
+                journal::directory(&mut steps, &["accounts", id]);
                 let folders: &[&str] = if codex {
                     &[
                         "sessions",
@@ -151,27 +189,39 @@ impl Writer {
                     &["projects", "skills", "commands", "agents", "plugins"]
                 };
                 for folder in folders {
-                    let original = [source[0], source[1], folder];
-                    self.profile_directory(&original)?;
-                    self.profile_link(&["accounts", id, folder], &original)?;
+                    journal::link(
+                        &mut steps,
+                        &["accounts", id, folder],
+                        &[source[0], source[1], folder],
+                    );
                 }
-                if let Some(text) = config {
-                    self.profile_write(&target, filename, &text)?;
+                // Save the final text in the plan. Retry never rereads a changed source or copies twice.
+                let inherited = if codex {
+                    config::inherit_codex(source_config.as_deref(), target.as_deref(), None)?
+                } else {
+                    config::McpOutput::default()
+                };
+                if let Some(text) = inherited.target {
+                    target = Some(text);
+                }
+                if let Some(text) = target {
+                    journal::file(&mut steps, &["accounts", id], filename, text);
                 }
                 if let Some(text) = instructions {
-                    self.profile_write(&target, instructions_name, &text)?;
+                    journal::file(&mut steps, &["accounts", id], instructions_name, text);
                 }
-                // Node's next login/environment call inherits MCP before spawning. No login here.
-                let source_mcp = if codex {
-                    source_config
-                } else {
-                    self.profile_read(&["home"], ".claude.json")?
-                };
-                self.refresh_mcp(provider, id, source_mcp.as_deref())?;
+                if let Some(text) = inherited.record {
+                    journal::file(
+                        &mut steps,
+                        &["accounts", id],
+                        "milagre-inherited-mcp.json",
+                        text,
+                    );
+                }
             }
             "antigravity" => {
                 self.prepare_default_antigravity()?;
-                self.antigravity_folders(id, true)?;
+                self.antigravity_steps(&mut steps, id, true)?;
             }
             _ => {
                 return Err(AccountError(
@@ -179,35 +229,40 @@ impl Writer {
                 ))
             }
         }
-        self.mark_prepared(&key)
+        self.begin_plan(&key, key.clone(), steps, creation.cloned())?;
+        self.run_plan(&key)
     }
     pub(crate) fn prepare_default_antigravity(&self) -> Result<()> {
         if !self.prepared(SOURCES)? {
             return Err(AccountError(MISSING));
         }
         let key = "profile:antigravity:default";
-        if self.prepared(key)? {
-            return Ok(());
+        if self.entry(key)?.is_some() {
+            return self.run_plan(key);
         }
         if !self.profile_absent(&["accounts", "antigravity-default"])? {
             return Err(AccountError(EXISTS));
         }
-        self.antigravity_folders("antigravity-default", false)?;
-        self.mark_prepared(key)
+        let mut steps = vec![];
+        self.antigravity_steps(&mut steps, "antigravity-default", false)?;
+        self.begin_plan(key, key.into(), steps, None)?;
+        self.run_plan(key)
     }
-    fn antigravity_folders(&self, id: &str, history: bool) -> Result<()> {
-        self.profile_directory(&["accounts", id, "antigravity-acp"])?;
+    fn antigravity_steps(&self, steps: &mut Vec<Step>, id: &str, history: bool) -> Result<()> {
+        journal::directory(steps, &["accounts", id, "antigravity-acp"]);
         for part in ["config", "antigravity-cli"] {
             let source = ["home", ".gemini", part, "skills"];
             if !self.profile_absent(&source)? {
-                self.profile_link(&["accounts", id, part, "skills"], &source)?;
+                journal::link(steps, &["accounts", id, part, "skills"], &source);
             }
         }
         if history {
             for folder in ["conversations", "brain"] {
-                let source = ["accounts", "antigravity-default", "antigravity-acp", folder];
-                self.profile_directory(&source)?;
-                self.profile_link(&["accounts", id, "antigravity-acp", folder], &source)?;
+                journal::link(
+                    steps,
+                    &["accounts", id, "antigravity-acp", folder],
+                    &["accounts", "antigravity-default", "antigravity-acp", folder],
+                );
             }
         }
         Ok(())

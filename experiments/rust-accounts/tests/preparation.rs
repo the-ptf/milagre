@@ -102,6 +102,48 @@ fn real_node_preparation_files_and_pending_status() {
         drop(service);
         drop(sandbox);
         fs::remove_dir_all(path).unwrap();
+        if case.get("error").is_none() {
+            let sandbox = AccountSandbox::create(None).unwrap();
+            let path = sandbox.path().to_owned();
+            let mut service = sandbox.open().unwrap();
+            service
+                .seed_synthetic_sources(&sources(&case["sources"]))
+                .unwrap();
+            let pending = service
+                .create_prepared(
+                    case["provider"].as_str().unwrap(),
+                    "Synthetic",
+                    Availability::Installed,
+                )
+                .unwrap();
+            assert_eq!(pending.pending(), ["login"]);
+            assert_eq!(
+                service.accounts().saved()["accounts"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            assert_eq!(
+                tree(
+                    &path
+                        .join("accounts")
+                        .join(pending.account["id"].as_str().unwrap()),
+                    &path
+                ),
+                case["profile"],
+                "combined case {index}"
+            );
+            assert_eq!(
+                tree(&path.join("accounts/antigravity-default"), &path),
+                case["default"],
+                "combined case {index}"
+            );
+            service.close();
+            drop(service);
+            drop(sandbox);
+            fs::remove_dir_all(path).unwrap();
+        }
     }
 }
 #[test]

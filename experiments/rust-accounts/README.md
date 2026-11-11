@@ -52,7 +52,7 @@ This example supplies a synthetic readiness observation, not a working CLI inspe
 `create(provider, label, Availability)` likewise takes a trusted installation fact. It writes
 only the new account's metadata and returns `PendingCreation`, whose pending work is explicitly
 `prepare-private-profile` and `login`. It **must not be wired as a completed `accounts:add`**.
-Node prepares config/history/profile files before persistence and then starts login. Synthetic preparation is now available as a separate explicit step below. This metadata-first checkpoint does not implement Node's full add ordering, rollback or asynchronous login completion.
+Node prepares config/history/profile files before persistence and then starts login. Synthetic preparation is now available as a separate explicit step below. The legacy metadata-only method keeps this ordering; `create_prepared` below finishes the synthetic profile before publishing metadata. Neither starts login.
 Custom CLI-problem messages, identity/email/plan inspection, signing-in cancellation and the
 production installation cache are not implemented by this service.
 
@@ -87,9 +87,7 @@ This port does not invent one.
   `close` and dropping the service release these locks even if capabilities, selections or
   observation tickets remain alive.
 - Writes use held directory descriptors, `openat(O_NOFOLLOW|O_EXCL)`, a unique 0600 temporary
-  file, file synchronization, then `renameat` in that same directory. Model state and changed
-  events update only after rename succeeds. This is atomic metadata replacement, **not a
-  power-loss durability guarantee**: the containing directory is not fsynced.
+  file in a private staging directory, file synchronization, then `renameat` into the held target directory. Both directories are synchronized. Model state and changed events update only after success. This provides process-crash recovery; hardware power-loss durability has not been tested.
 - Each mutation checks the pinned root/accounts inode, owner/modes, marker, lock-file inode and
   expected metadata bytes. Unregistered symlinks, hard-linked files and special files anywhere in the copy
   are refused. The preparation API can mint internal history/skill links with pinned identities. External metadata edits fail instead of being overwritten. Errors and service
@@ -206,7 +204,7 @@ compare profile trees, link targets, config/instruction bytes, MCP record bytes 
 The Rust suite also checks private modes, copy-once settings versus refreshed MCP, shared history,
 independent malformed-provider config, stale/modified tickets, repeated preparation, close/reopen,
 retained removed profiles, link/source replacement, external aliases, hardlinks and missing links.
-The six new tests bring the crate to **25 passing tests**, plus its normally ignored child-lock
+At that checkpoint, the six preparation tests brought the crate to **25 passing tests**, plus its normally ignored child-lock
 helper invoked by the flock test. Existing 300-call and 42-step Node fixtures still pass.
 
 ```sh
@@ -215,13 +213,12 @@ cargo test --manifest-path experiments/rust-accounts/Cargo.toml
 cargo clippy --manifest-path experiments/rust-accounts/Cargo.toml --all-targets -- -D warnings
 ```
 
-This is not full `accounts:add` or environment-service parity. The metadata checkpoint persists
-first; preparation follows separately. Individual config files replace atomically, but profile
-preparation and config-plus-record updates are not one transaction. A mid-preparation I/O failure
-leaves an explicitly pending ticket and may leave partial private files; unprepared directories
-are refused on retry instead of overwriting them. There is no recovery/adoption API for such
-copies or process-restarted copies. Sources seed once; source config edits in tests are synthetic.
-A real login would write Claude's target `.claude.json`; only fixture tests do so here.
+This is not full `accounts:add` or environment-service parity. The legacy metadata checkpoint
+persists first; preparation follows separately. `create_prepared` and the recovery API below
+provide profile-before-metadata ordering and interrupted-preparation recovery inside the fresh
+copy. Live MCP config-plus-record refresh remains two atomic file updates rather than one
+transaction. Sources seed once; source config edits in tests are synthetic. A real login would
+write Claude's target `.claude.json`; only fixture tests do so here.
 
 No real profile admission, live credential access, login, installation/identity inspection,
 Windows junctions, provider processes, usage cache integration or runtime routing is implemented.
@@ -232,3 +229,91 @@ still unported. Both Claude MCP source-location variants feed the same supplied 
 but no real `CLAUDE_CONFIG_DIR` discovery occurs. Lone-surrogate JSON, overflowing JSON numbers
 and more than 128 nested JSON levels remain refused by serde_json. Existing account readiness
 observations remain trusted owner inputs without an age limit, not a credential inspector.
+
+## Journaled creation and recovery
+
+The additive owner-only path is `create_prepared(provider, label, Availability)`. It records an
+immutable private file plan, finishes the synthetic profile, then publishes the account row.
+The result still reports `pending() == ["login"]`, and identity stays unknown. This follows
+Node's profile-before-metadata ordering. It also finishes MCP inheritance before publication;
+Node performs that last part in the environment setup immediately before login. Final profile
+bytes match the same 23-case Node fixture through both creation APIs.
+
+The legacy `create` method remains metadata-only for existing callers. Its interrupted
+`prepare_creation` now resumes a journaled plan rather than rejecting its own partial directory.
+A pre-existing directory without a matching signed plan remains refused.
+
+```rust
+let mut accounts = copy.open()?;
+// Sources can also resume from their saved text after an interrupted seed call.
+accounts.resume_synthetic_sources()?;
+for pending in accounts.recoverable_creations()? {
+    let provider = pending.account["provider"].as_str().unwrap();
+    let id = pending.account["id"].as_str().unwrap();
+    let ready_to_login = accounts.recover_creation(provider, id)?;
+    assert_eq!(ready_to_login.pending(), ["login"]);
+}
+// An existing metadata-only account uses a new ticket scoped to this reopened service.
+let ready_to_login = accounts.resume_preparation("codex", existing_id)?;
+```
+
+`recoverable_creations` lists only saved creation plans awaiting metadata publication, with
+`PreparationStatus::Pending` or `Complete`. It never claims authentication. A crash after the
+metadata rename but before its journal acknowledgment is repaired by checking the exact saved
+account row, not appending it twice. `recover_creation` is idempotent for an already published
+account. Removal records a forget intent before dropping metadata, so recovery cannot resurrect
+an explicitly forgotten account. A failed removal can leave its metadata present and its
+creation forgotten; retrying removal resolves that state without deleting profile files.
+Unpublished reservations count toward the 20-account limit. `preparation_status` checks the
+current copy and reports file-plan completion for an existing account.
+
+The private `.preparation-journal.json` has an authenticated envelope, versioned schema,
+per-creation plans, step cursors, directory identities, link intents and publication state.
+Journal revisions cannot move behind the last revision observed by the retained capability, so
+restoring an older authenticated journal cannot undo a recorded removal. MAC verification uses
+the hash library's constant-time equality.
+The random authentication key lives only in the original capability; no public export,
+deserializer or caller-path admission exists. The journal is capped at 64 MiB, while individual
+text files remain capped at 4 MiB. A completed plan is retained for identity verification;
+retry of an unfinished plan uses its saved bytes even if the synthetic source later changes.
+A repeated seed with different inputs is refused. `resume_synthetic_sources` uses saved inputs
+without requiring the caller to retain them.
+
+Each filesystem action has a preceding persisted plan or link intent. Journal writes and
+profile/metadata replacement use private temporary files, file synchronization, atomic rename
+and directory synchronization. A replay accepts an already-created planned file only when its
+bytes match; it does not overwrite conflicting content. Recorded directory/link identities and
+source targets must match. A link created just before a crash can be adopted only through its
+authenticated write-ahead intent and exact internal target/source identity. Whole-copy scans
+still reject unregistered links, hardlinks and special files. Unknown ordinary files and the
+original copy marker are preserved. Journals and abandoned private staging temporaries are
+retained, not recursively cleaned; recovery never guesses that unrelated content is disposable.
+A sufficiently large number of interruptions can hit the existing 8,192-entry containment cap.
+
+### Recovery evidence and limits
+
+The recovery matrix injects errors at every logical step boundary and at each distinct journal,
+file, link, metadata and publication I/O stage. A separate matrix executes the Rust test binary
+as a child and calls `_exit(72)` at each I/O stage, skipping destructors entirely. The parent
+reopens its retained capability, reconstructs only journal-authorized links, resumes and compares
+the final profile/metadata tree with an uninterrupted run. Cases cover source seeding, Codex,
+Claude, Antigravity default/added profiles and profile-before-metadata creation. Extra regressions
+cover conflicting files, journal tampering, exact-once publication, explicit removal, reserved
+account limits and immutable source snapshots. Existing Node conformance and containment tests
+remain in the suite. The matrix covers **289 injected-error points and 76 abrupt child exits**;
+additional regressions reject modified authentication, unsafe journal paths and journal rollback.
+The crate now has **32 passing tests**, with two normally ignored helper tests invoked only by
+the lock/crash fixtures.
+
+After an I/O error, close and reopen the service before retrying. An error after a metadata
+rename can leave the old in-memory model stale; reopen reads the durable metadata and reconciles
+its publication journal. The journal makes partial preparation recoverable, not invisible or
+transactionally rolled back. A conflicting external edit remains a visible error and is never
+silently repaired. Sources and profile creation are journaled; later arbitrary MCP refreshes
+still use the earlier two-file semantics.
+
+The crash fixture transfers inherited copy descriptors and the private key through a test-only
+pipe. Production has no process-restart admission API: recovery requires the original fresh-copy
+capability to remain available, for example in a supervising owner. Restarting the whole owner
+without that capability, machine power loss, Windows, real profile adoption, credentials and
+login remain unimplemented or unverified. This is still an isolated migration checkpoint.
