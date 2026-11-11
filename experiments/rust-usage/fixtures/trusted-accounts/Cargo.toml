@@ -1,0 +1,21 @@
+[package]
+name = "milagre-usage-trusted-fixture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[features]
+default = []
+fixture-adapter = ["dep:milagre-usage", "dep:milagre-registry", "dep:milagre-accounts", "dep:milagre-owner-store", "dep:serde_json", "dep:tokio", "dep:tempfile", "dep:libc"]
+
+[dependencies]
+milagre-usage = { path = "../..", features = ["fixture-admission"], optional = true }
+milagre-registry = { path = "../../../rust-registry", optional = true }
+milagre-accounts = { path = "../../../rust-accounts", optional = true }
+milagre-owner-store = { path = "../../../rust-owner", optional = true }
+serde_json = { version = "1", features = ["preserve_order"], optional = true }
+tokio = { version = "1", features = ["rt", "macros", "sync", "time"], optional = true }
+tempfile = { version = "3", optional = true }
+libc = { version = "0.2", optional = true }

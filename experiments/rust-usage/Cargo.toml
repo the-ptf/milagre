@@ -8,6 +8,9 @@ description = "Offline usage limits, transcript scanning, cache and report contr
 
 [workspace]
 
+[features]
+fixture-admission = []
+
 [dependencies]
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }

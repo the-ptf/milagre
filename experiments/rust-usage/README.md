@@ -328,7 +328,7 @@ and synchronous/asynchronous callback panics. All scan writes in tests are in fr
 
 ## Exact gaps and boundaries
 
-1. No live provider access, runtime routing, trusted account adapter, profile discovery, account auto-switching,
+1. No live provider access, runtime routing, production trusted account adapter, profile discovery, account auto-switching,
    metadata-store loading, production cache persistence, SDK bridge, CLI supervision or network fetch. Use injected owners;
    this checkpoint does not claim an end-to-end live usage migration.
 2. Scanner is implemented for Unix and tested on macOS only. Windows scanning explicitly returns Unsupported.
@@ -346,3 +346,15 @@ and synchronous/asynchronous callback panics. All scan writes in tests are in fr
    scanner or runtime hook is installed. Malformed scan-cache structure fails closed to empty, more strictly than
    Node's shallow cache validation. Background
    task supervision is implemented; real provider transports and their process cleanup remain gated.
+
+## Optional trusted quota fixture adapter
+
+[fixtures/trusted-accounts](fixtures/trusted-accounts/README.md) contains a default-disabled nested
+crate that owns the real committed registry/accounts services in fresh synthetic copies. Its
+`fixture-adapter` feature depends on those exported crates; the base crate adds only the optional
+`fixture-admission` check/commit hook. Real generations, readiness observations and descriptor-pinned
+paths reject removed or revoked cached/late quota results before state/event acceptance.
+
+Run `python3 experiments/rust-usage/scripts/check-trusted-fixture.py` from the repository root for
+the verified offline disposable export, 11 adapter tests and nine additional original Node command
+traces. The nested README records exact hashes, API, limits and remaining production/scanner gates.

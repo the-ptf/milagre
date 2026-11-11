@@ -12,3 +12,6 @@ pub mod store;
 mod supervisor;
 pub mod transcript;
 mod util;
+
+#[cfg(feature = "fixture-admission")]
+pub mod admission;

@@ -19,7 +19,7 @@ const validation = slice("  async function validateAccountScope(", "  async func
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const now = 1793361600000;
 const account = (provider, id, state = "ready", extra = {}) => ({ provider, id, label: `${provider}/${id}`, state, ...extra });
-const initial = {
+let initial = {
   scopes: ["/project", "milagre-link:12345678-1234-1234-1234-123456789abc"],
   selection: { claude: "work", codex: "default", antigravity: "default" },
   identities: {
@@ -40,6 +40,26 @@ const initial = {
     ],
   },
 };
+// A second trace uses IDs/labels accepted by the real isolated account service.
+const trustedFixture = process.argv.includes("--trusted-fixture");
+const fixtureId = "12345678-1234-1234-1234-123456789abc";
+const fixtureLink = "milagre-link:22345678-1234-1234-1234-123456789abc";
+if (trustedFixture) {
+  initial = {
+    scopes: [fixtureLink],
+    selection: { claude: "default", codex: "default", antigravity: "default" },
+    identities: {
+      providers: ["codex", "claude", "antigravity", "kiro"].map((provider) => ({
+        provider,
+        selectedId: "default",
+        accounts: [
+          account(provider, "default", "ready", { label: provider === "antigravity" ? "Default account" : "Connected CLI account" }),
+          ...(provider === "claude" ? [account(provider, fixtureId, "ready", { label: "Saved" })] : []),
+        ],
+      })),
+    },
+  };
+}
 let model = clone(initial),
   clock = now,
   calls = [],
@@ -92,7 +112,10 @@ const reader =
     return {
       provider,
       status,
-      windows: status === "ok" ? [{ id: "session", label: "Session", shortLabel: "5h", usedPercent: id === "work" ? 22 : 11, resetsAt: null }] : [],
+      windows:
+        status === "ok"
+          ? [{ id: "session", label: "Session", shortLabel: "5h", usedPercent: id === "work" || id === fixtureId ? 22 : 11, resetsAt: null }]
+          : [],
       updatedAt: new Clock().toISOString(),
       ...(status === "error" ? { message: "fixture failure" } : {}),
     };
@@ -120,7 +143,7 @@ const context = {
   emit: (name, payload) => events.push([name, clone(payload)]),
 };
 vm.runInNewContext(functions + validation + commands, context, { filename: "runtime-usage-extract.cjs" });
-const steps = [
+let steps = [
   { command: "usage:cached", scope: "/project" },
   { command: "usage:accounts:cached" },
   { command: "usage:read", scope: "/project" },
@@ -154,13 +177,26 @@ const steps = [
   },
   { command: "usage:read", scope: "/project" },
 ];
+if (trustedFixture) {
+  steps = [
+    { command: "usage:cached" },
+    { command: "usage:accounts:cached" },
+    { command: "usage:read" },
+    { command: "usage:cached" },
+    { command: "usage:accounts:cached" },
+    { command: "usage:accounts:read" },
+    { command: "usage:accounts:cached" },
+    { command: "usage:read", scope: fixtureLink },
+    { command: "usage:cached", scope: fixtureLink },
+  ];
+}
 (async () => {
   const traces = [];
   for (const step of steps) {
     if (step.set) Object.assign(model, clone(step.set));
     calls = [];
     events = [];
-    clock += 1000;
+    if (!trustedFixture) clock += 1000;
     let result = null,
       error = null;
     try {
@@ -173,7 +209,10 @@ const steps = [
       expected: { result: result && clone(result), error, reads: calls.toSorted((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))), events },
     });
   }
-  fs.writeFileSync(path.join(__dirname, "../tests/fixtures/accounts.json"), JSON.stringify({ initial, traces }, null, 2) + "\n");
+  fs.writeFileSync(
+    path.join(__dirname, trustedFixture ? "../fixtures/trusted-accounts/node-commands.json" : "../tests/fixtures/accounts.json"),
+    JSON.stringify({ initial, traces }, null, 2) + "\n",
+  );
   console.log(`${traces.length} Node command traces`);
 })().catch((e) => {
   console.error(e);

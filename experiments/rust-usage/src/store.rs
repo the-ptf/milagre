@@ -144,8 +144,10 @@ pub type ProviderRead = Arc<dyn Fn(String) -> ReadFuture + Send + Sync>;
 pub type Ready = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 /// One supervised task per provider means cancelling a caller cannot strand the shared read. The runtime injects readiness.
 pub struct UsageReader {
+    #[cfg(feature = "fixture-admission")]
+    admission: Option<(Arc<dyn crate::admission::Admission>, crate::accounts::Selection)>,
     state: Mutex<UsageState>,
-    pending: Mutex<HashMap<String, crate::supervisor::Receiver<Value>>>,
+    pending: Mutex<HashMap<String, crate::supervisor::Receiver<Result<Value, &'static str>>>>,
     tasks: crate::supervisor::Supervisor,
     read: ProviderRead,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
@@ -155,6 +157,8 @@ pub struct UsageReader {
 impl UsageReader {
     pub fn new(store: UsageStore, read: ProviderRead, now: Arc<dyn Fn() -> i64 + Send + Sync>, ready: Ready) -> Arc<Self> {
         Arc::new(Self {
+            #[cfg(feature = "fixture-admission")]
+            admission: None,
             state: Mutex::new(UsageState::new(store)),
             pending: Mutex::new(HashMap::new()),
             tasks: crate::supervisor::Supervisor::default(),
@@ -163,6 +167,15 @@ impl UsageReader {
             ready,
             environment: tokio::sync::OnceCell::new(),
         })
+    }
+    #[cfg(feature = "fixture-admission")]
+    pub(crate) fn admitted(
+        mut self: Arc<Self>,
+        admission: Arc<dyn crate::admission::Admission>,
+        selection: crate::accounts::Selection,
+    ) -> Arc<Self> {
+        Arc::get_mut(&mut self).expect("new reader has no shared owner").admission = Some((admission, selection));
+        self
     }
     pub async fn provider(self: &Arc<Self>, p: &str) -> Result<Value, &'static str> {
         if !READ_ORDER.contains(&p) {
@@ -183,6 +196,13 @@ impl UsageReader {
                                 let _ = crate::supervisor::guarded(async { (this.ready)().await }).await;
                             })
                             .await;
+                        #[cfg(feature = "fixture-admission")]
+                        if let Some((admission, selection)) = &this.admission {
+                            admission
+                                .check(crate::admission::Target::Provider { selection: selection.clone(), provider: provider.clone() })
+                                .await
+                                .map_err(|_| "Usage admission refused")?;
+                        }
                         let now = (this.now)();
                         let blocked = this.state.lock().unwrap().begin(&provider, now);
                         let was_blocked = blocked.is_some();
@@ -197,14 +217,23 @@ impl UsageReader {
                                 }),
                         };
                         let now = (this.now)();
-                        this.state.lock().unwrap().complete(&provider, result, now, was_blocked)
+                        #[cfg(feature = "fixture-admission")]
+                        if let Some((admission, selection)) = &this.admission {
+                            let target = crate::admission::Target::Provider { selection: selection.clone(), provider: provider.clone() };
+                            let owner = this.clone();
+                            return admission
+                                .commit(target, Box::new(move || owner.state.lock().unwrap().complete(&provider, result, now, was_blocked)))
+                                .await
+                                .map_err(|_| "Usage admission refused");
+                        }
+                        Ok(this.state.lock().unwrap().complete(&provider, result, now, was_blocked))
                     })
                     .map_err(|_| "Usage reader stopped")?;
                 pending.insert(p.into(), rx.clone());
                 rx
             }
         };
-        crate::supervisor::wait(receiver).await.map_err(|_| "Usage reader stopped")
+        crate::supervisor::wait(receiver).await.map_err(|_| "Usage reader stopped")?
     }
     /// Reject future work, cancel callbacks and wait for their futures to be dropped.
     pub async fn shutdown(&self) {

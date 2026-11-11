@@ -102,6 +102,8 @@ pub struct UsageAccountsOptions {
     pub read_usage_override: Option<Arc<dyn Fn() -> MetadataFuture<Value> + Send + Sync>>,
 }
 pub struct UsageAccounts {
+    #[cfg(feature = "fixture-admission")]
+    admission: Option<Arc<dyn crate::admission::Admission>>,
     options: UsageAccountsOptions,
     readers: Mutex<HashMap<Selection, Arc<UsageReader>>>,
     seeds: Mutex<HashMap<Selection, UsageStore>>,
@@ -123,6 +125,8 @@ impl UsageAccounts {
     ) -> Arc<Self> {
         Arc::new(Self {
             options,
+            #[cfg(feature = "fixture-admission")]
+            admission: None,
             load_store,
             async_load: None,
             load_gates: Mutex::new(HashMap::new()),
@@ -135,6 +139,17 @@ impl UsageAccounts {
     pub fn with_async_store_loader(options: UsageAccountsOptions, load: AsyncStoreLoad) -> Arc<Self> {
         let mut owner = Self::with_store_loader(options, HashMap::new(), None);
         Arc::get_mut(&mut owner).unwrap().async_load = Some(load);
+        owner
+    }
+    #[cfg(feature = "fixture-admission")]
+    pub fn with_admission(
+        options: UsageAccountsOptions,
+        seeds: HashMap<Selection, UsageStore>,
+        admission: Arc<dyn crate::admission::Admission>,
+    ) -> Arc<Self> {
+        assert!(options.read_usage_override.is_none(), "admitted readers cannot bypass admission");
+        let mut owner = Self::new(options, seeds);
+        Arc::get_mut(&mut owner).unwrap().admission = Some(admission);
         owner
     }
     async fn ready(&self) {
@@ -188,6 +203,8 @@ impl UsageAccounts {
                 })
             }),
         );
+        #[cfg(feature = "fixture-admission")]
+        let reader = if let Some(admission) = &self.admission { reader.admitted(admission.clone(), selection.clone()) } else { reader };
         self.readers.lock().unwrap().insert(selection.clone(), reader.clone());
         Ok(reader)
     }
@@ -218,16 +235,17 @@ impl UsageAccounts {
         })?
     }
     async fn handle_inner(&self, command: &str, scope: &Value) -> Result<Value, String> {
+        #[cfg(feature = "fixture-admission")]
+        if let Some(admission) = &self.admission {
+            admission.check(crate::admission::Target::Command { all_accounts: command.starts_with("usage:accounts:") }).await?;
+        }
         if command.starts_with("usage:accounts:") {
             let refresh = command == "usage:accounts:read";
             if refresh {
                 self.ready().await;
             }
             let snapshot = self.all_accounts(refresh).await?;
-            if refresh {
-                let _ = guarded_sync(|| (self.options.emit)(CHANGED, json!({})));
-            }
-            return Ok(snapshot);
+            return self.finish(snapshot, refresh.then(|| json!({})), true).await;
         }
         let scope = self.validate_scope(scope).await?;
         let refresh = command == "usage:read";
@@ -253,11 +271,22 @@ impl UsageAccounts {
             }
             provider["account"] = decoration;
         }
-        if refresh {
-            let event = scope.map(|key| json!({"scopeKey":key})).unwrap_or(json!({}));
-            let _ = guarded_sync(|| (self.options.emit)(CHANGED, event));
+        let event = refresh.then(|| scope.map(|key| json!({"scopeKey":key})).unwrap_or(json!({})));
+        self.finish(snapshot, event, false).await
+    }
+    async fn finish(&self, snapshot: Value, event: Option<Value>, _all_accounts: bool) -> Result<Value, String> {
+        let emit = self.options.emit.clone();
+        let apply = move || {
+            if let Some(event) = event {
+                let _ = guarded_sync(|| emit(CHANGED, event));
+            }
+            snapshot
+        };
+        #[cfg(feature = "fixture-admission")]
+        if let Some(admission) = &self.admission {
+            return admission.commit(crate::admission::Target::Command { all_accounts: _all_accounts }, Box::new(apply)).await;
         }
-        Ok(snapshot)
+        Ok(apply())
     }
     async fn all_accounts(&self, refresh: bool) -> Result<Value, String> {
         let identities = (self.options.list)().await?;
