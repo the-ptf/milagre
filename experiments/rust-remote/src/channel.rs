@@ -489,6 +489,22 @@ mod tests {
         ));
     }
     #[test]
+    fn skipped_sealed_frame_prevents_peer_accepting_any_successor() {
+        let a = SecretKey::from([17; 32]);
+        let b = SecretKey::from([29; 32]);
+        let mut sender = Channel::new(SalsaBox::new(&b.public_key(), &a), 2);
+        let mut peer = Channel::new(SalsaBox::new(&a.public_key(), &b), 1);
+        let lost = sender.seal_encoded(b"null").unwrap();
+        let next = sender.seal_encoded(b"true").unwrap();
+        let later = sender.seal_encoded(b"false").unwrap();
+        assert_eq!(peer.open_encoded(&next), Err(Error::Order));
+        assert_eq!(peer.open_encoded(&later), Err(Error::Order));
+        // Only the missing original frame repairs the sequence. It cannot be recreated.
+        assert_eq!(peer.open_encoded(&lost).unwrap(), b"null");
+        assert_eq!(peer.open_encoded(&next).unwrap(), b"true");
+        assert_eq!(peer.open_encoded(&later).unwrap(), b"false");
+    }
+    #[test]
     fn counters_never_wrap_or_reuse_nonces() {
         let a = SecretKey::from([17; 32]);
         let b = SecretKey::from([29; 32]);

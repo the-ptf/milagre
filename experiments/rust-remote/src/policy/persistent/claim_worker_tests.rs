@@ -71,6 +71,18 @@ fn joined_fixed_responses_keep_200_502_504_and_transfer_prepaid_ciphertext() {
         });
         assert!(pool.used() <= baseline);
         assert!(Prepared::new(&mut a, work, Clock::monotonic()).is_err());
+        assert_eq!(h.status(), CarrierStatus::Active);
+        let next = request(&mut a, &h, &mut channel, 2, 2).remove(0);
+        let (_, clock) = crate::policy::persistent::tests::claim_worker_tests::clock();
+        with_claim(&mut a, next, clock, outcome, |claim| {
+            finish_worker(claim);
+            claim.may_send().unwrap();
+            let loan = claim.receive().unwrap();
+            let plain = channel.open_encoded(loan.bytes().unwrap()).unwrap();
+            let response: serde_json::Value = serde_json::from_slice(&plain).unwrap();
+            assert_eq!(response["id"], 2);
+            assert_eq!(response["status"], status);
+        });
         clean(a);
         assert_eq!(pool.used(), StoreLimits::default().working_bytes);
     }
@@ -490,6 +502,7 @@ fn unused_prepaid_credit_is_released_without_inventing_a_packet_receipt() {
         assert!(claim.cleanup_complete());
         assert!(!claim.packet_receipt_for_test());
         assert_eq!(claim.observe().delivery, Delivery::None);
+        assert_eq!(h.status(), CarrierStatus::Active); // No seal, so no counter gap.
     });
     clean(a);
 }
@@ -606,4 +619,153 @@ fn claim_at_last_millisecond_of_ready_window_still_executes_once() {
         assert_eq!(claim.observe().status, Some(200));
     });
     clean(a);
+}
+
+#[test]
+fn lost_sealed_output_closes_only_its_carrier_and_never_replays() {
+    use std::{
+        panic::{catch_unwind, AssertUnwindSafe},
+        sync::atomic::Ordering,
+    };
+    let _disk = crate::synthetic_store::testing_lock();
+    // Discard, cancel, forgotten loan, scope exit, unread/read unwind, loan/tick expiry.
+    for path in 0..8 {
+        let mut p = profile(StoreLimits::default());
+        let mut a = resume(
+            &mut p,
+            PersistentLimits {
+                registry: registry::Limits {
+                    // Isolate completion expiry from unrelated carriers' idle expiry.
+                    idle_ms: 400_000,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        a.open_pairing(1).unwrap();
+        let (h, mut peer, _) = pair(&mut a, 1, 4, 1);
+        let (other, mut other_peer, _) = pair(&mut a, 2, 5, 1);
+        let work = request(&mut a, &h, &mut peer, 1, 2).remove(0);
+        let sibling = request(&mut a, &h, &mut peer, 2, 2).remove(0);
+        let pool = a.global_pool().unwrap();
+        let baseline = pool.used();
+        let (manual, clock) = clock();
+        let mut joined = None;
+        let mut observation = None;
+        let unwind = catch_unwind(AssertUnwindSafe(|| {
+            with_claim(
+                &mut a,
+                work.clone(),
+                clock.clone(),
+                Outcome::Unavailable,
+                |claim| {
+                    joined = Some(claim.joined_probe_for_test());
+                    finish_worker(claim);
+                    claim.may_send().unwrap();
+                    assert_eq!(claim.observe().status, Some(502));
+                    match path {
+                        0 => drop(claim.receive().unwrap()),
+                        1 => claim.cancel(),
+                        2 => std::mem::forget(claim.receive().unwrap()),
+                        3 => {} // Owning scope drops an outstanding packet.
+                        4 | 5 => {
+                            let panic = catch_unwind(AssertUnwindSafe(|| {
+                                let loan = claim.receive().unwrap();
+                                if path == 5 {
+                                    assert!(!loan.bytes().unwrap().is_empty());
+                                }
+                                panic!("synthetic reader unwind");
+                            }))
+                            .unwrap_err();
+                            assert_eq!(claim.observe().delivery, Delivery::Unknown);
+                            assert_eq!(claim.observe().status, Some(502));
+                            assert_eq!(claim.observe().execution, Execution::MayHaveRun);
+                            assert!(claim.packet_receipt_for_test());
+                            assert!(claim.cleanup_complete());
+                            std::panic::resume_unwind(panic);
+                        }
+                        6 => {
+                            let loan = claim.receive().unwrap();
+                            manual.advance_to(345_002).unwrap();
+                            assert_eq!(loan.bytes().err(), Some(Fault::Expired));
+                            drop(loan);
+                        }
+                        7 => {
+                            manual.advance_to(345_002).unwrap();
+                            assert_eq!(claim.maintain(), Err(Fault::Expired));
+                        }
+                        _ => unreachable!(),
+                    }
+                    if !matches!(path, 2 | 3) {
+                        assert!(claim.cleanup_complete());
+                        assert!(claim.packet_receipt_for_test());
+                        assert_eq!(claim.observe().status, Some(502));
+                        assert_eq!(claim.observe().execution, Execution::MayHaveRun);
+                        assert_eq!(
+                            claim.observe().delivery,
+                            if path == 0 {
+                                Delivery::Discarded
+                            } else {
+                                Delivery::Unknown
+                            }
+                        );
+                        assert!(claim.may_send().is_err());
+                    }
+                    observation = Some(claim.observe());
+                },
+            );
+        }));
+        assert_eq!(unwind.is_err(), matches!(path, 4 | 5));
+        assert!(joined.unwrap().load(Ordering::SeqCst));
+        assert_eq!(
+            h.status(),
+            CarrierStatus::Closed(CloseReason::CarrierFailure)
+        );
+        assert_eq!(other.status(), CarrierStatus::Active);
+        assert_eq!(
+            work.status(),
+            if path >= 6 {
+                WorkStatus::TimedOut
+            } else {
+                WorkStatus::Cancelled
+            }
+        );
+        assert!(matches!(
+            sibling.status(),
+            WorkStatus::Cancelled | WorkStatus::TimedOut
+        ));
+        assert!(pool.used() < baseline);
+        assert!(Prepared::new(&mut a, work, clock.clone()).is_err());
+        assert!(a
+            .registry
+            .as_mut()
+            .unwrap()
+            .send_encoded(&h, b"null", clock.now())
+            .is_err());
+        assert!(a
+            .take_output(&h, clock.now(), |_| panic!("lost output cannot be sent"))
+            .is_err());
+        assert!(a
+            .receive_request(&h, &peer.seal_encoded(b"null").unwrap(), clock.now())
+            .is_err());
+        // A different phone still sends and decrypts a complete response at counter 1.
+        let other_work = request(&mut a, &other, &mut other_peer, 1, clock.now()).remove(0);
+        with_claim(&mut a, other_work, clock, Outcome::Success, |claim| {
+            finish_worker(claim);
+            claim.may_send().unwrap();
+            let loan = claim.receive().unwrap();
+            let bytes = other_peer.open_encoded(loan.bytes().unwrap()).unwrap();
+            let response: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(response["status"], 200);
+            drop(loan);
+            assert_eq!(claim.observe().delivery, Delivery::Returned);
+        });
+        assert_eq!(other.status(), CarrierStatus::Active);
+        clean(a);
+        assert_eq!(pool.used(), StoreLimits::default().working_bytes);
+        // Observations copied out of callbacks describe the pre-Drop moment only.
+        if let Some(observation) = observation {
+            assert_eq!(observation.status, Some(502));
+        }
+    }
 }

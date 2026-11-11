@@ -174,6 +174,11 @@ impl OutputLoan<'_, '_> {
 }
 impl Drop for OutputLoan<'_, '_> {
     fn drop(&mut self) {
+        // A reader unwind cannot attest to ordered handoff, even after bytes().
+        if std::thread::panicking() {
+            self.claim.stop_output(Phase::Cancelled);
+            return;
+        }
         if self.claim.clock.now() >= self.claim.completion_deadline {
             self.claim.stop_output(Phase::TimedOut);
             self.claim.authority.registry.as_mut().unwrap().end_claim(
@@ -211,6 +216,11 @@ impl Drop for OutputLoan<'_, '_> {
         } else {
             Phase::Discarded
         };
+        if !exposed {
+            self.claim
+                .close_lost_output(registry::WorkStatus::Cancelled);
+            return;
+        }
         self.claim.authority.registry.as_mut().unwrap().end_claim(
             &self.claim.permit,
             if exposed {
@@ -502,10 +512,23 @@ impl<'a> Claim<'a> {
         if self.returned.is_none() {
             self.returned = self.return_receiver.try_recv().ok();
         }
+        debug_assert!(!self.packet_issued || self.returned.is_some());
+    }
+    fn close_lost_output(&mut self, status: registry::WorkStatus) {
+        self.authority
+            .registry
+            .as_mut()
+            .unwrap()
+            .discard_claim_output(&self.permit, status);
     }
     fn stop_output(&mut self, phase: Phase) {
         if self.observation.delivery == Delivery::MaySend {
             self.observation.delivery = Delivery::Unknown;
+            self.close_lost_output(if phase == Phase::TimedOut {
+                registry::WorkStatus::TimedOut
+            } else {
+                registry::WorkStatus::Cancelled
+            });
         }
         self.release_packet();
         drop(self.prepaid.take());
@@ -636,7 +659,7 @@ impl<'a> Claim<'a> {
                 packet = Some(Packet::new(
                     bytes,
                     lease,
-                    self.return_sender.take().unwrap(),
+                    self.return_sender.take().unwrap(), // MaySend is single-shot.
                 ));
                 self.packet_issued = true;
                 Ok(())

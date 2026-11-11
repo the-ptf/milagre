@@ -152,6 +152,27 @@ impl Registry {
         });
         Ok(())
     }
+    /// A sealed frame cannot be skipped: the peer requires consecutive counters.
+    /// Preserve this work's terminal status without promoting work on a broken carrier.
+    pub(crate) fn discard_claim_output(&mut self, permit: &Permit, status: WorkStatus) {
+        if !self.current(permit.handle()) {
+            return;
+        }
+        if let State::Active(a) = &mut self
+            .entries
+            .get_mut(&permit.handle().carrier)
+            .unwrap()
+            .state
+        {
+            if a.jobs
+                .get(&permit.token.id)
+                .is_some_and(|job| job.claimed && job.token.serial == permit.token.serial)
+            {
+                a.remove_job(permit.token.id, status);
+            }
+        }
+        self.close(permit.handle(), CloseReason::CarrierFailure);
+    }
     pub(crate) fn end_claim(&mut self, permit: &Permit, status: WorkStatus, now: u64) {
         let limits = self.limits;
         if !self.current(permit.handle()) {
