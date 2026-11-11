@@ -8,9 +8,11 @@ The installed Electron app and this client share the daemon through its existing
 
 The installed shell still uses the single production Node owner. Current Rust ports run on isolated capabilities and fake providers; no production ownership cutover is authorized by those tests.
 
-Owner d1e38722/4e61145b pass85 root tests and release-library strict Clippy. ACP d931b872/bc77748b pass83 feature tests; usage ade6ef57 passes64. Independent review closes assigned lifecycle findings. Registry da95e712 passes23 tests and strict Clippy, and independent review closes its P2. Runtime155c4902 fixes the new AnswerForgotten integration and uses session-owned ACP receipts; all54 combined root tests pass after efc18d2c adds immediate per-slot MCP revocation and8929ebb7 adds ACP panic cleanup. Remote749a075a passes103 tests plus4 doctests and strict Clippy. Full36 accounts tests pass, including both recovery matrices.
+Owner fdbcc22f/1069a818 passes94 root tests including131 handover cases. Pure formatting is implemented; the active handoff lifecycle remains gated pending agreement. Usage92b8a95e passes71 tests. Remote251271fa/83c069e0 passes112 tests plus4 doctests, including advisory-flood survival and failed-authorization cleanup. Registrya7834031 passes25 checks preserving unadmitted saved metadata. New fixes await independent review.
 
-Remote removal epochs, per-key admission and joined synthetic supervision are integrated, but live persistence, routing and phone interoperability are absent. Owner handover formatting is next; runtime panic cleanup is integrated and awaiting independent review. Remote review finds advisory-event overflow can retire the synthetic service; that fix is assigned before production wiring. Native Design PNG feedback is verified only through the fixture route; automatic transcript-image persistence remains unsupported. [MIGRATION-STATUS.md](MIGRATION-STATUS.md) records current validation and remaining gates; inventory counts below include historical checkpoints.
+Root92ac87be adds bounded pure state-patch generation with3,600 comparisons against production Node and12 wire tests. It does not advertise state-patches-v1 or implement client epochs/versioning. Runtime276b09e9 passes57 combined root tests after completion-guard and stranded-lock integration; independent review is pending. No production ownership cutover follows from these isolated tests.
+
+Native Design PNG feedback is verified only through the fixture route; automatic transcript-image persistence remains unsupported. Installed shell source is unchanged and still depends on the Node host. [MIGRATION-STATUS.md](MIGRATION-STATUS.md) records current validation and remaining gates; inventory counts below include historical checkpoints.
 
 ## What has moved
 
