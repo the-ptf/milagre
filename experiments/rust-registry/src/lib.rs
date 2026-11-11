@@ -1,7 +1,9 @@
-//! Read-only registry/identity foundation for explicitly isolated copies.
+//! Registry/identity foundation and separate writer for explicitly isolated copies.
 mod identity;
 pub mod links;
 pub mod scopes;
+#[cfg(unix)]
+pub mod writer;
 pub use identity::Identity;
 use milagre_owner_store::{jsjson, Isolation};
 use serde_json::{json, Value};
