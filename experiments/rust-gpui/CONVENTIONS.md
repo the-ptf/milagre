@@ -17,7 +17,7 @@ How this crate is laid out and the rules every agent working on it follows. The 
 | `src/workspace/sidebar/` | `mod.rs` (the view, the list), `row.rs` (`ChatRowView`, `ChatRow`), `bottom.rs`, `tests.rs`      |
 | `src/workspace/chat/`    | `mod.rs` (`ChatView`), `transcript.rs`, `running.rs`, `composer.rs`, `markdown.rs`, `fixture.rs` |
 | `src/workspace/panel/`   | The side panel and its tabs                                                                      |
-| `src/testing/`           | Helpers for headless tests (`mount_workspace`, `mount_element`, `bounds`, `leak`)                |
+| `src/testing/`           | Helpers for headless tests (`mount_workspace`, `mount_in_root`, `mount_element`, `bounds`)       |
 | `tools/gen-icons.mjs`    | Generates `assets/hugeicons/`, `assets/logos/`, `src/ui/icon_name.rs`, `src/assets/embedded.rs`  |
 
 A new screen or column gets its own folder under `src/workspace/` (`mod.rs` for the view, `tests.rs` beside it). A
@@ -100,6 +100,11 @@ fn clicking_row_three_selects_it(cx: &mut TestAppContext) {
 }
 ```
 
+- The app's window root is gpui-component's `Root` around the `Workspace` (`app::open_main_window`; dialogs,
+  popovers, tooltips and window-wide selection live in its layers). `testing::mount_workspace` mounts it the same
+  way, and `testing::init` runs `gpui_component::init` and the theme bridge. Mount anything built on a
+  gpui-component widget with `testing::mount_in_root(cx, |window, cx| MyView::new(window, cx))` (a view) or
+  `testing::mount_element_in_root` (an element); `mount_element` stays a plain window for our own primitives.
 - Give anything a test needs to find a `.debug_selector(|| "name".into())` (primitives use their element id).
 - Assert state and geometry, not text metrics: the test platform's text system has fixed advances.
 - Compute bounds into a local before `cx.simulate_click(..)` (two `&mut cx` borrows otherwise).
@@ -116,6 +121,11 @@ fn clicking_row_three_selects_it(cx: &mut TestAppContext) {
   ever written by `tools/gen-icons.mjs`. If two agents add icons, the second reruns the script after rebasing.
 - Commit in logical steps, `feat(experiments): ...` or `fix(experiments): ...`, adding files by path (never
   `git add -A` at the repository root). No AI attribution in commits. Never push or open a PR unless asked.
+- The repository's lefthook pre-commit hook fails in this worktree ("Not a git repository" while it saves the
+  unstaged changes other agents leave around). Run its two checks by hand on what you stage, then commit with
+  `LEFTHOOK=0 git commit ...`: the Rust checks under "Verification", `oxfmt --check` on staged Markdown and `.mjs`
+  files and `oxlint` on staged `.mjs` files, both from the main checkout's `node_modules/.bin` (this worktree has
+  no `node_modules`).
 - Never edit outside `experiments/rust-gpui`. Never add Zed's GPL crates (`ui`, `editor`, `markdown`, `theme`, ...):
   see README.md "GPUI version decision".
 - Upgrading GPUI: bump `gpui-pre`, `gpui-pre-platform` and `gpui-component` together (each gpui-component release pins

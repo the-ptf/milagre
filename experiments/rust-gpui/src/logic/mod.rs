@@ -1,11 +1,11 @@
 pub mod activity;
 pub mod copy;
+pub mod diff;
 pub mod files;
+pub mod identity;
+pub mod keybindings;
+pub mod lists;
+pub mod marks;
 pub mod prompts;
 pub mod prs;
 pub mod usage;
-pub mod diff;
-pub mod keybindings;
-pub mod identity;
-pub mod lists;
-pub mod marks;

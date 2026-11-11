@@ -10,9 +10,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui::{
-    App, Bounds, KeyBinding, Menu, MenuItem, TitlebarOptions, WindowBounds, WindowHandle, WindowOptions, actions, point, prelude::*, px,
-    size,
+    App, Bounds, Entity, KeyBinding, Menu, MenuItem, TitlebarOptions, WindowBounds, WindowHandle, WindowOptions, actions, point,
+    prelude::*, px, size,
 };
+use gpui_component::Root;
 
 use crate::theme::Theme;
 use crate::workspace::Workspace;
@@ -86,7 +87,12 @@ pub fn init(cx: &mut App) {
 }
 
 /// The one Milagre window: 1440 x 900 centred, a transparent title bar under our own 44px headers.
-pub fn open_main_window(cx: &mut App) -> WindowHandle<Workspace> {
+///
+/// The window's root view is gpui-component's [`Root`] around the [`Workspace`]: its dialogs, popovers,
+/// tooltips, notifications and window-wide text selection live in `Root`'s layers (COMPONENT-FIT.md). `Root`
+/// sets the window's rem size from gpui-component's theme every frame; the theme bridge keeps it at 16, the
+/// size our `p_*`/`gap_*` spacing assumes. [`workspace_of`] gets the Workspace back from the handle.
+pub fn open_main_window(cx: &mut App) -> WindowHandle<Root> {
     let bounds = Bounds::centered(None, size(px(WINDOW_WIDTH), px(WINDOW_HEIGHT)), cx);
     cx.open_window(
         WindowOptions {
@@ -106,13 +112,21 @@ pub fn open_main_window(cx: &mut App) -> WindowHandle<Workspace> {
             }),
             ..Default::default()
         },
-        |window, cx| cx.new(|cx| Workspace::new(window, cx)),
+        |window, cx| {
+            let workspace = cx.new(|cx| Workspace::new(window, cx));
+            cx.new(|cx| Root::new(workspace, window, cx))
+        },
     )
     .expect("open the main window")
 }
 
+/// The [`Workspace`] inside a window [`open_main_window`] opened (`Root`'s content view).
+pub fn workspace_of(root: &Root) -> Option<Entity<Workspace>> {
+    root.view().clone().downcast::<Workspace>().ok()
+}
+
 /// Waits for the first frames to reach the screen, saves the window and quits.
-fn snapshot_then_quit(window: WindowHandle<Workspace>, path: PathBuf, cx: &mut App) {
+fn snapshot_then_quit(window: WindowHandle<Root>, path: PathBuf, cx: &mut App) {
     cx.spawn(async move |cx| {
         cx.background_executor().timer(Duration::from_millis(1500)).await;
         let result = window.update(cx, |_, window, _| save(window, &path));

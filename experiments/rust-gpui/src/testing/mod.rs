@@ -14,13 +14,21 @@
 //! current frame. Its text system is a no-op with fixed advances, so assert on structure, state and
 //! geometry, never on text metrics; it cannot move a window (`start_window_move` panics). Animations are
 //! off under `cfg(test)` (`ui::motion`).
+//!
+//! The app's window root is gpui-component's `Root` around the workspace (`app::open_main_window`), and
+//! [`mount_workspace`] mounts it the same way. A gpui-component widget (a `Popover`, a `Dialog`, a tooltip,
+//! a `TextView` with window-wide selection) needs `Root` above it: mount it with [`mount_in_root`] (a view)
+//! or [`mount_element_in_root`] (an element). [`mount_element`] mounts a plain element without `Root`, for
+//! our own primitives.
 
-use gpui::{AnyElement, App, Bounds, Context, Entity, Pixels, Render, TestAppContext, VisualTestContext, Window, div, prelude::*};
+use gpui::{AnyElement, AnyView, App, Bounds, Context, Entity, Pixels, Render, TestAppContext, VisualTestContext, Window, div, prelude::*};
+use gpui_component::Root;
 
 use crate::theme::Theme;
 use crate::workspace::Workspace;
 
-/// What the app's `init` sets up that views need: the dark theme and gpui-component.
+/// What the app's `init` sets up that views need: the dark theme, gpui-component and the theme bridge
+/// that feeds gpui-component's theme from ours.
 pub fn init(cx: &mut TestAppContext) {
     init_with(cx, Theme::dark());
 }
@@ -29,15 +37,34 @@ pub fn init_with(cx: &mut TestAppContext, theme: Theme) {
     cx.update(|cx| {
         cx.set_global(theme);
         gpui_component::init(cx);
+        crate::theme::component_bridge::init(cx);
     });
 }
 
-/// The whole window (sidebar, Chat, panel) in a test window, after its first frames settle.
+/// The whole window (sidebar, Chat, panel) in a test window under `Root`, as the app opens it, after its
+/// first frames settle.
 pub fn mount_workspace(cx: &mut TestAppContext) -> (Entity<Workspace>, &mut VisualTestContext) {
+    mount_in_root(cx, Workspace::new)
+}
+
+/// Mounts the view `build` makes in a test window whose root is gpui-component's `Root`, the way the app's
+/// window is built, and draws it. Returns the view (not the `Root`). `testing::init` runs first.
+///
+/// ```ignore
+/// let (view, cx) = testing::mount_in_root(cx, |window, cx| MyField::new(window, cx));
+/// ```
+pub fn mount_in_root<V: Render + 'static>(
+    cx: &mut TestAppContext,
+    build: impl FnOnce(&mut Window, &mut Context<V>) -> V + 'static,
+) -> (Entity<V>, &mut VisualTestContext) {
     init(cx);
-    let (workspace, cx) = cx.add_window_view(Workspace::new);
+    let (root, cx) = cx.add_window_view(move |window, cx| {
+        let view = cx.new(|cx| build(window, cx));
+        Root::new(AnyView::from(view), window, cx)
+    });
+    let view = root.read_with(cx, |root, _| root.view().clone().downcast::<V>().expect("the view mounted in Root"));
     cx.run_until_parked();
-    (workspace, cx)
+    (view, cx)
 }
 
 type Build = Box<dyn Fn(&mut Window, &mut App) -> AnyElement>;
@@ -45,6 +72,12 @@ type Build = Box<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 /// A view that draws whatever its closure builds: for testing a primitive on its own.
 pub struct Harness {
     build: Build,
+}
+
+impl Harness {
+    fn new<E: IntoElement>(build: impl Fn(&mut Window, &mut App) -> E + 'static) -> Self {
+        Self { build: Box::new(move |window, cx| build(window, cx).into_any_element()) }
+    }
 }
 
 impl Render for Harness {
@@ -59,9 +92,17 @@ pub fn mount_element<E: IntoElement>(
     build: impl Fn(&mut Window, &mut App) -> E + 'static,
 ) -> (Entity<Harness>, &mut VisualTestContext) {
     init(cx);
-    let (harness, cx) = cx.add_window_view(move |_, _| Harness { build: Box::new(move |window, cx| build(window, cx).into_any_element()) });
+    let (harness, cx) = cx.add_window_view(move |_, _| Harness::new(build));
     cx.run_until_parked();
     (harness, cx)
+}
+
+/// [`mount_element`] under gpui-component's `Root`: for a wrapped gpui-component widget built as an element.
+pub fn mount_element_in_root<E: IntoElement>(
+    cx: &mut TestAppContext,
+    build: impl Fn(&mut Window, &mut App) -> E + 'static,
+) -> (Entity<Harness>, &mut VisualTestContext) {
+    mount_in_root(cx, move |_, _| Harness::new(build))
 }
 
 /// The bounds `selector` was drawn at in the last frame; panics with the selector when it was not drawn.
