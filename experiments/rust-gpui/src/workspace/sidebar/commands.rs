@@ -94,7 +94,7 @@ impl Sidebar {
         self.recorder.as_ref().map(|recorder| recorder.calls()).unwrap_or_default()
     }
 
-    fn send(&self, call: SidebarCall) {
+    pub(super) fn send(&self, call: SidebarCall) {
         self.actions.call(call);
     }
 
@@ -265,8 +265,16 @@ impl Sidebar {
             MenuAction::Commit => self.send(SidebarCall::CommitAndOpenPr { chat: key }),
             MenuAction::Pin => self.pin(&key, true, true, cx),
             MenuAction::Unpin => self.pin(&key, false, true, cx),
-            MenuAction::LinkWith => self.send(SidebarCall::LinkWith { chat: key }),
-            MenuAction::RemoveLink => self.send(SidebarCall::RemoveLinkWith { chat: key }),
+            MenuAction::LinkWith => {
+                self.send(SidebarCall::LinkWith { chat: key.clone() });
+                let top = self.row_top(&key, cx);
+                self.pick_link(&key, super::link_popover::PickerMode::Link, top, window, cx);
+            }
+            MenuAction::RemoveLink => {
+                self.send(SidebarCall::RemoveLinkWith { chat: key.clone() });
+                let top = self.row_top(&key, cx);
+                self.pick_link(&key, super::link_popover::PickerMode::Remove, top, window, cx);
+            }
             MenuAction::Detach => self.detach(&key, cx),
             MenuAction::Done => self.mark_done(&key, true, cx),
             MenuAction::Reopen => self.reopen(&key, true, cx),
@@ -342,7 +350,7 @@ impl Sidebar {
         cx.notify();
     }
 
-    fn set_pin_order(&mut self, key: &str, order: Option<f64>) {
+    pub(super) fn set_pin_order(&mut self, key: &str, order: Option<f64>) {
         let Some((scope, id)) = self.locate(key) else { return };
         self.list_filters.pins = pins::with_order(&self.data, &self.list_filters.pins, scope, id, order);
         self.send(SidebarCall::Pin { chat: key.to_owned(), order });
@@ -436,12 +444,14 @@ impl Sidebar {
                 Op::Pin(key, order) => self.set_pin_order(&key, order),
                 Op::Archive(key) => self.delete(&key, false, cx),
                 Op::UndoArchive(key) => self.undo_delete(&key),
+                Op::RemoveLink(id) => self.remove_link(&id, false, cx),
+                Op::RestoreLink(link) => self.restore_link(link, cx),
             }
         }
     }
 
     /// The toast changed: a new one gets its 6 seconds.
-    fn after_book(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn after_book(&mut self, cx: &mut Context<Self>) {
         let id = self.book.history.toast().map(|toast| toast.id);
         if id != self.toast_shown {
             self.toast_shown = id;
@@ -461,7 +471,7 @@ impl Sidebar {
 
     // ---- the hover card -----------------------------------------------------------------------------------------
 
-    fn close_card(&mut self) {
+    pub(super) fn close_card(&mut self) {
         self.card = None;
         self.hover_task = None;
     }
@@ -725,6 +735,8 @@ impl Sidebar {
                 card.update(cx, |this, cx| this.rail_card_pointer(on, cx))
             }));
         }
+        out.extend(self.drop_indicator(cx));
+        out.extend(self.link_overlays());
         out
     }
 
@@ -777,7 +789,7 @@ impl Sidebar {
                 self.collapsed = true;
                 self.rail_card = Some((2, px(300.0)));
             }
-            _ => {}
+            other => self.apply_drag_demo(other, window, cx),
         }
     }
 

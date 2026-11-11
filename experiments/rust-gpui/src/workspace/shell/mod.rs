@@ -157,6 +157,10 @@ impl Workspace {
                     })
                 }
             }),
+            on_link_projects: Rc::new({
+                let this = this.clone();
+                move |window, cx| this.update(cx, |this, cx| this.open_link_projects_from_bar(window, cx))
+            }),
             on_search: Rc::new(|window, cx| {
                 if let Ok(action) = cx.build_action(PALETTE_ACTION, None) {
                     window.dispatch_action(action, cx);

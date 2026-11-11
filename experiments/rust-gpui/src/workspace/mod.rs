@@ -209,6 +209,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &NewChat, _, cx| this.new_chat(cx)))
             .map(shell::keys::on_window_actions)
             .map(|el| self.grid_actions(el, cx))
+            .map(|el| self.sidebar_drag(el, cx))
             .when(self.link.is_none(), |el| el.child(self.sidebar.clone()).child(hairline(&theme)))
             .child(columns)
             // Over the columns' headers, under Settings and the overlays.

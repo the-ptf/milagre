@@ -109,6 +109,30 @@ pub enum SidebarCall {
     AddComputer,
     /// Footer: the Add Project button.
     AddProject,
+    /// `canvas:link-add [a, b]`: a Link between two ends (a drop on a row, "Link with…").
+    AddLink {
+        a: super::links::LinkEnd,
+        b: super::links::LinkEnd,
+    },
+    /// `canvas:link-remove`.
+    RemoveLink {
+        id: String,
+    },
+    /// `canvas:link-restore`: the same Link back, id and all, so an Always allow grant on it holds again.
+    RestoreLink {
+        link: super::links::CanvasLink,
+    },
+    /// `linked:grant`: Always allow Delegations from this Chat over the Link.
+    GrantDelegations {
+        chat: String,
+        link: String,
+    },
+    /// "Link and ask": a plain user message to the Chat (`body` shown, `prompt` sent).
+    AskChat {
+        chat: String,
+        body: String,
+        prompt: String,
+    },
 }
 
 pub trait SidebarActions: Send + Sync + 'static {

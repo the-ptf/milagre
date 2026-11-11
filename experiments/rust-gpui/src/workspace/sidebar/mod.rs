@@ -15,6 +15,10 @@
 //! sidebar is the scope rail (`rail.rs`) and the footer's Filters menu (`filters.rs`) chooses what the lists show.
 //! `commands.rs` holds the `Sidebar` methods behind all of it.
 //!
+//! Drag and drop and Links (WP-49): a row drags onto the Chat view (the grid) and a pinned row within the Pinned rows
+//! (`drag.rs`, with the window's side in `hooks.rs`); a drop on a row or "Link with…" opens the Link popovers
+//! (`links.rs`, `link_popover.rs`).
+//!
 //! Keyboard: the sidebar owns a `FocusHandle` (`track_focus`); clicking a row or the sidebar focuses it,
 //! and `on_key_down` moves the selection on Up/Down and scrolls the row into view through the
 //! `UniformListScrollHandle`.
@@ -22,8 +26,12 @@
 pub mod actions;
 mod bottom;
 mod commands;
+pub mod drag;
 pub mod filters;
+mod hooks;
 pub mod hover_card;
+pub mod link_popover;
+pub mod links;
 pub mod list;
 pub mod menu;
 pub mod pins;
@@ -118,6 +126,13 @@ pub struct Sidebar {
     rail_task: Option<gpui::Task<()>>,
     /// Snapshot seed (never in tests): a state to open on the first frame, from `MILAGRE_GPUI_SIDEBAR_DEMO`.
     demo: Option<String>,
+    /// The row being dragged and where it would land (`drag.rs`), and what the keyboard drag last announced.
+    drag: Option<drag::DragState>,
+    announcement: String,
+    /// The canvas Links the sidebar knows, the popover or picker open over it, and the last fixture Link id.
+    links: Vec<links::CanvasLink>,
+    link_open: Option<links::OpenLinks>,
+    next_link: u64,
 }
 
 /// What the sidebar asks the window to do.
@@ -173,6 +188,11 @@ impl Sidebar {
             rail_card: None,
             rail_task: None,
             demo: if cfg!(test) { None } else { std::env::var("MILAGRE_GPUI_SIDEBAR_DEMO").ok() },
+            drag: None,
+            announcement: String::new(),
+            links: Vec::new(),
+            link_open: None,
+            next_link: 0,
         };
         commands::install_undo_keys(cx);
         let open_chat = seed.open_chat;
@@ -342,7 +362,11 @@ impl Sidebar {
         cx.notify();
     }
 
-    fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.drag_key(event, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
         match event.keystroke.key.as_str() {
             "down" => self.move_selection(1, cx),
             "up" => self.move_selection(-1, cx),
@@ -358,9 +382,12 @@ impl Sidebar {
             None => {
                 let (row, selected, renders) = (self.rows[ix].clone(), self.selected == Some(ix), self.rows_built.clone());
                 let renaming = self.renaming.as_ref().filter(|renaming| renaming.key == row.key.as_ref()).map(|renaming| renaming.view());
+                let dragging = self.dragging() == Some(row.key.as_ref());
+                let pinned = ix < self.pinned;
                 let view = cx.new(|_| {
                     let mut view = ChatRowView::new(ix, row, selected, renders);
                     view.set_rename_silently(renaming);
+                    view.set_draggable(pinned, dragging);
                     view
                 });
                 let events = cx.subscribe_in(&view, window, move |this, _, event: &RowEvent, window, cx| match event {
@@ -610,5 +637,7 @@ fn destination(id: &'static str, label: &'static str, icon: IconName, dot: bool,
     )
 }
 
+#[cfg(test)]
+mod drag_tests;
 #[cfg(test)]
 mod menu_tests;

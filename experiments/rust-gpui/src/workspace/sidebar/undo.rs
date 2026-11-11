@@ -31,6 +31,9 @@ pub enum Op {
     Pin(String, Option<f64>),
     Archive(String),
     UndoArchive(String),
+    /// A Link the sidebar made goes again (`canvas:link-remove`), or a removed one comes back (`canvas:link-restore`).
+    RemoveLink(String),
+    RestoreLink(super::links::CanvasLink),
 }
 
 pub struct UndoBook {
@@ -104,6 +107,22 @@ impl UndoBook {
             undone_text: Some(undone.into()),
             redo: Some(self.queue_redo(Op::Pin(key.into(), after))),
             ..UndoAction::new(text, self.queue_op(Op::Pin(key.into(), before)))
+        });
+    }
+
+    /// A Link made from the sidebar: the toast says what happened (`text`), its Undo removes the Link.
+    pub fn link_created(&mut self, text: &str, id: &str) {
+        self.history.record(UndoAction {
+            undone_text: Some("Link removed".into()),
+            ..UndoAction::new(text, self.queue_op(Op::RemoveLink(id.into())))
+        });
+    }
+
+    /// A Link removed from "Remove Link with…": Undo brings the same Link back, id and all.
+    pub fn link_removed(&mut self, link: &super::links::CanvasLink) {
+        self.history.record(UndoAction {
+            undone_text: Some("Linked again".into()),
+            ..UndoAction::new("Link removed", self.queue_op(Op::RestoreLink(link.clone())))
         });
     }
 

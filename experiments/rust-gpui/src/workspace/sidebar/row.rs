@@ -187,13 +187,36 @@ pub struct ChatRowView {
     bounds: Rc<Cell<Bounds<Pixels>>>,
     /// The row is being renamed: the field takes the title's place.
     rename: Option<gpui::AnyView>,
+    /// The sidebar's rows drag (`drag.rs`); `pinned` rides along with the drag, `dragging` dims the row meanwhile.
+    draggable: bool,
+    pinned: bool,
+    dragging: bool,
 }
 
 impl EventEmitter<RowEvent> for ChatRowView {}
 
 impl ChatRowView {
     pub fn new(ix: usize, row: ChatRow, selected: bool, renders: Rc<Cell<usize>>) -> Self {
-        Self { ix, row, selected, renders, bounds: Rc::default(), rename: None }
+        Self { ix, row, selected, renders, bounds: Rc::default(), rename: None, draggable: false, pinned: false, dragging: false }
+    }
+
+    /// Lets the row drag (the sidebar's rows; a Run Chat's row elsewhere stays put).
+    pub fn set_draggable(&mut self, pinned: bool, dragging: bool) {
+        self.draggable = true;
+        self.pinned = pinned;
+        self.dragging = dragging;
+    }
+
+    pub fn set_dragging(&mut self, dragging: bool, cx: &mut Context<Self>) {
+        if self.dragging != dragging {
+            self.dragging = dragging;
+            cx.notify();
+        }
+    }
+
+    /// Where the row was last painted, in the window.
+    pub fn bounds(&self) -> Bounds<Pixels> {
+        self.bounds.get()
     }
 
     /// The rename field in the title's place, or the title again.
@@ -250,6 +273,11 @@ impl Render for ChatRowView {
                     .cursor_pointer()
                     .when(selected, |el| el.bg(theme.hover2))
                     .when(!selected, |el| el.hover(move |style| style.bg(hover)))
+                    .when(self.dragging, |el| el.opacity(0.5))
+                    .when(self.draggable, |el| {
+                        let drag = super::drag::ChatDrag { key: row.key.to_string(), pinned: self.pinned };
+                        el.on_drag(drag, |_, _, _, cx| cx.new(|_| super::drag::DragGhost))
+                    })
                     .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(RowEvent::Clicked)))
                     .on_mouse_down(
                         MouseButton::Right,

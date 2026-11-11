@@ -80,12 +80,14 @@ pub struct Bar {
     pub on_toggle: Handler,
     pub on_routines: Handler,
     pub on_search: Handler,
+    /// Link Projects: the Link Projects dialog, then the new Link's workspace (`sidebar/hooks.rs`).
+    pub on_link_projects: Handler,
 }
 
 /// The bar, positioned absolutely in the window's top-left. It occludes what is under it, so a press on it never
 /// reaches the header's window drag.
 pub fn bar(bar: Bar, theme: &Theme) -> AnyElement {
-    let Bar { collapsed, routines_active, routines_unread, ground, on_toggle, on_routines, on_search } = bar;
+    let Bar { collapsed, routines_active, routines_unread, ground, on_toggle, on_routines, on_search, on_link_projects } = bar;
     let toggle_label = if collapsed { "Expand sidebar" } else { "Collapse sidebar" };
     let toggle_icon = if collapsed { IconName::SidebarRight01 } else { IconName::SidebarLeft01 };
     let routines = div()
@@ -121,8 +123,12 @@ pub fn bar(bar: Bar, theme: &Theme) -> AnyElement {
             button("bar-sidebar-toggle", toggle_icon, false, move |window, cx| on_toggle(window, cx))
         }))
         .child(tip("tip-routines", if routines_unread { "Routines, unread Runs" } else { "Routines" }, None, routines))
-        // Link Projects opens the Link popover (WP-49), not built yet: the button shows and does nothing.
-        .child(tip("tip-link-projects", "Link Projects", None, button("bar-link-projects", IconName::Link04, false, |_, _| {})))
+        .child(tip(
+            "tip-link-projects",
+            "Link Projects",
+            None,
+            button("bar-link-projects", IconName::Link04, false, move |window, cx| on_link_projects(window, cx)),
+        ))
         .child(tip(
             "tip-search",
             "Search commands, Chats and Projects",
