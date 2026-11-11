@@ -153,7 +153,9 @@ What changed:
 - An open Project's key is its path worked out from the text: the full `.milagre` walk (`Isolation::resolve`) ran
   several times per event and grew with every sidecar. Opening still walks it. Every write checks the root is still
   the folder opened (device and inode pinned at open, canonical path unchanged: no move, no link on or above it) and
-  what a save could follow (`verify_owned`).
+  what a save could follow (`verify_owned`). Releasing the lock (`close`, `forget`, `abandon`, a failed open, and
+  `Drop`) runs the same root check first: a root that no longer holds is `OwnershipLost` and nothing is removed, so
+  a Project moved away with its lock keeps it byte for byte (`tests/root_identity.rs`).
 - Events folded into the run alone don't copy the session; step stamps read the steps without copying them.
 
 Subagent updates stay the slowest: each copies the Chat's session (its subagents and transcripts) and the sessions map,

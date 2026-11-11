@@ -219,6 +219,52 @@ pub struct OwnerGuard {
     lock: PathBuf,
     token: String,
     released: bool,
+    /// The folder the lock lives in, pinned when its owner opened it. Release removes nothing unless it still holds.
+    root: Option<RootPin>,
+}
+
+/// A folder as it was opened: its path and its device and inode. It still holds while the path is a real folder (not a
+/// link) with that identity and its canonical path is still its own (no link on it or above it).
+#[derive(Clone, Debug)]
+pub struct RootPin {
+    path: PathBuf,
+    identity: (u64, u64),
+}
+
+impl RootPin {
+    /// Pins `path` as it is now (`lstat`, never following a link).
+    pub fn take(path: &Path) -> crate::Result<Self> {
+        use std::os::unix::fs::MetadataExt;
+        let meta = std::fs::symlink_metadata(path)
+            .map_err(|error| crate::StoreError::io(error, "lstat", path))?;
+        Ok(RootPin {
+            path: path.to_path_buf(),
+            identity: (meta.dev(), meta.ino()),
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// `Err(why)` when the path no longer leads to the pinned folder.
+    pub fn check(&self) -> std::result::Result<(), &'static str> {
+        use std::os::unix::fs::MetadataExt;
+        match std::fs::symlink_metadata(&self.path) {
+            Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
+                return Err("the Project folder was replaced")
+            }
+            Ok(meta) if (meta.dev(), meta.ino()) != self.identity => {
+                return Err("the Project folder was replaced")
+            }
+            Ok(_) => {}
+            Err(_) => return Err("the Project folder is gone"),
+        }
+        match std::fs::canonicalize(&self.path) {
+            Ok(real) if real == self.path => Ok(()),
+            _ => Err("the Project folder's path now leads elsewhere"),
+        }
+    }
 }
 
 impl OwnerGuard {
@@ -228,6 +274,16 @@ impl OwnerGuard {
 
     pub fn token(&self) -> &str {
         &self.token
+    }
+
+    /// Pins the folder the lock lives in: from now on [`OwnerGuard::release`] (and so `Drop`) removes nothing unless
+    /// that folder is still the one pinned.
+    pub fn pin_root(&mut self, root: RootPin) {
+        self.root = Some(root);
+    }
+
+    pub fn root(&self) -> Option<&RootPin> {
+        self.root.as_ref()
     }
 
     /// Whether this process still owns the lock: not released, the lock a real folder (not a link), its
@@ -272,9 +328,21 @@ impl OwnerGuard {
 
     /// ownership.cjs release: removes the record and the lock when the record still holds our token. A record already
     /// gone counts as released (the empty lock stays for an operator); another token is an error and nothing is removed.
+    ///
+    /// With a pinned root, a root that no longer holds ([`RootPin::check`]: moved and replaced by a link or another
+    /// folder, a link above it) is `OwnershipLost` and nothing is removed anywhere: the lock path now leads outside
+    /// what was opened. The guard stays unreleased, so a later call (or `Drop`) checks again.
     pub fn release(&mut self) -> crate::Result<()> {
         if self.released {
             return Ok(());
+        }
+        if let Some(root) = &self.root {
+            if let Err(why) = root.check() {
+                return Err(crate::StoreError::OwnershipLost {
+                    lock: self.lock.clone(),
+                    why: why.into(),
+                });
+            }
         }
         let file = self.lock.join("owner.json");
         let current = match std::fs::read(&file) {
@@ -378,6 +446,7 @@ impl crate::write::OwnerLock for RustOwnerLock {
             lock: lock.to_path_buf(),
             token,
             released: false,
+            root: None,
         })
     }
 }

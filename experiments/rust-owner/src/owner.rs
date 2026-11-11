@@ -23,7 +23,7 @@ use crate::error::{Result, StoreError};
 use crate::isolation::Isolation;
 use crate::jsjson;
 use crate::message_store::{id_key, MessageStore, Msg, MsgRef, ProjectState, SavedMsgs, SavedRow};
-use crate::ownership::{self, OwnerGuard, RustOwnerLock};
+use crate::ownership::{self, OwnerGuard, RootPin, RustOwnerLock};
 use crate::project::{
     inside, is_sidecar_name, sha256_hex, state_file, MessageStorage, ProjectRepository,
     ProjectStateRead, ProjectStore,
@@ -74,29 +74,23 @@ pub struct OwnedProject {
     settled: Option<HashMap<String, String>>,
     /// project-store.cjs `swept`: the first save of a run sweeps old sidecars even when it wrote none.
     swept: bool,
-    /// The root folder as it was opened: its device and inode. Every write checks the root is still that folder, at
-    /// that canonical path (no link on it or above it).
-    root_identity: (u64, u64),
 }
 
 impl OwnedProject {
     /// Takes the owner lock of `project` (a folder inside `isolation`). Refused when any lock is already there.
     pub fn open(isolation: &Isolation, project: &Path) -> Result<Self> {
         let root = isolation.project(project)?;
-        let root_identity = {
-            use std::os::unix::fs::MetadataExt;
-            let meta = std::fs::symlink_metadata(&root)
-                .map_err(|error| StoreError::io(error, "lstat", &root))?;
-            (meta.dev(), meta.ino())
-        };
-        let guard = RustOwnerLock.acquire(&ownership::project_lock(&root))?;
+        // The root folder as it was opened (device and inode). Every write checks it is still that folder at that
+        // canonical path, and releasing the lock (also on drop) removes nothing unless it is.
+        let pin = RootPin::take(&root)?;
+        let mut guard = RustOwnerLock.acquire(&ownership::project_lock(&root))?;
+        guard.pin_root(pin);
         Ok(OwnedProject {
             store: ProjectStore::owned(&root),
             guard,
             messages: MessageStore::default(),
             settled: None,
             swept: false,
-            root_identity,
         })
     }
 
@@ -126,23 +120,8 @@ impl OwnedProject {
         };
         // The root first: still the folder that was opened, at its canonical path. A Project moved away (its lock with
         // it) and a link put in its place, or a link above it, would otherwise send every write below elsewhere.
-        {
-            use std::os::unix::fs::MetadataExt;
-            let root = self.root();
-            match std::fs::symlink_metadata(root) {
-                Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
-                    return Err(lost("the Project folder was replaced"))
-                }
-                Ok(meta) if (meta.dev(), meta.ino()) != self.root_identity => {
-                    return Err(lost("the Project folder was replaced"))
-                }
-                Ok(_) => {}
-                Err(_) => return Err(lost("the Project folder is gone")),
-            }
-            match std::fs::canonicalize(root) {
-                Ok(real) if real == root => {}
-                _ => return Err(lost("the Project folder's path now leads elsewhere")),
-            }
+        if let Some(why) = self.guard.root().and_then(|root| root.check().err()) {
+            return Err(lost(why));
         }
         self.guard.verify()?;
         let metadata = self.root().join(".milagre");
@@ -166,7 +145,9 @@ impl OwnedProject {
         Ok(())
     }
 
-    /// Releases the owner lock (ownership.cjs release).
+    /// Releases the owner lock (ownership.cjs release). A root that no longer holds (see [`Self::verify_owned`]) is
+    /// `OwnershipLost` and nothing is removed: the lock path would lead outside the folder opened. Dropping does the
+    /// same check.
     pub fn release(mut self) -> Result<()> {
         self.guard.release()
     }
