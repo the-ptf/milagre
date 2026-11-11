@@ -18,8 +18,13 @@ const cases = JSON.parse(readFileSync(process.argv[2], "utf8"));
 for (const [index, row] of cases.entries()) {
   const patch = row.changed ? row.patch : undefined;
   const original = JSON.stringify(row.before);
-  assert.deepEqual(patch, diffState(row.before, shared(row.before, row.after), row.depth), `patch ${index}`);
-  assert.deepEqual(applyStatePatch(row.before, patch), row.after, `Rust patch ${index}`);
+  const expectedPatch = diffState(row.before, shared(row.before, row.after), row.depth);
+  assert.deepEqual(patch, expectedPatch, `patch ${index}`);
+  const actual = applyStatePatch(row.before, patch);
+  const expected = applyStatePatch(row.before, expectedPatch);
+  assert.deepEqual(actual, row.after, `Rust patch ${index}`);
+  // JSON.stringify observes integer and insertion-key order recursively, unlike deepEqual.
+  assert.equal(JSON.stringify(actual), JSON.stringify(expected), `applied key order ${index}`);
   assert.deepEqual(applyStatePatch(row.before, diffState(row.before, row.after, row.depth)), row.after, `Node patch ${index}`);
   assert.equal(JSON.stringify(row.before), original, `mutation ${index}`);
 }

@@ -6,6 +6,7 @@ publish = false
 description = "Isolated Rust implementation of Milagre's local daemon wire protocol"
 
 [dependencies]
+serde = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 hmac = "0.12"

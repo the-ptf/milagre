@@ -1,6 +1,8 @@
 //! Pure, bounded patches consumed by the production `applyStatePatch` function.
 //! This does not advertise state-patch capability or manage client versions.
-use serde_json::{json, Map, Value};
+use serde::ser::{Serialize, SerializeMap, Serializer};
+use serde_json::{Map, Value};
+use std::borrow::Cow;
 use std::io::{self, Write};
 
 /// Limits cover both input trees together. Errors require a whole-state/resync path;
@@ -53,7 +55,10 @@ pub fn diff(previous: &Value, next: &Value, limits: Limits) -> Result<Option<Val
         let mut writer = BoundedWriter(limits.output_bytes);
         serde_json::to_writer(&mut writer, value).map_err(|_| PatchError::OutputLimit)?;
     }
-    Ok(patch)
+    patch
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|_| PatchError::OutputLimit)
 }
 
 struct InputBudget {
@@ -98,54 +103,94 @@ impl InputBudget {
     }
 }
 
-fn build(previous: &Value, next: &Value, depth: usize) -> Option<Value> {
+// Replacement payloads remain borrowed until the complete patch fits its output budget.
+enum Plan<'a> {
+    Replace(&'a Value),
+    Array {
+        len: usize,
+        changed: Vec<(Cow<'a, str>, Plan<'a>)>,
+    },
+    Object {
+        changed: Vec<(Cow<'a, str>, Plan<'a>)>,
+        removed: Vec<&'a str>,
+    },
+}
+struct Fields<'p, 'v>(&'p [(Cow<'v, str>, Plan<'v>)]);
+impl Serialize for Fields<'_, '_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (key, value) in self.0 {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
+impl Serialize for Plan<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        match self {
+            Self::Replace(value) => map.serialize_entry("v", value)?,
+            Self::Array { len, changed } => {
+                map.serialize_entry("a", len)?;
+                map.serialize_entry("s", &Fields(changed))?;
+            }
+            Self::Object { changed, removed } => {
+                map.serialize_entry("o", &Fields(changed))?;
+                if !removed.is_empty() {
+                    map.serialize_entry("d", removed)?;
+                }
+            }
+        }
+        map.end()
+    }
+}
+fn build<'a>(previous: &'a Value, next: &'a Value, depth: usize) -> Option<Plan<'a>> {
     if same(previous, next) {
         return None;
     }
     if depth == 0 {
-        return Some(json!({"v": next}));
+        return Some(Plan::Replace(next));
     }
     match (previous, next) {
         (Value::Array(before), Value::Array(after)) => {
-            let mut changed = Map::new();
+            let mut changed = Vec::new();
             for (index, item) in after.iter().enumerate() {
                 let patch = before
                     .get(index)
                     .map(|old| build(old, item, depth - 1))
-                    .unwrap_or_else(|| Some(json!({"v": item})));
+                    .unwrap_or(Some(Plan::Replace(item)));
                 if let Some(patch) = patch {
-                    changed.insert(index.to_string(), patch);
+                    changed.push((Cow::Owned(index.to_string()), patch));
                 }
             }
             if changed.len() > after.len() / 2 && changed.len() > 8 {
-                Some(json!({"v": next}))
+                Some(Plan::Replace(next))
             } else {
-                Some(json!({"a": after.len(), "s": changed}))
+                Some(Plan::Array {
+                    len: after.len(),
+                    changed,
+                })
             }
         }
         (Value::Object(before), Value::Object(after)) => {
-            let mut changed = Map::new();
+            let mut changed = Vec::new();
             for key in js_keys(after) {
                 let item = &after[key];
                 let patch = before
                     .get(key)
                     .map(|old| build(old, item, depth - 1))
-                    .unwrap_or_else(|| Some(json!({"v": item})));
+                    .unwrap_or(Some(Plan::Replace(item)));
                 if let Some(patch) = patch {
-                    changed.insert(key.to_owned(), patch);
+                    changed.push((Cow::Borrowed(key), patch));
                 }
             }
-            let removed: Vec<_> = js_keys(before)
+            let removed = js_keys(before)
                 .into_iter()
                 .filter(|key| !after.contains_key(*key))
                 .collect();
-            Some(if removed.is_empty() {
-                json!({"o": changed})
-            } else {
-                json!({"o": changed, "d": removed})
-            })
+            Some(Plan::Object { changed, removed })
         }
-        _ => Some(json!({"v": next})),
+        _ => Some(Plan::Replace(next)),
     }
 }
 
@@ -202,6 +247,7 @@ impl Write for BoundedWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn input_and_output_limits_fail_explicitly() {

@@ -45,6 +45,48 @@ fn production_node_reducer_applies_bounded_rust_patches() {
             }
         }
     }
+    check_cases(&cases);
+}
+
+#[test]
+fn recorded_chat_host_run_states_match_production_patches() {
+    let output = Command::new("node")
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/state-patch-traces.mjs"
+        ))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let pairs: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        pairs.len(),
+        182,
+        "update the recorded trace coverage explicitly"
+    );
+    let mut cases = Vec::new();
+    for pair in pairs {
+        for depth in [0, 1, 4, 6] {
+            let patch = diff(
+                &pair["before"],
+                &pair["after"],
+                Limits {
+                    depth,
+                    ..Limits::default()
+                },
+            )
+            .unwrap();
+            cases.push(json!({"before": pair["before"], "after": pair["after"], "depth": depth, "changed": patch.is_some(), "patch": patch}));
+        }
+    }
+    check_cases(&cases);
+}
+
+fn check_cases(cases: &[Value]) {
     let file = tempfile::NamedTempFile::new().unwrap();
     serde_json::to_writer(file.as_file(), &cases).unwrap();
     let output = Command::new("node")
