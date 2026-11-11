@@ -25,8 +25,9 @@ const NORMAL: [&str; 5] = ["message-sent", "session-started", "message-sent", "t
 const BLOCKED: [&str; 2] = ["message-sent", "session-started"];
 const CANCELLED: [&str; 1] = ["turn-cancelled"];
 const REPLY: &str = "Scripted isolated reply";
-/// The cancelled turn's saved reply: an empty body with outcome `cancelled` (observed in the recorded runs).
-const CANCELLED_BODY: &str = "";
+/// The saved reply of a `fixture:blocked-start` turn interrupted before any text delta: empty body, outcome `cancelled`.
+/// Specific to that fixture path (no text was streamed), not a general rule for interrupted turns.
+const BLOCKED_START_CANCELLED_BODY: &str = "";
 
 struct Opened {
     adapter: DaemonAdapter,
@@ -88,7 +89,8 @@ impl Opened {
                     self.last = *wire_seq;
                     let kind = payload["event"]["type"].as_str().map(str::to_owned);
                     let record = json!({"wireSeq": wire_seq, "channel": channel, "chatId": payload["chatId"], "type": kind,
-                        "runSeq": payload["seq"], "statePresent": payload["state"].is_object()});
+                        "runSeq": payload["seq"], "statePresent": payload["state"].is_object(),
+                        "version": payload["version"], "epoch": payload["epoch"]});
                     let done = channel == "agent:event" && payload["chatId"] == key.as_str() && kind.as_deref() == Some(terminal);
                     self.store.apply_notice(notice).expect("applied");
                     let (run, count) = self.store.read(|r| {
@@ -152,7 +154,7 @@ fn described(messages: &[milagre_gpui_spike::data::ChatMessage]) -> Vec<Value> {
 }
 
 /// The exact-sequence claims cover the Chat's `agent:event`s up to and including the terminal one. Events released
-/// after it (a `project:state` arrived there in every recorded run, but the contract does not promise one) are
+/// after it (sometimes a `project:state`, sometimes nothing; the contract promises none) are
 /// collected for the evidence and only checked to hold no further `agent:event` for the Chat.
 fn assert_no_late_agent_events(late: &[Value], key: &str) {
     assert!(late.iter().all(|r| !(r["channel"] == "agent:event" && r["chatId"] == key)), "late agent events: {late:?}");
@@ -233,7 +235,7 @@ fn a_blocked_start_then_interrupt_cancels_and_removes_the_run() {
                 json!({"role": "user", "body": "Fixture history: another Chat", "clientMessageId": null, "outcome": null}),
                 json!({"role": "assistant", "body": REPLY, "clientMessageId": null, "outcome": "completed"}),
                 json!({"role": "user", "body": "fixture:blocked-start", "clientMessageId": "gpui-action-2", "outcome": null}),
-                json!({"role": "assistant", "body": CANCELLED_BODY, "clientMessageId": null, "outcome": "cancelled"}),
+                json!({"role": "assistant", "body": BLOCKED_START_CANCELLED_BODY, "clientMessageId": null, "outcome": "cancelled"}),
             ]
         );
         let o_initial = o.initial.clone();
@@ -334,4 +336,65 @@ fn the_mounted_transcript_shows_the_new_messages_after_a_send(cx: &mut TestAppCo
     drop(o);
     cx.foreground_executor().block_test(shut_down(&guard));
     println!("GPUI_ADAPTER_ACTIONS_EVIDENCE transcript initial={initial} key={key:?} items={shown:?} tops={tops:?}");
+}
+
+/// The required positive post-snapshot proof: after an explicit open and an applied, accepted snapshot, a scripted send
+/// must release state-bearing `agent:event`s (admission `message-sent` and terminal `turn-completed` carry `state`), and
+/// the live state they leave is checked. `project:state` is recorded as optional evidence, never required.
+#[test]
+#[ignore = "real fixture: run through scripts/check-gpui-adapter.py"]
+fn a_send_after_the_snapshot_releases_state_bearing_agent_events() {
+    block_on(async {
+        let guard = FixtureGuard::launch_populated().await.expect("launch_populated");
+        let mut o = open(&guard).await;
+        let key = o.key(1);
+        o.actions.send(1, "Post-snapshot proof", "gpui-post-snapshot").await.expect("send");
+        let seen = o.collect(1, "turn-completed");
+        let late = o.drain(Duration::from_millis(300));
+        assert_no_late_agent_events(&late, &key);
+        let bearing: Vec<_> =
+            seen.iter().filter(|r| r["channel"] == "agent:event" && r["chatId"] == key.as_str() && r["statePresent"] == true).collect();
+        let bearing_types: Vec<_> = bearing.iter().map(|r| r["type"].as_str().unwrap_or_default()).collect();
+        assert!(bearing_types.contains(&"message-sent"), "admission carries state: {bearing_types:?}");
+        assert!(bearing_types.contains(&"turn-completed"), "the terminal event carries state: {bearing_types:?}");
+        let project_states = seen.iter().chain(&late).filter(|r| r["channel"] == "project:state").count();
+        // The state the events left: counts, and a stamp exactly as the last state-bearing payload carried it.
+        let last = bearing.last().expect("a state-bearing event");
+        o.store.read(|reducer| {
+            let applied = reducer.state().expect("live state");
+            assert!(applied.runs.get(&key).is_none(), "the run ended");
+            let open = &applied.projects[0];
+            let sessions = &open.state.as_ref().expect("state").sessions;
+            let summary = |id: u64| sessions[&id].summary.clone().expect("summary");
+            assert_eq!((summary(1).count, summary(2).count), (6, 2));
+            assert_eq!(summary(1).last_model.as_deref(), Some("scripted"));
+            assert_eq!(summary(1).last_outcome.map(|o| o.key()), Some("completed"));
+            assert_eq!(open.stamp.version, last["version"].as_u64());
+            assert_eq!(open.stamp.epoch.as_deref(), last["epoch"].as_str());
+        });
+        // Bodies, models and outcomes as persisted.
+        let page =
+            o.adapter.chat_messages(ScopeKey::project(LOCAL, &o.path), 1, milagre_gpui_spike::data::PageRequest::OPEN).await.unwrap();
+        assert_eq!(page.total, 6);
+        let tail: Vec<_> = page.messages[4..]
+            .iter()
+            .map(|m| (m.body.to_string(), m.model.as_deref().map(str::to_owned), m.outcome.map(|o| o.key())))
+            .collect();
+        assert_eq!(
+            tail,
+            [
+                ("Post-snapshot proof".to_owned(), Some("scripted".to_owned()), None),
+                (REPLY.to_owned(), Some("scripted".to_owned()), Some("completed"))
+            ]
+        );
+        let initial = o.initial.clone();
+        o.client.disconnect();
+        drop(o);
+        shut_down(&guard).await;
+        println!(
+            "GPUI_ADAPTER_EVIDENCE post_snapshot_send initial={initial} state_bearing={} project_state_optional={project_states} late={}",
+            json!(bearing_types),
+            json!(late)
+        );
+    });
 }

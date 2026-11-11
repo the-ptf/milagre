@@ -561,10 +561,13 @@ removes the stage; the log is `daemon-check/target/check-gpui-adapter.log`.
 - `src/real/actions.rs`: the backend's `ScriptedActions` (`send`, `interrupt`) on the populated fixture, after an
   explicit `project:open` and an accepted snapshot (before the open both refuse with `ISOLATED_SCOPE_ONLY`). Events are
   awaited on the notifications with a bound, never on the action's future. The exact sequences cover the Chat's `agent:event`s
-  up to the terminal one; events released after it (a `project:state` in every recorded run, not promised by the
-  contract) are collected and only checked to hold no further `agent:event` for that Chat. A send streams through the live reducer
+  up to the terminal one; events released after it (sometimes a `project:state`, sometimes none; the contract
+  promises none) are collected and only checked to hold no further `agent:event` for that Chat. A send streams through the live reducer
   (run appears, text grows, run ends, summary count +2); a `fixture:blocked-start` send then `interrupt` gives
-  `turn-cancelled` and removes the run; the mounted transcript shows the new messages through the same manual seam.
+  `turn-cancelled` and removes the run (that path saves an empty, `cancelled` reply because no text was streamed;
+  not a general rule for interrupted turns); the mounted transcript shows the new messages through the same manual seam.
+  The required post-snapshot proof is a send's state-bearing `agent:event`s (admission and terminal); a
+  `project:state` after `project:open` is optional evidence (opening an already-ready Project publishes nothing).
 - `src/view.rs`: `open_on_select` (explicit `project:open`, then the Chat's first page) and `transcript_items`.
   The GPUI test swaps the Chat column's public `transcript` entity, because the base crate has no seam to give
   `ChatView` a Chat (title and Project label are private fixture text) and `Workspace` routes a selection only to
