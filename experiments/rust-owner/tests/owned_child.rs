@@ -140,3 +140,105 @@ fn a_descendant_that_left_the_group_is_not_owned() {
     assert!(survived, "a descendant outside the group was signalled");
     assert_eq!(take_reaps().len(), 1);
 }
+
+/// A wait that fails loses the child: `ECHILD` (something else reaped it) or another error gives no output and the
+/// child is never signalled or waited on again (it is still running here, so it was untouched; cleaned up by the
+/// test). An interrupted wait is retried and the run finishes normally.
+#[test]
+fn a_failed_wait_loses_the_child_and_never_signals_it() {
+    use milagre_owner_store::changed_files::test_hooks::{fail_next_wait, take_process_log};
+    take_process_log();
+    for errno in [libc::ECHILD, libc::EINVAL] {
+        fail_next_wait(errno);
+        assert_eq!(
+            run_bounded("/bin/sleep", &["30"], Duration::from_secs(5), 1024),
+            None
+        );
+        let log = take_process_log();
+        assert_eq!(log.len(), 1, "errno {errno}: {log:?}");
+        assert_eq!(log[0].0, "lost");
+        let pid = log[0].1 as i32;
+        assert!(alive(pid), "errno {errno}: a lost child was signalled");
+        // SAFETY: cleaning up the test's own child.
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+            libc::waitpid(pid, std::ptr::null_mut(), 0);
+        }
+    }
+    // The check right before signalling: a setup failure whose cleanup wait says the child is gone signals nothing.
+    before_setup(|_| {
+        fail_next_wait(libc::ECHILD);
+        true
+    });
+    assert_eq!(
+        run_bounded("/bin/sleep", &["30"], Duration::from_secs(5), 1024),
+        None
+    );
+    let log = take_process_log();
+    assert_eq!(
+        log.iter().map(|(what, _)| *what).collect::<Vec<_>>(),
+        vec!["lost"]
+    );
+    let pid = log[0].1 as i32;
+    assert!(alive(pid), "signalled although its wait said it was gone");
+    // SAFETY: cleaning up the test's own child.
+    unsafe {
+        libc::kill(pid, libc::SIGKILL);
+        libc::waitpid(pid, std::ptr::null_mut(), 0);
+    }
+    fail_next_wait(libc::EINTR);
+    assert_eq!(
+        run_bounded("/bin/sh", &["-c", "echo ok"], Duration::from_secs(5), 1024).as_deref(),
+        Some("ok\n")
+    );
+    let log = take_process_log();
+    assert_eq!(
+        log.iter().map(|(what, _)| *what).collect::<Vec<_>>(),
+        vec!["signal", "reap"]
+    );
+}
+
+/// On every path the group is signalled before the one reap, and nothing after it: success, a descendant holding a
+/// pipe, a timeout, too much output.
+#[test]
+fn nothing_is_signalled_after_the_reap() {
+    use milagre_owner_store::changed_files::test_hooks::take_process_log;
+    take_process_log();
+    for (script, timeout) in [
+        ("echo ok", Duration::from_secs(5)),
+        ("sleep 30 & echo hi", Duration::from_secs(5)),
+        ("sleep 30", Duration::from_millis(200)),
+        ("head -c 4096 /dev/zero", Duration::from_secs(5)),
+    ] {
+        run_bounded("/bin/sh", &["-c", script], timeout, 1024);
+        let log = take_process_log();
+        let kinds: Vec<&str> = log.iter().map(|(what, _)| *what).collect();
+        assert_eq!(kinds, vec!["signal", "reap"], "{script}");
+        assert_eq!(log[0].1, log[1].1);
+    }
+}
+
+/// A panic while the run holds the child (here in the setup hook, once a descendant started): unwinding kills the
+/// group and reaps the child once.
+#[test]
+fn a_panic_kills_the_group_and_reaps_once() {
+    use milagre_owner_store::changed_files::test_hooks::take_process_log;
+    let base = tempfile::tempdir().unwrap();
+    take_process_log();
+    let pidfile = base.path().join("panic");
+    let watched = pidfile.clone();
+    before_setup(move |_| {
+        pid_in(&watched);
+        panic!("injected");
+    });
+    let script = format!("sleep 30 & echo $! > {}; wait", pidfile.display());
+    let unwound = std::panic::catch_unwind(|| {
+        run_bounded("/bin/sh", &["-c", &script], Duration::from_secs(5), 1024)
+    });
+    assert!(unwound.is_err());
+    let log = take_process_log();
+    let kinds: Vec<&str> = log.iter().map(|(what, _)| *what).collect();
+    assert_eq!(kinds, vec!["signal", "reap"]);
+    assert!(!alive(log[1].1 as i32));
+    assert!(gone(pid_in(&pidfile)), "the descendant outlived the panic");
+}

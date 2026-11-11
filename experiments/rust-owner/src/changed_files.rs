@@ -19,6 +19,11 @@
 //!   it exits the pipes may stay open half a second (a descendant); then the group goes and the run gives no list.
 //!   A read or wait that fails (other than an interrupted read, retried) is no list too, never the output read so far.
 //!   A descendant that left the group (`setsid`) isn't owned or signalled; it holds nothing of ours after the run.
+//! - **Nothing else reaps our children.** The owner process must keep `SIGCHLD` at its default and run no reaper that
+//!   waits on any child (`waitpid(-1)`, `wait()`); waiting on its own children by pid (std, tokio::process) is fine.
+//!   This crate does neither (its only other child, `ps` in ownership checks, is waited on by pid). If something does
+//!   reap Git first, the run loses it: `waitid` fails (`ECHILD`), Git's pid is never signalled or waited on again (it
+//!   may be another process's by then), its group isn't killed, and the run gives no list.
 //! - **Off the actor.** It runs inside the transcript job (`TranscriptJob::run`), on the runtime's blocking worker.
 //!
 //! Node's answer for anything that fails (a member not admitted, Git failing, a timeout) is no list at all
@@ -742,10 +747,22 @@ fn read_pipe(pipe: &mut impl Read, buffer: &mut [u8]) -> std::io::Result<usize> 
 /// On every path (success, failure, timeout, a setup error, a panic) its whole group is killed and only then is it
 /// reaped, exactly once; nothing is signalled after the reap. A descendant that left the group (`setsid`, `setpgid`)
 /// isn't owned: it isn't signalled, and it holds none of ours once the pipes close.
+///
+/// Lost: if a wait fails (`ECHILD`: something else reaped it, such as `SIGCHLD` set to be ignored or a global
+/// `waitpid(-1)` reaper; or any other error but `EINTR`, retried), the pid may already belong to another process, so
+/// it is never signalled or waited on again and the run gives no list. Ownership is re-checked right before any
+/// signal. The owner relies on nothing else in the process reaping children it didn't spawn (see the module docs).
 struct Owned {
     child: std::process::Child,
     group: Option<rustix::process::Pid>,
-    reaped: bool,
+    state: Ownership,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Ownership {
+    Held,
+    Reaped,
+    Lost,
 }
 
 impl Owned {
@@ -754,35 +771,71 @@ impl Owned {
         Owned {
             child,
             group,
-            reaped: false,
+            state: if group.is_some() {
+                Ownership::Held
+            } else {
+                Ownership::Lost
+            },
         }
     }
 
-    /// Whether it exited, without reaping it (`Err`: the wait failed).
-    fn exited(&self) -> std::io::Result<bool> {
-        let Some(pid) = self.group else {
-            return Err(std::io::Error::other("no pid"));
+    /// One `waitid(EXITED|NOHANG|NOWAIT)`, never reaping, retried on `EINTR`; any other failure loses the child.
+    fn probe(&mut self) -> std::io::Result<bool> {
+        let pid = match (self.state, self.group) {
+            (Ownership::Held, Some(pid)) => pid,
+            _ => return Err(std::io::Error::other("the child isn't held")),
         };
         let options = rustix::process::WaitIdOptions::EXITED
             | rustix::process::WaitIdOptions::NOHANG
             | rustix::process::WaitIdOptions::NOWAIT;
-        Ok(rustix::process::waitid(rustix::process::WaitId::Pid(pid), options)?.is_some())
+        loop {
+            #[cfg(feature = "test-fixtures")]
+            let result = match test_hooks::take_wait_failure() {
+                Some(errno) => Err(errno),
+                None => rustix::process::waitid(rustix::process::WaitId::Pid(pid), options),
+            };
+            #[cfg(not(feature = "test-fixtures"))]
+            let result = rustix::process::waitid(rustix::process::WaitId::Pid(pid), options);
+            match result {
+                Ok(status) => return Ok(status.is_some()),
+                Err(rustix::io::Errno::INTR) => continue,
+                Err(errno) => {
+                    self.state = Ownership::Lost;
+                    #[cfg(feature = "test-fixtures")]
+                    test_hooks::log("lost", self.child.id());
+                    return Err(errno.into());
+                }
+            }
+        }
+    }
+
+    /// Whether it exited, without reaping it (`Err`: the wait failed and the child is lost).
+    fn exited(&mut self) -> std::io::Result<bool> {
+        self.probe()
     }
 
     /// Kills its whole group (it is still unreaped, so the group id is its own), then reaps it: its exit status.
+    /// Lost or reaped already: nothing at all.
     fn finish(&mut self) -> Option<std::process::ExitStatus> {
-        if self.reaped {
-            return None;
-        }
-        if let Some(group) = self.group {
-            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
-        }
-        // The pid is still ours (unreaped): signalling it is safe even if it already exited.
-        let _ = self.child.kill();
-        let status = self.child.wait();
-        self.reaped = true;
+        // Still ours right before any signal (a child something else reaped is lost, never signalled).
+        self.probe().ok()?;
+        let pid = self.group?;
         #[cfg(feature = "test-fixtures")]
-        test_hooks::reaped(self.child.id());
+        test_hooks::log("signal", self.child.id());
+        let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+        // Unreaped, the pid is still its own: signalling it is safe even if it already exited.
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+        let status = self.child.wait();
+        self.state = if status.is_ok() {
+            Ownership::Reaped
+        } else {
+            Ownership::Lost
+        };
+        #[cfg(feature = "test-fixtures")]
+        test_hooks::log(
+            if status.is_ok() { "reap" } else { "lost" },
+            self.child.id(),
+        );
         status.ok()
     }
 }
@@ -894,7 +947,8 @@ pub mod test_hooks {
 
     thread_local! {
         static BEFORE_SETUP: RefCell<Option<SetupHook>> = const { RefCell::new(None) };
-        static REAPS: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+        static LOG: RefCell<Vec<(&'static str, u32)>> = const { RefCell::new(Vec::new()) };
+        static WAIT_FAILURE: std::cell::Cell<Option<rustix::io::Errno>> = const { std::cell::Cell::new(None) };
         static AFTER_GIT: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
         static BEFORE_STATUS: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
         static READ_FAILURE: std::cell::Cell<Option<std::io::ErrorKind>> = const { std::cell::Cell::new(None) };
@@ -912,13 +966,33 @@ pub mod test_hooks {
             .is_some_and(|hook| hook(pid))
     }
 
-    pub(super) fn reaped(pid: u32) {
-        REAPS.with(|reaps| reaps.borrow_mut().push(pid));
+    pub(super) fn log(what: &'static str, pid: u32) {
+        LOG.with(|log| log.borrow_mut().push((what, pid)));
     }
 
-    /// The pids bounded runs reaped on this thread, each time it happened (taken).
+    /// What bounded runs on this thread did to their children, in order (taken): `"signal"` (its group and it were
+    /// killed), `"reap"`, `"lost"` (a wait failed: never signalled or waited on again).
+    pub fn take_process_log() -> Vec<(&'static str, u32)> {
+        LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    }
+
+    /// The pids bounded runs reaped on this thread, each time it happened (taken, with the rest of the log).
     pub fn take_reaps() -> Vec<u32> {
-        REAPS.with(|reaps| std::mem::take(&mut *reaps.borrow_mut()))
+        take_process_log()
+            .into_iter()
+            .filter(|(what, _)| *what == "reap")
+            .map(|(_, pid)| pid)
+            .collect()
+    }
+
+    /// The next `waitid` of a bounded run on this thread fails with `errno` (as a reaper elsewhere would make it fail
+    /// with `ECHILD`).
+    pub fn fail_next_wait(errno: i32) {
+        WAIT_FAILURE.with(|slot| slot.set(Some(rustix::io::Errno::from_raw_os_error(errno))));
+    }
+
+    pub(super) fn take_wait_failure() -> Option<rustix::io::Errno> {
+        WAIT_FAILURE.with(|slot| slot.take())
     }
 
     /// The next pipe read of a bounded run (on this thread) fails with `kind` before reading anything.
