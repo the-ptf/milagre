@@ -1,0 +1,28 @@
+[package]
+name = "milagre-acp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Isolated bounded ACP process/protocol checkpoint for Milagre"
+
+[workspace]
+
+[[bin]]
+name = "fake-acp-agent"
+path = "src/bin/fake_acp_agent.rs"
+test = false
+doc = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
+thiserror = "2"
+tokio = { version = "1.47", features = ["process", "io-util", "sync", "time", "rt", "macros"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1.47", features = ["rt-multi-thread"] }
