@@ -83,6 +83,7 @@ const { archiveFinishedSubagents, archiveSubagent, deleteSession, patchSession, 
 const { attentionContext, attentionNotice } = require("@milagre/shared/attention");
 const { resolveProjectImage } = require("./project-image.cjs");
 const { createProjectFinder } = require("./project-finder.cjs");
+const { scanFolder } = require("./folder-scan.cjs");
 const { saveProjectState, readProjectState, compactProjectState, stateFile } = require("./project-store.cjs");
 const { createRecentProjects, launchProject, plainFolder, rememberProject, switchTarget } = require("./recent-projects.cjs");
 const { agentFolders } = require("./agent-folders.cjs");
@@ -3654,6 +3655,14 @@ function createRuntime(options) {
   // The phone's project search: Git repositories under the home folder, matched by name (see project-finder.cjs).
   const projectFinder = createProjectFinder(options.projectSearchRoot || require("node:os").homedir());
   commands.handle("project:find", (_event, query) => projectFinder.search(typeof query === "string" ? query.slice(0, 200) : ""));
+  // Add Project's folder check: the repositories inside a folder, added as Projects with a Named Link (folder-scan.cjs).
+  // `detect`: Settings › Worktrees › Detect repositories in a folder, which turns the offer off.
+  commands.handle("project:scan-children", async (_event, folder) => ({
+    ...(await scanFolder(folder)),
+    detect: (await projectSettings().getDetectRepositories()).detectRepositories,
+  }));
+  commands.handle("folder-repos:detect:read", () => projectSettings().getDetectRepositories());
+  commands.handle("folder-repos:detect:save", (_event, value) => projectSettings().setDetectRepositories(value !== false));
 
   // The Designs branch supplies this adapter. An absent adapter grants no design tools.
   const designAdapter = path.join(__dirname, "design-mcp-tools.cjs");

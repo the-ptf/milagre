@@ -208,6 +208,38 @@ export function ByProjectPreview() {
   );
 }
 
+/** Tree: a Link with its Projects under it, each with a Worktree and its Chats. */
+export function TreePreview() {
+  const { colors } = useTheme();
+  const sub = (width: DimensionValue) => (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 10 }}>
+      <Square color={colors.ink3} size={7} />
+      <Bar width={width} height={6} strong />
+    </View>
+  );
+  const worktree = (width: DimensionValue) => (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 22 }}>
+      <View style={{ width: 4, height: 4, borderRadius: radius.full, backgroundColor: colors.green }} />
+      <Bar width={width} height={4} />
+    </View>
+  );
+  return (
+    <View style={{ gap: 7 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <Square color={colors.ink3} size={8} />
+        <Bar width="36%" height={7} strong />
+      </View>
+      {sub("44%")}
+      {worktree("30%")}
+      <View style={{ paddingLeft: 30 }}>
+        <Bar width="62%" height={5} />
+      </View>
+      {sub("38%")}
+      {worktree("26%")}
+    </View>
+  );
+}
+
 function ReplyLine({ icon, text, open }: { icon: typeof BrainIcon; text: string; open?: boolean }) {
   const s = useS();
   return (

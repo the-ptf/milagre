@@ -44,7 +44,7 @@ export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "comput
 /** Other words for a section, so the search finds it by what it holds. */
 export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   general: "editor sidebar chat order chat list done archive plan usage keep awake",
-  worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle",
+  worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder",
   "this-mac": "computer resources memory disk drive other computers add computer computer use",
   usage: "token tokens cost spend dollars analytics estimated",
   accounts: "sign in login claude codex antigravity profile per project link usage limits",
@@ -529,6 +529,14 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Main branch",
     description: MAIN_SYNC_HINT,
     keywords: "git pull fast-forward branch main",
+  },
+  { page: "worktrees", title: "Add Project" },
+  {
+    page: "worktrees",
+    title: "Detect repositories in a folder",
+    group: "Add Project",
+    description: "When a folder you add holds repositories, offer to add them as Projects with a Link that groups them.",
+    keywords: "repositories folder import link group monorepo clients",
   },
   { page: "worktrees", title: "Storage" },
   {
