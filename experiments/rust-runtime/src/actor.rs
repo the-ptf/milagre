@@ -34,6 +34,7 @@ const METHODS: &[&str] = &[
     "project:switch",
     "project:current",
     "project:snapshot",
+    "project:forget",
     "state:read",
     "chat:send",
     "chat:send-status",
@@ -251,6 +252,17 @@ impl State {
                     Ok(project)
                 }
             }
+            "project:forget" => {
+                if args.first().and_then(Value::as_str) != Some(&path) {
+                    return Err(RpcError::new(
+                        "ISOLATED_SCOPE_ONLY",
+                        "Choose the fixture Project",
+                    ));
+                }
+                self.host.forget(&self.project, false).map_err(convert)?;
+                self.opened = false;
+                Ok(Value::Null)
+            }
             "chat:send" => {
                 let request = args.first().cloned().unwrap_or(Value::Null);
                 if request["projectPath"].as_str() != Some(&path) || request["provider"] != "kiro" {
@@ -283,10 +295,11 @@ impl State {
         }
     }
     fn tick(&mut self, now: i64) -> Result<(), RpcError> {
-        if !self.host.states.is_closed() {
-            self.host.states.advance(now);
-        }
-        let errors = self.host.pump();
+        let errors = if self.host.states.is_closed() {
+            self.host.pump()
+        } else {
+            self.host.tick(now)
+        };
         if let Some(error) = errors.into_iter().next() {
             return Err(convert(error));
         }
@@ -397,7 +410,7 @@ impl State {
         if !shared.delivery_failed.load(Ordering::Acquire) {
             self.publish_or_latch(shared, publication)?;
         }
-        self.host.shutdown().map_err(convert)?;
+        self.host.shutdown(false).map_err(convert)?;
         self.host.states.take_events();
         Ok(Value::Null)
     }
@@ -504,6 +517,7 @@ pub fn start() -> Result<(Server, Value), RpcError> {
         },
         epoch,
     ));
+    host.interrupt_grace_ms = 250;
     host.register(Box::new(Scripted::default()));
     let shared = Arc::new(Shared {
         snapshot: Mutex::new(
@@ -549,7 +563,7 @@ pub fn start() -> Result<(Server, Value), RpcError> {
             epoch,
         )
     }));
-    let metadata = json!({"project":actor.project,"scriptedProvider":true,"tickMs":20,"debounceMs":100,"idleMs":350});
+    let metadata = json!({"project":actor.project,"scriptedProvider":true,"tickMs":20,"debounceMs":100,"idleMs":350,"interruptGraceMs":250});
     Ok((server, metadata))
 }
 
@@ -558,13 +572,14 @@ struct Scripted {
     events: VecDeque<(Instant, ProviderEvent)>,
     active: HashMap<String, TurnId>,
     delayed_stop: HashSet<TurnId>,
+    ignored_stop: HashSet<TurnId>,
 }
 impl Provider for Scripted {
     fn name(&self) -> &str {
         "kiro"
     }
     fn start_turn(&mut self, turn: TurnId, request: &Value) -> Result<(), ProviderError> {
-        if self.active.len() >= 8 || self.events.len() >= 60 {
+        if self.active.len() >= 8 || self.events.len() > 55 {
             return Err(ProviderError::new(
                 ProviderErrorKind::Refused,
                 "Scripted provider is full",
@@ -576,15 +591,19 @@ impl Provider for Scripted {
             Instant::now(),
             ProviderEvent::Agent {
                 chat: chat.clone(),
-                turn: Some(turn),
+                turn,
                 event: json!({"type":"session-started","nativeId":format!("fixture-{chat}")}),
             },
         ));
+        if request["prompt"] == "fixture:ignore-stop" {
+            self.ignored_stop.insert(turn);
+        }
         if request["prompt"] == "fixture:delayed-stop" {
             self.delayed_stop.insert(turn);
         }
         if request["prompt"] == "fixture:blocked-start"
             || request["prompt"] == "fixture:delayed-stop"
+            || request["prompt"] == "fixture:ignore-stop"
         {
             return Ok(());
         }
@@ -609,15 +628,55 @@ impl Provider for Scripted {
                 now + Duration::from_millis(delay),
                 ProviderEvent::Agent {
                     chat: chat.clone(),
-                    turn: Some(turn),
+                    turn,
                     event,
+                },
+            ));
+        }
+        if request["prompt"] == "fixture:late-events" {
+            self.events.push_back((
+                now + Duration::from_millis(200),
+                ProviderEvent::Agent {
+                    chat: chat.clone(),
+                    turn,
+                    event: json!({"type":"turn-completed"}),
+                },
+            ));
+            self.events.push_back((
+                now + Duration::from_millis(230),
+                ProviderEvent::Exited {
+                    chat: chat.clone(),
+                    turn,
+                    error: ProviderError::new(
+                        ProviderErrorKind::Exited,
+                        "Old fixture session exited",
+                    ),
+                },
+            ));
+            self.events.push_back((
+                now + Duration::from_millis(260),
+                ProviderEvent::Agent {
+                    chat: chat.clone(),
+                    turn,
+                    event: json!({"type":"session-reset"}),
+                },
+            ));
+            self.events.push_back((
+                now + Duration::from_millis(300),
+                ProviderEvent::Agent {
+                    chat,
+                    turn,
+                    event: json!({"type":"text-delta","text":"late text must not appear"}),
                 },
             ));
         }
         Ok(())
     }
     fn interrupt(&mut self, chat: &str, turn: TurnId) -> Result<(), ProviderError> {
-        self.events.retain(|(_,event)| !matches!(event,ProviderEvent::Agent{chat:target,turn:Some(id),..}|ProviderEvent::Started{chat:target,turn:id,..} if target==chat && *id==turn));
+        if self.ignored_stop.contains(&turn) {
+            return Ok(());
+        }
+        self.events.retain(|(_,event)| !matches!(event,ProviderEvent::Agent{chat:target,turn:id,..}|ProviderEvent::Started{chat:target,turn:id,..} if target==chat && *id==turn));
         let at = Instant::now()
             + if self.delayed_stop.remove(&turn) {
                 Duration::from_millis(100)
@@ -628,7 +687,7 @@ impl Provider for Scripted {
             at,
             ProviderEvent::Agent {
                 chat: chat.into(),
-                turn: Some(turn),
+                turn,
                 event: json!({"type":"turn-cancelled"}),
             },
         ));
@@ -655,8 +714,8 @@ impl Provider for Scripted {
             if *at > now {
                 return true;
             }
-            if let ProviderEvent::Agent { chat, event, .. } = event {
-                if agent_runs::is_turn_end(event) {
+            if let ProviderEvent::Agent { chat, turn, event } = event {
+                if agent_runs::is_turn_end(event) && self.active.get(chat) == Some(turn) {
                     self.active.remove(chat);
                 }
             }
@@ -736,7 +795,7 @@ mod tests {
     #[test]
     fn scripted_provider_has_a_finite_event_budget() {
         let mut provider = Scripted::default();
-        for turn in 0..8 {
+        for turn in 1..=8 {
             provider
                 .start_turn(
                     TurnId(turn),

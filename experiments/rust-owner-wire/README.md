@@ -71,3 +71,7 @@ This evidence covers wire interoperability with a synthetic in-memory handler on
 5. **Foundation lifecycle limits.** Each accepted handler runs on a bounded set of request threads rather than an async service runtime. The shutdown timeout bounds accepted-command draining, not an arbitrary blocking `Handler::shutdown`. Dropping the server after a failed drain closes sockets but cannot forcibly cancel arbitrary handler threads. No production data should be attached until cancellation, service cleanup and ownership release are designed together.
 
 Direct dependencies are `serde_json` (ordered objects), `sha2`, `hmac`, `hex`, `rand`, `libc` and `tempfile`. Exact versions are in this crate's `Cargo.lock`; it does not add dependencies to the desktop or the owner storage crate.
+
+## Executable teardown
+
+A fixture executable whose EOF task holds an `Arc<Server>` should finish with `Server::finish(server)` instead of calling `shutdown` and immediately returning from `main`. `finish` first performs normal shutdown, consumes remaining executable Arc owners, then waits for the fresh profile's own destructor. The configured shutdown timeout bounds that wait. It never deletes a supplied path or steals a lock. This prevents background stop/EOF references from skipping temporary-profile cleanup when the process exits. A unit test deliberately retains both a Server reference and an internal request-owner reference and verifies that finish waits for actual removal.

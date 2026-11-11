@@ -17,7 +17,9 @@ async function until(label, check) {
   }
   throw Error("Timed out: " + label);
 }
+let fixtureNumber = 0;
 async function fixture(test) {
+  const scenario = ++fixtureNumber;
   const child = spawn(process.argv[2], [], { stdio: ["pipe", "pipe", "pipe"] });
   const exited = once(child, "exit");
   const lines = readline.createInterface({ input: child.stdout });
@@ -32,6 +34,15 @@ async function fixture(test) {
     assert.equal(metadata.actor.scriptedProvider, true);
     assert.equal(path.dirname(metadata.profile), fs.realpathSync("/tmp"));
     client = await connect({ dataDir: metadata.profile, timeoutMs: 5000 });
+    const call = client.call.bind(client);
+    client.call = async (...args) => {
+      try {
+        return await call(...args);
+      } catch (error) {
+        error.message = `Fixture ${scenario}, ${args[0]}: ${error.message}`;
+        throw error;
+      }
+    };
     const events = [];
     client.on("event", (event) => events.push(event));
     runtime = await connectDesktopRuntime({ connect: () => connect({ dataDir: metadata.profile, timeoutMs: 5000 }) });
@@ -43,6 +54,9 @@ async function fixture(test) {
     const disk = () => {
       const db = new DatabaseSync(path.join(project, ".milagre/chats.db"), { readOnly: true });
       try {
+        // A real SQLite reader can meet the owner's brief commit lock. Wait for
+        // that transaction instead of treating a healthy write as a test failure.
+        db.exec("PRAGMA busy_timeout = 1000");
         return db
           .prepare("SELECT payload FROM messages ORDER BY position,id")
           .all()
@@ -53,7 +67,12 @@ async function fixture(test) {
     };
     await test({ child, client, runtime, project, events, send, disk, metadata });
   } finally {
-    runtime?.close();
+    if (runtime) {
+      await runtime.close().catch((error) => {
+        // The fixture scenarios explicitly stop the server before cleanup.
+        if (!["DAEMON_CLOSED", "CLOSING"].includes(error.code)) throw error;
+      });
+    }
     client?.close();
     child.stdin.end();
     const [code] = await exited;
@@ -135,8 +154,38 @@ async function run() {
     }
     await client.call("daemon:stop");
   });
+  await fixture(async ({ client, project, events, send }) => {
+    await send(1, "fixture:ignore-stop", "actor-lost-end");
+    await client.call("agent:interrupt", [project + "#1"]);
+    await until("interrupt watchdog forces a missing end", () => events.some((event) => event.payload?.event?.type === "turn-failed"));
+    assert.equal((await client.call("daemon:snapshot")).runs.runs[project + "#1"], undefined);
+    await client.call("daemon:stop");
+  });
+  for (const mode of ["idle", "new-turn", "forgotten"]) {
+    await fixture(async ({ client, project, events, send, disk }) => {
+      await send(1, "fixture:late-events", "late-" + mode);
+      await until("first synthetic turn ends", () => events.some((event) => event.payload?.event?.type === "turn-completed"));
+      if (mode === "new-turn") await send(1, "fixture:blocked-start", "new-generation");
+      if (mode === "forgotten") await client.call("project:forget", [project]);
+      await delay(400);
+      const ends = events.filter((event) => event.payload?.event?.type === "turn-completed");
+      assert.equal(ends.length, 1, "idle duplicate completion is ignored");
+      assert.ok(!events.some((event) => event.payload?.event?.text === "late text must not appear"));
+      const snapshot = await client.call("daemon:snapshot");
+      if (mode === "new-turn") {
+        assert.ok(snapshot.runs.runs[project + "#1"], "old exit cannot fail a new turn");
+        await client.call("agent:interrupt", [project + "#1"]);
+      } else assert.equal(snapshot.runs.runs[project + "#1"], undefined);
+      if (mode === "forgotten") {
+        assert.equal(fs.existsSync(path.join(project, ".milagre/runtime.lock")), false, "late events cannot reopen a forgotten Project");
+        assert.equal(snapshot.projects.length, 0);
+      }
+      assert.equal(disk().filter((row) => row.role === "assistant").length, 1);
+      await client.call("daemon:stop");
+    });
+  }
   console.log(
-    "Actor runtime conformance passed: periodic save/unload, bounded scripted starts, publication/snapshot order, reconnect, interrupt and failed-close retry",
+    "Actor runtime conformance passed: periodic save/unload, bounded scripted starts, publication/snapshot order, reconnect, generations, interrupt watchdog, forgotten Projects and failed-close retry",
   );
 }
 run().catch((error) => {

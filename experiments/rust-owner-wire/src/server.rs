@@ -320,6 +320,43 @@ impl Server {
     pub fn shutdown(&self) -> Result<(), RpcError> {
         self.inner.shutdown(None)
     }
+    /// Executable teardown: wait for EOF/stop workers to release this fresh
+    /// fixture before main exits. `shutdown` alone does not consume Arc owners,
+    /// and Rust does not keep the process alive for background thread destructors.
+    /// This never removes a path itself; only IsolatedProfile's TempDir Drop does.
+    pub fn finish(mut server: Arc<Self>) -> Result<(), RpcError> {
+        server.shutdown()?;
+        let expires = Instant::now() + server.inner.config.shutdown_timeout;
+        let profile = server.profile_path().to_owned();
+        loop {
+            match Arc::try_unwrap(server) {
+                Ok(owned) => {
+                    drop(owned);
+                    break;
+                }
+                Err(shared) => server = shared,
+            }
+            if Instant::now() >= expires {
+                return Err(RpcError::new(
+                    "SHUTDOWN_TIMEOUT",
+                    "Fixture server handles have not drained",
+                ));
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+        // Request/disconnect workers may still own Inner after Server drops.
+        // Wait for the actual temporary-profile destructor, not just refcount 0.
+        while profile.try_exists()? {
+            if Instant::now() >= expires {
+                return Err(RpcError::new(
+                    "SHUTDOWN_TIMEOUT",
+                    "Fixture profile cleanup has not finished",
+                ));
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+        Ok(())
+    }
 }
 impl Drop for Server {
     fn drop(&mut self) {
@@ -1103,5 +1140,28 @@ mod tests {
         );
         assert!(client.queued_bytes.load(Ordering::Acquire) <= 2048);
         server.shutdown().unwrap();
+    }
+    #[test]
+    fn executable_finish_waits_for_server_and_request_owners_before_cleanup() {
+        let server = Arc::new(
+            Server::bind(
+                IsolatedProfile::create().unwrap(),
+                Arc::new(Empty),
+                Config::default(),
+            )
+            .unwrap(),
+        );
+        let profile = server.profile_path().to_owned();
+        let outer = server.clone();
+        let inner = server.inner.clone();
+        let releasing = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(40));
+            drop(outer);
+            thread::sleep(Duration::from_millis(40));
+            drop(inner);
+        });
+        Server::finish(server).unwrap();
+        assert!(!profile.exists());
+        releasing.join().unwrap();
     }
 }

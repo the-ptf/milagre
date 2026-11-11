@@ -26,6 +26,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     while !server.is_stopped() {
         thread::sleep(Duration::from_millis(10));
     }
-    server.shutdown()?;
+    milagre_owner_wire::Server::finish(server)?;
     Ok(())
 }
