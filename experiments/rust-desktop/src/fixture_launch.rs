@@ -456,17 +456,17 @@ impl LaunchContext {
                 "Fixture preferences exceed 1 MiB",
             ));
         }
-        let temp = self.storage.path().join("preferences.tmp");
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temp)
+        // The temporary file stays owned until rename succeeds. A failed write,
+        // sync or rename removes it and leaves the previous preferences intact.
+        let mut file = tempfile::Builder::new()
+            .prefix("preferences-")
+            .suffix(".tmp")
+            .tempfile_in(self.storage.path())
             .map_err(io)?;
         file.write_all(&bytes).map_err(io)?;
-        file.sync_all().map_err(io)?;
-        drop(file);
-        fs::rename(temp, self.storage.path().join("preferences.json")).map_err(io)?;
+        file.as_file().sync_all().map_err(io)?;
+        file.persist(self.storage.path().join("preferences.json"))
+            .map_err(|error| io(error.error))?;
         *prefs = next;
         Ok(())
     }
@@ -702,6 +702,38 @@ mod tests {
         assert!(root.exists());
         drop(context);
         assert!(!root.exists());
+    }
+    #[test]
+    fn a_failed_preference_rename_keeps_memory_and_allows_retry() {
+        let context = fixture();
+        let destination = context.storage.path().join("preferences.json");
+        fs::create_dir(&destination).unwrap();
+        assert!(context
+            .write_preference("milagre-fixture".into(), json!("retry"))
+            .is_err());
+        assert_eq!(context.preferences().unwrap(), json!({}));
+        assert!(destination.is_dir());
+        assert!(!fs::read_dir(context.storage.path()).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp")
+        }));
+        fs::remove_dir(&destination).unwrap();
+        context
+            .write_preference("milagre-fixture".into(), json!("retry"))
+            .unwrap();
+        assert_eq!(
+            context.preferences().unwrap(),
+            json!({"milagre-fixture":"retry"})
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(destination).unwrap()).unwrap(),
+            context.preferences().unwrap()
+        );
+        context.request_quit().unwrap();
+        context.remove_shell_storage().unwrap();
     }
     #[test]
     fn refused_quit_preserves_owner_then_stop_and_retry_complete() {
