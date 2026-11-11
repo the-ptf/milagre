@@ -1424,7 +1424,9 @@ WP-31.
 - Depends on: WP-14, WP-30, WP-31.
 - Verify: snapshots for open, draft, merged, closed and blocked PRs; dialog mode table from `lib/git-dialog.ts`.
 
-**WP-33 Terminal** · Opus · XL
+**WP-33 Terminal** · Opus · XL · **Interim (backend, 2026-11-11):** the local PTY in `panel/terminal/` is UI evidence only.
+Final ownership is the shared Rust daemon's PTY service through the frontend-independent client (reconnect, per-Chat
+lifecycle); the GPUI side adopts it once that client capability is agreed. Don't grow a second production PTY owner.
 
 - Goal: `alacritty_terminal` with an own grid painter (ANSI palette from the theme, cursor, selection, scrollback
   10,000), keys per platform (`lib/terminal-keys.ts`), IME, copy and paste menu, the long-poll client
