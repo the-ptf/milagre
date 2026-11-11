@@ -533,3 +533,34 @@ fn stop_while_the_done_divider_is_saving_fails_it_and_starts_nothing() {
         "the done divider was saved after the Stop"
     );
 }
+
+/// Restore mode opens the handover store (lease, sweep) only when a restore is decided: an ordinary send leaves no
+/// trace of it; the first restore opens it, and is staged as usual.
+#[test]
+fn the_handover_store_opens_only_for_a_restore() {
+    let mut c = copy(2);
+    edit_seed(&c, |state| {
+        state["sessions"]["1"]["native_session_id"] = json!("native-1")
+    });
+    let owner = c.project.parent().unwrap().join(".owner");
+    let sent = c.send(1, "An ordinary turn").unwrap();
+    assert!(sent.turn.is_some());
+    assert_eq!(c.starts().len(), 1);
+    assert!(
+        !owner.exists(),
+        "an ordinary send opened the handover store"
+    );
+    let restored = c.send(2, "A restore").unwrap();
+    assert!(owner.join("handovers").is_dir());
+    assert_eq!(c.divider(2)["context"]["status"], json!("preparing"));
+    assert_eq!(c.host.take_jobs().len(), 1);
+    assert!(restored.turn.is_some());
+    assert_eq!(
+        c.messages()
+            .iter()
+            .filter(|m| m["body"] == json!("A restore"))
+            .count(),
+        1,
+        "sent twice"
+    );
+}

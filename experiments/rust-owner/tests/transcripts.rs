@@ -446,3 +446,25 @@ fn a_forked_child_dropping_the_lease_leaves_the_parent_holding_it() {
     let again = Isolation::open(&isolation_root, &Policy::default()).unwrap();
     assert!(TranscriptJobs::new(&again).is_ok());
 }
+
+/// A Chat whose messages aren't loaded is refused rather than handed over with a partial transcript.
+#[test]
+fn a_chat_with_unloaded_messages_is_refused() {
+    let mut s = setup();
+    let mut project = milagre_owner_store::message_store::ProjectState::from_value(&state());
+    project.unloaded = std::sync::Arc::new([7_i64].into_iter().collect());
+    let source = TranscriptSource {
+        state: (&project).into(),
+        session: 7,
+        before: None,
+        provider: None,
+        catch_up_after: None,
+        clock: CLOCK,
+        changed: None,
+    };
+    let refused = milagre_owner_store::transcripts::measure(&source, usize::MAX)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("aren't loaded"), "{refused}");
+    assert!(s.jobs.job(&s.project, source).is_err());
+}

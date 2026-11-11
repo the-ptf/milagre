@@ -1125,10 +1125,12 @@ impl ChatHost {
         // A restore may only be staged with the handover store leased and a job reservation free: known before the
         // change, refused inside it before anything is staged.
         let restore_mode = self.handoff == HandoffMode::Restore;
-        let mut restore_refused = if restore_mode {
-            self.open_transcripts()
-                .and_then(|()| self.transcript_capacity())
-                .err()
+        // The handover store is opened (lease, sweep) only once a restore is decided: a send that decides one before
+        // it is open stops with nothing staged, opens it, and is sent again.
+        let store_open = self.transcripts.is_some();
+        let mut needs_store = false;
+        let mut restore_refused = if restore_mode && store_open {
+            self.transcript_capacity().err()
         } else {
             None
         };
@@ -1470,6 +1472,12 @@ impl ChatHost {
                                     "Restoring a Chat whose provider session is gone (handoff restore)",
                                 ));
                             }
+                            if !store_open {
+                                needs_store = true;
+                                return Err(StoreError::Invalid(
+                                    "The handover store isn't open yet.".into(),
+                                ));
+                            }
                             if let Some(refused) = restore_refused.take() {
                                 return Err(refused);
                             }
@@ -1614,6 +1622,11 @@ impl ChatHost {
             if staged.is_some() && saving.is_ok() && !steering {
                 self.starting.insert(chat.clone(), provider.clone());
             }
+        }
+        if needs_store {
+            // Nothing was staged: open the store, then send again (it is open now, so this happens once).
+            self.open_transcripts()?;
+            return self.send(request);
         }
         saving?;
         if let Some(session) = duplicate {

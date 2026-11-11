@@ -158,6 +158,14 @@ fn select<'a>(
     let state = source.state;
     let key = source.session.to_string();
     let session_id = Value::from(source.session);
+    // A Chat whose messages aren't in memory would be handed over with a partial transcript: refused instead.
+    if let SourceState::Project(project) = state {
+        if i64::try_from(source.session).is_ok_and(|id| project.unloaded.contains(&id)) {
+            return Err(StoreError::Invalid(format!(
+                "Chat {key}'s messages aren't loaded, so it can't be handed over."
+            )));
+        }
+    }
     let session = state
         .session(&key)
         .filter(|session| !jsjson::is_undefined(session))
