@@ -56,6 +56,20 @@ pub(crate) fn generated(project: &Path) -> Value {
 fn error(message: impl ToString) -> RpcError {
     RpcError::new("FIXTURE_BOOTSTRAP_INVALID", message.to_string())
 }
+fn require_single_project(registry: &Value, project: &Path) -> Result<(), RpcError> {
+    let projects = registry["projects"].as_array();
+    if !projects.is_some_and(|p| p.len() == 1 && p[0]["path"].as_str() == project.to_str())
+        || !registry["links"].as_array().is_some_and(Vec::is_empty)
+        || !registry["projectGroups"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+    {
+        return Err(error(
+            "Only one generated Project and empty Link sets have fixture parity coverage",
+        ));
+    }
+    Ok(())
+}
 pub(crate) struct Bootstrap {
     copy: RegistryCopy,
     _writer: Writer,
@@ -68,6 +82,7 @@ pub(crate) struct Bootstrap {
 impl Bootstrap {
     pub(crate) fn new(isolation: Isolation, project: &Path) -> Result<Self, RpcError> {
         let fixture = generated(project);
+        require_single_project(&fixture["registry"], project)?;
         let copy = RegistryCopy::create(
             isolation,
             Seeds {
@@ -211,6 +226,32 @@ mod tests {
     use super::*;
     use milagre_owner_store::Policy;
     use milagre_owner_wire::IsolatedProfile;
+    #[test]
+    fn bootstrap_rejects_unmodeled_registry_shapes() {
+        let project = Path::new("/generated/project");
+        let registry = generated(project)["registry"].clone();
+        require_single_project(&registry, project).unwrap();
+        for field in ["links", "projectGroups"] {
+            let mut changed = registry.clone();
+            changed[field] = json!([{"id":"link"}]);
+            assert_eq!(
+                require_single_project(&changed, project).unwrap_err().code,
+                "FIXTURE_BOOTSTRAP_INVALID"
+            );
+            changed[field] = Value::Null;
+            assert!(require_single_project(&changed, project).is_err());
+        }
+        let mut changed = registry.clone();
+        changed["projects"]
+            .as_array_mut()
+            .unwrap()
+            .push(registry["projects"][0].clone());
+        assert!(require_single_project(&changed, project).is_err());
+        changed["projects"] = json!([]);
+        assert!(require_single_project(&changed, project).is_err());
+        changed["projects"] = json!([{"path":"/other/project"}]);
+        assert!(require_single_project(&changed, project).is_err());
+    }
     #[test]
     fn registry_writer_is_exclusive_and_send_options_fail_closed() {
         let profile = IsolatedProfile::create().unwrap();
