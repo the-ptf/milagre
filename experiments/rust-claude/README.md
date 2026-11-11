@@ -94,6 +94,42 @@ reader.await?;
   `readMessages` maps that text before allocating the new id. The original Node trace remains in the
   fixture with this one correction explicitly marked in the Rust comparison.
 
+## Owner-held in-process MCP
+
+```rust,ignore
+use milagre_claude::mcp::{InProcessMcp, McpTool, McpLimits};
+let bridge = InProcessMcp::new();
+let manifest = dispatcher.provider_manifest().into_iter()
+    .map(|t| McpTool { name: t.name, read_only: t.read_only }).collect();
+// callback implements McpDispatch on the owner's worker, using this existing dispatcher.
+let registration = bridge.register("milagre", manifest, callback, McpLimits::default())?;
+registration.attach(&mut options)?;
+// Keep registration with the owning Chat. Drop or revoke cancels this generation only.
+```
+
+The provider owns no content store and never retries a callback. The owner supplies policy and
+bounded scheduling; callback failures use static `DispatchError` variants. Default bridge limits
+are 8 active calls, 6,065,536 request bytes, 32 MiB reply bytes and 60 seconds. Transport frame
+limits also apply. `tools/list` must match the registered names/read-only effects exactly; only
+read-only tools are preallowed. Attach rejects conflicting server names, handlers and manifest
+cache overrides before mutating options. External server configuration is preserved.
+
+A handler is pinned to its registration generation. Revoke, callback cancellation or future drop
+can discard a response after its mutation committed. This does not undo owner writes and must not
+trigger automatic replay. A new same-name registration does not grant anything to the old handler.
+Notifications get a control acknowledgement without a JSON-RPC result. Analysis remains refused.
+See [INTEGRATION-GAPS.md](INTEGRATION-GAPS.md) for owner obligations and unsupported integration.
+
+Run the real isolated ContentOwner tests (temporary storage, fake CLI, no provider credentials):
+
+```sh
+python3 experiments/rust-claude/scripts/test-content-owner.py
+```
+
+This snapshots `rust-tools`, `rust-content-store` and `rust-owner` from `d2ac471b` into a temporary
+directory and copies this crate beside them. Pass a revision argument to test a later owner.
+The separate `integration/content-owner` workspace keeps owner dependencies out of base builds.
+
 ## Transport API
 
 ```rust

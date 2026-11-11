@@ -30,30 +30,38 @@ called out in README; fixture equality does not imply policy completeness.
 
 ## In-process MCP serving
 
-| Surface             | Present                                                                                                                                          | Missing before linked tools can run                                                                                                                                                                                                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Server registration | `LaunchOptions::sdk_mcp_server(name)` emits type `sdk`; session includes names in `InitializeOptions.sdk_mcp_servers`                            | One validated registry must supply launch config, names, manifests and actual handlers consistently. `alwaysLoad` and typed `sdkMcpServerManifests` are absent; `InitializeOptions.extra` is only a trusted escape hatch.                                                                       |
-| Wire dispatch       | `McpMessage { request_id, server_name, message, raw }`; `McpHandler::message(message, CancelSignal) -> BoxFuture<Result<Option<Value>, String>>` | MCP initialize/version/capability negotiation, tools/list and tools/call router, schemas and errors. Unknown servers already get JSON-RPC -32601. `None` gets the transport notification ack.                                                                                                   |
-| Tool manifest       | Owner may supply raw SDK server config                                                                                                           | Validated name/description/input schema/read-only metadata. Node `linkedOptions` sets `readOnlyHint`, `alwaysLoad: true`, and pre-allows only `isUngatedMilagreTool` tools. Read-only annotations are not enforcement.                                                                          |
-| Execution           | Async handlers run outside the session lock, with withdrawal/close/exit cancellation signals; late replies are discarded                         | Rust `runTool` and `mcpContent` equivalents, authenticated Chat/project context, scoped policy at dispatch, bounded output, image handling, invocation ownership and cancellation cooperation.                                                                                                  |
-| Settings MCP        | `mcp_off` toggled before first message and retried after init; launch accepts explicit servers                                                   | Account-specific Everywhere discovery/merge and policy-safe startup. Toggle failures are currently ignored, so `mcp_off` is a best-effort setting, not a security boundary. Constrained launches must exclude/disable forbidden servers before any turn and fail if enforcement is unavailable. |
+`mcp::InProcessMcp` registers one immutable owner manifest and `McpDispatch` callback per server.
+An owner-held `McpRegistration` supplies a generation-pinned handler and atomically attaches SDK
+launch/initialize config. It refuses duplicate servers, existing handlers and reserved manifest
+cache overrides. Other caller MCP servers/settings remain intact. Only manifest read-only tools
+are preallowed; writes still require native permission. Successful `tools/list` replies must match
+the registered names/effects exactly and receive `anthropic/alwaysLoad` metadata.
 
-Node sources: `packages/core/src/agents/claude-provider.cjs::linkedOptions`,
-`packages/core/src/mcp/extras.cjs`, `packages/core/src/mcp/definitions.cjs` and
-`packages/core/src/agents/permissions.cjs::isUngatedMilagreTool`.
+The callback wraps the owner's existing scoped `ContentOwner::Dispatcher::dispatch`; no provider
+store, writer, socket or Node runtime is created. The dispatcher owns JSON-RPC negotiation, schemas,
+role enforcement, effects and execution. The owner must route synchronous work onto its bounded
+worker. Typed `DispatchError` values and panic containment expose only static bridge errors;
+successful owner protocol replies remain trusted content and must already be safe to publish.
 
-Proposed ownership: the owner supplies one immutable tool registry plus a scoped executor;
-the Claude adapter owns the JSON-RPC router over `mcp_message`. Execution must check the active
-role, exact tool and wake target before any callback, even when Full mode or a pre-allowed tool
-skips `can_use_tool`. Transport cancellation cannot undo a tool already committed externally.
-Notifications produce no JSON-RPC result; the transport still acknowledges the enclosing control
-request. RPC error objects belong inside the MCP response; transport failures are distinct.
+Requests, responses, concurrent calls and duration are bounded. Cancellation/drop/revocation
+signals the callback, drops its future and discards late responses. Each handler keeps its original
+registration generation, so name reuse cannot transfer grants or deliver the old call's payload.
+There is no retry. A mutation may already have committed when cancellation, timeout or revoke wins;
+discarding the reply does not undo it. The caller must reconcile that uncertainty with its owner.
+Bytes already handed to the transport cannot be recalled. Notifications return the enclosing
+control acknowledgement, without waiting for a JSON-RPC reply.
 
-Acceptance fixtures should cover initialize/list/call, unknown server/method/tool, malformed
-params/schema, tool errors, notifications, duplicate ids, concurrent calls, withdrawal/close,
-manifest consistency, output budgets and forbidden tool execution through every direct path.
-A successful handler must return content plus `isError` as Node does. No protocol claims beyond
-these local sources have been live-tested in this checkpoint.
+Eight fake-CLI bridge tests cover lifecycle, exact manifests, static errors, conflicts and limits.
+Three separate integration tests exercise actual ContentOwner initialize/list/call/schema errors,
+notifications, revocation/shutdown, shared renderer visibility and the escalation 6+2 budget.
+`scripts/test-content-owner.py` builds those against pinned source `d2ac471b` in a temporary snapshot.
+The base crate has no ContentOwner dependency. One attached in-process handler per session is
+supported; multi-handler composition, full host chat/worktree tools, account-specific discovery,
+production owner worker and runtime adapter remain outside this checkpoint.
+
+Analysis-only startup remains refused. Host read-only roles alone cannot restrict native Claude
+commands/settings/plugins; the full constrained launch policy must land before enabling them.
+`mcp_off` remains best effort and is not a security boundary. No live MCP/provider turn was tested.
 
 ## Policy alignment with Codex
 

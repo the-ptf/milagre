@@ -16,6 +16,7 @@ pub mod frame;
 pub mod handlers;
 pub mod images;
 pub mod launch;
+pub mod mcp;
 pub mod milagre;
 pub mod process;
 pub mod protocol;
