@@ -123,3 +123,15 @@ re-renders only that one.
 - `screencapture` is refused without Screen Recording permission, so screenshots needed the in-process capture in
   `snapshot.rs`, which calls `CGWindowListCreateImage` through `dlsym` because the macOS 15+ SDK obsoletes it. It may
   stop working on a future macOS.
+
+## Sidebar notes
+
+- `src/sidebar.rs` is the full 304px sidebar: header with three icon buttons (x 208, 240, 272), Canvas / Routines / Links,
+  an "All Chats" label, a `uniform_list` of 500 fixture Chats (`src/fixtures.rs`), and a pinned Done row, usage block and footer.
+- Icons are stroked vector paths (`PathBuilder` painted in a `canvas`), not SVG files: `svg()` needs an `AssetSource` set with
+  `Application::with_assets`, which is in `main.rs`. Strokes have butt caps (GPUI does not re-export lyon's `LineCap`).
+  The running mark is a static arc (no spinner), "needs approval" is a ring, question and failed are "?" and "!" text.
+- Keyboard: the sidebar has a `FocusHandle` (`track_focus`, `key_context("Sidebar")`) and `on_key_down`; Up/Down move the
+  selection and call `UniformListScrollHandle::scroll_to_item` (only Top/Center/Bottom exist, no "nearest", so the sidebar
+  uses the last built range to pick Top or Bottom). Nothing focuses the sidebar at startup; a click does.
+- Virtualization: each frame builds only the visible rows (about 19 at 900px high) out of 500 (`sidebar_tests.rs`).
