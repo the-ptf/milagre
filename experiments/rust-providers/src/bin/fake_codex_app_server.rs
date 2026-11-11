@@ -356,8 +356,15 @@ fn start_turn(scenario: &str, out: &Out, mut turn: Turn) -> Option<Turn> {
             turn.waiting = Some(json!(7));
             // FAKE_FILE: the file the edit is about (tests point it at real temporary folders).
             let file = std::env::var("FAKE_FILE").unwrap_or_else(|_| "/repo/notes.txt".into());
-            out.notify("item/started", json!({ "threadId": thread, "turnId": turn_id, "item": {
-                "type": "fileChange", "id": "patch-1", "status": "inProgress", "changes": [{ "path": file, "kind": { "type": "add" }, "diff": "hello\n" }] } }));
+            let changes = std::env::var("FAKE_CHANGES")
+                .ok()
+                .map(|value| serde_json::from_str::<Value>(&value).unwrap())
+                .unwrap_or_else(|| json!([{ "path": file, "kind": { "type": "add" }, "diff": "hello\n" }]));
+            out.notify(
+                "item/started",
+                json!({ "threadId": thread, "turnId": turn_id, "item": {
+                "type": "fileChange", "id": "patch-1", "status": "inProgress", "changes": changes } }),
+            );
             out.send(&json!({ "id": 7, "method": "item/fileChange/requestApproval", "params": { "threadId": thread, "turnId": turn_id, "itemId": "patch-1", "reason": "Write notes" } }));
             Some(turn)
         }

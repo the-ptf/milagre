@@ -2,7 +2,9 @@
 //! packages/core/src/agents/permissions.cjs `insideWorkspace`, used for every root (Node uses the
 //! lexical `insideRoot` for a Project Chat's lone cwd; this always takes the canonical path).
 //!
-//! - Each file is resolved against `cwd` (`path.resolve(cwd, file)`: lexical `.`/`..` first).
+//! - Requested files containing `..` fail closed before normalization: a symlink followed by
+//!   `..` has different kernel and lexical meanings. This deliberately differs from Node.
+//! - Empty paths fail closed; other files are resolved against `cwd`.
 //! - Roots are canonicalized (`realpath`); a root that can't be is an error, and every error fails
 //!   closed (`false`).
 //! - A file is canonicalized; one that doesn't exist yet takes its nearest existing ancestor's
@@ -27,7 +29,11 @@ fn check<R: AsRef<Path>, F: AsRef<Path>>(roots: &[R], files: &[F], cwd: &Path) -
     let canonical: Vec<PathBuf> =
         roots.iter().map(|root| std::fs::canonicalize(absolute_from(&cwd, root.as_ref()))).collect::<io::Result<_>>()?;
     for file in files {
-        let resolved = resolve(&absolute_from(&cwd, file.as_ref()))?;
+        let file = file.as_ref();
+        if file.as_os_str().is_empty() || file.components().any(|c| c == Component::ParentDir) {
+            return Ok(false);
+        }
+        let resolved = resolve(&absolute_from(&cwd, file))?;
         let inside = canonical.iter().any(|root| match resolved.strip_prefix(root) {
             Ok(rest) => rest.components().next().is_some(),
             Err(_) => false,

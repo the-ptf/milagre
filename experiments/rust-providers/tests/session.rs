@@ -741,6 +741,10 @@ async fn numeric_and_string_server_request_ids_do_not_collide() {
 
 /// A real repo folder and an outside folder, and a session whose fake asks to edit `file`.
 async fn auto_session(file: impl Fn(&Path) -> PathBuf) -> (CodexSession, Events, PathBuf) {
+    auto_session_with(file, None).await
+}
+
+async fn auto_session_with(file: impl Fn(&Path) -> PathBuf, changes: Option<Value>) -> (CodexSession, Events, PathBuf) {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let base = std::env::temp_dir().join(format!("milagre-auto-{}-{nanos}", std::process::id()));
     std::fs::create_dir_all(base.join("repo/src")).unwrap();
@@ -750,6 +754,9 @@ async fn auto_session(file: impl Fn(&Path) -> PathBuf) -> (CodexSession, Events,
     let mut spawn = fake("file-approval");
     let mut env = spawn.env.clone().unwrap();
     env.push(("FAKE_FILE".into(), file(&base).into_os_string()));
+    if let Some(changes) = changes {
+        env.push(("FAKE_CHANGES".into(), changes.to_string().into()));
+    }
     spawn.env = Some(env);
     let mut opts = SessionOptions::new(ConnectOptions::new(spawn, "0"), base.join("repo").to_string_lossy());
     opts.interrupt_grace = Duration::from_millis(400);
@@ -779,6 +786,7 @@ async fn auto_allows_only_edits_that_are_really_inside_the_workspace() {
     let escapes: Vec<Escape> = vec![
         Box::new(|b: &Path| b.join("repo/../outside/x.txt")),
         Box::new(|b: &Path| b.join("repo/out-dir/x.txt")),
+        Box::new(|b: &Path| b.join("repo/out-dir/../x.txt")),
         Box::new(|b: &Path| b.join("repo")),
         Box::new(|_: &Path| PathBuf::from("../outside/x.txt")),
         Box::new(|_: &Path| PathBuf::from("/repo/notes.txt")),
@@ -815,4 +823,88 @@ async fn switching_to_auto_uses_the_same_check() {
     assert_eq!(text_of(&seen), ["decision:accept"]);
     session.close().await;
     let _ = std::fs::remove_dir_all(base);
+}
+
+#[tokio::test]
+async fn malformed_raw_paths_require_a_card_in_auto_and_after_mode_switch() {
+    let invalid = vec![
+        json!({}),
+        json!({"path": null}),
+        json!({"path": false}),
+        json!({"path": 42}),
+        json!({"path": {"x": 1}}),
+        json!({"path": ["src/a.txt"]}),
+        json!({"path": ""}),
+        json!({"path": "   "}),
+        json!({"path": "src/a\0.txt"}),
+    ];
+    for change in invalid {
+        // A valid sibling must not hide an invalid change.
+        let changes = json!([{"path": "src/valid.txt"}, change]);
+        for initial_auto in [true, false] {
+            let (session, mut events, base) = auto_session_with(|b| b.join("repo/src/new.txt"), Some(changes.clone())).await;
+            session.send(if initial_auto { auto("x") } else { send("x") }).await.unwrap();
+            agent(&mut events, "permission-request").await;
+            session.set_permission_mode(PermissionMode::Auto).await;
+            assert_eq!(session.open_requests(), ["7"], "{changes}");
+            session.respond_to_permission("7", Decision::Deny).await.unwrap();
+            let (seen, _, _) = until_end(&mut events).await;
+            assert_eq!(text_of(&seen), ["decision:decline"]);
+            session.close().await;
+            std::fs::remove_dir_all(base).unwrap();
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn switching_to_auto_keeps_symlink_parent_edits_pending() {
+    for exists in [false, true] {
+        let (session, mut events, base) = auto_session(|b| b.join("repo/out-dir/../x.txt")).await;
+        if exists {
+            std::fs::write(base.join("x.txt"), "outside").unwrap();
+        }
+        session.send(send("x")).await.unwrap();
+        agent(&mut events, "permission-request").await;
+        session.set_permission_mode(PermissionMode::Auto).await;
+        assert_eq!(session.open_requests(), ["7"]);
+        session.close().await;
+        std::fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[test]
+fn mode_changes_during_the_filesystem_check_use_the_latest_mode() {
+    // Hold the only blocking worker so in_workspace cannot finish until after the mode switch.
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().max_blocking_threads(1).build().unwrap();
+    runtime.block_on(async {
+        for (inside, mode) in [(false, PermissionMode::Full), (true, PermissionMode::Ask)] {
+            let (session, mut events, base) = auto_session(|b| b.join(if inside { "repo/src/new.txt" } else { "outside/new.txt" })).await;
+            let (started, ready) = tokio::sync::oneshot::channel();
+            let (release, blocked) = std::sync::mpsc::channel();
+            let worker = tokio::task::spawn_blocking(move || {
+                started.send(()).unwrap();
+                // Bounded even if an assertion panics.
+                let _ = blocked.recv_timeout(Duration::from_secs(5));
+            });
+            ready.await.unwrap();
+            session.send(auto("x")).await.unwrap();
+            agent(&mut events, "step-started").await;
+            // Allow the pump to consume the following approval and await its queued disk check.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            assert!(session.open_requests().is_empty());
+            session.set_permission_mode(mode).await;
+            release.send(()).unwrap();
+            worker.await.unwrap();
+            if mode == PermissionMode::Ask {
+                agent(&mut events, "permission-request").await;
+                session.respond_to_permission("7", Decision::Deny).await.unwrap();
+            }
+            let (seen, _, _) = until_end(&mut events).await;
+            assert_eq!(text_of(&seen), [if mode == PermissionMode::Full { "decision:accept" } else { "decision:decline" }]);
+            assert!(!seen.iter().any(|e| e["type"] == "permission-request"));
+            session.close().await;
+            std::fs::remove_dir_all(base).unwrap();
+        }
+    });
 }

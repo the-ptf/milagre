@@ -58,7 +58,7 @@ fn dot_dot_cannot_escape() {
     let t = Tree::new("dotdot");
     assert!(!t.inside(&[&t.abs("repo/../outside/secret.txt")]));
     assert!(!t.inside(&[&t.abs("repo/src/../../outside/new.txt")]));
-    assert!(t.inside(&[&t.abs("repo/src/../b.txt")]), "`..` that stays inside");
+    assert!(!t.inside(&[&t.abs("repo/src/../b.txt")]), "even safe `..` requires a card");
     // One file outside spoils the set.
     assert!(!t.inside(&[&t.abs("repo/src/a.txt"), &t.abs("repo/../x.txt")]));
 }
@@ -171,4 +171,30 @@ fn unreadable_folders_fail_closed() {
 fn is_root() -> bool {
     // SAFETY: geteuid has no preconditions.
     unsafe { libc::geteuid() == 0 }
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_then_parent_never_uses_the_lexically_folded_path() {
+    let t = Tree::new("link-parent");
+    std::fs::create_dir(t.outside().join("sub")).unwrap();
+    link(&t.outside().join("sub"), &t.repo().join("out-dir"));
+    link(&t.repo().join("src"), &t.repo().join("in-dir"));
+    // Prove the existing path escapes in the kernel, despite folding to repo/secret.txt.
+    let existing = t.repo().join("out-dir/../secret.txt");
+    assert_eq!(std::fs::canonicalize(&existing).unwrap(), std::fs::canonicalize(t.outside().join("secret.txt")).unwrap());
+    for file in ["out-dir/../secret.txt", "out-dir/../new.txt", "in-dir/../b.txt"] {
+        assert!(!t.inside(&[file]), "relative {file}");
+        assert!(!t.inside(&[&t.abs(&format!("repo/{file}"))]), "absolute {file}");
+    }
+    // A new file follows the same escape when opened, not just when canonicalized.
+    std::fs::write(t.repo().join("out-dir/../new.txt"), "outside").unwrap();
+    assert_eq!(std::fs::read_to_string(t.outside().join("new.txt")).unwrap(), "outside");
+    assert!(!t.inside(&["out-dir/../new.txt"]));
+}
+
+#[test]
+fn empty_file_is_rejected_even_when_cwd_is_below_root() {
+    let t = Tree::new("empty");
+    assert!(!inside_workspace(&[t.repo()], &[""], &t.repo().join("src")));
 }

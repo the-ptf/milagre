@@ -881,26 +881,35 @@ impl Inner {
 
     /// `PendingPermissions.add`: Full answers at once; otherwise a card.
     async fn add_permission(&self, id: RequestId, card: Value, kind: PendingKind, workspace_files: Option<Vec<String>>) {
-        let mode = self.state.lock().unwrap().mode;
-        let in_workspace = match (&workspace_files, mode) {
-            (Some(files), Some(PermissionMode::Auto)) => self.in_workspace(files.clone()).await,
-            _ => false,
-        };
-        if mode == Some(PermissionMode::Full) || (mode == Some(PermissionMode::Auto) && in_workspace) {
-            let reply = if kind == PendingKind::McpApproval {
-                approvals::mcp_response(Decision::Allow)
-            } else {
-                approvals::approval_response(Decision::Allow)
-            };
-            return self.reply(&id, reply).await;
-        }
         let allow_for_chat = card.get("allowForChat") == Some(&Value::Bool(true));
         let mut card = card;
-        {
+        let decision = loop {
+            let mode = self.state.lock().unwrap().mode;
+            let in_workspace = match (&workspace_files, mode) {
+                (Some(files), Some(PermissionMode::Auto)) => self.in_workspace(files.clone()).await,
+                _ => false,
+            };
             let mut state = self.state.lock().unwrap();
+            // Mode changes can finish while the filesystem check awaits, before this card exists.
+            // Retry under the new mode; the decision and insertion share this lock.
+            if state.mode != mode {
+                continue;
+            }
+            if !state.turn_active || state.cancel_requested || state.closed {
+                break Some(Decision::Cancelled);
+            }
+            if mode == Some(PermissionMode::Full) || (mode == Some(PermissionMode::Auto) && in_workspace) {
+                break Some(Decision::Allow);
+            }
             let request_id = Self::public_id(&state, &id);
             card["requestId"] = request_id.clone().into();
-            state.pending.insert(request_id, Pending { rpc_id: id, kind, allow_for_chat, workspace_files, question_ids: vec![] });
+            state.pending.insert(request_id, Pending { rpc_id: id.clone(), kind, allow_for_chat, workspace_files, question_ids: vec![] });
+            break None;
+        };
+        if let Some(decision) = decision {
+            let reply =
+                if kind == PendingKind::McpApproval { approvals::mcp_response(decision) } else { approvals::approval_response(decision) };
+            return self.reply(&id, reply).await;
         }
         let mut event = json!({ "type": "permission-request" });
         if let (Some(target), Value::Object(fields)) = (event.as_object_mut(), card) {
@@ -940,13 +949,9 @@ impl Inner {
                     let item = params.get("itemId").and_then(Value::as_str).unwrap_or_default();
                     let changes = self.state.lock().unwrap().file_changes.get(item).cloned().unwrap_or_default();
                     let card = approvals::file_request(&id, &params, &changes);
-                    let files: Vec<String> = card
-                        .get("files")
-                        .and_then(Value::as_array)
-                        .map(|f| f.iter().filter_map(Value::as_str).map(str::to_string).collect())
-                        .unwrap_or_default();
-                    // Writing a new root is never a workspace edit.
-                    let workspace_files = (!crate::codex::js::truthy(params.get("grantRoot"))).then_some(files);
+                    // Never authorize display-coerced paths or a request to grant a new root.
+                    let workspace_files =
+                        if crate::codex::js::truthy(params.get("grantRoot")) { None } else { approvals::workspace_files(&changes) };
                     self.add_permission(id, card, PendingKind::Approval, workspace_files).await;
                 }
             }

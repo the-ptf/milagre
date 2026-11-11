@@ -227,6 +227,20 @@ fn change_path(change: &Value) -> String {
     }
 }
 
+/// Raw paths eligible for Auto checks. Display coercions in `change_path` must never authorize
+/// writes: a missing path renders as "undefined", but does not identify a file.
+pub fn workspace_files(changes: &[Value]) -> Option<Vec<String>> {
+    if changes.is_empty() {
+        return None;
+    }
+    changes
+        .iter()
+        .map(|change| {
+            change.get("path").and_then(Value::as_str).filter(|path| !path.trim().is_empty() && !path.contains('\0')).map(str::to_string)
+        })
+        .collect()
+}
+
 /// permissions.cjs `codexChangesDiff`: each change under a `--- path` header.
 pub fn changes_diff(changes: &[Value]) -> String {
     cap_text(&changes.iter().map(|c| format!("--- {}\n{}", change_path(c), marked_diff(c))).collect::<Vec<_>>().join("\n"))
@@ -396,6 +410,27 @@ pub fn question_response(outcome: &QuestionOutcome) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workspace_paths_are_validated_without_display_coercion() {
+        assert_eq!(workspace_files(&[]), None);
+        for change in [
+            json!({}),
+            json!({"path": null}),
+            json!({"path": false}),
+            json!({"path": 12}),
+            json!({"path": []}),
+            json!({"path": {}}),
+            json!({"path": ""}),
+            json!({"path": " \t"}),
+            json!({"path": "a\0b"}),
+        ] {
+            assert_eq!(workspace_files(&[json!({"path": "valid.txt"}), change]), None);
+        }
+        // A real filename is not confused with the same text produced by display coercion.
+        assert_eq!(workspace_files(&[json!({"path": "undefined"})]), Some(vec!["undefined".into()]));
+        assert_eq!(file_request(&RequestId::Int(7), &json!({}), &[json!({})])["files"], json!(["undefined"]));
+    }
 
     #[test]
     fn unwraps_login_shell_like_node() {

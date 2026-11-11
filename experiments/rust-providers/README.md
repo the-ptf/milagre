@@ -122,7 +122,14 @@ while let Some(event) = events.recv().await {
   `insideWorkspace`: canonical roots, nearest existing ancestor for new files, root itself
   excluded, errors fail closed) puts every file inside cwd / `workspace_roots`; the same check
   runs again when the mode switches to Auto. Unlike Node it is also used for a lone cwd (Node's
-  `insideRoot` is lexical there) and a dangling symlink fails closed (Node counts it as inside).
+  `insideRoot` is lexical there). Deliberate security differences from Node: dangling symlinks,
+  any requested `..` component (including an otherwise safe parent traversal), and missing,
+  non-string, empty/whitespace-only or NUL-containing paths require a card. Display coercions
+  such as a missing path rendered as `"undefined"` never authorize a write; a real string filename
+  `"undefined"` is still a valid path. Mode is rechecked under the pending-card insertion lock
+  after the asynchronous filesystem check, so a concurrent switch cannot use the old mode.
+  This is a point-in-time path check, not a filesystem sandbox: a symlink swapped between the
+  check and Codex's write can still redirect it. The owner must not treat Auto as isolation.
 - MCP extras / linked tools, the `requestThread` config retry ladder, advisor config
   (`advisorCodexConfig`, `config/read` for inherited servers).
 - `canStart` (a turn cancelled before `turn/start`), `executionAdvisor` feature overrides.
