@@ -12,7 +12,7 @@ Projects, Chats and live events use the same private daemon as installed Milagre
 
 Browser embedding, voice, floating inbox and decorative effects are optional for this migration. Other missing features are tracked as migration work, not automatic exemptions. Keep the installed Milagre available while its owner daemon is still required.
 
-The separate feature-gated [desktop fixture launch checkpoint](FIXTURE-LAUNCH.md) compiles the same renderer against a fresh scripted Rust owner. It is uninstalled and has not yet passed native window/storage validation. It never adopts the installed profile or falls back to the Node owner.
+The separate feature-gated [desktop fixture launch checkpoint](FIXTURE-LAUNCH.md) compiles the same renderer against a fresh scripted Rust owner. Two fresh native WebKit runs now pass scripted send, sidebar listing, reload and reopening from an unselected Chat, with nonpersistent storage and observed exit cleanup. This is fixture evidence, not real-provider, full storage-isolation or upgrade evidence. The fixture remains uninstalled and never adopts the installed profile or falls back to the Node owner. See [the smoke evidence and its limits](NATIVE-FIXTURE-SMOKE.md).
 
 ## Build, install and check
 
