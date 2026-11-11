@@ -51,6 +51,51 @@ Two things Node does on read are writes, so the plain readers do them differentl
 - **Reads.** `chat_messages`, `chat_message`, `all_messages` (marks, withState), `search` (`message-search.mjs` + `chatSearch`: UTF-16 offsets, typo distance, snippets, ranking), `subagent`, `send_status`, `inbox`, `whole_state`.
 - **Command boundary.** `ProjectStates::call(method, args)` serves `chat:messages`, `chat:message`, `chat:all-messages`, `chat:search`, `chat:subagent` and `chat:send-status` with the daemon's argument shapes and error texts, for a Project these states have open. This is the library entry a wire server (experiments/rust-owner-wire) can dispatch to; no socket is wired here.
 
+## Sending and turns (isolated copies only)
+
+`chat_host::ChatHost` is the core of `agents/chat-host.cjs` over a `ProjectStates`, with agents behind a `Provider` trait. The host calls a provider and folds the events it answers with. No production provider is wired here: the adapters live in `rust-providers/rust-claude` at the root.
+
+```rust
+pub trait Provider {
+    fn name(&self) -> &str;                                              // "claude", "codex", "kiro", …
+    fn start_turn(&mut self, request: &Value) -> Result<Value, String>; // SessionManager.startTurn's request → { turnId, steered }
+    fn interrupt(&mut self, chat: &str) -> Result<(), String>;          // agent:interrupt; its turn-cancelled follows as an event
+    fn take_events(&mut self) -> Vec<(String, Value)>;                  // (chatId, Node agent event), in order; ChatHost::pump folds them
+}
+```
+
+- **Sends.**
+  - `send(request)` and `call("chat:send", [request])` take the daemon's request shape.
+  - A `clientMessageId` already saved, or waiting in a queue, answers `{ sessionId, duplicate }` and starts nothing. This is checked before the save and again inside it.
+  - The user message (ids from `next_id`; a new Chat in a Worktree reuses its empty Chat or gets the next id) is saved and **flushed** before the turn starts; a failed flush takes it back out.
+  - `message-sent` opens the run. A start that fails ends the turn with `turn-failed`.
+- **Queue.**
+  - A message for a running turn whose provider can't steer, or sent with `delivery: "queue"`, waits in `session.queued` and is saved before it is answered.
+  - A completed turn starts the oldest queued message; Stop and failures hold the queue.
+  - `chat:queue-send` starts it now, or stops the running turn so it starts next. `chat:queue-remove` takes it out.
+  - A queued entry outlives a crash and starts after the next completed turn.
+- **Events folded:** `session-started`, `session-reset`, `turn-started`, `text-delta`, `context-usage`, `subagents-waiting`, permission and question requests and resolutions (shown in the run), and the turn ends. A turn end saves the reply (`replyBody`, outcome, credits), marks the Chat unread unless it is `open_chat`, archives finished subagents and moves the queue on.
+- **Receipts.** `chat:send-status` answers from the saved message or queued entry. A resend after a crash with the same `clientMessageId` is a duplicate, because the message was flushed before its turn started.
+- **Notices.** What clients would hear comes back from `take_notices()`: events with their sequence numbers and whether they changed the state, broadcasts, title requests, and queue starts and removals.
+
+**Gates.** Each of these is refused with an error saying it isn't supported yet; nothing is saved and nothing is approximated:
+
+- steering a running turn (Node would split the reply and steer);
+- provider handoffs (switch and restore);
+- compaction;
+- usage-limit continuations and account routing (`limitResumeId`, `expectedAccountId`, …);
+- Routines' messages, a wake's guarded turn, `canStart`, `delivery: "now"`;
+- images, and a handed-over Chat's brief;
+- answering permissions and questions (`respond`, `permission:respond`, `question:answer`);
+- the agent events listed in `agent_runs::UNSUPPORTED`: tool steps, subagent updates, plans and tasks, suggestions, compaction progress, answers.
+
+Automatic compaction stays off (Node's default) and can't be turned on.
+
+Two things are only reported, not done:
+
+- reply image capture (`chat-images.cjs`) shows as `Notice::Gap` for a reply with Markdown images;
+- a usage-limit turn end's `limitTurn` shows as a `Notice::Gap` too.
+
 ## Unpaired surrogates
 
 JavaScript strings can hold half a surrogate pair (a `slice` through an emoji). `JSON.stringify` writes it as `\ud83d` and `JSON.parse` reads it back; serde_json refuses it and a Rust `String` can't hold it. `jsjson::parse` (used for every coordination.json, sidecar and chats.db payload) now keeps it without loss. Inside the `String`, an unpaired surrogate `s` is U+10FFFE followed by `char(0xF0000 + s - 0xD800)`, and a real U+10FFFE is doubled. The mapping is injective. `jsjson::to_string` writes `\udxxx` back, `utf16_len`, `to_utf16` and `from_utf16` work on the JavaScript string (detail lengths, `slice(-1000)` of subagent text), and `to_sqlite_text` binds what node:sqlite binds (U+FFFD for the unpaired half).
@@ -65,7 +110,7 @@ What remains different:
 
 ```sh
 cd experiments/rust-owner
-cargo test        # unit, reads (620 Node cases), writer (93 steps), runtime traces (96 steps), locks, containment, CLI
+cargo test        # unit, reads (620 Node cases), writer (93 steps), runtime (109 steps), ChatHost (74 steps), locks, ownership, containment, CLI
 node fixtures/generate.cjs --check           # do the committed read fixtures still match current Node?
 node fixtures/generate.cjs                   # regenerate after a deliberate format change, then cargo test
 
@@ -108,6 +153,16 @@ The writer, lock and CLI tests run the real Node writers (`fixtures/writer-node.
 
   The traces cover shed-on-read, settle loading a touched Chat, idle sweeps with a busy Chat kept, debounced saves coalescing, a failed save with a transient change, retry, close flushing transients, and a crash that loses the unsaved change and is followed by a resend with the same clientMessageId. They also cover a removed session dropping its unloaded rows, and search over accents, `İ`, CJK, emoji, typos, phrases and a body with an unpaired surrogate.
 
+- **ChatHost** (`tests/chat.rs`, `fixtures/chat-traces.json`, regenerated by `fixtures/make-chat-traces.py`). There are 3 traces, 74 steps. Each runs through Node's real ChatHost over its real ProjectStates, with the provider mocked where SessionManager.startTurn sits (`fixtures/chat-node.cjs`: mock timers, queued-message ids from a counter, `markdown-it` read from the main checkout or `MILAGRE_NODE_MODULES`), and through the Rust ChatHost with `MockProvider`. Every step compares:
+  - the answer;
+  - every notice with its sequence number;
+  - each turn request sent to the provider, and interrupts;
+  - message ids, a hash of the whole state, the runs;
+  - disk snapshots.
+
+  The traces cover a send with settings, provider session id, streamed text, context usage, a permission request and its resolution, duplicates of a saved and of a queued message, receipts, a completed turn starting the queue, a failed turn, a new Chat in the Worktree, Stop, a provider that fails to start, an empty-body prompt, a crash then a duplicate resend, queue hold and Remove, Send now while idle and while busy (stopping the turn), a queued message started after a crash with no sender, and an idle sweep keeping the running Chat in memory. `unsupported_features_are_refused_not_approximated` checks every gate and that a refused send saves nothing.
+
+- **Ownership** (`tests/ownership_guard.rs`). A replaced token, a changed pid, a removed record or lock, or a lock swapped for a symbolic link stops every write, surfaces as `OwnershipLost` (never showing a token) and leaves the files byte-identical. In ProjectStates the failure stays as save status until a retry saves.
 - **Containment** (`tests/containment.rs`). `..` and absolute escapes, the root itself, symlinked path parts, a symlinked or hard-linked `.milagre`, chats.db, lock, details folder or sidecar, and a symlinked isolation root are all refused before anything is created or locked. A sentinel folder outside stays byte-identical.
 - **Locks** (`tests/locks.rs`, real Node `ownership.cjs`): Node refuses a Rust-held lock; Rust refuses a Node-held lock and Isolation refuses while it is held; a dead owner's lock and an old empty lock are refused and left as they were (Node itself takes the dead owner's over); release checks the token; nothing outside an Isolation can be opened.
 - **Real data.** A plain `cp` of this repository's own Project (17 MB chats.db, 39 Chats, 684 rows) matched Node on 221 read cases including the whole readProjectState output. A Rust `rewrite` and a Node read+save of separate copies left byte-identical snapshots (6.4 MB: files, modes, rows, Node's read). Those copies aren't committed.
@@ -124,7 +179,8 @@ Recorded with Node 24.13.0 (SQLite 3.50.4); the crate bundles SQLite 3.50.2. A c
   - The whole-state row cache (`REST_TTL_MS`) isn't ported; it only keeps identity stable for whole-state clients.
   - Saves are synchronous, so Node's "a sweep skips a Project whose save is in flight" never arises.
   - The runtime's `read` here is readProjectState only; Worktree discovery and reconciliation (`reconcileState`) come with the Worktree domain.
-- **Commands not ported:** `state:read`/snapshots, `chat:send` and every turn command, attachment access, Link scopes, the chats home, and the unopened-Project registry check of `chat:messages`.
+- **Commands not ported:** `state:read`/snapshots, the turn commands behind the gates above (handoffs, compaction, limits, permissions, questions, steering), attachment access, Link scopes, the chats home, and the unopened-Project registry check of `chat:messages`. Quit-time suspension and resume (`suspendRunning`, `resumeInterrupted`) are not ported: a crash or close mid-turn leaves the user message saved and no reply, and nothing resumes.
+- **Not a runtime.** There are no tool permissions, Worktree setup or Git, MCP tools, provider processes or wire socket. ChatHost here is the send and turn state machine over storage, behind a library boundary.
 - **Containment is checked at open.** A symbolic link planted inside the copy later by another process isn't caught (a time-of-check race); isolated copies have no other writer.
 - **Differences that stay:** JSON syntax error texts differ from Node's. I/O errors use Node's text for the common codes (ENOENT, EACCES, EEXIST, EISDIR, ENOTDIR, ELOOP, ENOTEMPTY, EPERM, EXDEV, ENOSPC). node:sqlite reads an object bound in the first position as named parameters and fails with another message. Ownership probing is macOS/Linux only (`ps -o lstart=`); the Windows probe isn't ported.
 - The project-store LRU of 50 settled Projects is per `OwnedProject` here (one Project each).

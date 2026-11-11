@@ -12,11 +12,15 @@
 //! - [`message_store`]: message-store.cjs lazy Chats over shared (`Arc`) messages, and the daemon's message patches.
 //! - [`states`]: project-states.cjs: write-behind, sweeps, the read commands and the `call` command boundary.
 //! - [`search`]: message-search.mjs and chatSearch.
+//! - [`agent_runs`]: agent-runs.mjs: runs and the agent events folded into the state (unported ones refused).
+//! - [`chat_host`]: chat-host.cjs sends, receipts, queue and turns, with agents behind the `Provider` trait.
 //! - [`audit`]: the read-only audit behind the `milagre-owner-store audit` command.
 //! - [`jsjson`]: `JSON.parse`/`JSON.stringify`-exact JSON, unpaired surrogates included.
 
+pub mod agent_runs;
 pub mod audit;
 pub mod chat_db;
+pub mod chat_host;
 pub mod commands;
 pub mod error;
 pub mod isolation;

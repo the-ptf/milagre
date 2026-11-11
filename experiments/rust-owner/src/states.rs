@@ -341,6 +341,17 @@ impl ProjectStates {
         persist: bool,
         change: impl FnOnce(&ProjectState) -> Option<ProjectState>,
     ) -> Result<(ProjectState, bool)> {
+        self.try_update(project, chats, persist, |state| Ok(change(state)))
+    }
+
+    /// update with a change that can fail: its error rejects the update and nothing is kept (Node's change throwing).
+    pub fn try_update(
+        &mut self,
+        project: &Path,
+        chats: Option<&[ChatId]>,
+        persist: bool,
+        change: impl FnOnce(&ProjectState) -> Result<Option<ProjectState>>,
+    ) -> Result<(ProjectState, bool)> {
         if self.closed {
             return Err(StoreError::Invalid("Project state is closed".into()));
         }
@@ -350,7 +361,7 @@ impl ProjectStates {
             self.prepare(&key, chats)?;
         }
         let state = self.slots[&key].state.clone();
-        let Some(changed) = change(&state) else {
+        let Some(changed) = change(&state)? else {
             return Ok((state, false));
         };
         let mut next = changed;

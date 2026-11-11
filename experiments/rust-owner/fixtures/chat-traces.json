@@ -1,0 +1,574 @@
+[
+  {
+    "name": "send-lifecycle",
+    "start": 1767225600000,
+    "seed": {
+      "next_id": 1,
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/milagre-chat-worktree",
+          "name": "main"
+        }
+      },
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "agent_name": "main",
+          "status": "Created",
+          "title": "Seeded"
+        }
+      },
+      "messages": []
+    },
+    "steps": [
+      {
+        "op": "open"
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Hello there",
+          "clientMessageId": "c1",
+          "permissionMode": "auto",
+          "effort": "high"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "session-started",
+          "nativeId": "native-1"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-started",
+          "turnId": "t1"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "text-delta",
+          "text": "Hi "
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "text-delta",
+          "text": "there"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "context-usage",
+          "used": 100,
+          "size": 1000
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "permission-request",
+          "requestId": "p1",
+          "title": "Run ls"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "permission-resolved",
+          "requestId": "p1"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Second question",
+          "clientMessageId": "c2",
+          "prompt": "Second question, longer prompt"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Second question",
+          "clientMessageId": "c2"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Hello there",
+          "clientMessageId": "c1"
+        }
+      },
+      {
+        "op": "sendStatus",
+        "id": "c1"
+      },
+      {
+        "op": "sendStatus",
+        "id": "c2"
+      },
+      {
+        "op": "sendStatus",
+        "id": "c3"
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "text-delta",
+          "text": "Answer two"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-failed",
+          "message": "boom"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "worktreeId": 1,
+          "provider": "kiro",
+          "model": "model-b",
+          "body": "A new chat",
+          "clientMessageId": "c4"
+        }
+      },
+      {
+        "op": "interrupt",
+        "session": 5
+      },
+      {
+        "op": "event",
+        "session": 5,
+        "event": {
+          "type": "turn-cancelled"
+        }
+      },
+      {
+        "op": "failNextStart",
+        "message": "kiro-cli was not found"
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 5,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Fails to start",
+          "clientMessageId": "c5"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 5,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "",
+          "clientMessageId": "c6"
+        }
+      },
+      {
+        "op": "event",
+        "session": 5,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "event",
+        "session": 5,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "snapshot"
+      },
+      {
+        "op": "crash"
+      },
+      {
+        "op": "open"
+      },
+      {
+        "op": "sendStatus",
+        "id": "c5"
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 5,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Fails to start",
+          "clientMessageId": "c5"
+        }
+      },
+      {
+        "op": "snapshot"
+      }
+    ]
+  },
+  {
+    "name": "queue-hold-and-remove",
+    "start": 1767225600000,
+    "seed": {
+      "next_id": 1,
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/milagre-chat-worktree",
+          "name": "main"
+        }
+      },
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "agent_name": "main",
+          "status": "Created",
+          "title": "Seeded"
+        }
+      },
+      "messages": []
+    },
+    "steps": [
+      {
+        "op": "open"
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "First",
+          "clientMessageId": "q-a"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "session-started",
+          "nativeId": "native-q"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Queued B",
+          "clientMessageId": "q-b"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Queued C",
+          "clientMessageId": "q-c"
+        }
+      },
+      {
+        "op": "interrupt",
+        "session": 1
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-cancelled"
+        }
+      },
+      {
+        "op": "queueRemove",
+        "session": 1,
+        "id": "00000000-0000-4000-8000-000000000002"
+      },
+      {
+        "op": "queueRemove",
+        "session": 1,
+        "id": "00000000-0000-4000-8000-000000000002"
+      },
+      {
+        "op": "queueSend",
+        "session": 1,
+        "id": "00000000-0000-4000-8000-000000000001"
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "text-delta",
+          "text": "B answered"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "D",
+          "clientMessageId": "q-d"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "E queued",
+          "clientMessageId": "q-e"
+        }
+      },
+      {
+        "op": "queueSend",
+        "session": 1,
+        "id": "00000000-0000-4000-8000-000000000003"
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-cancelled"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "F runs into a crash",
+          "clientMessageId": "q-f"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "F2 queued before the crash",
+          "clientMessageId": "q-f2"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "crash"
+      },
+      {
+        "op": "open"
+      },
+      {
+        "op": "sendStatus",
+        "id": "q-f"
+      },
+      {
+        "op": "sendStatus",
+        "id": "q-f2"
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "G after the crash",
+          "clientMessageId": "q-g"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "snapshot"
+      }
+    ]
+  },
+  {
+    "name": "idle-sweep-keeps-running-chat",
+    "start": 1767225600000,
+    "seed": {
+      "next_id": 1,
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/milagre-chat-worktree",
+          "name": "main"
+        }
+      },
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "agent_name": "main",
+          "status": "Created",
+          "title": "Seeded"
+        }
+      },
+      "messages": []
+    },
+    "steps": [
+      {
+        "op": "open"
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Long turn",
+          "clientMessageId": "s-1"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "session-started",
+          "nativeId": "native-s1"
+        }
+      },
+      {
+        "op": "send",
+        "request": {
+          "worktreeId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Other chat",
+          "clientMessageId": "s-2"
+        }
+      },
+      {
+        "op": "event",
+        "session": 2,
+        "event": {
+          "type": "session-started",
+          "nativeId": "native-s2"
+        }
+      },
+      {
+        "op": "event",
+        "session": 2,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 660000
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "text-delta",
+          "text": "still going"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "sendStatus",
+        "id": "s-2"
+      },
+      {
+        "op": "snapshot"
+      }
+    ]
+  }
+]
