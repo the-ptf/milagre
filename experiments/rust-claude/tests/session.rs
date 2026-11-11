@@ -896,7 +896,10 @@ async fn failed_permission_mode_change_closes_before_accepted_message_is_sent() 
     assert!(session.is_closed());
     session.close().await;
     assert!(!pid_alive(pid as i32));
-    assert_eq!(std::fs::read(&proof).unwrap(), b"eof-without-frame");
+    let exit = session.exit_info();
+    let proof = std::fs::read(&proof).unwrap_or_else(|error| panic!("EOF proof missing after cleanup: {error}; exit={exit:?}"));
+    assert_eq!(proof, b"eof-without-frame", "exit={exit:?}");
+    assert_eq!(exit.as_ref().and_then(|info| info.code), Some(0), "exit={exit:?}");
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -994,4 +997,42 @@ async fn many_large_children_cannot_mask_stop_or_crash_outcome() {
         assert!(events.recv().await.is_none());
         session.close().await;
     }
+}
+
+#[tokio::test]
+async fn two_hundred_completed_subagents_reuse_one_healthy_session() {
+    let mut script = handshake();
+    for turn in 0..200 {
+        let id = format!("child-{turn}");
+        script.push(json!({"expect":{"type":"user"}}));
+        script.push(json!({"emit":{"type":"assistant","message":{"content":[{"type":"tool_use","id":id,"name":"Agent","input":{"description":"Sequential child"}}]}}}));
+        for n in 0..9 {
+            script.push(json!({"emit":{"type":"system","subtype":"task_started","tool_use_id":id,"task_id":format!("task-{turn}-{n}"),"task_type":"local_agent"}}));
+        }
+        let calls: Vec<_> = (0..20).map(|n| json!({"type":"tool_use","id":format!("call-{turn}-{n}"),"name":if n%2==0 {"TaskCreate"}else{"TaskGet"},"input":{"subject":"pending"}})).collect();
+        script.push(json!({"emit":{"type":"assistant","parent_tool_use_id":id,"message":{"content":calls}}}));
+        script.push(json!({"emit":{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":id,"content":"Done"}]}}}));
+        if turn == 199 {
+            for subtype in ["task_started", "task_progress", "task_notification", "task_updated"] {
+                script.push(json!({"emit":{"type":"system","subtype":subtype,"task_id":"task-0-8","tool_use_id":"child-0","task_type":"local_agent","patch":{"status":"running"}}}));
+            }
+        }
+        script.push(result());
+    }
+    let (session, mut events) = configured(script, |o| o.max_subagents = 2);
+    let mut pid = None;
+    for turn in 0..200 {
+        session.start_turn(request("next")).await.unwrap();
+        let current = session.pid().unwrap();
+        assert_eq!(*pid.get_or_insert(current), current);
+        let trace = until(&mut events, "turn-completed").await;
+        assert!(!trace.iter().any(|e| e["type"] == "turn-failed"));
+        let updates: Vec<_> = trace.iter().filter(|e| e["type"] == "subagent-update").collect();
+        assert!(!updates.is_empty());
+        assert!(updates.iter().all(|e| e["agent"]["id"] == format!("child-{turn}")));
+        assert_eq!(updates.last().unwrap()["agent"]["status"], "completed");
+        assert!(!session.is_closed());
+    }
+    session.close().await;
+    assert!(events.recv().await.is_none());
 }

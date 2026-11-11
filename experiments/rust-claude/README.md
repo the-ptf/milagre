@@ -415,16 +415,30 @@ this code as a session failure, not a second completion of the previous turn. St
 transport's pending message channel to one frame; input frames and in-progress parsing retain
 the separate `Limits.max_frame_bytes` bound (64 MiB default).
 
-`max_subagents` defaults to 128 tracked children across the session, including completed children.
-Exceeding that count fails explicitly; children are never silently evicted. Child task indexes are
-capped relative to this limit. `subagent_snapshot_bytes` defaults to 256 KiB per child. Oversized
+`max_subagents` defaults to 128 simultaneously active children. Exceeding that count fails
+explicitly; live children are never evicted. The mapper keeps at most 32 recently completed child
+histories and evicts the oldest completed history; the owner retains the emitted history. Completion
+clears pending call/result/task indexes, and late task calls cannot reopen those indexes. Each
+retained child has at most one current task alias. Pending call/result indexes are capped at 16
+per configured active-child slot across the session.
+
+A bounded set of 512 SHA-256 fingerprints records evicted child ids and replaced/evicted task
+aliases. Late events matching these ids are ignored. Once this set rolls over, unknown orphan
+`task_started` events are ignored for the rest of the CLI process; new children require an explicit
+Agent/Task launch. Unknown-parent nested output and unknown replay launches cannot recreate children.
+This conservative admission rule prevents an old system notification from resurrecting an evicted
+child after its fingerprint expires. A fresh unmarked explicit launch is authoritative after expiry;
+there is no permanent id ledger. Retained children still accept their normal status transitions.
+`subagent_snapshot_bytes` defaults to 256 KiB per child. Oversized
 snapshots retain the newest rows (at most 100), then shorten display strings at UTF-8 boundaries
 and omit optional metadata if needed. `agent.truncated: true` is sticky. If task metadata must be
 omitted, its retained task accumulator is cleared too. Identity, status and timestamps stay exact;
 an identity alone that cannot fit the configured budget still fails explicitly.
 
 Close/crash settlement emits compact status updates with an empty transcript delta, original
-startedAt, a title capped at 200 UTF-16 units, and the background flag. Consumers must merge these
+startedAt, the existing `"Subagent"` title merge placeholder, and the background flag. The placeholder
+preserves the previous title in Node and the actual Rust owner reducer; an absent title would erase it.
+Consumers must merge these
 updates by child id and keep the prior transcript rows, as Node's provider reducer does; they are
 not replacement snapshots. This avoids re-emitting megabytes of history before Stop/crash events.
 Consumers that store transcript-tail replacement objects must adapt these deltas before reducing
@@ -432,7 +446,7 @@ them. A stalled consumer or a deliberately tiny queue can still exhaust the shar
 
 Mapped batches and image work propagate typed internal budget errors; event JSON cannot select the
 reserved failure slot. Public standalone mapping still converts those errors to the documented
-`turn-failed` shape. The 43 Node mapper traces include the intentional truncation-marker/tail
+`turn-failed` shape. The 44 Node mapper traces include the intentional truncation-marker/tail
 extension, and fake CLI tests cover 20 results of 20,000 characters and 40 large children settling
 before Stop and crash outcomes. Other Node traces remain unchanged within these limits.
 
@@ -471,3 +485,9 @@ session test proves returned bytes persist without opening the source path. The 
 script redirects only its own image temp path and removes that fresh scratch directory afterwards.
 
 See [INTEGRATION-GAPS.md](INTEGRATION-GAPS.md) for MCP serving, policy and owner adapter boundaries.
+
+The long-session regression completes 200 sequential children over 200 turns in the same fake CLI
+process, including 4,000 pending task calls and task-alias rollover. An additional Node trace checks
+200 sequential child lifecycles; an isolated owner test compares compact and full settlement through
+`agent_runs::apply_agent_event`, preserving a long title and transcript. `ClaudeSession::exit_info()`
+exposes the cleanup outcome (code, signal, reason and bounded stderr) for EOF-proof test diagnostics.

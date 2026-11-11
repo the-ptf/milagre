@@ -577,3 +577,67 @@ fn queued_accepted_call_cancelled_before_storage_reports_not_attempted() {
         owner.shutdown();
     });
 }
+
+#[tokio::test]
+async fn compact_child_settlement_preserves_long_title_and_rows_in_actual_owner_reducer() {
+    use milagre_claude::{ClaudeSession, TurnRequest};
+    use milagre_owner_store::{agent_runs, message_store::ProjectState};
+    let temp = tempfile::tempdir().unwrap();
+    let title = "Review 😀 ".repeat(100);
+    let launch = json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"child","name":"Agent","input":{"description":title,"run_in_background":true}}]}});
+    let row = json!({"type":"user","parent_tool_use_id":"child","message":{"content":[{"type":"tool_result","tool_use_id":"read","content":"retained child output"}]}});
+    let mut opts = options(
+        temp.path(),
+        vec![
+            json!({"expect":{"subtype":"initialize"}}),
+            json!({"reply":{}}),
+            json!({"expect":{"subtype":"set_max_thinking_tokens"}}),
+            json!({"reply":{}}),
+            json!({"expect":{"type":"user"}}),
+            json!({"emit":launch}),
+            json!({"emit":row}),
+            json!({"wait_eof":true}),
+        ],
+    );
+    opts.clock = Some(Arc::new(|| 1000));
+    let (session, mut events) = ClaudeSession::new(opts);
+    session
+        .start_turn(TurnRequest { model: "sonnet".into(), content: vec![json!({"type":"text","text":"fixture"})], ..Default::default() })
+        .await
+        .unwrap();
+    let initial = ProjectState::from_value(&json!({"sessions":{"1":{"id":1}},"messages":[]}));
+    let runs = serde_json::Map::new();
+    let reduce =
+        |state: &ProjectState, event: &Value| agent_runs::apply_agent_event(state, &runs, "/fixture", "/fixture#1", event, 1000).unwrap().0;
+    let mut state = initial;
+    let mut full = milagre_claude::subagents::Subagents::default();
+    full.map(&launch, 1000);
+    full.map(&row, 1000);
+    loop {
+        let event = tokio::time::timeout(Duration::from_secs(3), events.recv()).await.unwrap().unwrap();
+        if event["type"] == "subagent-update" {
+            state = reduce(&state, &event);
+            if !event["agent"]["transcript"].as_array().unwrap().is_empty() {
+                break;
+            }
+        }
+    }
+    let expected = reduce(&state, &full.settle("cancelled", 1000)[0]);
+    session.close().await;
+    let mut compact_seen = false;
+    while let Some(event) = events.recv().await {
+        if event["type"] == "subagent-update" {
+            assert_eq!(event["agent"]["transcript"], json!([]));
+            assert_eq!(event["agent"]["title"], "Subagent");
+            state = reduce(&state, &event);
+            compact_seen = true;
+        }
+    }
+    assert!(compact_seen);
+    assert_eq!(state.to_value(), expected.to_value());
+    let state = state.to_value();
+    let child = &state["sessions"]["1"]["subagents"][0];
+    assert_eq!(child["title"], title);
+    assert_eq!(child["transcript"][0]["text"], "retained child output");
+    assert_eq!(child["status"], "cancelled");
+}

@@ -5,7 +5,8 @@ use crate::tasks::Tasks;
 use crate::text::{cap_output, js_string, js_trim, utf16_slice, Obj};
 use regex::Regex;
 use serde_json::{json, Map, Value};
-use std::collections::{HashMap, HashSet};
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::LazyLock;
 
 #[derive(Clone, Debug)]
@@ -18,7 +19,11 @@ pub struct Subagents {
     foreground: HashSet<String>,
     tasks: HashMap<String, Tasks>,
     calls: HashMap<String, (String, Value)>,
-    results: HashSet<String>,
+    results: HashMap<String, String>,
+    completed: VecDeque<String>,
+    retired: HashSet<[u8; 32]>,
+    retired_order: VecDeque<[u8; 32]>,
+    require_explicit_launch: bool,
     task_agents: HashMap<String, String>,
     background: Vec<Value>,
 }
@@ -29,7 +34,11 @@ impl Default for Subagents {
             foreground: HashSet::new(),
             tasks: HashMap::new(),
             calls: HashMap::new(),
-            results: HashSet::new(),
+            results: HashMap::new(),
+            completed: VecDeque::new(),
+            retired: HashSet::new(),
+            retired_order: VecDeque::new(),
+            require_explicit_launch: false,
             task_agents: HashMap::new(),
             background: vec![],
             budget: Default::default(),
@@ -175,11 +184,74 @@ fn trim_snapshot(agent: &mut Value, limit: usize) -> bool {
         return false;
     }
 }
+const RECENT_COMPLETED: usize = 32;
+const RETIRED_IDS: usize = 512;
+fn fingerprint(kind: u8, id: &str) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update([kind]);
+    hash.update(id.as_bytes());
+    hash.finalize().into()
+}
 impl Subagents {
     pub fn set_limits(&mut self, budget: crate::budget::EventBudget, agents: usize, snapshot_bytes: usize) {
         self.budget = budget;
         self.max_agents = agents;
         self.max_snapshot_bytes = snapshot_bytes;
+    }
+    fn retired(&self, kind: u8, id: &str) -> bool {
+        self.retired.contains(&fingerprint(kind, id))
+    }
+    fn retire(&mut self, kind: u8, id: &str) {
+        let key = fingerprint(kind, id);
+        if self.retired.insert(key) {
+            self.retired_order.push_back(key);
+        }
+        while self.retired_order.len() > RETIRED_IDS {
+            self.retired.remove(&self.retired_order.pop_front().unwrap());
+            // Once exact recent evidence expires, orphan task starts are ambiguous forever in this
+            // process. Explicit Agent/Task launches still admit new work. No live child is evicted.
+            self.require_explicit_launch = true;
+        }
+    }
+    fn clear_pending(&mut self, id: &str) {
+        self.calls.retain(|_, (owner, _)| owner != id);
+        self.results.retain(|_, owner| owner != id);
+        self.tasks.remove(id);
+        self.foreground.remove(id);
+    }
+    fn remember_completion(&mut self, id: &str) {
+        self.clear_pending(id);
+        if !self.completed.iter().any(|closed| closed == id) {
+            self.completed.push_back(id.into());
+        }
+        while self.completed.len() > RECENT_COMPLETED {
+            let old = self.completed.pop_front().unwrap();
+            if self.agents.get(&old).is_some_and(active) {
+                continue;
+            }
+            self.agents.remove(&old);
+            self.clear_pending(&old);
+            self.retire(0, &old);
+            let aliases: Vec<_> = self.task_agents.iter().filter(|(_, owner)| *owner == &old).map(|(task, _)| task.clone()).collect();
+            for task in aliases {
+                self.task_agents.remove(&task);
+                self.retire(1, &task);
+            }
+        }
+    }
+    fn remember_alias(&mut self, task: &str, id: &str) {
+        // One current task alias per child; old aliases cannot accumulate across a long session.
+        let old: Vec<_> = self
+            .task_agents
+            .iter()
+            .filter(|(key, owner)| key.as_str() != task && owner.as_str() == id)
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in old {
+            self.task_agents.remove(&key);
+            self.retire(1, &key);
+        }
+        self.task_agents.insert(task.into(), id.into());
     }
     fn fail(&mut self) -> crate::budget::BudgetFailure {
         self.failed = true;
@@ -187,7 +259,7 @@ impl Subagents {
     }
 
     fn update(&mut self, id: &str, patch: Value, entry: Option<Value>, now: u64) -> Result<Value, crate::budget::BudgetFailure> {
-        if self.failed || (!self.agents.contains_key(id) && self.agents.len() >= self.max_agents) {
+        if self.failed {
             return Err(self.fail());
         }
         let previous = self.agents.get(id);
@@ -224,6 +296,9 @@ impl Subagents {
             rows.push(row);
         }
         if active(&agent) {
+            if !previous.is_some_and(active) && self.agents.values().filter(|child| active(child)).count() >= self.max_agents {
+                return Err(self.fail());
+            }
             agent.as_object_mut().unwrap().remove("endedAt");
         } else if agent.get("endedAt").is_none() {
             agent["endedAt"] = now.into();
@@ -235,6 +310,11 @@ impl Subagents {
             self.tasks.remove(id);
         }
         self.agents.insert(id.into(), agent.clone());
+        if active(&agent) {
+            self.completed.retain(|closed| closed != id);
+        } else {
+            self.remember_completion(id);
+        }
         Ok(json!({"type":"subagent-update","agent":agent}))
     }
     pub fn end_turn(&mut self) {
@@ -258,17 +338,19 @@ impl Subagents {
                     break;
                 }
                 let patch = Obj::new()
-                    .set("id", id)
+                    .set("id", id.clone())
+                    // Existing Node/owner merge sentinel: absent title would erase the old title.
+                    .set("title", "Subagent")
                     .set("status", status)
                     .set("updatedAt", now)
                     .set("endedAt", now)
                     .set("startedAt", agent["startedAt"].clone())
-                    .set("title", utf16_slice(agent["title"].as_str().unwrap_or("Subagent"), 0, 200))
                     .set("transcript", json!([]))
                     .opt("background", agent.get("background").cloned())
                     .opt("truncated", agent.get("truncated").cloned())
                     .build();
                 events.push(json!({"type":"subagent-update","agent":patch}));
+                self.remember_completion(&id);
             } else {
                 events.push_result(self.update(&id, json!({"status":status}), None, now));
             }
@@ -307,6 +389,9 @@ impl Subagents {
         }
         let parent = message["parent_tool_use_id"].as_str().filter(|s| !s.is_empty());
         let content = message.pointer("/message/content").and_then(Value::as_array);
+        if matches!(message["type"].as_str(), Some("assistant" | "user")) && parent.is_some_and(|id| !self.agents.contains_key(id)) {
+            return Ok(vec![]);
+        }
         if message["type"] == "assistant" {
             for (index, block) in content.into_iter().flatten().enumerate() {
                 if events.failed() {
@@ -319,6 +404,9 @@ impl Subagents {
                 let name = block["name"].as_str().unwrap_or_default();
                 let id = str_at(block, "id");
                 if block["type"] == "tool_use" && ["Agent", "Task"].contains(&name) {
+                    if self.retired(0, &id) || (truthy(&message["isReplay"]) && !self.agents.contains_key(&id)) {
+                        continue;
+                    }
                     let background = parent.is_none() && truthy(&block["input"]["run_in_background"]);
                     if parent.is_none() && !background {
                         self.foreground.insert(id.clone());
@@ -336,10 +424,14 @@ impl Subagents {
                 }
                 let Some(parent) = parent.filter(|p| self.agents.contains_key(*p)) else { continue };
                 if block["type"] == "tool_use" && ["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"].contains(&name) {
+                    if !active(&self.agents[parent]) {
+                        // Late task calls may describe retained history, but cannot reopen pending work.
+                        continue;
+                    }
                     if ["TaskCreate", "TaskList"].contains(&name) {
                         self.calls.insert(id, (parent.into(), block.clone()));
                     } else {
-                        self.results.insert(id);
+                        self.results.insert(id, parent.into());
                     }
                     if let Some(tasks) = self.tasks.entry(parent.into()).or_default().apply_tool_use(name, &block["input"]) {
                         events.push_result(self.update(parent, json!({"tasks":tasks}), None, now));
@@ -401,7 +493,7 @@ impl Subagents {
                         if let Some(tasks) = self.tasks.entry(agent.clone()).or_default().apply_tool_result(&call, block, structured) {
                             events.push_result(self.update(&agent, json!({"tasks":tasks}), None, now));
                         }
-                    } else if !self.results.remove(&id) {
+                    } else if self.results.remove(&id).is_none() {
                         events.push_result(self.update(
                             parent,
                             json!({}),
@@ -420,14 +512,23 @@ impl Subagents {
         let subtype = message["subtype"].as_str().unwrap_or_default();
         if message["type"] == "system" && subtype.starts_with("task_") {
             let task = str_at(message, "task_id");
-            let id = self.task_agents.get(&task).cloned().or_else(|| message.get("tool_use_id").filter(|v| !v.is_null()).map(js_string));
-            if !id.as_ref().is_some_and(|id| self.agents.contains_key(id))
-                && !(subtype == "task_started" && (message["task_type"] == "local_agent" || truthy(&message["subagent_type"])))
+            let id = self
+                .task_agents
+                .get(&task)
+                .cloned()
+                .or_else(|| message.get("tool_use_id").filter(|v| !v.is_null()).map(js_string))
+                .unwrap_or_else(|| task.clone());
+            if self.retired(0, &id) || self.retired(1, &task) {
+                return events.finish();
+            }
+            if !self.agents.contains_key(&id)
+                && (self.require_explicit_launch
+                    || subtype != "task_started"
+                    || !(message["task_type"] == "local_agent" || truthy(&message["subagent_type"])))
             {
                 return events.finish();
             }
-            let id = id.unwrap_or(task.clone());
-            self.task_agents.insert(task, id.clone());
+            self.remember_alias(&task, &id);
             let mut patch = Map::new();
             for (source, target) in [("description", "title"), ("prompt", "prompt"), ("subagent_type", "agentType")] {
                 if truthy(&message[source]) {
@@ -478,7 +579,7 @@ impl Subagents {
             let row = truthy(&message["summary"]).then(|| json!({"id":"summary","kind":"message","text":message["summary"]}));
             events.push_result(self.update(&id, Value::Object(patch), row, now));
         }
-        if self.calls.len() + self.results.len() + self.task_agents.len() > self.max_agents.saturating_mul(16) {
+        if self.calls.len() + self.results.len() > self.max_agents.saturating_mul(16) {
             events.fail(self.fail());
         }
         events.finish()
@@ -517,7 +618,7 @@ mod budget_tests {
         let initial = agents
             .update(
                 "a",
-                json!({"title":"Review","background":true,"prompt":"Check"}),
+                json!({"title":"Review".repeat(100),"background":true,"prompt":"Check"}),
                 Some(json!({"id":"r1","kind":"tool","text":"result"})),
                 1,
             )
@@ -527,12 +628,72 @@ mod budget_tests {
         let mut merged = initial["agent"].clone();
         // Node merges rows by id; an empty update leaves existing transcript rows intact.
         for (key, value) in compact[0]["agent"].as_object().unwrap() {
-            if key != "transcript" {
+            if key != "transcript" && key != "title" {
                 merged[key] = value.clone();
             }
         }
         assert_eq!(merged, full[0]["agent"]);
         assert_eq!(compact[0]["agent"]["background"], true);
+        assert_eq!(compact[0]["agent"]["title"], "Subagent");
         assert!(agents.settle_bounded("cancelled", 3, true).unwrap().is_empty());
+    }
+    #[test]
+    fn completed_histories_and_pending_indexes_are_bounded_without_evicting_live_children() {
+        let mut agents = Subagents::default();
+        agents.set_limits(Default::default(), 2, 4096);
+        agents.update("live", json!({"background":true}), None, 0).unwrap();
+        for turn in 0..200 {
+            let id = format!("child-{turn}");
+            agents.update(&id, json!({}), None, turn).unwrap();
+            for n in 0..9 {
+                agents
+                    .map_bounded(
+                        &json!({"type":"system","subtype":"task_started","tool_use_id":id,"task_id":format!("task-{turn}-{n}")}),
+                        turn,
+                    )
+                    .unwrap();
+            }
+            let calls: Vec<_> = (0..20).map(|n| json!({"type":"tool_use","id":format!("call-{turn}-{n}"),"name":if n%2==0 {"TaskCreate"}else{"TaskGet"},"input":{"subject":"pending"}})).collect();
+            let pending = json!({"type":"assistant","parent_tool_use_id":id,"message":{"content":calls}});
+            agents.map_bounded(&pending, turn).unwrap();
+            assert_eq!(agents.calls.len() + agents.results.len(), 20);
+            agents.update(&id, json!({"status":"completed"}), None, turn).unwrap();
+            agents.map_bounded(&pending, turn).unwrap(); // Late calls cannot repopulate closed indexes.
+            agents.end_turn();
+            assert!(agents.calls.is_empty() && agents.results.is_empty() && agents.tasks.is_empty());
+            assert!(active(&agents.agents["live"]));
+            assert!(agents.agents.len() <= RECENT_COMPLETED + 1);
+            assert!(agents.completed.len() <= RECENT_COMPLETED);
+            assert!(agents.task_agents.len() <= RECENT_COMPLETED);
+            assert!(agents.retired.len() <= RETIRED_IDS && agents.retired_order.len() <= RETIRED_IDS);
+        }
+        assert!(!agents.agents.contains_key("child-0"));
+        assert!(agents.agents.contains_key("child-199"));
+        assert!(agents.require_explicit_launch);
+        assert!(!agents.retired(0, "child-0")); // Oldest tombstone expired; orphan admission remains closed.
+        for id in ["child-0", "child-160"] {
+            for subtype in ["task_started", "task_progress", "task_notification", "task_updated"] {
+                let late = json!({"type":"system","subtype":subtype,"tool_use_id":id,"task_id":format!("late-{id}"),"task_type":"local_agent","patch":{"status":"running"}});
+                assert!(agents.map_bounded(&late, 201).unwrap().is_empty());
+                assert!(!agents.agents.contains_key(id));
+            }
+        }
+        // An evicted parent or replay launch cannot introduce active grandchildren.
+        let child = json!({"type":"tool_use","id":"grandchild","name":"Agent","input":{}});
+        for late in [
+            json!({"type":"assistant","parent_tool_use_id":"child-0","message":{"content":[child.clone()]}}),
+            json!({"type":"assistant","isReplay":true,"message":{"content":[child]}}),
+        ] {
+            assert!(agents.map_bounded(&late, 201).unwrap().is_empty());
+        }
+        // Fresh explicit launches still work after tombstone rollover, alongside the live child.
+        agents
+            .map_bounded(
+                &json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"fresh","name":"Agent","input":{}}]}}),
+                202,
+            )
+            .unwrap();
+        assert!(active(&agents.agents["fresh"]));
+        assert!(agents.update("third-live", json!({}), None, 203).is_err());
     }
 }

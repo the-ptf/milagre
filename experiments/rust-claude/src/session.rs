@@ -530,6 +530,16 @@ impl ClaudeSession {
         state.client.as_ref().and_then(ClaudeClient::pid)
     }
 
+    /// Available after process cleanup; includes exit code/signal/reason and the bounded stderr tail.
+    pub fn exit_info(&self) -> Option<ExitInfo> {
+        let state = self.inner.state.lock().unwrap();
+        state
+            .exit
+            .clone()
+            .or_else(|| state.cleanup.as_ref().and_then(|rx| rx.borrow().clone()))
+            .or_else(|| state.client.as_ref().and_then(ClaudeClient::exit_info))
+    }
+
     pub fn is_closed(&self) -> bool {
         self.inner.queue.closed() || self.inner.state.lock().unwrap().closed
     }
