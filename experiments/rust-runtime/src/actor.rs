@@ -362,6 +362,14 @@ impl State {
                 Notice::Broadcast { project } => {
                     self.queue_event("project:state", json!({"path":project,"state":self.last}))?;
                 }
+                Notice::SteerRequested { .. } => {
+                    // This executable keeps SteeringMode::Gated. If that contract changes,
+                    // close admission instead of dropping a durably accepted steering request.
+                    return Err(RpcError::new(
+                        "UNSUPPORTED_STEERING",
+                        "The isolated actor has no steering adapter",
+                    ));
+                }
                 Notice::AnswerSettled { answer, result, .. } => {
                     if let Some(reply) = self.answers.remove(&answer) {
                         self.settled_answers.push((
