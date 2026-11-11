@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use crate::exec::{self, BoxFuture, Exec};
+use crate::identity::{system_identity, ReadIdentity};
 use crate::owner::{chat_ports, chat_processes, ChatPorts, Groups, Port, Roots};
 use crate::parse::{parse_lsof, parse_ps, parse_task_outputs, Listener, ProcessRow};
 
@@ -39,7 +40,8 @@ impl Signal {
 /// `kill(target, signal)`: a negative target is a process group. False where Node's `process.kill` throws.
 pub type Kill = Arc<dyn Fn(i64, Signal) -> bool + Send + Sync>;
 /// process-tree.cjs `killWindowsTree(pid, _, { expectedStartTime })`.
-pub type StopWindowsTree = Arc<dyn Fn(i64, String) -> BoxFuture<()> + Send + Sync>;
+/// The injected implementation must check start time immediately before signalling and return false on failure.
+pub type StopWindowsTree = Arc<dyn Fn(i64, String) -> BoxFuture<bool> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct PortWatcherOptions {
@@ -54,7 +56,9 @@ pub struct PortWatcherOptions {
     pub is_running: Arc<dyn Fn() -> bool + Send + Sync>,
     pub exec: Exec,
     pub kill: Kill,
-    pub stop_windows_tree: StopWindowsTree,
+    pub stop_windows_tree: Option<StopWindowsTree>,
+    /// Unix kernel identity lookup, also injectable for disposable tests.
+    pub identity: ReadIdentity,
     pub grace: Duration,
     /// Milliseconds, for the lsof cache age.
     pub now: Arc<dyn Fn() -> i64 + Send + Sync>,
@@ -74,7 +78,8 @@ impl PortWatcherOptions {
             is_running: Arc::new(|| true),
             exec: exec::system_exec(windows),
             kill: Arc::new(system_kill),
-            stop_windows_tree: Arc::new(|_, _| Box::pin(async {})),
+            stop_windows_tree: None,
+            identity: Arc::new(system_identity),
             grace: GRACE,
             now: Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)),
             lsof_max_age_ms: LSOF_MAX_AGE_MS,
@@ -84,6 +89,10 @@ impl PortWatcherOptions {
 
 /// `process.kill(target, signal)` on Unix.
 pub fn system_kill(target: i64, signal: Signal) -> bool {
+    // 0 targets our group; -1 broadcasts to every permitted process; 1 is init.
+    if (-1..=1).contains(&target) {
+        return false;
+    }
     #[cfg(unix)]
     {
         let Ok(target) = i32::try_from(target) else { return false };
@@ -207,22 +216,44 @@ impl PortWatcher {
         Inner::poll(&self.inner, fresh).await
     }
 
+    /// Windows tree stopping is unsupported until the runtime injects an implementation.
+    pub fn supports_stop(&self) -> bool {
+        !self.inner.options.windows || self.inner.options.stop_windows_tree.is_some()
+    }
+
     /// Stops what listens on one of a Chat's ports: its command's whole process group (so `npm run dev` goes with its
     /// server), or the process alone when its group is the agent's own or a Terminal shell's. Only a pid the Chat's
-    /// list shows is stopped: SIGTERM, then SIGKILL if it is still there after the grace. On Windows the oldest owned
-    /// ancestor's tree is stopped, checked by start time. Resolves with whether there was something to stop.
+    /// list shows is stopped, after a fresh poll. Every Unix signal (including probe) rechecks listener/leader birth
+    /// time and group. Without a leader, only the listener is stopped. SIGKILL follows the grace only while those
+    /// identities survive. On Windows the oldest owned ancestor's tree is stopped, checked by start time.
+    /// Returns false for unsupported Windows stopping, stale identity, protected PID or initial signal failure.
     pub async fn stop_port(&self, chat_id: &str, pid: i64) -> bool {
         let inner = &self.inner;
+        if !(2..=i32::MAX as i64).contains(&pid) || inner.state.lock().unwrap().closed || !self.supports_stop() {
+            return false;
+        }
         let listed =
             |inner: &Inner| inner.state.lock().unwrap().ports.get(chat_id).is_some_and(|ports| ports.iter().any(|port| port.pid == pid));
         if !listed(inner) {
             return false;
         }
-        if inner.options.windows {
-            Inner::poll(inner, true).await;
-            if !listed(inner) {
+        let original = inner.state.lock().unwrap().processes.get(&pid).cloned();
+        Inner::poll(inner, true).await;
+        if !listed(inner) || inner.state.lock().unwrap().closed {
+            return false;
+        }
+        let Some(original) = original else { return false };
+        {
+            let state = inner.state.lock().unwrap();
+            let Some(current) = state.processes.get(&pid) else { return false };
+            if original.started_at.as_deref().is_none_or(str::is_empty)
+                || current.started_at != original.started_at
+                || current.pgid != original.pgid
+            {
                 return false;
             }
+        }
+        if inner.options.windows {
             let agent_pid = (inner.options.roots)().get(chat_id).and_then(|root| root.pid);
             let target = {
                 let state = inner.state.lock().unwrap();
@@ -249,36 +280,59 @@ impl PortWatcher {
                     _ => return false,
                 }
             };
-            (inner.options.stop_windows_tree)(target.0, target.1).await;
+            if target.0 <= 1 {
+                return false;
+            }
+            let stopped = (inner.options.stop_windows_tree.as_ref().unwrap())(target.0, target.1).await;
             Inner::poll(inner, true).await;
-            return true;
+            return stopped;
         }
-        // Callbacks run outside the state lock: they may read other owners (Terminals) that call back in.
-        let shells = (inner.options.roots)().get(chat_id).map(|root| root.shells.clone()).unwrap_or_default();
-        let target = {
+        // Callbacks run outside the state lock: owners may call back into this watcher.
+        let roots = (inner.options.roots)();
+        let (target, leader) = {
             let state = inner.state.lock().unwrap();
-            let pgid = state.processes.get(&pid).map(|row| row.pgid).filter(|pgid| *pgid != 0);
-            // A Terminal's shell leads its own group: stopping a port there must leave the Terminal open.
-            let shell_groups: HashSet<Option<i64>> = shells.iter().map(|shell| state.processes.get(shell).map(|row| row.pgid)).collect();
-            match pgid {
-                Some(pgid)
-                    if state.groups.get(chat_id).is_some_and(|groups| groups.contains(&pgid)) && !shell_groups.contains(&Some(pgid)) =>
-                {
-                    -pgid
-                }
-                _ => pid,
+            if protected_pid(&roots, pid) {
+                return false;
+            }
+            let pgid = original.pgid;
+            let leader = state.processes.get(&pgid).filter(|row| row.pgid == pgid && row.started_at.is_some()).cloned();
+            if pgid > 1
+                && pgid <= i32::MAX as i64
+                && state.groups.get(chat_id).is_some_and(|groups| groups.contains(&pgid))
+                && leader.is_some()
+            {
+                (-pgid, leader)
+            } else {
+                // An orphan without its original leader is stopped individually, never by a bare PGID.
+                (pid, None)
             }
         };
-        let kill = inner.options.kill.clone();
-        if !kill(target, Signal::Term) {
+        let (target, leader) =
+            if target < 0 && protected_group(&roots, -target, &inner.options.identity) { (pid, None) } else { (target, leader) };
+        let signal = |signal| {
+            if inner.state.lock().unwrap().closed {
+                return false;
+            }
+            let roots = (inner.options.roots)();
+            if protected_pid(&roots, pid)
+                || (target < 0 && protected_group(&roots, -target, &inner.options.identity))
+                || !(inner.options.identity)(pid).is_some_and(|id| id.matches(&original))
+                || leader.as_ref().is_some_and(|row| !(inner.options.identity)(row.pid).is_some_and(|id| id.matches(row)))
+            {
+                return false;
+            }
+            (inner.options.kill)(target, signal)
+        };
+        if !signal(Signal::Term) {
             return false;
         }
         let deadline = tokio::time::Instant::now() + inner.options.grace;
-        while tokio::time::Instant::now() < deadline && kill(target, Signal::Probe) {
+        while signal(Signal::Probe) {
+            if tokio::time::Instant::now() >= deadline {
+                signal(Signal::Kill);
+                break;
+            }
             tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        if kill(target, Signal::Probe) {
-            kill(target, Signal::Kill);
         }
         Inner::poll(inner, true).await;
         true
@@ -344,7 +398,18 @@ impl Inner {
         let mut roots = (options.roots)();
         let watching = !roots.is_empty() || !this.state.lock().unwrap().groups.is_empty();
         if watching {
-            let processes = parse_ps(&(options.exec)("ps".into(), PS_ARGS.map(String::from).to_vec()).await);
+            let mut processes = parse_ps(&(options.exec)("ps".into(), PS_ARGS.map(String::from).to_vec()).await);
+            if !options.windows {
+                // Join ps ancestry to a kernel identity; an exited/reparented process waits for the next poll.
+                processes.retain_mut(|row| {
+                    let Some(id) = (options.identity)(row.pid) else { return false };
+                    if id.ppid != row.ppid || id.pgid != row.pgid || id.started_at.is_empty() {
+                        return false;
+                    }
+                    row.started_at = Some(id.started_at);
+                    true
+                });
+            }
             let still = if options.windows { Some((options.roots)()) } else { None };
             let (by_chat, pids) = {
                 let mut state = this.state.lock().unwrap();
@@ -362,8 +427,36 @@ impl Inner {
                     }
                     state.windows_identities = current;
                 }
+                let agent_groups: HashSet<i64> = roots
+                    .values()
+                    .flat_map(|r| r.pid.into_iter().chain(r.agents.iter().copied()))
+                    .filter_map(|pid| processes.iter().find(|r| r.pid == pid).map(|r| r.pgid))
+                    .collect();
+                if !options.windows {
+                    // A continuous member anchors a group even after its leader exits. A reused numeric PGID
+                    // with no surviving member never inherits another Chat's ownership.
+                    let anchored: HashSet<i64> = processes
+                        .iter()
+                        .filter(|row| {
+                            state
+                                .processes
+                                .get(&row.pid)
+                                .is_some_and(|old| old.pgid == row.pgid && old.started_at.is_some() && old.started_at == row.started_at)
+                        })
+                        .map(|row| row.pgid)
+                        .collect();
+                    for groups in state.groups.values_mut() {
+                        groups.retain(|pgid| *pgid > 1 && !agent_groups.contains(pgid) && anchored.contains(pgid));
+                    }
+                }
                 state.processes = processes.iter().map(|row| (row.pid, row.clone())).collect();
                 let by_chat = chat_processes(&processes, &roots, &mut state.groups);
+                if !options.windows {
+                    state.groups.retain(|_, groups| {
+                        groups.retain(|pgid| *pgid > 1 && !agent_groups.contains(pgid));
+                        !groups.is_empty()
+                    });
+                }
                 let pids: Vec<i64> = by_chat.values().flatten().copied().collect::<HashSet<_>>().into_iter().collect();
                 (by_chat, pids)
             };
@@ -453,4 +546,22 @@ impl Drop for Inner {
             timer.abort();
         }
     }
+}
+
+fn protected_pid(roots: &Roots, pid: i64) -> bool {
+    pid == i64::from(std::process::id())
+        || roots.values().any(|root| root.pid == Some(pid) || root.agents.contains(&pid) || root.shells.contains(&pid))
+}
+
+fn protected_group(roots: &Roots, pgid: i64, identity: &ReadIdentity) -> bool {
+    // Protect the runtime too, even if it is absent from the Chat roots.
+    #[cfg(unix)]
+    if pgid == i64::from(unsafe { libc::getpgrp() }) {
+        return true;
+    }
+    roots
+        .values()
+        .flat_map(|root| root.pid.into_iter().chain(root.agents.iter().copied()).chain(root.shells.iter().copied()))
+        // An unreadable root cannot establish that the target group is isolated. Stop only the listener.
+        .any(|pid| identity(pid).is_none_or(|id| id.pgid == pgid))
 }

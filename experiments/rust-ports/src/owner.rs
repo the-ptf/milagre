@@ -62,7 +62,8 @@ pub fn with_terminal_shells(mut roots: Roots, shells: impl IntoIterator<Item = (
 }
 
 /// The pids that belong to each Chat's commands. `groups` is updated in place: a group is forgotten once nothing in it
-/// runs.
+/// runs. This pure Node-compatible traversal trusts its input groups. The watcher validates Unix group continuity
+/// with kernel birth times before calling it; callers must not use bare remembered PGIDs as signal authorization.
 pub fn chat_processes(processes: &[ProcessRow], roots: &Roots, groups: &mut Groups) -> HashMap<String, HashSet<i64>> {
     let mut children: HashMap<i64, Vec<&ProcessRow>> = HashMap::new();
     let by_pid: HashMap<i64, &ProcessRow> = processes.iter().map(|row| (row.pid, row)).collect();

@@ -16,18 +16,24 @@ const LISTENER: &str = env!("CARGO_BIN_EXE_milagre-ports-test-listener");
 
 /// SIGKILLs every pid and group it was given, when the test ends however it ends.
 #[derive(Default)]
-struct Cleanup(Mutex<Vec<i32>>);
+struct Cleanup(Mutex<Vec<(i32, milagre_ports::ProcessIdentity)>>);
 
 impl Cleanup {
     fn track(&self, target: i32) {
-        self.0.lock().unwrap().push(target);
+        assert!(target.unsigned_abs() > 1);
+        if let Some(identity) = milagre_ports::identity::system_identity(i64::from(target.unsigned_abs())) {
+            self.0.lock().unwrap().push((target, identity));
+        }
     }
 }
 
 impl Drop for Cleanup {
     fn drop(&mut self) {
-        for target in self.0.lock().unwrap().iter() {
-            unsafe { libc::kill(*target, libc::SIGKILL) };
+        for (target, expected) in self.0.lock().unwrap().iter() {
+            let current = milagre_ports::identity::system_identity(i64::from(target.unsigned_abs()));
+            if current.is_some_and(|id| id.started_at == expected.started_at && id.pgid == expected.pgid) {
+                unsafe { libc::kill(*target, libc::SIGKILL) };
+            }
         }
     }
 }
@@ -192,5 +198,40 @@ async fn a_listener_that_dies_on_its_own_drops_out_on_the_next_poll() {
     until("the port", || published.lock().unwrap().last().is_some_and(|p| p.contains_key("/term#2")).then_some(())).await;
     unsafe { libc::kill(server as i32, libc::SIGKILL) };
     until("the empty list", || published.lock().unwrap().last().is_some_and(|p| p.is_empty()).then_some(())).await;
+    watcher.close();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shell_in_the_agent_group_stops_only_its_listener_and_preserves_mcp() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().canonicalize().unwrap();
+    let cleanup = Cleanup::default();
+    let (agent, log) = spawn_shell(
+        r#"set +m; /bin/sh -c '"$L" 30 > "$DIR/server.out" & echo S:$!; wait; sleep 30' & echo C:$!; "$L" 30 > "$DIR/mcp.out" & echo M:$!; wait"#,
+        &folder,
+        &cleanup,
+    );
+    let (server, shell, mcp) = until("shared group helpers", || {
+        let text = std::fs::read_to_string(&log).unwrap_or_default();
+        Some((tagged(&text, "S:")?, tagged(&text, "C:")?, tagged(&text, "M:")?))
+    })
+    .await;
+    for pid in [server, shell, mcp] {
+        cleanup.track(pid as i32);
+    }
+    port_in(&folder.join("server.out")).await;
+    port_in(&folder.join("mcp.out")).await;
+    let identity = milagre_ports::identity::system_identity(server).unwrap();
+    assert_eq!(identity.pgid, i64::from(agent));
+    assert!(!identity.started_at.is_empty());
+    let roots = Arc::new(Mutex::new(HashMap::from([("/shared#1".into(), Root { pid: Some(agent as i64), ..Default::default() })])));
+    let watcher = watcher(roots, Arc::new(Mutex::new(vec![])));
+    watcher.poll(true).await;
+    assert_eq!(watcher.chat_ports("/shared#1").iter().map(|p| p.pid).collect::<Vec<_>>(), vec![server]);
+    assert!(watcher.stop_port("/shared#1", server).await);
+    until("the server to exit", || (!alive(server as i32)).then_some(())).await;
+    assert!(alive(agent));
+    assert!(alive(shell as i32));
+    assert!(alive(mcp as i32));
     watcher.close();
 }

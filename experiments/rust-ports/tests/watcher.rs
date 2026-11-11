@@ -38,6 +38,13 @@ fn options(running: Arc<AtomicBool>) -> (PortWatcherOptions, Counting) {
             }
         })
     });
+    o.identity = Arc::new(|pid| {
+        milagre_ports::parse_ps(PS).into_iter().find(|r| r.pid == pid).map(|r| milagre_ports::ProcessIdentity {
+            ppid: r.ppid,
+            pgid: r.pgid,
+            started_at: format!("birth-{pid}"),
+        })
+    });
     o.kill = Arc::new(|_, _| false);
     (o, Counting { ps_calls, published })
 }

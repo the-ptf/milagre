@@ -4,11 +4,13 @@
 //! wired into the daemon. Pair with milagre-terminals through [`owner::with_terminal_shells`].
 
 pub mod exec;
+pub mod identity;
 pub mod owner;
 pub mod parse;
 pub mod watcher;
 pub mod wire;
 
+pub use identity::{ProcessIdentity, ReadIdentity};
 pub use owner::{chat_ports, chat_processes, with_terminal_shells, ChatPorts, Groups, Port, Root, Roots};
 pub use parse::{parse_lsof, parse_ps, parse_task_outputs, Listener, ProcessRow};
 pub use watcher::{Kill, PortWatcher, PortWatcherOptions, Signal, StopWindowsTree};

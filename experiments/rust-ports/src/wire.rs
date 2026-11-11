@@ -35,6 +35,9 @@ pub async fn handle(watcher: &PortWatcher, command: &str, args: &[Value]) -> Res
         },
         "agent:stop-port" => match (args.first(), args.get(1)) {
             (Some(Value::String(chat_id)), Some(pid)) if is_integer(pid) => match integer(pid) {
+                Some(_) if !watcher.supports_stop() => {
+                    Err("Stopping ports on Windows is unsupported without a process-tree stopper.".into())
+                }
                 Some(pid) => Ok(Value::Bool(watcher.stop_port(chat_id, pid).await)),
                 None => Ok(Value::Bool(false)),
             },
