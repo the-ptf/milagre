@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "A local-first desktop ADE for coordinating coding agents",
-  "homepage": "https://github.com/the-ptf/milagre-ade",
+  "homepage": "https://github.com/the-ptf/milagre",
   "license": "MIT",
   "author": "Milagre contributors",
   "type": "module",

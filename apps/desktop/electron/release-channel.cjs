@@ -23,8 +23,7 @@ function createReleaseChannelStore({ file }) {
     },
   };
 }
-const OWNER = "the-ptf";
-const REPO = "milagre-ade";
+const { owner: OWNER, repo: REPO } = require("@milagre/shared/repository");
 const GITHUB_FEED = { provider: "github", owner: OWNER, repo: REPO, releaseType: "release" };
 
 /**

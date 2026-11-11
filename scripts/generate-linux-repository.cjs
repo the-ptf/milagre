@@ -8,7 +8,7 @@ const { gzipSync } = require("node:zlib");
 const { spawnSync } = require("node:child_process");
 
 const template = path.resolve(__dirname, "../distribution/linux-repository");
-const repository = "https://github.com/the-ptf/milagre-ade";
+const { url: repository } = require("@milagre/shared/repository");
 
 function run(program, args, options = {}) {
   const result = spawnSync(program, args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, ...options });
@@ -149,17 +149,19 @@ function previousPackages(file) {
     );
     const name = match?.[1] ?? match?.[3];
     const version = match?.[2] ?? match?.[4];
+    const releasePath = `/releases/download/v${version}/${name}`;
     if (
       !match ||
       !entry ||
-      entry.url !== `${repository}/releases/download/v${version}/${name}` ||
+      // Accept retained maps written before the rename, then emit canonical URLs.
+      ![repository + releasePath, `${repository}-ade${releasePath}`].includes(entry.url) ||
       !/^[a-f0-9]{64}$/.test(entry.sha256 ?? "") ||
       !Number.isSafeInteger(entry.size) ||
       entry.size <= 0
     ) {
       throw new Error(`Invalid previous package mapping: ${route}`);
     }
-    result[route] = { url: entry.url, sha256: entry.sha256, size: entry.size };
+    result[route] = { url: repository + releasePath, sha256: entry.sha256, size: entry.size };
   }
   return result;
 }

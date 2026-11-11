@@ -1,6 +1,6 @@
 # Viewing and controlling agent browsers
 
-October 6, 2026. Implements [issue #220](https://github.com/the-ptf/milagre-ade/issues/220). Ownership is decided in [ADR-0006](../adr/0006-browser-page-ownership.md).
+October 6, 2026. Implements [issue #220](https://github.com/the-ptf/milagre-ade/issues/220). Ownership is decided in [ADR-0016](../adr/0016-browser-page-ownership.md).
 
 The Browser pill streams the agent's real page, with its signed-in state, using the Chrome DevTools Protocol screencast. Frames travel as JPEG over the existing authenticated RPC, so the phone works wherever its Chats work, including through the public relay, with no TURN service and no native build.
 

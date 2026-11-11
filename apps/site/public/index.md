@@ -4,7 +4,7 @@ Milagre is a free, open-source (MIT) app for macOS and Linux that runs Claude Co
 
 ## Bring your own subscription
 
-Milagre uses the coding agents you already have, signed in with your own account: Claude Code (Anthropic), Codex (OpenAI), Antigravity (Google) and Kiro (AWS). Milagre is free and open source; your provider's subscription or usage charges still apply. Want another agent? Milagre is open source: send a pull request at https://github.com/the-ptf/milagre-ade/pulls.
+Milagre uses the coding agents you already have, signed in with your own account: Claude Code (Anthropic), Codex (OpenAI), Antigravity (Google) and Kiro (AWS). Milagre is free and open source; your provider's subscription or usage charges still apply. Want another agent? Milagre is open source: send a pull request at https://github.com/the-ptf/milagre/pulls.
 
 ## Design in the app
 
@@ -47,4 +47,4 @@ The same Chats follow you to iPhone and Android: answer a question, approve a co
 - macOS, Intel: https://milagre.cloud/download/mac-x64
 - Linux: https://milagre.cloud/download/linux-appimage (also .deb: https://milagre.cloud/download/linux-deb and .rpm: https://milagre.cloud/download/linux-rpm)
 
-Source, issues and releases: https://github.com/the-ptf/milagre-ade
+Source, issues and releases: https://github.com/the-ptf/milagre

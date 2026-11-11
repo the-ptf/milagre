@@ -43,7 +43,7 @@ test("generates architecture-specific Homebrew downloads with real installer che
   assert.match(cask, /version "1\.2\.3"/);
   assert.match(cask, /arch arm: "arm64", intel: "x64"/);
   assert.ok(cask.includes(`sha256 arm: "${hash}", intel: "${hash}"`));
-  assert.ok(cask.includes("https://github.com/the-ptf/milagre-ade/releases/download/v#{version}/Milagre-#{version}-#{arch}.dmg"));
+  assert.ok(cask.includes("https://github.com/the-ptf/milagre/releases/download/v#{version}/Milagre-#{version}-#{arch}.dmg"));
   assert.match(cask, /app "Milagre\.app"/);
   assert.match(cask, /auto_updates true/);
   assert.doesNotMatch(cask, /no_check|zap/);
@@ -63,7 +63,7 @@ test("generates a WinGet manifest matching the per-user NSIS installer", (t) => 
     Architecture: "x64",
     InstallerType: "nullsoft",
     Scope: "user",
-    InstallerUrl: "https://github.com/the-ptf/milagre-ade/releases/download/v1.2.3/Milagre-Setup-1.2.3-x64.exe",
+    InstallerUrl: "https://github.com/the-ptf/milagre/releases/download/v1.2.3/Milagre-Setup-1.2.3-x64.exe",
     InstallerSha256: hash.toUpperCase(),
     InstallerSwitches: { Custom: "/currentuser" },
   });

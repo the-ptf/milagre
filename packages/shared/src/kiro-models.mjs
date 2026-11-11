@@ -1,4 +1,4 @@
-// Kiro (docs/adr/0007-kiro-over-acp.md) reports each model in its `model` config option with what it costs and which
+// Kiro (docs/adr/0017-kiro-over-acp.md) reports each model in its `model` config option with what it costs and which
 // efforts it takes, in `_meta.kiro`: { rateMultiplier, rateUnit: "Credit", effortLevels, defaultEffortLevel }. Milagre's
 // ids carry a `kiro:` prefix, so a Claude or GPT model run on Kiro's credits never turns into the same model on its
 // own provider (a saved default, a model id read back from a Chat).

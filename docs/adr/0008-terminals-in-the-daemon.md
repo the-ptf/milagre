@@ -4,7 +4,7 @@ A Terminal's shell runs under the daemon's PTY, not in the Electron main process
 
 Output is kept only in the daemon's memory, about the last 10,000 lines or 1 MB per Terminal, enough to show earlier output when a viewer reopens it. It is never written to disk, because passwords and tokens pass through terminals and Chat transcripts are not the place for them.
 
-Unlike a Browser page (ADR-0006), a Terminal has no control lease. Every viewer can type at once, as in a shared tmux session, and the PTY takes the size of the viewer that typed or focused last. The common case is moving from the Mac to the phone mid-command; a Take control step would get in the way, and a shell has no held keys or mouse button that a lease would need to release.
+Unlike a Browser page (ADR-0016), a Terminal has no control lease. Every viewer can type at once, as in a shared tmux session, and the PTY takes the size of the viewer that typed or focused last. The common case is moving from the Mac to the phone mid-command; a Take control step would get in the way, and a shell has no held keys or mouse button that a lease would need to release.
 
 ## Considered Options
 

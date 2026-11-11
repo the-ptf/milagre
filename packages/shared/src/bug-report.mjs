@@ -2,8 +2,10 @@
 // share. The host replaces what identifies the user's work with these placeholders; desktop and phone mark them in the
 // text the user approves.
 
-/** Where reports go (renamed from the-ptf/milagre-ade, which still redirects). */
-export const MILAGRE_REPO = "the-ptf/milagre";
+import { owner, repo } from "./repository.cjs";
+
+/** Where reports go. */
+export const MILAGRE_REPO = `${owner}/${repo}`;
 
 /** What the Chat menu's "Report a Milagre bug" puts in the composer: the user says what went wrong, the agent files it. */
 export const REPORT_BUG_PROMPT = "Report a Milagre bug: ";

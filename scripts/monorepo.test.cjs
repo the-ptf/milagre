@@ -5,6 +5,8 @@ const { createRequire } = require("node:module");
 const { execFileSync } = require("node:child_process");
 const { test } = require("node:test");
 
+const { owner, repo, url } = require("@milagre/shared/repository");
+
 const root = path.resolve(__dirname, "..");
 
 test("npm discovers the desktop and shared packages from the repository root", () => {
@@ -44,7 +46,7 @@ test("electron-builder retains desktop identity, update feed, output path and re
   assert.equal(info.id, "com.milagre.app");
   assert.equal(info.version, "9.8.7");
   assert.equal(path.resolve(root, packager.config.directories.output), path.join(root, "release"));
-  assert.deepEqual(packager.config.publish, { provider: "github", owner: "the-ptf", repo: "milagre-ade", releaseType: "release" });
+  assert.deepEqual(packager.config.publish, { provider: "github", owner, repo, releaseType: "release" });
 });
 
 test("the Linux icon is a hicolor icon set with the sizes desktops look for", async () => {
@@ -57,5 +59,43 @@ test("the Linux icon is a hicolor icon set with the sizes desktops look for", as
     const bytes = await fs.readFile(path.join(directory, `${size}x${size}.png`));
     assert.equal(bytes.readUInt32BE(16), size, `${size}x${size}.png width`);
     assert.equal(bytes.readUInt32BE(20), size, `${size}x${size}.png height`);
+  }
+});
+
+test("repository metadata and distribution code use the canonical repository", async () => {
+  const pkg = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
+  assert.deepEqual({ owner, repo, url }, { owner: "the-ptf", repo: "milagre", url: "https://github.com/the-ptf/milagre" });
+  assert.deepEqual(pkg.repository, { type: "git", url: `${url}.git` });
+  const desktop = JSON.parse(await fs.readFile(path.join(root, "apps/desktop/package.json"), "utf8"));
+  assert.equal(desktop.homepage, url);
+  assert.ok(desktop.dependencies["@milagre/shared"], "electron-builder must bundle the shared repository module");
+  const files = [
+    ...(await fs.readdir(path.join(root, "apps/desktop/electron"), { recursive: true })).map((file) => `apps/desktop/electron/${file}`),
+    ...(await fs.readdir(path.join(root, "scripts"))).filter((file) => /^generate-.*\.cjs$/.test(file)).map((file) => `scripts/${file}`),
+  ];
+  const oldRepository = "the-ptf/milagre-ade";
+  assert.ok(!JSON.stringify(pkg.build).includes(oldRepository));
+  for (const file of files) {
+    if ((await fs.stat(path.join(root, file))).isFile()) {
+      assert.ok(!(await fs.readFile(path.join(root, file), "utf8")).includes(oldRepository), `${file} uses the old repository`);
+    }
+  }
+});
+
+test("ADR numbers are unique and code references point to existing decisions", async () => {
+  const decisions = (await fs.readdir(path.join(root, "docs/adr"))).filter((file) => file.endsWith(".md"));
+  const numbers = new Set();
+  for (const decision of decisions) {
+    const number = /^(\d{4})-/.exec(decision)?.[1];
+    assert.ok(number, `${decision} needs a four-digit ADR number`);
+    assert.ok(!numbers.has(number), `Duplicate ADR number: ${number}`);
+    numbers.add(number);
+  }
+  const files = execFileSync("git", ["ls-files", "-z", "apps", "packages", "scripts"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
+  for (const file of files) {
+    const contents = await fs.readFile(path.join(root, file), "utf8");
+    for (const [reference] of contents.matchAll(/docs\/adr\/\d{4}-[a-z0-9-]+\.md/g)) {
+      assert.ok(decisions.includes(path.basename(reference)), `${file} references missing ${reference}`);
+    }
   }
 });

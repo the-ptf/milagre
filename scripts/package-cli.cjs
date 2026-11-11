@@ -1,5 +1,6 @@
 // Package the daemon and its private workspace dependencies as an installable CLI.
 // Bundle private workspace sources. npm installs registry dependencies for the target platform.
+const { url: repository } = require("@milagre/shared/repository");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -54,7 +55,7 @@ async function packageCli({ outDir = path.join(root, "release", "cli") } = {}) {
       version: daemon.cliVersion ?? daemon.version,
       description: "Run Milagre agents on a computer without a desktop UI",
       license: "MIT",
-      repository: { type: "git", url: "https://github.com/the-ptf/milagre.git", directory: "apps/daemon" },
+      repository: { type: "git", url: `${repository}.git`, directory: "apps/daemon" },
       type: "commonjs",
       bin: daemon.bin,
       engines: daemon.engines,

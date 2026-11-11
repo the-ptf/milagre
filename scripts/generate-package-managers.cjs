@@ -5,7 +5,7 @@ const path = require("node:path");
 const { createHash } = require("node:crypto");
 const YAML = require("yaml");
 
-const repository = "https://github.com/the-ptf/milagre-ade";
+const { url: repository } = require("@milagre/shared/repository");
 const description = "A local-first desktop ADE for coordinating coding agents";
 
 async function main() {

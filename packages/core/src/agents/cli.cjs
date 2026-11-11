@@ -13,7 +13,7 @@ const { KIRO_ACP_ARGS, kiroAgentFor } = require("./kiro-acp.cjs");
 //   antigravity  Antigravity, which Milagre installs itself (antigravity-install.cjs). It is never asked for
 //           `--version`: the .par is a 280 MB Python archive that unpacks itself on every launch. Its version
 //           is the pinned release it was installed from, and the install validated it before activating it.
-//   kiro    2.34.2, the release whose v3 engine Milagre's ACP use was verified against (docs/adr/0007-kiro-over-acp.md).
+//   kiro    2.34.2, the release whose v3 engine Milagre's ACP use was verified against (docs/adr/0017-kiro-over-acp.md).
 //           The user installs it; Milagre runs the agent binary (`kiro-cli-chat`) that sits beside the `kiro-cli` launcher.
 // `--version` prints "2.1.287 (Claude Code)", "codex-cli 0.160.0" and "kiro-cli 2.34.2".
 const MIN_VERSIONS = { claude: "2.1.288", codex: "0.160.0", kiro: "2.34.2" };

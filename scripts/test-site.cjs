@@ -177,11 +177,7 @@ const checks = [
               return { prs, current: picked.getAttribute('aria-current'), mark: picked.dataset.mark, menuOpen, relayRows: getComputedStyle(document.querySelectorAll('[data-sidebar-demo] [data-rows]')[1]).display };
             })()`,
           );
-          assert.deepEqual(
-            new Set(sidebar.prs.map(String)),
-            new Set(["https://github.com/the-ptf/milagre-ade,_blank"]),
-            "every PR number opens the repository",
-          );
+          assert.deepEqual(new Set(sidebar.prs.map(String)), new Set(["https://github.com/the-ptf/milagre,_blank"]), "every PR number opens the repository");
           assert.equal(sidebar.prs.length, 5);
           assert.deepEqual([sidebar.current, sidebar.mark, sidebar.menuOpen, sidebar.relayRows], ["page", "idle", true, "none"]);
           await waitFor(
@@ -289,7 +285,7 @@ const checks = [
       assert.equal(await evaluate(window, `document.querySelector("h1").textContent.trim()`), HERO_TITLE);
       assert.ok(await evaluate(window, `!!document.querySelector('.cta a[href="/download/mac-arm64"]')`), "Apple Silicon download");
       assert.ok(await evaluate(window, `!!document.querySelector('.cta a[href="/download/mac-x64"]')`), "Intel download");
-      assert.equal(await evaluate(window, `document.querySelector(".stars").getAttribute("href")`), "https://github.com/the-ptf/milagre-ade");
+      assert.equal(await evaluate(window, `document.querySelector(".stars").getAttribute("href")`), "https://github.com/the-ptf/milagre");
       await waitFor(evaluate, window, `!document.querySelector("[data-stars]").hidden`, "star count");
       assert.equal(await evaluate(window, `document.querySelector("[data-stars]").textContent`), "1.2K");
       assert.ok(await evaluate(window, `getComputedStyle(document.querySelector(".mac")).display !== "none"`), "Mac window shown");
