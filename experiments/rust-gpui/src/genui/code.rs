@@ -30,8 +30,8 @@ pub fn code_block(label: &str, code: &SharedString, selector: &'static str, cx: 
         .min_w_0()
         .rounded(RADIUS_CONTROL)
         .border_1()
-        .border_color(theme.line)
-        .bg(theme.inset)
+        .border_color(theme.code_border)
+        .bg(theme.code_bg)
         .overflow_hidden()
         .child(
             div()
@@ -40,7 +40,7 @@ pub fn code_block(label: &str, code: &SharedString, selector: &'static str, cx: 
                 .h(px(28.0))
                 .pl(px(10.0))
                 .border_b_1()
-                .border_color(theme.line)
+                .border_color(theme.code_border)
                 .text_step(TEXT_11)
                 .text_color(theme.ink3)
                 .child(div().font_family(mono()).child(label.to_string())),

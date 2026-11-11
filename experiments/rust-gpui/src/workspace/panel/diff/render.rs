@@ -15,7 +15,7 @@ use super::view::DiffView;
 use crate::logic::diff::layout::utf16_range_to_bytes;
 use crate::logic::diff::{DiffLine, LineKind};
 use crate::theme::{ActiveTheme, RADIUS_CARD, RADIUS_CHIP, TEXT_11, TEXT_12, TextStepExt, Theme, mono};
-use crate::ui::markdown::highlight::{Bucket, SyntaxPalette, syntax};
+use crate::ui::markdown::highlight::{Bucket, SyntaxPalette};
 use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconName, IconSize};
 use crate::workspace::panel::changes::files::{counts_inline, status_badge};
 
@@ -287,7 +287,7 @@ impl DiffView {
     /// The text of a code cell: its runs, its word marks and the selection, recorded for pointer hit tests.
     #[allow(clippy::too_many_arguments)]
     fn code_text(&self, row: usize, half: u8, file: usize, hunk: usize, index: usize, line: &DiffLine, theme: &Theme) -> StyledText {
-        let palette = syntax(theme.appearance);
+        let palette = theme.syntax;
         let runs = self.runs_for(file, hunk, index);
         let words: Vec<Range<usize>> = self
             .words_for(file, hunk)

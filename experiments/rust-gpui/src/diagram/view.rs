@@ -83,7 +83,7 @@ pub fn render_block(code: SharedString, streaming: bool, window: &mut Window, cx
         .pl(px(10.0))
         .pr(px(4.0))
         .border_b_1()
-        .border_color(theme.line)
+        .border_color(theme.code_border)
         .text_step(TEXT_11)
         .text_color(theme.ink3)
         .child(div().flex_1().min_w_0().truncate().child(label))
@@ -165,8 +165,8 @@ fn frame(theme: &Theme) -> gpui::Div {
         .min_w_0()
         .rounded(RADIUS_CONTROL)
         .border_1()
-        .border_color(theme.line)
-        .bg(theme.inset)
+        .border_color(theme.code_border)
+        .bg(theme.code_bg)
         .overflow_hidden()
 }
 
@@ -200,7 +200,7 @@ fn expand(label: &'static str, drawing: Arc<Drawing>, window: &mut Window, cx: &
                 .flex()
                 .justify_center()
                 .rounded(RADIUS_CONTROL)
-                .bg(theme.inset)
+                .bg(theme.code_bg)
                 .p(px(24.0))
                 .child(
                     div()

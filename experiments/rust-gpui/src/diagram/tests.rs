@@ -73,10 +73,10 @@ fn the_renderer_draws_the_kinds_replies_use_and_refuses_what_is_not_one(cx: &mut
     assert!(render::svg("hello world", &theme).is_err());
     assert!(render::svg("not-a-diagram\n A --> B", &theme).unwrap_err().contains("diagram type"));
     assert!(render::svg("flowchart LR\n A-->", &theme).is_err());
-    // The renderer's colours are the chat's: the ground is `inset`.
+    // The renderer's colours are the chat's: the ground is the code background.
     let svg = render::svg("graph TD\n A --> B", &theme).expect("svg");
-    assert!(svg.contains(&render::hex(theme.inset)), "ground colour in the SVG");
-    assert!(render::svg("graph TD\n A --> B", &Theme::light()).expect("light").contains(&render::hex(Theme::light().inset)));
+    assert!(svg.contains(&render::hex(theme.code_bg)), "ground colour in the SVG");
+    assert!(render::svg("graph TD\n A --> B", &Theme::light()).expect("light").contains(&render::hex(Theme::light().code_bg)));
 }
 
 #[gpui::test]

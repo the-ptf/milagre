@@ -6,7 +6,9 @@
 //! `darkSyntax`). gpui-component's syntect backend (feature `syntect`) names what it matched with its own
 //! highlight names (`keyword`, `string`, `type`, ...), coarser than TextMate scopes; [`bucket`] sends each name to
 //! the Shiki bucket the scopes behind it mostly fall into, and [`highlight_style`] turns that into the
-//! `HighlightThemeStyle` gpui-component resolves styles from.
+//! `HighlightThemeStyle` gpui-component resolves styles from. The colours are the live [`Theme`]'s `syntax`, so a
+//! theme switch re-maps them (one rebuild of the highlight theme, no re-parse: the highlighter keeps scopes, and
+//! colours are looked up at paint).
 //!
 //! [`install`] puts it on gpui-component's theme (whose `TextViewDefaults` hand the highlighter to every text view)
 //! and keeps it there on every later theme change. The theme bridge (`theme/component_bridge.rs`) leaves
@@ -14,68 +16,13 @@
 
 use std::sync::Arc;
 
-use gpui::{App, Global, Rgba, rgb};
+use gpui::{App, Global, Rgba};
 use gpui_component::highlighter::{HighlightTheme, HighlightThemeStyle, SyntaxColors, ThemeStyle};
 
-use crate::theme::{Appearance, Theme};
+use crate::theme::{Appearance, SyntaxColors as ThemeSyntax, Theme};
 
-/// Milagre Blue's syntax colours (`palettes/milagre.ts`). Light and dark only: the other eleven themes come with
-/// WP-02's generated palettes.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SyntaxPalette {
-    pub plain: Rgba,
-    pub comment: Rgba,
-    pub keyword: Rgba,
-    pub string: Rgba,
-    pub number: Rgba,
-    pub function: Rgba,
-    pub type_: Rgba,
-    pub tag: Rgba,
-    pub property: Rgba,
-    pub operator: Rgba,
-    pub punctuation: Rgba,
-}
-
-/// `lightSyntax`.
-pub fn light_syntax() -> SyntaxPalette {
-    SyntaxPalette {
-        plain: rgb(0x24292e),
-        comment: rgb(0x6a737d),
-        keyword: rgb(0xd73a49),
-        string: rgb(0x032f62),
-        number: rgb(0x005cc5),
-        function: rgb(0x6f42c1),
-        type_: rgb(0x005cc5),
-        tag: rgb(0x22863a),
-        property: rgb(0x005cc5),
-        operator: rgb(0xd73a49),
-        punctuation: rgb(0x24292e),
-    }
-}
-
-/// `darkSyntax`.
-pub fn dark_syntax() -> SyntaxPalette {
-    SyntaxPalette {
-        plain: rgb(0xe1e4e8),
-        comment: rgb(0x8b949e),
-        keyword: rgb(0xf97583),
-        string: rgb(0x9ecbff),
-        number: rgb(0x79b8ff),
-        function: rgb(0xb392f0),
-        type_: rgb(0x79b8ff),
-        tag: rgb(0x85e89d),
-        property: rgb(0x79b8ff),
-        operator: rgb(0xf97583),
-        punctuation: rgb(0xe1e4e8),
-    }
-}
-
-pub fn syntax(appearance: Appearance) -> SyntaxPalette {
-    match appearance {
-        Appearance::Light => light_syntax(),
-        Appearance::Dark => dark_syntax(),
-    }
-}
+/// A theme's syntax colours (`ThemePalette.syntax`): they live on the [`Theme`], one set per theme and scheme.
+pub type SyntaxPalette = ThemeSyntax;
 
 /// Shiki's CSS-variables buckets (`createCssVariablesTheme`), the ones `theme-sheet.ts` fills.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -179,8 +126,8 @@ fn style(name: &str, palette: &SyntaxPalette, template: ThemeStyle) -> Option<Th
 }
 
 /// gpui-component's highlight style for an appearance: every name it can produce, coloured by its Shiki bucket.
-pub fn highlight_style(appearance: Appearance) -> HighlightThemeStyle {
-    let palette = syntax(appearance);
+pub fn highlight_style(palette: &SyntaxPalette) -> HighlightThemeStyle {
+    let palette = *palette;
     let defaults = HighlightTheme::default_dark();
     let template = defaults.style.syntax.keyword.or(defaults.style.syntax.comment).expect("gpui-component's default theme styles keywords");
     let s = |name: &str| style(name, &palette, template);
@@ -224,22 +171,23 @@ pub fn highlight_style(appearance: Appearance) -> HighlightThemeStyle {
     style
 }
 
-/// The highlight theme for an appearance, as gpui-component's theme holds it.
-pub fn highlight_theme(appearance: Appearance) -> Arc<HighlightTheme> {
-    let mut theme = (*HighlightTheme::default_dark()).clone();
-    theme.name = match appearance {
-        Appearance::Light => "Milagre Blue Light".into(),
-        Appearance::Dark => "Milagre Blue Dark".into(),
+/// The highlight theme for a theme, as gpui-component's theme holds it.
+pub fn highlight_theme(theme: &Theme) -> Arc<HighlightTheme> {
+    let mut out = (*HighlightTheme::default_dark()).clone();
+    out.name = match theme.appearance {
+        Appearance::Light => "Milagre Light".into(),
+        Appearance::Dark => "Milagre Dark".into(),
     };
-    theme.appearance = crate::theme::component_bridge::mode(appearance);
-    theme.style = highlight_style(appearance);
-    Arc::new(theme)
+    out.appearance = crate::theme::component_bridge::mode(theme.appearance);
+    out.style = highlight_style(&theme.syntax);
+    Arc::new(out)
 }
 
 struct Installed;
 impl Global for Installed {}
 
-/// Puts the Milagre highlight theme on gpui-component's theme now and after every change of the [`Theme`] global.
+/// Puts the Milagre highlight theme on gpui-component's theme now and after every change of the [`Theme`] global
+/// (the observer fires on a theme switch only, never per frame).
 /// Idempotent: the transcript calls it when it is created. Needs `gpui_component::init` and the theme bridge first.
 pub fn install(cx: &mut App) {
     if cx.has_global::<Installed>() {
@@ -251,8 +199,8 @@ pub fn install(cx: &mut App) {
 }
 
 fn apply(cx: &mut App) {
-    let appearance = cx.global::<Theme>().appearance;
-    gpui_component::Theme::global_mut(cx).highlight_theme = highlight_theme(appearance);
+    let highlight = highlight_theme(cx.global::<Theme>());
+    gpui_component::Theme::global_mut(cx).highlight_theme = highlight;
     // Rebuilds the base theme and the text views' defaults, whose code highlighter reads `highlight_theme`.
     gpui_component::Theme::sync_base(cx);
     cx.refresh_windows();
@@ -267,20 +215,26 @@ mod tests {
 
     #[test]
     fn every_highlight_name_resolves_to_its_bucket_colour() {
-        for appearance in [Appearance::Light, Appearance::Dark] {
-            let theme = highlight_theme(appearance);
-            let palette = syntax(appearance);
+        for source in [Theme::light(), Theme::dark(), warm_dark()] {
+            let theme = highlight_theme(&source);
+            let palette = source.syntax;
             for name in HIGHLIGHT_NAMES {
                 let expected: Hsla = bucket(name).color(&palette).into();
                 let style: Option<HighlightStyle> = theme.style(name);
-                assert_eq!(style.and_then(|style| style.color), Some(expected), "{name} in {appearance:?}");
+                assert_eq!(style.and_then(|style| style.color), Some(expected), "{name} in {:?}", source.appearance);
             }
         }
     }
 
+    /// Gruvbox Dark: not Milagre Blue's colours on a dark scheme.
+    fn warm_dark() -> Theme {
+        crate::settings::appearance::model::palette_for("gruvbox", crate::settings::appearance::palette::Scheme::Dark, None)
+            .to_theme(crate::settings::appearance::palette::Scheme::Dark)
+    }
+
     #[test]
     fn buckets_follow_theme_sheet() {
-        let palette = dark_syntax();
+        let palette = Theme::dark().syntax;
         assert_eq!(Bucket::Constant.color(&palette), palette.number, "--shiki-token-constant is `number`");
         assert_eq!(Bucket::Parameter.color(&palette), palette.property);
         assert_eq!(Bucket::Link.color(&palette), palette.type_);
@@ -296,9 +250,12 @@ mod tests {
         let keyword = |cx: &mut gpui::TestAppContext| {
             cx.update(|cx| gpui_component::Theme::global(cx).highlight_theme.style("keyword").and_then(|style| style.color))
         };
-        assert_eq!(keyword(cx), Some(dark_syntax().keyword.into()));
+        assert_eq!(keyword(cx), Some(Theme::dark().syntax.keyword.into()));
         cx.update(|cx| cx.set_global(Theme::light()));
-        assert_eq!(keyword(cx), Some(light_syntax().keyword.into()), "a theme change re-applies it after the bridge");
+        assert_eq!(keyword(cx), Some(Theme::light().syntax.keyword.into()), "a theme change re-applies it after the bridge");
+        cx.update(|cx| cx.set_global(warm_dark()));
+        assert_eq!(keyword(cx), Some(warm_dark().syntax.keyword.into()), "a dark theme of another palette recolours it too");
+        assert_ne!(warm_dark().syntax.keyword, Theme::dark().syntax.keyword);
         assert!(cx.update(|cx| gpui_base::TextViewDefaults::global(cx).has_code_block_highlighter()) == cfg!(feature = "syntect"));
     }
 }

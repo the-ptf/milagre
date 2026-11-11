@@ -56,7 +56,103 @@ pub struct Theme {
     pub diff_add_word: Rgba,
     pub diff_remove: Rgba,
     pub diff_remove_word: Rgba,
+    // Code (`bg-inset border-line` on a code block in the desktop; the theme's own `inset` and `line`)
+    pub code_bg: Rgba,
+    pub code_border: Rgba,
+    /// The Shiki `--shiki-*` variables of `theme-sheet.ts`: one colour per syntax kind.
+    pub syntax: SyntaxColors,
+    /// The Terminal's 16 ANSI colours, cursor and selection (`--ansi-*`, `cursor`, `selection` in `ThemePalette`).
+    pub terminal: TerminalColors,
 }
+
+/// A theme's syntax colours (`ThemePalette.syntax`, kinds in `file-syntax.mjs`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SyntaxColors {
+    pub plain: Rgba,
+    pub comment: Rgba,
+    pub keyword: Rgba,
+    pub string: Rgba,
+    pub number: Rgba,
+    pub function: Rgba,
+    pub type_: Rgba,
+    pub tag: Rgba,
+    pub property: Rgba,
+    pub operator: Rgba,
+    pub punctuation: Rgba,
+}
+
+/// A theme's Terminal colours: the 16 ANSI colours in xterm order (black .. white, then the bright row), the cursor
+/// and the selection wash.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TerminalColors {
+    pub ansi: [Rgba; 16],
+    pub cursor: Rgba,
+    pub selection: Rgba,
+}
+
+impl SyntaxColors {
+    /// From the hex strings in `ThemePalette.syntax` order: plain, comment, keyword, string, number, function, type,
+    /// tag, property, operator, punctuation.
+    pub const fn from_hex(c: [&str; 11]) -> Self {
+        Self {
+            plain: hex(c[0]),
+            comment: hex(c[1]),
+            keyword: hex(c[2]),
+            string: hex(c[3]),
+            number: hex(c[4]),
+            function: hex(c[5]),
+            type_: hex(c[6]),
+            tag: hex(c[7]),
+            property: hex(c[8]),
+            operator: hex(c[9]),
+            punctuation: hex(c[10]),
+        }
+    }
+
+    /// The colours in the same order as [`Self::from_hex`].
+    pub fn all(&self) -> [Rgba; 11] {
+        [
+            self.plain,
+            self.comment,
+            self.keyword,
+            self.string,
+            self.number,
+            self.function,
+            self.type_,
+            self.tag,
+            self.property,
+            self.operator,
+            self.punctuation,
+        ]
+    }
+}
+
+impl TerminalColors {
+    pub const fn from_hex(ansi: [&str; 16], cursor: &str, selection: &str) -> Self {
+        let mut table = [hex("#000000"); 16];
+        let mut i = 0;
+        while i < 16 {
+            table[i] = hex(ansi[i]);
+            i += 1;
+        }
+        Self { ansi: table, cursor: hex(cursor), selection: hex(selection) }
+    }
+}
+
+/// Milagre Blue's and Gray's terminal and code colours, light (`lightAnsi`, `lightSyntax` in `palettes/milagre.ts`).
+const LIGHT_ANSI: [&str; 16] = [
+    "#24292f", "#cf222e", "#116329", "#7d4e00", "#0969da", "#8250df", "#1b7c83", "#6e7781", "#57606a", "#a40e26", "#1a7f37", "#633c01",
+    "#218bff", "#a475f9", "#3192aa", "#8c959f",
+];
+const LIGHT_SYNTAX: [&str; 11] =
+    ["#24292e", "#6a737d", "#d73a49", "#032f62", "#005cc5", "#6f42c1", "#005cc5", "#22863a", "#005cc5", "#d73a49", "#24292e"];
+/// `darkAnsi` and `darkSyntax`.
+const DARK_ANSI: [&str; 16] = [
+    "#484f58", "#ff7b72", "#3fb950", "#d29922", "#58a6ff", "#bc8cff", "#39c5cf", "#b1bac4", "#6e7681", "#ffa198", "#56d364", "#e3b341",
+    "#79c0ff", "#d2a8ff", "#56d4dd", "#ffffff",
+];
+const DARK_SYNTAX: [&str; 11] =
+    ["#e1e4e8", "#8b949e", "#f97583", "#9ecbff", "#79b8ff", "#b392f0", "#79b8ff", "#85e89d", "#79b8ff", "#f97583", "#e1e4e8"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Appearance {
@@ -109,6 +205,10 @@ impl Theme {
             diff_add_word: hex("#3cbb724d"),
             diff_remove: hex("#ee5c611f"),
             diff_remove_word: hex("#ee5c614d"),
+            code_bg: hex("#121c2b"),
+            code_border: hex("#273242"),
+            syntax: SyntaxColors::from_hex(DARK_SYNTAX),
+            terminal: TerminalColors::from_hex(DARK_ANSI, "#e9eff7", "#3e9afd4d"),
         }
     }
 
@@ -154,6 +254,10 @@ impl Theme {
             diff_add_word: hex("#bbddc8"),
             diff_remove: hex("#f6e9ec"),
             diff_remove_word: hex("#f7cecf"),
+            code_bg: hex("#f9fcff"),
+            code_border: hex("#edeeee"),
+            syntax: SyntaxColors::from_hex(LIGHT_SYNTAX),
+            terminal: TerminalColors::from_hex(LIGHT_ANSI, "#1c222b", "#007df34d"),
         }
     }
 

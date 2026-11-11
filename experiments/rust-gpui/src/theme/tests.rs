@@ -114,6 +114,29 @@ fn light_theme_matches_design_md() {
     assert_eq!(to_hex(t.scrim), "#00000033", "scrim is black at 20% in light");
 }
 
+/// `palettes/milagre.ts` `lightAnsi`/`darkAnsi`/`lightSyntax`/`darkSyntax`, hand-copied.
+#[test]
+fn milagre_blue_terminal_and_syntax_colours_match_the_palette() {
+    let ansi = |t: &Theme| t.terminal.ansi.map(to_hex).join(" ");
+    assert_eq!(
+        ansi(&Theme::dark()),
+        "#484f58 #ff7b72 #3fb950 #d29922 #58a6ff #bc8cff #39c5cf #b1bac4 #6e7681 #ffa198 #56d364 #e3b341 #79c0ff #d2a8ff #56d4dd #ffffff"
+    );
+    assert_eq!(
+        ansi(&Theme::light()),
+        "#24292f #cf222e #116329 #7d4e00 #0969da #8250df #1b7c83 #6e7781 #57606a #a40e26 #1a7f37 #633c01 #218bff #a475f9 #3192aa #8c959f"
+    );
+    let syntax = |t: &Theme| t.syntax.all().map(to_hex).join(" ");
+    assert_eq!(syntax(&Theme::dark()), "#e1e4e8 #8b949e #f97583 #9ecbff #79b8ff #b392f0 #79b8ff #85e89d #79b8ff #f97583 #e1e4e8");
+    assert_eq!(syntax(&Theme::light()), "#24292e #6a737d #d73a49 #032f62 #005cc5 #6f42c1 #005cc5 #22863a #005cc5 #d73a49 #24292e");
+    for t in [Theme::dark(), Theme::light()] {
+        assert_eq!((t.code_bg, t.code_border), (t.inset, t.line), "a code block is bg-inset border-line");
+        assert_eq!(t.terminal.cursor, t.ink);
+    }
+    assert_eq!(to_hex(Theme::dark().terminal.selection), "#3e9afd4d", "accent at 30%");
+    assert_eq!(to_hex(Theme::light().terminal.selection), "#007df34d");
+}
+
 #[test]
 fn hex_keeps_alpha() {
     let c = hex("#e9eff70d");

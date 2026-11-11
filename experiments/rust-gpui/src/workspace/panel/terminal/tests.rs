@@ -13,7 +13,7 @@ use gpui::{
     Entity, Keystroke, Modifiers, MouseButton, ScrollDelta, ScrollEvent, TestAppContext, TouchPhase, VisualTestContext, point, px, rgb,
 };
 
-use super::colors::{DARK_ANSI, LIGHT_ANSI, Palette, xterm_256};
+use super::colors::{Palette, xterm_256};
 use super::grid::build_frame;
 use super::keys::{KeyOptions, KeyRoute, control_byte, encode, paste_bytes, scroll_arrows};
 use super::session::{GridSize, Session};
@@ -145,18 +145,26 @@ fn the_256_colour_table_is_xterms() {
 fn palettes_follow_the_theme() {
     let dark = Palette::from_theme(&Theme::dark());
     let light = Palette::from_theme(&Theme::light());
-    assert_eq!(dark.ansi[1], rgb(DARK_ANSI[1]));
+    assert_eq!(dark.ansi, Theme::dark().terminal.ansi);
     assert_eq!(dark.ansi[1], rgb(0xff7b72), "Milagre Blue dark red");
-    assert_eq!(light.ansi[4], rgb(LIGHT_ANSI[4]));
+    assert_eq!(light.ansi, Theme::light().terminal.ansi);
     assert_eq!(light.ansi[4], rgb(0x0969da), "Milagre Blue light blue");
     assert_eq!(dark.foreground, Theme::dark().ink);
     assert_eq!(dark.cursor, Theme::dark().ink);
     assert_eq!(dark.cursor_accent, Theme::dark().surface);
-    assert_eq!(dark.selection.a, 0.3);
+    assert_eq!(dark.selection, Theme::dark().terminal.selection);
+    assert!((dark.selection.a - 0.3).abs() < 0.01, "accent at 30%: the 4d alpha byte");
     assert_eq!(
         (dark.selection.r, dark.selection.g, dark.selection.b),
         (Theme::dark().accent.r, Theme::dark().accent.g, Theme::dark().accent.b)
     );
+    // Another dark theme brings its own table, cursor and selection.
+    let warm = crate::settings::appearance::model::palette_for("gruvbox", crate::settings::appearance::palette::Scheme::Dark, None)
+        .to_theme(crate::settings::appearance::palette::Scheme::Dark);
+    let gruvbox = Palette::from_theme(&warm);
+    assert_ne!(gruvbox.ansi, dark.ansi);
+    assert_eq!(gruvbox.cursor, warm.ink);
+    assert_eq!(gruvbox.selection, warm.terminal.selection);
 }
 
 fn cell(fg: Color, bg: Color, flags: Flags) -> Cell {

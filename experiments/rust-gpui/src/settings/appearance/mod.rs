@@ -62,14 +62,16 @@ const BAD_PASTE: &str = "That isn't a Milagre theme. It needs light and dark, ea
 pub fn init(cx: &mut App) {
     // Snapshot aid (never in tests): `MILAGRE_GPUI_OPTIONS=chat_size=larger,chat_width=wide,...` starts with those
     // Appearance options (`ui_font`, `mono_font`, `sidebar_size`, `chat_size`, `code_size`, `chat_width`,
-    // `sidebar_usage`, `provider_icons`), so a snapshot shows the real views at them.
+    // `sidebar_usage`, `provider_icons`), and `color_theme=<theme id>` / `theme=light|dark` for the colours, so a
+    // snapshot shows the real views at them.
+    let mut seeded_colours = false;
     if !cfg!(test)
         && let Ok(list) = std::env::var("MILAGRE_GPUI_OPTIONS")
     {
         cx.update_global::<SettingsStore, _>(|store, _| {
-            let options = &mut store.appearance.options;
             for (key, value) in list.split(',').filter_map(|pair| pair.split_once('=')) {
                 let value = value.to_string();
+                let options = &mut store.appearance.options;
                 match key {
                     "ui_font" => options.ui_font = value,
                     "mono_font" => options.mono_font = value,
@@ -79,13 +81,25 @@ pub fn init(cx: &mut App) {
                     "chat_width" => options.chat_width = value,
                     "sidebar_usage" => options.sidebar_usage = value,
                     "provider_icons" => options.provider_icons = value,
+                    "color_theme" => {
+                        store.appearance.choose_theme(&value);
+                        seeded_colours = true;
+                    }
+                    "theme" => {
+                        store.appearance.theme = ThemePreference::parse(&value);
+                        seeded_colours = true;
+                    }
                     _ => {}
                 }
             }
         });
     }
     let state = cx.global::<SettingsStore>().appearance.clone();
-    model::mark_applied(&state, cx);
+    if seeded_colours {
+        model::apply(&state, cx);
+    } else {
+        model::mark_applied(&state, cx);
+    }
     cx.observe_global::<SettingsStore>(|cx| {
         let state = cx.global::<SettingsStore>().appearance.clone();
         model::apply(&state, cx);

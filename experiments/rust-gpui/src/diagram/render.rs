@@ -41,7 +41,7 @@ pub fn mix(a: Rgba, b: Rgba, amount: f32) -> Rgba {
 
 /// The renderer's theme in the chat's colours.
 pub fn palette(theme: &Theme) -> MermaidTheme {
-    let ground = theme.inset;
+    let ground = theme.code_bg;
     let mut out = match theme.appearance {
         Appearance::Light => MermaidTheme::modern(),
         Appearance::Dark => MermaidTheme::dark(),
@@ -205,7 +205,7 @@ fn has_header(code: &str) -> bool {
     })
 }
 
-type Cache = HashMap<(String, bool), Result<Arc<Drawing>, String>>;
+type Cache = HashMap<(String, String), Result<Arc<Drawing>, String>>;
 
 thread_local! {
     static CACHE: RefCell<Cache> = RefCell::new(HashMap::new());
@@ -214,9 +214,35 @@ thread_local! {
 /// How many drawings are kept; more clears them all (a Chat has a handful).
 const CACHE_LIMIT: usize = 48;
 
-/// Draws `code` for `theme`, once per text and appearance.
+/// The colours [`palette`] reads, as one string: a drawing is kept per text and per look, so a theme switch (even
+/// between two dark themes) draws once more and a repaint of the same theme never does.
+fn look(theme: &Theme) -> String {
+    let colors = [
+        theme.code_bg,
+        theme.ink,
+        theme.ink2,
+        theme.ink3,
+        theme.accent,
+        theme.green,
+        theme.orange,
+        theme.purple,
+        theme.red,
+        theme.accent_ink,
+        theme.green_ink,
+        theme.orange_ink,
+        theme.purple_ink,
+        theme.red_ink,
+    ];
+    let mut key = String::from(if theme.appearance == Appearance::Dark { "d" } else { "l" });
+    for color in colors {
+        key.push_str(&hex(color));
+    }
+    key
+}
+
+/// Draws `code` for `theme`, once per text and look.
 pub fn draw(code: &str, theme: &Theme, cx: &App) -> Result<Arc<Drawing>, String> {
-    let key = (code.to_string(), theme.appearance == Appearance::Dark);
+    let key = (code.to_string(), look(theme));
     if let Some(found) = CACHE.with(|cache| cache.borrow().get(&key).cloned()) {
         return found;
     }

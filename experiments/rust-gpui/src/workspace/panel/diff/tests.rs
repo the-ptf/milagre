@@ -443,3 +443,23 @@ fn ten_thousand_line_patch_timing(cx: &mut TestAppContext) {
     );
     assert!(deepest > 5000, "the scroll went deep into the file");
 }
+
+/// Syntax runs take their colours from the live theme's `syntax` when they are painted, so a theme switch recolours
+/// a highlighted line without parsing it again.
+#[test]
+fn syntax_runs_recolour_with_the_theme_without_a_new_parse() {
+    use super::render::styled_runs;
+    use crate::settings::appearance::{model::palette_for, palette::Scheme};
+    use crate::ui::markdown::highlight::Bucket;
+    let runs = vec![(0..5, Bucket::Keyword), (5..9, Bucket::String)];
+    let paint = |theme: &crate::theme::Theme| {
+        styled_runs(9, Some(&runs), &[], None, &theme.syntax, theme.diff_add_word.into(), theme.accent_tint.into())
+    };
+    let blue = crate::theme::Theme::dark();
+    let gruvbox = palette_for("gruvbox", Scheme::Dark, None).to_theme(Scheme::Dark);
+    let (a, b) = (paint(&blue), paint(&gruvbox));
+    assert_eq!(a[0].1.color, Some(blue.syntax.keyword.into()));
+    assert_eq!(b[0].1.color, Some(gruvbox.syntax.keyword.into()));
+    assert_ne!(a[0].1.color, b[0].1.color);
+    assert_eq!(a.len(), b.len(), "the same runs, only recoloured");
+}

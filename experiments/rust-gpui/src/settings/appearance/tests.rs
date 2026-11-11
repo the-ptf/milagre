@@ -140,6 +140,67 @@ fn every_theme_palette_matches_the_typescript_engine() {
     assert_eq!(checked, 26 * 34, "12 themes and the custom theme, both schemes, 34 colours");
 }
 
+/// Terminal and code colours (`ansi`, `syntax`, `cursor`, `selection`) of every theme, both schemes, and the custom theme,
+/// against vectors from `tools/gen-theme-code-vectors.mjs`, which runs the TypeScript; then the GPUI theme they land in.
+#[test]
+fn every_theme_terminal_and_syntax_colours_match_the_typescript_engine() {
+    let vectors: Value = serde_json::from_str(VECTORS).unwrap();
+    let custom = CustomTheme {
+        light: ThemeSeeds { background: "#f5f0e6".into(), text: "#2b2b2b".into(), accent: "#c2410c".into() },
+        dark: ThemeSeeds { background: "#101820".into(), text: "#e6edf3".into(), accent: "#ff7a59".into() },
+    };
+    let mut checked = 0;
+    for (name, expected) in vectors["code"].as_object().unwrap() {
+        let (id, scheme) = name.split_once(':').unwrap();
+        let scheme = if scheme == "dark" { Scheme::Dark } else { Scheme::Light };
+        let palette = palette_for(id, scheme, Some(&custom));
+        let theme = palette.to_theme(scheme);
+        let want =
+            |key: &str| -> Vec<String> { expected[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect() };
+        let colours = |got: &[Rgba], want: &[String], what: &str| {
+            assert_eq!(got.len(), want.len(), "{name} {what}");
+            for (ix, (g, w)) in got.iter().zip(want).enumerate() {
+                assert!(rgba_close(*g, parse_rgba(w)), "{name} {what} {ix}: got {}, TypeScript says {w}", to_hex(*g));
+            }
+        };
+        // The hex strings the palette carries, and the GPUI colours made from them.
+        for (got, want) in palette.ansi.iter().zip(want("ansi")) {
+            assert!(near(got, &want, 1.0), "{name} ansi: got {got}, TypeScript says {want}");
+        }
+        for (got, want) in palette.syntax.iter().zip(want("syntax")) {
+            assert!(near(got, &want, 1.0), "{name} syntax: got {got}, TypeScript says {want}");
+        }
+        colours(&theme.terminal.ansi, &want("ansi"), "terminal ansi");
+        colours(&theme.syntax.all(), &want("syntax"), "syntax");
+        colours(
+            &[theme.terminal.cursor, theme.terminal.selection],
+            &[expected["cursor"].as_str().unwrap().into(), expected["selection"].as_str().unwrap().into()],
+            "cursor, selection",
+        );
+        // The code block is the theme's inset with its line round it (`bg-inset border-line`).
+        assert_eq!((theme.code_bg, theme.code_border), (theme.inset, theme.line), "{name} code surface");
+        checked += 16 + 11 + 2;
+    }
+    assert_eq!(checked, 26 * 29, "12 themes and the custom theme, both schemes, 16 ANSI + 11 syntax + cursor + selection");
+}
+
+/// The bug behind this: two dark themes differ in the code colours, so a switch has to reach them.
+#[test]
+fn a_warm_dark_theme_does_not_wear_milagre_blues_code_colours() {
+    let blue = Theme::dark();
+    let gruvbox = palette_for("gruvbox", Scheme::Dark, None).to_theme(Scheme::Dark);
+    assert_eq!(gruvbox.appearance, blue.appearance);
+    for (what, a, b) in [
+        ("code background", gruvbox.code_bg, blue.code_bg),
+        ("code border", gruvbox.code_border, blue.code_border),
+        ("keyword", gruvbox.syntax.keyword, blue.syntax.keyword),
+        ("string", gruvbox.syntax.string, blue.syntax.string),
+        ("ANSI red", gruvbox.terminal.ansi[1], blue.terminal.ansi[1]),
+    ] {
+        assert_ne!(a, b, "{what} follows the theme");
+    }
+}
+
 #[test]
 fn custom_contrast_readout_matches_typescript() {
     let vectors: Value = serde_json::from_str(VECTORS).unwrap();

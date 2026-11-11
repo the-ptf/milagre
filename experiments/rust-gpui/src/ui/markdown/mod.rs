@@ -71,9 +71,9 @@ pub fn text_view_style(theme: &Theme, size: f32) -> TextViewStyle {
 
     let mut code_block = StyleRefinement::default()
         .rounded(RADIUS_CONTROL)
-        .bg(theme.inset)
+        .bg(theme.code_bg)
         .border_1()
-        .border_color(theme.line)
+        .border_color(theme.code_border)
         .px(px(12.0))
         .pt(px(CODE_TOP))
         .pb(px(8.0))
@@ -99,7 +99,7 @@ pub fn text_view_style(theme: &Theme, size: f32) -> TextViewStyle {
         .with_muted_foreground(theme.ink3.into())
         .with_link(theme.accent_ink.into())
         .with_selection(theme.accent_tint.into())
-        .with_code_background(theme.inset.into())
+        .with_code_background(theme.code_bg.into())
         .with_border(theme.line.into())
         .with_paragraph_gap(em_rems(size * 0.5))
         .with_heading(move |level| {

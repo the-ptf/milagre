@@ -28,7 +28,7 @@ use gpui_component::input::InputState;
 
 use crate::data::ChatStep;
 use crate::logic::lists::chat_display::ToolCallDisplay;
-use crate::theme::{ActiveTheme, Appearance, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_WINDOW, TEXT_12, TextStepExt, Theme, mono};
+use crate::theme::{ActiveTheme, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_WINDOW, TEXT_12, TextStepExt, Theme, mono};
 use crate::ui::markdown::stream::{close_open_markdown, split_streaming_blocks};
 use crate::ui::markdown::{FenceHooks, LinkHandler, Markdown, extensions_with, open_with_system, plain_text_source, text_view_style};
 use crate::ui::selection::{Flavor, Plain, join, plain_text};
@@ -48,12 +48,13 @@ pub use cards::Card;
 pub use quote::{Passage, TranscriptEvent};
 pub use summary::Entry;
 
-/// What the cached markdown style was built from: the theme's scheme and the Appearance choices it bakes in (the Chat
-/// and code sizes, the monospace family).
-type StyleKey = (Appearance, u32, u32, &'static str);
+/// What the cached markdown style was built from: the theme (its colours, not just its scheme: two dark themes differ
+/// in the code background, the chip and the syntax) and the Appearance choices it bakes in (the Chat and code sizes,
+/// the monospace family).
+type StyleKey = (Theme, u32, u32, &'static str);
 
 fn style_key(theme: &Theme) -> StyleKey {
-    (theme.appearance, crate::theme::chat_text().size.to_bits(), crate::theme::code_text().size.to_bits(), mono())
+    (*theme, crate::theme::chat_text().size.to_bits(), crate::theme::code_text().size.to_bits(), mono())
 }
 
 /// The Chat content column at the default width, centred in the Chat column. The chosen width is [`column_width`].
@@ -1093,5 +1094,23 @@ impl FrameProbe {
         } else {
             eprintln!("timing: {label}: render to paint {cpu:.1} ms; {built} item renders");
         }
+    }
+}
+
+#[cfg(test)]
+mod style_tests {
+    use super::*;
+    use crate::settings::appearance::model::palette_for;
+    use crate::settings::appearance::palette::Scheme;
+
+    /// The markdown style is rebuilt when the theme changes between two themes of the same scheme: the key holds the
+    /// theme's colours, not only its scheme, so a code block never keeps the old theme's background or syntax.
+    #[test]
+    fn the_style_key_changes_between_two_dark_themes() {
+        let blue = Theme::dark();
+        let gruvbox = palette_for("gruvbox", Scheme::Dark, None).to_theme(Scheme::Dark);
+        assert_eq!(blue.appearance, gruvbox.appearance);
+        assert_ne!(style_key(&blue), style_key(&gruvbox));
+        assert_eq!(style_key(&blue), style_key(&Theme::dark()));
     }
 }

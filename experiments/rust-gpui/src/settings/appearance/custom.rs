@@ -4,7 +4,7 @@
 use serde_json::{Value, json};
 
 use super::color::{contrast_ratio, from_oklch, hex_to_oklch, is_seed, mix};
-use super::palette::{Scheme, ThemeSource};
+use super::palette::{Scheme, ThemeSource, ansi, syntax};
 use super::themes::get_theme;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,16 +54,24 @@ fn status(hue: f64, chroma: f64, background: &str) -> String {
 pub fn custom_source(seeds: &ThemeSeeds) -> ThemeSource {
     let ThemeSeeds { background, text, accent } = seeds;
     let surface = if hex_to_oklch(background).l < 0.5 { mix(background, text, 0.06) } else { mix(background, "#ffffff", 0.6) };
+    let s = |hue: f64, chroma: f64| status(hue, chroma, background);
+    let (red, green, yellow, blue, magenta, cyan, orange) =
+        (s(25.0, 0.16), s(150.0, 0.16), s(85.0, 0.14), s(255.0, 0.16), s(320.0, 0.16), s(200.0, 0.12), s(55.0, 0.16));
+    let black = mix(background, text, 0.25);
+    let white = mix(text, background, 0.2);
+    let comment = mix(text, background, 0.5);
     ThemeSource {
         page: background.clone(),
         surface,
         ink: text.clone(),
         accent: accent.clone(),
-        green: status(150.0, 0.16, background),
-        orange: status(55.0, 0.16, background),
-        red: status(25.0, 0.16, background),
+        green: green.clone(),
+        orange: orange.clone(),
+        red: red.clone(),
         // `purple: magenta`
-        purple: status(320.0, 0.16, background),
+        purple: magenta.clone(),
+        ansi: ansi([&black, &red, &green, &yellow, &blue, &magenta, &cyan, &white], [None, None, None, None, None, None, None, Some(text)]),
+        syntax: syntax([text, &comment, &magenta, &green, &orange, &blue, &yellow], None, None, None, None),
         overrides: Default::default(),
     }
 }

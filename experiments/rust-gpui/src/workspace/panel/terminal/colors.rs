@@ -1,28 +1,17 @@
 //! The Terminal's colours: the theme's 16 ANSI colours, the xterm 256-colour cube and grey ramp, and how a cell's
 //! attributes (bold, dim, inverse, hidden) turn its foreground and background into what is painted.
 //!
-//! The ANSI table is Milagre Blue's (`packages/shared/src/themes/palettes/milagre.ts`, shared with Gray): GitHub's
-//! terminal colours, one table per scheme. Foreground is `ink`, the cursor is `ink` with `surface` under it, the
-//! selection is `accent` at 30% (`build.ts`), and the background is transparent over the panel's `surface`
-//! (`terminal-sessions.ts` `terminalTheme`).
+//! The ANSI table, cursor and selection are the live theme's (`Theme::terminal`, from `ansi`, `cursor` and `selection`
+//! in `ThemePalette`), so a theme switch recolours the next paint. Foreground is `ink`, the cursor is `ink` with
+//! `surface` under it, and the background is transparent over the panel's `surface` (`terminal-sessions.ts`
+//! `terminalTheme`).
 
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Rgb};
 use gpui::{Hsla, Rgba, rgb, rgba};
 
-use crate::theme::{Appearance, Theme};
-
-/// `lightAnsi` in `palettes/milagre.ts`: black, red, green, yellow, blue, magenta, cyan, white, then the bright row.
-pub const LIGHT_ANSI: [u32; 16] = [
-    0x24292f, 0xcf222e, 0x116329, 0x7d4e00, 0x0969da, 0x8250df, 0x1b7c83, 0x6e7781, 0x57606a, 0xa40e26, 0x1a7f37, 0x633c01, 0x218bff,
-    0xa475f9, 0x3192aa, 0x8c959f,
-];
-/// `darkAnsi` in `palettes/milagre.ts`.
-pub const DARK_ANSI: [u32; 16] = [
-    0x484f58, 0xff7b72, 0x3fb950, 0xd29922, 0x58a6ff, 0xbc8cff, 0x39c5cf, 0xb1bac4, 0x6e7681, 0xffa198, 0x56d364, 0xe3b341, 0x79c0ff,
-    0xd2a8ff, 0x56d4dd, 0xffffff,
-];
+use crate::theme::Theme;
 
 /// How much a dim (SGR 2) foreground keeps of its colour.
 const DIM_ALPHA: f32 = 0.5;
@@ -42,18 +31,13 @@ pub struct Palette {
 
 impl Palette {
     pub fn from_theme(theme: &Theme) -> Self {
-        let table = match theme.appearance {
-            Appearance::Dark => &DARK_ANSI,
-            Appearance::Light => &LIGHT_ANSI,
-        };
-        let accent = theme.accent;
         Self {
-            ansi: table.map(rgb),
+            ansi: theme.terminal.ansi,
             foreground: theme.ink,
             background: theme.surface,
-            cursor: theme.ink,
+            cursor: theme.terminal.cursor,
             cursor_accent: theme.surface,
-            selection: Rgba { a: 0.3, ..accent },
+            selection: theme.terminal.selection,
         }
     }
 
