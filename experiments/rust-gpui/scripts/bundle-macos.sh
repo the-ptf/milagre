@@ -31,7 +31,6 @@ done
 [ "$(uname -s)" = "Darwin" ] || { echo "bundle-macos.sh runs on macOS only" >&2; exit 1; }
 
 crate="$(cd "$(dirname "$0")/.." && pwd)"
-prefix="$(git -C "$crate" rev-parse --show-prefix)"
 sha="$(git -C "$crate" rev-parse --short=8 HEAD)"
 
 if [ -n "$(git -C "$crate" status --porcelain -- "$crate" 2>/dev/null)" ]; then
@@ -43,7 +42,8 @@ trap 'rm -rf "$work"' EXIT
 src="$work/src"
 mkdir -p "$src"
 echo "==> archiving HEAD $sha"
-git -C "$crate" archive "HEAD:${prefix}" | tar -x -C "$src"
+git -C "$crate" archive HEAD -- . | tar -x -C "$src"
+[ -f "$src/Cargo.toml" ] || { echo "git archive of HEAD is empty" >&2; exit 1; }
 
 version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$src/Cargo.toml" | head -1)"
 [ -n "$version" ] || { echo "no version in Cargo.toml" >&2; exit 1; }
