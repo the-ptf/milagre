@@ -1395,6 +1395,7 @@ fn outbound_identities_are_strict_and_free_text_lossy() {
         let request_id = wire(id);
         copy.kiro.emit(&chat, json!({ "type": "question-request", "requestId": RawJson::decode(&request_id).ok().map(|raw| raw.0).unwrap_or(json!("x")), "questions": [] }));
         copy.host.pump();
+        copy.host.take_notices();
         let before = (copy.messages().len(), handed(&copy));
         let result = copy.host.answer_question(&json!({ "chatId": chat, "requestId": request_id, "answers": { "c": ["Yes"] }, "summary": "Yes" }));
         if real {
@@ -1409,6 +1410,14 @@ fn outbound_identities_are_strict_and_free_text_lossy() {
                 (copy.messages().len(), handed(&copy)),
                 before,
                 "a refused identity was shown or handed over"
+            );
+            let notices = copy.host.take_notices();
+            assert!(
+                !notices.iter().any(
+                    |n| matches!(n, Notice::Event { event, .. } if event["type"] == "answers-sent")
+                        || matches!(n, Notice::Broadcast { .. })
+                ),
+                "a refused identity was shown first: {notices:?}"
             );
         }
         copy.host.pump();

@@ -110,16 +110,26 @@ enum Unit {
     Lone(u16),
 }
 
+/// The units of an encoded string. Total on any input: an [`ESC`] not followed by [`ESC`] or a valid marker (a string
+/// that was never encoded, or was decoded twice) stands for itself, and the next character is read as its own, so
+/// nothing panics, wraps or turns into a different character.
 fn units(text: &str) -> impl Iterator<Item = Unit> + '_ {
-    let mut chars = text.chars();
+    let mut chars = text.chars().peekable();
     std::iter::from_fn(move || {
         let character = chars.next()?;
         if character != ESC {
             return Some(Unit::Char(character));
         }
-        Some(match chars.next() {
-            Some(ESC) | None => Unit::Char(ESC),
-            Some(marker) => Unit::Lone((marker as u32 - LONE_BASE + 0xD800) as u16),
+        Some(match chars.peek().copied() {
+            Some(ESC) => {
+                chars.next();
+                Unit::Char(ESC)
+            }
+            Some(marker) if (LONE_BASE..LONE_BASE + 0x800).contains(&(marker as u32)) => {
+                chars.next();
+                Unit::Lone((marker as u32 - LONE_BASE + 0xD800) as u16)
+            }
+            _ => Unit::Char(ESC),
         })
     })
 }
@@ -757,6 +767,44 @@ pub fn number(value: f64) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn units_are_total_on_malformed_sentinels() {
+        // Never encoded, or decoded twice: an ESC that isn't followed by ESC or a valid marker stands for itself.
+        for text in [
+            "a\u{10FFFE}",
+            "a\u{10FFFE}b",
+            "\u{10FFFE}\u{F0800}x",
+            "\u{10FFFE}\u{EFFFF}",
+            "\u{10FFFE}\u{10FFFF}",
+        ] {
+            let units = to_utf16(text);
+            assert_eq!(String::from_utf16(&units).unwrap(), text, "{text:?}");
+            assert_eq!(utf16_len(text), units.len());
+            assert!(!has_lone_surrogate(text));
+        }
+        // A valid marker is a lone surrogate.
+        assert_eq!(to_utf16("\u{10FFFE}\u{F0000}"), vec![0xD800]);
+        assert_eq!(to_utf16("\u{10FFFE}\u{F07FF}"), vec![0xDFFF]);
+    }
+
+    #[test]
+    fn provider_strings_encode_and_decode_once_exactly() {
+        let raw = json!({ "id\u{10FFFE}": ["a\u{10FFFE}\u{F0000}", "\u{10FFFE}", "\u{10FFFE}\u{0}undefined", "\u{FFFD}"] });
+        let encoded = RawJson(raw.clone()).encode();
+        assert_eq!(RawJson(raw.clone()).into_encoded(), encoded);
+        assert_eq!(RawJson::decode(&encoded).unwrap().0, raw);
+        // Written and read back as JSON, the same strings.
+        assert_eq!(
+            RawJson::decode(&parse(&to_string(&encoded)).unwrap())
+                .unwrap()
+                .0,
+            raw
+        );
+        // Decoding a raw value again (the mistake the contract forbids) never panics; it can't promise the text.
+        let _ = RawJson::decode(&raw);
+        let _ = decode_text_lossy("a\u{10FFFE}\u{F0000}");
+    }
     use serde_json::json;
 
     #[test]

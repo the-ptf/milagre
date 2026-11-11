@@ -2949,9 +2949,20 @@ impl ChatHost {
         // One answer per request and session generation while one is on its way or its delivery is unknown: checked
         // before anything is shown.
         let request_key = jsjson::property_key(request_id);
-        if let Some((turn, _)) = self.session_of(&chat) {
-            self.admit_answer(&chat, turn, &request_key)?;
-        }
+        let given = answers.clone().unwrap_or(Value::Null);
+        // What the provider would get is built before anything is shown: an identity it can't receive is refused here,
+        // never shown and then taken back.
+        let wire = match self.session_of(&chat) {
+            Some((turn, _)) => {
+                self.admit_answer(&chat, turn, &request_key)?;
+                Some((
+                    outbound_identity(&chat)?,
+                    outbound_identity(&request_key)?,
+                    outbound_answers(&given)?,
+                ))
+            }
+            None => None,
+        };
         let recorded = match (jsjson::truthy(answers.as_ref()), summary) {
             (true, Some(summary)) if open => {
                 match self.record_answers(&chat, summary, request_id, answers.as_ref().unwrap()) {
@@ -2969,25 +2980,16 @@ impl ChatHost {
             _ => None,
         };
         // SessionManager.answerQuestion: only null or a few short strings per question reach a session.
-        let given = answers.unwrap_or(Value::Null);
         let handed = if !valid_answers(Some(&given)) || request.get("answers").is_none() {
             Err(StoreError::Invalid(
                 "Invalid answers to an agent question.".into(),
             ))
         } else {
-            match self.session_of(&chat) {
-                None => Ok(None),
-                Some((turn, provider)) => {
-                    let id = jsjson::property_key(request_id);
-                    let wire = outbound_identity(&chat).and_then(|wire_chat| {
-                        Ok((
-                            wire_chat,
-                            outbound_identity(&id)?,
-                            outbound_answers(&given)?,
-                        ))
-                    });
+            match (self.session_of(&chat), wire) {
+                (Some((turn, provider)), Some(wire)) => {
                     let answer = self.next_answer_id();
-                    wire.and_then(|wire| self.provider(&provider).map(|adapter| (adapter, wire)))
+                    self.provider(&provider)
+                        .map(|adapter| (adapter, wire))
                         .and_then(|(adapter, (wire_chat, wire_id, wire_answers))| {
                             adapter
                                 .answer_question(&wire_chat, turn, answer, &wire_id, &wire_answers)
@@ -2997,6 +2999,7 @@ impl ChatHost {
                         })
                         .map(|_| Some((answer, turn)))
                 }
+                _ => Ok(None),
             }
         };
         match handed {
@@ -3317,29 +3320,65 @@ fn outbound_identity(text: &str) -> Result<String> {
     jsjson::decode_text_strict(text).map_err(|_| StoreError::Invalid(IDENTITY_REFUSED.into()))
 }
 
-/// A turn's request as the provider gets it: the prompt (free text) with an unpaired surrogate replaced by U+FFFD;
-/// everything else (ids, paths, model, settings, keys) decoded strictly, or refused.
+/// How each field of a turn's request reaches a provider (the request ChatHost builds for SessionManager.startTurn).
+/// A field with no rule is refused: adding one means deciding which it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Outbound {
+    /// Free text the user wrote: an unpaired surrogate becomes U+FFFD on the way out (the saved text keeps it).
+    FreeText,
+    /// An identity or a setting (ids, paths, model, enum-like names, flags): decoded exactly, or refused.
+    Exact,
+    /// Images: none is the only value this checkpoint sends (sending images is gated).
+    NoImages,
+}
+
+const OUTBOUND_REQUEST: [(&str, Outbound); 13] = [
+    ("prompt", Outbound::FreeText),
+    ("provider", Outbound::Exact),
+    ("model", Outbound::Exact),
+    ("permissionMode", Outbound::Exact),
+    ("effort", Outbound::Exact),
+    ("ultracode", Outbound::Exact),
+    ("fastMode", Outbound::Exact),
+    // A reply style's name ("concise", claude-provider.cjs applyReplyStyle), not text.
+    ("replies", Outbound::Exact),
+    ("tldrEnabled", Outbound::Exact),
+    ("chatId", Outbound::Exact),
+    ("cwd", Outbound::Exact),
+    ("resumeId", Outbound::Exact),
+    ("images", Outbound::NoImages),
+];
+
+/// A turn's request as the provider gets it, field by field (`OUTBOUND_REQUEST`): the prompt lossy, every identity
+/// exact or refused, images empty, an unknown field refused.
 fn outbound_request(request: &Value) -> std::result::Result<RawJson, String> {
-    let mut identities = request.clone();
-    let prompt = identities
-        .as_object_mut()
-        .and_then(|map| map.get_mut("prompt"))
-        .map(std::mem::take);
-    let mut raw = RawJson::decode(&identities)
-        .map_err(|_| IDENTITY_REFUSED.to_string())?
-        .0;
-    if let (Some(prompt), Some(map)) = (prompt, raw.as_object_mut()) {
-        let text = match prompt {
-            Value::String(text) => Value::String(jsjson::decode_text_lossy(&text)),
-            other => {
-                RawJson::decode(&other)
+    let Value::Object(map) = request else {
+        return Err("A turn's request must be an object.".into());
+    };
+    let mut out = serde_json::Map::new();
+    for (key, value) in map {
+        let Some((_, rule)) = OUTBOUND_REQUEST.iter().find(|(name, _)| name == key) else {
+            return Err(format!(
+                "The turn request field \"{key}\" has no outbound rule."
+            ));
+        };
+        let raw = match (rule, value) {
+            (Outbound::FreeText, Value::String(text)) => {
+                Value::String(jsjson::decode_text_lossy(text))
+            }
+            (Outbound::NoImages, Value::Array(images)) if images.is_empty() => json!([]),
+            (Outbound::NoImages, _) => {
+                return Err("Sending images isn't supported by the Rust owner yet.".into())
+            }
+            (_, other) => {
+                RawJson::decode(other)
                     .map_err(|_| IDENTITY_REFUSED.to_string())?
                     .0
             }
         };
-        map.insert("prompt".into(), text);
+        out.insert(key.clone(), raw);
     }
-    Ok(RawJson(raw))
+    Ok(RawJson(Value::Object(out)))
 }
 
 /// Answers as the provider gets them: question ids (keys) strict, answer strings (free text) lossy.
@@ -3369,4 +3408,24 @@ fn outbound_answers(answers: &Value) -> Result<RawJson> {
         out.insert(outbound_identity(question)?, values);
     }
     Ok(RawJson(Value::Object(out)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_outbound_request_field_has_a_rule() {
+        let request = json!({ "provider": "kiro", "model": "m", "prompt": "cut \u{10FFFE}\u{F0000}", "chatId": "/p#1", "cwd": "/wt", "images": [] });
+        let raw = outbound_request(&request).unwrap().0;
+        assert_eq!(raw["prompt"], json!("cut \u{FFFD}"));
+        let unknown = json!({ "prompt": "x", "attachments": ["a"] });
+        assert!(outbound_request(&unknown)
+            .unwrap_err()
+            .contains("\"attachments\" has no outbound rule"));
+        let images = json!({ "prompt": "x", "images": [{ "path": "/a.png" }] });
+        assert!(outbound_request(&images).unwrap_err().contains("images"));
+        let identity = json!({ "prompt": "x", "replies": "concise\u{10FFFE}\u{F0001}" });
+        assert_eq!(outbound_request(&identity).unwrap_err(), IDENTITY_REFUSED);
+    }
 }
