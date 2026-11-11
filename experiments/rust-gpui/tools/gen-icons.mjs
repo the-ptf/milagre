@@ -59,6 +59,14 @@ const ICONS = [
   "Copy01",
   "Delete02",
   "GitBranch",
+  // Prompt chips, quote chips and the Tab suggestion (PromptChip.tsx, QuoteChips.tsx, PromptEditor.tsx)
+  "MagicWand01",
+  "BubbleChat",
+  "Computer",
+  "Folder01",
+  "React",
+  "LeftToRightBlockQuote",
+  "ArrowRightToLine",
 ];
 
 /** The stroke written into every icon file; `src/assets` replaces it for the 12px (1.6) and 18px (2) sizes. */

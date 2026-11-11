@@ -39,6 +39,13 @@ pub enum IconName {
     Copy01,
     Delete02,
     GitBranch,
+    MagicWand01,
+    BubbleChat,
+    Computer,
+    Folder01,
+    React,
+    LeftToRightBlockQuote,
+    ArrowRightToLine,
 }
 
 /// Each icon, its Hugeicons name, and its asset path per stroke: 1.6 (12px), 1.8 (14 and 16px), 2 (18px).
@@ -78,4 +85,11 @@ pub(crate) const ICONS: &[(IconName, &str, [&str; 3])] = &[
     (IconName::Copy01, "Copy01", ["hugeicons/copy-01.svg@1.6", "hugeicons/copy-01.svg", "hugeicons/copy-01.svg@2"]),
     (IconName::Delete02, "Delete02", ["hugeicons/delete-02.svg@1.6", "hugeicons/delete-02.svg", "hugeicons/delete-02.svg@2"]),
     (IconName::GitBranch, "GitBranch", ["hugeicons/git-branch.svg@1.6", "hugeicons/git-branch.svg", "hugeicons/git-branch.svg@2"]),
+    (IconName::MagicWand01, "MagicWand01", ["hugeicons/magic-wand-01.svg@1.6", "hugeicons/magic-wand-01.svg", "hugeicons/magic-wand-01.svg@2"]),
+    (IconName::BubbleChat, "BubbleChat", ["hugeicons/bubble-chat.svg@1.6", "hugeicons/bubble-chat.svg", "hugeicons/bubble-chat.svg@2"]),
+    (IconName::Computer, "Computer", ["hugeicons/computer.svg@1.6", "hugeicons/computer.svg", "hugeicons/computer.svg@2"]),
+    (IconName::Folder01, "Folder01", ["hugeicons/folder-01.svg@1.6", "hugeicons/folder-01.svg", "hugeicons/folder-01.svg@2"]),
+    (IconName::React, "React", ["hugeicons/react.svg@1.6", "hugeicons/react.svg", "hugeicons/react.svg@2"]),
+    (IconName::LeftToRightBlockQuote, "LeftToRightBlockQuote", ["hugeicons/left-to-right-block-quote.svg@1.6", "hugeicons/left-to-right-block-quote.svg", "hugeicons/left-to-right-block-quote.svg@2"]),
+    (IconName::ArrowRightToLine, "ArrowRightToLine", ["hugeicons/arrow-right-to-line.svg@1.6", "hugeicons/arrow-right-to-line.svg", "hugeicons/arrow-right-to-line.svg@2"]),
 ];
