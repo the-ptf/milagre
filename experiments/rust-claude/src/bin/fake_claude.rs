@@ -22,7 +22,10 @@
 //!   {"spawn_grandchild": "/path/pidfile"}  start `sleep 60` in this process group, write its pid
 //!   {"ignore_sigterm": true}
 //!   {"wait_eof": true}                 read stdin until EOF, then write {"type":"fake_eof"}
-//! `FAKE_CLAUDE_NO_STDIN=1` never reads stdin (for backpressure tests).
+//! `FAKE_CLAUDE_NO_STDIN=1` never reads stdin (for backpressure tests); `FAKE_CLAUDE_STDIN_DELAY_MS=n`
+//! starts reading it only after n ms.
+//!   {"expect_skip": {"type": t}}       read frames, skipping `user` ones, until one of type t; writes
+//!                                      {"type":"fake_received","frame":...,"skipped":n}
 //! A failed check prints to stderr and exits with status 3. After the last step the fake waits for
 //! stdin EOF and exits 0.
 
@@ -62,8 +65,10 @@ fn main() {
     // stdin lines arrive on a channel so a step can wait with a deadline.
     let (lines_tx, lines) = mpsc::channel::<Option<String>>();
     let read_stdin = std::env::var("FAKE_CLAUDE_NO_STDIN").is_err();
+    let delay = std::env::var("FAKE_CLAUDE_STDIN_DELAY_MS").ok().and_then(|ms| ms.parse::<u64>().ok()).unwrap_or(0);
     if read_stdin {
         std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(delay));
             let stdin = std::io::stdin();
             for line in stdin.lock().lines() {
                 match line {
@@ -136,6 +141,26 @@ fn main() {
                     saved.insert(name.to_owned(), frame.clone());
                 }
                 last = frame;
+            }
+            "expect_skip" => {
+                let kind = arg["type"].as_str().unwrap_or("");
+                let mut skipped = 0;
+                loop {
+                    let line = match lines.recv() {
+                        Ok(Some(line)) => line,
+                        _ => fail(format!("stdin ended before a {kind} frame")),
+                    };
+                    let frame: Value = serde_json::from_str(&line).unwrap_or_else(|e| fail(format!("not JSON ({e})")));
+                    if frame["type"] == kind {
+                        out.line(&json!({ "type": "fake_received", "frame": frame, "skipped": skipped }));
+                        last = frame;
+                        break;
+                    }
+                    if frame["type"] != "user" {
+                        fail(format!("expected {kind} or user, got {line}"));
+                    }
+                    skipped += 1;
+                }
             }
             "expect_none_ms" => match lines.recv_timeout(Duration::from_millis(arg.as_u64().unwrap_or(0))) {
                 Ok(Some(line)) => fail(format!("expected no frame, got {line}")),

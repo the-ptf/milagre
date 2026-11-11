@@ -274,7 +274,7 @@ async fn permissions_questions_hooks_and_mcp_round_trip() {
     client.kill().await;
 }
 
-async fn drain_until(events: &mut tokio::sync::mpsc::Receiver<ClaudeEvent>, test: impl Fn(&ClaudeEvent) -> bool) -> bool {
+async fn drain_until(events: &mut milagre_claude::EventStream, test: impl Fn(&ClaudeEvent) -> bool) -> bool {
     while let Ok(Some(event)) = tokio::time::timeout(Duration::from_secs(5), events.recv()).await {
         if test(&event) {
             return true;
@@ -622,4 +622,158 @@ async fn duplicate_ids_are_answered_once_and_panics_become_errors() {
     assert_eq!(hook["frame"]["response"]["subtype"], "error");
     assert!(hook["frame"]["response"]["error"].as_str().unwrap().contains("hook_callback failed"));
     client.kill().await;
+}
+
+fn deny_now() -> Handlers {
+    Handlers {
+        permissions: Some(Arc::new(FnPermission(|_request, _cancel| {
+            Box::pin(async move { Ok(PermissionResult::Deny { message: "no".into(), interrupt: None }) }) as milagre_claude::BoxFuture<_>
+        }))),
+        ..Handlers::default()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn replies_overtake_a_saturated_user_queue() {
+    let (mut options, _) = fake(
+        "reply-lane",
+        json!([
+            {"sleep_ms": 300},
+            permission_request("p1", "Bash", json!({"command": "ls"}), json!({})),
+            {"expect_skip": {"type": "control_response"}},
+        ]),
+    );
+    options.env.as_mut().unwrap().push(("FAKE_CLAUDE_STDIN_DELAY_MS".into(), "800".into()));
+    let limits = Limits { write_queue: 4, write_timeout: Duration::from_millis(100), ..quick_limits() };
+    let (client, mut events) = ClaudeClient::spawn(&options, deny_now(), limits).unwrap();
+    // The first big frame fills the pipe while the fake is not reading yet; the rest wait in the user queue.
+    let big = "u".repeat(256 * 1024);
+    let mut queued = 0;
+    for _ in 0..8 {
+        if client.send_user_text(&big).await.is_ok() {
+            queued += 1;
+        }
+    }
+    assert!(queued >= 4, "queued {queued}");
+    let received = next_message(&mut events).await;
+    assert_eq!(received["frame"]["response"]["request_id"], "p1");
+    let skipped = received["skipped"].as_u64().unwrap();
+    assert!(skipped <= 1, "the reply waited behind {skipped} of {queued} user frames");
+    client.kill().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reply_that_cannot_be_written_stops_the_process() {
+    let (options, _) = fake(
+        "reply-lost",
+        json!([{"wait_eof": true}, permission_request("p1", "Bash", json!({"command": "ls"}), json!({})), {"sleep_ms": 10000}]),
+    );
+    let (client, mut events) = ClaudeClient::spawn(&options, deny_now(), quick_limits()).unwrap();
+    client.end_input().await.unwrap();
+    let info = tokio::time::timeout(Duration::from_secs(5), client.wait()).await.expect("the process was stopped");
+    assert_eq!(info.reason, ExitReason::ReplyLost);
+    let all = drain(&mut events).await;
+    assert!(matches!(all.last(), Some(ClaudeEvent::Exit(info)) if info.reason == ExitReason::ReplyLost));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stalled_stdin_stops_the_process_instead_of_half_writing() {
+    let (mut options, _) = fake("stall", json!([{"sleep_ms": 30000}]));
+    options.env.as_mut().unwrap().push(("FAKE_CLAUDE_NO_STDIN".into(), "1".into()));
+    let limits = Limits { stall_timeout: Duration::from_millis(300), ..quick_limits() };
+    let (client, _events) = ClaudeClient::spawn(&options, Handlers::default(), limits).unwrap();
+    client.send_user_text(&"s".repeat(1024 * 1024)).await.unwrap();
+    let info = tokio::time::timeout(Duration::from_secs(5), client.wait()).await.expect("stalled writer stops the process");
+    assert_eq!(info.reason, ExitReason::InputStalled);
+    assert!(matches!(client.send_user_text("more").await, Err(ClientError::Exited(_))));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn close_delivers_eof_even_with_a_full_user_queue() {
+    let (mut options, _) = fake("close-full", json!([{"wait_eof": true}, {"exit": 0}]));
+    options.env.as_mut().unwrap().push(("FAKE_CLAUDE_STDIN_DELAY_MS".into(), "300".into()));
+    let limits = Limits { write_queue: 1, write_timeout: Duration::from_millis(50), close_grace: Duration::from_secs(5), ..quick_limits() };
+    let (client, mut events) = ClaudeClient::spawn(&options, Handlers::default(), limits).unwrap();
+    let big = "c".repeat(256 * 1024);
+    let mut refused = false;
+    for _ in 0..6 {
+        refused |= matches!(client.send_user_text(&big).await, Err(ClientError::Backpressure(_)));
+    }
+    assert!(refused, "the user queue was full");
+    let info = client.close().await;
+    assert_eq!((info.reason, info.code, info.signal), (ExitReason::Closed, Some(0), None), "exited on EOF, not on a signal");
+    let all = drain(&mut events).await;
+    assert!(all.iter().any(|event| matches!(event, ClaudeEvent::Message(v) if v["type"] == "fake_eof")));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn waiters_fail_after_exit_even_when_events_are_not_drained() {
+    let (options, _) = fake(
+        "undrained",
+        json!([{"expect": {"subtype": "mcp_status"}}, {"emit_many": {"count": 20, "frame": {"type": "assistant"}}}, {"exit": 3}]),
+    );
+    let limits = Limits { event_capacity: 1, ..quick_limits() };
+    let (client, mut events) = ClaudeClient::spawn(&options, Handlers::default(), limits).unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), client.request_with_timeout(json!({"subtype": "mcp_status"}), None))
+        .await
+        .expect("the waiter failed without anyone draining events");
+    assert!(matches!(result, Err(ClientError::Exited(ref info)) if info.code == Some(3)), "{result:?}");
+    let all = drain(&mut events).await;
+    assert_eq!(all.iter().filter(|e| matches!(e, ClaudeEvent::Message(_))).count(), 20, "nothing lost");
+    assert!(matches!(all.last(), Some(ClaudeEvent::Exit(_))));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_handler_that_ignores_cancel_does_not_hold_up_the_exit() {
+    let (options, _) =
+        fake("stubborn", json!([permission_request("p1", "Bash", json!({"command": "ls"}), json!({})), {"sleep_ms": 200}, {"exit": 0}]));
+    let handlers = Handlers {
+        permissions: Some(Arc::new(FnPermission(|_request, _cancel| {
+            Box::pin(async move {
+                std::future::pending::<()>().await;
+                Err("never".into())
+            }) as milagre_claude::BoxFuture<_>
+        }))),
+        ..Handlers::default()
+    };
+    let (client, mut events) = ClaudeClient::spawn(&options, handlers, quick_limits()).unwrap();
+    let info = tokio::time::timeout(Duration::from_secs(5), client.wait()).await.unwrap();
+    assert_eq!(info.reason, ExitReason::Exited);
+    assert!(matches!(drain(&mut events).await.last(), Some(ClaudeEvent::Exit(_))));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn connect_drains_output_that_arrives_before_the_initialize_reply() {
+    let (options, _) = fake(
+        "connect-drain",
+        json!([{"expect": {"subtype": "initialize"}}, {"emit_many": {"count": 50, "frame": {"type": "early"}}}, {"reply": init_reply()}]),
+    );
+    let limits = Limits { event_capacity: 2, ..quick_limits() };
+    let (client, mut events, reply) = tokio::time::timeout(
+        Duration::from_secs(5),
+        ClaudeClient::connect(&options, &InitializeOptions::default(), Handlers::default(), limits),
+    )
+    .await
+    .expect("initialize did not stall behind a full event channel")
+    .unwrap();
+    assert_eq!(reply.payload["output_style"], "default");
+    for index in 0..50 {
+        assert_eq!(next_message(&mut events).await["index"], index);
+    }
+    client.kill().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn private_argument_files_are_removed_at_exit() {
+    let (mut options, _) = fake("argfiles", json!([{"emit_argv": true}, {"exit": 0}]));
+    options.system_prompt = milagre_claude::SystemPrompt::Preset { append: Some("secret instructions".into()) };
+    options.settings = Some(json!({"fastMode": false}));
+    let (client, mut events) = ClaudeClient::spawn(&options, Handlers::default(), quick_limits()).unwrap();
+    let argv = next_message(&mut events).await;
+    let args: Vec<String> = argv["argv"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_owned()).collect();
+    assert!(!args.iter().any(|a| a.contains("secret instructions")));
+    let at = args.iter().position(|a| a == "--append-system-prompt-file").unwrap();
+    let file = std::path::PathBuf::from(&args[at + 1]);
+    client.wait().await;
+    assert!(!file.exists() && !file.parent().unwrap().exists(), "argument files removed");
 }

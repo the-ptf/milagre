@@ -30,8 +30,10 @@ pub fn signal_group(pgid: u32, signal: Signal) {
 /// Whether any process is still in the group.
 #[cfg(unix)]
 pub fn group_alive(pgid: u32) -> bool {
-    // SAFETY: signal 0 only checks existence and permission.
-    unsafe { libc::killpg(pgid as libc::pid_t, 0) == 0 }
+    // SAFETY: signal 0 only checks existence and permission. EPERM means the group exists but is not
+    // ours to signal: counted as alive, so it is never treated as empty (and never signalled successfully).
+    let result = unsafe { libc::killpg(pgid as libc::pid_t, 0) };
+    result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 #[cfg(not(unix))]

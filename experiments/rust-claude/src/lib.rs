@@ -13,7 +13,7 @@ pub mod milagre;
 pub mod process;
 pub mod protocol;
 
-pub use client::{ClaudeClient, ClaudeEvent, ClientError, ControlReply, Diagnostic, ExitInfo, ExitReason, Limits};
+pub use client::{ClaudeClient, ClaudeEvent, ClientError, ControlReply, Diagnostic, EventStream, ExitInfo, ExitReason, Limits};
 pub use handlers::{
     BoxFuture, CancelReason, CancelSignal, Handlers, HookHandler, McpHandler, OtherRequestHandler, PermissionHandler, QuestionHandler,
 };

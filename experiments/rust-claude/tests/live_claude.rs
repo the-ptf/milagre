@@ -48,6 +48,10 @@ async fn initialize_without_a_turn() {
     options.no_session_persistence = true;
     options.setting_sources = Some(vec!["local".into()]);
     options.include_partial_messages = true;
+    // Private argument files (the default): checks that this CLI accepts --append-system-prompt-file and a
+    // --settings path.
+    options.system_prompt = milagre_claude::SystemPrompt::Preset { append: Some("Probe instructions.".into()) };
+    options.settings = Some(serde_json::json!({ "fastMode": false }));
     let limits =
         Limits { initialize_timeout: Duration::from_secs(30), request_timeout: Some(Duration::from_secs(15)), ..Limits::default() };
     let (client, mut events) = ClaudeClient::spawn(&options, Handlers::default(), limits).expect("spawn the CLI");

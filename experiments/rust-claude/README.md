@@ -106,22 +106,40 @@ FnPermission(move |request, mut cancel| Box::pin(async move {
 - **No replay**: after exit, waiters fail with `Exited(ExitInfo)` (code, signal, 4000-byte stderr
   tail), later calls fail at once, nothing is resent. Messages the CLI wrote before exiting are still
   delivered, however slowly the owner drains, before the final `Exit`.
+- **Reserved reply lane**: replies to the CLI's requests, request withdrawals and `close()`'s stdin EOF
+  go through their own lane, sized for every request that can be outstanding and written before
+  queued user frames. A reply that cannot be delivered (stdin already closed, lane full) stops the
+  process (`ExitReason::ReplyLost`) instead of leaving the CLI waiting on an answer forever.
+- **Stalled stdin**: a single write blocked for `stall_timeout` (30 s) kills the process
+  (`ExitReason::InputStalled`); a frame is written whole or the process is stopped, so no half line is
+  ever followed by another frame. A control request whose caller gave up before it was written is
+  skipped; only one the CLI has seen gets `control_cancel_request`.
 - **Backpressure**: stdout messages go through a bounded channel (`event_capacity`); a slow owner
   slows the reader and then the CLI, nothing is dropped, order is kept. stdin writes go through a
   bounded queue; a full queue fails after `write_timeout` with `Backpressure`, nothing written.
   Outgoing frames over `max_outgoing_frame_bytes` fail with `FrameTooLarge`. Control replies and the
   CLI's control requests share stdout with messages, so **an owner awaiting a control reply must keep
-  draining events concurrently**. Diagnostics use `try_send` and never block.
+  draining events concurrently**; `connect()` does this itself while `initialize` is pending and hands
+  the buffered events back first (`EventStream`). After an exit, replies already in the pipe get
+  `drain_grace` to reach their waiters, then every waiter fails even if nobody drains events.
+  Diagnostics use `try_send` and never block; nothing fatal depends on them.
 - **Process cleanup**: the CLI leads its own process group. `close()` closes stdin, waits
   `close_grace` (5 s, as the Python SDK, so the session file is flushed), SIGTERMs the group, waits
   `kill_grace`, SIGKILLs it. `kill()` SIGKILLs at once. Dropping the last `ClaudeClient` SIGKILLs a
   live group. After the leader exits on its own, members left in the group are stopped. stdout closed
-  while the process runs: killed after `drain_grace` (`StdoutClosed`).
+  while the process runs: killed after `drain_grace` (`StdoutClosed`). Once the leader is reaped and
+  `killpg(pgid, 0)` reports the group empty (ESRCH; EPERM counts as alive), the id is never signalled
+  again, so a reused process-group id is not hit.
+- **Secrets off argv**: by default the appended system prompt, `--settings` and `--mcp-config` (which
+  can carry MCP server env and headers) are written to 0600 files in a 0700 temp directory, passed as
+  `--append-system-prompt-file` / paths, and removed when the process ends. `LaunchOptions`' `Debug`
+  redacts env values, settings, the prompt and MCP config. The live probe confirms CLI 2.1.322 accepts
+  the file forms.
 
 ## Tests
 
 ```
-cargo test                    # 16 unit, 18 fake-CLI integration, 7 Node conformance
+cargo test                    # unit, fake-CLI integration, Node conformance
 MILAGRE_CLAUDE_LIVE=1 cargo test --test live_claude -- --ignored --nocapture   # installed CLI, no turn
 NODE_PATH=<checkout>/node_modules node experiments/rust-claude/scripts/generate-conformance.cjs  # refresh fixtures
 npx oxfmt experiments/rust-claude/tests/fixtures/conformance/claude-contract.json
@@ -175,7 +193,7 @@ Protocol and process:
 7. The TS SDK 0.3.288's exact argv/env was not reproduced byte-for-byte (its code is minified and
    licensed). Differences known: `CLAUDE_AGENT_SDK_VERSION` unset unless `sdk_version` is given;
    `CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH` / `_HAS_HOST_AUTH_REFRESH` / `CLAUDE_CODE_SDK_READS_SESSION_STATE`
-   not set; the appended system prompt goes by `--append-system-prompt` (Python SDK) rather than an
+   not set; the appended system prompt goes by `--append-system-prompt-file` rather than an
    `initialize` field; no `--await-initialize` / plugins. The env entrypoint is `sdk-ts` to match what
    Milagre's CLI sessions report today.
 8. Live coverage is `initialize` plus local control requests. `can_use_tool`, AskUserQuestion,
@@ -188,11 +206,15 @@ Protocol and process:
 10. Session-state frames (`requires_action`) and `pending_permission_requests` on `initialize` are
     exposed raw, not re-armed as cards.
 11. Windows: no Job object or tree kill (process-group calls are Unix-only), no `.cmd` shim handling
-    from `command.cjs`. Descendants that leave the process group (`setsid`) are not tracked.
-12. stderr is kept as a 4000-byte tail (as Node), not streamed.
-13. `uuid()` is random but not cryptographic (ids only).
-14. `milagre` ports approximate JS `String()` for non-string inputs (objects, nested arrays) and can
+    from `command.cjs`. Descendants that leave the process group (`setsid`) are not tracked. The
+    process-group id check and the signal are two calls, so a group that empties and is reused in
+    between could still be signalled (a window of microseconds, same as `rust-providers`).
+12. Handler tasks are signalled, not aborted: a handler that ignores its `CancelSignal` keeps running
+    after a withdrawal or exit (its reply is discarded). Tested not to delay the exit.
+13. stderr is kept as a 4000-byte tail (as Node), not streamed.
+14. `uuid()` is random but not cryptographic (ids only).
+15. `milagre` ports approximate JS `String()` for non-string inputs (objects, nested arrays) and can
     differ from JS for non-finite or float-formatted numbers and for a lone UTF-16 surrogate at the
     20,000-unit cap.
-15. Process-group helpers duplicate `experiments/rust-providers`; sharing them is left for the owner
+16. Process-group helpers duplicate `experiments/rust-providers`; sharing them is left for the owner
     integration.

@@ -33,6 +33,8 @@ use crate::handlers::{cancel_pair, CancelReason, CancelSignal, CancelTrigger, Ha
 use crate::launch::{InitializeOptions, LaunchOptions};
 use crate::process::{group_alive, signal_group, Signal, StderrTail};
 use crate::protocol::{self, ControlResponse, HookCallback, Inbound, IncomingRequest, McpMessage, PermissionRequest};
+use std::collections::VecDeque;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct Limits {
@@ -47,6 +49,9 @@ pub struct Limits {
     pub event_capacity: usize,
     pub write_queue: usize,
     pub write_timeout: Duration,
+    /// A single stdin write blocked this long means the CLI stopped reading: the process is stopped
+    /// (`ExitReason::InputStalled`) rather than leaving a frame half written.
+    pub stall_timeout: Duration,
     /// Default per-request timeout (`None` waits until exit). The Python SDK's default is 60 s.
     pub request_timeout: Option<Duration>,
     pub initialize_timeout: Duration,
@@ -70,6 +75,7 @@ impl Default for Limits {
             event_capacity: 1024,
             write_queue: 64,
             write_timeout: Duration::from_secs(10),
+            stall_timeout: Duration::from_secs(30),
             request_timeout: Some(Duration::from_secs(60)),
             initialize_timeout: Duration::from_secs(60),
             drain_grace: Duration::from_secs(2),
@@ -92,6 +98,11 @@ pub enum ExitReason {
     ReadError(String),
     /// stdout reached EOF and the process did not exit within `drain_grace`; it was killed.
     StdoutClosed,
+    /// A stdin write blocked for `stall_timeout`; the process was killed.
+    InputStalled,
+    /// A handler's reply to the CLI could not be written (stdin closed, or the reply lane full); the
+    /// process was killed rather than left waiting on an answer that will never come.
+    ReplyLost,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,6 +204,14 @@ pub struct ControlReply {
 
 enum WriterCmd {
     Frame(Vec<u8>),
+    /// A control request: skipped when its caller gave up before it was written.
+    Request {
+        id: String,
+        bytes: Vec<u8>,
+        written: Arc<AtomicBool>,
+    },
+    /// A reply to a CLI request (reserved lane). Losing one is fatal.
+    Reply(Vec<u8>),
     End,
 }
 
@@ -208,6 +227,8 @@ struct Inflight {
 
 struct Shared {
     writer: mpsc::Sender<WriterCmd>,
+    /// Reserved lane, written before the user lane: replies, request withdrawals and close()'s EOF.
+    control: mpsc::Sender<WriterCmd>,
     pending: Mutex<Pending>,
     inflight: Mutex<Inflight>,
     session_id: Mutex<Option<String>>,
@@ -216,6 +237,14 @@ struct Shared {
     closing: AtomicBool,
     /// The reader is waiting for room in the event channel (not for stdout).
     emitting: AtomicBool,
+    /// A stdin write stalled and the process was killed for it.
+    stalled: AtomicBool,
+    /// A reply could not be delivered and the process was killed for it.
+    reply_lost: AtomicBool,
+    /// The leader was reaped; the group id is only signalled while members remain.
+    reaped: AtomicBool,
+    /// The group is known empty: its id may belong to someone else and is never signalled again.
+    group_gone: AtomicBool,
     exit_rx: watch::Receiver<Option<ExitInfo>>,
     limits: Limits,
     pgid: Option<u32>,
@@ -224,17 +253,64 @@ struct Shared {
     events: mpsc::Sender<ClaudeEvent>,
 }
 
+impl Shared {
+    /// The group id while it may still hold processes we started. Once the leader is reaped and the
+    /// group is empty, the id may be reused by someone else and is never signalled again.
+    fn group(&self) -> Option<u32> {
+        let pgid = self.pgid?;
+        if self.group_gone.load(Ordering::Acquire) {
+            return None;
+        }
+        if self.reaped.load(Ordering::Acquire) && !group_alive(pgid) {
+            self.group_gone.store(true, Ordering::Release);
+            return None;
+        }
+        Some(pgid)
+    }
+
+    fn signal(&self, signal: Signal) {
+        if let Some(pgid) = self.group() {
+            signal_group(pgid, signal);
+        }
+    }
+
+    /// Stop the process because the protocol can no longer be kept (a lost reply).
+    fn fail_reply(&self) {
+        self.reply_lost.store(true, Ordering::SeqCst);
+        self.signal(Signal::Kill);
+    }
+}
+
 /// SIGKILLs the group when the last client handle is dropped while the process still runs.
 struct KillGuard {
-    pgid: Option<u32>,
-    exit_rx: watch::Receiver<Option<ExitInfo>>,
+    shared: Arc<Shared>,
 }
 
 impl Drop for KillGuard {
     fn drop(&mut self) {
-        if let (Some(pgid), None) = (self.pgid, self.exit_rx.borrow().as_ref()) {
-            signal_group(pgid, Signal::Kill);
+        if self.shared.exit_rx.borrow().is_none() {
+            self.shared.signal(Signal::Kill);
         }
+    }
+}
+
+/// The events of one client. `connect` returns the events that arrived during `initialize` first.
+#[derive(Debug)]
+pub struct EventStream {
+    buffered: VecDeque<ClaudeEvent>,
+    rx: mpsc::Receiver<ClaudeEvent>,
+}
+
+impl EventStream {
+    pub async fn recv(&mut self) -> Option<ClaudeEvent> {
+        match self.buffered.pop_front() {
+            Some(event) => Some(event),
+            None => self.rx.recv().await,
+        }
+    }
+
+    pub fn try_recv(&mut self) -> Option<ClaudeEvent> {
+        self.buffered.pop_front().or_else(|| self.rx.try_recv().ok())
     }
 }
 
@@ -253,20 +329,40 @@ impl fmt::Debug for ClaudeClient {
 impl ClaudeClient {
     /// Start the CLI. The owner must drain the returned events (see module docs), then call
     /// [`ClaudeClient::initialize`] before sending user messages.
-    pub fn spawn(options: &LaunchOptions, handlers: Handlers, limits: Limits) -> Result<(Self, mpsc::Receiver<ClaudeEvent>), ClientError> {
+    pub fn spawn(options: &LaunchOptions, handlers: Handlers, limits: Limits) -> Result<(Self, EventStream), ClientError> {
+        let spawn_error = |error: std::io::Error| ClientError::Spawn {
+            program: options.program.display().to_string(),
+            not_found: error.kind() == std::io::ErrorKind::NotFound,
+            message: error.to_string(),
+        };
+        // Prompt, settings and MCP config go in private files the supervisor removes at exit.
+        let arg_dir = if options.private_files { Some(crate::launch::private_dir().map_err(spawn_error)?) } else { None };
+        let args = match &arg_dir {
+            Some(dir) => options.args_in(dir),
+            None => Ok(options.args()),
+        };
+        let args = match args {
+            Ok(args) => args,
+            Err(error) => {
+                remove_dir(&arg_dir);
+                return Err(spawn_error(error));
+            }
+        };
         let mut command = Command::new(&options.program);
-        command.args(options.args()).env_clear().envs(options.environment());
+        command.args(args).env_clear().envs(options.environment());
         if let Some(cwd) = &options.cwd {
             command.current_dir(cwd);
         }
         command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
         #[cfg(unix)]
         command.process_group(0);
-        let mut child = command.spawn().map_err(|error| ClientError::Spawn {
-            program: options.program.display().to_string(),
-            not_found: error.kind() == std::io::ErrorKind::NotFound,
-            message: error.to_string(),
-        })?;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                remove_dir(&arg_dir);
+                return Err(spawn_error(error));
+            }
+        };
         let pgid = child.id();
         let stdin = child.stdin.take().expect("stdin piped");
         let stdout = child.stdout.take().expect("stdout piped");
@@ -274,9 +370,12 @@ impl ClaudeClient {
 
         let (events_tx, events_rx) = mpsc::channel(limits.event_capacity.max(1));
         let (writer_tx, writer_rx) = mpsc::channel(limits.write_queue.max(1));
+        // Room for every reply and withdrawal that can be outstanding at once, plus close()'s EOF.
+        let (control_tx, control_rx) = mpsc::channel(limits.max_inbound_requests + limits.max_pending_requests + 8);
         let (exit_tx, exit_rx) = watch::channel(None);
         let shared = Arc::new(Shared {
             writer: writer_tx,
+            control: control_tx,
             pending: Mutex::new(Pending { waiters: HashMap::new(), exit: None }),
             inflight: Mutex::new(Inflight { triggers: HashMap::new(), closed: false }),
             session_id: Mutex::new(options.resume.clone()),
@@ -284,6 +383,10 @@ impl ClaudeClient {
             input_ended: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             emitting: AtomicBool::new(false),
+            stalled: AtomicBool::new(false),
+            reply_lost: AtomicBool::new(false),
+            reaped: AtomicBool::new(false),
+            group_gone: AtomicBool::new(false),
             exit_rx: exit_rx.clone(),
             limits: limits.clone(),
             pgid,
@@ -293,11 +396,12 @@ impl ClaudeClient {
         });
         let tail = StderrTail::default();
         let stderr_task = tokio::spawn(tail.clone().drain(stderr, limits.stderr_tail_bytes));
-        tokio::spawn(writer_loop(stdin, writer_rx));
+        tokio::spawn(writer_loop(shared.clone(), stdin, writer_rx, control_rx));
         let reader = tokio::spawn(reader_loop(shared.clone(), handlers, stdout));
-        tokio::spawn(supervise(shared.clone(), child, reader, stderr_task, tail, exit_tx));
-        let guard = Arc::new(KillGuard { pgid, exit_rx });
-        Ok((Self { shared, _guard: guard }, events_rx))
+        tokio::spawn(supervise(shared.clone(), child, reader, stderr_task, tail, exit_tx, arg_dir));
+        let _ = exit_rx;
+        let guard = Arc::new(KillGuard { shared: shared.clone() });
+        Ok((Self { shared, _guard: guard }, EventStream { buffered: VecDeque::new(), rx: events_rx }))
     }
 
     /// Spawn, then `initialize`, while forwarding events into the returned receiver.
@@ -306,9 +410,24 @@ impl ClaudeClient {
         init: &InitializeOptions,
         handlers: Handlers,
         limits: Limits,
-    ) -> Result<(Self, mpsc::Receiver<ClaudeEvent>, ControlReply), ClientError> {
-        let (client, events) = Self::spawn(options, handlers, limits)?;
-        match client.initialize(init).await {
+    ) -> Result<(Self, EventStream, ControlReply), ClientError> {
+        let (client, mut events) = Self::spawn(options, handlers, limits)?;
+        // Drain while waiting, so output before the reply can never stall the reader behind a full channel.
+        let result = {
+            let initialize = client.initialize(init);
+            tokio::pin!(initialize);
+            let mut open = true;
+            loop {
+                tokio::select! {
+                    result = &mut initialize => break result,
+                    event = events.rx.recv(), if open => match event {
+                        Some(event) => events.buffered.push_back(event),
+                        None => open = false,
+                    },
+                }
+            }
+        };
+        match result {
             Ok(reply) => Ok((client, events, reply)),
             Err(error) => {
                 client.kill().await;
@@ -399,9 +518,9 @@ impl ClaudeClient {
             }
             pending.waiters.insert(id.clone(), (subtype.clone(), tx));
         }
-        let mut guard = PendingGuard { shared: &self.shared, id: id.clone(), armed: true, sent: false };
-        self.enqueue(WriterCmd::Frame(bytes)).await?;
-        guard.sent = true;
+        let written = Arc::new(AtomicBool::new(false));
+        let mut guard = PendingGuard { shared: &self.shared, id: id.clone(), armed: true, written: written.clone() };
+        self.enqueue(WriterCmd::Request { id: id.clone(), bytes, written }).await?;
         let outcome = match wait {
             Some(after) => match timeout(after, rx).await {
                 Ok(result) => result,
@@ -481,15 +600,14 @@ impl ClaudeClient {
     pub async fn close(&self) -> ExitInfo {
         self.shared.closing.store(true, Ordering::SeqCst);
         if self.exit_info().is_none() && !self.shared.input_ended.swap(true, Ordering::SeqCst) {
-            let _ = self.shared.writer.try_send(WriterCmd::End);
+            // The reserved lane always has room; user frames still queued behind it are dropped.
+            let _ = self.shared.control.try_send(WriterCmd::End);
         }
         let limits = &self.shared.limits;
         if let Ok(info) = timeout(limits.close_grace, self.wait()).await {
             return info;
         }
-        if let Some(pgid) = self.shared.pgid {
-            signal_group(pgid, Signal::Term);
-        }
+        self.shared.signal(Signal::Term);
         if let Ok(info) = timeout(limits.kill_grace, self.wait()).await {
             return info;
         }
@@ -499,10 +617,8 @@ impl ClaudeClient {
     /// SIGKILL the group now and wait for the exit.
     pub async fn kill(&self) -> ExitInfo {
         self.shared.closing.store(true, Ordering::SeqCst);
-        if let Some(pgid) = self.shared.pgid {
-            if self.exit_info().is_none() {
-                signal_group(pgid, Signal::Kill);
-            }
+        if self.exit_info().is_none() {
+            self.shared.signal(Signal::Kill);
         }
         self.wait().await
     }
@@ -573,7 +689,7 @@ struct PendingGuard<'a> {
     shared: &'a Shared,
     id: String,
     armed: bool,
-    sent: bool,
+    written: Arc<AtomicBool>,
 }
 
 impl Drop for PendingGuard<'_> {
@@ -582,31 +698,74 @@ impl Drop for PendingGuard<'_> {
             return;
         }
         let removed = self.shared.pending.lock().unwrap().waiters.remove(&self.id).is_some();
-        if removed && self.sent && !self.shared.input_ended.load(Ordering::SeqCst) {
+        // A request still queued is skipped by the writer; only one the CLI has seen needs withdrawing.
+        if removed && self.written.load(Ordering::SeqCst) && !self.shared.input_ended.load(Ordering::SeqCst) {
             if let Ok(bytes) = frame::encode(&protocol::cancel_request(&self.id), usize::MAX) {
-                let _ = self.shared.writer.try_send(WriterCmd::Frame(bytes));
+                let _ = self.shared.control.try_send(WriterCmd::Frame(bytes));
             }
         }
     }
 }
 
-async fn writer_loop(stdin: ChildStdin, mut commands: mpsc::Receiver<WriterCmd>) {
+async fn writer_loop(shared: Arc<Shared>, stdin: ChildStdin, mut user: mpsc::Receiver<WriterCmd>, mut control: mpsc::Receiver<WriterCmd>) {
     let mut stdin = Some(stdin);
-    while let Some(command) = commands.recv().await {
-        match command {
-            WriterCmd::Frame(bytes) => {
-                let Some(pipe) = stdin.as_mut() else { continue };
-                if pipe.write_all(&bytes).await.is_err() || pipe.flush().await.is_err() {
-                    // Broken pipe: the process is going away; callers learn it from the exit.
+    let mut exit = shared.exit_rx.clone();
+    loop {
+        let command = tokio::select! {
+            biased;
+            command = control.recv() => command,
+            command = user.recv() => command,
+            // The process is gone: nothing more can be written, and the task must not outlive it.
+            _ = exit.changed() => return,
+        };
+        let Some(command) = command else { return };
+        let bytes = match command {
+            WriterCmd::Frame(bytes) => bytes,
+            WriterCmd::Request { id, bytes, written } => {
+                if !shared.pending.lock().unwrap().waiters.contains_key(&id) {
+                    continue;
+                }
+                written.store(true, Ordering::SeqCst);
+                bytes
+            }
+            WriterCmd::Reply(bytes) => {
+                if stdin.is_none() {
+                    // stdin was closed first: the CLI would wait on this answer forever.
+                    shared.fail_reply();
                     return;
                 }
+                bytes
             }
             WriterCmd::End => {
                 if let Some(mut pipe) = stdin.take() {
-                    let _ = pipe.shutdown().await;
+                    let _ = timeout(shared.limits.stall_timeout, pipe.shutdown()).await;
                 }
+                continue;
+            }
+        };
+        let Some(pipe) = stdin.as_mut() else { continue };
+        // A frame is written whole or the process is stopped: nothing ever follows half a line.
+        match timeout(shared.limits.stall_timeout, async {
+            pipe.write_all(&bytes).await?;
+            pipe.flush().await
+        })
+        .await
+        {
+            Ok(Ok(())) => {}
+            // Broken pipe: the process is going away; callers learn it from the exit.
+            Ok(Err(_)) => return,
+            Err(_) => {
+                shared.stalled.store(true, Ordering::SeqCst);
+                shared.signal(Signal::Kill);
+                return;
             }
         }
+    }
+}
+
+fn remove_dir(dir: &Option<PathBuf>) {
+    if let Some(dir) = dir {
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
 
@@ -778,28 +937,29 @@ async fn handle(handlers: Handlers, request: IncomingRequest, cancel: CancelSign
     }
 }
 
+/// Queue a reply on the reserved lane. A reply that cannot be delivered stops the process: the CLI
+/// would otherwise wait on it forever.
 async fn write_reply(shared: &Shared, request_id: &str, reply: Option<Result<Value, String>>) {
     let frame = match reply {
         None => return,
         Some(Ok(payload)) => protocol::success_response(request_id, payload),
         Some(Err(error)) => protocol::error_response(request_id, &error),
     };
-    let failure = if shared.input_ended.load(Ordering::SeqCst) {
-        Some("stdin was closed".to_owned())
-    } else {
-        match frame::encode(&frame, shared.limits.max_outgoing_frame_bytes) {
-            Err(size) => {
-                // Too large to send as is: answer with an error so the CLI is not left waiting.
-                let fallback = protocol::error_response(request_id, &format!("reply of {size} bytes exceeds the frame limit"));
-                let bytes = frame::encode(&fallback, usize::MAX).expect("small frame");
-                enqueue(shared, WriterCmd::Frame(bytes)).await.err().map(|error| error.to_string())
-            }
-            Ok(bytes) => enqueue(shared, WriterCmd::Frame(bytes)).await.err().map(|error| error.to_string()),
-        }
-    };
-    if let Some(error) = failure {
-        diagnose(shared, Diagnostic::ReplyNotWritten { request_id: request_id.into(), error });
+    let bytes = frame::encode(&frame, shared.limits.max_outgoing_frame_bytes).unwrap_or_else(|size| {
+        // Too large to send as is: answer with an error so the CLI is not left waiting.
+        let fallback = protocol::error_response(request_id, &format!("reply of {size} bytes exceeds the frame limit"));
+        frame::encode(&fallback, usize::MAX).expect("small frame")
+    });
+    if shared.exit_rx.borrow().is_some() {
+        return;
     }
+    let error = match shared.control.try_send(WriterCmd::Reply(bytes)) {
+        Ok(()) => return,
+        Err(mpsc::error::TrySendError::Full(_)) => "the reply lane is full",
+        Err(mpsc::error::TrySendError::Closed(_)) => "stdin is gone",
+    };
+    shared.fail_reply();
+    diagnose(shared, Diagnostic::ReplyNotWritten { request_id: request_id.into(), error: error.into() });
 }
 
 async fn supervise(
@@ -809,13 +969,10 @@ async fn supervise(
     stderr_task: tokio::task::JoinHandle<()>,
     tail: StderrTail,
     exit_tx: watch::Sender<Option<ExitInfo>>,
+    arg_dir: Option<PathBuf>,
 ) {
     let grace = shared.limits.drain_grace;
-    let kill = |shared: &Shared| {
-        if let Some(pgid) = shared.pgid {
-            signal_group(pgid, Signal::Kill);
-        }
-    };
+    let kill = |shared: &Shared| shared.signal(Signal::Kill);
     let mut forced: Option<ExitReason> = None;
     let status = tokio::select! {
         end = &mut reader => {
@@ -830,7 +987,7 @@ async fn supervise(
                 }
                 ReaderEnd::Eof => {}
             }
-            match timeout(grace, child.wait()).await {
+            let status = match timeout(grace, child.wait()).await {
                 Ok(status) => status.ok(),
                 Err(_) => {
                     if forced.is_none() {
@@ -840,9 +997,12 @@ async fn supervise(
                     let _ = child.start_kill();
                     child.wait().await.ok()
                 }
-            }
+            };
+            shared.reaped.store(true, Ordering::Release);
+            status
         }
         status = child.wait() => {
+            shared.reaped.store(true, Ordering::Release);
             // Messages written before the exit are still delivered (see below). A descendant holding
             // stdout open gets `drain_grace`, then the group is killed.
             if timeout(grace, &mut reader).await.is_err() && !shared.emitting.load(Ordering::SeqCst) {
@@ -851,16 +1011,18 @@ async fn supervise(
             status.ok()
         }
     };
-    // Whatever the leader left in its group (background shells, MCP servers) goes with it.
-    if let Some(pgid) = shared.pgid {
-        if group_alive(pgid) {
-            signal_group(pgid, Signal::Term);
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            signal_group(pgid, Signal::Kill);
-        }
+    // Whatever the leader left in its group (background shells, MCP servers) goes with it. `group()`
+    // re-checks membership before each signal, so an emptied group's id is never signalled.
+    if shared.group().is_some() {
+        shared.signal(Signal::Term);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        shared.signal(Signal::Kill);
     }
+    remove_dir(&arg_dir);
     let _ = timeout(Duration::from_millis(500), stderr_task).await;
     let reason = match forced {
+        _ if shared.stalled.load(Ordering::SeqCst) => ExitReason::InputStalled,
+        _ if shared.reply_lost.load(Ordering::SeqCst) => ExitReason::ReplyLost,
         Some(reason) => reason,
         None if shared.closing.load(Ordering::SeqCst) => ExitReason::Closed,
         None => ExitReason::Exited,
@@ -883,6 +1045,13 @@ async fn supervise(
     for trigger in triggers.values() {
         trigger.fire(CancelReason::Exited);
     }
+
+    // Replies already in the pipe get `drain_grace` to reach their waiters; after that every waiter
+    // fails, even when the owner has stopped draining events.
+    if !reader.is_finished() {
+        let _ = timeout(grace, &mut reader).await;
+    }
+    drop(std::mem::take(&mut shared.pending.lock().unwrap().waiters));
 
     // Let the reader deliver what the process wrote before it ended, however slowly the owner drains.
     // It is only abandoned when it is blocked reading a pipe that a process outside the group keeps open.

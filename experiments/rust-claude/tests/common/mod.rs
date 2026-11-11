@@ -4,9 +4,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use milagre_claude::{ClaudeEvent, LaunchOptions, Limits};
+use milagre_claude::{ClaudeEvent, EventStream, LaunchOptions, Limits};
 use serde_json::Value;
-use tokio::sync::mpsc;
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
@@ -43,7 +42,7 @@ pub fn quick_limits() -> Limits {
 }
 
 /// The next Message event, skipping diagnostics. Panics on exit or after 10 s.
-pub async fn next_message(events: &mut mpsc::Receiver<ClaudeEvent>) -> Value {
+pub async fn next_message(events: &mut EventStream) -> Value {
     loop {
         match tokio::time::timeout(Duration::from_secs(10), events.recv()).await.expect("timed out waiting for a message") {
             Some(ClaudeEvent::Message(value)) => return value,
@@ -54,7 +53,7 @@ pub async fn next_message(events: &mut mpsc::Receiver<ClaudeEvent>) -> Value {
 }
 
 /// Collect everything until Exit (inclusive).
-pub async fn drain(events: &mut mpsc::Receiver<ClaudeEvent>) -> Vec<ClaudeEvent> {
+pub async fn drain(events: &mut EventStream) -> Vec<ClaudeEvent> {
     let mut out = Vec::new();
     loop {
         match tokio::time::timeout(Duration::from_secs(15), events.recv()).await.expect("timed out draining") {

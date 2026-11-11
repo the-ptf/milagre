@@ -7,7 +7,8 @@
 //! Agents, hooks, prompt suggestions and subagent text forwarding travel in `initialize`, as both SDKs do.
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::fmt;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
@@ -24,7 +25,8 @@ pub enum SystemPrompt {
 }
 
 /// Everything decided before the process starts. Defaults match a plain SDK query.
-#[derive(Debug, Clone)]
+/// `Debug` redacts the environment, settings, MCP config and system prompt.
+#[derive(Clone)]
 pub struct LaunchOptions {
     /// Absolute path of the CLI executable (Milagre: `pathToClaudeCodeExecutable`).
     pub program: PathBuf,
@@ -65,6 +67,54 @@ pub struct LaunchOptions {
     pub permission_prompts_to_host: bool,
     /// Flags not modelled above: `(flag without --, value)`. A value starting with `-` uses `--flag=value`.
     pub extra_args: Vec<(String, Option<String>)>,
+    /// Pass the system prompt, `--settings` and `--mcp-config` as private files (0600, in a 0700 directory
+    /// removed when the process ends) instead of argv, where `ps` shows them and long prompts hit E2BIG.
+    pub private_files: bool,
+}
+
+impl fmt::Debug for LaunchOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let redacted = |present: bool| if present { "<redacted>" } else { "<none>" };
+        f.debug_struct("LaunchOptions")
+            .field("program", &self.program)
+            .field("cwd", &self.cwd)
+            .field("env", &self.env.as_ref().map(|env| format!("<{} vars redacted>", env.len())))
+            .field("env_overrides", &self.env_overrides.iter().map(|(key, _)| key).collect::<Vec<_>>())
+            .field("model", &self.model)
+            .field("permission_mode", &self.permission_mode)
+            .field("effort", &self.effort)
+            .field("settings", &redacted(self.settings.is_some()))
+            .field("system_prompt", &redacted(!matches!(self.system_prompt, SystemPrompt::Preset { append: None })))
+            .field("mcp_servers", &self.mcp_servers.keys().collect::<Vec<_>>())
+            .field("resume", &self.resume)
+            .field("extra_args", &self.extra_args.iter().map(|(flag, _)| flag).collect::<Vec<_>>())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Write `content` to `dir/name` readable only by this user.
+fn private_file(dir: &Path, name: &str, content: &str) -> std::io::Result<String> {
+    use std::io::Write;
+    let path = dir.join(name);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(&path)?.write_all(content.as_bytes())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// A private directory for argument files (0700), removed by its owner.
+pub fn private_dir() -> std::io::Result<PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("milagre-claude-{}-{}-{nanos:x}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst)));
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&dir)?;
+    Ok(dir)
 }
 
 impl LaunchOptions {
@@ -99,6 +149,7 @@ impl LaunchOptions {
             thinking_display: None,
             permission_prompts_to_host: true,
             extra_args: Vec::new(),
+            private_files: true,
         }
     }
 
@@ -116,17 +167,31 @@ impl LaunchOptions {
             .collect()
     }
 
-    /// The argument vector after the program.
+    /// The argument vector after the program, everything inline.
     pub fn args(&self) -> Vec<String> {
+        self.build_args(None).expect("inline arguments write no file")
+    }
+
+    /// The argument vector, with the system prompt, settings and MCP config written to files in `dir`
+    /// when `private_files` is set.
+    pub fn args_in(&self, dir: &Path) -> std::io::Result<Vec<String>> {
+        self.build_args(self.private_files.then_some(dir))
+    }
+
+    fn build_args(&self, dir: Option<&Path>) -> std::io::Result<Vec<String>> {
         let mut args: Vec<String> = ["--output-format", "stream-json", "--verbose"].map(String::from).to_vec();
         let mut pair = |flag: &str, value: String| {
             args.push(flag.into());
             args.push(value);
         };
-        match &self.system_prompt {
-            SystemPrompt::Preset { append: Some(text) } => pair("--append-system-prompt", text.clone()),
-            SystemPrompt::Preset { append: None } => {}
-            SystemPrompt::Custom(text) => pair("--system-prompt", text.clone()),
+        match (&self.system_prompt, dir) {
+            (SystemPrompt::Preset { append: Some(text) }, Some(dir)) => {
+                pair("--append-system-prompt-file", private_file(dir, "append-system-prompt.md", text)?)
+            }
+            (SystemPrompt::Preset { append: Some(text) }, None) => pair("--append-system-prompt", text.clone()),
+            (SystemPrompt::Preset { append: None }, _) => {}
+            (SystemPrompt::Custom(text), Some(dir)) => pair("--system-prompt-file", private_file(dir, "system-prompt.md", text)?),
+            (SystemPrompt::Custom(text), None) => pair("--system-prompt", text.clone()),
         }
         if !self.allowed_tools.is_empty() {
             pair("--allowedTools", self.allowed_tools.join(","));
@@ -147,13 +212,20 @@ impl LaunchOptions {
             pair("--permission-mode", mode.clone());
         }
         if let Some(settings) = &self.settings {
-            pair("--settings", settings.to_string());
+            match dir {
+                Some(dir) => pair("--settings", private_file(dir, "settings.json", &settings.to_string())?),
+                None => pair("--settings", settings.to_string()),
+            }
         }
         for dir in &self.add_dirs {
             pair("--add-dir", dir.to_string_lossy().into_owned());
         }
         if !self.mcp_servers.is_empty() {
-            pair("--mcp-config", json!({ "mcpServers": self.mcp_servers }).to_string());
+            let config = json!({ "mcpServers": self.mcp_servers }).to_string();
+            match dir {
+                Some(dir) => pair("--mcp-config", private_file(dir, "mcp-config.json", &config)?),
+                None => pair("--mcp-config", config),
+            }
         }
         if let Some(effort) = &self.effort {
             pair("--effort", effort.clone());
@@ -206,7 +278,7 @@ impl LaunchOptions {
         // Streaming input always; the CLI then waits for `initialize` and user frames on stdin.
         args.push("--input-format".into());
         args.push("stream-json".into());
-        args
+        Ok(args)
     }
 
     /// The environment the CLI gets: base (inherited or explicit) minus `CLAUDECODE` (so the CLI does not
@@ -363,6 +435,35 @@ mod tests {
         }
         assert_eq!(&args[args.len() - 2..], ["--input-format", "stream-json"]);
         assert_eq!(options.sdk_mcp_server_names(), ["milagre"]);
+    }
+
+    #[test]
+    fn debug_redacts_and_private_files_keep_secrets_off_argv() {
+        let mut options = LaunchOptions::new("/bin/claude");
+        options.env = Some(vec![("ANTHROPIC_API_KEY".into(), "sk-secret".into())]);
+        options.env_overrides = vec![("TOKEN".into(), "t-secret".into())];
+        options.settings = Some(json!({"apiKeyHelper": "secret-helper"}));
+        options.system_prompt = SystemPrompt::Preset { append: Some("private instructions".into()) };
+        options.mcp_servers.insert("x".into(), json!({"type": "stdio", "command": "x", "env": {"KEY": "mcp-secret"}}));
+        let debug = format!("{options:?}");
+        for secret in ["sk-secret", "t-secret", "secret-helper", "private instructions", "mcp-secret"] {
+            assert!(!debug.contains(secret), "{secret} in {debug}");
+        }
+        let dir = private_dir().unwrap();
+        let args = options.args_in(&dir).unwrap().join(" ");
+        for secret in ["secret-helper", "private instructions", "mcp-secret"] {
+            assert!(!args.contains(secret), "{secret} on argv: {args}");
+        }
+        assert!(args.contains("--append-system-prompt-file"));
+        let prompt = dir.join("append-system-prompt.md");
+        assert_eq!(std::fs::read_to_string(&prompt).unwrap(), "private instructions");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&prompt).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
