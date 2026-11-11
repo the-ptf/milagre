@@ -3755,7 +3755,27 @@ impl ChatHost {
         let key = key.to_path_buf();
         let project_text = key.display().to_string();
         let live: HashSet<String> = self.preparing.keys().cloned().collect();
-        let (_, changed) = self.states.update(&key, None, true, |latest| {
+        // Only Chats whose summary has a divider preparing (or that have no summary) need their messages.
+        let chats: Vec<crate::chat_db::ChatId> = self
+            .states
+            .get(&key)?
+            .sessions()
+            .map(|sessions| {
+                sessions
+                    .values()
+                    .filter(|session| {
+                        let summary = session.get("summary");
+                        !jsjson::truthy(summary)
+                            || summary.is_some_and(|summary| summary.get("openHandoff").is_some())
+                    })
+                    .filter_map(|session| {
+                        let id = session.get("id")?.as_f64()?;
+                        (id.fract() == 0.0).then_some(id as crate::chat_db::ChatId)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let (_, changed) = self.states.update(&key, Some(&chats), true, |latest| {
             let mut sessions = latest.sessions().cloned().unwrap_or_default();
             let mut touched = false;
             for session in sessions.values_mut() {

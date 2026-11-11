@@ -342,6 +342,67 @@ T.append({"name": "restore-acp-second-send", "start": START, "seed": seed, "step
     {"op": "advance", "ms": 300},
     {"op": "snapshot"}]})
 
+# Chat summaries (session.summary, chat-summaries.cjs withChatSummaries through compactProjectState). The seed's
+# summaries are stale or missing: chat 1 says count 0 over two messages (what hid it from the sidebar), chat 2 has an
+# old lastAt (shed on the first read, its summary kept while unloaded), chat 3 has none and starts from a Linear issue
+# with a handoff left preparing (recovery fails it). Then sends, replies, an outcome turning from completed to failed,
+# an answer taken back, an idle sweep unloading Chats, a reload, and the unloaded Chat loaded back by a send.
+PR = "https://github.com/acme/app/pull/7"
+summary_seed = {
+    "next_id": 10,
+    "worktrees": {"1": {"id": 1, "path": "/tmp/milagre-chat-worktree", "name": "main"}},
+    "sessions": {
+        "1": {"id": 1, "worktree_id": 1, "agent_name": "main", "status": "Created", "summary": {"count": 0}},
+        "2": {"id": 2, "worktree_id": 1, "agent_name": "b", "status": "Created", "title": "Old",
+              "summary": {"count": 1, "firstId": 3, "lastId": 3, "titleLine": "Old chat", "lastAt": START - 3600000,
+                          "firstAt": START - 7200000}},
+        "3": {"id": 3, "worktree_id": 1, "agent_name": "c", "status": "Created"},
+    },
+    "messages": [
+        {"id": 1, "session_id": 1, "role": "user", "body": "  Fix the login\nsecond line", "model": "model-0",
+         "clientMessageId": "s1", "images": [{"path": "/tmp/a.png"}]},
+        {"id": 2, "session_id": 1, "role": "assistant", "body": "Opened it.", "outcome": "completed",
+         "steps": [{"kind": "shell", "status": "done", "title": "gh", "detail": "$ gh pr create --fill\nCreating\n" + PR}]},
+        {"id": 3, "session_id": 2, "role": "user", "body": "Old chat"},
+        {"id": 4, "session_id": 3, "role": "user", "body": "", "context": {"kind": "linear-issue", "key": "ENG-1", "workspace": "acme"}},
+        {"id": 5, "session_id": 3, "role": "assistant", "body": "",
+         "context": {"kind": "handoff", "from": {"provider": "kiro"}, "to": {"provider": "kiro"}, "status": "preparing"}},
+    ],
+}
+T.append({"name": "chat-summaries", "start": START, "seed": summary_seed, "steps": [
+    {"op": "open"},
+    send("Follow up", "c1"),
+    event("session-started", nativeId="native-1"),
+    event("turn-started", turnId="t1"),
+    event("text-delta", text="Done "),
+    event("step-started", step={"id": "m1", "kind": "shell", "title": "gh", "detail": "$ gh pr merge 7 --repo acme/app --squash\n"}),
+    event("step-completed", id="m1", status="done"),
+    event("turn-completed"),
+    {"op": "advance", "ms": 300},
+    # A Link line isn't activity: count and lastId move, lastAt doesn't.
+    {"op": "link", "session": 1},
+    {"op": "advance", "ms": 300},
+    send("Now break it", "c2"),
+    event("turn-started", turnId="t2"),
+    event("question-request", **QUESTION),
+    {"op": "refuseAnswers", "refuse": True},
+    {"op": "answerQuestion", "session": 1, "requestId": "q1", "answers": {"color": ["Blue"]}, "summary": "Blue"},
+    {"op": "refuseAnswers", "refuse": False},
+    event("turn-failed", message="it broke"),
+    {"op": "advance", "ms": 11 * 60 * 1000},
+    send("Third", "c3", session=3),
+    event("turn-started", turnId="t3", session=3),
+    event("turn-completed", session=3),
+    {"op": "advance", "ms": 300},
+    {"op": "snapshot"},
+    {"op": "crash"},
+    {"op": "open"},
+    send("Back to the old one", "c4", session=2),
+    event("turn-started", turnId="t4", session=2),
+    event("turn-completed", session=2),
+    {"op": "advance", "ms": 300},
+    {"op": "snapshot"}]})
+
 with open("fixtures/chat-traces.json", "w", encoding="ascii") as out:
     out.write(json.dumps(T, indent=2) + "\n")
 print(len(T), "traces,", sum(len(t["steps"]) for t in T), "steps")

@@ -281,6 +281,24 @@ async function run(tracesFile, name, dir) {
           await settle();
         }
         break;
+      case "link":
+        // A Link reaching a Chat (worktree-links.cjs adds the line): a ProjectStates change of that Chat only.
+        result = await attempt(async () => {
+          await states.update(
+            dir,
+            (latest) => ({
+              ...latest,
+              next_id: latest.next_id + 1,
+              messages: [
+                ...latest.messages,
+                { id: latest.next_id, session_id: step.session, role: "assistant", body: "", context: { kind: "worktree-linked", to: "other" } },
+              ],
+            }),
+            { chats: [step.session] },
+          );
+          return null;
+        });
+        break;
       case "flush":
         result = await attempt(async () => {
           await states.flush(dir);

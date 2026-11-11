@@ -257,6 +257,23 @@ impl Run {
                 let result = self.host.open_project(&p).map(|()| Value::Null);
                 self.attempt(result)
             }
+            "link" => {
+                // As chat-node.cjs: a Link line added to one Chat by a ProjectStates change.
+                let session = step["session"].as_i64().unwrap();
+                let result = self
+                    .host
+                    .states
+                    .update(&p, Some(&[session]), true, |latest| {
+                        let next_id = latest.rest["next_id"].as_i64().unwrap();
+                        let mut list = latest.message_list().to_vec();
+                        list.push(milagre_owner_store::message_store::Msg::new(json!({ "id": next_id, "session_id": session, "role": "assistant", "body": "", "context": { "kind": "worktree-linked", "to": "other" } })));
+                        let mut next = latest.with_messages(list);
+                        std::sync::Arc::make_mut(&mut next.rest).insert("next_id".into(), json!(next_id + 1));
+                        Some(next)
+                    })
+                    .map(|_| Value::Null);
+                self.attempt(result)
+            }
             "flush" => {
                 let result = self.host.states.flush(Some(&p)).map(|_| Value::Null);
                 self.attempt(result)

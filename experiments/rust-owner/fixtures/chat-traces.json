@@ -2496,5 +2496,351 @@
         "op": "snapshot"
       }
     ]
+  },
+  {
+    "name": "chat-summaries",
+    "start": 1767225600000,
+    "seed": {
+      "next_id": 10,
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/milagre-chat-worktree",
+          "name": "main"
+        }
+      },
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "agent_name": "main",
+          "status": "Created",
+          "summary": {
+            "count": 0
+          }
+        },
+        "2": {
+          "id": 2,
+          "worktree_id": 1,
+          "agent_name": "b",
+          "status": "Created",
+          "title": "Old",
+          "summary": {
+            "count": 1,
+            "firstId": 3,
+            "lastId": 3,
+            "titleLine": "Old chat",
+            "lastAt": 1767222000000,
+            "firstAt": 1767218400000
+          }
+        },
+        "3": {
+          "id": 3,
+          "worktree_id": 1,
+          "agent_name": "c",
+          "status": "Created"
+        }
+      },
+      "messages": [
+        {
+          "id": 1,
+          "session_id": 1,
+          "role": "user",
+          "body": "  Fix the login\nsecond line",
+          "model": "model-0",
+          "clientMessageId": "s1",
+          "images": [
+            {
+              "path": "/tmp/a.png"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "session_id": 1,
+          "role": "assistant",
+          "body": "Opened it.",
+          "outcome": "completed",
+          "steps": [
+            {
+              "kind": "shell",
+              "status": "done",
+              "title": "gh",
+              "detail": "$ gh pr create --fill\nCreating\nhttps://github.com/acme/app/pull/7"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "session_id": 2,
+          "role": "user",
+          "body": "Old chat"
+        },
+        {
+          "id": 4,
+          "session_id": 3,
+          "role": "user",
+          "body": "",
+          "context": {
+            "kind": "linear-issue",
+            "key": "ENG-1",
+            "workspace": "acme"
+          }
+        },
+        {
+          "id": 5,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "",
+          "context": {
+            "kind": "handoff",
+            "from": {
+              "provider": "kiro"
+            },
+            "to": {
+              "provider": "kiro"
+            },
+            "status": "preparing"
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "open"
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Follow up",
+          "clientMessageId": "c1"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "session-started",
+          "nativeId": "native-1"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-started",
+          "turnId": "t1"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "text-delta",
+          "text": "Done "
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "step-started",
+          "step": {
+            "id": "m1",
+            "kind": "shell",
+            "title": "gh",
+            "detail": "$ gh pr merge 7 --repo acme/app --squash\n"
+          }
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "step-completed",
+          "id": "m1",
+          "status": "done"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "link",
+        "session": 1
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 1,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Now break it",
+          "clientMessageId": "c2"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-started",
+          "turnId": "t2"
+        }
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "question-request",
+          "requestId": "q1",
+          "questions": [
+            {
+              "id": "color",
+              "header": "Color",
+              "question": "Which color?",
+              "options": [
+                {
+                  "label": "Red"
+                },
+                {
+                  "label": "Blue"
+                }
+              ]
+            },
+            {
+              "id": "token",
+              "header": "Token",
+              "question": "API token?",
+              "secret": true,
+              "options": [
+                {
+                  "label": "Skip"
+                }
+              ]
+            },
+            {
+              "id": "size",
+              "header": "Size",
+              "question": "Which size?",
+              "options": []
+            }
+          ]
+        }
+      },
+      {
+        "op": "refuseAnswers",
+        "refuse": true
+      },
+      {
+        "op": "answerQuestion",
+        "session": 1,
+        "requestId": "q1",
+        "answers": {
+          "color": ["Blue"]
+        },
+        "summary": "Blue"
+      },
+      {
+        "op": "refuseAnswers",
+        "refuse": false
+      },
+      {
+        "op": "event",
+        "session": 1,
+        "event": {
+          "type": "turn-failed",
+          "message": "it broke"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 660000
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 3,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Third",
+          "clientMessageId": "c3"
+        }
+      },
+      {
+        "op": "event",
+        "session": 3,
+        "event": {
+          "type": "turn-started",
+          "turnId": "t3"
+        }
+      },
+      {
+        "op": "event",
+        "session": 3,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "snapshot"
+      },
+      {
+        "op": "crash"
+      },
+      {
+        "op": "open"
+      },
+      {
+        "op": "send",
+        "request": {
+          "sessionId": 2,
+          "provider": "kiro",
+          "model": "model-a",
+          "body": "Back to the old one",
+          "clientMessageId": "c4"
+        }
+      },
+      {
+        "op": "event",
+        "session": 2,
+        "event": {
+          "type": "turn-started",
+          "turnId": "t4"
+        }
+      },
+      {
+        "op": "event",
+        "session": 2,
+        "event": {
+          "type": "turn-completed"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "snapshot"
+      }
+    ]
   }
 ]
