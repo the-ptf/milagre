@@ -17,9 +17,11 @@ use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gpui::{
-    AnyElement, ClickEvent, ClipboardItem, Context, Entity, FontWeight, ListAlignment, ListOffset, ListState, Pixels, SharedString,
-    Subscription, Task, Window, canvas, div, list, prelude::*, px,
+    AnyElement, AnyView, App, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, FontWeight, KeyBinding, ListAlignment, ListOffset,
+    ListState, MouseButton, MouseDownEvent, Pixels, SharedString, StyleRefinement, Subscription, Task, WeakEntity, Window, canvas, div,
+    list, prelude::*, px,
 };
+use gpui_base::input::{Copy as CopyText, SelectAll};
 use gpui_base::{MarkdownExtensions, TextSelection, TextViewState, TextViewStyle};
 use gpui_component::input::InputState;
 
@@ -30,9 +32,10 @@ use crate::theme::{
 };
 use crate::ui::markdown::stream::{close_open_markdown, split_streaming_blocks};
 use crate::ui::markdown::{LinkHandler, Markdown, extensions, open_with_system, plain_text_source, text_view_style};
+use crate::ui::selection::{Flavor, Plain, join, plain_text};
 use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconName, IconSize};
 use crate::workspace::chat::transcript::step_row::StepRow;
-use crate::workspace::chat::transcript_selection::{Keeper, SelectionTracker, SharedPainted, SharedTracker};
+use crate::workspace::chat::transcript_selection::{Keeper, SelectionTracker, SharedAll, SharedPainted, SharedTracker};
 
 pub mod activity;
 pub mod cards;
@@ -57,6 +60,21 @@ const OVERDRAW: f32 = 600.0;
 /// Text views kept for items this far outside the last drawn range; further ones are dropped and parsed again
 /// when they come back (the desktop keeps parsed bodies in an LRU of 500 for the same reason).
 const VIEW_MARGIN: usize = 150;
+/// The key context of the transcript: ⌘A selects every message and ⌘C copies the selection while focus is in it.
+const KEY_CONTEXT: &str = "Transcript";
+
+/// ⌘A and ⌘C for the transcript, once per app. A focused message's own text view binds the same keys to the same
+/// actions; the transcript takes them first (`capture_action`).
+pub fn install_keys(cx: &mut App) {
+    struct Installed;
+    impl gpui::Global for Installed {}
+    if cx.has_global::<Installed>() {
+        return;
+    }
+    cx.set_global(Installed);
+    cx.bind_keys([KeyBinding::new("cmd-a", SelectAll, Some(KEY_CONTEXT)), KeyBinding::new("cmd-c", CopyText, Some(KEY_CONTEXT))]);
+}
+
 /// A streamed answer renders at most this often (`STREAM_RENDER_MS` in `Markdown.tsx`); the last batch always shows.
 pub const STREAM_RENDER: Duration = Duration::from_millis(50);
 
@@ -133,7 +151,8 @@ struct Stream {
 pub struct Transcript {
     items: Vec<Item>,
     list: ListState,
-    /// Every call to `render_item`, for the "only visible items are laid out" check.
+    /// Every item element built (a cached row that is reused builds none), for the "only visible items are laid
+    /// out" check and the drag measurements.
     item_renders: Rc<Cell<usize>>,
     /// Text view states created and texts handed to them (each one a parse), for the measurements.
     parses: Rc<Cell<usize>>,
@@ -149,6 +168,11 @@ pub struct Transcript {
     on_link: LinkHandler,
     tracker: SharedTracker,
     painted: SharedPainted,
+    all: SharedAll,
+    /// While a selection is dragged, each row on screen is a cached view of its own (`RowView`), so the selection
+    /// moving through one message re-renders that message and no other.
+    row_views: HashMap<usize, Entity<RowView>>,
+    focus: FocusHandle,
     /// Snapshot mode (`MILAGRE_GPUI_TRANSCRIPT_SELECT`): drag over this item once it has been drawn.
     select_on_open: Option<usize>,
     /// Settings › Chat › Tool call display (default Compact) and Always expand reasoning (default off).
@@ -206,6 +230,7 @@ impl Transcript {
     pub fn with_items(items: Vec<Item>, cx: &mut Context<Self>) -> Self {
         // Code colours from Milagre's Shiki buckets, on gpui-component's theme (idempotent).
         crate::ui::markdown::highlight::install(cx);
+        install_keys(cx);
         let list = ListState::new(items.len(), ListAlignment::Bottom, px(OVERDRAW));
         let theme = *cx.theme();
         let on_link = open_with_system();
@@ -224,6 +249,9 @@ impl Transcript {
             on_link,
             tracker: SharedTracker::default(),
             painted: SharedPainted::default(),
+            all: SharedAll::default(),
+            row_views: HashMap::new(),
+            focus: cx.focus_handle(),
             select_on_open: None,
             display: ToolCallDisplay::Compact,
             expand_reasoning: false,
@@ -246,6 +274,8 @@ impl Transcript {
         self.viewer = None;
         self.select_on_open = None;
         *self.tracker.borrow_mut() = SelectionTracker::default();
+        self.all.borrow_mut().end(cx);
+        self.row_views.clear();
         self.painted.borrow_mut().clear();
         cx.notify();
     }
@@ -300,6 +330,15 @@ impl Transcript {
     /// Which items hold the ends of the selection.
     pub fn selection(&self) -> SelectionTracker {
         *self.tracker.borrow()
+    }
+
+    /// Whether ⌘A selected every message.
+    pub fn all_selected(&self) -> bool {
+        self.all.borrow().active
+    }
+
+    pub fn focus_handle(&self) -> &FocusHandle {
+        &self.focus
     }
 
     /// The text view of a selectable item, created if needed.
@@ -456,67 +495,124 @@ impl Transcript {
         self.views.retain(|ix, _| keep.contains(ix) || ends.contains(ix) || streams.contains_key(ix));
     }
 
-    /// The text a selection covering all of item `ix` copies.
-    fn full_text(&mut self, ix: usize, cx: &mut Context<Self>) -> String {
-        if !self.ensure_views(ix, cx) {
-            return String::new();
+    /// What a selection covering all of item `ix` copies (`ui::selection::plain`), from its source: no text view
+    /// is needed, so items far from the screen copy without being parsed for display.
+    fn whole_text(&self, ix: usize) -> Plain {
+        match self.items.get(ix) {
+            Some(Item::User(text)) => Plain::block(text.to_string()),
+            Some(Item::Prose(prose)) => plain_text(&prose.text, 0..prose.text.len(), Flavor::Markdown),
+            _ => Plain::default(),
         }
-        let views = &self.views[&ix];
-        let mut text = views.main.read(cx).rendered_text().as_str().to_string();
-        if let Some(live) = &views.live {
-            text.push_str(live.read(cx).rendered_text().as_str());
-        }
-        text
     }
 
-    /// The part of item `ix` the selection holds, as its views last painted it.
-    fn selected_part(&self, ix: usize, cx: &Context<Self>) -> String {
-        let Some(views) = self.views.get(&ix) else { return String::new() };
-        let mut text = views.main.read(cx).selected_text();
-        if let Some(live) = &views.live {
-            text.push_str(&live.read(cx).selected_text());
+    /// What the selection holds of item `ix`, an end of it: the source range its text view reports, serialised as
+    /// the desktop copies it. A streamed answer, or a selection the view cannot map to its source (inside a nested
+    /// fence), copies the view's own text.
+    fn part_text(&self, ix: usize, cx: &App) -> Plain {
+        let Some(views) = self.views.get(&ix) else { return Plain::default() };
+        let state = views.main.read(cx);
+        let range = if self.streams.contains_key(&ix) { None } else { state.selected_source_range() };
+        let (Some(range), Some(item)) = (range, self.items.get(ix)) else {
+            let mut text = state.selected_text();
+            if let Some(live) = &views.live {
+                text.push_str(&live.read(cx).selected_text());
+            }
+            return Plain::block(text);
+        };
+        match item {
+            Item::User(typed) => {
+                let source = plain_text_source(typed);
+                if range.start == 0 && range.end >= source.len() {
+                    Plain::block(typed.to_string())
+                } else {
+                    plain_text(&source, range, Flavor::PreWrap)
+                }
+            }
+            Item::Prose(prose) => plain_text(&prose.text, range, Flavor::Markdown),
+            _ => Plain::default(),
         }
-        text
     }
 
     /// The text a copy gives for a selection whose ends are in items `first` and `last`: the selected part of each
-    /// end and the whole text of every selectable item between, joined as gpui-base joins its participants.
+    /// end and the whole of every selectable item between, mounted or not, joined as the desktop's blocks join.
     pub fn selected_text_between(&mut self, first: usize, last: usize, cx: &mut Context<Self>) -> String {
-        let mut parts = Vec::new();
-        for ix in first..=last {
-            if !self.is_selectable(ix) {
-                continue;
-            }
-            let part = if ix == first || ix == last { self.selected_part(ix, cx) } else { self.full_text(ix, cx) };
-            if !part.trim().is_empty() {
-                parts.push(part);
-            }
-        }
-        parts.join("\n")
+        let parts: Vec<Plain> = (first..=last)
+            .filter(|ix| self.is_selectable(*ix))
+            .map(|ix| if ix == first || ix == last { self.part_text(ix, cx) } else { self.whole_text(ix) })
+            .collect();
+        join(parts)
     }
 
-    /// ⌘C over a selection across items: the transcript copies, since items between the ends may not be mounted.
-    /// A selection inside one item is left to gpui-base (the action goes on to the text view).
-    fn copy_selection(&mut self, _: &gpui_base::input::Copy, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((first, last)) = self.tracker.borrow().span() else { return };
-        if first == last || !TextSelection::has_selection(window, cx) {
-            return;
-        }
-        let text = self.selected_text_between(first, last, cx);
-        let text = text.trim();
-        if text.is_empty() {
-            return;
-        }
-        cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
+    /// What ⌘C copies now: everything after ⌘A, else the selection the drag left, else nothing.
+    pub fn copy_text(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<String> {
+        let text = if self.all.borrow().active {
+            join((0..self.items.len()).map(|ix| self.whole_text(ix)))
+        } else {
+            let (first, last) = self.tracker.borrow().span()?;
+            if !TextSelection::has_selection(window, cx) {
+                return None;
+            }
+            self.selected_text_between(first, last, cx)
+        };
+        (!text.trim().is_empty()).then_some(text)
+    }
+
+    /// ⌘C while focus is in the transcript: the transcript copies, since items between the ends may not be
+    /// mounted and the desktop's text differs from gpui-base's own. Nothing selected here: the action goes on.
+    fn copy_selection(&mut self, _: &CopyText, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(text) = self.copy_text(window, cx) else { return };
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
         cx.stop_propagation();
     }
 
-    /// Snapshot mode: once the answer `select_on_open` names was drawn, drags from its second line to the middle
-    /// of its code block through the window's input, as a pointer would.
+    /// ⌘A while focus is in the transcript: every message, as a page's ⌘A selects the page. The window selection
+    /// goes; each text view shows the selection through its own select-all, now or when it is next built.
+    pub fn select_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        TextSelection::clear(window, cx);
+        *self.tracker.borrow_mut() = SelectionTracker::default();
+        let mut all = self.all.borrow_mut();
+        all.active = true;
+        for views in self.views.values() {
+            for view in std::iter::once(&views.main).chain(views.live.as_ref()) {
+                all.apply(view, cx);
+            }
+        }
+        drop(all);
+        cx.notify();
+    }
+
+    /// While ⌘A holds, each message drawn last frame shows it: a view built since (or reset by its first parse)
+    /// selects all now. A streamed answer is left as it is.
+    fn keep_all_selected(&mut self, cx: &mut Context<Self>) {
+        if !self.all.borrow().active {
+            return;
+        }
+        let drawn: Vec<usize> = self.painted.borrow().last_texts().collect();
+        for ix in drawn {
+            let Some(views) = self.views.get(&ix).filter(|_| !self.streams.contains_key(&ix)) else { continue };
+            if views.main.read(cx).selected_source_range().is_none() {
+                self.all.borrow_mut().apply(&views.main, cx);
+            }
+        }
+    }
+
+    fn select_all_action(&mut self, _: &SelectAll, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_all(window, cx);
+        cx.stop_propagation();
+    }
+
+    /// Snapshot mode: once the answer `select_on_open` names was drawn, drags from the middle of the message above
+    /// it (when drawn; else from the answer's second line) to the middle of its code block through the window's
+    /// input, as a pointer would: a selection across messages.
     fn select_for_snapshot(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(text) = self.select_on_open.and_then(|ix| self.drawn_text(ix)) else { return };
+        let Some(ix) = self.select_on_open else { return };
+        let Some(text) = self.drawn_text(ix) else { return };
         self.select_on_open = None;
-        let from = gpui::point(text.left() + px(40.0), text.top() + px(60.0));
+        let above = (0..ix).rev().find(|ix| self.is_selectable(*ix)).and_then(|ix| self.drawn_text(ix));
+        let from = match above {
+            Some(above) => gpui::point(above.left() + px(60.0), above.top() + px(10.0)),
+            None => gpui::point(text.left() + px(40.0), text.top() + px(60.0)),
+        };
         let to = gpui::point(text.left() + px(300.0), text.bottom() - px(130.0));
         window.defer(cx, move |window, cx| {
             let left = gpui::MouseButton::Left;
@@ -563,13 +659,32 @@ impl Transcript {
             .into_any_element()
     }
 
+    /// Item `ix` for the list. While a selection is dragged, a row drawn last frame is a cached view at last
+    /// frame's height (heights do not change under a drag): only a row whose selection moved renders again. A
+    /// streamed answer changes on its own, so it is never cached.
     fn render_item(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        self.item_renders.set(self.item_renders.get() + 1);
+        let last = self.painted.borrow().last_row(ix);
+        if self.tracker.borrow().is_dragging()
+            && !self.streams.contains_key(&ix)
+            && let Some(last) = last
+        {
+            let transcript = cx.weak_entity();
+            let view = self.row_views.entry(ix).or_insert_with(|| cx.new(|_| RowView { transcript, ix })).clone();
+            self.painted.borrow_mut().carry(ix);
+            return div()
+                .w_full()
+                .h(last.size.height)
+                .child(AnyView::from(view).cached(StyleRefinement::default().size_full()))
+                .into_any_element();
+        }
         self.row(ix, true, window, cx)
     }
 
     /// Item `ix` as the list draws it; `in_list` false for a copy the keeper draws off screen.
     fn row(&mut self, ix: usize, in_list: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if in_list {
+            self.item_renders.set(self.item_renders.get() + 1);
+        }
         let theme = *cx.theme();
         let previous = ix.checked_sub(1).and_then(|p| self.items.get(p));
         let top = top_gap(previous, &self.items[ix]);
@@ -717,8 +832,15 @@ impl Render for Transcript {
         let frame = self.probe.as_mut().map(|probe| probe.frame(&self.item_renders));
         self.refresh_style(cx);
         self.select_for_snapshot(window, cx);
-        self.evict_views();
-        self.painted.borrow_mut().clear();
+        if !self.tracker.borrow().is_dragging() {
+            // A drag keeps every view it passed: no message is parsed again under the pointer.
+            self.evict_views();
+        }
+        self.painted.borrow_mut().begin_frame();
+        self.keep_all_selected(cx);
+        if !self.tracker.borrow().is_dragging() {
+            self.row_views.clear();
+        }
         // The items holding a selection end, built now; the keeper draws those the list does not.
         let ends: Vec<usize> = self.tracker.borrow().ends().filter(|ix| self.is_selectable(*ix)).collect();
         let kept: Vec<(usize, AnyElement)> = ends.into_iter().map(|ix| (ix, self.row(ix, false, window, cx))).collect();
@@ -727,19 +849,47 @@ impl Render for Transcript {
         div()
             .size_full()
             .relative()
+            .track_focus(&self.focus)
+            .key_context(KEY_CONTEXT)
             .capture_action(cx.listener(Self::copy_selection))
+            .capture_action(cx.listener(Self::select_all_action))
+            // A press in the transcript moves focus here (as a page takes it from a field), so ⌘A and ⌘C reach it;
+            // a text view or field inside that focuses itself keeps it.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                    if !this.focus.contains_focused(window, cx) {
+                        window.focus(&this.focus, cx);
+                    }
+                }),
+            )
             .child(
                 list(self.list.clone(), cx.processor(Self::render_item))
                     .size_full()
                     .pt(px(LIST_TOP_PAD))
                     .pb(px(BOTTOM_CLEARANCE) + self.footer),
             )
-            .child(Keeper::new(self.tracker.clone(), self.painted.clone(), kept))
+            .child(Keeper::new(self.tracker.clone(), self.painted.clone(), self.all.clone(), kept))
             .children(overlay)
             .children(frame.map(|frame| {
                 // Zero-size and last: its paint runs after every item of this frame has painted.
                 canvas(|_, _, _| {}, move |_, _, _, _| frame.painted()).absolute().size(px(0.0))
             }))
+    }
+}
+
+/// One row of the transcript as a view of its own, mounted cached while a selection is dragged (`render_item`).
+/// It draws what the transcript draws for the row.
+pub struct RowView {
+    transcript: WeakEntity<Transcript>,
+    ix: usize,
+}
+
+impl Render for RowView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let ix = self.ix;
+        let row = self.transcript.update(cx, |transcript, cx| transcript.row(ix, true, window, cx)).ok();
+        div().size_full().children(row)
     }
 }
 

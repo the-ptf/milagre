@@ -393,23 +393,32 @@ Rules of `apps/desktop/app/src/components/markdown`, one by one:
 | Parsed-body cache (500 entries)                                          | Equivalent: a message keeps its parse while within 150 items of the screen                               |
 | User messages as typed text                                              | Done (`plain_text_source` escapes markdown); chips, quotes, fences of `PromptText`: not done             |
 
-Selection. One drag selects across paragraphs, lists, tables, code blocks and messages (gpui-base). The gap the fit
-check found (`gap_selection_is_dropped_when_the_anchor_message_unmounts`: the list drops the message the drag began in
-and gpui-base clears the whole selection) is closed by keeping the ends mounted: the transcript follows which items
-hold the anchor and the cursor (`SelectionTracker`, gpui-base's participant rule at item level), and `Keeper`, painted
-after the list, draws each end item the list did not draw, at the list's width, just outside its bounds, clipped away.
-Its participant stays registered, so the selection, its highlight and the end's offset survive a drag past 50 items
-and scrolling far away (`transcript_tests.rs`). ⌘C over a selection across items is the transcript's: the selected
-part of the two ends plus the whole text of every message between, mounted or not, joined as gpui-base joins
-participants; with everything mounted it equals gpui-base's own copy (tested). Left: messages between the ends that
-are off screen paint no highlight until they come back; a kept item paints after the list, so gpui-base's own
-ordering of it is wrong (only its copy reads that, and the transcript replaces it); a partial selection inside a
-nested `markdown` fence is not in the transcript's copy; tool rows and approvals are not selectable, as in the desktop.
+Selection (WP-16). One drag selects across paragraphs, lists, tables, code blocks and messages (gpui-base); a
+double click selects a word, a triple click a paragraph, and a shift-click extends from the anchor, into another
+message too. The gap the fit check found (`gap_selection_is_dropped_when_the_anchor_message_unmounts`: the list drops
+the message the drag began in and gpui-base clears the whole selection) is closed by keeping the ends mounted: the
+transcript follows which items hold the anchor and the cursor (`SelectionTracker`, gpui-base's participant rule at
+item level), and `Keeper`, painted after the list, draws each end item the list did not draw, at the list's width,
+just outside its bounds, clipped away. Its participant stays registered, so the selection, its highlight and the
+end's offset survive a drag past 50 items and scrolling far away (`transcript_tests.rs`). ⌘A with focus in the
+transcript (a press anywhere in it takes focus, as a page does) selects every message, drawn or not: each text view
+shows it through its own select-all as it is drawn, and the next press ends it.
 
-Copy parity is by reading the React code, not by running Electron: the desktop has no copy handler, so Chromium
-serialises the DOM selection. Two differences to check at the Mac: Chromium leaves `user-select: none` content out of a
-copy, and a file chip is a `<button>` there, so Electron likely copies a selection without the chip's text where this
-port includes it (as the brief asks); and Chromium's newlines between blocks may differ from gpui-base's.
+⌘C is the transcript's, for every selection in it: the selected part of the two end items (from the source range
+gpui-base reports) and the whole of every message between, mounted or not, serialised by `ui/selection/plain.rs` as
+Chromium serialises the desktop's DOM (`TextIterator`: a blank line after a paragraph, one newline after other blocks,
+table cells joined by tabs, no list markers, a code block's language line when the selection starts above it, user
+messages as typed). It works from the Markdown source, so copying 2,000 messages parses none for display. Copy parity
+is by reading the React and Chromium code, not by running Electron (the desktop has no copy handler). Left: a file chip
+is a `<button>` in Electron, so Electron likely leaves its text out where this keeps it (as the brief asks); a partial
+selection inside a nested `markdown` fence or a streaming answer copies gpui-base's text; tool rows and approvals are
+not selectable, as in the desktop.
+
+While a selection is dragged, each row drawn last frame is a cached view (`RowView`) at last frame's height, so a step
+rebuilds only the rows whose selection changed: gpui-base tells every participant between the ends that the selection
+moved, so that is the rows from the anchor to the pointer, never one outside them. A press becomes a drag only after
+the pointer moves 3 px, so a click on a button keeps the rows it was built in. Views are not evicted during a drag, so
+no message is parsed twice under the pointer.
 
 Measured in `transcript_tests.rs` (test platform, 2,000-item fixture, `cargo test --release -- --test-threads=1`,
 Apple M5 Pro; debug in brackets):
@@ -418,11 +427,15 @@ Apple M5 Pro; debug in brackets):
 | --------------------------------- | --------------------------------------------------------------------------- |
 | Open 2,000 items                  | 68 item builds, 10 texts parsed, 8 ms to the first frame (debug 56 ms)      |
 | One streamed append (1,049 chars) | 2 texts parsed (the appended block, the live block), 28 item builds, 2.5 ms |
-| Drag over 50 items (140 steps)    | 1,904 item builds (13.6 a step), 166 ms in all (debug 7.0 s)                |
+| Drag over 50 items (140 steps)    | 1,900 item builds (13.6 a step), 81 ms in all (debug 0.8 s)                 |
+| Drag through 200 messages         | 544 frames: mean 0.70 ms, p95 0.92 ms, max 1.44 ms; 12 builds a frame       |
+| Drag over a screenful, no scroll  | 60 frames: mean 0.26 ms, p95 0.32 ms; builds only rows inside the selection |
 
 Assertions on `debug_bounds` only hold in debug builds; run the release measurement for the numbers, not the
 pass. `MILAGRE_GPUI_TRANSCRIPT_TOP=<item>|rich` opens scrolled to an item (or the last answer with a table) and
-`MILAGRE_GPUI_TRANSCRIPT_SELECT=1` drags a selection over that answer, for snapshots.
+`MILAGRE_GPUI_TRANSCRIPT_SELECT=1` drags a selection from the message above into that answer, for snapshots (a
+snapshot window that is never activated presents only its first frame when the display sleeps or covers it, so the
+selection shows only on a Mac whose screen is awake).
 
 ## Composer notes
 
