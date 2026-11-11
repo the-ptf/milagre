@@ -45,6 +45,24 @@ async function scenario(name) {
     await client.call("chat:send", [
       { projectPath: project, sessionId: 1, body, clientMessageId: "claude-" + name, provider: "claude", model: "sonnet", permissionMode: "ask" },
     ]);
+    if (name === "queue") {
+      const queued = await client.call("chat:send", [
+        {
+          projectPath: project,
+          sessionId: 1,
+          body: "second queued input",
+          clientMessageId: "queued-two",
+          provider: "claude",
+          model: "sonnet",
+          permissionMode: "ask",
+          delivery: "queue",
+        },
+      ]);
+      assert.equal(queued.sessionId, 1);
+      const pendingState = await client.call("project:snapshot", [project]);
+      assert.equal(pendingState.state.sessions["1"].queued.length, 1);
+      assert.equal(pendingState.state.sessions["1"].queued[0].body, "second queued input");
+    }
     if (name === "permission") {
       await until("permission card", () => events.some((e) => e.type === "permission-request"));
       const card = events.find((e) => e.type === "permission-request");
@@ -64,12 +82,18 @@ async function scenario(name) {
       await until("native session", () => events.some((e) => e.type === "session-started"));
       await client.call("agent:interrupt", [chatId]);
     }
-    await until("single terminal event", () => events.some((e) => ["turn-completed", "turn-failed", "turn-cancelled"].includes(e.type)));
-    assert.equal(events.filter((e) => ["turn-completed", "turn-failed", "turn-cancelled"].includes(e.type)).length, 1);
+    const expectedTurns = name === "queue" ? 2 : 1;
+    await until("terminal events", () => events.filter((e) => ["turn-completed", "turn-failed", "turn-cancelled"].includes(e.type)).length === expectedTurns);
+    assert.equal(events.filter((e) => ["turn-completed", "turn-failed", "turn-cancelled"].includes(e.type)).length, expectedTurns);
     if (!["stop", "crash"].includes(name)) {
       const messages = await client.call("chat:messages", [project, 1]);
       assert.ok(messages.messages.some((m) => m.body === (name === "unicode" ? "native \u{10fffe} \ue123 \ufffd" : "Claude fixture hello")));
       assert.ok(messages.messages.some((m) => m.body === body));
+      if (name === "queue") {
+        assert.equal(messages.messages.filter((m) => m.body === "second queued input").length, 1);
+        assert.equal(messages.messages.filter((m) => m.body === "Claude fixture hello").length, 2);
+        assert.equal(events.filter((e) => e.type === "session-started").length, 1, "queue reuses the same native session");
+      }
     }
     if (name === "content") {
       const listed = await runtime.invoke("artifact:list", [{ chatId }]);
@@ -98,8 +122,8 @@ async function scenario(name) {
   }
 }
 (async () => {
-  for (const name of ["reply", "permission", "question", "stop", "crash", "unicode", "content"]) await scenario(name);
-  console.log("Claude owner Node client conformance passed (7 scenarios)");
+  for (const name of ["reply", "permission", "question", "stop", "crash", "unicode", "content", "queue"]) await scenario(name);
+  console.log("Claude owner Node client conformance passed (8 scenarios)");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

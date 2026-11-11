@@ -37,6 +37,7 @@ pub enum Scenario {
     Subagent,
     Unicode,
     Content,
+    Queue,
 }
 fn refused(text: &str) -> ProviderError {
     ProviderError::new(ProviderErrorKind::Refused, text)
@@ -848,6 +849,7 @@ fn script_for(scenario: Scenario) -> Value {
         match scenario {
    Scenario::Permission=>steps.extend([json!({"request":{"id":"p1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo fixture"}}}}),json!({"expect":{"type":"control_response","fields":{"/response/request_id":"p1"}}})]),
    Scenario::Question|Scenario::QuestionDelayedReceipt|Scenario::Unicode=>steps.extend([json!({"request":{"id":"q1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A","description":"First"},{"label":"B","description":"Second"}]}]}}}}),json!({"expect":{"type":"control_response","fields":{"/response/request_id":"q1"}}})]),
+   Scenario::Queue => { steps.push(json!({"sleep_ms":200})); },
    Scenario::Content => {
     steps.extend([
      json!({"request":{"id":"content-show","request":{"subtype":"mcp_message","server_name":"milagre","message":{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"artifact_show","arguments":{"title":"Native Claude artifact","html":"<main>Native shared content</main>"}}}}}}),
