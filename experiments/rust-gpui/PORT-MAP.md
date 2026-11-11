@@ -8,7 +8,8 @@ decision"); the GPUI facts below follow that move. Read-only analysis: nothing o
 
 **Scope decisions (Victor, 2026-11-11):** macOS only for now; Linux and Windows code paths (named pipes, Windows
 paths in markdown and file links, window-control modes, `daemon:authenticate`) are not ported or tested. The Canvas
-view (V-01, WP-47) is not migrated.
+view (V-01, WP-47), the Browser panel (WP-35), Dictation (WP-53) and the floating inbox (WP-54) are not
+migrated. The web content host (WP-34) stays for Artifacts and HTML replies only.
 
 How to use it: section 1 is the summary. Section 2 lists every user-visible surface with an ID (`S-06`, `T-19`, …).
 Section 6 hands those IDs out to work packages. An agent given one package should read its package block, the surface
@@ -1440,7 +1441,7 @@ Parallel: after WP-18, run WP-19, WP-21 and WP-24 together. Then WP-20 (after WP
 - `gpui-component`: `gpui-webview` (on `lb-wry`) is the candidate for D1.
 - Verify: a fixture artifact with assets loads; CSP blocks fetch; resize and scroll keep the webview aligned.
 
-**WP-35 Browser panel** · Opus · L
+**WP-35 Browser panel** · Opus · L · **Out of scope (Victor, 2026-11-11): not migrated.**
 
 - Goal: per D2, the tab strip, address bar and start page; agent and attached pages through the streamed viewer
   (frames as images, input forwarded, geometry from `shared/browser-receiver.mjs`); user tabs open in the default
@@ -1577,7 +1578,7 @@ WP-45; WP-49 after WP-48.
 
 ### Wave 5: platform-heavy features
 
-**WP-53 Dictation** · Opus · XL
+**WP-53 Dictation** · Opus · XL · **Out of scope (Victor, 2026-11-11): not migrated.**
 
 - Surfaces: K-06. Owns: `src/platform/{audio,whisper}.rs`, `src/workspace/chat/composer/dictation.rs`.
 - Goal: cpal capture at 16 kHz mono, the `voice-stream.ts` segmentation, Whisper (whisper-rs, or keep a host helper),
@@ -1585,7 +1586,7 @@ WP-45; WP-49 after WP-48.
 - Depends on: WP-17, WP-24. Verify: recorded audio fixtures give stable segment boundaries.
 - `gpui-component`: `speech` is a candidate for capture and levels (D8); Whisper stays.
 
-**WP-54 Floating inbox** · Opus · XL
+**WP-54 Floating inbox** · Opus · XL · **Out of scope (Victor, 2026-11-11): not migrated.**
 
 - Surfaces: O-17. Owns: `src/inbox/*`, `src/platform/floating.rs`.
 - Goal: dock, inbox, preview and drag windows (`WindowKind::PopUp`, transparent), edge snapping per display,
