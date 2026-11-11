@@ -40,6 +40,20 @@ fn validate_size(value: &Value) -> io::Result<()> {
     }
     serde_json::to_writer(Count(0), value).map_err(io::Error::other)
 }
+/// Aggregate encoded bytes retained by successful cache loads, charged once per structural slot.
+/// Serialize loads under this budget on a blocking worker, never on an async runtime thread.
+pub struct LoadBudget {
+    limit: u64,
+    used: Mutex<BTreeMap<String, u64>>,
+}
+impl LoadBudget {
+    pub fn new(limit: u64) -> Self {
+        Self { limit, used: Mutex::new(BTreeMap::new()) }
+    }
+    pub fn used_bytes(&self) -> u64 {
+        lock(&self.used).values().sum()
+    }
+}
 type Outcome = Result<(), String>;
 type Reply = watch::Sender<Option<Outcome>>;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -82,6 +96,13 @@ impl TempCache {
     #[cfg(all(test, unix))]
     pub(crate) fn test_directory(&self) -> &std::path::Path {
         self.0.disk._temp.path()
+    }
+    #[cfg(all(test, unix))]
+    pub(crate) fn test_block_load(&self) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (tx, entered) = std::sync::mpsc::channel();
+        let (resume, rx) = std::sync::mpsc::channel();
+        *lock(&self.0.disk.load_gate) = Some((tx, rx));
+        (entered, resume)
     }
     pub fn fresh() -> io::Result<Self> {
         Ok(Self(Arc::new(Capability {
@@ -203,6 +224,22 @@ impl CacheOwner {
         lock(&self.cap.diagnostics).clone()
     }
     fn load(&self, key: Key) -> io::Result<Value> {
+        self.load_with_limit(key, MAX_CACHE_BYTES)
+    }
+    fn load_budgeted(&self, key: Key, budget: &LoadBudget) -> io::Result<Value> {
+        let mut slots = lock(&budget.used);
+        let previous = slots.get(key.name()).copied().unwrap_or(0);
+        let available = budget.limit.saturating_sub(slots.values().sum::<u64>().saturating_sub(previous)).min(MAX_CACHE_BYTES);
+        let value = self.load_with_limit(key.clone(), available)?;
+        let bytes = serde_json::to_vec(&value)?.len() as u64;
+        if bytes > available {
+            self.diagnostic(&key, "aggregate cache load budget exceeded");
+            return Err(io::Error::new(io::ErrorKind::OutOfMemory, "aggregate cache load budget exceeded"));
+        }
+        slots.insert(key.name().to_owned(), bytes);
+        Ok(value)
+    }
+    fn load_with_limit(&self, key: Key, limit: u64) -> io::Result<Value> {
         {
             let state = lock(&self.shared.state);
             if state.closing {
@@ -213,7 +250,7 @@ impl CacheOwner {
             }
         }
         // No state lock across filesystem reads or JSON parsing.
-        let loaded = self.cap.disk.load(key.name());
+        let loaded = self.cap.disk.load(key.name(), limit);
         if let Err(error) = &loaded {
             self.diagnostic(&key, &error.to_string());
         }
@@ -227,38 +264,60 @@ impl CacheOwner {
         }
         Ok(state.pending.get(&key).map(|p| (*p.value).clone()).unwrap_or(value))
     }
+    pub fn load_quota_budgeted(&self, selection: &Selection, budget: &LoadBudget) -> io::Result<UsageStore> {
+        let key = Key::quota(selection)?;
+        let value = self.load_budgeted(key.clone(), budget)?;
+        Ok(self.parse_quota(&key, value))
+    }
+    pub fn load_scan_budgeted(&self, budget: &LoadBudget) -> io::Result<ScanCache> {
+        let value = self.load_budgeted(Key::Scan, budget)?;
+        Ok(self.parse_scan(value))
+    }
+    pub fn load_pricing_budgeted(&self, budget: &LoadBudget) -> io::Result<Pricing> {
+        let value = self.load_budgeted(Key::Pricing, budget)?;
+        Ok(self.parse_pricing(value))
+    }
     pub fn load_quota(&self, selection: &Selection) -> io::Result<UsageStore> {
         let key = Key::quota(selection)?;
         let value = self.load(key.clone())?;
+        Ok(self.parse_quota(&key, value))
+    }
+    fn parse_quota(&self, key: &Key, value: Value) -> UsageStore {
         if !value.is_null() && !value.is_object() {
-            self.diagnostic(&key, "invalid quota cache; empty cache used");
+            self.diagnostic(key, "invalid quota cache; empty cache used");
         }
         let store = UsageStore::from_json(&value);
         if crate::store::STORE_ORDER
             .iter()
             .any(|p| ["last", "blocked"].iter().any(|field| !value[*p][*field].is_null() && store.get(p)[*field].is_null()))
         {
-            self.diagnostic(&key, "invalid quota fields discarded");
+            self.diagnostic(key, "invalid quota fields discarded");
         }
-        Ok(store)
+        store
     }
     pub fn load_scan(&self) -> io::Result<ScanCache> {
         let value = self.load(Key::Scan)?;
+        Ok(self.parse_scan(value))
+    }
+    fn parse_scan(&self, value: Value) -> ScanCache {
         let nonempty = !value.is_null();
         let cache = ScanCache::validated(value);
         if nonempty && cache.is_none() {
             self.diagnostic(&Key::Scan, "invalid scanner cache; empty cache used");
         }
-        Ok(cache.unwrap_or_default())
+        cache.unwrap_or_default()
     }
     pub fn load_pricing(&self) -> io::Result<Pricing> {
         let value = self.load(Key::Pricing)?;
+        Ok(self.parse_pricing(value))
+    }
+    fn parse_pricing(&self, value: Value) -> Pricing {
         let nonempty = !value.is_null();
         let pricing = Pricing::from_json(value);
         if nonempty && pricing.current().is_none() {
             self.diagnostic(&Key::Pricing, "invalid pricing cache; empty cache used");
         }
-        Ok(pricing)
+        pricing
     }
     pub fn dirty_count(&self) -> usize {
         lock(&self.shared.state).pending.len()
@@ -396,7 +455,7 @@ mod disk {
                 Ok(unsafe { File::from_raw_fd(fd) })
             }
         }
-        pub fn load(&self, name: &str) -> io::Result<(Value, bool)> {
+        pub fn load(&self, name: &str, limit: u64) -> io::Result<(Value, bool)> {
             #[cfg(test)]
             if let Some((entered, resume)) = lock(&self.load_gate).take() {
                 let _ = entered.send(());
@@ -410,13 +469,13 @@ mod disk {
             if !file.metadata()?.is_file() {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "cache is not a regular file"));
             }
-            if file.metadata()?.len() > MAX_CACHE_BYTES {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds 32 MiB limit"));
+            if file.metadata()?.len() > limit {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds load byte limit (at most 32 MiB)"));
             }
             let mut bytes = Vec::new();
-            file.take(MAX_CACHE_BYTES + 1).read_to_end(&mut bytes)?;
-            if bytes.len() as u64 > MAX_CACHE_BYTES {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds 32 MiB limit"));
+            file.take(limit + 1).read_to_end(&mut bytes)?;
+            if bytes.len() as u64 > limit {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds load byte limit (at most 32 MiB)"));
             }
             Ok(match serde_json::from_slice(&bytes) {
                 Ok(v) => (v, false),
@@ -469,7 +528,7 @@ mod disk {
         pub fn fresh() -> io::Result<Self> {
             Err(io::Error::new(io::ErrorKind::Unsupported, "temporary atomic caches require Unix directory handles"))
         }
-        pub fn load(&self, _: &str) -> io::Result<(Value, bool)> {
+        pub fn load(&self, _: &str, _: u64) -> io::Result<(Value, bool)> {
             unreachable!()
         }
         pub fn save(&self, _: &str, _: &Value) -> io::Result<()> {

@@ -18,6 +18,7 @@ pub const CHANGED: &str = "usage:changed";
 pub type MetadataFuture<T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send>>;
 type BorrowedFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send + 'a>>;
 pub type AccountRead = Arc<dyn Fn(String, String) -> ReadFuture + Send + Sync>;
+pub type AsyncStoreLoad = Arc<dyn Fn(Selection) -> MetadataFuture<UsageStore> + Send + Sync>;
 pub type StoreLoad = Arc<dyn Fn(&Selection) -> Result<UsageStore, String> + Send + Sync>;
 pub type Selected = Arc<dyn Fn(Option<&str>) -> Selection + Send + Sync>;
 pub type Emit = Arc<dyn Fn(&str, Value) + Send + Sync>;
@@ -105,6 +106,8 @@ pub struct UsageAccounts {
     readers: Mutex<HashMap<Selection, Arc<UsageReader>>>,
     seeds: Mutex<HashMap<Selection, UsageStore>>,
     load_store: Option<StoreLoad>,
+    async_load: Option<AsyncStoreLoad>,
+    load_gates: Mutex<HashMap<Selection, Arc<tokio::sync::Mutex<()>>>>,
     environment: Arc<tokio::sync::OnceCell<()>>,
     tasks: Supervisor,
 }
@@ -121,11 +124,18 @@ impl UsageAccounts {
         Arc::new(Self {
             options,
             load_store,
+            async_load: None,
+            load_gates: Mutex::new(HashMap::new()),
             readers: Mutex::new(HashMap::new()),
             seeds: Mutex::new(seeds),
             environment: Arc::new(tokio::sync::OnceCell::new()),
             tasks: Supervisor::default(),
         })
+    }
+    pub fn with_async_store_loader(options: UsageAccountsOptions, load: AsyncStoreLoad) -> Arc<Self> {
+        let mut owner = Self::with_store_loader(options, HashMap::new(), None);
+        Arc::get_mut(&mut owner).unwrap().async_load = Some(load);
+        owner
     }
     async fn ready(&self) {
         let _ = self
@@ -135,13 +145,21 @@ impl UsageAccounts {
             })
             .await;
     }
-    fn reader(&self, selection: &Selection) -> Result<Arc<UsageReader>, String> {
-        let mut readers = self.readers.lock().unwrap();
-        if let Some(reader) = readers.get(selection) {
-            return Ok(reader.clone());
+    async fn reader(&self, selection: &Selection) -> Result<Arc<UsageReader>, String> {
+        if let Some(reader) = self.readers.lock().unwrap().get(selection).cloned() {
+            return Ok(reader);
         }
-        let seed = match self.seeds.lock().unwrap().remove(selection) {
+        let gate = self.load_gates.lock().unwrap().entry(selection.clone()).or_default().clone();
+        let _guard = gate.lock().await;
+        if let Some(reader) = self.readers.lock().unwrap().get(selection).cloned() {
+            return Ok(reader);
+        }
+        let seed = self.seeds.lock().unwrap().remove(selection);
+        let seed = match seed {
             Some(seed) => seed,
+            None if self.async_load.is_some() => guarded(async { (self.async_load.as_ref().unwrap())(selection.clone()).await })
+                .await
+                .map_err(|_| "Usage cache loader panicked".to_owned())??,
             None => match &self.load_store {
                 Some(load) => guarded_sync(|| load(selection)).map_err(|_| "Usage cache loader panicked".to_owned())??,
                 None => UsageStore::default(),
@@ -170,7 +188,7 @@ impl UsageAccounts {
                 })
             }),
         );
-        readers.insert(selection.clone(), reader.clone());
+        self.readers.lock().unwrap().insert(selection.clone(), reader.clone());
         Ok(reader)
     }
     async fn validate_scope(&self, value: &Value) -> Result<Option<String>, String> {
@@ -220,7 +238,7 @@ impl UsageAccounts {
             self.ready().await;
         }
         let selection = (self.options.selected)(scope.as_deref());
-        let reader = self.reader(&selection)?;
+        let reader = self.reader(&selection).await?;
         let mut snapshot = if refresh { reader.read().await } else { reader.store_snapshot((self.options.now)()) };
         let identities = (self.options.list)().await?;
         snapshot["accountKey"] = json!(selection.account_key());
@@ -260,9 +278,9 @@ impl UsageAccounts {
             .map(|(account, default)| {
                 let account = account.clone();
                 let default = *default;
-                let reader = self.reader(&Selection::pinned(&account.provider, &account.id));
+                let selection = Selection::pinned(&account.provider, &account.id);
                 Box::pin(async move {
-                    let reader = reader?;
+                    let reader = self.reader(&selection).await?;
                     let result = if account.state == "ready" {
                         if refresh {
                             Some(reader.provider(&account.provider).await.map_err(str::to_owned)?)

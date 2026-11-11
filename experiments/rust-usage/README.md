@@ -120,7 +120,13 @@ Use a Tokio runtime with timers; this crate enables the `time` feature.
 - `handle(command, &argument).await` dispatches the four usage commands and `token-usage:read`. Usage arguments
   are scope/null; token arguments are the existing request object. Scope validation and selected-ID capture remain
   in `UsageAccounts`. Scan/pricing load before callbacks run. Quota loads lazily through additive
-  `UsageAccounts::with_store_loader`, so an account first selected after startup still rehydrates its own cache.
+  `UsageAccounts::with_async_store_loader`, so an account first selected after startup still rehydrates its own cache.
+  Startup and quota disk/JSON loads run on tracked blocking workers; cancelling their callers does not release the
+  cache lease while a worker is running. A per-selection async gate coalesces first loads.
+  `open_with_limits(..., ServiceLimits { cache_load_bytes })` overrides the default 64 MiB aggregate encoded-byte
+  load budget shared across scan, pricing and quota slots. Each slot is charged once, loads serialize under the
+  budget on blocking workers, and failure is diagnostic/retryable. `loaded_cache_bytes()` reports charges. This
+  bounds rehydration input, not allocator overhead, live callback output or total in-memory report state.
   Lazy-loader errors/panics do not poison readers or memoize an empty store and can be retried.
 - Before invoking an injected provider reader, the facade rechecks the pinned ID against a fresh trusted account
   snapshot. Removed and non-ready IDs return unavailable without invoking the reader or substituting another ID.
@@ -237,8 +243,8 @@ Preserved Node behavior:
 
 ## Verification
 
-On macOS arm64: **56 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
-command traces**, account isolation, callback lifecycle and **14 persistence tests**, plus **11 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
+On macOS arm64: **58 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
+command traces**, account isolation, callback lifecycle and **14 persistence tests**, plus **13 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
 from Rust output. Codex is an EventEmitter fixture; Claude uses supplied synthetic credential text and a fake fetch.
 No provider process, keychain access or network transport is available to the fixture sandbox.
 

@@ -3,18 +3,15 @@ use crate::{
     accounts::{self, UsageAccounts, UsageAccountsOptions},
     limits::provider_result,
     owner::{self, FutureResult, Projects, ScanResult, TokenUsage, TokenUsageOptions},
-    persistence::{CacheDiagnostic, CacheOwner, TempCache},
+    persistence::{CacheDiagnostic, CacheOwner, LoadBudget, TempCache},
     pricing::Pricing,
     scan::{CopiedRoot, Scanner},
     supervisor::{self, guarded, guarded_sync, Supervisor},
 };
 use serde_json::{json, Value};
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
 };
 use tokio::sync::watch;
 
@@ -34,8 +31,19 @@ pub struct ServiceOptions {
     pub worktree_root: String,
     pub default_time_zone: String,
 }
+#[derive(Clone, Copy)]
+pub struct ServiceLimits {
+    pub cache_load_bytes: u64,
+}
+impl Default for ServiceLimits {
+    fn default() -> Self {
+        Self { cache_load_bytes: 64 * 1024 * 1024 }
+    }
+}
 pub struct UsageService {
     accounts: Arc<UsageAccounts>,
+    jobs: Arc<crate::blocking::Jobs>,
+    load_budget: Arc<LoadBudget>,
     token: Arc<TokenUsage>,
     scan: Arc<ScanOwner>,
     prices: Arc<PriceOwner>,
@@ -47,9 +55,22 @@ pub struct UsageService {
 }
 impl UsageService {
     /// Rehydrates scan/pricing before callbacks run; quota stores load lazily for each captured Selection.
-    pub async fn open(capability: &TempCache, mut options: ServiceOptions) -> ResultValue<Arc<Self>> {
+    pub async fn open(capability: &TempCache, options: ServiceOptions) -> ResultValue<Arc<Self>> {
+        Self::open_with_limits(capability, options, ServiceLimits::default()).await
+    }
+    pub async fn open_with_limits(capability: &TempCache, mut options: ServiceOptions, limits: ServiceLimits) -> ResultValue<Arc<Self>> {
         let cache = Arc::new(capability.open().map_err(|e| e.to_string())?);
-        let loaded = cache.load_scan().and_then(|scan| cache.load_pricing().map(|pricing| (scan, pricing)));
+        let jobs = Arc::new(crate::blocking::Jobs::default());
+        let load_budget = Arc::new(LoadBudget::new(limits.cache_load_bytes));
+        let disk = cache.clone();
+        let budget = load_budget.clone();
+        let loaded = jobs
+            .run(move || {
+                disk.load_scan_budgeted(&budget)
+                    .and_then(|scan| disk.load_pricing_budgeted(&budget).map(|pricing| (scan, pricing.current().cloned())))
+                    .map_err(|e| e.to_string())
+            })
+            .await;
         let (scan_cache, pricing) = match loaded {
             Ok(value) => value,
             Err(error) => {
@@ -94,10 +115,16 @@ impl UsageService {
             })
         });
         let load_cache = cache.clone();
-        let accounts = UsageAccounts::with_store_loader(
+        let load_jobs = jobs.clone();
+        let budget = load_budget.clone();
+        let accounts = UsageAccounts::with_async_store_loader(
             options.accounts,
-            HashMap::new(),
-            Some(Arc::new(move |s| load_cache.load_quota(s).map_err(|e| e.to_string()))),
+            Arc::new(move |selection| {
+                let cache = load_cache.clone();
+                let jobs = load_jobs.clone();
+                let budget = budget.clone();
+                Box::pin(async move { jobs.run(move || cache.load_quota_budgeted(&selection, &budget).map_err(|e| e.to_string())).await })
+            }),
         );
         let scanner = Scanner::new(options.roots, scan_cache);
         let rows = scanner.rows();
@@ -110,7 +137,7 @@ impl UsageService {
             gate: Arc::new(Mutex::new(None)),
         });
         let prices = Arc::new(PriceOwner {
-            pricing: Mutex::new(pricing),
+            pricing: Mutex::new(Pricing::from_json(pricing.unwrap_or(Value::Null))),
             pending: Mutex::new(None),
             tasks: Supervisor::default(),
             fetch: options.fetch_catalog,
@@ -149,6 +176,8 @@ impl UsageService {
         );
         let service = Arc::new(Self {
             accounts,
+            jobs,
+            load_budget,
             token,
             scan,
             prices,
@@ -228,6 +257,9 @@ impl UsageService {
     pub fn cache_diagnostics(&self) -> Vec<CacheDiagnostic> {
         self.cache.diagnostics()
     }
+    pub fn loaded_cache_bytes(&self) -> u64 {
+        self.load_budget.used_bytes()
+    }
     pub fn dirty_count(&self) -> usize {
         self.cache.dirty_count()
     }
@@ -266,6 +298,7 @@ impl UsageService {
         self.token.shutdown().await;
         self.prices.tasks.shutdown().await;
         self.scan.close().await;
+        self.jobs.close().await;
         let mut errors = Vec::new();
         for result in [
             self.cache.save_accounts(&self.accounts.stores()),

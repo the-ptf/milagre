@@ -1,5 +1,6 @@
 use super::*;
 use crate::accounts::{AccountSnapshot, Selection};
+use std::collections::HashMap;
 use std::{
     fs,
     sync::atomic::{AtomicI64, AtomicUsize},
@@ -429,5 +430,67 @@ async fn service_keeps_original_selection_during_concurrent_selection_change() {
     assert_eq!(result["accountKey"], "work-default");
     assert_eq!(result["providers"][0]["account"]["id"], "work");
     assert_eq!(service.handle("usage:cached", &Value::Null).await.unwrap()["providers"], json!([]));
+    stop(&service).await;
+}
+
+async fn entered_async(rx: std::sync::mpsc::Receiver<()>) {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match rx.try_recv() {
+                Ok(()) => return,
+                Err(std::sync::mpsc::TryRecvError::Empty) => tokio::time::sleep(Duration::from_millis(1)).await,
+                Err(e) => panic!("{e}"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+}
+#[tokio::test]
+async fn background_loads_leave_runtime_live_and_shutdown_owns_cancelled_quota_load() {
+    let cap = TempCache::fresh().unwrap();
+    let h = Harness::new();
+    let (entered, resume) = cap.test_block_load();
+    let c = cap.clone();
+    let options = h.options();
+    let opening = tokio::spawn(async move { UsageService::open(&c, options).await });
+    entered_async(entered).await;
+    assert!(!opening.is_finished());
+    resume.send(()).unwrap();
+    let service = opening.await.unwrap().unwrap();
+    let (entered, resume) = cap.test_block_load();
+    let s = service.clone();
+    let read = tokio::spawn(async move { s.handle("usage:cached", &Value::Null).await });
+    entered_async(entered).await;
+    let mut shutdown = Box::pin(service.shutdown());
+    assert!(tokio::time::timeout(Duration::from_millis(20), &mut shutdown).await.is_err());
+    assert!(cap.open().is_err());
+    resume.send(()).unwrap();
+    shutdown.await.unwrap();
+    assert!(read.await.unwrap().is_err());
+    let reopened = cap.open().unwrap();
+    reopened.shutdown().await.unwrap();
+}
+#[tokio::test]
+async fn service_aggregate_load_budget_is_shared_across_account_selections() {
+    let cap = TempCache::fresh().unwrap();
+    let h = Harness::new();
+    let service = UsageService::open(&cap, h.options()).await.unwrap();
+    service.handle("usage:read", &Value::Null).await.unwrap();
+    h.model.lock().unwrap()["selection"] = json!(Selection::default());
+    service.handle("usage:read", &Value::Null).await.unwrap();
+    stop(&service).await;
+    let first = cap.open().unwrap();
+    let work = Selection { claude: "work".into(), ..Selection::default() };
+    let bytes = serde_json::to_vec(&first.load_quota(&work).unwrap().to_json()).unwrap().len() as u64;
+    first.shutdown().await.unwrap();
+    h.model.lock().unwrap()["selection"] = json!(work);
+    let service = UsageService::open_with_limits(&cap, h.options(), ServiceLimits { cache_load_bytes: bytes + 100 }).await.unwrap();
+    assert!(service.handle("usage:cached", &Value::Null).await.is_ok());
+    let charged = service.loaded_cache_bytes();
+    h.model.lock().unwrap()["selection"] = json!(Selection::default());
+    assert!(service.handle("usage:cached", &Value::Null).await.is_err());
+    assert_eq!(service.loaded_cache_bytes(), charged);
+    assert!(!service.cache_diagnostics().is_empty());
     stop(&service).await;
 }

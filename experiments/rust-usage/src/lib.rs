@@ -1,5 +1,6 @@
 //! Offline usage migration. No credential lookup, environment discovery, process launch or network client.
 pub mod accounts;
+mod blocking;
 pub mod limits;
 pub mod owner;
 pub mod persistence;
