@@ -9,7 +9,11 @@ pub const FAKE: &str = env!("CARGO_BIN_EXE_fake-acp-agent");
 /// The Rust fake ACP agent with an explicit scenario-only environment.
 pub fn fake(scenario: &str) -> SpawnOptions {
     let env: Vec<(std::ffi::OsString, std::ffi::OsString)> = vec![("FAKE_SCENARIO".into(), scenario.into())];
-    SpawnOptions::new(FAKE).args(Vec::<String>::new()).env(env).limits(fast_limits())
+    SpawnOptions::new(FAKE)
+        .owned_server_methods(["session/request_permission", "item/tool/requestUserInput"])
+        .args(Vec::<String>::new())
+        .env(env)
+        .limits(fast_limits())
 }
 
 /// Shorter graces so failure paths finish quickly.
@@ -26,6 +30,7 @@ pub fn node_fake(scenario: &str) -> Option<SpawnOptions> {
     let env: Vec<(std::ffi::OsString, std::ffi::OsString)> = vec![("FAKE_SCENARIO".into(), scenario.into())];
     Some(
         SpawnOptions::new(node)
+            .owned_server_methods(["session/request_permission"])
             .args([script.into_os_string()])
             .cwd(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
             .env(env)

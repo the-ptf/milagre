@@ -86,3 +86,18 @@ instructions all remain owner or later-checkpoint responsibilities.
    with explicit immutable policy inputs and fail-closed unsupported roles.
 3. Finish vendor process-tree/profile isolation and host guard contracts before proposing any
    real provider or owner-runtime integration.
+
+## Transport compatibility and watchdog gaps
+
+The 65,536-token parser cap is intentionally stricter than Node. Dense valid updates or large
+inline media may exceed it even below the 8 MiB frame cap. Validate real vendor payload shapes
+before adjusting the cap; retain the parsed-allocation queue budget and dense-frame regression.
+No startup/prompt progress watchdog exists beyond explicit request timeouts and client cancellation
+grace. Prompt requests deliberately have no automatic deadline. The session owner must define
+idle/progress watchdog policy and logical turn attribution before runtime integration.
+
+Server methods default to unowned and receive `-32601`. A future permission/question/filesystem/
+terminal dispatcher must explicitly claim methods it implements. Claimed requests have count
+bounds but no answer-age watchdog; failing to settle them is an owner lifecycle gap. Permission
+reply cancellation or failure has uncertain delivery: even process kill cannot prove a completed
+reply was not delivered or a tool did not run. No automatic retry or definitive non-execution claim.

@@ -20,9 +20,10 @@ dependency. Vendor behavior comes from the repository-owned Node ACP sources.
   vendor/unknown fields. No automatic authentication, retry, MCP reduction or session fallback.
 - `permission_outcome`: pure Node `pickOption`/`outcome` mapping, including once-only selection.
   This selects an option after authorization; it does not authorize commands, files or tools.
-  Every server request is delivered to the caller, including unsupported methods. The caller
-  must respond with an error for unsupported methods and must cancel pending permissions when
-  a turn stops. There is no implicit allow.
+  Only methods explicitly listed in `SpawnOptions::owned_server_methods` reach the caller.
+  The default owns none: unsupported requests receive `-32601` through the bounded writer.
+  A permission consumer must explicitly claim `session/request_permission` and settle pending
+  requests when a turn stops. Owning a method does not authorize its actions.
 - `launch`: pure Kiro ACP argument constants and Antigravity environment scrubbing/default
   argument shaping. No executable discovery, installs, account probes, browser or filesystem
   operations. The owner supplies the exact harness, profile, temporary directory and environment.
@@ -34,20 +35,22 @@ with a rejection. Transports never turn timeouts or crashes into automatic fallb
 
 ## Bounds, cancellation and cleanup
 
-| Resource             | Default bound / behavior                                                                     |
-| -------------------- | -------------------------------------------------------------------------------------------- |
-| Input/output frame   | 8 MiB, excluding newline                                                                     |
-| JSON structure       | 65,536 conservative lexical tokens before allocation; serde depth limit remains enabled      |
-| IDs and method names | 4,096 serialized bytes per ID, 4,096 UTF-8 bytes per method                                  |
-| Client requests      | 64 in flight                                                                                 |
-| Open server requests | 1,024, including answers being written                                                       |
-| Writer               | 128 frames and 16 MiB, including the current write; immediate `WriterFull` on saturation     |
-| Event queue          | 4,096 events and 16 MiB of estimated wire bytes; overflow or receiver loss stops the process |
-| stderr               | 8,000-byte tail; each line also has the frame cap and event budget                           |
-| Transport tasks      | Four fixed tasks: supervisor, stdout reader, stderr reader, writer; no task per request      |
+| Resource             | Default bound / behavior                                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Input/output frame   | 8 MiB, excluding newline                                                                                         |
+| JSON structure       | 65,536 conservative lexical tokens before allocation; serde depth limit remains enabled                          |
+| IDs and method names | 4,096 serialized bytes per ID, 4,096 UTF-8 bytes per method                                                      |
+| Client requests      | 64 in flight                                                                                                     |
+| Open server requests | 1,024, including answers being written                                                                           |
+| Writer               | 128 frames and 16 MiB, including the current write; immediate `WriterFull` on saturation                         |
+| Event queue          | 4,096 events and 16 MiB of conservative retained-allocation charges; overflow or receiver loss stops the process |
+| stderr               | 8,000-byte tail; each line also has the frame cap and event budget                                               |
+| Transport tasks      | Four fixed tasks: supervisor, stdout reader, stderr reader, writer; no task per request                          |
 
-These bound owned buffers and work, not total application RSS. Parsed JSON has overhead, raw
-frames/params are retained for callers, and callers can retain events or create their own tasks.
+These bound owned buffers and work, not total application RSS. Every queued parsed tree is charged, including both full raw frames and cloned params, string
+capacities, vector capacity and conservative per-node/map overhead. No mapper metadata is removed.
+The reader temporarily holds one bounded parsed frame and classification copy; pending results
+have a separate request-count bound. Callers can retain events or create their own tasks.
 Zero/tighter limits fail closed. Extremely large writer limits are clamped to semaphore limits.
 An exact final exit event may exceed the event count budget by one.
 
@@ -57,7 +60,10 @@ kill the process instead of corrupting later frames. Notifications accepted into
 queue may complete after the caller stops waiting. Responses to unknown/already claimed IDs
 fail; duplicate incoming IDs while unanswered/in-flight are protocol violations. A full writer
 leaves an unsent permission response retryable. Dropping a response future once claimed stops
-the process, because delivery may already have begun.
+the process, because delivery may already have begun. Delivery is **uncertain** after cancellation
+or write failure: a complete permission reply may already have reached the peer and authorized a
+tool. Process kill cannot retract that reply or prove non-execution. A successful response means
+the pipe write completed, not provider acknowledgement. Never replay an uncertain answer.
 
 Client prompts serialize. Dropping a prompt future kills the process rather than leaving an
 unowned turn. `cancel` only writes the ACP notification. `cancel_and_wait` additionally waits

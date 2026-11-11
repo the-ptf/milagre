@@ -428,7 +428,7 @@ async fn an_answer_that_cannot_be_written_is_reported() {
     // The answer queues behind the stuck frame.
     tokio::time::sleep(Duration::from_millis(50)).await;
     let answered = rpc.respond(&RequestId::from("srv-a"), json!({ "decision": "accept" })).await;
-    assert!(answered.is_err(), "a lost answer was reported as sent");
+    assert!(answered.is_err(), "an unconfirmed write was reported successful");
 }
 
 #[tokio::test]
@@ -622,5 +622,51 @@ async fn exact_numeric_responses_match_but_string_ids_do_not() {
     assert!(!waiter.is_finished());
     rpc.request("fake/raw", json!({"line":"{\"id\":1.0,\"result\":\"exact\"}"})).await.unwrap();
     assert_eq!(waiter.await.unwrap().unwrap(), "exact");
+    rpc.close().await;
+}
+
+#[tokio::test]
+async fn dense_parsed_frames_are_charged_for_both_retained_trees() {
+    let mut spec = fake("reply");
+    spec.limits.event_queue.max_bytes = 16 * 1024 * 1024;
+    let (rpc, mut events) = AcpRpc::spawn(spec).unwrap();
+    // Under 64 KiB on the wire, with ~65K structural tokens. Each retained tree
+    // contains 32K Value slots: charging line.len would admit hundreds of copies.
+    let line = json!({"method":"session/update","params":{"dense":vec![0;32_000],"_meta":{"kiro":{"kind":"turn_completion"}}}}).to_string();
+    assert!(line.len() < 65_536);
+    for _ in 0..8 {
+        if rpc.request("fake/raw", json!({"line":line})).await.is_err() {
+            break;
+        }
+    }
+    let exit = tokio::time::timeout(Duration::from_secs(3), rpc.wait_exit()).await.unwrap();
+    assert_eq!(exit.reason, ExitReason::ConsumerStalled);
+    let (count, bytes) = events.queued();
+    assert!(count <= 4, "dense frames exceeded parsed allocation budget: {count}");
+    assert!(bytes <= 16 * 1024 * 1024 + 8192, "terminal event allowance only: {bytes}");
+    let event = events.recv().await.unwrap();
+    let ServerEvent::Notification(n) = event else { panic!("missing retained notification") };
+    assert_eq!(n.params["_meta"]["kiro"]["kind"], "turn_completion");
+    assert_eq!(n.raw["params"], n.params);
+}
+
+#[tokio::test]
+async fn unowned_server_methods_get_exact_id_method_not_found_without_consumer() {
+    let mut spec = fake("reply");
+    spec.owned_server_methods.clear();
+    let (rpc, mut events) = AcpRpc::spawn(spec).unwrap();
+    let id: Value = serde_json::from_str("9007199254740993").unwrap();
+    for method in ["fs/read_text_file", "terminal/create", "session/request_permission", "vendor/unknown"] {
+        rpc.request("fake/server-request", json!({"id":id,"method":method})).await.unwrap();
+        let answer = next_matching(&mut events, |event| match event {
+            ServerEvent::Notification(n) if n.method == "fake/answered" => Some(n.params.clone()),
+            ServerEvent::Request(_) => panic!("unowned method escaped into consumer"),
+            _ => None,
+        })
+        .await;
+        assert_eq!(answer["id"], id);
+        assert_eq!(answer["answer"]["code"], -32601);
+        assert!(rpc.open_server_requests().is_empty());
+    }
     rpc.close().await;
 }

@@ -89,6 +89,8 @@ pub struct SpawnOptions {
     /// `Some` replaces the environment entirely (Node's `env` option); `None` inherits it.
     pub env: Option<Vec<(OsString, OsString)>>,
     pub limits: Limits,
+    /// Exact server methods deliberately handled by the event consumer. Others get -32601.
+    pub owned_server_methods: Vec<String>,
 }
 
 /// Never prints the environment: it holds API keys and tokens.
@@ -106,7 +108,14 @@ impl std::fmt::Debug for SpawnOptions {
 
 impl SpawnOptions {
     pub fn new(command: impl Into<OsString>) -> Self {
-        SpawnOptions { command: command.into(), args: Vec::new(), cwd: None, env: Some(Vec::new()), limits: Limits::default() }
+        SpawnOptions {
+            command: command.into(),
+            args: Vec::new(),
+            cwd: None,
+            env: Some(Vec::new()),
+            limits: Limits::default(),
+            owned_server_methods: Vec::new(),
+        }
     }
 
     pub fn args<I, S>(mut self, args: I) -> Self
@@ -130,6 +139,11 @@ impl SpawnOptions {
         V: Into<OsString>,
     {
         self.env = Some(env.into_iter().map(|(k, v)| (k.into(), v.into())).collect());
+        self
+    }
+
+    pub fn owned_server_methods(mut self, methods: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.owned_server_methods = methods.into_iter().map(Into::into).collect();
         self
     }
 
@@ -251,6 +265,39 @@ pub enum ServerEvent {
     Exit(ExitInfo),
 }
 
+// Retained-allocation charge, not wire size or an RSS measurement. Saturating arithmetic
+// fails closed. Arrays use allocated capacity; the map allowance covers indexmap buckets,
+// growth slack and allocation headers. Every node includes a generous fixed allowance.
+fn value_weight(value: &Value) -> usize {
+    let dynamic = match value {
+        Value::String(s) => s.capacity(),
+        Value::Number(n) => n.to_string().len().saturating_mul(4),
+        Value::Array(a) => {
+            a.iter().fold(a.capacity().saturating_mul(std::mem::size_of::<Value>()), |sum, v| sum.saturating_add(value_weight(v)))
+        }
+        Value::Object(o) => {
+            o.iter().fold(o.len().saturating_mul(256), |sum, (k, v)| sum.saturating_add(k.capacity()).saturating_add(value_weight(v)))
+        }
+        _ => 0,
+    };
+    64usize.saturating_add(dynamic)
+}
+fn event_weight(event: &ServerEvent) -> usize {
+    let dynamic = match event {
+        ServerEvent::Notification(n) => n.method.capacity().saturating_add(value_weight(&n.params)).saturating_add(value_weight(&n.raw)),
+        ServerEvent::Request(r) => r
+            .method
+            .capacity()
+            .saturating_add(value_weight(&r.id.to_value()))
+            .saturating_add(value_weight(&r.params))
+            .saturating_add(value_weight(&r.raw)),
+        ServerEvent::Diagnostic(Diagnostic::UnmatchedResponse { id }) => value_weight(&id.to_value()),
+        ServerEvent::Line { line, .. } => line.capacity(),
+        ServerEvent::Exit(info) => info.detail.capacity(),
+    };
+    256usize.saturating_add(dynamic)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stream {
     Stdout,
@@ -304,12 +351,17 @@ struct Shared {
     writer_closed: AtomicBool,
     counters: Counters,
     command_name: String,
+    owned_server_methods: Vec<String>,
+    writer: mpsc::UnboundedSender<WriterMsg>,
+    writer_slots: Arc<tokio::sync::Semaphore>,
+    writer_bytes: Arc<tokio::sync::Semaphore>,
 }
 
 impl Shared {
     /// Queues an event of about `bytes` bytes. A full queue stops ACP agent: memory stays bounded and no
     /// event is silently lost.
     fn emit(&self, event: ServerEvent, bytes: usize) {
+        let bytes = bytes.max(event_weight(&event));
         if let Err(overflow) = self.events.send(event, bytes) {
             self.stop(StopCause::ConsumerStalled { events: overflow.queued_events, bytes: overflow.queued_bytes });
         }
@@ -388,7 +440,15 @@ impl Shared {
                         drop(open);
                         return self.stop(StopCause::DuplicateServerId);
                     }
-                    open.insert(id.clone(), false);
+                    open.insert(id.clone(), !self.owned_server_methods.contains(&method));
+                }
+                if !self.owned_server_methods.contains(&method) {
+                    // No task per request and no wait in the reader. Refusals share the bounded
+                    // single writer; saturation stops the peer instead of leaving it hanging.
+                    if self.reject_unsupported(id).is_err() {
+                        self.stop(StopCause::InputStalled);
+                    }
+                    return;
                 }
                 self.emit(ServerEvent::Request(ServerRequest { id, method, params, raw: parsed }), line.len());
             }
@@ -416,6 +476,17 @@ impl Shared {
             Incoming::Invalid { .. } if parsed.is_object() || parsed.is_array() => {}
             Incoming::Invalid { .. } => self.malformed(line),
         }
+    }
+
+    fn reject_unsupported(&self, id: RequestId) -> Result<(), ()> {
+        let bytes =
+            encode(&protocol::error_frame(&id, protocol::METHOD_NOT_FOUND, "Unsupported ACP client method"), self.limits.max_frame_bytes)
+                .map_err(|_| ())?;
+        let slots = self.writer_slots.clone().try_acquire_owned().map_err(|_| ())?;
+        let space = self.writer_bytes.clone().try_acquire_many_owned(u32::try_from(bytes.len()).map_err(|_| ())?).map_err(|_| ())?;
+        self.writer
+            .send(WriterMsg::Frame(Outgoing { _reservation: (slots, space), bytes, cancelled: None, done: None, auto_answer: Some(id) }))
+            .map_err(|_| ())
     }
 
     fn malformed(&self, line: &[u8]) {
@@ -580,6 +651,7 @@ struct Outgoing {
     /// Set when the caller gave up; checked before the first byte is written.
     cancelled: Option<Arc<AtomicBool>>,
     done: Option<oneshot::Sender<WriteOutcome>>,
+    auto_answer: Option<RequestId>,
 }
 
 #[derive(Debug)]
@@ -619,7 +691,12 @@ async fn write_frames(mut stdin: ChildStdin, mut rx: mpsc::UnboundedReceiver<Wri
             stdin.flush().await
         };
         match tokio::time::timeout(timeout, written).await {
-            Ok(Ok(())) => reply(WriteOutcome::Written),
+            Ok(Ok(())) => {
+                if let Some(id) = &outgoing.auto_answer {
+                    shared.server_requests.lock().unwrap().remove(id);
+                }
+                reply(WriteOutcome::Written)
+            }
             Ok(Err(error)) => {
                 // A broken pipe: either the process is going away (the supervisor reports how) or it
                 // closed stdin and lives on, unable to hear any answer. Stop it either way.
@@ -683,6 +760,12 @@ impl AcpRpc {
         let (events_tx, events_rx) = crate::queue::channel(options.limits.event_queue);
         let (exit_tx, exit_rx) = watch::channel(None);
         let (kill_tx, kill_rx) = mpsc::channel(1);
+        let (writer, writer_rx) = mpsc::unbounded_channel();
+        let writer_slots =
+            Arc::new(tokio::sync::Semaphore::new(options.limits.writer_queue.max_events.min(tokio::sync::Semaphore::MAX_PERMITS)));
+        let writer_bytes = Arc::new(tokio::sync::Semaphore::new(
+            options.limits.writer_queue.max_bytes.min(u32::MAX as usize).min(tokio::sync::Semaphore::MAX_PERMITS),
+        ));
         let shared = Arc::new(Shared {
             limits: options.limits.clone(),
             pending: Mutex::new(HashMap::new()),
@@ -700,26 +783,16 @@ impl AcpRpc {
             writer_closed: AtomicBool::new(false),
             counters: Counters::default(),
             command_name,
+            owned_server_methods: options.owned_server_methods,
+            writer: writer.clone(),
+            writer_slots: writer_slots.clone(),
+            writer_bytes: writer_bytes.clone(),
         });
-        let (writer, writer_rx) = mpsc::unbounded_channel();
         if let Some(stdin) = stdin {
             tokio::spawn(write_frames(stdin, writer_rx, shared.clone()));
         }
         tokio::spawn(supervise(child, stdout, stderr, shared.clone(), kill_rx));
-        let handle = Handle {
-            shared,
-            writer,
-            next_id: AtomicI64::new(1),
-            pid,
-            kill_tx,
-            exit_rx,
-            writer_slots: Arc::new(tokio::sync::Semaphore::new(
-                options.limits.writer_queue.max_events.min(tokio::sync::Semaphore::MAX_PERMITS),
-            )),
-            writer_bytes: Arc::new(tokio::sync::Semaphore::new(
-                options.limits.writer_queue.max_bytes.min(u32::MAX as usize).min(tokio::sync::Semaphore::MAX_PERMITS),
-            )),
-        };
+        let handle = Handle { shared, writer, next_id: AtomicI64::new(1), pid, kill_tx, exit_rx, writer_slots, writer_bytes };
         Ok((AcpRpc { handle: Arc::new(handle) }, events_rx))
     }
 
@@ -865,6 +938,9 @@ impl AcpRpc {
     }
 
     /// Answers a server request. Fails without writing when ACP agent no longer waits on it.
+    /// Success means pipe write completed, not provider acknowledgement. Cancellation or a write
+    /// failure may occur after partial or complete delivery. Killing the process cannot retract a
+    /// delivered permission or prove the tool did not execute; never replay an uncertain answer.
     pub async fn respond(&self, id: &RequestId, result: Value) -> Result<(), RpcError> {
         self.answer(id, protocol::response_frame(id, &result)).await
     }
@@ -923,7 +999,11 @@ impl AcpRpc {
             return WriteOutcome::NotWritten(RpcError::WriterFull);
         };
         let (done, written) = oneshot::channel();
-        if self.handle.writer.send(WriterMsg::Frame(Outgoing { _reservation: (slots, space), bytes, cancelled, done: Some(done) })).is_err()
+        if self
+            .handle
+            .writer
+            .send(WriterMsg::Frame(Outgoing { _reservation: (slots, space), bytes, cancelled, done: Some(done), auto_answer: None }))
+            .is_err()
         {
             return WriteOutcome::NotWritten(RpcError::NotRunning);
         }
