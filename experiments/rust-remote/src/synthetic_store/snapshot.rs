@@ -246,7 +246,8 @@ impl Snapshot {
         {
             return Err(StoreFault::TooLarge);
         }
-        if self.boot > self.revision
+        if (self.retired && (self.secret != [0; 32] || self.token != [0; 32]))
+            || self.boot > self.revision
             || self.policy > self.revision
             || (self.running && (self.boot == 0 || self.retired))
             || (self.boot == 0 && (self.retired || self.policy != 0 || !self.devices.is_empty()))

@@ -669,6 +669,12 @@ impl PersistentAuthority {
             increment(&mut next.revision)?;
             next.running = false;
             next.retired = retired;
+            if retired {
+                // Sanitize only the new persisted terminal snapshot. No heap/disk
+                // secure-erasure claim is made for earlier copies or filesystem history.
+                next.secret.fill(0);
+                next.token.fill(0);
+            }
             let receipt = store.writer.commit(&next)?;
             diag = diagnostics(&next, None);
             Ok(receipt)
@@ -687,6 +693,13 @@ impl PersistentAuthority {
                 }),
             },
         }
+    }
+    #[cfg(all(test, target_os = "macos"))]
+    pub(crate) fn fail_next_terminal_for_test(&mut self, stage: crate::synthetic_store::IoStage) {
+        let RecordStore::Persistent(store) = &mut self.core().storage else {
+            unreachable!()
+        };
+        store.writer.fail_next = Some(stage);
     }
     #[expect(
         clippy::result_large_err,

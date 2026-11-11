@@ -851,3 +851,104 @@ fn cleanup_rechecks_pinned_transaction_descriptor_before_unlink() {
     fs::renameat(&p.core.root, "displaced", &p.core.root, TXN).unwrap();
     p.destroy().unwrap();
 }
+#[test]
+fn retired_snapshot_has_zero_credentials_and_rejects_retained_secret_encodings() {
+    use crate::persistent::{OpenedAuthority, PersistentAuthority};
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let _disk_test = testing_lock();
+    let mut p = profile();
+    let w = p.acquire_writer().unwrap();
+    let original = w.load().unwrap();
+    let old_secret = URL_SAFE_NO_PAD.encode(original.secret);
+    let old_token = snapshot::hex(&original.token);
+    let a = match PersistentAuthority::resume(w, Default::default(), &mut OsRng) {
+        OpenedAuthority::Ready(a) => a,
+        _ => panic!("ready"),
+    };
+    let receipt = a.retire_identity().unwrap_or_else(|_| panic!("retirement"));
+    assert!(receipt.diagnostics().retired);
+    let encoded = String::from_utf8(saved(&p)).unwrap();
+    assert!(!encoded.contains(&old_secret));
+    assert!(!encoded.contains(&old_token));
+    let retired = Snapshot::decode(encoded.as_bytes(), p.core.limits).unwrap();
+    assert!(retired.retired && !retired.running);
+    assert!(retired.secret == [0; 32]);
+    assert!(retired.token == [0; 32]);
+    for secret in [true, false] {
+        let mut invalid = retired.clone();
+        if secret {
+            invalid.secret = original.secret;
+        } else {
+            invalid.token = original.token;
+        }
+        assert!(matches!(
+            invalid.encode(p.core.limits),
+            Err(StoreFault::InvalidSchema)
+        ));
+        let invalid = if secret {
+            encoded.replacen(&URL_SAFE_NO_PAD.encode([0; 32]), &old_secret, 1)
+        } else {
+            encoded.replacen(&snapshot::hex(&[0; 32]), &old_token, 1)
+        };
+        assert!(matches!(
+            Snapshot::decode(invalid.as_bytes(), p.core.limits),
+            Err(StoreFault::InvalidSchema)
+        ));
+    }
+    match PersistentAuthority::resume(p.acquire_writer().unwrap(), Default::default(), &mut OsRng) {
+        OpenedAuthority::Retired(r) => {
+            both_locks_are_held(&p.core.root);
+            r.release();
+        }
+        _ => panic!("terminal"),
+    };
+    p.destroy().unwrap();
+}
+#[test]
+fn retirement_io_faults_keep_exact_locks_and_never_claim_secret_erasure() {
+    use crate::persistent::{OpenedAuthority, PersistentAuthority};
+    let _disk_test = testing_lock();
+    for stage in [
+        IoStage::WriteTransaction,
+        IoStage::SyncFile,
+        IoStage::Rename,
+        IoStage::SyncDirectory,
+    ] {
+        let mut p = profile();
+        let w = p.acquire_writer().unwrap();
+        let original = w.load().unwrap();
+        let mut a = match PersistentAuthority::resume(w, Default::default(), &mut OsRng) {
+            OpenedAuthority::Ready(a) => a,
+            _ => panic!("ready"),
+        };
+        // Test hook returns a typed fault at the retirement boundary, never changes public API.
+        a.fail_next_terminal_for_test(stage);
+        let (fault, stopped) = match a.retire_identity() {
+            Err(e) => e.into_parts(),
+            _ => panic!("fault cannot succeed"),
+        };
+        assert!(matches!(fault,StoreFault::Io{stage:s,..} if s==stage));
+        both_locks_are_held(&p.core.root);
+        assert!(!stopped.diagnostics().retired);
+        let state = Snapshot::decode(&saved(&p), p.core.limits).unwrap();
+        if stage == IoStage::SyncDirectory {
+            assert!(state.retired && state.secret == [0; 32] && state.token == [0; 32]);
+        } else {
+            assert!(
+                !state.retired && state.secret == original.secret && state.token == original.token
+            );
+        }
+        stopped.release();
+        match PersistentAuthority::resume(
+            p.acquire_writer().unwrap(),
+            Default::default(),
+            &mut OsRng,
+        ) {
+            OpenedAuthority::Quarantined(q) => {
+                q.release();
+            }
+            _ => panic!("no success without receipt"),
+        };
+        p.destroy().unwrap();
+    }
+}
