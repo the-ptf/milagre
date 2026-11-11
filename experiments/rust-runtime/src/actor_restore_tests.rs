@@ -136,8 +136,37 @@ mod successful_restore {
         }
         files
     }
+    fn until(label: &str, mut check: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !check() {
+            assert!(Instant::now() < deadline, "Timed out: {label}");
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+    fn lose_readiness(store: &std::path::Path, actor: &Actor) {
+        let moved = store.with_file_name("held-handovers");
+        fs::rename(store, &moved).unwrap();
+        fs::create_dir(store).unwrap();
+        until("periodic ownership detection", || {
+            actor.shared.snapshot.lock().unwrap()["projects"] == json!([])
+        });
+        fs::remove_dir(store).unwrap();
+        fs::rename(moved, store).unwrap();
+        // Repair is intentionally not an open: the actor must stay not ready.
+    }
     #[test]
     fn successful_restore_is_saved_before_the_second_acp_process_and_never_replayed() {
+        successful_restore(None);
+    }
+    #[test]
+    fn restore_job_completion_waits_for_explicit_reopen_before_second_native_process() {
+        successful_restore(Some("job"));
+    }
+    #[test]
+    fn restore_brief_completion_waits_for_explicit_reopen_before_second_native_process() {
+        successful_restore(Some("brief"));
+    }
+    fn successful_restore(loss: Option<&str>) {
         let provider = AcpFixture::create(Scenario::PromptReceipts).unwrap();
         let project = provider.project().to_owned();
         let isolation = provider.isolation();
@@ -155,11 +184,19 @@ mod successful_restore {
         host.enable_restore_for_tests().unwrap();
         host.admit_worktree(&project).unwrap();
         host.open_project(&project).unwrap();
+        let brief = milagre_owner_store::brief::fake::FakeBriefModel::default();
+        if loss == Some("brief") {
+            host.register_brief_model(Box::new(brief.clone()));
+        }
         host.register(Box::new(ObservedProvider {
             inner: provider,
             starts: starts.clone(),
         }));
         let (mut workers, gate, entered) = workers(0);
+        let (job_finished, completed_job) = mpsc::sync_channel(1);
+        workers.after_run = Some(Arc::new(move || {
+            let _ = job_finished.send(());
+        }));
         let original_hook = workers.before_run.take().unwrap();
         let worker_thread = Arc::new(Mutex::new(None));
         let observed_thread = worker_thread.clone();
@@ -229,13 +266,63 @@ mod successful_restore {
         assert!(!transcript_files(&isolated_root.join(".owner/handovers"))
             .iter()
             .any(|p| p.extension().is_some_and(|s| s == "md")));
+        let store = isolated_root.join(".owner/handovers");
+        if loss == Some("job") {
+            lose_readiness(&store, &actor);
+        }
         gate.release();
+        completed_job.recv_timeout(Duration::from_secs(3)).unwrap();
+        if loss == Some("brief") {
+            until("brief model admission", || brief.asked().len() == 1);
+            lose_readiness(&store, &actor);
+            brief.fail(brief.asked()[0].brief); // fixed model failure chooses the same minimal brief
+            until("held brief result consumed", || {
+                brief.state.lock().unwrap().events.is_empty()
+            });
+        }
+        if loss.is_some() {
+            let before = actor.shared.observed_ticks.load(Ordering::Acquire);
+            until("paused preparation ticks", || {
+                actor.shared.observed_ticks.load(Ordering::Acquire) >= before + 2
+            });
+            assert_eq!(
+                starts.lock().unwrap().len(),
+                1,
+                "not-ready completion cannot start another native process"
+            );
+            assert_eq!(monitor.prompt_receipts().len(), 1);
+            let saved = ProjectStore::new(project.clone())
+                .read_project_state()
+                .unwrap()
+                .state;
+            assert_eq!(
+                saved["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|m| m["context"]["kind"] == "handoff")
+                    .unwrap()["context"]["status"],
+                "preparing"
+            );
+            if loss == Some("job") {
+                assert!(
+                    !transcript_files(&store)
+                        .iter()
+                        .any(|path| path.extension().is_some_and(|ext| ext == "md")),
+                    "not-ready job cannot commit its transcript"
+                );
+            }
+        }
         child
             .0
             .stdin
             .as_mut()
             .unwrap()
-            .write_all(b"continue\n")
+            .write_all(if loss.is_some() {
+                b"reopen\n"
+            } else {
+                b"continue\n"
+            })
             .unwrap();
         assert_eq!(child.line(&receive), "restored");
         let starts = starts.lock().unwrap().clone();
@@ -300,7 +387,6 @@ mod successful_restore {
             2,
             "exactly one native observation per process"
         );
-        let mut requests = HashSet::new();
         for (index, observation) in receipts.iter().enumerate() {
             use sha2::{Digest, Sha256};
             assert_eq!(observation["turn"], starts[index]["turn"]);
@@ -310,10 +396,8 @@ mod successful_restore {
             assert_eq!(records.len(), 1, "the child parsed no replayed prompt");
             let receipt = &records[0];
             assert_eq!(receipt["sequence"], 1);
-            assert!(requests.insert((
-                observation["turn"].as_u64().unwrap(),
-                receipt["requestId"].as_i64().unwrap()
-            )));
+            // This proves transport fidelity to Provider admission, not a golden
+            // oracle for the owner's brief-generation algorithm.
             let expected = starts[index]["request"]["prompt"].as_str().unwrap();
             assert_eq!(receipt["textBytes"], expected.len());
             assert_eq!(
@@ -388,5 +472,193 @@ mod successful_restore {
             !isolated_root.exists(),
             "joined owner/provider teardown releases the private profile"
         );
+    }
+    struct HeldMock {
+        inner: milagre_owner_store::chat_host::MockProvider,
+        hold: Arc<AtomicBool>,
+    }
+    impl Provider for HeldMock {
+        fn name(&self) -> &str {
+            self.inner.name()
+        }
+        fn start_turn(&mut self, turn: TurnId, request: &RawJson) -> Result<(), ProviderError> {
+            self.inner.start_turn(turn, request)
+        }
+        fn interrupt(&mut self, chat: &str, turn: TurnId) -> Result<(), ProviderError> {
+            self.inner.interrupt(chat, turn)
+        }
+        fn respond_permission(
+            &mut self,
+            chat: &str,
+            turn: TurnId,
+            answer: AnswerId,
+            request: &str,
+            decision: &str,
+        ) -> Result<(), ProviderError> {
+            self.inner
+                .respond_permission(chat, turn, answer, request, decision)
+        }
+        fn answer_question(
+            &mut self,
+            chat: &str,
+            turn: TurnId,
+            answer: AnswerId,
+            request: &str,
+            answers: &RawJson,
+        ) -> Result<(), ProviderError> {
+            self.inner
+                .answer_question(chat, turn, answer, request, answers)
+        }
+        fn close_chat(&mut self, chat: &str, turn: TurnId) -> Result<(), ProviderError> {
+            self.inner.close_chat(chat, turn)
+        }
+        fn shutdown(&mut self) {
+            self.inner.shutdown();
+        }
+        fn take_events(&mut self) -> Vec<ProviderEvent> {
+            if self.hold.load(Ordering::Acquire) {
+                vec![]
+            } else {
+                self.inner.take_events()
+            }
+        }
+    }
+    #[test]
+    fn periodic_readiness_loss_parks_stream_answer_and_end_until_node_explicitly_reopens() {
+        use milagre_owner_store::chat_host::MockProvider;
+        let (profile, project, mut host) = seeded();
+        let store = profile.path().join(".owner/handovers");
+        let provider = MockProvider::new("kiro");
+        let hold = Arc::new(AtomicBool::new(false));
+        host.register(Box::new(HeldMock {
+            inner: provider.clone(),
+            hold: hold.clone(),
+        }));
+        let (server, actor) = running(profile, &project, host, Default::default());
+        let mut child = ChildGuard(
+            Command::new("node")
+                .arg(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/readiness-stream-compat.cjs"
+                ))
+                .arg(server.profile_path())
+                .arg(&project)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let (lines, receive) = mpsc::sync_channel(8);
+        let stdout = child.0.stdout.take().unwrap();
+        let reader = thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                if lines.send(line.unwrap()).is_err() {
+                    break;
+                }
+            }
+        });
+        assert_eq!(child.line(&receive), "sent");
+        let chat = format!("{}#2", project.display());
+        let turn = provider.current(&chat).unwrap();
+        provider.emit(&chat, json!({"type":"message-sent"}));
+        provider.emit(&chat, json!({"type":"text-delta","text":"before "}));
+        provider.emit(&chat,json!({"type":"permission-request","requestId":"held","kind":"command","tool":"Shell","title":"Allow fixture?","command":"true","allowForChat":false}));
+        child
+            .0
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(b"stream\n")
+            .unwrap();
+        assert_eq!(child.line(&receive), "streaming");
+        hold.store(true, Ordering::Release);
+        child
+            .0
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(b"answer\n")
+            .unwrap();
+        assert_eq!(child.line(&receive), "answer-pending");
+        until("answer accepted by fixture", || {
+            provider.state.lock().unwrap().answers.len() == 1
+        });
+        lose_readiness(&store, &actor); // only the periodic check can detect this fault
+        let watermark = actor.shared.snapshot.lock().unwrap()["runs"]["seq"]
+            .as_u64()
+            .unwrap();
+        let saved_before = [
+            fs::read(project.join(".milagre/coordination.json")).unwrap(),
+            fs::read(project.join(".milagre/chats.db")).unwrap(),
+        ];
+        provider.emit(&chat, json!({"type":"text-delta","text":"partial"}));
+        provider.emit(&chat, json!({"type":"turn-completed"}));
+        provider.push(ProviderEvent::Exited {
+            chat: chat.clone(),
+            turn,
+            error: ProviderError::new(ProviderErrorKind::Exited, "Fixed fixture exited"),
+        });
+        hold.store(false, Ordering::Release);
+        until("four parked provider events", || {
+            actor.shared.parked_events.load(Ordering::Acquire) == 4
+        });
+        let ticks = actor.shared.observed_ticks.load(Ordering::Acquire);
+        until("held provider ticks", || {
+            actor.shared.observed_ticks.load(Ordering::Acquire) >= ticks + 2
+        });
+        assert_eq!(
+            actor.shared.snapshot.lock().unwrap()["runs"]["seq"],
+            watermark
+        );
+        assert_eq!(
+            saved_before,
+            [
+                fs::read(project.join(".milagre/coordination.json")).unwrap(),
+                fs::read(project.join(".milagre/chats.db")).unwrap()
+            ],
+            "not-ready clock/events write no Project state"
+        );
+        child
+            .0
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(format!("hidden {watermark}\n").as_bytes())
+            .unwrap();
+        assert_eq!(child.line(&receive), "held");
+        assert_eq!(actor.shared.parked_events.load(Ordering::Acquire), 4);
+        child
+            .0
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(b"reopen\n")
+            .unwrap();
+        assert_eq!(child.line(&receive), "completed");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(status) = child.0.try_wait().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(5));
+        }
+        reader.join().unwrap();
+        assert_eq!(
+            provider.state.lock().unwrap().turns.len(),
+            1,
+            "reopen and resend never execute another turn"
+        );
+        assert_eq!(provider.state.lock().unwrap().answers.len(), 1);
+        assert_eq!(actor.shared.parked_events.load(Ordering::Acquire), 0);
+        assert_eq!(
+            *actor.shared.observed_quit.lock().unwrap(),
+            Some(QuitState::Done)
+        );
+        assert!(server.is_stopped());
+        drop(actor);
+        Server::finish(server).unwrap();
     }
 }

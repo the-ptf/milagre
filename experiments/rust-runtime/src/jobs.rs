@@ -16,6 +16,8 @@ pub(crate) struct Workers {
     #[cfg(test)]
     pub(crate) before_run: Option<std::sync::Arc<dyn Fn() -> bool + Send + Sync>>,
     #[cfg(test)]
+    pub(crate) after_run: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    #[cfg(test)]
     pub(crate) join_entered: Option<std::sync::mpsc::SyncSender<()>>,
 }
 impl Workers {
@@ -45,6 +47,8 @@ impl Workers {
             };
             #[cfg(test)]
             let hook = self.before_run.clone();
+            #[cfg(test)]
+            let after = self.after_run.clone();
             let spawned = thread::Builder::new()
                 .name("isolated-transcript".into())
                 .spawn(move || {
@@ -54,6 +58,10 @@ impl Workers {
                             return;
                         }
                         job.run();
+                        #[cfg(test)]
+                        if let Some(after) = after {
+                            after();
+                        }
                     }));
                 });
             if let Ok(thread) = spawned {

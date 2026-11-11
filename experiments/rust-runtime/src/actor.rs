@@ -86,6 +86,10 @@ struct Shared {
     observed_quit: Mutex<Option<QuitState>>,
     #[cfg(test)]
     ready_notices: AtomicUsize,
+    #[cfg(test)]
+    parked_events: AtomicUsize,
+    #[cfg(test)]
+    observed_ticks: AtomicUsize,
 }
 struct Actor {
     send: SyncSender<Request>,
@@ -383,6 +387,10 @@ impl State {
         )
     }
     fn cache(&mut self, shared: &Shared) {
+        #[cfg(test)]
+        shared
+            .parked_events
+            .store(self.host.parked_for_tests().0, Ordering::Release);
         self.sync_readiness();
         let ready = self.host.is_project_ready(&self.project);
         let state = if ready {
@@ -514,8 +522,8 @@ impl State {
     }
     fn tick(&mut self, now: i64) -> Result<(), RpcError> {
         // Live ownership/root/store checks are bounded independently of renderer traffic.
-        // Revoke grants before driving the host. Owner-side event deferral and launch
-        // guards are separate requirements; this check alone cannot prevent their P2s.
+        // Revoke grants before driving the host. Deferring events and gating launches
+        // remain owner responsibilities, not properties of this periodic sampling check.
         let mut readiness_error = None;
         if Instant::now() >= self.next_readiness_check {
             self.next_readiness_check = Instant::now() + READINESS_CHECK;
@@ -879,6 +887,8 @@ fn run(
                 if let Err(error) = result {
                     record_failure(&shared, error.message);
                 }
+                #[cfg(test)]
+                shared.observed_ticks.fetch_add(1, Ordering::AcqRel);
             }
         }
     }
@@ -992,6 +1002,10 @@ fn start_provider(
         observed_quit: Mutex::new(None),
         #[cfg(test)]
         ready_notices: AtomicUsize::new(0),
+        #[cfg(test)]
+        parked_events: AtomicUsize::new(0),
+        #[cfg(test)]
+        observed_ticks: AtomicUsize::new(0),
     });
     let (send, requests) = mpsc::sync_channel(QUEUE);
     let actor = Arc::new(Actor {
@@ -1251,6 +1265,10 @@ mod tests {
             observed_quit: Mutex::new(None),
             #[cfg(test)]
             ready_notices: AtomicUsize::new(0),
+            #[cfg(test)]
+            parked_events: AtomicUsize::new(0),
+            #[cfg(test)]
+            observed_ticks: AtomicUsize::new(0),
         });
         (
             Actor {
@@ -1434,6 +1452,10 @@ mod publication_tests {
             observed_quit: Mutex::new(None),
             #[cfg(test)]
             ready_notices: AtomicUsize::new(0),
+            #[cfg(test)]
+            parked_events: AtomicUsize::new(0),
+            #[cfg(test)]
+            observed_ticks: AtomicUsize::new(0),
         };
         let mut state = State {
             host: ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0)),
@@ -1645,6 +1667,10 @@ mod job_tests {
             observed_quit: Mutex::new(None),
             #[cfg(test)]
             ready_notices: AtomicUsize::new(0),
+            #[cfg(test)]
+            parked_events: AtomicUsize::new(0),
+            #[cfg(test)]
+            observed_ticks: AtomicUsize::new(0),
         });
         let (send, requests) = mpsc::sync_channel(QUEUE);
         let actor = Arc::new(Actor {

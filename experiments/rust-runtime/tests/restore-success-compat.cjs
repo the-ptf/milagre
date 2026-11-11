@@ -45,7 +45,15 @@ async function main() {
     assert.equal(terminals().length, 1);
     const continuation = once(lines, "line");
     console.log("preparing");
-    assert.equal((await continuation)[0], "continue");
+    const action = (await continuation)[0];
+    if (action === "reopen") {
+      const hidden = await client.call("daemon:snapshot");
+      assert.deepEqual(hidden.projects, []);
+      assert.deepEqual(hidden.runs.runs, {});
+      await assert.rejects(client.call("project:current"), { code: "PROJECT_NOT_READY" });
+      assert.equal(terminals().length, 1, "no second terminal while preparation is not ready");
+      await client.call("project:open", [project]);
+    } else assert.equal(action, "continue");
     await until("restored completion", () => terminals().length === 2);
     assert.deepEqual(
       terminals().map((event) => event.type),
