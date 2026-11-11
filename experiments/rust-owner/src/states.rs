@@ -220,6 +220,25 @@ impl ProjectStates {
         self.slots.get(&key).map(|slot| slot.state.clone())
     }
 
+    /// The complete current state of an already owned Project, including messages kept only in chats.db.
+    ///
+    /// Unlike [`Self::whole_state`], this never opens a Project, runs recovery, touches its idle clock or changes
+    /// which Chats are loaded. A missing or forgotten slot returns `None` without reading its directory. An owned
+    /// slot retained after a failed close is still readable; its root and lock must pass the ordinary ownership
+    /// check first. The caller remains responsible for its own Project-readiness and publication policy.
+    pub fn current_whole_state(&mut self, project: &Path) -> Result<Option<Value>> {
+        let key = self.isolation.normalize(project)?;
+        let Some(slot) = self.slots.get_mut(&key) else {
+            return Ok(None);
+        };
+        slot.owner.verify_owned()?;
+        let state = slot.state.clone();
+        let (db, store) = slot.owner.cache();
+        Ok(Some(
+            message_store::whole_state(db, store, &state)?.to_value(),
+        ))
+    }
+
     pub fn projects(&self) -> Vec<PathBuf> {
         self.order.clone()
     }
