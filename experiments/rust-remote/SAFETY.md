@@ -4,7 +4,7 @@ Addresses rust-remote P2.1/P2.2 and the requested P3.6/P3.7 cases from `rust-rem
 
 ## Subsequent policy checkpoint
 
-See [HOST-POLICY.md](HOST-POLICY.md): `authorize` now also requires a last generation callback and enforces a ten-minute monotonic acceptance age; `Channel::open` validates raw JSON before Value allocation. A temporary-only record authority derives service decisions and owns shared device/connection budgets. The original 42-test checkpoint below remains historical; the current total is 59 tests plus three doctests. Rust Ed25519 remains blocked offline.
+See [HOST-POLICY.md](HOST-POLICY.md): `authorize` now also requires a last generation callback and enforces a ten-minute monotonic acceptance age; `Channel::open` validates raw JSON before Value allocation. A temporary-only record authority derives service decisions and owns shared device/connection budgets. The original 42-test checkpoint below remains historical; policy coverage reached 59 tests plus three doctests. HOST-PROOF.md adds Ed25519 signature reciprocity, for 62 tests plus four doctests.
 
 ## Consuming service authorization
 

@@ -6,6 +6,7 @@ publish = false
 description = "Isolated peer/phone wire and NaCl compatibility foundation; no network or profile access"
 
 [dependencies]
+ed25519-dalek = { version = "=3.0.0", default-features = false, features = ["zeroize"] }
 base64 = "0.22"
 indexmap = { version = "2", features = ["serde"] }
 crypto_box = { version = "0.9.1", default-features = false, features = ["alloc", "salsa20", "std", "rand_core"] }

@@ -2,7 +2,7 @@
 
 This checkpoint implements host-proof codecs/host-ID derivation, a temporary-record authority, and the remaining acceptance/memory guards from `rust-owner-remote-recheck-review.md`. It opens no listener or network connection, reads no existing identity/profile/device file, takes no daemon lock, and changes no mobile code or runtime fingerprint.
 
-**Rust Ed25519 signing/verification is blocked, not implemented.** The delegated no-network restriction was reaffirmed. The local Cargo source/archive cache contains no `ed25519-dalek`, `ring`, `aws-lc-rs`, `openssl`, or `sodiumoxide` implementation. No dependency was fetched and no Ed25519 arithmetic was written. `UnverifiedProof` intentionally cannot authorize a host. The next crypto checkpoint requires an approved maintained implementation supplied offline or permission to fetch it and verify its primary sources. Node fixture signatures alone are not Rust signature reciprocity.
+Rust Ed25519 signing/verification now uses pinned `ed25519-dalek` 3.0.0, with actual Node signatures verified by Rust and independently Rust-signed proofs accepted by the Node room. A consuming challenge verifier adds deadline/generation checks. See [HOST-PROOF.md](HOST-PROOF.md) for primary sources, API details and the explicit weak-key admission difference. Public dependency/docs access was permitted; live endpoints and keys remain excluded.
 
 ## Exact Node inventory
 
@@ -19,11 +19,11 @@ Node's current pairing token is reused by known reconnects and multiple new devi
 
 ## Host proof coverage and primary sources
 
-`host_proof::{Challenge, UnverifiedProof, host_id}` supplies bounded object schemas, canonical unpadded base64url, exact 32/64-byte lengths, host-ID binding and field-order-preserving emission. Unknown/duplicate fields, positional arrays, noncanonical base64 and oversized messages are rejected. These are stricter than Node's coercion/extension handling. The 4096-byte cap is also stricter than Node's text UTF-16 cap. No message is marked authenticated by parsing it.
+`host_proof::{Challenge, UnverifiedProof, host_id}` supplies bounded object schemas, canonical unpadded base64url, exact 32/64-byte lengths, host-ID binding and field-order-preserving emission. Unknown/duplicate fields, positional arrays, noncanonical base64 and oversized messages are rejected. These are stricter than Node's coercion/extension handling. The 4096-byte cap is also stricter than Node's text UTF-16 cap. No message is marked authenticated by parsing it. Explicit library verification and consuming challenge checks are separate steps.
 
 The already locked RustCrypto `sha2` 0.10.9 is now a normal dependency. Its installed primary source `src/lib.rs` documents `Sha512::digest`; `.cargo_vcs_info.json` identifies RustCrypto/hashes commit `82c36a428f8d6f05f3bfccdedb243e9d1f85359d`, path `sha2`. The source and Cargo checksum were available locally; no current-maintenance or online verification claim is made. Reference: https://github.com/RustCrypto/hashes/tree/82c36a428f8d6f05f3bfccdedb243e9d1f85359d/sha2 . No new hash or signature construction is implemented.
 
-`tests/host-proof-node.mjs` pins TweetNaCl 1.0.3, extracts the exact daemon proof statement and imports the actual relay `createRoom` with in-memory sockets. It records four synthetic seeds, challenges, keys, host IDs, signatures and source hashes. Node rejects wrong challenges, corrupted signatures and wrong host IDs. The Rust example roundtrips those proofs; Node accepts the resulting codec bytes. Their signatures are unchanged Node signatures. This is codec reciprocity only, not Rust signing/verification or a relay connection.
+`tests/host-proof-node.mjs` pins TweetNaCl 1.0.3, extracts the exact daemon proof statement and imports the actual relay `createRoom` with in-memory sockets. It records four synthetic seeds, challenges, keys, host IDs, signatures and source hashes. Node rejects wrong challenges, corrupted signatures and wrong host IDs. The Rust example verifies those Node signatures and independently signs the challenges with the Rust library; Node accepts the resulting signatures through its room code. No relay connection is opened. See HOST-PROOF.md.
 
 ## Authority API and transaction boundary
 
@@ -53,7 +53,7 @@ Low-level `Accepted::authorize(decision, still_current)` is a breaking API updat
 
 ## Checks and outstanding services
 
-Expected checkpoint evidence: 59 Rust tests plus three compile-fail doctests; Clippy with warnings denied; Rust/Node formatting; original crypto/frame and phone Node reciprocal checks; additional Node proof-codec check. Synthetic policy tests cover new/known/stored kind, approval, removed/retired state, consumed grants, ticket replacement/foreign authority/cancel, expiry before and after IO, monotonic rollback/overflow, failed persistence, global/source/device/session limits, device/global budget rollback and artifact permissions/cleanup.
+Expected checkpoint evidence: 62 Rust tests plus four compile-fail doctests; Clippy with warnings denied; Rust/Node formatting; original crypto/frame and phone Node reciprocal checks; additional reciprocal Node signature check. Synthetic policy tests cover new/known/stored kind, approval, removed/retired state, consumed grants, ticket replacement/foreign authority/cancel, expiry before and after IO, monotonic rollback/overflow, failed persistence, global/source/device/session limits, device/global budget rollback and artifact permissions/cleanup.
 
 ```sh
 cargo test --offline --manifest-path experiments/rust-remote/Cargo.toml --locked
@@ -66,4 +66,4 @@ node experiments/rust-remote/tests/phone-node.mjs experiments/rust-remote/target
 node experiments/rust-remote/tests/host-proof-node.mjs experiments/rust-remote/target/debug/examples/host_proof
 ```
 
-Still missing: Rust Ed25519 proof signing/verification and cross-implementation signature tests; pending-proof replay/deadline/generation state machine; service listeners; real identity/device stores and owner UI; already-open session revocation; LAN/relay lifecycle/recovery/backpressure; pre-auth admission ownership; HTTP forwarding; actual phone interoperability. No live access or push occurred.
+Still missing: pending-proof service ownership, idle timers and hibernation restoration; service listeners; real identity/device stores and owner UI; already-open session revocation; LAN/relay lifecycle/recovery/backpressure; pre-auth admission ownership; HTTP forwarding; actual phone interoperability. No live access or push occurred.

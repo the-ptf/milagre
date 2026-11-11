@@ -1,7 +1,9 @@
 //! Exact host proof wire codec and host-ID derivation. Cryptographic signature
-//! verification must precede host admission. UnverifiedProof cannot authorize a host.
+//! verification precedes a consuming challenge/generation admission check.
 use crate::{Error, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
+use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 pub const MAX_PROOF_BYTES: usize = 4096;
@@ -74,7 +76,7 @@ struct ProofWire {
     sig: String,
 }
 /// Only structural parsing and host-ID matching. Never treat this as authentication.
-/// There is deliberately no `verified`, `authorize`, or `ready` conversion.
+/// Use verify_signature for cryptographic testing only; PendingProof also checks freshness.
 pub struct UnverifiedProof {
     key: [u8; 32],
     signature: [u8; 64],
@@ -111,5 +113,118 @@ impl UnverifiedProof {
             sig: URL_SAFE_NO_PAD.encode(self.signature),
         })
         .unwrap()
+    }
+}
+
+/// Ed25519 seed-based signer. No Debug, Clone, independent public-key input, key export,
+/// profile loading or persistence. The selected library zeroizes its key on drop.
+pub struct HostSigner(SigningKey);
+impl HostSigner {
+    pub fn from_seed(seed: &[u8; 32]) -> Self {
+        Self(SigningKey::from_bytes(seed))
+    }
+    pub fn public_key(&self) -> [u8; 32] {
+        self.0.verifying_key().to_bytes()
+    }
+    pub fn host_id(&self) -> String {
+        host_id(&self.public_key())
+    }
+    /// Sign exactly the raw 32-byte nonce, as Node does. No prehash or custom context.
+    pub fn proof(&self, challenge: &Challenge) -> Result<Vec<u8>> {
+        let signature = self
+            .0
+            .try_sign(challenge.nonce())
+            .map_err(|_| Error::Authentication)?;
+        Ok(UnverifiedProof::from_parts(self.public_key(), signature.to_bytes()).to_wire())
+    }
+}
+impl UnverifiedProof {
+    /// Crypto verification only. It does not prove this challenge is current, random,
+    /// unexpired or unused. Admission must go through the consuming PendingProof.
+    pub fn verify_signature(&self, challenge: &Challenge) -> Result<()> {
+        let key = VerifyingKey::from_bytes(&self.key).map_err(|_| Error::Authentication)?;
+        key.verify_strict(challenge.nonce(), &Signature::from_bytes(&self.signature))
+            .map_err(|_| Error::Authentication)
+    }
+}
+pub const PROOF_LIFETIME_MS: u64 = 15_000;
+/// One pending carrier generation. No Clone or public field construction.
+pub struct PendingProof {
+    expected_host_id: String,
+    challenge: Challenge,
+    generation: u64,
+    created: u64,
+    deadline: u64,
+}
+/// Proof of signing-key possession for one fresh carrier challenge, not device-pairing
+/// approval, a ready socket, or permission to replace an existing host.
+pub struct VerifiedHost {
+    public_key: [u8; 32],
+    host_id: String,
+    generation: u64,
+}
+impl VerifiedHost {
+    pub fn public_key(&self) -> &[u8; 32] {
+        &self.public_key
+    }
+    pub fn host_id(&self) -> &str {
+        &self.host_id
+    }
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+}
+impl PendingProof {
+    pub fn issue(
+        expected_host_id: &str,
+        generation: u64,
+        now_ms: u64,
+        rng: &mut (impl RngCore + CryptoRng),
+    ) -> Result<Self> {
+        decode::<16>(expected_host_id)?;
+        let deadline = now_ms
+            .checked_add(PROOF_LIFETIME_MS)
+            .ok_or(Error::Exhausted)?;
+        let mut nonce = [0; 32];
+        rng.fill_bytes(&mut nonce);
+        Ok(Self {
+            expected_host_id: expected_host_id.into(),
+            challenge: Challenge::from_nonce(nonce),
+            generation,
+            created: now_ms,
+            deadline,
+        })
+    }
+    pub fn challenge_wire(&self) -> Vec<u8> {
+        self.challenge.to_wire()
+    }
+    pub fn deadline_ms(&self) -> u64 {
+        self.deadline
+    }
+    /// The callback reads (current carrier generation, monotonic time) LAST, after
+    /// signature verification. Both success and failure consume the pending proof.
+    /// The service must drop idle expired challenges and bound pending connections.
+    /// ```compile_fail
+    /// use milagre_remote::host_proof::PendingProof;
+    /// fn twice(p: PendingProof, bytes: &[u8]) {
+    ///     p.verify(bytes, || (1, 0)); p.verify(bytes, || (1, 0));
+    /// }
+    /// ```
+    pub fn verify(
+        self,
+        bytes: &[u8],
+        current: impl FnOnce() -> (u64, u64),
+    ) -> Result<VerifiedHost> {
+        let proof = UnverifiedProof::from_wire(bytes, &self.expected_host_id)?;
+        proof.verify_signature(&self.challenge)?;
+        let (generation, now) = current();
+        if now < self.created || now >= self.deadline || generation != self.generation {
+            return Err(Error::Unauthorized);
+        }
+        Ok(VerifiedHost {
+            public_key: proof.key,
+            host_id: self.expected_host_id,
+            generation,
+        })
     }
 }

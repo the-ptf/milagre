@@ -59,7 +59,27 @@ const cases = [0, 1, 127, 255].map((offset) => {
   return { seed: hex(seed), nonce: hex(nonce), publicKey: hex(sign.publicKey), hostId: id, challenge: accepted.challenge, proof };
 });
 const hash = (s) => createHash("sha256").update(s).digest("hex");
-const fixtures = { tweetnaclVersion: "1.0.3", sourceSha256: { relayCrypto: hash(source), relayHost: hash(hostSource), room: hash(roomSource) }, cases };
+// Identity-point public key and R, zero S: adversarial weak-key differential.
+// No signing algorithm is implemented here; actual TweetNaCl/room decide acceptance.
+const weakKey = new Uint8Array(32);
+weakKey[0] = 1;
+const weakSignature = new Uint8Array(64);
+weakSignature[0] = 1;
+const weakNonce = new Uint8Array(32);
+const weakProof = JSON.stringify({ t: "proof", key: b64url(weakKey), sig: b64url(weakSignature) });
+const weakKeyCase = {
+  hostId: hostIdOf(weakKey),
+  nonce: hex(weakNonce),
+  proof: weakProof,
+  nodeAccepted: roomChecks(hostIdOf(weakKey), weakNonce, weakProof).ready,
+};
+assert.equal(weakKeyCase.nodeAccepted, true, "review the weak-key policy differential if Node changes");
+const fixtures = {
+  weakKeyCase,
+  tweetnaclVersion: "1.0.3",
+  sourceSha256: { relayCrypto: hash(source), relayHost: hash(hostSource), room: hash(roomSource) },
+  cases,
+};
 const fixtureUrl = new URL("./fixtures/host-proof.json", import.meta.url);
 if (process.argv[2] === "--record") {
   writeFileSync(fixtureUrl, `${JSON.stringify(fixtures, null, 2)}\n`);
@@ -78,7 +98,7 @@ if (process.argv[2] === "--record") {
       assert.equal(roomChecks(c.hostId, unhex(cases[i].nonce), c.proof).ready, true);
     });
     console.log(
-      "Actual Node relay room accepts 4 Rust codec proofs carrying unchanged Node signatures; Rust signing/verification remains blocked on an offline Ed25519 dependency.",
+      "Rust verifies 4 actual Node signatures; actual Node relay room accepts 4 freshly Rust-signed proofs byte-identical to Node. Weak-key admission difference recorded.",
     );
   }
 }
