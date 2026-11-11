@@ -3,7 +3,7 @@
 //! `components/agents/PanelToggles.tsx` (the corner toggles) and `lib/window-chrome.ts` (where those sit).
 //!
 //! - [`top_bar`]: the bar beside the traffic lights (sidebar toggle, Routines, Link Projects, Search) and the panel
-//!   toggles in the Chat column's top-right corner, with the clearance the Chat header keeps from both.
+//!   toggle in the window's top-right corner, with the clearance the Chat header and the panel's tab strip keep.
 //! - [`keys`]: the shell's commands from the effective key table (⌘B, ⌘N, ⇧⌘T) and the macOS menu bar.
 //! - [`window_state`]: the window's frame and the sidebar's collapsed state, saved and restored.
 //! - [`persist`]: the small JSON files beside it (diff comments, the merge method).
@@ -23,10 +23,11 @@ use std::rc::Rc;
 
 use gpui::{AnyElement, Context, KeyDownEvent, Window, div, prelude::*};
 
-use self::top_bar::{Bar, Corner, CornerItem};
+use self::top_bar::{Bar, CornerItem};
 use super::Workspace;
 use crate::theme::ActiveTheme;
 use crate::workspace::sidebar::SIDEBAR_WIDTH;
+use crate::workspace::sidebar::rail::RAIL_WIDTH;
 
 /// What the window shows right of the sidebar. Settings opens over either (`SettingsModal`); the Canvas view is not
 /// migrated (PORT-MAP scope decisions).
@@ -170,24 +171,41 @@ impl Workspace {
         top_bar::bar(bar, cx.theme())
     }
 
-    /// The Chat column with the corner toggles over its top-right, and its header kept clear of them and of the bar.
+    /// The Chat column, its header kept clear of the bar and, when the panel is closed, of the corner toggle (the window root draws the toggle; see [`Self::corner`]).
     pub(super) fn chat_column(&self, column: AnyElement, cx: &mut Context<Self>) -> AnyElement {
+        let collapsed = self.sidebar.read(cx).is_collapsed() && self.link.is_none();
+        // As a rail, the lights and the bar reach over the Chat header's leading edge.
+        let column_left = if collapsed { RAIL_WIDTH + 1.0 } else { SIDEBAR_WIDTH + 1.0 };
+        // The toggle sits at the window's right edge, in the top row: over the Chat header while the panel is closed,
+        // over the panel's tab strip while it is open.
+        let open = self.panel.read(cx).is_open();
+        let trailing = top_bar::chat_trailing_inset(if open { 0 } else { 1 });
+        let leading = top_bar::chat_leading_inset(column_left);
+        self.chat.update(cx, |chat, _| chat.set_header_insets(leading, trailing));
+        let clear = if open { top_bar::chat_trailing_inset(1) } else { gpui::px(0.0) };
+        self.panel.update(cx, |panel, cx| panel.set_header_trailing(clear, cx));
+        div().relative().size_full().min_w_0().child(column).into_any_element()
+    }
+
+    /// The panel toggle at the window's top-right, in the top bar's row. Not shown on the Routines page, which has
+    /// no panel, or over the Link workspace, which draws its own.
+    pub(super) fn corner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.routines_open || self.link.is_some() {
+            return None;
+        }
         let items = self.corner_items(cx);
-        let collapsed = self.sidebar.read(cx).is_collapsed();
-        // The rail sits under the title band, so nothing reaches over the Chat header then.
-        let column_left = if collapsed && self.link.is_none() { top_bar::controls_end() } else { SIDEBAR_WIDTH + 1.0 };
-        let insets = (top_bar::chat_leading_inset(column_left), top_bar::chat_trailing_inset(items.len()));
-        self.chat.update(cx, |chat, _| chat.set_header_insets(insets.0, insets.1));
         let panel = self.panel.clone();
-        let on_toggle: top_bar::CornerHandler = Rc::new(move |corner, _, cx| match corner {
-            Corner::Tab(tab) => panel.update(cx, |panel, cx| panel.toggle_tab(tab, cx)),
+        let on_toggle: top_bar::CornerHandler = Rc::new(move |_, _, cx| {
+            panel.update(cx, |panel, cx| {
+                let tab = panel.active();
+                panel.toggle_tab(tab, cx)
+            })
         });
-        div().relative().size_full().min_w_0().child(column).child(top_bar::corner(&items, on_toggle)).into_any_element()
+        Some(top_bar::corner(&items, on_toggle))
     }
 
     /// The corner's toggles for the Chat on screen.
     pub fn corner_items(&self, cx: &gpui::App) -> Vec<CornerItem> {
-        let panel = self.panel.read(cx);
-        top_bar::corner_items(panel.active(), panel.is_open())
+        top_bar::corner_items(self.panel.read(cx).is_open())
     }
 }

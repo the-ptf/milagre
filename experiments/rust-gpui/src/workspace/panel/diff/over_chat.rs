@@ -51,8 +51,8 @@ impl Workspace {
         let label: SharedString = if title.is_empty() { "Back".into() } else { title.to_string().into() };
         let collapsed = self.sidebar.read(cx).is_collapsed();
         let left = if collapsed { RAIL_WIDTH } else { SIDEBAR_WIDTH } + 1.0;
-        let items = self.corner_items(cx).len();
-        let over = OverChat { label, leading: top_bar::chat_leading_inset(left), trailing: top_bar::chat_trailing_inset(items) };
+        // The panel is open (it holds the diff), so the corner toggle sits over the panel's tab strip, not this header.
+        let over = OverChat { label, leading: top_bar::chat_leading_inset(left), trailing: top_bar::chat_trailing_inset(0) };
         let pane = match open {
             OpenDiff::Changes(diff) => {
                 diff.update(cx, |diff, cx| diff.set_over_chat(Some(over), cx));

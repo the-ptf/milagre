@@ -263,7 +263,6 @@ impl Render for Workspace {
             dock::layout(&self.panel, column, cx)
         };
         let columns = self.link_or(columns);
-        let band = self.link.is_none() && self.sidebar.read(cx).is_collapsed();
         let settings = self.settings.clone();
         let palette = self.palette.clone();
         terminal::on_actions(dock::on_actions(div(), &self.panel), &self.terminals)
@@ -287,19 +286,14 @@ impl Render for Workspace {
             .map(shell::keys::on_window_actions)
             .map(|el| self.window_actions(el, cx))
             .map(|el| self.sidebar_drag(el, cx))
-            // Collapsed to the rail, the traffic lights and the bar sit in a band across the whole window and the rail
-            // and columns start under it (`shell::title_band`); open, the sidebar's own header carries them.
-            .map(|el| {
-                if band {
-                    let body =
-                        div().flex().flex_row().flex_1().min_h_0().child(self.sidebar.clone()).child(hairline(&theme)).child(columns);
-                    el.flex_col().child(shell::top_bar::title_band(&theme)).child(body)
-                } else {
-                    el.flex_row().when(self.link.is_none(), |el| el.child(self.sidebar.clone()).child(hairline(&theme))).child(columns)
-                }
-            })
+            // One top row in every state: open, the sidebar's header carries the traffic lights and the bar; as a rail they
+            // run on over the Chat header's leading edge.
+            .flex_row()
+            .when(self.link.is_none(), |el| el.child(self.sidebar.clone()).child(hairline(&theme)))
+            .child(columns)
             // Over the columns' headers, under Settings and the overlays.
             .child(self.top_bar(cx))
+            .children(self.corner(cx))
             .child(self.notices.clone())
             .child(self.onboarding.clone())
             .child(self.settings.clone())

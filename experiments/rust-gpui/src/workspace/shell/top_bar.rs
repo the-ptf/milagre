@@ -7,9 +7,10 @@
 //! of them ([`chat_leading_inset`], the desktop's `useControlsClearance`). The Canvas button is left out: the Canvas
 //! view is not migrated.
 //!
-//! The corner (`PanelToggles.tsx`): one toggle that opens and closes the side panel, 12px in, pressed while the
-//! panel shows. The panel's own tab strip has every tab, so no other toggle is drawn here, and the Terminals open with ⌘J. The corner is the Chat
-//! column's top-right rather than the window's; the Chat header ends short of it ([`chat_trailing_inset`]).
+//! The corner (`PanelToggles.tsx`): one right-panel toggle that opens and closes the side panel, 12px in, pressed while
+//! the panel shows. It sits at the window's top-right in the top bar's row, whether the panel is open or closed; the
+//! Chat header (panel closed) or the panel's tab strip (open) ends short of it ([`chat_trailing_inset`]). The panel's own
+//! tab strip has every tab, so no other toggle is drawn here, and the Terminals open with ⌘J.
 
 use std::rc::Rc;
 
@@ -19,7 +20,6 @@ use super::keys::shortcut_hint;
 use crate::theme::{ActiveTheme, HEADER_HEIGHT, Theme};
 use crate::ui::{IconButton, IconButtonSize, IconName, IconSize, Tooltip};
 use crate::workspace::chrome::NoDrag;
-use crate::workspace::panel::PanelTab;
 
 /// Where the traffic lights end: x 16 plus three 14pt buttons and their gaps.
 pub const TRAFFIC_LIGHTS_END: f32 = 76.0;
@@ -83,12 +83,6 @@ pub struct Bar {
     pub on_link_projects: Handler,
 }
 
-/// The collapsed window's title band: the full window width and 44px, one `page` background with no hairline (the
-/// desktop's compact top bar has none either). The traffic lights and [`bar`] sit in it; it drags the window.
-pub fn title_band(theme: &Theme) -> AnyElement {
-    crate::workspace::chrome::header("title-band").debug_selector(|| "title-band".into()).w_full().bg(theme.page).into_any_element()
-}
-
 /// The bar, positioned absolutely in the window's top-left. It occludes what is under it, so a press on it never
 /// reaches the header's window drag.
 pub fn bar(bar: Bar, theme: &Theme) -> AnyElement {
@@ -143,10 +137,10 @@ pub fn bar(bar: Bar, theme: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-/// One corner toggle.
+/// The corner's one toggle: it opens and closes the side panel (`PanelToggles.tsx`'s per-panel buttons, as one).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Corner {
-    Tab(PanelTab),
+    Panel,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -155,56 +149,33 @@ pub struct CornerItem {
     pub pressed: bool,
 }
 
-/// The corner's one toggle: it opens and closes the side panel (`PanelToggles.tsx`'s per-panel buttons, as one). It
-/// wears the icon, tooltip and shortcut of the panel's own tab: Changes by default ("Show Changes", ⇧⌘D), whichever tab
-/// the Chat last had after that. The panel's tab strip switches tabs; the Terminals open with ⌘J only.
-pub fn corner_items(active: PanelTab, panel_open: bool) -> Vec<CornerItem> {
-    vec![CornerItem { corner: Corner::Tab(active), pressed: panel_open }]
+/// The corner's toggle, pressed while the panel shows.
+pub fn corner_items(panel_open: bool) -> Vec<CornerItem> {
+    vec![CornerItem { corner: Corner::Panel, pressed: panel_open }]
 }
 
 impl Corner {
     pub fn selector(self) -> &'static str {
-        match self {
-            Corner::Tab(PanelTab::Artifact) => "toggle-artifacts",
-            Corner::Tab(PanelTab::Designs) => "toggle-designs",
-            Corner::Tab(PanelTab::Pr) => "toggle-pr",
-            Corner::Tab(PanelTab::Changes) => "toggle-changes",
-            Corner::Tab(PanelTab::Details) => "toggle-details",
-            Corner::Tab(PanelTab::Simulator) => "toggle-simulator",
-        }
+        "toggle-panel"
     }
 
+    /// A right-panel glyph, whatever tab the panel shows.
     fn icon(self) -> IconName {
-        match self {
-            Corner::Tab(tab) => tab.icon(),
-        }
+        IconName::SidebarRight01
     }
 
-    /// The tooltip: "Show Changes" or "Hide Changes", as the desktop's.
+    /// The tooltip: "Show panel" or "Hide panel".
     fn label(self, pressed: bool) -> SharedString {
-        let name = match self {
-            Corner::Tab(PanelTab::Artifact) => "artifacts",
-            Corner::Tab(PanelTab::Designs) => "designs",
-            Corner::Tab(PanelTab::Pr) => return "Pull request".into(),
-            Corner::Tab(PanelTab::Changes) => "Changes",
-            Corner::Tab(PanelTab::Details) => return "Details".into(),
-            Corner::Tab(PanelTab::Simulator) => "simulator",
-        };
-        format!("{} {name}", if pressed { "Hide" } else { "Show" }).into()
+        if pressed { "Hide panel".into() } else { "Show panel".into() }
     }
 
+    /// The command whose key the tooltip shows: the panel's default tab (Changes, ⇧⌘D).
     fn command(self) -> Option<&'static str> {
-        match self {
-            Corner::Tab(PanelTab::Artifact) => Some("artifacts.toggle"),
-            Corner::Tab(PanelTab::Designs) => Some("designs.toggle"),
-            Corner::Tab(PanelTab::Changes) => Some("changes.toggle"),
-            Corner::Tab(PanelTab::Simulator) => Some("simulator.toggle"),
-            Corner::Tab(PanelTab::Pr) | Corner::Tab(PanelTab::Details) => None,
-        }
+        Some("changes.toggle")
     }
 }
 
-/// The corner's toggles, positioned absolutely in the top-right of the box they are added to.
+/// The corner's toggle, positioned absolutely in the window's top-right, in the top bar row (the window root draws it).
 pub fn corner(items: &[CornerItem], on_toggle: CornerHandler) -> AnyElement {
     div()
         .id("corner-toggles")

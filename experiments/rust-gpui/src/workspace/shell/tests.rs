@@ -7,7 +7,6 @@ use super::top_bar::{self, Corner, CornerItem};
 use super::window_state::{Mode, WindowState};
 use super::{EscapeStep, RoutinesState, View, escape_step};
 use crate::testing;
-use crate::workspace::panel::PanelTab;
 use crate::workspace::sidebar::rail::RAIL_WIDTH;
 
 #[gpui::test]
@@ -28,29 +27,57 @@ fn the_bar_sits_beside_the_traffic_lights(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_collapsed_rail_sits_under_a_full_width_title_band_that_holds_the_lights_and_the_bar(cx: &mut TestAppContext) {
+fn the_collapsed_rail_shares_the_one_top_row_with_the_lights_and_the_bar(cx: &mut TestAppContext) {
     let (workspace, cx) = testing::mount_workspace(cx);
-    assert!(cx.debug_bounds("title-band").is_none(), "open, the sidebar's header carries the bar");
+    assert!(cx.debug_bounds("title-band").is_none(), "there is no separate band");
     cx.simulate_keystrokes("cmd-b");
     let sidebar = workspace.read_with(cx, |w, _| w.sidebar.clone());
     assert!(sidebar.read_with(cx, |s, _| s.is_collapsed()), "⌘B collapses the sidebar");
-    let window = cx.update(|window, _| window.viewport_size());
-    let band = cx.debug_bounds("title-band").expect("the band is drawn");
-    assert_eq!((band.origin.x, band.origin.y, band.size.width, band.size.height), (px(0.0), px(0.0), window.width, px(44.0)));
-    // The bar follows the lights inside the band, and the rail and the Chat header start under it.
+    assert!(cx.debug_bounds("title-band").is_none());
+    // The bar keeps its place, over the rail and the start of the Chat column.
     let toggle = cx.debug_bounds("bar-sidebar-toggle").unwrap();
-    assert_eq!(toggle.origin.x, px(top_bar::BAR_LEFT));
-    assert!(toggle.bottom() <= band.bottom());
+    assert_eq!((toggle.origin.x, toggle.origin.y), (px(top_bar::BAR_LEFT), px(6.0)));
     let icon = cx.debug_bounds("rail-item-0").expect("the rail is drawn");
-    assert!(icon.right() <= px(RAIL_WIDTH) && icon.top() >= band.bottom());
-    let identity = cx.debug_bounds("chat-identity-title").expect("the fixture Chat shows its identity");
-    assert!(identity.top() >= band.bottom(), "the Chat header starts under the band: {identity:?}");
+    assert!(icon.right() <= px(RAIL_WIDTH) && icon.top() >= px(44.0), "the rail's icons start under the top row");
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
-    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).0, px(top_bar::HEADER_PAD), "nothing reaches over the Chat header");
+    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).0, top_bar::chat_leading_inset(RAIL_WIDTH + 1.0), "clear of the bar");
     // The bar's toggle expands it again.
     cx.simulate_click(toggle.center(), Modifiers::none());
     assert!(!sidebar.read_with(cx, |s, _| s.is_collapsed()));
     assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).0, px(top_bar::HEADER_PAD));
+}
+
+/// Collapsing the sidebar and closing the panel move nothing vertically: the Chat header, the panel's tab strip, the
+/// bar and the panel toggle share one top row in all four states.
+#[gpui::test]
+fn the_top_row_is_the_same_height_and_place_in_all_four_states(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    let (sidebar, panel) = workspace.read_with(cx, |w, _| (w.sidebar.clone(), w.panel.clone()));
+    let mut rows = Vec::new();
+    for collapsed in [false, true] {
+        if sidebar.read_with(cx, |s, _| s.is_collapsed()) != collapsed {
+            cx.simulate_keystrokes("cmd-b");
+        }
+        for open in [true, false] {
+            panel.update(cx, |p, cx| if open { p.activate(crate::workspace::panel::PanelTab::Changes, cx) } else { p.close(cx) });
+            cx.run_until_parked();
+            let mut y = |name: &'static str| cx.debug_bounds(name).unwrap_or_else(|| panic!("{name} is drawn")).origin.y;
+            let (identity, toggle, search) = (y("chat-identity-title"), y("toggle-panel"), y("bar-search"));
+            let strip = open.then(|| {
+                let b = cx.debug_bounds("panel-header").expect("the strip");
+                (b.origin.x, b.origin.y, b.size.width, b.size.height)
+            });
+            rows.push((identity, toggle, search, strip));
+        }
+    }
+    let first = rows[0];
+    for row in &rows {
+        assert_eq!((row.0, row.1, row.2), (first.0, first.1, first.2), "Chat header, toggle and bar rows: {rows:?}");
+        if let (Some(a), Some(b)) = (row.3, first.3) {
+            assert_eq!(a, b, "the tab strip's place: {rows:?}");
+        }
+    }
+    assert_eq!(first.3.map(|s| s.1), Some(px(0.0)), "the tab strip is in the top row, at the top of the window");
 }
 
 #[gpui::test]
@@ -63,27 +90,36 @@ fn the_corner_has_one_toggle_that_opens_and_closes_the_side_panel(cx: &mut TestA
     cx.run_until_parked();
     assert!(terminals.read_with(cx, |t, _| t.is_open()), "⌘J still toggles the drawer");
     let items = workspace.read_with(cx, |w, cx| w.corner_items(cx));
-    assert_eq!(items, [CornerItem { corner: Corner::Tab(PanelTab::Changes), pressed: true }], "one toggle, pressed while the panel shows");
-    for gone in ["toggle-terminal", "toggle-simulator", "toggle-designs", "toggle-artifacts", "toggle-pr", "toggle-details"] {
+    assert_eq!(items, [CornerItem { corner: Corner::Panel, pressed: true }], "one toggle, pressed while the panel shows");
+    for gone in
+        ["toggle-terminal", "toggle-simulator", "toggle-designs", "toggle-artifacts", "toggle-pr", "toggle-details", "toggle-changes"]
+    {
         assert!(cx.debug_bounds(gone).is_none(), "{gone}: the corner has only the panel toggle");
     }
     let corner = cx.debug_bounds("corner-toggles").expect("the corner is drawn");
-    let toggle = cx.debug_bounds("toggle-changes").expect("the panel toggle");
-    assert_eq!(corner.right(), toggle.right(), "12px from the Chat column's right edge");
+    let toggle = cx.debug_bounds("toggle-panel").expect("the panel toggle");
+    let window = cx.update(|window, _| window.viewport_size());
+    assert_eq!(corner.right(), toggle.right());
+    assert_eq!(toggle.right(), window.width - px(12.0), "12px from the window's right edge");
+    assert_eq!(toggle.origin.y, px(6.0), "centred in the top bar row, as the bar's buttons");
     assert_eq!(toggle.size.width, px(32.0));
     cx.simulate_click(toggle.center(), Modifiers::none());
     assert!(!panel.read_with(cx, |p, _| p.is_open()), "the toggle closes the panel");
-    let toggle = cx.debug_bounds("toggle-changes").expect("still there");
-    cx.simulate_click(toggle.center(), Modifiers::none());
-    assert!(panel.read_with(cx, |p, _| p.is_open()), "and opens it again");
+    let closed = cx.debug_bounds("toggle-panel").expect("still there, in the same place");
+    assert_eq!(closed, toggle, "the toggle does not move when the panel closes");
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
-    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(1));
+    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(1), "closed: the Chat header ends short of it");
+    let bar = cx.debug_bounds("bar-search").unwrap();
+    assert_eq!(bar.origin.y, toggle.origin.y, "in the bar's row, with its buttons");
+    cx.simulate_click(closed.center(), Modifiers::none());
+    assert!(panel.read_with(cx, |p, _| p.is_open()), "and opens it again");
+    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(0), "open: the panel's tab strip takes it");
 }
 
 #[test]
-fn the_corner_item_wears_the_active_panel_tab() {
-    assert_eq!(top_bar::corner_items(PanelTab::Changes, false), [CornerItem { corner: Corner::Tab(PanelTab::Changes), pressed: false }]);
-    assert_eq!(top_bar::corner_items(PanelTab::Designs, true), [CornerItem { corner: Corner::Tab(PanelTab::Designs), pressed: true }]);
+fn the_corner_item_is_one_panel_toggle() {
+    assert_eq!(top_bar::corner_items(false), [CornerItem { corner: Corner::Panel, pressed: false }]);
+    assert_eq!(top_bar::corner_items(true), [CornerItem { corner: Corner::Panel, pressed: true }]);
 }
 
 #[test]

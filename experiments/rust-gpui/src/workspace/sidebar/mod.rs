@@ -608,7 +608,9 @@ impl Sidebar {
             .h_full()
             .bg(theme.canvas)
             .text_color(theme.ink)
-            // The traffic lights and the window's bar sit in the title band above the rail (`workspace/shell`).
+            // The traffic lights and the window's bar sit over this header and run on past the rail's edge, over the Chat
+            // header's leading edge (`workspace/shell/top_bar.rs`): one top row, expanded or not.
+            .child(chrome::header("sidebar-header"))
             .child(div().h(px(8.0)).flex_none())
             .child(uniform_list("rail-list", self.rows.len(), cx.processor(Self::render_rail)).flex_1().min_h_0())
             .child(toast)

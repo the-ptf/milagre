@@ -134,6 +134,8 @@ pub struct Panel {
     pr: Entity<PrView>,
     details: Entity<DetailsView>,
     simulator: Entity<SimulatorView>,
+    /// Room the tab strip leaves at its right end for the window's panel toggle, set by the shell.
+    header_trailing: gpui::Pixels,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
     renders: usize,
 }
@@ -184,12 +186,21 @@ impl Panel {
             details: cx.new(DetailsView::new),
             designs: cx.new(DesignsView::new),
             simulator,
+            header_trailing: px(0.0),
             renders: 0,
         };
         panel.load_simulator(cx);
         panel.load_details(cx);
         panel.apply_env_seed(cx);
         panel
+    }
+
+    /// The tab strip's clearance for the corner toggle over its right end (the shell's).
+    pub fn set_header_trailing(&mut self, trailing: gpui::Pixels, cx: &mut Context<Self>) {
+        if self.header_trailing != trailing {
+            self.header_trailing = trailing;
+            cx.notify();
+        }
     }
 
     /// Shows this Chat's simulators; the fixture answers at once, so the tab is known before the fallback below.
@@ -244,6 +255,9 @@ impl Panel {
         }
         if let Some(tab) = std::env::var("MILAGRE_GPUI_PANEL_TAB").ok().and_then(|n| PanelTab::SHOWN.into_iter().find(|t| t.label() == n)) {
             self.state_mut().tab = tab;
+        }
+        if std::env::var_os("MILAGRE_GPUI_PANEL_CLOSED").is_some() {
+            self.state_mut().open = false;
         }
         if let Ok(path) = std::env::var("MILAGRE_GPUI_CHANGES_FILE") {
             self.changes
@@ -425,7 +439,13 @@ impl Panel {
             .overflow_x_scroll()
             .track_scroll(&self.tabs_scroll)
             .children(tabs);
-        chrome::header("panel-tabs").debug_selector(|| "panel-header".to_string()).px_2().gap_1().child(tab_list).into_any_element()
+        chrome::header("panel-tabs")
+            .debug_selector(|| "panel-header".to_string())
+            .pl_2()
+            .pr(self.header_trailing.max(px(8.0)))
+            .gap_1()
+            .child(tab_list)
+            .into_any_element()
     }
 }
 
