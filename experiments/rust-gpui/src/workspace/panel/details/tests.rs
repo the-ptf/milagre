@@ -172,3 +172,23 @@ fn subchat_rows_nest_and_open_their_chat(cx: &mut TestAppContext) {
     click(cx, "details-parent");
     assert_eq!(events.borrow().last(), Some(&parent));
 }
+
+#[gpui::test]
+fn children_and_background_toggle_and_stay_folded_across_chats(cx: &mut TestAppContext) {
+    let (panel, cx) = mount(cx);
+    let view = details(&panel, cx);
+    assert!(view.read_with(cx, |v, _| v.background_open() && v.children_open()), "open by default");
+    let tasks = view.read_with(cx, |v, _| v.data().ports.first().map(|p| p.pid)).expect("a port");
+    let row = testing::leak(format!("details-port-{tasks}"));
+    assert!(cx.debug_bounds(row).is_some());
+    click(cx, "details-background-toggle");
+    assert!(!view.read_with(cx, |v, _| v.background_open()));
+    assert!(cx.debug_bounds(row).is_none(), "folded: the rows are gone");
+    // Switching Chats keeps the choice for the session.
+    view.update(cx, |v, cx| v.set_chat("other#1", None, false, cx));
+    assert!(!view.read_with(cx, |v, _| v.background_open()));
+    click(cx, "details-background-toggle");
+    assert!(view.read_with(cx, |v, _| v.background_open()));
+    view.update(cx, |v, cx| v.toggle_children(cx));
+    assert!(!view.read_with(cx, |v, _| v.children_open()));
+}

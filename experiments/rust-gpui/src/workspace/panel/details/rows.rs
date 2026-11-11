@@ -7,7 +7,7 @@ use super::family::SubchatRow;
 use super::{BRANCH_CHARS, DetailsView, PAD_X, PATH_CHARS, ROW_HEIGHT, Request, on};
 use crate::logic::activity::subchat_states::SubchatKind;
 use crate::theme::{RADIUS_CONTROL, TEXT_12, TEXT_13, TextStepExt, Theme};
-use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, ProjectAvatar, SectionLabel, Spinner, Tooltip};
+use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, SectionLabel, Spinner, Tooltip};
 use crate::workspace::chat::composer::context::{BUTTON_THRESHOLD, bar_at};
 use crate::workspace::chat::pills::data::AgentStatus;
 
@@ -17,6 +17,33 @@ const INDENT: f32 = 16.0;
 
 fn heading(theme: &Theme, text: &'static str) -> AnyElement {
     div().flex_none().px(px(PAD_X)).pt(px(12.0)).pb(px(4.0)).child(SectionLabel::new(text)).text_color(theme.ink3).into_any_element()
+}
+
+/// A collapsible section's heading: the muted label and a chevron, the whole row toggles.
+fn toggle_heading(
+    theme: &Theme,
+    id: &'static str,
+    text: &'static str,
+    open: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+) -> AnyElement {
+    div()
+        .id(id)
+        .debug_selector(move || id.to_string())
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(4.0))
+        .w_full()
+        .px(px(PAD_X))
+        .pt(px(12.0))
+        .pb(px(4.0))
+        .text_color(theme.ink3)
+        .cursor_pointer()
+        .on_click(on_click)
+        .child(SectionLabel::new(text))
+        .child(chevron(theme, open))
+        .into_any_element()
 }
 
 fn glyph(theme: &Theme, name: IconName) -> AnyElement {
@@ -73,7 +100,7 @@ fn state_mark(theme: &Theme, key: &str, kind: SubchatKind) -> AnyElement {
         SubchatKind::Working => Spinner::new(SharedString::from(format!("details-spin-{key}"))).color(theme.ink3).into_any_element(),
         SubchatKind::NeedsYou => dot(theme.orange),
         SubchatKind::Failed => dot(theme.red),
-        SubchatKind::Done => Icon::new(IconName::Tick02).size(IconSize::S12).color(theme.green_ink).into_any_element(),
+        SubchatKind::Done => return value(theme, "Done", None),
         SubchatKind::Holding | SubchatKind::Queued | SubchatKind::Stopped => dot(theme.ink4),
     };
     div()
@@ -249,7 +276,12 @@ impl DetailsView {
     }
 
     pub(super) fn subchats(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let mut rows: Vec<AnyElement> = vec![heading(theme, "Subchats")];
+        let open = self.children_open();
+        let mut rows: Vec<AnyElement> =
+            vec![toggle_heading(theme, "details-children-toggle", "Children", open, on(cx, |this, cx| this.toggle_children(cx)))];
+        if !open {
+            return section(rows);
+        }
         if let Some(parent) = &self.family().parent {
             let key = parent.key.clone();
             rows.push(
@@ -257,7 +289,7 @@ impl DetailsView {
                     line(
                         theme,
                         "details-parent",
-                        ProjectAvatar::new(&parent.title).size(16.0).into_any_element(),
+                        glyph(theme, IconName::CornerUpLeft),
                         parent.title.clone(),
                         vec![value(theme, "Parent", None)],
                     ),
@@ -273,7 +305,7 @@ impl DetailsView {
             let row = line(
                 theme,
                 format!("details-subchat-{ix}"),
-                ProjectAvatar::new(&sub.title).size(16.0).into_any_element(),
+                Icon::new(IconName::CornerUpLeft).size(IconSize::S14).color(theme.ink3).into_any_element(),
                 sub.title.clone(),
                 vec![state_mark(theme, &sub.key, sub.kind)],
             )
@@ -285,7 +317,17 @@ impl DetailsView {
 
     pub(super) fn background(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let data = &self.data;
-        let mut rows: Vec<AnyElement> = vec![heading(theme, "Background tasks")];
+        let open = self.background_open();
+        let mut rows: Vec<AnyElement> = vec![toggle_heading(
+            theme,
+            "details-background-toggle",
+            "Background tasks",
+            open,
+            on(cx, |this, cx| this.toggle_background(cx)),
+        )];
+        if !open {
+            return section(rows);
+        }
         for command in &data.commands {
             let time = data::elapsed(command.started_at, None, data.commands_now);
             rows.push(

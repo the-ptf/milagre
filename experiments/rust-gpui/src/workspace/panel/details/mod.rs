@@ -5,9 +5,9 @@
 //! - Environment: the computer and how it is connected, the repo, the Worktree's branch and its path (click copies
 //!   it; the Finder and editor buttons ask the host to open it).
 //! - Context: tokens used of the window; expands to the composer ring's bar and Compact on Claude.
-//! - Subchats: the open Chat's Subchats, nested, and its parent when it is one. A row opens that Chat
+//! - Children (collapsible, like T3 Code's Lineage): the open Chat's Subchats, nested, and its parent when it is one. A row opens that Chat
 //!   ([`DetailsEvent::OpenChat`]): the Workspace selects it, since the sidebar no longer lists Subchats.
-//! - Background tasks: running commands, ports and subagents with their time and a stop button, then "N finished".
+//! - Background tasks (collapsible): running commands, ports and subagents with their time and a stop button, then "N finished".
 //! - Links and PR, only when the Chat has them.
 //!
 //! Everything the host would do (copy aside) is recorded in [`DetailsView::requests`], the fixture's stand-in.
@@ -77,6 +77,9 @@ pub struct DetailsView {
     family: Family,
     context_open: bool,
     finished_open: bool,
+    /// The Children and Background tasks sections' open state: kept for the session, across Chats.
+    children_open: bool,
+    background_open: bool,
     copied: bool,
     copy_timer: Option<Task<()>>,
     requests: Vec<Request>,
@@ -88,6 +91,8 @@ pub struct DetailsView {
 
 impl DetailsView {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        // Snapshot seed: `MILAGRE_GPUI_DETAILS_FOLD=children,background` starts those sections folded.
+        let fold = if cfg!(test) { String::new() } else { std::env::var("MILAGRE_GPUI_DETAILS_FOLD").unwrap_or_default() };
         Self {
             key: SharedString::default(),
             pr: None,
@@ -99,6 +104,8 @@ impl DetailsView {
             family: Family::default(),
             context_open: false,
             finished_open: false,
+            children_open: !fold.contains("children"),
+            background_open: !fold.contains("background"),
             copied: false,
             copy_timer: None,
             requests: Vec::new(),
@@ -112,6 +119,13 @@ impl DetailsView {
     /// the Chat open at startup.
     pub fn set_chat(&mut self, key: impl Into<SharedString>, pr: Option<u32>, seeded: bool, cx: &mut Context<Self>) {
         self.key = key.into();
+        // Snapshot seed (never in tests): `MILAGRE_GPUI_DETAILS_CHAT=<title>` shows that Chat's Details instead.
+        if !cfg!(test)
+            && let (Ok(title), Some(source)) = (std::env::var("MILAGRE_GPUI_DETAILS_CHAT"), self.source.as_ref())
+            && let Some(chat) = family::from_source(source, &self.key).into_iter().find(|chat| chat.title == title)
+        {
+            self.key = chat.key.into();
+        }
         self.pr = pr;
         self.seeded = seeded;
         self.context_open = false;
@@ -173,12 +187,30 @@ impl DetailsView {
         self.finished_open
     }
 
+    pub fn children_open(&self) -> bool {
+        self.children_open
+    }
+
+    pub fn background_open(&self) -> bool {
+        self.background_open
+    }
+
     pub fn renders(&self) -> usize {
         self.renders
     }
 
     pub fn toggle_context(&mut self, cx: &mut Context<Self>) {
         self.context_open = !self.context_open;
+        cx.notify();
+    }
+
+    pub fn toggle_children(&mut self, cx: &mut Context<Self>) {
+        self.children_open = !self.children_open;
+        cx.notify();
+    }
+
+    pub fn toggle_background(&mut self, cx: &mut Context<Self>) {
+        self.background_open = !self.background_open;
         cx.notify();
     }
 
@@ -291,7 +323,7 @@ impl Render for DetailsView {
         let mut body: Vec<gpui::AnyElement> = Vec::new();
         for (ix, section) in sections.into_iter().enumerate() {
             if ix > 0 {
-                body.push(div().flex_none().h(px(1.0)).mx(px(PAD_X)).bg(theme.line).into_any_element());
+                body.push(div().flex_none().h(px(1.0)).w_full().bg(theme.line).into_any_element());
             }
             body.push(section);
         }

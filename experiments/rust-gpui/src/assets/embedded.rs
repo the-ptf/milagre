@@ -48,6 +48,7 @@ pub(super) const FILES: &[(&str, &[u8])] = &[
     ("hugeicons/connect.svg", include_bytes!("../../assets/hugeicons/connect.svg")),
     ("hugeicons/copy-01.svg", include_bytes!("../../assets/hugeicons/copy-01.svg")),
     ("hugeicons/corner-down-right.svg", include_bytes!("../../assets/hugeicons/corner-down-right.svg")),
+    ("hugeicons/corner-up-left.svg", include_bytes!("../../assets/hugeicons/corner-up-left.svg")),
     ("hugeicons/dashed-line-circle.svg", include_bytes!("../../assets/hugeicons/dashed-line-circle.svg")),
     ("hugeicons/delete-02.svg", include_bytes!("../../assets/hugeicons/delete-02.svg")),
     ("hugeicons/download-04.svg", include_bytes!("../../assets/hugeicons/download-04.svg")),

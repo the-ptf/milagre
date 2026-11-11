@@ -100,6 +100,7 @@ const ICONS = [
   "ArrowDataTransferHorizontal",
   "Clock01",
   "CornerDownRight",
+  "CornerUpLeft",
   "Download04",
   // WP-27 pill row, Subchats, tasks and undo (PillMorph, TaskTrack, PhaseGraph, PortTrack, SubchatTrack, SubchatBookmark, UndoPanel)
   "ListTodo",
