@@ -13,3 +13,5 @@ serde_json = { version = "1", features = ["preserve_order"] }
 uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
 tempfile = "3"
+regex = "1"
+ryu-js = "1.0.3"

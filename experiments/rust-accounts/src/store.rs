@@ -1,6 +1,7 @@
 //! Fresh-copy capability and descriptor-relative atomic metadata storage (Unix only).
 use crate::{AccountError, Accounts, Result};
 use std::{
+    collections::{BTreeMap, BTreeSet},
     ffi::CString,
     fs::{self, File},
     io::{Read, Write},
@@ -9,7 +10,7 @@ use std::{
         unix::fs::{MetadataExt, PermissionsExt},
     },
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 use uuid::Uuid;
 const MARKER: &str = "MILAGRE-ACCOUNT-COPY";
@@ -25,6 +26,8 @@ struct Root {
     dir: File,
     accounts: File,
     marker: String,
+    links: Mutex<BTreeMap<PathBuf, ManagedLink>>,
+    prepared: Mutex<BTreeSet<String>>,
 }
 impl std::fmt::Debug for AccountSandbox {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -67,6 +70,8 @@ impl AccountSandbox {
             dir,
             accounts,
             marker,
+            links: Mutex::new(BTreeMap::new()),
+            prepared: Mutex::new(BTreeSet::new()),
         }));
         result.verify()?;
         Ok(result)
@@ -117,7 +122,11 @@ impl AccountSandbox {
             return Err(AccountError(UNSAFE));
         }
         let mut count = 0;
-        scan(&root.path, 0, &mut count)?;
+        let links = root.links.lock().map_err(|_| AccountError(UNSAFE))?;
+        scan(&root.path, 0, &mut count, &links)?;
+        for (path, link) in links.iter() {
+            link.verify(path)?;
+        }
         Ok(())
     }
 }
@@ -332,14 +341,22 @@ fn unlink_same(dir: &File, name: &str, file: &File) {
         unsafe { libc::unlinkat(dir.as_raw_fd(), name.as_ptr(), 0) };
     }
 }
-fn scan(path: &Path, depth: usize, count: &mut usize) -> Result<()> {
+fn scan(
+    path: &Path,
+    depth: usize,
+    count: &mut usize,
+    links: &BTreeMap<PathBuf, ManagedLink>,
+) -> Result<()> {
     *count += 1;
     if depth > 32 || *count > 8192 {
         return Err(AccountError(UNSAFE));
     }
     let m = fs::symlink_metadata(path).map_err(|_| AccountError(UNSAFE))?;
-    // Refuse links everywhere in a copy, even directories retained after removing metadata.
-    if m.file_type().is_symlink() || (!m.is_dir() && (!m.is_file() || m.nlink() != 1)) {
+    // Only links minted by this exact capability may exist; never follow them in the scan.
+    if m.file_type().is_symlink() {
+        return links.get(path).ok_or(AccountError(UNSAFE))?.verify(path);
+    }
+    if !m.is_dir() && (!m.is_file() || m.nlink() != 1) {
         return Err(AccountError(UNSAFE));
     }
     if m.is_dir() {
@@ -348,10 +365,198 @@ fn scan(path: &Path, depth: usize, count: &mut usize) -> Result<()> {
                 &entry.map_err(|_| AccountError(UNSAFE))?.path(),
                 depth + 1,
                 count,
+                links,
             )?;
         }
     }
     Ok(())
+}
+
+// Registry lives with the unforgeable copy capability, not with a service/lock. Reopening the
+// same copy can verify its own links, but no process can adopt arbitrary pre-existing links.
+struct ManagedLink {
+    target: PathBuf,
+    link: (u64, u64),
+    source: (u64, u64),
+}
+impl ManagedLink {
+    fn verify(&self, path: &Path) -> Result<()> {
+        let at = fs::symlink_metadata(path).map_err(|_| AccountError(UNSAFE))?;
+        let source = fs::symlink_metadata(&self.target).map_err(|_| AccountError(UNSAFE))?;
+        if !at.file_type().is_symlink()
+            || (at.dev(), at.ino()) != self.link
+            || fs::read_link(path).map_err(|_| AccountError(UNSAFE))? != self.target
+            || !source.is_dir()
+            || source.file_type().is_symlink()
+            || (source.dev(), source.ino()) != self.source
+        {
+            return Err(AccountError(UNSAFE));
+        }
+        Ok(())
+    }
+}
+impl Writer {
+    pub(crate) fn root_path(&self) -> &Path {
+        self.sandbox.path()
+    }
+    pub(crate) fn prepared(&self, key: &str) -> Result<bool> {
+        self.verify()?;
+        Ok(self
+            .sandbox
+            .0
+            .prepared
+            .lock()
+            .map_err(|_| AccountError(UNSAFE))?
+            .contains(key))
+    }
+    pub(crate) fn mark_prepared(&self, key: &str) -> Result<()> {
+        self.verify()?;
+        self.sandbox
+            .0
+            .prepared
+            .lock()
+            .map_err(|_| AccountError(UNSAFE))?
+            .insert(key.to_owned());
+        Ok(())
+    }
+    // All callers supply fixed components or an already validated account UUID. No caller paths.
+    fn directory(&self, parts: &[&str], create: bool) -> Result<File> {
+        let mut dir = self
+            .sandbox
+            .0
+            .dir
+            .try_clone()
+            .map_err(|_| AccountError(IO))?;
+        for part in parts {
+            if part.is_empty() || part.contains('/') || matches!(*part, "." | "..") {
+                return Err(AccountError(UNSAFE));
+            }
+            if create {
+                let c = CString::new(*part).map_err(|_| AccountError(UNSAFE))?;
+                if unsafe { libc::mkdirat(dir.as_raw_fd(), c.as_ptr(), 0o700) } != 0
+                    && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists
+                {
+                    return Err(AccountError(IO));
+                }
+            }
+            dir = open(&dir, part, libc::O_RDONLY | libc::O_DIRECTORY, 0)?;
+        }
+        Ok(dir)
+    }
+    pub(crate) fn profile_directory(&self, parts: &[&str]) -> Result<()> {
+        self.verify()?;
+        self.directory(parts, true)?;
+        self.verify()
+    }
+    pub(crate) fn profile_absent(&self, parts: &[&str]) -> Result<bool> {
+        self.verify()?;
+        let path = parts
+            .iter()
+            .fold(self.root_path().to_owned(), |p, c| p.join(c));
+        match fs::symlink_metadata(path) {
+            Ok(_) => Ok(false),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+            Err(_) => Err(AccountError(UNSAFE)),
+        }
+    }
+    pub(crate) fn profile_read(&self, parts: &[&str], name: &str) -> Result<Option<String>> {
+        self.verify()?;
+        let dir = self.directory(parts, false)?;
+        read_optional(&dir, name)?
+            .map(|b| String::from_utf8(b).map_err(|_| AccountError(crate::READ_ERROR)))
+            .transpose()
+    }
+    pub(crate) fn profile_write(&self, parts: &[&str], name: &str, text: &str) -> Result<()> {
+        if text.len() > 4 * 1024 * 1024 {
+            return Err(AccountError(crate::READ_ERROR));
+        }
+        self.verify()?;
+        let dir = self.directory(parts, true)?;
+        let before = read_optional(&dir, name)?;
+        if before.as_deref() == Some(text.as_bytes()) {
+            return Ok(());
+        }
+        let temp = format!(".profile-{}.tmp", Uuid::new_v4());
+        let mut file = open(
+            &dir,
+            &temp,
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+            0o600,
+        )?;
+        let result = (|| {
+            file.write_all(text.as_bytes())
+                .map_err(|_| AccountError(IO))?;
+            file.sync_all().map_err(|_| AccountError(IO))?;
+            self.verify()?;
+            let current = self.directory(parts, false)?;
+            if !same(
+                &current.metadata().map_err(|_| AccountError(UNSAFE))?,
+                &dir.metadata().map_err(|_| AccountError(UNSAFE))?,
+            ) || read_optional(&dir, name)? != before
+            {
+                return Err(AccountError(UNSAFE));
+            }
+            let from = CString::new(temp.as_str()).map_err(|_| AccountError(IO))?;
+            let to = CString::new(name).map_err(|_| AccountError(IO))?;
+            if unsafe {
+                libc::renameat(dir.as_raw_fd(), from.as_ptr(), dir.as_raw_fd(), to.as_ptr())
+            } != 0
+            {
+                return Err(AccountError(IO));
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            unlink_same(&dir, &temp, &file);
+        }
+        result
+    }
+    pub(crate) fn profile_link(&self, at: &[&str], source: &[&str]) -> Result<()> {
+        self.verify()?;
+        let (name, parent) = at.split_last().ok_or(AccountError(UNSAFE))?;
+        let dir = self.directory(parent, true)?;
+        let source_dir = self.directory(source, false)?;
+        let target = source
+            .iter()
+            .fold(self.root_path().to_owned(), |p, c| p.join(c));
+        let path = at
+            .iter()
+            .fold(self.root_path().to_owned(), |p, c| p.join(c));
+        if let Some(link) = self
+            .sandbox
+            .0
+            .links
+            .lock()
+            .map_err(|_| AccountError(UNSAFE))?
+            .get(&path)
+        {
+            if link.target != target {
+                return Err(AccountError(UNSAFE));
+            }
+            return link.verify(&path);
+        }
+        let target_c = CString::new(target.to_str().ok_or(AccountError(UNSAFE))?)
+            .map_err(|_| AccountError(UNSAFE))?;
+        let name_c = CString::new(*name).map_err(|_| AccountError(UNSAFE))?;
+        if unsafe { libc::symlinkat(target_c.as_ptr(), dir.as_raw_fd(), name_c.as_ptr()) } != 0 {
+            return Err(AccountError(IO));
+        }
+        let at_meta = fs::symlink_metadata(&path).map_err(|_| AccountError(UNSAFE))?;
+        let source_meta = source_dir.metadata().map_err(|_| AccountError(UNSAFE))?;
+        let link = ManagedLink {
+            target,
+            link: (at_meta.dev(), at_meta.ino()),
+            source: (source_meta.dev(), source_meta.ino()),
+        };
+        link.verify(&path)?;
+        self.sandbox
+            .0
+            .links
+            .lock()
+            .map_err(|_| AccountError(UNSAFE))?
+            .insert(path, link);
+        self.verify()
+    }
 }
 
 #[cfg(test)]

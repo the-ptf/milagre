@@ -68,12 +68,23 @@ pub struct AccountEvent {
 /// This is explicitly not Node's completed `accounts:add` response. Profile setup and login are pending.
 #[derive(Debug, Clone)]
 pub struct PendingCreation {
+    owner: Uuid,
+    provider: String,
+    id: String,
+    preparation: crate::PreparationStatus,
     pub account: Value,
     pub snapshot: Value,
 }
 impl PendingCreation {
-    pub fn pending(&self) -> [&'static str; 2] {
-        ["prepare-private-profile", "login"]
+    pub fn pending(&self) -> Vec<&'static str> {
+        if self.preparation == crate::PreparationStatus::Complete {
+            vec!["login"]
+        } else {
+            vec!["prepare-private-profile", "login"]
+        }
+    }
+    pub fn preparation(&self) -> crate::PreparationStatus {
+        self.preparation
     }
 }
 pub struct AccountService {
@@ -287,9 +298,66 @@ impl AccountService {
             .push(account.clone());
         self.persist(next, None)?;
         Ok(PendingCreation {
+            owner: self.owner,
+            provider: provider.into(),
+            id,
+            preparation: crate::PreparationStatus::Pending,
             account,
             snapshot: self.snapshot(),
         })
+    }
+    /// Seed a fresh copy from supplied synthetic text. Never discovers HOME or opens caller paths.
+    pub fn seed_synthetic_sources(&mut self, sources: &crate::SyntheticSources) -> Result<()> {
+        self.active()?;
+        self.writer
+            .as_ref()
+            .ok_or(AccountError(CLOSED))?
+            .seed_sources(sources)
+    }
+    /// Prepares this owner's newly created profile. It neither observes identity nor starts login.
+    pub fn prepare_creation(&mut self, pending: &mut PendingCreation) -> Result<()> {
+        self.active()?;
+        if pending.owner != self.owner {
+            return Err(AccountError(
+                "Profile preparation belongs to another account owner.",
+            ));
+        }
+        let account = self.accounts.account(&pending.provider, &pending.id)?;
+        if account != pending.account {
+            return Err(AccountError("Profile preparation account was changed."));
+        }
+        self.writer
+            .as_ref()
+            .ok_or(AccountError(CLOSED))?
+            .prepare_profile(&pending.provider, &pending.id)?;
+        pending.preparation = crate::PreparationStatus::Complete;
+        Ok(())
+    }
+    pub fn prepare_synthetic_antigravity_default(&mut self) -> Result<()> {
+        self.active()?;
+        self.writer
+            .as_ref()
+            .ok_or(AccountError(CLOSED))?
+            .prepare_default_antigravity()
+    }
+    /// Applies supplied synthetic source MCP text to an already prepared copy. Claude's target
+    /// file is absent before login, so that call is a no-op until a synthetic test creates it.
+    /// This explicit operation reports errors; Node's environment builder swallows them.
+    pub fn inherit_synthetic_mcp(
+        &mut self,
+        provider: &str,
+        id: &str,
+        source: Option<&str>,
+    ) -> Result<crate::McpRefresh> {
+        self.active()?;
+        self.accounts.account(provider, id)?;
+        let writer = self.writer.as_ref().ok_or(AccountError(CLOSED))?;
+        if id == "default" || !writer.prepared(&format!("profile:{provider}:{id}"))? {
+            return Err(AccountError(
+                "Prepare this isolated profile before inheriting MCP configuration.",
+            ));
+        }
+        writer.refresh_mcp(provider, id, source)
     }
     pub fn select(&mut self, provider: &str, id: &str, proof: Readiness) -> Result<Value> {
         self.active()?;

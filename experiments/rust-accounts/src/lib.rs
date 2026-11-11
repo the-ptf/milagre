@@ -1,6 +1,12 @@
 //! Account selection, environment plans and Unix isolated-copy metadata persistence.
 //! No live profile, credential, process or login operations.
 #[cfg(unix)]
+mod config;
+#[cfg(unix)]
+mod preparation;
+#[cfg(unix)]
+pub use preparation::{McpRefresh, PreparationStatus, SyntheticSources};
+#[cfg(unix)]
 mod service;
 #[cfg(unix)]
 mod store;
