@@ -1,0 +1,4374 @@
+{
+  "generatedBy": "experiments/rust-terminals/scripts/generate-conformance.cjs",
+  "source": "packages/core/src/terminals.cjs",
+  "hostPlatform": "darwin",
+  "owner": [
+    {
+      "name": "open lists a login shell in the Chat's first Worktree",
+      "options": {},
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1",
+            "cols": 120,
+            "rows": 30
+          }
+        },
+        {
+          "op": "state",
+          "pty": 0
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#9"
+          }
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 120,
+              "rows": 30,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "file": "/bin/zsh",
+              "args": ["-l"],
+              "cwd": "$FIRST",
+              "cols": 120,
+              "rows": 30,
+              "name": "xterm-256color",
+              "env": {
+                "TERM": "xterm-256color",
+                "PATH": "/usr/bin:/bin",
+                "SHELL": "/bin/zsh"
+              },
+              "written": [],
+              "sizes": [],
+              "killed": false
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "zsh",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": false,
+                  "cols": 120,
+                  "rows": 30,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": []
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "a shared Chat opens only in its own Worktrees",
+      "options": {},
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "link:abc#2",
+            "cwd": "$SECOND"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "link:abc#2",
+            "cwd": "$OUTSIDE"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "link:abc#2",
+            "cwd": 5
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "link:abc#2",
+            "cwd": null
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#404"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#empty"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#gone"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {}
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": ""
+          }
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "link:abc#2",
+              "title": "zsh",
+              "cwd": "$SECOND",
+              "label": "web",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "link:abc#2"], ["shells"]]
+        },
+        {
+          "result": {
+            "error": "Choose one of this Chat's Worktrees."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Choose one of this Chat's Worktrees."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T1",
+              "chatId": "link:abc#2",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "api",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "link:abc#2"], ["shells"]]
+        },
+        {
+          "result": {
+            "error": "This Chat is archived."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "This Chat has no Worktree to open a Terminal in."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "$BASE/missing no longer exists."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "A Chat is required."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "A Chat is required."
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "reads after an offset, and a reset for a late viewer",
+      "options": {},
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": "hello "
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": "world"
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": "!"
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 11
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 99
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 12
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": ""
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 12
+          }
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 11,
+              "data": "hello world",
+              "reset": false,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 12,
+              "data": "!",
+              "reset": false,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 12,
+              "data": "hello world!",
+              "reset": true,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 12,
+              "data": "",
+              "reset": false,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 12,
+              "data": "",
+              "reset": false,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "read limits hand output over in order and never split a character",
+      "options": {
+        "maxBufferChars": 14000
+      },
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": {
+            "$runs": [
+              ["a", 4095],
+              ["😀", 1],
+              ["b", 5000]
+            ]
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0,
+            "limit": 4096
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 4095,
+            "limit": 8192
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": {
+            "$runs": [["c", 4000]]
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0,
+            "limit": 4096
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": {
+            "$runs": [["d", 4000]]
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 1,
+            "limit": 4096
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0,
+            "limit": 10
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0,
+            "limit": 4095
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0,
+            "limit": null
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0,
+            "limit": 4096.5
+          }
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 4095,
+              "data": {
+                "$runs": [["a", 4095]]
+              },
+              "reset": false,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 9097,
+              "data": {
+                "$runs": [
+                  ["😀", 1],
+                  ["b", 5000]
+                ]
+              },
+              "reset": false,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 4095,
+              "data": {
+                "$runs": [["a", 4095]]
+              },
+              "reset": false,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 17097,
+              "data": {
+                "$runs": [
+                  ["c", 96],
+                  ["d", 4000]
+                ]
+              },
+              "reset": true,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal read."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal read."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal read."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal read."
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "a reset's newest part never starts inside a character",
+      "options": {},
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": {
+            "$runs": [
+              ["😀", 1],
+              ["c", 4095]
+            ]
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 999999,
+            "limit": 4096
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": "ação 😀 中文\r\n"
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 4097
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 4102
+          }
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 4097,
+              "data": {
+                "$runs": [["c", 4095]]
+              },
+              "reset": true,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 4109,
+              "data": "ação 😀 中文\r\n",
+              "reset": false,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 4109,
+              "data": "😀 中文\r\n",
+              "reset": false,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "the buffer keeps only the newest lines",
+      "options": {
+        "maxBufferLines": 3
+      },
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": "a\n"
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": "b\n"
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": "c\n"
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": "d\n"
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": "e\nf\ng\nh\n"
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0
+          }
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 8,
+              "data": "b\nc\nd\n",
+              "reset": true,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 16,
+              "data": "e\nf\ng\nh\n",
+              "reset": true,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "a chunk larger than the buffer keeps its tail",
+      "options": {
+        "maxBufferChars": 4
+      },
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": "abcdefgh"
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": "ij"
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 8
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0
+          }
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 8,
+              "data": "efgh",
+              "reset": true,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 10,
+              "data": "ij",
+              "reset": false,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 10,
+              "data": "ij",
+              "reset": true,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "input, resize and close reach the shell",
+      "options": {},
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:input",
+          "request": {
+            "terminalId": "$T0",
+            "data": "ls\r"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:input",
+          "request": {
+            "terminalId": "$T0",
+            "data": "ação 😀"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:input",
+          "request": {
+            "terminalId": "$T0",
+            "data": {
+              "$runs": [["x", 65536]]
+            }
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:input",
+          "request": {
+            "terminalId": "$T0",
+            "data": {
+              "$runs": [["x", 65537]]
+            }
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:input",
+          "request": {
+            "terminalId": "$T0",
+            "data": 5
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:input",
+          "request": {
+            "terminalId": "$T0"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:resize",
+          "request": {
+            "terminalId": "$T0",
+            "cols": 100,
+            "rows": 40
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:resize",
+          "request": {
+            "terminalId": "$T0",
+            "cols": 100,
+            "rows": 40
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:resize",
+          "request": {
+            "terminalId": "$T0",
+            "cols": 0,
+            "rows": 40
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:resize",
+          "request": {
+            "terminalId": "$T0",
+            "cols": 1000,
+            "rows": 500
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:resize",
+          "request": {
+            "terminalId": "$T0",
+            "cols": 1001,
+            "rows": 500
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:resize",
+          "request": {
+            "terminalId": "$T0",
+            "cols": 10,
+            "rows": 501
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:resize",
+          "request": {
+            "terminalId": "$T0",
+            "cols": 10.5,
+            "rows": 5
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:resize",
+          "request": {
+            "terminalId": "$T0",
+            "cols": "10",
+            "rows": 5
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:resize",
+          "request": {
+            "terminalId": "$T0",
+            "cols": 2,
+            "rows": 1
+          }
+        },
+        {
+          "op": "state",
+          "pty": 0
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:close",
+          "request": {
+            "terminalId": "$T0"
+          }
+        },
+        {
+          "op": "state",
+          "pty": 0
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:input",
+          "request": {
+            "terminalId": "$T0",
+            "data": "x"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:resize",
+          "request": {
+            "terminalId": "$T0",
+            "cols": 0,
+            "rows": 0
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:close",
+          "request": {
+            "terminalId": "$T0"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "not-an-id",
+            "after": 3
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:input",
+          "request": {
+            "terminalId": "not-an-id",
+            "data": "x"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": -1
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 1.5
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": "0"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0"
+          }
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "accepted": true
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "accepted": true
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "accepted": true
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal input."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal input."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal input."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": null
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": null
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal size."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": null
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal size."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal size."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal size."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal size."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": null
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "file": "/bin/zsh",
+              "args": ["-l"],
+              "cwd": "$FIRST",
+              "cols": 80,
+              "rows": 24,
+              "name": "xterm-256color",
+              "env": {
+                "TERM": "xterm-256color",
+                "PATH": "/usr/bin:/bin",
+                "SHELL": "/bin/zsh"
+              },
+              "written": [
+                "ls\r",
+                "ação 😀",
+                {
+                  "$runs": [["x", 65536]]
+                }
+              ],
+              "sizes": [
+                [100, 40],
+                [1000, 500],
+                [2, 1]
+              ],
+              "killed": false
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "zsh",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": false,
+                  "cols": 2,
+                  "rows": 1,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": null
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "file": "/bin/zsh",
+              "args": ["-l"],
+              "cwd": "$FIRST",
+              "cols": 80,
+              "rows": 24,
+              "name": "xterm-256color",
+              "env": {
+                "TERM": "xterm-256color",
+                "PATH": "/usr/bin:/bin",
+                "SHELL": "/bin/zsh"
+              },
+              "written": [
+                "ls\r",
+                "ação 😀",
+                {
+                  "$runs": [["x", 65536]]
+                }
+              ],
+              "sizes": [
+                [100, 40],
+                [1000, 500],
+                [2, 1]
+              ],
+              "killed": true
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": []
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "This Terminal has ended."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "This Terminal has ended."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "This Terminal has ended."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 0,
+              "data": "",
+              "reset": false,
+              "ended": true
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 3,
+              "data": "",
+              "reset": false,
+              "ended": true
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "This Terminal has ended."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal read."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal read."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal read."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Invalid Terminal read."
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "open sizes outside the limits fall back to 80x24",
+      "options": {},
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1",
+            "cols": 1,
+            "rows": 0
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1",
+            "cols": 80.5,
+            "rows": 501
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1",
+            "cols": 1000,
+            "rows": 500
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1",
+            "cols": 2,
+            "rows": 1
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1",
+            "cols": "100",
+            "rows": -5
+          }
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T1",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T2",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 1000,
+              "rows": 500,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T3",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 2,
+              "rows": 1,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T4",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        }
+      ]
+    },
+    {
+      "name": "a shell that exits ends its Terminal",
+      "options": {},
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "emit",
+          "pty": 0,
+          "text": "bye"
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0
+          }
+        },
+        {
+          "op": "exit",
+          "pty": 0
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 3
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:input",
+          "request": {
+            "terminalId": "$T0",
+            "data": "x"
+          }
+        },
+        {
+          "op": "shells"
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 3,
+              "data": "bye",
+              "reset": false,
+              "ended": false,
+              "terminal": {
+                "id": "$T0",
+                "chatId": "/p#1",
+                "title": "zsh",
+                "cwd": "$FIRST",
+                "label": "one",
+                "busy": false,
+                "cols": 80,
+                "rows": 24,
+                "createdAt": 1000
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 3,
+              "data": "",
+              "reset": false,
+              "ended": true
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": []
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "This Terminal has ended."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": []
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "archiving a Chat ends only its own Terminals",
+      "options": {},
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "link:abc#2"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "link:abc#2",
+            "cwd": "$SECOND"
+          }
+        },
+        {
+          "op": "shells"
+        },
+        {
+          "op": "closeChat",
+          "chat": "/p#1"
+        },
+        {
+          "op": "state",
+          "pty": 0
+        },
+        {
+          "op": "state",
+          "pty": 1
+        },
+        {
+          "op": "shells"
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "link:abc#2"
+          }
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T1",
+              "chatId": "link:abc#2",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "api",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "link:abc#2"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T2",
+              "chatId": "link:abc#2",
+              "title": "zsh",
+              "cwd": "$SECOND",
+              "label": "web",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "link:abc#2"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": [
+              ["/p#1", [4242]],
+              ["link:abc#2", [4242, 4242]]
+            ]
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "file": "/bin/zsh",
+              "args": ["-l"],
+              "cwd": "$FIRST",
+              "cols": 80,
+              "rows": 24,
+              "name": "xterm-256color",
+              "env": {
+                "TERM": "xterm-256color",
+                "PATH": "/usr/bin:/bin",
+                "SHELL": "/bin/zsh"
+              },
+              "written": [],
+              "sizes": [],
+              "killed": true
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "file": "/bin/zsh",
+              "args": ["-l"],
+              "cwd": "$FIRST",
+              "cols": 80,
+              "rows": 24,
+              "name": "xterm-256color",
+              "env": {
+                "TERM": "xterm-256color",
+                "PATH": "/usr/bin:/bin",
+                "SHELL": "/bin/zsh"
+              },
+              "written": [],
+              "sizes": [],
+              "killed": false
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": [["link:abc#2", [4242, 4242]]]
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T1",
+                  "chatId": "link:abc#2",
+                  "title": "zsh",
+                  "cwd": "$FIRST",
+                  "label": "api",
+                  "busy": false,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                },
+                {
+                  "id": "$T2",
+                  "chatId": "link:abc#2",
+                  "title": "zsh",
+                  "cwd": "$SECOND",
+                  "label": "web",
+                  "busy": false,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "a Terminal running a command is busy and titled after it",
+      "options": {
+        "shell": {
+          "file": "/bin/sh",
+          "args": []
+        }
+      },
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "process",
+          "pty": 0,
+          "name": "npm"
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "process",
+          "pty": 0,
+          "name": "bash"
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "process",
+          "pty": 0,
+          "name": "-zsh"
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "process",
+          "pty": 0,
+          "name": "fish"
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "process",
+          "pty": 0,
+          "name": "vim"
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "process",
+          "pty": 0,
+          "name": "/usr/bin/python3"
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "process",
+          "pty": 0,
+          "name": ""
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "process",
+          "pty": 0,
+          "name": "-"
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "process",
+          "pty": 0,
+          "name": "pwsh.exe"
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "process",
+          "pty": 0,
+          "name": "CMD.EXE"
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "sh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "npm",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": true,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "bash",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": false,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "zsh",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": false,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "fish",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": false,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "vim",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": true,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "python3",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": true,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "sh",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": false,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "sh",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": false,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "pwsh.exe",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": false,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "CMD.EXE",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": false,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "where node-pty names only the terminal type, the title is the shell and it is busy",
+      "options": {
+        "shell": {
+          "file": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "args": []
+        }
+      },
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "process",
+          "pty": 0,
+          "name": "xterm-256color"
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "state",
+          "pty": 0
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "terminals": [
+                {
+                  "id": "$T0",
+                  "chatId": "/p#1",
+                  "title": "c:\\windows\\system32\\windowspowershell\\v1.0\\powershell",
+                  "cwd": "$FIRST",
+                  "label": "one",
+                  "busy": true,
+                  "cols": 80,
+                  "rows": 24,
+                  "createdAt": 1000
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "file": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+              "args": [],
+              "cwd": "$FIRST",
+              "cols": 80,
+              "rows": 24,
+              "name": "xterm-256color",
+              "env": {
+                "TERM": "xterm-256color",
+                "PATH": "/usr/bin:/bin"
+              },
+              "written": [],
+              "sizes": [],
+              "killed": false
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "a Chat's Terminals are limited, and so are all of them",
+      "options": {
+        "maxPerChat": 1,
+        "maxTotal": 2
+      },
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "link:abc#2"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "link:abc#3"
+          }
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "error": "A Chat can have at most 1 Terminals. Close one first."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T1",
+              "chatId": "link:abc#2",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "api",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "link:abc#2"], ["shells"]]
+        },
+        {
+          "result": {
+            "error": "Too many Terminals are open on this computer. Close one first."
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "a shell choice persists and only applies to new Terminals",
+      "options": {
+        "settings": true,
+        "availableShells": [
+          {
+            "file": "/bin/bash",
+            "label": "bash"
+          },
+          {
+            "file": "/bin/zsh",
+            "label": "zsh"
+          },
+          {
+            "file": "/opt/bin/elvish",
+            "label": "elvish"
+          },
+          {
+            "file": "C:\\Tools\\pwsh.exe",
+            "label": "pwsh"
+          }
+        ]
+      },
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:profiles"
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:setShell",
+          "request": {
+            "shell": "/bin/bash"
+          }
+        },
+        {
+          "op": "settings"
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:setShell",
+          "request": {
+            "shell": "/opt/bin/elvish"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:setShell",
+          "request": {
+            "shell": "C:\\Tools\\pwsh.exe"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "state",
+          "pty": 0
+        },
+        {
+          "op": "state",
+          "pty": 1
+        },
+        {
+          "op": "state",
+          "pty": 2
+        },
+        {
+          "op": "state",
+          "pty": 3
+        },
+        {
+          "op": "restart"
+        },
+        {
+          "op": "call",
+          "command": "terminal:profiles"
+        },
+        {
+          "op": "call",
+          "command": "terminal:setShell",
+          "request": {
+            "shell": null
+          }
+        },
+        {
+          "op": "settings"
+        },
+        {
+          "op": "call",
+          "command": "terminal:profiles"
+        },
+        {
+          "op": "call",
+          "command": "terminal:setShell",
+          "request": {
+            "shell": "/tmp/arbitrary-command"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:setShell",
+          "request": {
+            "shell": "bash"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:setShell",
+          "request": {
+            "shell": 5
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:setShell",
+          "request": {}
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "shells": [
+                {
+                  "file": "/bin/bash",
+                  "label": "bash"
+                },
+                {
+                  "file": "/bin/zsh",
+                  "label": "zsh"
+                },
+                {
+                  "file": "/opt/bin/elvish",
+                  "label": "elvish"
+                },
+                {
+                  "file": "C:\\Tools\\pwsh.exe",
+                  "label": "pwsh"
+                }
+              ],
+              "defaultShell": "/bin/zsh",
+              "selectedShell": null
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "shells": [
+                {
+                  "file": "/bin/bash",
+                  "label": "bash"
+                },
+                {
+                  "file": "/bin/zsh",
+                  "label": "zsh"
+                },
+                {
+                  "file": "/opt/bin/elvish",
+                  "label": "elvish"
+                },
+                {
+                  "file": "C:\\Tools\\pwsh.exe",
+                  "label": "pwsh"
+                }
+              ],
+              "defaultShell": "/bin/zsh",
+              "selectedShell": "/bin/bash"
+            }
+          },
+          "events": [["preferences"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "shell": "/bin/bash"
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T1",
+              "chatId": "/p#1",
+              "title": "bash",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "shells": [
+                {
+                  "file": "/bin/bash",
+                  "label": "bash"
+                },
+                {
+                  "file": "/bin/zsh",
+                  "label": "zsh"
+                },
+                {
+                  "file": "/opt/bin/elvish",
+                  "label": "elvish"
+                },
+                {
+                  "file": "C:\\Tools\\pwsh.exe",
+                  "label": "pwsh"
+                }
+              ],
+              "defaultShell": "/bin/zsh",
+              "selectedShell": "/opt/bin/elvish"
+            }
+          },
+          "events": [["preferences"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T2",
+              "chatId": "/p#1",
+              "title": "elvish",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "shells": [
+                {
+                  "file": "/bin/bash",
+                  "label": "bash"
+                },
+                {
+                  "file": "/bin/zsh",
+                  "label": "zsh"
+                },
+                {
+                  "file": "/opt/bin/elvish",
+                  "label": "elvish"
+                },
+                {
+                  "file": "C:\\Tools\\pwsh.exe",
+                  "label": "pwsh"
+                }
+              ],
+              "defaultShell": "/bin/zsh",
+              "selectedShell": "C:\\Tools\\pwsh.exe"
+            }
+          },
+          "events": [["preferences"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T3",
+              "chatId": "/p#1",
+              "title": "C:\\Tools\\pwsh.exe",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "file": "/bin/zsh",
+              "args": ["-l"],
+              "cwd": "$FIRST",
+              "cols": 80,
+              "rows": 24,
+              "name": "xterm-256color",
+              "env": {
+                "TERM": "xterm-256color",
+                "PATH": "/usr/bin:/bin",
+                "SHELL": "/bin/zsh"
+              },
+              "written": [],
+              "sizes": [],
+              "killed": false
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "file": "/bin/bash",
+              "args": ["-l"],
+              "cwd": "$FIRST",
+              "cols": 80,
+              "rows": 24,
+              "name": "xterm-256color",
+              "env": {
+                "TERM": "xterm-256color",
+                "PATH": "/usr/bin:/bin",
+                "SHELL": "/bin/bash"
+              },
+              "written": [],
+              "sizes": [],
+              "killed": false
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "file": "/opt/bin/elvish",
+              "args": [],
+              "cwd": "$FIRST",
+              "cols": 80,
+              "rows": 24,
+              "name": "xterm-256color",
+              "env": {
+                "TERM": "xterm-256color",
+                "PATH": "/usr/bin:/bin",
+                "SHELL": "/opt/bin/elvish"
+              },
+              "written": [],
+              "sizes": [],
+              "killed": false
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "file": "C:\\Tools\\pwsh.exe",
+              "args": [],
+              "cwd": "$FIRST",
+              "cols": 80,
+              "rows": 24,
+              "name": "xterm-256color",
+              "env": {
+                "TERM": "xterm-256color",
+                "PATH": "/usr/bin:/bin"
+              },
+              "written": [],
+              "sizes": [],
+              "killed": false
+            }
+          },
+          "events": []
+        },
+        {
+          "result": null,
+          "events": [["changed", "/p#1"], ["shells"], ["changed", "/p#1"], ["shells"], ["changed", "/p#1"], ["shells"], ["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "shells": [
+                {
+                  "file": "/bin/bash",
+                  "label": "bash"
+                },
+                {
+                  "file": "/bin/zsh",
+                  "label": "zsh"
+                },
+                {
+                  "file": "/opt/bin/elvish",
+                  "label": "elvish"
+                },
+                {
+                  "file": "C:\\Tools\\pwsh.exe",
+                  "label": "pwsh"
+                }
+              ],
+              "defaultShell": "/bin/zsh",
+              "selectedShell": "C:\\Tools\\pwsh.exe"
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "shells": [
+                {
+                  "file": "/bin/bash",
+                  "label": "bash"
+                },
+                {
+                  "file": "/bin/zsh",
+                  "label": "zsh"
+                },
+                {
+                  "file": "/opt/bin/elvish",
+                  "label": "elvish"
+                },
+                {
+                  "file": "C:\\Tools\\pwsh.exe",
+                  "label": "pwsh"
+                }
+              ],
+              "defaultShell": "/bin/zsh",
+              "selectedShell": null
+            }
+          },
+          "events": [["preferences"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "shell": null
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "shells": [
+                {
+                  "file": "/bin/bash",
+                  "label": "bash"
+                },
+                {
+                  "file": "/bin/zsh",
+                  "label": "zsh"
+                },
+                {
+                  "file": "/opt/bin/elvish",
+                  "label": "elvish"
+                },
+                {
+                  "file": "C:\\Tools\\pwsh.exe",
+                  "label": "pwsh"
+                }
+              ],
+              "defaultShell": "/bin/zsh",
+              "selectedShell": null
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Choose an installed shell."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Choose an installed shell."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Choose an installed shell."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Choose an installed shell."
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "a removed shell falls back to automatic selection",
+      "options": {
+        "availableShells": [
+          {
+            "file": "/bin/bash",
+            "label": "bash"
+          }
+        ]
+      },
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:setShell",
+          "request": {
+            "shell": "/bin/bash"
+          }
+        },
+        {
+          "op": "removeShells"
+        },
+        {
+          "op": "call",
+          "command": "terminal:profiles"
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "state",
+          "pty": 0
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "shells": [
+                {
+                  "file": "/bin/bash",
+                  "label": "bash"
+                }
+              ],
+              "defaultShell": "/bin/zsh",
+              "selectedShell": "/bin/bash"
+            }
+          },
+          "events": [["preferences"]]
+        },
+        {
+          "result": null,
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "shells": [],
+              "defaultShell": "/bin/zsh",
+              "selectedShell": null
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "file": "/bin/zsh",
+              "args": ["-l"],
+              "cwd": "$FIRST",
+              "cols": 80,
+              "rows": 24,
+              "name": "xterm-256color",
+              "env": {
+                "TERM": "xterm-256color",
+                "PATH": "/usr/bin:/bin",
+                "SHELL": "/bin/zsh"
+              },
+              "written": [],
+              "sizes": [],
+              "killed": false
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "a disposed owner answers reads as ended and refuses the rest",
+      "options": {},
+      "ops": [
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "dispose"
+        },
+        {
+          "op": "state",
+          "pty": 0
+        },
+        {
+          "op": "call",
+          "command": "terminal:list",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:read",
+          "request": {
+            "terminalId": "$T0",
+            "after": 0
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:input",
+          "request": {
+            "terminalId": "$T0",
+            "data": "x"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:input",
+          "request": {
+            "terminalId": "$T0",
+            "data": 5
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:resize",
+          "request": {
+            "terminalId": "$T0",
+            "cols": 10,
+            "rows": 10
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:close",
+          "request": {
+            "terminalId": "$T0"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:open",
+          "request": {
+            "chatId": "/p#1"
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:profiles"
+        },
+        {
+          "op": "call",
+          "command": "terminal:setShell",
+          "request": {
+            "shell": null
+          }
+        },
+        {
+          "op": "call",
+          "command": "terminal:setShell",
+          "request": {
+            "shell": 5
+          }
+        },
+        {
+          "op": "shells"
+        }
+      ],
+      "results": [
+        {
+          "result": {
+            "ok": {
+              "id": "$T0",
+              "chatId": "/p#1",
+              "title": "zsh",
+              "cwd": "$FIRST",
+              "label": "one",
+              "busy": false,
+              "cols": 80,
+              "rows": 24,
+              "createdAt": 1000
+            }
+          },
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": null,
+          "events": [["changed", "/p#1"], ["shells"]]
+        },
+        {
+          "result": {
+            "ok": {
+              "file": "/bin/zsh",
+              "args": ["-l"],
+              "cwd": "$FIRST",
+              "cols": 80,
+              "rows": 24,
+              "name": "xterm-256color",
+              "env": {
+                "TERM": "xterm-256color",
+                "PATH": "/usr/bin:/bin",
+                "SHELL": "/bin/zsh"
+              },
+              "written": [],
+              "sizes": [],
+              "killed": true
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Terminals are closed."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "offset": 0,
+              "data": "",
+              "reset": false,
+              "ended": true
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Terminals are closed."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Terminals are closed."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Terminals are closed."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Terminals are closed."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Terminals are closed."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": {
+              "shells": [
+                {
+                  "file": "/bin/zsh",
+                  "label": "zsh"
+                }
+              ],
+              "defaultShell": "/bin/zsh",
+              "selectedShell": null
+            }
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Terminals are closed."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "error": "Terminals are closed."
+          },
+          "events": []
+        },
+        {
+          "result": {
+            "ok": []
+          },
+          "events": []
+        }
+      ]
+    }
+  ],
+  "shells": [
+    {
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "SHELL": "/bin/zsh"
+        },
+        "exists": ["/opt/homebrew/bin/fish", "/bin/zsh"],
+        "userShell": "/opt/homebrew/bin/fish"
+      },
+      "shell": {
+        "file": "/opt/homebrew/bin/fish",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/opt/homebrew/bin/fish",
+          "label": "fish"
+        },
+        {
+          "file": "/bin/zsh",
+          "label": "zsh"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "SHELL": "/opt/homebrew/bin/fish"
+        },
+        "exists": ["/opt/homebrew/bin/fish", "/bin/zsh"],
+        "userShell": null
+      },
+      "shell": {
+        "file": "/opt/homebrew/bin/fish",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/opt/homebrew/bin/fish",
+          "label": "fish"
+        },
+        {
+          "file": "/bin/zsh",
+          "label": "zsh"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "SHELL": "/tmp/evil"
+        },
+        "exists": ["/tmp/evil", "/bin/zsh"],
+        "userShell": "/tmp/missing"
+      },
+      "shell": {
+        "file": "/bin/zsh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/bin/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/tmp/evil",
+          "label": "evil"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "darwin",
+        "env": {},
+        "exists": [],
+        "userShell": {
+          "throw": true
+        }
+      },
+      "shell": {
+        "file": "/bin/zsh",
+        "args": ["-l"]
+      },
+      "shells": []
+    },
+    {
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "SHELL": "bash"
+        },
+        "exists": ["bash"],
+        "userShell": "relative/zsh"
+      },
+      "shell": {
+        "file": "/bin/zsh",
+        "args": ["-l"]
+      },
+      "shells": []
+    },
+    {
+      "input": {
+        "platform": "freebsd",
+        "env": {},
+        "exists": ["/bin/sh"],
+        "userShell": null
+      },
+      "shell": {
+        "file": "/bin/sh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/bin/sh",
+          "label": "sh"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "win32",
+        "env": {
+          "Path": "C:\\Tools",
+          "SystemRoot": "C:\\Windows"
+        },
+        "exists": ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"]
+      },
+      "shell": {
+        "file": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": []
+      },
+      "shells": [
+        {
+          "file": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "label": "powershell"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "win32",
+        "env": {
+          "PATH": "C:\\Tools;D:\\bin",
+          "ProgramFiles": "C:\\Program Files"
+        },
+        "exists": ["C:\\Program Files\\PowerShell\\7\\pwsh.exe", "D:\\bin\\pwsh.exe"]
+      },
+      "shell": {
+        "file": "D:\\bin\\pwsh.exe",
+        "args": []
+      },
+      "shells": [
+        {
+          "file": "D:\\bin\\pwsh.exe",
+          "label": "pwsh"
+        },
+        {
+          "file": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "label": "pwsh"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "win32",
+        "env": {
+          "Path": "",
+          "PATH": "C:\\Tools",
+          "ComSpec": "C:\\Custom\\cmd.exe"
+        },
+        "exists": []
+      },
+      "shell": {
+        "file": "C:\\Custom\\cmd.exe",
+        "args": []
+      },
+      "shells": []
+    },
+    {
+      "input": {
+        "platform": "win32",
+        "env": {},
+        "exists": []
+      },
+      "shell": {
+        "file": "C:\\Windows\\System32\\cmd.exe",
+        "args": []
+      },
+      "shells": []
+    },
+    {
+      "input": {
+        "platform": "linux",
+        "env": {
+          "SHELL": "/bin/bash",
+          "PATH": "/opt/shells:/usr/bin:/bin"
+        },
+        "userShell": "/bin/bash",
+        "exists": ["/bin/bash", "/usr/bin/zsh"]
+      },
+      "shell": {
+        "file": "/usr/bin/zsh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/usr/bin/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/bin/bash",
+          "label": "bash"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "linux",
+        "env": {
+          "SHELL": "/bin/bash",
+          "PATH": "/opt/shells:/usr/bin:/bin"
+        },
+        "userShell": "/bin/bash",
+        "exists": ["/bin/bash", "/bin/zsh"]
+      },
+      "shell": {
+        "file": "/bin/zsh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/bin/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/bin/bash",
+          "label": "bash"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "linux",
+        "env": {
+          "SHELL": "/bin/bash",
+          "PATH": "/opt/shells:/usr/bin:/bin"
+        },
+        "userShell": "/bin/bash",
+        "exists": ["/bin/bash", "/usr/local/bin/zsh"]
+      },
+      "shell": {
+        "file": "/usr/local/bin/zsh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/usr/local/bin/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/bin/bash",
+          "label": "bash"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "linux",
+        "env": {
+          "SHELL": "/bin/bash",
+          "PATH": "/opt/shells:/usr/bin:/bin"
+        },
+        "userShell": "/bin/bash",
+        "exists": ["/bin/bash", "/opt/shells/zsh"]
+      },
+      "shell": {
+        "file": "/opt/shells/zsh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/opt/shells/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/bin/bash",
+          "label": "bash"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "linux",
+        "env": {
+          "SHELL": "/opt/environment/zsh"
+        },
+        "userShell": "/opt/account/zsh",
+        "exists": ["/opt/account/zsh", "/opt/environment/zsh", "/usr/bin/zsh", "/bin/bash"]
+      },
+      "shell": {
+        "file": "/opt/account/zsh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/opt/account/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/opt/environment/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/usr/bin/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/bin/bash",
+          "label": "bash"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "linux",
+        "env": {
+          "SHELL": "/opt/environment/zsh"
+        },
+        "userShell": "/bin/bash",
+        "exists": ["/opt/account/zsh", "/opt/environment/zsh", "/usr/bin/zsh", "/bin/bash"]
+      },
+      "shell": {
+        "file": "/opt/environment/zsh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/opt/environment/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/usr/bin/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/bin/bash",
+          "label": "bash"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "linux",
+        "env": {
+          "SHELL": "/usr/bin/fish"
+        },
+        "userShell": "/bin/bash",
+        "exists": ["/bin/bash", "/usr/bin/fish", "/bin/sh"]
+      },
+      "shell": {
+        "file": "/bin/bash",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/bin/bash",
+          "label": "bash"
+        },
+        {
+          "file": "/usr/bin/fish",
+          "label": "fish"
+        },
+        {
+          "file": "/bin/sh",
+          "label": "sh"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "linux",
+        "env": {
+          "SHELL": "/usr/bin/fish"
+        },
+        "userShell": {
+          "throw": true
+        },
+        "exists": ["/bin/bash", "/usr/bin/fish", "/bin/sh"]
+      },
+      "shell": {
+        "file": "/usr/bin/fish",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/usr/bin/fish",
+          "label": "fish"
+        },
+        {
+          "file": "/bin/bash",
+          "label": "bash"
+        },
+        {
+          "file": "/bin/sh",
+          "label": "sh"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "linux",
+        "env": {
+          "SHELL": "/missing/zsh",
+          "PATH": ".:relative"
+        },
+        "userShell": null,
+        "exists": ["/bin/bash", "/usr/bin/fish", "/bin/sh"]
+      },
+      "shell": {
+        "file": "/bin/sh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/bin/sh",
+          "label": "sh"
+        },
+        {
+          "file": "/usr/bin/fish",
+          "label": "fish"
+        },
+        {
+          "file": "/bin/bash",
+          "label": "bash"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "linux",
+        "env": {
+          "PATH": "/opt/bin/:/usr/bin/.:/a/b/../c"
+        },
+        "userShell": null,
+        "exists": ["/opt/bin/zsh", "/a/c/fish", "/usr/bin/bash"]
+      },
+      "shell": {
+        "file": "/opt/bin/zsh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/opt/bin/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/usr/bin/bash",
+          "label": "bash"
+        },
+        {
+          "file": "/a/c/fish",
+          "label": "fish"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "linux",
+        "env": {
+          "PATH": "/opt/bin:/usr/bin:.",
+          "SHELL": "/bin/bash"
+        },
+        "userShell": "/bin/bash",
+        "exists": ["/bin/bash", "/usr/bin/bash", "/opt/bin/fish", "/usr/bin/zsh", "/opt/custom/shell"],
+        "readShells": "# Login shells\n/bin/bash\r\n/usr/bin/bash\n/opt/custom/shell # installed\n/missing/sh\n\n",
+        "realpath": {
+          "/bin/bash": "/usr/bin/bash"
+        }
+      },
+      "shell": {
+        "file": "/usr/bin/zsh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/usr/bin/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/bin/bash",
+          "label": "bash"
+        },
+        {
+          "file": "/opt/custom/shell",
+          "label": "shell"
+        },
+        {
+          "file": "/opt/bin/fish",
+          "label": "fish"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "linux",
+        "env": {
+          "PATH": "/opt/bin"
+        },
+        "userShell": null,
+        "exists": ["/opt/bin/fish"],
+        "readShells": {
+          "throw": true
+        }
+      },
+      "shell": {
+        "file": "/bin/sh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/opt/bin/fish",
+          "label": "fish"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "PATH": "/opt/homebrew/bin:/usr/bin"
+        },
+        "userShell": "/bin/zsh",
+        "exists": ["/bin/zsh", "/bin/bash", "/bin/sh", "/usr/bin/zsh", "/opt/homebrew/bin/fish", "/opt/homebrew/bin/nu"],
+        "readShells": "/bin/zsh\n/bin/bash\n/bin/sh\n",
+        "realpath": {
+          "/usr/bin/zsh": "/bin/zsh"
+        }
+      },
+      "shell": {
+        "file": "/bin/zsh",
+        "args": ["-l"]
+      },
+      "shells": [
+        {
+          "file": "/bin/zsh",
+          "label": "zsh"
+        },
+        {
+          "file": "/bin/bash",
+          "label": "bash"
+        },
+        {
+          "file": "/bin/sh",
+          "label": "sh"
+        },
+        {
+          "file": "/opt/homebrew/bin/fish",
+          "label": "fish"
+        },
+        {
+          "file": "/opt/homebrew/bin/nu",
+          "label": "nu"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "win32",
+        "env": {
+          "Path": "C:\\Tools;C:\\Windows\\System32"
+        },
+        "exists": ["C:\\Tools\\pwsh.exe", "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "C:\\Windows\\System32\\cmd.exe"],
+        "realpath": {
+          "C:\\Windows\\System32\\cmd.exe": "C:\\WINDOWS\\System32\\CMD.EXE"
+        }
+      },
+      "shell": {
+        "file": "C:\\Tools\\pwsh.exe",
+        "args": []
+      },
+      "shells": [
+        {
+          "file": "C:\\Tools\\pwsh.exe",
+          "label": "pwsh"
+        },
+        {
+          "file": "C:\\Windows\\System32\\cmd.exe",
+          "label": "cmd"
+        },
+        {
+          "file": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "label": "powershell"
+        }
+      ]
+    },
+    {
+      "input": {
+        "platform": "win32",
+        "env": {
+          "Path": "C:\\Tools"
+        },
+        "exists": ["C:\\Tools\\pwsh.exe", "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "C:\\Windows\\System32\\cmd.exe"]
+      },
+      "shell": {
+        "file": "C:\\Tools\\pwsh.exe",
+        "args": []
+      },
+      "shells": [
+        {
+          "file": "C:\\Tools\\pwsh.exe",
+          "label": "pwsh"
+        },
+        {
+          "file": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "label": "powershell"
+        },
+        {
+          "file": "C:\\Windows\\System32\\cmd.exe",
+          "label": "cmd"
+        }
+      ]
+    }
+  ],
+  "environment": [
+    {
+      "input": {
+        "ELECTRON_RUN_AS_NODE": "1",
+        "MILAGRE_BUNDLED_BIN_DIR": "/x",
+        "PATH": "/bin",
+        "LANG": "pt_BR.UTF-8"
+      },
+      "output": {
+        "PATH": "/bin",
+        "LANG": "pt_BR.UTF-8",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "TERM_PROGRAM": "Milagre"
+      }
+    },
+    {
+      "input": {
+        "PATH": "/bin",
+        "LANG": "",
+        "TERM": "dumb",
+        "PWD": "/p",
+        "OLDPWD": "/o",
+        "SHLVL": "3",
+        "_": "/usr/bin/node",
+        "ELECTRON_NO_ATTACH_CONSOLE": "1",
+        "HOME": "/home/x"
+      },
+      "output": {
+        "PATH": "/bin",
+        "LANG": "en_US.UTF-8",
+        "TERM": "xterm-256color",
+        "HOME": "/home/x",
+        "COLORTERM": "truecolor",
+        "TERM_PROGRAM": "Milagre"
+      }
+    },
+    {
+      "input": {},
+      "output": {
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "TERM_PROGRAM": "Milagre",
+        "LANG": "en_US.UTF-8"
+      }
+    }
+  ],
+  "decoder": [
+    {
+      "chunks": [[97], [195], [167], [195], [163], [111], [32], [240], [159], [152], [128], [32], [228], [184], [173], [230], [150], [135]],
+      "outputs": ["a", "", "ç", "", "ã", "o", " ", "", "", "", "😀", " ", "", "", "中", "", "", "文"],
+      "end": ""
+    },
+    {
+      "chunks": [[226, 130, 65, 255], [240, 159], [152, 128], [195]],
+      "outputs": ["�A�", "", "😀", ""],
+      "end": "�"
+    },
+    {
+      "chunks": [
+        [237, 160, 128, 65],
+        [244, 144, 128, 128],
+        [192, 175],
+        [224, 128]
+      ],
+      "outputs": ["���A", "����", "��", ""],
+      "end": "��"
+    },
+    {
+      "chunks": [[240, 159, 152], [65]],
+      "outputs": ["", "�A"],
+      "end": ""
+    },
+    {
+      "chunks": [[228], [184], [173, 10]],
+      "outputs": ["", "", "中\n"],
+      "end": ""
+    },
+    {
+      "chunks": [[224, 128]],
+      "outputs": [""],
+      "end": "��"
+    },
+    {
+      "chunks": [[224, 128], [128]],
+      "outputs": ["", "���"],
+      "end": ""
+    },
+    {
+      "chunks": [[224, 128], [65]],
+      "outputs": ["", "��A"],
+      "end": ""
+    },
+    {
+      "chunks": [
+        [240, 159],
+        [65, 66]
+      ],
+      "outputs": ["", "�AB"],
+      "end": ""
+    },
+    {
+      "chunks": [[240], [159, 152], [128, 65]],
+      "outputs": ["", "", "😀A"],
+      "end": ""
+    },
+    {
+      "chunks": [[128, 128, 128]],
+      "outputs": ["���"],
+      "end": ""
+    },
+    {
+      "chunks": [[65, 128, 128, 128]],
+      "outputs": ["A���"],
+      "end": ""
+    },
+    {
+      "chunks": [[195, 128, 128]],
+      "outputs": ["À�"],
+      "end": ""
+    },
+    {
+      "chunks": [[255, 195]],
+      "outputs": ["�"],
+      "end": "�"
+    },
+    {
+      "chunks": [[248, 128]],
+      "outputs": ["��"],
+      "end": ""
+    },
+    {
+      "chunks": [
+        [226, 130],
+        [172, 226],
+        [130, 172]
+      ],
+      "outputs": ["", "€", "€"],
+      "end": ""
+    },
+    {
+      "chunks": [[195], [195], [169]],
+      "outputs": ["", "�", "é"],
+      "end": ""
+    },
+    {
+      "chunks": [[240, 159, 152]],
+      "outputs": [""],
+      "end": "�"
+    },
+    {
+      "chunks": [[240, 159, 152, 128, 128, 128, 128, 128], [128]],
+      "outputs": ["😀����", "�"],
+      "end": ""
+    },
+    {
+      "chunks": [[226], [], [130], [172]],
+      "outputs": ["", "", "", "€"],
+      "end": ""
+    }
+  ]
+}

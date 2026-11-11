@@ -1,0 +1,29 @@
+[package]
+name = "milagre-terminals"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Rust Terminal owner for Milagre (port of packages/core/src/terminals.cjs): host-owned PTYs, replay buffer, long-poll reads."
+license = "MIT"
+
+# Standalone: not a member of any other Rust workspace in the repo.
+[workspace]
+
+[lib]
+name = "milagre_terminals"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.47", features = ["sync", "time", "rt", "macros"] }
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(unix)'.dependencies]
+# wezterm's PTY layer: openpty, setsid + TIOCSCTTY, signal reset and fd closing before exec.
+portable-pty = "0.9"
+libc = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1.47", features = ["sync", "time", "rt", "rt-multi-thread", "macros"] }
+tempfile = "3"
