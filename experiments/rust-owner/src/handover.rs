@@ -1054,20 +1054,83 @@ pub fn brief_request(transcript: &str, catch_up: bool) -> BriefRequest {
     }
 }
 
-/// What the live brief invocation asks: [`brief_request`] with every `<transcript` and `</transcript` inside the
-/// transcript written as `&lt;…`, so a message can't close the data block for the model. A deliberate safety
-/// deviation from Node (whose prompt is [`brief_request`], kept byte for byte for parity); recorded in
-/// PROVIDER-CONTRACT.md. The text stays owner-encoded: the brief model boundary decodes it once, lossy.
-pub fn safe_brief_request(transcript: &str, catch_up: bool) -> BriefRequest {
-    // Cut first (as Node does), then escape: at most 60,000 code units, each at most 4 UTF-8 bytes once escaped
-    // (`<` becomes `&lt;`), so the prompt stays under MAX_BRIEF_PROMPT_BYTES.
-    let shown = neutralize(&cut_transcript(transcript), &["transcript"]);
+/// The header (title, provider, worktree) the live cut keeps, in UTF-16 code units.
+pub const SAFE_HEADER_LIMIT: usize = 4_000;
+
+/// The live cut: [`cut_transcript`] (Node's), except that a header longer than [`SAFE_HEADER_LIMIT`] is cut too, so
+/// header, first message and tail always fit TRANSCRIPT_LIMIT. Node's `slice(-keep)` gives the whole transcript once
+/// the header and first message fill the limit (a huge title or worktree path); this never does. A deliberate safety
+/// deviation, used only for the model's prompt; the parity cut is unchanged.
+pub fn safe_cut_transcript(transcript: &str) -> String {
+    let units = jsjson::to_utf16(transcript);
+    if units.len() <= TRANSCRIPT_LIMIT {
+        return transcript.to_string();
+    }
+    let heading = utf16("\n\n## ");
+    let Some(start) = index_of(&units, &heading, 0) else {
+        return cut_transcript(transcript);
+    };
+    let end = index_of(&units, &heading, start + 5);
+    // A long header keeps its start and its end (the catch-up line is last), with an ellipsis between.
+    let header = &units[..start];
+    let header = if header.len() > SAFE_HEADER_LIMIT {
+        let half = (SAFE_HEADER_LIMIT - 1) / 2;
+        let mut cut = header[..half].to_vec();
+        cut.push(0x2026);
+        cut.extend_from_slice(&header[header.len() - half..]);
+        cut
+    } else {
+        header.to_vec()
+    };
+    let first = &units[start..end.unwrap_or(units.len())];
+    let first = &first[..first.len().min(FIRST_MESSAGE_LIMIT)];
+    // At least TRANSCRIPT_LIMIT - SAFE_HEADER_LIMIT - FIRST_MESSAGE_LIMIT (50,000): never the whole transcript.
+    let keep = TRANSCRIPT_LIMIT - header.len() - first.len();
+    let mut out = Vec::with_capacity(TRANSCRIPT_LIMIT + 128);
+    out.extend_from_slice(&header);
+    out.extend_from_slice(first);
+    out.extend(utf16(
+        "\n\n[Messages between the first and the end are cut off; read the transcript file for them.]\n",
+    ));
+    out.extend_from_slice(&units[units.len() - keep..]);
+    jsjson::from_utf16(&out)
+}
+
+/// The tags the live brief request defuses inside the transcript: its own delimiter and Milagre's block tags.
+const SAFE_TAGS: [&str; 11] = [
+    "transcript",
+    "chat_mentions",
+    "computer_mentions",
+    "linked_worktrees",
+    "delegation_reports",
+    "handoff_brief",
+    "advisor_result",
+    "linear_issue",
+    "milagre_note",
+    "waiting_subchats",
+    "untrusted-data",
+];
+
+/// What the live brief invocation asks (a deliberate safety deviation from Node, whose prompt is [`brief_request`],
+/// kept byte for byte for parity; recorded in PROVIDER-CONTRACT.md): the transcript cut by [`safe_cut_transcript`],
+/// then every `<transcript`/`</transcript` and Milagre block tag in it written as `&lt;…`, so a message can't close the
+/// data block or open one of Milagre's. The prompt, as the model boundary decodes it (lossy), is checked against
+/// [`MAX_BRIEF_PROMPT_BYTES`] in every build: at most 60,100 code units, each at most 4 bytes once escaped, so the
+/// check can't fail unless that reasoning breaks, and then the request is refused rather than sent. The text stays
+/// owner-encoded.
+pub fn safe_brief_request(transcript: &str, catch_up: bool) -> Result<BriefRequest> {
+    let shown = neutralize(&safe_cut_transcript(transcript), &SAFE_TAGS);
     let request = BriefRequest {
         system: brief_request("", catch_up).system,
         prompt: format!("<transcript>\n{shown}\n</transcript>"),
     };
-    debug_assert!(request.prompt.len() <= MAX_BRIEF_PROMPT_BYTES);
-    request
+    let bytes = jsjson::decode_text_lossy(&request.prompt).len();
+    if bytes > MAX_BRIEF_PROMPT_BYTES {
+        return Err(StoreError::Invalid(format!(
+            "The brief's prompt would be {bytes} bytes, over {MAX_BRIEF_PROMPT_BYTES}."
+        )));
+    }
+    Ok(request)
 }
 
 /// The largest brief prompt sent to a model (UTF-8 bytes).

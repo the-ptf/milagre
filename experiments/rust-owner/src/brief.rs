@@ -65,7 +65,7 @@ impl BriefRequest {
                 "There's no brief model for the provider {provider}."
             )));
         }
-        Ok(BriefRequest {
+        let request = BriefRequest {
             brief,
             chat,
             turn,
@@ -73,7 +73,13 @@ impl BriefRequest {
             catch_up,
             system: jsjson::decode_text_lossy(&prompt.system),
             prompt: jsjson::decode_text_lossy(&prompt.prompt),
-        })
+        };
+        if request.prompt.len() > crate::handover::MAX_BRIEF_PROMPT_BYTES {
+            return Err(StoreError::Invalid(
+                "The brief's prompt is over its bound; it isn't sent.".into(),
+            ));
+        }
+        Ok(request)
     }
 }
 

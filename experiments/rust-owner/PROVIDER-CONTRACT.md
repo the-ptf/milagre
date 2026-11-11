@@ -162,11 +162,14 @@ owner turn is an `Ordinary` session.
 Restore only first; switch stays gated. Both gates stay until the traces and the runtime adapter are verified. The
 agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the negotiation summary.
 
-- **Deliberate deviation: the brief prompt.** Node wraps the transcript in `<transcript>` unescaped. The owner keeps
-  that prompt byte for byte in `handover::brief_request` (parity, traced), but the live brief invocation uses
-  `handover::safe_brief_request`: the cut transcript's own `<transcript` / `</transcript` (whitespace around the slash,
-  ASCII case-insensitive, a word boundary after) are written `&lt;…`, so a message can't end the data block for the
-  model. The prompt is at most `MAX_BRIEF_PROMPT_BYTES` (256 KiB).
+- **Deliberate deviation: the brief prompt.** Node wraps the transcript in `<transcript>` unescaped and cuts it with
+  `slice(-keep)`, which returns the whole transcript once the header (title, worktree path) and the first message fill
+  the 60,000-unit limit. The owner keeps both byte for byte in `handover::brief_request`/`cut_transcript` (parity,
+  traced), but the live brief invocation uses `handover::safe_brief_request`: `safe_cut_transcript` also cuts a header
+  over 4,000 units (its start and end kept, the catch-up line included), then the cut transcript's `<transcript` /
+  `</transcript` and Milagre's block tags are written `&lt;…`. The prompt, as the brief boundary decodes it, is checked
+  against `MAX_BRIEF_PROMPT_BYTES` (256 KiB) in every build (refused, never sent, if over); `BriefRequest::outbound`
+  checks it again.
 - **Jobs (host API).** `ChatHost::take_jobs()` hands each `TranscriptJob` over once (callable while quitting or
   closing); the runtime runs it with `job.run()` on a blocking worker. The job reports its own outcome to the host's
   inbox (also when dropped unrun, panicking or cancelled); `pump` handles outcomes and `tick` also retries removing

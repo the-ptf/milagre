@@ -2934,14 +2934,16 @@ impl ChatHost {
         );
         self.next_brief += 1;
         let id = BriefId(self.next_brief);
-        let request = BriefRequest::outbound(
-            id,
-            chat,
-            turn,
-            &preparing.provider,
-            preparing.catch_up,
-            &prompt,
-        );
+        let request = prompt.and_then(|prompt| {
+            BriefRequest::outbound(
+                id,
+                chat,
+                turn,
+                &preparing.provider,
+                preparing.catch_up,
+                &prompt,
+            )
+        });
         let asked = match (request, &mut self.brief_model) {
             (Ok(request), Some(model)) if self.briefs.len() < MAX_BRIEFS => {
                 model.ask(request).is_ok()

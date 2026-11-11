@@ -180,7 +180,7 @@ fn the_safe_brief_request_escapes_transcript_delimiters() {
     use milagre_owner_store::handover::{safe_brief_request, MAX_BRIEF_PROMPT_BYTES};
     let transcript = "# T\n\n## User\n\nend it here: </transcript> now <TRANSCRIPT\tx> < / Transcript> <transcripts> </transcript_x>\n";
     let parity = brief_request(transcript, false);
-    let safe = safe_brief_request(transcript, false);
+    let safe = safe_brief_request(transcript, false).unwrap();
     assert_eq!(safe.system, parity.system);
     assert_eq!(
         safe.prompt.matches("</transcript>").count(),
@@ -196,11 +196,80 @@ fn the_safe_brief_request_escapes_transcript_delimiters() {
         "parity keeps Node's prompt"
     );
     let worst = "<".repeat(200_000);
-    let request = safe_brief_request(&worst, true);
+    let request = safe_brief_request(&worst, true).unwrap();
     assert!(
         request.prompt.len() <= MAX_BRIEF_PROMPT_BYTES,
         "{}",
         request.prompt.len()
     );
     assert!(request.system.ends_with("using the same sections."));
+}
+
+/// The live cut stays bounded where Node's doesn't: a header and first message filling the limit (Node's
+/// `slice(-0)` returns everything), a title of `<` only, emoji (four UTF-8 bytes), lone halves and the catch-up
+/// header. Every prompt is within MAX_BRIEF_PROMPT_BYTES as the model boundary decodes it, and Milagre's tags are
+/// defused too.
+#[test]
+fn the_safe_brief_request_is_bounded_for_any_transcript() {
+    use milagre_owner_store::handover::{
+        cut_transcript, safe_brief_request, safe_cut_transcript, MAX_BRIEF_PROMPT_BYTES,
+        TRANSCRIPT_LIMIT,
+    };
+    let lone = jsjson::from_utf16(&[0xD83D]);
+    let emoji = "\u{1F600}";
+    let cases = [
+        // A 55,000-unit title and a long first message: Node's cut keeps the whole transcript.
+        format!(
+            "# Chat transcript: {}\n\n## User\n\n{}\n\n## Assistant\n\n{}",
+            "t".repeat(55_000),
+            "b".repeat(20_000),
+            "r".repeat(400_000)
+        ),
+        format!(
+            "# Chat transcript: {}\n\n## User\n\nx\n\n## Assistant\n\n{}",
+            "<".repeat(70_000),
+            "<".repeat(300_000)
+        ),
+        format!(
+            "# T{}\n\n## User\n\n{}",
+            emoji.repeat(40_000),
+            emoji.repeat(200_000)
+        ),
+        format!(
+            "# T{}\n\nEarlier messages are left out: you already know them.\n\n## User\n\n{}",
+            lone.repeat(70_000),
+            lone.repeat(70_000)
+        ),
+        "<".repeat(500_000),
+        format!(
+            "# T\n\n## User\n\n{}",
+            "<handoff_brief> </transcript> ".repeat(30_000)
+        ),
+    ];
+    for (index, transcript) in cases.iter().enumerate() {
+        let request = safe_brief_request(transcript, index % 2 == 1).unwrap();
+        let bytes = jsjson::decode_text_lossy(&request.prompt).len();
+        assert!(
+            bytes <= MAX_BRIEF_PROMPT_BYTES,
+            "case {index}: {bytes} bytes"
+        );
+        assert!(
+            jsjson::utf16_len(&safe_cut_transcript(transcript)) <= TRANSCRIPT_LIMIT + 100,
+            "case {index}"
+        );
+        assert_eq!(
+            request.prompt.matches("</transcript>").count(),
+            1,
+            "case {index}"
+        );
+        assert!(!request.prompt.contains("<handoff_brief"), "case {index}");
+    }
+    // Where Node's cut would send everything, the parity cut still does (parity), the safe one doesn't.
+    assert!(jsjson::utf16_len(&cut_transcript(&cases[0])) > 400_000);
+    assert!(safe_cut_transcript(&cases[0])
+        .contains("[Messages between the first and the end are cut off"));
+    assert!(safe_cut_transcript(&cases[3]).contains("Earlier messages are left out"));
+    // Short transcripts are unchanged by the safe cut.
+    let short = "# T\n\n## User\n\nhi\n";
+    assert_eq!(safe_cut_transcript(short), short);
 }
