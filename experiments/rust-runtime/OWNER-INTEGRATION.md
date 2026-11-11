@@ -49,7 +49,13 @@ Executable teardown uses `Server::finish` to wait for EOF/request references and
 ## Codex process bridge fixture
 
 `codex_fixture::CodexFixture` now implements this nonblocking provider boundary for the
-repository's Node fake app-server only. Ten integration tests cover process lifecycle,
+repository's Node fake app-server only. Thirteen integration tests cover process lifecycle,
 generations, bounded admission/events and a real ChatHost durable queue. No executable wires
 it by default. See [CODEX-FIXTURE.md](CODEX-FIXTURE.md) for the exact constructor restrictions,
-async-answer refusal, unsupported owner behavior and validation scope.
+confirmed async answer settlement, unsupported owner behavior and validation scope.
+
+The actor handles `agent:respond-permission` and `agent:answer-question` through the owner's
+AnswerTicket contract. Pending replies stay in a bounded map until the matching settlement
+notice and publication complete. Timeout, provider refusal, session closure or publication
+failure reject/resolve those replies without claiming acceptance early. The Codex fixture
+uses a separate bounded answer lane and carries TurnId on close and every answer admission.

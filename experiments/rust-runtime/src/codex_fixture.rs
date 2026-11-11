@@ -1,7 +1,9 @@
 //! Nonblocking Codex/ChatHost bridge, restricted to the repository's Node fake app-server.
 //! No constructor accepts an executable, profile, environment, role or MCP endpoint.
 use milagre_owner_store::{
-    chat_host::{Provider, ProviderError, ProviderErrorKind, ProviderEvent, TurnId},
+    chat_host::{
+        AnswerId, AnswerOutcome, Provider, ProviderError, ProviderErrorKind, ProviderEvent, TurnId,
+    },
     jsjson, Isolation, Policy,
 };
 use milagre_owner_wire::IsolatedProfile;
@@ -12,7 +14,7 @@ use milagre_providers::codex::{
 };
 use serde_json::{json, Value};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -23,6 +25,7 @@ use std::{
 use tokio::sync::{mpsc, watch};
 
 const CHATS: usize = 16;
+const ANSWERS: usize = 32;
 const EVENTS: usize = 256;
 const BYTES: usize = 4 * 1024 * 1024;
 const REQUEST_BYTES: usize = 1024 * 1024;
@@ -78,6 +81,7 @@ type NativeObservation = (String, Option<u32>, Option<String>);
 struct Shared {
     queue: Mutex<Queue>,
     failed: AtomicBool,
+    answers: Mutex<HashSet<(String, AnswerId)>>,
     workers: Mutex<usize>,
     observations: Mutex<VecDeque<NativeObservation>>,
     drained: Condvar,
@@ -99,12 +103,15 @@ impl Shared {
         }
         // Only one final event plus one exit per worker use this bounded reserve. Once overflow
         // latches, admission is closed. Existing workers also terminate on their next event.
-        if q.items.len() >= EVENTS + CHATS * 3 {
+        if q.items.len() >= EVENTS + CHATS * 3 + ANSWERS {
             self.failed.store(true, Ordering::Release);
             return false;
         }
         q.bytes += bytes;
         q.items.push_back(event);
+        if q.items.len() >= EVENTS || q.bytes >= BYTES {
+            self.failed.store(true, Ordering::Release);
+        }
         true
     }
 }
@@ -142,12 +149,65 @@ impl FixtureMonitor {
 }
 struct Slot {
     commands: mpsc::Sender<Start>,
+    answers: mpsc::Sender<Reply>,
     close: watch::Sender<bool>,
     interrupt: watch::Sender<u64>,
     active: Arc<AtomicBool>,
     done: Arc<AtomicBool>,
     latest: Arc<AtomicU64>,
     native_thread: Arc<Mutex<Option<String>>>,
+}
+enum ReplyKind {
+    Permission(codex::approvals::Decision),
+    Question(codex::approvals::QuestionOutcome),
+}
+struct Reply {
+    turn: TurnId,
+    request_id: String,
+    kind: ReplyKind,
+    guard: ReplyGuard,
+}
+struct ReplyGuard {
+    shared: Arc<Shared>,
+    chat: String,
+    id: Option<AnswerId>,
+}
+impl ReplyGuard {
+    fn settle(mut self, outcome: AnswerOutcome) {
+        if let Some(answer) = self.id.take() {
+            self.shared.emit(
+                ProviderEvent::AnswerSettled {
+                    chat: self.chat.clone(),
+                    answer,
+                    outcome,
+                },
+                true,
+            );
+        }
+    }
+    fn refuse(mut self) {
+        if let Some(id) = self.id.take() {
+            self.shared
+                .answers
+                .lock()
+                .unwrap()
+                .remove(&(self.chat.clone(), id));
+        }
+    }
+}
+impl Drop for ReplyGuard {
+    fn drop(&mut self) {
+        if let Some(answer) = self.id.take() {
+            self.shared.emit(
+                ProviderEvent::AnswerSettled {
+                    chat: self.chat.clone(),
+                    answer,
+                    outcome: AnswerOutcome::Failed(failed()),
+                },
+                true,
+            );
+        }
+    }
 }
 struct Start {
     id: TurnId,
@@ -211,6 +271,7 @@ impl CodexFixture {
                     bytes: 0,
                 }),
                 failed: AtomicBool::new(false),
+                answers: Mutex::new(HashSet::new()),
                 workers: Mutex::new(0),
                 observations: Mutex::new(VecDeque::new()),
                 drained: Condvar::new(),
@@ -230,6 +291,62 @@ impl CodexFixture {
             shared: self.shared.clone(),
             _profile: self.profile.clone(),
         }
+    }
+    fn enqueue_answer(
+        &self,
+        chat: &str,
+        turn: TurnId,
+        answer: AnswerId,
+        request_id: &str,
+        kind: ReplyKind,
+    ) -> Result<(), ProviderError> {
+        if self.closed || self.shared.failed.load(Ordering::Acquire) {
+            return Err(refused("The fixture provider is closed"));
+        }
+        let slot = self
+            .slots
+            .get(chat)
+            .filter(|s| {
+                !s.done.load(Ordering::Acquire) && s.latest.load(Ordering::Acquire) == turn.0
+            })
+            .ok_or_else(|| refused("The fixture session generation is gone"))?;
+        if request_id.len() > 4096 {
+            return Err(refused("Invalid fixture request identity"));
+        }
+        {
+            let mut pending = self.shared.answers.lock().unwrap();
+            if pending.len() >= ANSWERS || !pending.insert((chat.into(), answer)) {
+                return Err(refused("The fixture answer queue is full or duplicated"));
+            }
+        }
+        let native_id: Result<String, _> =
+            serde_json::from_str(&jsjson::to_string(&json!(request_id)));
+        let native_id = match native_id {
+            Ok(id) => id,
+            Err(_) => {
+                self.shared
+                    .answers
+                    .lock()
+                    .unwrap()
+                    .remove(&(chat.into(), answer));
+                return Err(refused("Lone UTF-16 request identities are unsupported"));
+            }
+        };
+        let reply = Reply {
+            turn,
+            request_id: native_id,
+            kind,
+            guard: ReplyGuard {
+                shared: self.shared.clone(),
+                chat: chat.into(),
+                id: Some(answer),
+            },
+        };
+        if let Err(error) = slot.answers.try_send(reply) {
+            error.into_inner().guard.refuse();
+            return Err(refused("The fixture answer lane is full or closed"));
+        }
+        Ok(())
     }
     fn validate(&self, id: TurnId, request: &Value) -> Result<String, ProviderError> {
         if self.closed || self.shared.failed.load(Ordering::Acquire) {
@@ -330,6 +447,7 @@ impl Provider for CodexFixture {
                 return Err(refused("The fixture session limit is full"));
             }
             let (commands, rx) = mpsc::channel(1);
+            let (answers, answers_rx) = mpsc::channel(8);
             let (close, close_rx) = watch::channel(false);
             let (interrupt, interrupt_rx) = watch::channel(0);
             let active = Arc::new(AtomicBool::new(false));
@@ -355,10 +473,13 @@ impl Provider for CodexFixture {
                         .enable_all()
                         .build()
                     {
-                        Ok(runtime) => runtime.block_on(worker.run(rx, close_rx, interrupt_rx)),
+                        Ok(runtime) => {
+                            runtime.block_on(worker.run(rx, answers_rx, close_rx, interrupt_rx))
+                        }
                         Err(_) => {
                             // Construction can fail after synchronous admission. Settle that
                             // accepted request instead of leaving the owner's starting run open.
+                            drop(answers_rx);
                             let mut rx = rx;
                             if let Some(start) = rx.blocking_recv() {
                                 worker.shared.emit(
@@ -379,6 +500,7 @@ impl Provider for CodexFixture {
                 chat.clone(),
                 Slot {
                     commands,
+                    answers,
                     close,
                     interrupt,
                     active,
@@ -429,19 +551,79 @@ impl Provider for CodexFixture {
         }
         Ok(())
     }
-    fn respond_permission(&mut self, _: &str, _: &str, _: &str) -> Result<bool, ProviderError> {
-        Err(refused(
-            "Async permission settlement is not integrated with the owner yet",
-        ))
+    fn respond_permission(
+        &mut self,
+        chat: &str,
+        turn: TurnId,
+        answer: AnswerId,
+        request_id: &str,
+        decision: &str,
+    ) -> Result<(), ProviderError> {
+        let decision = codex::approvals::Decision::parse(decision)
+            .ok_or_else(|| refused("Invalid permission decision"))?;
+        if matches!(decision, codex::approvals::Decision::Cancelled) {
+            return Err(refused("Invalid permission decision"));
+        }
+        self.enqueue_answer(
+            chat,
+            turn,
+            answer,
+            request_id,
+            ReplyKind::Permission(decision),
+        )
     }
-    fn answer_question(&mut self, _: &str, _: &str, _: &Value) -> Result<bool, ProviderError> {
-        Err(refused(
-            "Async question settlement is not integrated with the owner yet",
-        ))
+    fn answer_question(
+        &mut self,
+        chat: &str,
+        turn: TurnId,
+        answer: AnswerId,
+        request_id: &str,
+        answers: &Value,
+    ) -> Result<(), ProviderError> {
+        if answers.to_string().len() > REQUEST_BYTES {
+            return Err(refused("Oversized fixture answer"));
+        }
+        let answers: Value = serde_json::from_str(&jsjson::to_string(answers)).map_err(|_| {
+            refused("Lone UTF-16 units are not supported by the Codex fixture bridge")
+        })?;
+        let outcome = if answers.is_null() {
+            codex::approvals::QuestionOutcome::Dismissed
+        } else {
+            let map = answers
+                .as_object()
+                .filter(|m| m.len() <= 10)
+                .ok_or_else(|| refused("Invalid fixture answers"))?;
+            let mut values = Vec::new();
+            for (id, items) in map {
+                let items = items
+                    .as_array()
+                    .filter(|v| v.len() <= 20)
+                    .ok_or_else(|| refused("Invalid fixture answers"))?;
+                let mut strings = Vec::new();
+                for value in items {
+                    strings.push(
+                        value
+                            .as_str()
+                            .filter(|v| v.encode_utf16().count() <= 10000)
+                            .ok_or_else(|| refused("Invalid fixture answer text"))?
+                            .into(),
+                    );
+                }
+                values.push((id.clone(), strings));
+            }
+            codex::approvals::QuestionOutcome::Answered(values)
+        };
+        self.enqueue_answer(chat, turn, answer, request_id, ReplyKind::Question(outcome))
     }
-    fn close_chat(&mut self, chat: &str) -> Result<(), ProviderError> {
-        if let Some(slot) = self.slots.remove(chat) {
-            slot.close.send_replace(true);
+    fn close_chat(&mut self, chat: &str, turn: TurnId) -> Result<(), ProviderError> {
+        if self
+            .slots
+            .get(chat)
+            .is_some_and(|slot| slot.latest.load(Ordering::Acquire) == turn.0)
+        {
+            if let Some(slot) = self.slots.remove(chat) {
+                slot.close.send_replace(true);
+            }
         }
         Ok(())
     }
@@ -454,7 +636,14 @@ impl Provider for CodexFixture {
     fn take_events(&mut self) -> Vec<ProviderEvent> {
         let mut q = self.shared.queue.lock().unwrap();
         q.bytes = 0;
-        q.items.drain(..).collect()
+        let events: Vec<_> = q.items.drain(..).collect();
+        let mut answers = self.shared.answers.lock().unwrap();
+        for event in &events {
+            if let ProviderEvent::AnswerSettled { chat, answer, .. } = event {
+                answers.remove(&(chat.clone(), *answer));
+            }
+        }
+        events
     }
 }
 impl Drop for CodexFixture {
@@ -493,11 +682,13 @@ impl Worker {
     async fn run(
         self,
         mut commands: mpsc::Receiver<Start>,
+        mut answers: mpsc::Receiver<Reply>,
         mut close: watch::Receiver<bool>,
         mut interrupt: watch::Receiver<u64>,
     ) {
         let first = tokio::select! { biased;
             _=close.changed()=> {
+                drop(answers);
                 if let Ok(start)=commands.try_recv() {
                     self.shared.emit(ProviderEvent::StartFailed{chat:self.chat.clone(),turn:start.id,error:failed()},true);
                     self.exit(start.id);
@@ -552,6 +743,7 @@ impl Worker {
                     },
                     true,
                 );
+                drop(answers);
                 self.exit(latest);
                 return;
             }
@@ -564,6 +756,7 @@ impl Worker {
             observations.push_back((self.chat.clone(), session.pid(), session.thread_id()));
         }
         *self.native_thread.lock().unwrap() = session.thread_id();
+        let mut reply_tasks = tokio::task::JoinSet::new();
         let mut pending = Some(first);
         let mut running = false;
         let mut native: Option<String> = None;
@@ -635,14 +828,34 @@ impl Worker {
                         if running && (native.is_none() || native==turn_id) {
                             self.agent(latest,event,true); running=false;
                             self.active.store(false,Ordering::Release);
+                            if self.shared.failed.load(Ordering::Acquire) {break;}
                         }
                     }
                     Some(SessionEvent::Exited(_))|None=>break,
                     Some(SessionEvent::Notification(_))=>{}
                 },
+                reply=answers.recv(), if reply_tasks.len()<8=> if let Some(reply)=reply {
+                    if reply.turn!=latest {reply.guard.settle(AnswerOutcome::NotWaiting);} else {
+                        let session=session.clone();
+                        reply_tasks.spawn(async move {
+                            let result=match reply.kind {
+                                ReplyKind::Permission(decision)=>session.respond_to_permission(&reply.request_id,decision).await,
+                                ReplyKind::Question(outcome)=>session.answer_question(&reply.request_id,outcome).await,
+                            };
+                            reply.guard.settle(match result {Ok(true)=>AnswerOutcome::Accepted,Ok(false)=>AnswerOutcome::NotWaiting,Err(_)=>AnswerOutcome::Failed(failed())});
+                        });
+                    }
+                },
+                _=reply_tasks.join_next(), if !reply_tasks.is_empty()=>{},
                 command=commands.recv()=>match command { Some(command)=>pending=Some(command),None=>break }
             }
         }
+        answers.close();
+        while let Ok(reply) = answers.try_recv() {
+            drop(reply);
+        }
+        reply_tasks.abort_all();
+        while reply_tasks.join_next().await.is_some() {}
         if running {
             self.agent(latest,json!({"type":"turn-failed","message":"The isolated Codex fixture session stopped"}),true);
         }

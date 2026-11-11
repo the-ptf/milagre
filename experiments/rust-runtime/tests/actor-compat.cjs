@@ -83,6 +83,27 @@ async function fixture(test) {
   }
 }
 async function run() {
+  await fixture(async ({ client, project, send }) => {
+    await send(1, "fixture:blocked-start", "answers");
+    const chatId = project + "#1";
+    const answer = (requestId) => client.call("agent:respond-permission", [{ chatId, requestId, decision: "allow" }]);
+    let settled = false;
+    const started = Date.now();
+    const pending = answer("fixture:accept").then((value) => {
+      settled = true;
+      return value;
+    });
+    await client.call("daemon:snapshot");
+    assert.equal(settled, false, "admission must not answer true");
+    assert.equal(await pending, true);
+    assert.ok(Date.now() - started >= 60, "native settlement is delayed independently of actor calls");
+    assert.equal(await answer("not-waiting"), false);
+    await assert.rejects(answer("fixture:fail"), { code: "ANSWER_FAILED" });
+    await assert.rejects(answer("fixture:hang"), { code: "ANSWER_FAILED" });
+    assert.equal(await client.call("agent:respond-permission", [{ chatId: project + "#2", requestId: "none", decision: "allow" }]), false);
+    await client.call("agent:interrupt", [chatId]);
+    await client.call("daemon:stop");
+  });
   await fixture(async ({ client, runtime, project, events, send, disk }) => {
     await assert.rejects(client.call("chat:send", [{ projectPath: project, sessionId: 1, provider: "codex", body: "never" }]), { code: "ISOLATED_SCOPE_ONLY" });
     await assert.rejects(client.call("project:open", [process.cwd()]), { code: "ISOLATED_SCOPE_ONLY" });

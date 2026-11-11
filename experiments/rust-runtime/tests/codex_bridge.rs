@@ -1,6 +1,8 @@
 use milagre_owner_store::{
     agent_runs,
-    chat_host::{ChatHost, Provider, ProviderEvent, TurnId},
+    chat_host::{
+        AnswerId, AnswerOutcome, AnswerTicket, ChatHost, Notice, Provider, ProviderEvent, TurnId,
+    },
     states::{ProjectStates, Timing},
 };
 use milagre_rust_runtime::codex_fixture::{CodexFixture, Scenario};
@@ -89,7 +91,7 @@ fn interrupt_and_close_return_without_waiting_for_slow_or_stubborn_native_turn()
         let events = collect(&mut p, |e| e.iter().any(terminal));
         assert_eq!(events.iter().filter(|e| terminal(e)).count(), 1);
         let before = Instant::now();
-        p.close_chat("chat").unwrap();
+        p.close_chat("chat", TurnId(4)).unwrap();
         assert!(before.elapsed() < Duration::from_millis(50));
         assert!(monitor.wait_stopped(Duration::from_secs(3)));
     }
@@ -114,7 +116,7 @@ fn cancelled_initialization_and_thread_start_do_not_pin_the_owner() {
     }
 }
 #[test]
-fn refusal_precedes_spawn_and_approval_answer_does_not_report_success() {
+fn refusal_precedes_spawn_and_approval_answer_settles_after_native_write() {
     let mut p = CodexFixture::create(Scenario::Approval).unwrap();
     let monitor = p.monitor();
     for (key, value) in [
@@ -135,9 +137,34 @@ fn refusal_precedes_spawn_and_approval_answer_does_not_report_success() {
             |e| matches!(e,ProviderEvent::Agent{event,..} if event["type"]=="permission-request"),
         )
     });
-    assert!(p.respond_permission("chat", "srv-1", "allow").is_err());
-    assert!(p.answer_question("chat", "srv-1", &json!({})).is_err());
     assert!(p.start_turn(TurnId(2), &request(&p, "chat")).is_err());
+    p.respond_permission("chat", TurnId(1), AnswerId(1), "srv-1", "allow")
+        .unwrap();
+    p.answer_question("chat", TurnId(1), AnswerId(2), "not-waiting", &json!({}))
+        .unwrap();
+    let events = collect(&mut p, |e| {
+        e.iter()
+            .filter(|e| matches!(e, ProviderEvent::AnswerSettled { .. }))
+            .count()
+            == 2
+            && e.iter().any(terminal)
+    });
+    assert!(events.iter().any(|e| matches!(
+        e,
+        ProviderEvent::AnswerSettled {
+            answer: AnswerId(1),
+            outcome: AnswerOutcome::Accepted,
+            ..
+        }
+    )));
+    assert!(events.iter().any(|e| matches!(
+        e,
+        ProviderEvent::AnswerSettled {
+            answer: AnswerId(2),
+            outcome: AnswerOutcome::NotWaiting,
+            ..
+        }
+    )));
     p.shutdown();
     assert!(monitor.wait_stopped(Duration::from_secs(3)));
 }
@@ -230,7 +257,7 @@ fn captured_close_and_late_exit_do_not_stop_replacement_session() {
         e.iter().any(|e| matches!(e, ProviderEvent::Started { .. }))
     });
     let old_pid = monitor.native_session("chat").unwrap().0.unwrap();
-    p.close_chat("chat").unwrap();
+    p.close_chat("chat", TurnId(10)).unwrap();
     p.start_turn(TurnId(11), &request(&p, "chat")).unwrap();
     let events = collect(&mut p, |e| {
         e.iter().any(|e| {
@@ -395,4 +422,168 @@ fn fixture_child(project: &std::path::Path) -> u32 {
         assert!(Instant::now() < deadline, "no fixture child appeared");
         std::thread::sleep(Duration::from_millis(5));
     }
+}
+
+#[test]
+fn queued_answers_fail_exactly_once_on_close_and_stale_generations_are_refused() {
+    let mut p = CodexFixture::create(Scenario::HangThread).unwrap();
+    let monitor = p.monitor();
+    p.start_turn(TurnId(1), &request(&p, "chat")).unwrap();
+    assert!(p
+        .respond_permission("chat", TurnId(2), AnswerId(90), "x", "allow")
+        .is_err());
+    for id in 1..=8 {
+        p.respond_permission("chat", TurnId(1), AnswerId(id), "x", "allow")
+            .unwrap();
+    }
+    assert!(p
+        .respond_permission("chat", TurnId(1), AnswerId(9), "x", "allow")
+        .is_err());
+    p.close_chat("chat", TurnId(2)).unwrap();
+    assert_eq!(monitor.workers(), 1);
+    p.close_chat("chat", TurnId(1)).unwrap();
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+    let events = p.take_events();
+    for id in 1..=8 {
+        assert_eq!(events.iter().filter(|e|matches!(e,ProviderEvent::AnswerSettled{answer,outcome:AnswerOutcome::Failed(_),..}if answer.0==id)).count(),1);
+    }
+    assert!(!events.iter().any(|e| matches!(
+        e,
+        ProviderEvent::AnswerSettled {
+            answer: AnswerId(9),
+            ..
+        }
+    )));
+}
+#[test]
+fn question_answers_reach_the_node_fake_and_settle_once() {
+    let mut p = CodexFixture::create(Scenario::Question).unwrap();
+    let monitor = p.monitor();
+    p.start_turn(TurnId(1), &request(&p, "chat")).unwrap();
+    let events = collect(&mut p, |e| {
+        e.iter()
+            .any(|e| matches!(e,ProviderEvent::Agent{event,..}if event["type"]=="question-request"))
+    });
+    let card = events
+        .iter()
+        .find_map(|e| match e {
+            ProviderEvent::Agent { event, .. } if event["type"] == "question-request" => {
+                Some(event)
+            }
+            _ => None,
+        })
+        .unwrap();
+    let id = card["requestId"].as_str().unwrap();
+    p.answer_question(
+        "chat",
+        TurnId(1),
+        AnswerId(1),
+        id,
+        &json!({"scope":["small"]}),
+    )
+    .unwrap();
+    let events = collect(&mut p, |e| {
+        e.iter().any(terminal)
+            && e.iter()
+                .any(|e| matches!(e, ProviderEvent::AnswerSettled { .. }))
+    });
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(
+                e,
+                ProviderEvent::AnswerSettled {
+                    answer: AnswerId(1),
+                    outcome: AnswerOutcome::Accepted,
+                    ..
+                }
+            ))
+            .count(),
+        1
+    );
+    p.shutdown();
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+}
+
+#[test]
+fn owner_question_ticket_waits_for_native_answer_and_preserves_unknown_request_state() {
+    let p = CodexFixture::create(Scenario::Question).unwrap();
+    let monitor = p.monitor();
+    let project = p.project().to_path_buf();
+    let mut host = ChatHost::new(ProjectStates::new(p.isolation(), Timing::default(), 1000));
+    host.register(Box::new(p));
+    host.send(&json!({"projectPath":project,"sessionId":1,"provider":"codex","body":"question","permissionMode":"ask"})).unwrap();
+    let chat = agent_runs::chat_key(project.to_str().unwrap(), &json!(1));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let request_id = loop {
+        assert!(host.pump().is_empty());
+        let notices = host.take_notices();
+        if let Some(id) = notices.iter().find_map(|n| match n {
+            Notice::Event { event, .. } if event["type"] == "question-request" => {
+                event["requestId"].as_str().map(str::to_owned)
+            }
+            _ => None,
+        }) {
+            break id;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    let baseline = host.states.whole_state(&project).unwrap()["messages"]
+        .as_array()
+        .unwrap()
+        .len();
+    let unknown = host
+        .answer_question(
+            &json!({"chatId":chat,"requestId":"unknown","answers":{"scope":["small"]}}),
+        )
+        .unwrap();
+    let AnswerTicket::Pending(unknown) = unknown else {
+        panic!("must defer")
+    };
+    assert_eq!(
+        host.states.whole_state(&project).unwrap()["messages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        baseline
+    );
+    let wait = |host: &mut ChatHost, id| {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            assert!(host.pump().is_empty());
+            if let Some(result) = host.take_notices().into_iter().find_map(|n| match n {
+                Notice::AnswerSettled { answer, result, .. } if answer == id => Some(result),
+                _ => None,
+            }) {
+                break result;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    assert_eq!(wait(&mut host, unknown), Ok(false));
+    assert_eq!(
+        host.states.whole_state(&project).unwrap()["messages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        baseline
+    );
+    let AnswerTicket::Pending(answer) = host
+        .answer_question(
+            &json!({"chatId":chat,"requestId":request_id,"answers":{"scope":["small"]}}),
+        )
+        .unwrap()
+    else {
+        panic!("must defer")
+    };
+    assert_eq!(wait(&mut host, answer), Ok(true));
+    while host.is_busy(&chat) {
+        assert!(host.pump().is_empty());
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    host.shutdown(false).unwrap();
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
 }

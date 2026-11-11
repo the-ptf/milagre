@@ -2,7 +2,8 @@
 use milagre_owner_store::{
     agent_runs,
     chat_host::{
-        ChatHost, Notice, Provider, ProviderError, ProviderErrorKind, ProviderEvent, TurnId,
+        AnswerId, AnswerOutcome, ChatHost, Notice, Provider, ProviderError, ProviderErrorKind,
+        ProviderEvent, TurnId,
     },
     jsjson,
     states::{Event, ProjectStates, Timing},
@@ -44,6 +45,8 @@ const METHODS: &[&str] = &[
     "chat:search",
     "chat:subagent",
     "agent:interrupt",
+    "agent:respond-permission",
+    "agent:answer-question",
     "chat:queue-send",
     "chat:queue-remove",
 ];
@@ -203,6 +206,8 @@ struct State {
     last: Value,
     run_seq: u64,
     pending: VecDeque<(String, Value)>,
+    answers: HashMap<AnswerId, SyncSender<RpcResult>>,
+    settled_answers: Vec<(SyncSender<RpcResult>, RpcResult)>,
 }
 impl State {
     fn project(&mut self) -> RpcResult {
@@ -273,6 +278,25 @@ impl State {
                 }
                 self.host.call(method, args).map_err(convert)
             }
+            "agent:respond-permission" | "agent:answer-question" => {
+                let chat = args
+                    .first()
+                    .and_then(|v| v["chatId"].as_str())
+                    .unwrap_or("");
+                if agent_runs::project_of_key(chat) != path {
+                    return Err(RpcError::new(
+                        "ISOLATED_SCOPE_ONLY",
+                        "Choose a Chat in the fixture Project",
+                    ));
+                }
+                if self.answers.len() >= 32 {
+                    return Err(RpcError::new(
+                        "OWNER_BUSY",
+                        "The owner answer queue is full",
+                    ));
+                }
+                self.host.call(method, args).map_err(convert)
+            }
             "agent:interrupt" | "chat:queue-send" | "chat:queue-remove" => {
                 let chat = args.first().and_then(Value::as_str).unwrap_or("");
                 if agent_runs::project_of_key(chat) != path {
@@ -338,6 +362,16 @@ impl State {
                 Notice::Broadcast { project } => {
                     self.queue_event("project:state", json!({"path":project,"state":self.last}))?;
                 }
+                Notice::AnswerSettled { answer, result, .. } => {
+                    if let Some(reply) = self.answers.remove(&answer) {
+                        self.settled_answers.push((
+                            reply,
+                            result
+                                .map(Value::Bool)
+                                .map_err(|message| RpcError::new("ANSWER_FAILED", message)),
+                        ));
+                    }
+                }
                 Notice::Failed { error, .. } | Notice::Gap { what: error, .. } => {
                     record_failure(shared, error);
                 }
@@ -363,6 +397,9 @@ impl State {
         while let Some((channel, payload)) = self.pending.front() {
             publication.emit(channel, payload.clone())?;
             self.pending.pop_front();
+        }
+        for (reply, result) in self.settled_answers.drain(..) {
+            let _ = reply.send(result);
         }
         Ok(())
     }
@@ -394,6 +431,12 @@ impl State {
             shared.delivery_failed.store(true, Ordering::Release);
             shared.closing.store(true, Ordering::Release);
             record_failure(shared, error.message.clone());
+            for (_, reply) in self.answers.drain() {
+                let _ = reply.send(Err(delivery_failed()));
+            }
+            for (reply, _) in self.settled_answers.drain(..) {
+                let _ = reply.send(Err(delivery_failed()));
+            }
         })
     }
     fn shutdown(&mut self, shared: &Shared, publication: &Publication<'_>) -> RpcResult {
@@ -443,6 +486,8 @@ fn run(
             let shutdown = matches!(request.command, Command::Shutdown);
             let state_read =
                 matches!(&request.command,Command::Call(method,_) if method=="state:read");
+            let mut reply = Some(request.reply);
+            let answer_call = matches!(&request.command,Command::Call(method,_) if matches!(method.as_str(),"agent:respond-permission"|"agent:answer-question"));
             let result = sink.transaction(|publication| {
                 let mut result = match request.command {
                     Command::Call(method, args) => {
@@ -457,6 +502,13 @@ fn run(
                         state.shutdown(&shared, publication)
                     }
                 };
+                if answer_call {
+                    if let Ok(value) = &result {
+                        if let Some(id) = value["pendingAnswer"].as_u64() {
+                            state.answers.insert(AnswerId(id), reply.take().unwrap());
+                        }
+                    }
+                }
                 if !(shutdown && shared.delivery_failed.load(Ordering::Acquire)) {
                     state.publish_or_latch(&shared, publication)?;
                 }
@@ -470,7 +522,9 @@ fn run(
             if shutdown && result.is_ok() {
                 shared.stop.store(true, Ordering::Release);
             }
-            let _ = request.reply.send(result);
+            if let Some(reply) = reply {
+                let _ = reply.send(result);
+            }
         }
         if Instant::now() >= next {
             next = Instant::now() + TICK; // coalesce elapsed ticks, never queue timer messages
@@ -518,6 +572,7 @@ pub fn start() -> Result<(Server, Value), RpcError> {
         epoch,
     ));
     host.interrupt_grace_ms = 250;
+    host.answer_grace_ms = 250;
     host.register(Box::new(Scripted::default()));
     let shared = Arc::new(Shared {
         snapshot: Mutex::new(
@@ -556,6 +611,8 @@ pub fn start() -> Result<(Server, Value), RpcError> {
                 last: Value::Null,
                 run_seq: 0,
                 pending: VecDeque::new(),
+                answers: HashMap::new(),
+                settled_answers: Vec::new(),
             },
             shared,
             requests,
@@ -693,14 +750,49 @@ impl Provider for Scripted {
         ));
         Ok(())
     }
-    fn respond_permission(&mut self, _: &str, _: &str, _: &str) -> Result<bool, ProviderError> {
-        Ok(false)
+    fn respond_permission(
+        &mut self,
+        chat: &str,
+        _turn: TurnId,
+        answer: AnswerId,
+        request: &str,
+        _: &str,
+    ) -> Result<(), ProviderError> {
+        if request == "fixture:hang" {
+            return Ok(());
+        }
+        let outcome = match request {
+            "fixture:accept" => AnswerOutcome::Accepted,
+            "fixture:fail" => AnswerOutcome::Failed(ProviderError::new(
+                ProviderErrorKind::Other,
+                "Scripted answer failed",
+            )),
+            _ => AnswerOutcome::NotWaiting,
+        };
+        self.events.push_back((
+            Instant::now() + Duration::from_millis(80),
+            ProviderEvent::AnswerSettled {
+                chat: chat.into(),
+                answer,
+                outcome,
+            },
+        ));
+        Ok(())
     }
-    fn answer_question(&mut self, _: &str, _: &str, _: &Value) -> Result<bool, ProviderError> {
-        Ok(false)
+    fn answer_question(
+        &mut self,
+        chat: &str,
+        turn: TurnId,
+        answer: AnswerId,
+        request: &str,
+        _: &Value,
+    ) -> Result<(), ProviderError> {
+        self.respond_permission(chat, turn, answer, request, "deny")
     }
-    fn close_chat(&mut self, chat: &str) -> Result<(), ProviderError> {
-        self.active.remove(chat);
+    fn close_chat(&mut self, chat: &str, turn: TurnId) -> Result<(), ProviderError> {
+        if self.active.get(chat) == Some(&turn) {
+            self.active.remove(chat);
+        }
         Ok(())
     }
     fn shutdown(&mut self) {
@@ -846,6 +938,8 @@ mod publication_tests {
             last: Value::Null,
             run_seq: 0,
             pending: VecDeque::new(),
+            answers: HashMap::new(),
+            settled_answers: Vec::new(),
         };
         state
             .pending
