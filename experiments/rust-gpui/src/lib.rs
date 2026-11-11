@@ -10,6 +10,7 @@ pub mod data;
 pub mod fitcheck;
 pub mod logic;
 pub mod notices;
+pub mod onboarding;
 pub mod overlays;
 pub mod platform;
 pub mod routines;

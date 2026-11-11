@@ -54,6 +54,8 @@ pub struct Workspace {
     allow_prompt: Entity<crate::overlays::dialogs::allow_prompt::ComputerAllowPrompt>,
     /// The update pill and card, the provider update card and the host and save notices (WP-52).
     pub notices: Entity<crate::notices::NoticesLayer>,
+    /// First launch with no Project: the agent and Project steps over the whole window (WP-51).
+    pub onboarding: Entity<crate::onboarding::OnboardingLayer>,
     /// Each Chat's Terminals, in a drawer under the Chat column.
     pub terminals: Entity<TerminalDrawer>,
     /// The Routines page, in place of the Chat column while the sidebar's Routines button is on (WP-45).
@@ -81,6 +83,7 @@ impl Workspace {
         let dialog_host: crate::overlays::dialogs::Host = std::rc::Rc::new(crate::overlays::dialogs::FixtureHost::new());
         let allow_prompt = crate::overlays::dialogs::allow_prompt::new(dialog_host.clone(), "this computer", cx);
         let notices = cx.new(|cx| crate::notices::NoticesLayer::new(dialog_host.clone(), cx));
+        let onboarding = cx.new(|cx| crate::onboarding::OnboardingLayer::new(window, cx));
         let notice_events = cx.subscribe_in(&notices, window, |this, _, event: &crate::notices::NoticeEvent, window, cx| match event {
             crate::notices::NoticeEvent::OpenSettings => this.settings.update(cx, |settings, cx| settings.open(window, cx)),
         });
@@ -119,6 +122,7 @@ impl Workspace {
             focus: cx.focus_handle(),
             allow_prompt,
             notices,
+            onboarding,
             terminals: cx.new(TerminalDrawer::new),
             routines,
             routines_open,
@@ -210,6 +214,7 @@ impl Render for Workspace {
             // Over the columns' headers, under Settings and the overlays.
             .child(self.top_bar(cx))
             .child(self.notices.clone())
+            .child(self.onboarding.clone())
             .child(self.settings.clone())
             .child(palette)
     }
