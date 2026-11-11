@@ -298,8 +298,10 @@ impl Inner {
         state.timer_generation += 1;
         let generation = state.timer_generation;
         let weak: Weak<Inner> = Arc::downgrade(this);
+        // Counted from now, like setTimeout, not from whenever the task first runs.
+        let deadline = tokio::time::Instant::now() + delay;
         let handle = this.runtime.spawn(async move {
-            tokio::time::sleep(delay).await;
+            tokio::time::sleep_until(deadline).await;
             let Some(inner) = weak.upgrade() else { return };
             {
                 // Out of the slot before polling, so the poll's own clearTimeout can't abort this task.
