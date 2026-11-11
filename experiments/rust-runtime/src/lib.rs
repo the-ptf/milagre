@@ -2,6 +2,7 @@
 //! No live profile, provider execution, Project mutation, or arbitrary Project folder access.
 pub mod actor;
 mod artifacts;
+mod claude_content;
 pub mod claude_fixture;
 pub mod codex_fixture;
 pub mod content_fixture;

@@ -71,6 +71,16 @@ async function scenario(name) {
       assert.ok(messages.messages.some((m) => m.body === (name === "unicode" ? "native \u{10fffe} \ue123 \ufffd" : "Claude fixture hello")));
       assert.ok(messages.messages.some((m) => m.body === body));
     }
+    if (name === "content") {
+      const listed = await runtime.invoke("artifact:list", [{ chatId }]);
+      assert.equal(listed.length, 1);
+      const page = await runtime.invoke("artifact:get", [{ chatId, id: listed[0].id }]);
+      assert.ok(JSON.stringify(page).includes("Native shared content"));
+      assert.deepEqual(await runtime.invoke("artifact:list", [{ chatId: project + "#2" }]), []);
+      await assert.rejects(runtime.invoke("artifact:list", [{ chatId: project + "#999" }]));
+      await client.call("project:forget", [project]);
+      await assert.rejects(runtime.invoke("artifact:list", [{ chatId }]));
+    }
     assert.equal((await client.call("daemon:snapshot")).runs.runs[chatId], undefined);
     await client.call("daemon:stop");
   } finally {
@@ -88,8 +98,8 @@ async function scenario(name) {
   }
 }
 (async () => {
-  for (const name of ["reply", "permission", "question", "stop", "crash", "unicode"]) await scenario(name);
-  console.log("Claude owner Node client conformance passed (6 scenarios)");
+  for (const name of ["reply", "permission", "question", "stop", "crash", "unicode", "content"]) await scenario(name);
+  console.log("Claude owner Node client conformance passed (7 scenarios)");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

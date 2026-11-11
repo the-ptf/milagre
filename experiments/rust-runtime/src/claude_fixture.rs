@@ -36,6 +36,7 @@ pub enum Scenario {
     QuestionDelayedReceipt,
     Subagent,
     Unicode,
+    Content,
 }
 fn refused(text: &str) -> ProviderError {
     ProviderError::new(ProviderErrorKind::Refused, text)
@@ -200,6 +201,7 @@ struct Worker {
     active: Arc<AtomicBool>,
     done: Arc<AtomicBool>,
     native_id: Arc<Mutex<Option<String>>>,
+    content: Option<Arc<crate::claude_content::SharedContent>>,
 }
 impl Drop for Worker {
     fn drop(&mut self) {
@@ -211,6 +213,7 @@ impl Drop for Worker {
 }
 /// The only constructor creates a private fixture copy and locates a fixed Cargo helper sibling.
 pub struct ClaudeFixture {
+    pub(crate) content: Option<Arc<crate::claude_content::SharedContent>>,
     profile: Arc<IsolatedProfile>,
     isolation: Isolation,
     project: PathBuf,
@@ -237,7 +240,16 @@ impl ClaudeFixture {
         let program = dir.join("runtime-fake-claude").canonicalize()?;
         let script = profile.path().join("claude-script.json");
         std::fs::write(&script, script_for(scenario).to_string())?;
+        let content = if matches!(scenario, Scenario::Content) {
+            Some(crate::claude_content::SharedContent::new(
+                isolation.clone(),
+                project.clone(),
+            )?)
+        } else {
+            None
+        };
         Ok(Self {
+            content,
             profile,
             isolation,
             project,
@@ -435,6 +447,7 @@ impl Provider for ClaudeFixture {
                 active: active.clone(),
                 done: done.clone(),
                 native_id: native_id.clone(),
+                content: self.content.clone(),
             };
             *self.shared.workers.lock().unwrap() += 1;
             std::thread::Builder::new()
@@ -604,6 +617,9 @@ impl Provider for ClaudeFixture {
     }
     fn shutdown(&mut self) {
         self.closed = true;
+        if let Some(content) = &self.content {
+            content.revoke();
+        }
         for slot in self.slots.values() {
             slot.close.send_replace(true);
         }
@@ -689,6 +705,24 @@ impl Worker {
         options.limits.kill_grace = Duration::from_millis(500);
         options.event_capacity = 256;
         options.event_bytes = BYTES;
+        let _registration = match &self.content {
+            Some(content) => match content.attach(&self.chat, &mut options) {
+                Ok(registration) => Some(registration),
+                Err(_) => {
+                    self.shared.emit(
+                        ProviderEvent::StartFailed {
+                            chat: self.chat.clone(),
+                            turn: latest,
+                            error: failed(),
+                        },
+                        true,
+                    );
+                    self.exit(latest);
+                    return;
+                }
+            },
+            None => None,
+        };
         let (session, mut events) = ClaudeSession::new(options);
         let session = Arc::new(session);
         let mut replies = tokio::task::JoinSet::new();
@@ -814,6 +848,12 @@ fn script_for(scenario: Scenario) -> Value {
         match scenario {
    Scenario::Permission=>steps.extend([json!({"request":{"id":"p1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo fixture"}}}}),json!({"expect":{"type":"control_response","fields":{"/response/request_id":"p1"}}})]),
    Scenario::Question|Scenario::QuestionDelayedReceipt|Scenario::Unicode=>steps.extend([json!({"request":{"id":"q1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A","description":"First"},{"label":"B","description":"Second"}]}]}}}}),json!({"expect":{"type":"control_response","fields":{"/response/request_id":"q1"}}})]),
+   Scenario::Content => {
+    steps.extend([
+     json!({"request":{"id":"content-show","request":{"subtype":"mcp_message","server_name":"milagre","message":{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"artifact_show","arguments":{"title":"Native Claude artifact","html":"<main>Native shared content</main>"}}}}}}),
+     json!({"expect":{"type":"control_response","fields":{"/response/response/mcp_response/id":1,"/response/response/mcp_response/result/isError":false}}})
+    ]);
+   },
    Scenario::Subagent => {
     steps.extend([
       json!({"emit":{"type":"assistant","message":{"content":[{"type":"tool_use","id":"child","name":"Agent","input":{"description":"Review","run_in_background":true}}]}}}),

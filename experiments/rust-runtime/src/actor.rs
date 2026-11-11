@@ -74,6 +74,7 @@ struct Actor {
     shared: Arc<Shared>,
     thread: Mutex<Option<JoinHandle<()>>>,
     project: String,
+    content: bool,
 }
 impl Actor {
     fn call(&self, command: Command) -> RpcResult {
@@ -144,10 +145,25 @@ impl Handler for Actor {
         jsjson::utf16_len(text)
     }
     fn methods(&self) -> Vec<String> {
-        METHODS.iter().map(|method| (*method).into()).collect()
+        METHODS
+            .iter()
+            .copied()
+            .chain(
+                if self.content {
+                    crate::artifacts::METHODS
+                } else {
+                    &[]
+                }
+                .iter()
+                .copied(),
+            )
+            .map(str::to_owned)
+            .collect()
     }
     fn invoke(&self, method: &str, args: &[Value], context: &ClientContext) -> RpcResult {
-        if !METHODS.contains(&method) {
+        if !METHODS.contains(&method)
+            && !(self.content && crate::artifacts::METHODS.contains(&method))
+        {
             return Err(RpcError::new(
                 "UNSUPPORTED_MUTATION",
                 "This isolated actor exposes only scripted Chat commands",
@@ -211,6 +227,7 @@ fn convert(error: milagre_owner_store::StoreError) -> RpcError {
 struct State {
     host: ChatHost,
     provider: &'static str,
+    content: Option<Arc<crate::claude_content::SharedContent>>,
     project: PathBuf,
     opened: bool,
     version: u64,
@@ -245,11 +262,22 @@ impl State {
         *shared.snapshot.lock().unwrap() = json!({"projects":projects,"links":[],"runs":{"runs":self.host.runs(),"seq":self.run_seq},"ports":{}});
     }
     fn call(&mut self, method: &str, args: &[Value]) -> RpcResult {
+        if crate::artifacts::METHODS.contains(&method) {
+            return self
+                .content
+                .as_ref()
+                .ok_or_else(closed)?
+                .renderer(method, args.first().unwrap_or(&Value::Null));
+        }
         let path = self.project.to_string_lossy();
         match method {
             "project:current" => {
+                let project = self.project()?;
                 self.opened = true;
-                self.project()
+                if let Some(content) = &self.content {
+                    content.opened(true);
+                }
+                Ok(project)
             }
             "project:open" | "project:switch" | "project:snapshot" | "state:read" => {
                 if args.first().and_then(Value::as_str) != Some(&path) {
@@ -258,8 +286,11 @@ impl State {
                         "Only this actor's copied fixture Project is admitted",
                     ));
                 }
-                self.opened = true;
                 let project = self.project()?;
+                self.opened = true;
+                if let Some(content) = &self.content {
+                    content.opened(true);
+                }
                 if method == "state:read" {
                     Ok(
                         json!({"state":project["state"],"version":self.version,"epoch":format!("isolated-actor:{}",self.project.display())}),
@@ -277,6 +308,9 @@ impl State {
                 }
                 self.host.forget(&self.project, false).map_err(convert)?;
                 self.opened = false;
+                if let Some(content) = &self.content {
+                    content.opened(false);
+                }
                 Ok(Value::Null)
             }
             "chat:send" => {
@@ -481,6 +515,9 @@ impl State {
             self.publish_or_latch(shared, publication)?;
         }
         self.host.shutdown(false).map_err(convert)?;
+        if let Some(content) = &self.content {
+            content.shutdown();
+        }
         self.host.states.take_events();
         Ok(Value::Null)
     }
@@ -589,6 +626,7 @@ pub fn start() -> Result<(Server, Value), RpcError> {
         project,
         Box::new(Scripted::default()),
         "kiro",
+        None,
     )
 }
 
@@ -603,12 +641,14 @@ pub fn start_claude(
         )
     })?;
     let monitor = provider.monitor();
+    let content = provider.content.clone();
     let (server, metadata) = start_provider(
         IsolatedProfile::create()?,
         provider.isolation(),
         provider.project().to_path_buf(),
         Box::new(provider),
         "claude",
+        content,
     )?;
     Ok((server, metadata, monitor))
 }
@@ -618,6 +658,7 @@ fn start_provider(
     project: PathBuf,
     provider: Box<dyn Provider>,
     provider_name: &'static str,
+    content: Option<Arc<crate::claude_content::SharedContent>>,
 ) -> Result<(Server, Value), RpcError> {
     let epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -655,6 +696,7 @@ fn start_provider(
         shared: shared.clone(),
         thread: Mutex::new(None),
         project: project.to_string_lossy().into_owned(),
+        content: content.is_some(),
     });
     let server = Server::bind(
         profile,
@@ -670,6 +712,7 @@ fn start_provider(
             State {
                 host,
                 provider: provider_name,
+                content,
                 project,
                 opened: false,
                 version: 0,
@@ -906,6 +949,7 @@ mod tests {
                 shared,
                 thread: Mutex::new(None),
                 project: "fixture".into(),
+                content: false,
             },
             receive,
         )
@@ -1004,6 +1048,7 @@ mod publication_tests {
         let mut state = State {
             host: ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0)),
             provider: "kiro",
+            content: None,
             project: profile.path().join("fixture"),
             opened: false,
             version: 0,
