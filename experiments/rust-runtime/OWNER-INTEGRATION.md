@@ -71,6 +71,8 @@ copies replace lone UTF-16 units with U+FFFD; their saved originals remain lossl
 identities stay strict. A bounded Node-fake receive probe verifies actual provider payloads and
 an owner reopen verifies the original disk records.
 
-Answer-history eviction increments a saturating constant-space counter exposed as `daemon:snapshot.diagnostics.answerHistoryForgotten`. It emits neither stderr lines nor another answer RPC result. The actor retains no per-eviction Chat or answer strings; the count means delivery remained unknown when late-reconciliation history was discarded.
+Answer-history eviction increments a saturating constant-space counter exposed as `daemon:snapshot.diagnostics.rustOwnerAudit.answerHistoryForgotten`. It emits neither stderr lines nor another answer RPC result. The actor retains no per-eviction Chat or answer strings; the count means delivery remained unknown when late-reconciliation history was discarded.
 
-Owner LockStranded notices set the sticky `daemon:snapshot.diagnostics.ownerLockStranded` flag and increment the saturating `ownerLockStrandedNotices` counter. The runtime emits no per-notice stderr output and retains no lock path, reason string or token in this audit. The flag means a lock may require operator recovery; it never means the runtime removed that lock or recovered ownership.
+Owner LockStranded notices set the sticky `daemon:snapshot.diagnostics.rustOwnerAudit.ownerLockStranded` flag and increment the saturating `ownerLockStrandedNotices` counter. The runtime emits no per-notice stderr output and retains no lock path, reason string or token in this audit. The flag means a lock may require operator recovery; it never means the runtime removed that lock or recovered ownership.
+
+Runtime audit fields live in the reserved `diagnostics.rustOwnerAudit` object. Snapshot augmentation merges only the three owned counters/flag, preserving unrelated diagnostics and namespace members. A pre-existing non-object diagnostics or rustOwnerAudit value returns `DIAGNOSTIC_SCHEMA_CONFLICT` without rewriting the stored snapshot or hiding the ownership warning.

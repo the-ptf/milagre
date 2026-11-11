@@ -189,7 +189,7 @@ impl Handler for Actor {
         if self.shared.delivery_failed.load(Ordering::Acquire) {
             return Err(delivery_failed());
         }
-        Ok(diagnostic_snapshot(&self.shared))
+        diagnostic_snapshot(&self.shared)
     }
     fn shutdown(&self) -> RpcResult {
         self.call(Command::Shutdown)
@@ -203,18 +203,34 @@ fn record_forgotten_answer(shared: &Shared) {
             Some(count.saturating_add(1))
         });
 }
-fn diagnostic_snapshot(shared: &Shared) -> Value {
+fn diagnostic_snapshot(shared: &Shared) -> RpcResult {
     let mut snapshot = shared.snapshot.lock().unwrap().clone();
-    if !snapshot.is_object() {
-        snapshot = json!({});
-    }
+    let conflict = || {
+        RpcError::new(
+            "DIAGNOSTIC_SCHEMA_CONFLICT",
+            "Owner snapshot diagnostics must use an object namespace",
+        )
+    };
+    let snapshot_object = snapshot.as_object_mut().ok_or_else(conflict)?;
+    let diagnostics = snapshot_object
+        .entry("diagnostics")
+        .or_insert_with(|| json!({}));
+    let diagnostics = diagnostics.as_object_mut().ok_or_else(conflict)?;
+    let audit = diagnostics
+        .entry("rustOwnerAudit")
+        .or_insert_with(|| json!({}));
+    let audit = audit.as_object_mut().ok_or_else(conflict)?;
     let stranded = shared.stranded_lock_notices.load(Ordering::Acquire);
-    snapshot["diagnostics"] = json!({
-        "answerHistoryForgotten":shared.forgotten_answers.load(Ordering::Acquire),
-        "ownerLockStrandedNotices":stranded,"ownerLockStranded":stranded>0
-    });
-    snapshot
+    // Only these three fields belong to this actor. Every unrelated field survives.
+    audit.insert(
+        "answerHistoryForgotten".into(),
+        json!(shared.forgotten_answers.load(Ordering::Acquire)),
+    );
+    audit.insert("ownerLockStrandedNotices".into(), json!(stranded));
+    audit.insert("ownerLockStranded".into(), json!(stranded > 0));
+    Ok(snapshot)
 }
+
 fn record_failure(shared: &Shared, error: String) {
     let bounded: String = error.chars().take(4096).collect();
     let mut previous = shared.failure.lock().unwrap();
@@ -987,7 +1003,7 @@ mod tests {
     fn dormant() -> (Actor, Receiver<Request>) {
         let (send, receive) = mpsc::sync_channel(QUEUE);
         let shared = Arc::new(Shared {
-            snapshot: Mutex::new(Value::Null),
+            snapshot: Mutex::new(json!({})),
             events: Mutex::new(None),
             bytes: AtomicUsize::new(0),
             closing: AtomicBool::new(false),
@@ -1044,7 +1060,8 @@ mod tests {
             record_forgotten_answer(&actor.shared);
         }
         assert_eq!(
-            diagnostic_snapshot(&actor.shared)["diagnostics"]["answerHistoryForgotten"],
+            diagnostic_snapshot(&actor.shared).unwrap()["diagnostics"]["rustOwnerAudit"]
+                ["answerHistoryForgotten"],
             10000
         );
         assert!(receive.try_recv().is_err());
@@ -1052,7 +1069,8 @@ mod tests {
             .shared
             .stranded_lock_notices
             .store(2, Ordering::Release);
-        let diagnostics = diagnostic_snapshot(&actor.shared)["diagnostics"].clone();
+        let diagnostics =
+            diagnostic_snapshot(&actor.shared).unwrap()["diagnostics"]["rustOwnerAudit"].clone();
         assert_eq!(diagnostics["ownerLockStrandedNotices"], 2);
         assert_eq!(diagnostics["ownerLockStranded"], true);
         actor
@@ -1062,9 +1080,53 @@ mod tests {
         record_forgotten_answer(&actor.shared);
         record_forgotten_answer(&actor.shared);
         assert_eq!(
-            diagnostic_snapshot(&actor.shared)["diagnostics"]["answerHistoryForgotten"],
+            diagnostic_snapshot(&actor.shared).unwrap()["diagnostics"]["rustOwnerAudit"]
+                ["answerHistoryForgotten"],
             json!(u64::MAX)
         );
+    }
+    #[test]
+    fn audit_namespace_preserves_diagnostics_and_refuses_type_collisions() {
+        let (actor, _receive) = dormant();
+        let original = json!({"projects":[],"diagnostics":{"renderer":{"warnings":7},"answerHistoryForgotten":"another service","rustOwnerAudit":{"extension":"retained","ownerLockStranded":false}}});
+        *actor.shared.snapshot.lock().unwrap() = original.clone();
+        actor
+            .shared
+            .stranded_lock_notices
+            .store(1, Ordering::Release);
+        let result = diagnostic_snapshot(&actor.shared).unwrap();
+        assert_eq!(
+            result["diagnostics"]["renderer"],
+            original["diagnostics"]["renderer"]
+        );
+        assert_eq!(
+            result["diagnostics"]["answerHistoryForgotten"],
+            "another service"
+        );
+        assert_eq!(
+            result["diagnostics"]["rustOwnerAudit"]["extension"],
+            "retained"
+        );
+        assert_eq!(
+            result["diagnostics"]["rustOwnerAudit"]["ownerLockStranded"],
+            true
+        );
+        assert_eq!(
+            *actor.shared.snapshot.lock().unwrap(),
+            original,
+            "snapshot augmentation does not rewrite stored diagnostics"
+        );
+        for original in [
+            json!({"diagnostics":"occupied"}),
+            json!({"diagnostics":{"rustOwnerAudit":["occupied"]}}),
+        ] {
+            *actor.shared.snapshot.lock().unwrap() = original.clone();
+            assert_eq!(
+                diagnostic_snapshot(&actor.shared).unwrap_err().code,
+                "DIAGNOSTIC_SCHEMA_CONFLICT"
+            );
+            assert_eq!(*actor.shared.snapshot.lock().unwrap(), original);
+        }
     }
     #[test]
     fn closing_refuses_mutation_before_queueing() {
@@ -1120,7 +1182,7 @@ mod publication_tests {
         let profile = IsolatedProfile::create().unwrap();
         let isolation = Isolation::create(profile.path(), &Policy::default()).unwrap();
         let shared = Shared {
-            snapshot: Mutex::new(Value::Null),
+            snapshot: Mutex::new(json!({})),
             events: Mutex::new(None),
             bytes: AtomicUsize::new(0),
             closing: AtomicBool::new(false),

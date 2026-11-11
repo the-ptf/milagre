@@ -608,6 +608,7 @@ dependencies = [
  "hmac",
  "libc",
  "rand",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
