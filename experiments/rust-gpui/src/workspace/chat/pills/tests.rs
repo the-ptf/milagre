@@ -114,7 +114,7 @@ fn other_chats_get_some_of_the_pills_chosen_from_their_key() {
     let shapes: HashSet<_> = (0..8)
         .map(|n| {
             let d = pills_for(&format!("milagre#{n}"), "Other");
-            (d.plan.is_some(), d.ports.len(), d.subchats.len(), d.subagents.len())
+            (d.plan.is_some(), d.ports.len(), d.pr_action.is_some(), d.review_comments, d.subagents.len())
         })
         .collect();
     assert!(shapes.len() > 1, "keys give different rows");
@@ -147,18 +147,26 @@ fn click(cx: &mut VisualTestContext, selector: &'static str) {
 fn the_default_chat_shows_every_pill_in_the_composers_column(cx: &mut TestAppContext) {
     let (_, _, _, cx) = mount(cx);
     let composer = cx.debug_bounds("composer").expect("composer");
-    let subchats = cx.debug_bounds("slot-pill-subchats").expect("Subchats pill");
+    let action = cx.debug_bounds("pill-pr-action").expect("PR action pill");
+    let review = cx.debug_bounds("pill-review").expect("review comments pill");
     let subagents = cx.debug_bounds("slot-pill-subagents").expect("Subagents pill");
-    assert_eq!(subchats.origin.x, composer.origin.x, "Subchats at the row's left edge");
+    assert_eq!(action.origin.x, composer.origin.x, "the PR action at the row's left edge");
+    assert!(review.origin.x > action.right(), "the review pill follows it");
     assert_eq!(subagents.right(), composer.right(), "the last right-hand pill at its right edge");
-    let order: Vec<f32> = ["slot-pill-ports", "slot-pill-tasks", "slot-pill-subagents"]
-        .iter()
-        .map(|s| f32::from(cx.debug_bounds(s).unwrap().origin.x))
-        .collect();
-    assert!(order.windows(2).all(|w| w[0] < w[1]), "Ports, Tasks, Subagents left to right: {order:?}");
-    for id in ["slot-pill-ports", "slot-pill-tasks", "slot-pill-subagents", "slot-pill-subchats"] {
+    assert!(
+        cx.debug_bounds("slot-pill-ports").is_none() && cx.debug_bounds("slot-pill-subchats").is_none(),
+        "Ports and Subchats live in the Details panel"
+    );
+    let order: Vec<f32> =
+        ["slot-pill-tasks", "slot-pill-subagents"].iter().map(|s| f32::from(cx.debug_bounds(s).unwrap().origin.x)).collect();
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "Tasks, Subagents left to right: {order:?}");
+    for id in ["slot-pill-tasks", "slot-pill-subagents", "pill-pr-action", "pill-review"] {
         assert_eq!(cx.debug_bounds(id).unwrap().size.height, crate::theme::CONTROL_SM);
     }
+    // A pill hugs its content: the Tasks pill is its icon, its count and the padding, nothing more.
+    let tasks = cx.debug_bounds("pill-tasks-button").unwrap();
+    assert_eq!(cx.debug_bounds("slot-pill-tasks").unwrap().size.width, tasks.size.width, "the slot is the pill");
+    assert!(tasks.size.width < gpui::px(70.0), "{:?}", tasks.size);
     assert!(cx.debug_bounds("pill-jump").is_none(), "pinned to the bottom: no Go to bottom");
 }
 
@@ -183,15 +191,15 @@ fn a_pill_opens_its_panel_and_escape_closes_it(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_press_outside_closes_the_panel_and_another_pill_replaces_it(cx: &mut TestAppContext) {
     let (pills, _, _, cx) = mount(cx);
-    click(cx, "pill-ports-button");
-    assert_eq!(pills.read_with(cx, |p, _| p.open_kind()), Some(Kind::Ports));
+    click(cx, "pill-tasks-button");
+    assert_eq!(pills.read_with(cx, |p, _| p.open_kind()), Some(Kind::Tasks));
     let outside = cx.debug_bounds("composer").expect("composer");
     cx.simulate_click(outside.center(), Modifiers::none());
     assert_eq!(pills.read_with(cx, |p, _| p.open_kind()), None);
-    click(cx, "pill-ports-button");
+    click(cx, "pill-tasks-button");
     click(cx, "pill-subagents-button");
     assert_eq!(pills.read_with(cx, |p, _| p.open_kind()), Some(Kind::Subagents), "one panel at a time");
-    assert!(cx.debug_bounds("panel-ports").is_none());
+    assert!(cx.debug_bounds("panel-tasks").is_none());
 }
 
 #[gpui::test]
@@ -211,42 +219,6 @@ fn the_tasks_panel_folds_a_parent_and_draws_the_phase_graph(cx: &mut TestAppCont
     assert!(cx.debug_bounds("task-row-2.3").is_none());
     click(cx, "task-fold-2");
     assert!(cx.debug_bounds("task-row-2.3").is_some());
-}
-
-#[gpui::test]
-fn stopping_the_last_port_closes_the_list(cx: &mut TestAppContext) {
-    let (pills, _, _, cx) = mount(cx);
-    click(cx, "pill-ports-button");
-    assert!(cx.debug_bounds("port-stop-all").is_some(), "more than one port: Stop all");
-    assert!(cx.debug_bounds("port-row-5173").is_some());
-    pills.update(cx, |p, cx| p.stop_ports(&[4121], cx));
-    assert!(pills.read_with(cx, |p, _| p.is_stopping(4121)));
-    cx.run_until_parked();
-    pills.update(cx, |p, cx| p.finish_stop(&[4121], cx));
-    assert!(!pills.read_with(cx, |p, _| p.is_stopping(4121)));
-    assert_eq!(pills.read_with(cx, |p, _| p.data().ports.len()), 2);
-    pills.update(cx, |p, cx| p.finish_stop(&[4188, 911], cx));
-    assert_eq!(pills.read_with(cx, |p, _| (p.open_kind(), p.is_shown(Kind::Ports))), (None, false));
-}
-
-#[gpui::test]
-fn a_subchat_row_answers_a_question_and_opens_its_chat(cx: &mut TestAppContext) {
-    let (pills, _, log, cx) = mount(cx);
-    click(cx, "pill-subchats-button");
-    assert_eq!(pills.read_with(cx, |p, _| p.open_kind()), Some(Kind::Subchats));
-    let states = pills.read_with(cx, |p, _| p.subchat_states());
-    assert_eq!(states[0].kind, SubchatKind::NeedsYou, "what needs the user comes first");
-    assert_eq!(states.len(), 6);
-    click(cx, "subchat-answer-milagre#41-0");
-    assert_eq!(
-        log.borrow().last(),
-        Some(&PillEvent::Answer { chat: "milagre#41".into(), request: "r1".into(), label: "Neutral (Recommended)".into() })
-    );
-    click(cx, "subchat-allow-milagre#43");
-    assert_eq!(log.borrow().last(), Some(&PillEvent::Respond { chat: "milagre#43".into(), request: "a1".into(), allow: true }));
-    click(cx, "subchat-open-milagre#42");
-    assert_eq!(log.borrow().last(), Some(&PillEvent::OpenChat("milagre#42".into())));
-    assert_eq!(pills.read_with(cx, |p, _| p.open_kind()), None, "opening a Chat closes the list");
 }
 
 #[gpui::test]
@@ -295,9 +267,9 @@ fn go_to_bottom_shows_once_the_reader_is_away_and_scrolls_back(cx: &mut TestAppC
 #[gpui::test]
 fn switching_chats_changes_the_row(cx: &mut TestAppContext) {
     let (pills, _, _, cx) = mount(cx);
-    let before = pills.read_with(cx, |p, _| (p.is_shown(Kind::Ports), p.data().subchats.len()));
+    let before = pills.read_with(cx, |p, _| (p.is_shown(Kind::Tasks), p.data().review_comments));
     pills.update(cx, |p, cx| p.set_chat("milagre#999", "Another chat", cx));
-    let after = pills.read_with(cx, |p, _| (p.is_shown(Kind::Ports), p.data().subchats.len()));
+    let after = pills.read_with(cx, |p, _| (p.is_shown(Kind::Tasks), p.data().review_comments));
     assert_ne!(before, after);
     assert_eq!(pills.read_with(cx, |p, _| p.open_kind()), None);
 }

@@ -55,12 +55,8 @@ const COMPOSER_BOTTOM: f32 = 24.0;
 /// What the Chat column asks the window to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChatEvent {
-    /// Open this Chat (a Subchat row, the bookmark's parent, a family menu row).
+    /// Open this Chat (the bookmark's parent, a family menu row).
     OpenChat(String),
-    /// A Subchat's question answered from its row.
-    Answer { chat: String, request: String, label: String },
-    /// A Subchat's approval allowed or denied from its row.
-    Respond { chat: String, request: String, allow: bool },
     /// The first message sent from the empty new-Chat screen: the window makes the Chat.
     StartChat(String),
 }
@@ -133,13 +129,7 @@ impl ChatView {
         });
         let pills = cx.new(|cx| PillRow::new("", fixture::DEFAULT_TITLE, cx));
         let pill_events = cx.subscribe(&pills, |this, _, event: &PillEvent, cx| match event {
-            PillEvent::OpenChat(key) => cx.emit(ChatEvent::OpenChat(key.clone())),
-            PillEvent::Answer { chat, request, label } => {
-                cx.emit(ChatEvent::Answer { chat: chat.clone(), request: request.clone(), label: label.clone() })
-            }
-            PillEvent::Respond { chat, request, allow } => {
-                cx.emit(ChatEvent::Respond { chat: chat.clone(), request: request.clone(), allow: *allow })
-            }
+            PillEvent::PullRequestAction | PillEvent::OpenReview => {}
             PillEvent::JumpToBottom => this.transcript.update(cx, |transcript, cx| transcript.scroll_to_bottom(cx)),
             PillEvent::Closed => {}
         });

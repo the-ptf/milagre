@@ -4,13 +4,17 @@
 //! the `-ink` text shade and a 25% ring of the tone.
 //!
 //! The desktop draws it as frosted glass over the transcript (`.status-pill`: a blur behind it); GPUI has no
-//! backdrop blur, so it is the `surface` at 76% (the composer's own fill, DESIGN.md "Composer") with the ring.
+//! backdrop blur, so it is the `surface` at 68% (the CSS's own mix) with a 1px `line` ring; hover lays `hover` over
+//! the whole pill. The pill hugs its content: [`StatusPill::width`] measures it.
 //! `.bare()` is the pill inside a morphing surface: no fill or ring, `hover` on hover. Not built: the rolling digits
 //! and the letters rising in when the label changes (motion, WP-10), the slot's grow-in. Our own.
 
 use std::rc::Rc;
 
-use gpui::{App, ClickEvent, ElementId, Hsla, IntoElement, RenderOnce, SharedString, Window, div, prelude::*, px};
+use gpui::{
+    AnyElement, App, ClickEvent, ElementId, FontWeight, Hsla, IntoElement, RenderOnce, Rgba, SharedString, TextRun, Window, div, font,
+    prelude::*, px,
+};
 
 use super::{Icon, IconName, IconSize};
 use crate::theme::{ActiveTheme, CONTROL_SM, TEXT_12, TextStepExt, Theme};
@@ -29,7 +33,7 @@ impl PillTone {
     fn colors(self, theme: &Theme) -> (Hsla, Hsla) {
         let tone = |ink: gpui::Rgba, plain: gpui::Rgba| (Hsla::from(ink), Hsla::from(plain).opacity(0.25));
         match self {
-            PillTone::Ink => (theme.ink2.into(), theme.line_strong.into()),
+            PillTone::Ink => (theme.ink2.into(), theme.line.into()),
             PillTone::Orange => tone(theme.orange_ink, theme.orange),
             PillTone::Green => tone(theme.green_ink, theme.green),
             PillTone::Red => tone(theme.red_ink, theme.red),
@@ -49,7 +53,39 @@ pub struct StatusPill {
     tone: PillTone,
     bare: bool,
     disabled: bool,
+    medium: bool,
+    tooltip: Option<SharedString>,
+    /// Something before the icon and label (a spinner, an icon and a count), and its width, for [`Self::width`].
+    leading: Option<(AnyElement, f32)>,
+    gap: f32,
     on_click: Option<PillClick>,
+}
+
+/// `.status-pill`'s fill: the surface at 68% (`color-mix(... var(--surface) 68%, transparent)`).
+const FILL: f32 = 0.68;
+/// `px-2.5`: the pill's horizontal padding.
+const PAD: f32 = 10.0;
+
+/// `over` laid on `under`, as the compositor does.
+fn over(over: Rgba, under: Hsla) -> Hsla {
+    let under: Rgba = under.into();
+    let alpha = over.a + under.a * (1.0 - over.a);
+    let mix = |top: f32, bottom: f32| (top * over.a + bottom * under.a * (1.0 - over.a)) / alpha.max(f32::EPSILON);
+    Rgba { r: mix(over.r, under.r), g: mix(over.g, under.g), b: mix(over.b, under.b), a: alpha }.into()
+}
+
+/// The width of `text` at 12px in the UI font.
+pub(crate) fn text_width(window: &Window, text: &str) -> f32 {
+    let text: SharedString = text.to_string().into();
+    let run = TextRun {
+        len: text.len(),
+        font: font(crate::theme::ui_font()),
+        color: gpui::black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    window.text_system().shape_line(text, px(12.0), &[run], None).width.into()
 }
 
 impl StatusPill {
@@ -63,8 +99,53 @@ impl StatusPill {
             tone: PillTone::default(),
             bare: false,
             disabled: false,
+            medium: false,
+            tooltip: None,
+            leading: None,
+            gap: 6.0,
             on_click: None,
         }
+    }
+
+    /// The hover label ("Subagents"), as the desktop's `<Tooltip label>` around the pill.
+    pub fn tooltip(mut self, label: impl Into<SharedString>) -> Self {
+        self.tooltip = Some(label.into());
+        self
+    }
+
+    /// `font-medium` (the PR action).
+    pub fn medium(mut self) -> Self {
+        self.medium = true;
+        self
+    }
+
+    /// `leading`: an element of `width` px before the icon and label (the Subagents pill's ring).
+    pub fn leading(mut self, element: impl IntoElement, width: f32) -> Self {
+        self.leading = Some((element.into_any_element(), width));
+        self
+    }
+
+    /// `gap-2` instead of the default `gap-1.5`.
+    pub fn gap(mut self, gap: f32) -> Self {
+        self.gap = gap;
+        self
+    }
+
+    fn count_text(&self) -> Option<String> {
+        self.count.map(|count| match self.total {
+            Some(total) => format!("{count}/{total}"),
+            None => count.to_string(),
+        })
+    }
+
+    /// The width the pill takes: padding, its parts and the gaps between them (a flex row hugging its content).
+    pub fn width(&self, window: &Window) -> f32 {
+        let mut parts: Vec<f32> = Vec::new();
+        parts.extend(self.leading.as_ref().map(|(_, width)| *width));
+        parts.extend(self.icon.map(|_| 12.0));
+        parts.extend(self.label.as_ref().map(|label| text_width(window, label)));
+        parts.extend(self.count_text().map(|count| text_width(window, &count)));
+        (2.0 * PAD + parts.iter().sum::<f32>() + self.gap * parts.len().saturating_sub(1) as f32).ceil()
     }
 
     pub fn icon(mut self, icon: IconName) -> Self {
@@ -117,32 +198,35 @@ impl RenderOnce for StatusPill {
         let selector = self.id.to_string();
         let enabled = !self.disabled;
         let hover = theme.hover;
-        let glass: Hsla = Hsla::from(theme.surface).opacity(0.76);
+        let glass: Hsla = Hsla::from(theme.surface).opacity(FILL);
+        // The hover is translucent ink over the fill, over the whole pill.
+        let hovered = over(theme.hover, glass);
+        let count = self.count_text();
+        let leading = self.leading;
         div()
             .id(self.id)
             .debug_selector(move || selector.clone())
             .flex()
             .flex_none()
             .items_center()
-            .gap(px(6.0))
+            .gap(px(self.gap))
             .h(CONTROL_SM)
-            .px(px(10.0))
+            .px(px(PAD))
             .rounded_full()
             .whitespace_nowrap()
             .text_step(TEXT_12)
             .text_color(text)
+            .when(self.medium, |el| el.font_weight(FontWeight::MEDIUM))
             .when(!self.bare, |el| el.bg(glass).shadow(vec![gpui::BoxShadow::new(px(0.0), px(0.0), ring).spread_radius(px(1.0))]))
+            .when(!self.bare && enabled, |el| el.hover(move |style| style.bg(hovered)))
             .when(self.bare && enabled, |el| el.hover(move |style| style.bg(hover)))
             .when(enabled, |el| el.cursor_pointer())
+            .when_some(self.tooltip, |el, label| el.tooltip(super::Tooltip::text(label)))
             .when(!enabled, |el| el.opacity(0.4))
             .when_some(self.on_click.filter(|_| enabled), |el, handler| el.on_click(move |event, window, cx| handler(event, window, cx)))
+            .when_some(leading, |el, (element, _)| el.child(element))
             .when_some(self.icon, |el, icon| el.child(Icon::new(icon).size(IconSize::S12).color(text)))
             .when_some(self.label, |el, label| el.child(label))
-            .when_some(self.count, |el, count| {
-                el.child(div().flex().child(match self.total {
-                    Some(total) => format!("{count}/{total}"),
-                    None => count.to_string(),
-                }))
-            })
+            .when_some(count, |el, count| el.child(div().flex().child(count)))
     }
 }

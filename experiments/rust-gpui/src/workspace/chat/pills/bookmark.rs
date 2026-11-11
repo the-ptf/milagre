@@ -24,7 +24,17 @@ use crate::theme::{RADIUS_CARD, RADIUS_CONTROL, TEXT_12, TEXT_13, TextStepExt, T
 use crate::ui::{Icon, IconName, IconSize, SectionLabel};
 use crate::workspace::chat::ChatView;
 
-use super::subchats::ink;
+/// `KIND_INK`: the words of a state, the ink token that holds contrast on the surface.
+fn ink(kind: SubchatKind, theme: &Theme) -> gpui::Rgba {
+    match kind {
+        SubchatKind::NeedsYou => theme.orange_ink,
+        SubchatKind::Failed => theme.red_ink,
+        SubchatKind::Working => theme.accent_ink,
+        SubchatKind::Holding => theme.purple_ink,
+        SubchatKind::Queued | SubchatKind::Stopped => theme.ink3,
+        SubchatKind::Done => theme.green_ink,
+    }
+}
 
 /// What the bookmark and the family menu read from one Chat.
 #[derive(Clone, Debug, PartialEq)]

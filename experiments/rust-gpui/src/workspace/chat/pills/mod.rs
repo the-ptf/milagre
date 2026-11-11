@@ -1,7 +1,8 @@
-//! The pill row over the composer (`ChatComposer.tsx`'s chip row, `PillMorph.tsx`, `StatusPill.tsx`): Subchats at
-//! the left; Ports, Tasks, Subagents and "Go to bottom" at the right. Each pill morphs in place into its panel
-//! (`morph.rs`): one surface hung from the pill's bottom corner, the panel opening up and to the left (right, for
-//! Subchats) over the transcript without moving the row.
+//! The pill row over the composer (`ChatComposer.tsx`'s chip row, `PillMorph.tsx`, `StatusPill.tsx`): the PR action
+//! and the review comments at the left; Tasks, Subagents and "Go to bottom" at the right. (Subchats and Ports are in
+//! the Details panel, not here.) Tasks and Subagents morph in place into their panel (`morph.rs`): one surface hung
+//! from the pill's bottom-right corner, the panel opening up and to the left over the transcript without moving the
+//! row. Each pill hugs its content: the slot is as wide as the pill's measured text.
 //!
 //! `PillRow` is one plain view (not cached: an open panel is taller than the row, and a cached view is laid out
 //! from its style alone). It re-renders when the Chat column does, which is cheap here, and every frame of a morph
@@ -14,8 +15,6 @@
 //! | `morph.rs` | timing and geometry of the morph, as plain functions |
 //! | `data.rs` | the fixture the row shows (`PillsData`) |
 //! | `tasks.rs`, `phase.rs` | the Tasks panel and the phase graph, drawn with paths |
-//! | `ports.rs` | the Ports panel |
-//! | `subchats.rs` | the Subchats pill and panel |
 //! | `subagents.rs` | the Subagents panel and a subagent's detail |
 //! | `bookmark.rs` | the Chat identity, the Subchat bookmark and the family menu (C-06) |
 
@@ -23,9 +22,7 @@ pub mod bookmark;
 pub mod data;
 pub mod morph;
 mod phase;
-mod ports;
 mod subagents;
-mod subchats;
 mod tasks;
 
 #[cfg(test)]
@@ -42,15 +39,13 @@ use gpui::{
 use self::data::PillsData;
 use self::morph::{Frame, PILL_HEIGHT};
 use crate::theme::{ActiveTheme, TEXT_12, TextStepExt, Theme};
-use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, ScrollArea, SectionLabel};
+use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, ScrollArea, SectionLabel, StatusPill};
 
 /// Room under the panel's pill that the transcript's box keeps for the header and the composer, when sizing a panel.
 const COMPOSER_ALLOWANCE: f32 = 44.0 + 120.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
-    Subchats,
-    Ports,
     Tasks,
     Subagents,
 }
@@ -58,8 +53,6 @@ pub enum Kind {
 impl Kind {
     fn id(self) -> &'static str {
         match self {
-            Kind::Subchats => "pill-subchats",
-            Kind::Ports => "pill-ports",
             Kind::Tasks => "pill-tasks",
             Kind::Subagents => "pill-subagents",
         }
@@ -67,23 +60,14 @@ impl Kind {
 
     fn panel_id(self) -> &'static str {
         match self {
-            Kind::Subchats => "panel-subchats",
-            Kind::Ports => "panel-ports",
             Kind::Tasks => "panel-tasks",
             Kind::Subagents => "panel-subagents",
         }
     }
 
-    /// The pill corner the panel hangs from: the left for Subchats, the right for the rest.
-    fn left(self) -> bool {
-        self == Kind::Subchats
-    }
-
     /// The panel's preferred width and tallest height (`width`, `height` props).
     pub fn preferred(self, detail: bool) -> (f32, f32) {
         match self {
-            Kind::Subchats => (440.0, 420.0),
-            Kind::Ports => (320.0, 360.0),
             Kind::Tasks => (380.0, 520.0),
             Kind::Subagents if detail => (440.0, 600.0),
             Kind::Subagents => (420.0, 460.0),
@@ -94,12 +78,10 @@ impl Kind {
 /// What the row tells the Chat column.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PillEvent {
-    /// A Subchat row (or the asking pill) was picked: open that Chat.
-    OpenChat(String),
-    /// A single-question option picked from a Subchat row.
-    Answer { chat: String, request: String, label: String },
-    /// Allow or Deny on a Subchat's approval.
-    Respond { chat: String, request: String, allow: bool },
+    /// The PR pill: run the blocker's fix, or open the PR panel to merge.
+    PullRequestAction,
+    /// The review comments pill: open the PR panel.
+    OpenReview,
     /// "Go to bottom".
     JumpToBottom,
     /// A panel closed from the keyboard or a press outside: the composer takes the focus back.
@@ -116,23 +98,17 @@ pub struct PillRow {
     morph: Option<(Kind, bool, Instant)>,
     /// Task ids folded shut in the Tasks panel.
     folded: HashSet<String>,
-    /// Ports being stopped (pids), and the ones already gone.
-    stopping: HashSet<u32>,
     selected_agent: Option<String>,
     show_archived: bool,
     log_open: bool,
     /// Detail sections shown whole ("Show all"), by name.
     clamped: HashSet<&'static str>,
-    /// The port the last click on a Ports row opened (the Browser panel is another package).
-    pub opened_port: Option<u16>,
     jump: bool,
     focus: FocusHandle,
     return_focus: Option<FocusHandle>,
     scroll: ScrollHandle,
     /// Snapshot seed (`MILAGRE_GPUI_PILLS_OPEN`): a panel is open from the first frame.
     window: (f32, f32),
-    /// The width the Subchats pill may take: the column less the pills at its right.
-    subchats_budget: f32,
 }
 
 impl PillRow {
@@ -143,23 +119,18 @@ impl PillRow {
             open: None,
             morph: None,
             folded: HashSet::new(),
-            stopping: HashSet::new(),
             selected_agent: None,
             show_archived: false,
             log_open: false,
             clamped: HashSet::new(),
-            opened_port: None,
             jump: false,
             focus: cx.focus_handle(),
             return_focus: None,
             scroll: ScrollHandle::new(),
             window: (1440.0, 900.0),
-            subchats_budget: crate::workspace::chat::transcript::COLUMN_WIDTH,
         };
         if let Some(kind) = std::env::var("MILAGRE_GPUI_PILLS_OPEN").ok().and_then(|name| match name.as_str() {
             "tasks" => Some(Kind::Tasks),
-            "ports" => Some(Kind::Ports),
-            "subchats" => Some(Kind::Subchats),
             "subagents" => Some(Kind::Subagents),
             _ => None,
         }) {
@@ -181,7 +152,6 @@ impl PillRow {
         }
         self.morph = None;
         self.folded.clear();
-        self.stopping.clear();
         cx.notify();
     }
 
@@ -216,8 +186,6 @@ impl PillRow {
 
     pub fn is_shown(&self, kind: Kind) -> bool {
         match kind {
-            Kind::Subchats => !self.data.subchats.is_empty(),
-            Kind::Ports => !self.data.ports.is_empty(),
             Kind::Tasks => self.data.plan.as_ref().is_some_and(|plan| !plan.is_empty()),
             Kind::Subagents => self.data.subagents.iter().any(|agent| !agent.archived) || self.open == Some(Kind::Subagents),
         }
@@ -283,47 +251,22 @@ impl PillRow {
         let (width, room_height) = morph::room(preferred, self.window, above);
         let wanted = match kind {
             Kind::Tasks => self.tasks_height(),
-            Kind::Ports => self.ports_height(),
-            Kind::Subchats => self.subchats_height(),
             Kind::Subagents => self.subagents_height(),
         };
         (width, wanted.min(room_height))
     }
 
-    fn pill_width(&self, kind: Kind) -> f32 {
-        match kind {
-            Kind::Tasks => {
-                let text = self.tasks_pill_text();
-                20.0 + 18.0 + text.chars().count() as f32 * 6.4
-            }
-            Kind::Ports => 20.0 + 18.0 + 5.0 * 6.4 + 6.0 + 8.0,
-            // The static ring and its gap sit before the pill while one runs.
-            Kind::Subagents => {
-                20.0 + 18.0
-                    + 9.0 * 6.4
-                    + 6.0
-                    + 8.0
-                    + if self.data.subagents.iter().any(|a| !a.archived && a.status.active()) { 28.0 } else { 0.0 }
-            }
-            // What the right-hand pills leave: the pill shortens (its words truncate) rather than push them out.
-            Kind::Subchats => self.subchats_pill_width().min(self.subchats_budget).max(96.0),
-        }
-    }
-
-    fn pill_face(&self, kind: Kind, cx: &mut Context<Self>) -> AnyElement {
+    /// The pill's face: the `StatusPill` the slot measures and draws.
+    fn pill_face(&self, kind: Kind, cx: &mut Context<Self>) -> StatusPill {
         match kind {
             Kind::Tasks => self.tasks_pill(cx),
-            Kind::Ports => self.ports_pill(cx),
             Kind::Subagents => self.subagents_pill(cx),
-            Kind::Subchats => self.subchats_pill(cx),
         }
     }
 
     fn panel_face(&mut self, kind: Kind, size: (f32, f32), window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         match kind {
             Kind::Tasks => self.tasks_panel(size, cx),
-            Kind::Ports => self.ports_panel(size, cx),
-            Kind::Subchats => self.subchats_panel(size, cx),
             Kind::Subagents => self.subagents_panel(size, window, cx),
         }
     }
@@ -332,21 +275,19 @@ impl PillRow {
     fn slot(&mut self, kind: Kind, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = *cx.theme();
         let frame = self.frame_of(kind, window);
-        let pill = morph::pill_size(self.pill_width(kind));
+        let face = self.pill_face(kind, cx);
+        let pill = morph::pill_size(face.width(window));
         let panel = self.panel_size(kind);
         let (width, height, radius) = morph::surface(pill, panel, frame.grown);
         let mounted = self.open == Some(kind);
-        let left = kind.left();
-        let glass: Hsla = Hsla::from(theme.surface).opacity(lerp_f(0.76, 1.0, frame.grown));
-        let ring: Hsla = Hsla::from(theme.line_strong);
-        let face = self.pill_face(kind, cx);
+        let glass: Hsla = Hsla::from(theme.surface).opacity(lerp_f(0.68, 1.0, frame.grown));
+        let ring: Hsla = Hsla::from(theme.line);
         let surface = div()
             .id(ElementId::from(kind.panel_id()))
             .debug_selector(move || format!("{}-surface", kind.panel_id()))
             .absolute()
             .bottom_0()
-            .when(left, |el| el.left_0())
-            .when(!left, |el| el.right_0())
+            .right_0()
             .w(px(width))
             .h(px(height))
             .rounded(px(radius))
@@ -366,23 +307,12 @@ impl PillRow {
             })
             .when(mounted, |el| {
                 let body = self.panel_face(kind, panel, window, cx);
-                el.child(
-                    div()
-                        .absolute()
-                        .bottom_0()
-                        .when(left, |el| el.left_0())
-                        .when(!left, |el| el.right_0())
-                        .w(px(panel.0))
-                        .h(px(panel.1))
-                        .opacity(frame.panel_opacity)
-                        .child(body),
-                )
+                el.child(div().absolute().bottom_0().right_0().w(px(panel.0)).h(px(panel.1)).opacity(frame.panel_opacity).child(body))
             });
         let pill_face = div()
             .absolute()
             .bottom_0()
-            .when(left, |el| el.left_0())
-            .when(!left, |el| el.right_0())
+            .right_0()
             .w(px(pill.0))
             .h(px(PILL_HEIGHT))
             .flex()
@@ -415,7 +345,7 @@ impl PillRow {
 
     fn jump_pill(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = *cx.theme();
-        let glass: Hsla = Hsla::from(theme.surface).opacity(0.76);
+        let glass: Hsla = Hsla::from(theme.surface).opacity(0.68);
         div()
             .id("pill-jump")
             .debug_selector(|| "pill-jump".into())
@@ -426,8 +356,7 @@ impl PillRow {
             .size(crate::theme::CONTROL_SM)
             .rounded_full()
             .bg(glass)
-            .border_1()
-            .border_color(Hsla::from(theme.line_strong))
+            .shadow(vec![gpui::BoxShadow::new(px(0.0), px(0.0), Hsla::from(theme.line)).spread_radius(px(1.0))])
             .text_color(theme.ink2)
             .cursor_pointer()
             .hover(move |style| style.text_color(theme.ink))
@@ -435,6 +364,42 @@ impl PillRow {
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PillEvent::JumpToBottom)))
             .child(Icon::new(IconName::ArrowDown01).size(IconSize::S14).color(theme.ink2))
             .into_any_element()
+    }
+
+    /// The PR action pill (`pr-action`): the blocker's fix in red or orange, or Merge in green; not a morph.
+    fn pr_action_pill(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let action = self.data.pr_action.as_ref()?;
+        Some(
+            StatusPill::new("pill-pr-action")
+                .icon(if action.merge { IconName::GitMerge } else { IconName::GitPullRequest })
+                .label(action.label.clone())
+                .tone(action.tone)
+                .medium()
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PillEvent::PullRequestAction)))
+                .into_any_element(),
+        )
+    }
+
+    /// The review comments pill (`pr-review`): neutral, a bubble and the bold count, then what it counts.
+    fn review_pill(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let count = self.data.review_comments;
+        if count == 0 {
+            return None;
+        }
+        let theme = *cx.theme();
+        let leading = div()
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .child(Icon::new(IconName::BubbleChat).size(IconSize::S12).color(theme.ink2))
+            .child(div().font_weight(gpui::FontWeight::MEDIUM).text_color(theme.ink).child(count.to_string()));
+        Some(
+            StatusPill::new("pill-review")
+                .leading(leading, 18.0 + 7.0 * count.to_string().len() as f32)
+                .label(if count == 1 { "review comment" } else { "review comments" })
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PillEvent::OpenReview)))
+                .into_any_element(),
+        )
     }
 }
 
@@ -452,16 +417,11 @@ impl Render for PillRow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let size = window.viewport_size();
         self.window = (f32::from(size.width), f32::from(size.height));
-        let right_kinds: Vec<Kind> = [Kind::Ports, Kind::Tasks, Kind::Subagents].into_iter().filter(|kind| self.is_shown(*kind)).collect();
-        let right: f32 = right_kinds.iter().map(|kind| self.pill_width(*kind)).sum::<f32>()
-            + 8.0 * (right_kinds.len() + usize::from(self.jump)) as f32
-            + if self.jump { f32::from(crate::theme::CONTROL_SM) } else { 0.0 };
-        self.subchats_budget = (crate::theme::column_width() - right - 8.0).max(0.0);
+        let right_kinds: Vec<Kind> = [Kind::Tasks, Kind::Subagents].into_iter().filter(|kind| self.is_shown(*kind)).collect();
+        // The PR pills lead the row; the rest sit at its right (`justify-end`, the last left pill takes `mr-auto`).
         let mut left = div().flex().items_end().gap_2();
+        left = left.children(self.pr_action_pill(cx)).children(self.review_pill(cx));
         let mut right = div().flex().items_end().justify_end().gap_2();
-        if self.is_shown(Kind::Subchats) {
-            left = left.child(self.slot(Kind::Subchats, window, cx));
-        }
         for kind in right_kinds {
             right = right.child(self.slot(kind, window, cx));
         }

@@ -59,13 +59,12 @@ impl PillRow {
         if total > 0 { format!("{done}/{total}") } else { current_phase(plan).map(|phase| phase.label().to_string()).unwrap_or_default() }
     }
 
-    pub(super) fn tasks_pill(&self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(plan) = &self.data.plan else { return div().into_any_element() };
+    pub(super) fn tasks_pill(&self, cx: &mut Context<Self>) -> StatusPill {
+        let Some(plan) = &self.data.plan else { return StatusPill::new("pill-tasks-button") };
         let (done, total) = task_counts(&plan.tasks);
-        let mut pill = StatusPill::new("pill-tasks-button").icon(IconName::ListTodo).bare();
+        let mut pill = StatusPill::new("pill-tasks-button").icon(IconName::ListTodo).bare().tooltip("Tasks");
         pill = if total > 0 { pill.count(done as u32).total(total as u32) } else { pill.label(self.tasks_pill_text()) };
         pill.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.set_open(Some(super::Kind::Tasks), false, window, cx)))
-            .into_any_element()
     }
 
     pub(super) fn tasks_height(&self) -> f32 {

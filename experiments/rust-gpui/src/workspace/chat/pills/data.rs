@@ -2,10 +2,8 @@
 //! `plan`, `ports` and `subagents` (PORT-MAP K-14: "plan, ports").
 
 use crate::logic::activity::subagent_glance::{Step, ToolCounts};
-use crate::logic::activity::subchat_states::{
-    AgentQuestion, ApprovalRequest, Heartbeat, QuestionOption, QuestionRequest, SubchatInput, SubchatRun, SubchatState, subchat_state,
-};
 use crate::logic::plan::{ChatPlan, ChatTask, Phase, PhaseEntry, TaskStatus};
+use crate::logic::prs::blockers::Blocker;
 
 /// The clock the fixture's times count from (ms). Also the plan graph's Now when it opens.
 pub const NOW: i64 = 1_800_000_000_000;
@@ -88,12 +86,23 @@ pub struct Subagent {
     pub archived: bool,
 }
 
+/// `pullRequestAction`: the label and tone of the PR pill, and whether it merges (the green one).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrAction {
+    pub label: String,
+    pub tone: crate::ui::PillTone,
+    pub merge: bool,
+}
+
 /// Everything the pill row shows for one Chat.
 #[derive(Clone, Debug, Default)]
 pub struct PillsData {
     pub plan: Option<ChatPlan>,
     pub ports: Vec<PortRow>,
-    pub subchats: Vec<SubchatState>,
+    /// The PR pill at the row's left (`pullRequestAction`): a blocker's fix, or Merge #n when nothing blocks.
+    pub pr_action: Option<PrAction>,
+    /// Open review threads (`pullRequestReview`): the review comments pill.
+    pub review_comments: u32,
     pub subagents: Vec<Subagent>,
     pub now: i64,
 }
@@ -131,65 +140,6 @@ fn ports() -> Vec<PortRow> {
         PortRow { port: 8787, pid: 4188, command: "wrangler dev".into(), computer: None },
         PortRow { port: 3000, pid: 911, command: "next dev".into(), computer: Some("deer".into()) },
     ]
-}
-
-fn question(id: &str, text: &str, options: &[&str]) -> QuestionRequest {
-    QuestionRequest {
-        request_id: id.into(),
-        questions: vec![AgentQuestion {
-            id: "q1".into(),
-            header: String::new(),
-            question: text.into(),
-            options: options.iter().map(|label| QuestionOption { label: (*label).into(), description: None }).collect(),
-            multi_select: false,
-            allow_other: false,
-            secret: false,
-        }],
-    }
-}
-
-fn subchats() -> Vec<SubchatState> {
-    let run = |text: &str, started: i64| SubchatRun { text: Some(text.into()), started_at: Some(NOW - started), ..Default::default() };
-    let inputs = [
-        SubchatInput {
-            key: "milagre#41".into(),
-            title: "Align the data layer with the app".into(),
-            run: Some(SubchatRun {
-                questions: vec![question("r1", "Which badge should Closed use?", &["Neutral (Recommended)", "Red", "Muted"])],
-                ..run("Waiting on a choice.", 3 * MIN + 5_000)
-            }),
-            ..Default::default()
-        },
-        SubchatInput {
-            key: "milagre#42".into(),
-            title: "Port the sidebar to GPUI".into(),
-            run: Some(run("Moving the Pinned rows to a uniform list.", 11 * MIN + 42_000)),
-            ..Default::default()
-        },
-        SubchatInput {
-            key: "milagre#43".into(),
-            title: "Sidebar snapshot check".into(),
-            run: Some(SubchatRun {
-                approvals: vec![ApprovalRequest { request_id: "a1".into(), title: "Run `cargo test`".into() }],
-                ..run("Wants to run a command.", 40_000)
-            }),
-            ..Default::default()
-        },
-        SubchatInput { key: "milagre#44".into(), title: "Write the pill tests".into(), queued: true, ..Default::default() },
-        SubchatInput {
-            key: "milagre#45".into(),
-            title: "Watch the nightly build".into(),
-            heartbeat: Some(Heartbeat { next_run_at: Some(NOW + 25 * MIN), run_count: Some(3), max_runs: Some(12) }),
-            ..Default::default()
-        },
-        SubchatInput {
-            key: "milagre#46".into(),
-            title: "Audit the relay".into(),
-            report: Some("Relay finished: no refused dials left.".into()),
-            ..Default::default()
-        },
-    ];
-    inputs.iter().map(|input| subchat_state(input, NOW)).collect()
 }
 
 fn step(id: &str, said: &str, tools: &[(crate::logic::activity::subagent_glance::ToolCategory, u32)], last: Option<&str>) -> Step {
@@ -287,7 +237,14 @@ fn subagents() -> Vec<Subagent> {
 /// The default fixture Chat's pills: every pill there is. Other Chats get some of them, chosen from the key, so
 /// switching Chats visibly changes the row.
 pub fn pills_for(key: &str, title: &str) -> PillsData {
-    let all = PillsData { plan: Some(plan()), ports: ports(), subchats: subchats(), subagents: subagents(), now: NOW };
+    let all = PillsData {
+        plan: Some(plan()),
+        ports: ports(),
+        pr_action: Some(PrAction { label: Blocker::Conflicts.action_label().into(), tone: crate::ui::PillTone::Red, merge: false }),
+        review_comments: 3,
+        subagents: subagents(),
+        now: NOW,
+    };
     if title == crate::workspace::chat::fixture::DEFAULT_TITLE {
         return all;
     }
@@ -295,7 +252,12 @@ pub fn pills_for(key: &str, title: &str) -> PillsData {
     PillsData {
         plan: (h & 1 == 0).then(|| ChatPlan { phases: all.plan.as_ref().map(|p| p.phases.clone()).unwrap_or_default(), tasks: vec![] }),
         ports: if h & 2 == 0 { all.ports[..1].to_vec() } else { vec![] },
-        subchats: if h & 4 == 0 { all.subchats[1..3].to_vec() } else { vec![] },
+        pr_action: match h % 3 {
+            0 => all.pr_action.clone(),
+            1 => Some(PrAction { label: "Merge #1022".into(), tone: crate::ui::PillTone::Green, merge: true }),
+            _ => None,
+        },
+        review_comments: if h & 4 == 0 { 1 } else { 0 },
         subagents: if h & 8 == 0 { all.subagents[2..4].to_vec() } else { vec![] },
         now: NOW,
     }

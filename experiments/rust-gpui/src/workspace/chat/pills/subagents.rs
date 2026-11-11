@@ -77,21 +77,17 @@ pub fn meta(agent: &Subagent) -> String {
 }
 
 impl PillRow {
-    pub(super) fn subagents_pill(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn subagents_pill(&self, cx: &mut Context<Self>) -> StatusPill {
         let list = listing(&self.data.subagents, false);
+        let theme = *cx.theme();
         let pill = StatusPill::new("pill-subagents-button")
             .label("Subagents")
             .count(list.visible as u32)
+            .gap(8.0)
             .bare()
+            .tooltip("Subagents")
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.set_open(Some(super::Kind::Subagents), false, window, cx)));
-        let theme = *cx.theme();
-        div()
-            .flex()
-            .items_center()
-            .gap_2()
-            .when(list.running > 0, |el| el.pl_2().child(Spinner::new("subagents-pill-spinner").color(theme.ink3)))
-            .child(pill)
-            .into_any_element()
+        if list.running > 0 { pill.leading(Spinner::new("subagents-pill-spinner").color(theme.ink3), 12.0) } else { pill }
     }
 
     pub(super) fn subagents_height(&self) -> f32 {

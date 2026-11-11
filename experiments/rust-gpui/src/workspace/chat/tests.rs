@@ -44,8 +44,8 @@ fn items_sit_in_the_536px_column_with_the_composer(cx: &mut TestAppContext) {
     assert_eq!(running.origin.x, composer.origin.x, "transcript column and composer share a left edge");
     let subagents = cx.debug_bounds("slot-pill-subagents").expect("subagents pill drawn");
     assert_eq!(subagents.right(), composer.right(), "the last right-hand pill ends at the column's right edge");
-    let subchats = cx.debug_bounds("slot-pill-subchats").expect("Subchats pill drawn");
-    assert_eq!(subchats.origin.x, composer.origin.x);
+    let action = cx.debug_bounds("pill-pr-action").expect("PR action pill drawn");
+    assert_eq!(action.origin.x, composer.origin.x);
     assert_eq!(subagents.size.height, crate::theme::CONTROL_SM);
 }
 
