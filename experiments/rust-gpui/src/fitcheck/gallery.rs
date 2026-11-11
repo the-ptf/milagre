@@ -69,6 +69,11 @@ fn open(page: String, cx: &mut App) -> WindowHandle<Root> {
             let view: AnyView = match page.as_str() {
                 "markdown" => cx.new(MarkdownPage::new).into(),
                 "diff" => cx.new(DiffPage::new).into(),
+                // The Milagre primitives (src/ui/gallery.rs): `primitives`, or `primitives-dialog` with a dialog open.
+                "primitives" | "primitives-dialog" => {
+                    let with_dialog = page == "primitives-dialog";
+                    cx.new(|cx| crate::ui::gallery::PrimitivesPage::new(with_dialog, window, cx)).into()
+                }
                 #[cfg(feature = "webview")]
                 "webview" => cx.new(|cx| super::webview::WebviewPage::new(window, cx)).into(),
                 _ => cx.new(|cx| ControlsPage::new(window, cx)).into(),

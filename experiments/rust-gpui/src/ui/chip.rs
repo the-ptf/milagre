@@ -12,6 +12,7 @@
 
 use gpui::{AnyElement, App, Div, ElementId, FontWeight, IntoElement, ParentElement, RenderOnce, Window, div, prelude::*, px};
 
+use super::focus::{focus_ring, item_focus};
 use super::{Icon, IconName, IconSize};
 use crate::theme::{ActiveTheme, CONTROL_SM, TEXT_12, TextStepExt};
 
@@ -64,12 +65,15 @@ impl ParentElement for Chip {
 }
 
 impl RenderOnce for Chip {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = *cx.theme();
+        let handle = item_focus(&self.id, window, cx);
         let selector = self.id.to_string();
         let base: gpui::Stateful<Div> = div()
             .id(self.id)
             .debug_selector(move || selector.clone())
+            .when(self.variant != ChipVariant::Static, |el| el.track_focus(&handle))
+            .relative()
             .flex()
             .flex_none()
             .min_w_0()
@@ -103,5 +107,6 @@ impl RenderOnce for Chip {
         styled
             .children(self.children)
             .when(self.chevron, |el| el.child(Icon::new(IconName::ArrowDown01).size(IconSize::S12).color(theme.ink3)))
+            .child(focus_ring(&handle, CONTROL_SM / 2.0))
     }
 }

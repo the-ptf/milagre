@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use gpui::{App, ClickEvent, ElementId, FontWeight, IntoElement, RenderOnce, SharedString, Window, div, prelude::*, px};
 
+use super::focus::{focus_ring, item_focus};
 use super::{Icon, IconName, IconSize};
 use crate::theme::{ActiveTheme, RADIUS_INLINE, TEXT_13, TextStepExt};
 
@@ -43,13 +44,15 @@ impl Checkbox {
 }
 
 impl RenderOnce for Checkbox {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = *cx.theme();
+        let handle = item_focus(&self.id, window, cx);
         let selector = self.id.to_string();
         let box_selector = format!("{selector}-box");
         let checked = self.checked;
         let check_box = div()
             .debug_selector(move || box_selector.clone())
+            .relative()
             .flex()
             .flex_none()
             .items_center()
@@ -59,11 +62,13 @@ impl RenderOnce for Checkbox {
             .border_1()
             .when(checked, |el| el.bg(theme.ink).border_color(theme.ink))
             .when(!checked, |el| el.bg(theme.surface).border_color(theme.ink3))
-            .when(checked, |el| el.child(Icon::new(IconName::Tick02).size(IconSize::S14).color(theme.on_ink)));
+            .when(checked, |el| el.child(Icon::new(IconName::Tick02).size(IconSize::S14).color(theme.on_ink)))
+            .child(focus_ring(&handle, RADIUS_INLINE));
         let enabled = !self.disabled;
         div()
             .id(self.id)
             .debug_selector(move || selector.clone())
+            .when(enabled, |el| el.track_focus(&handle))
             .flex()
             .flex_none()
             .items_center()

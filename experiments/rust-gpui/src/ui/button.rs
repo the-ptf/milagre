@@ -6,13 +6,15 @@
 //! ```
 //!
 //! One primary style: an ink fill with an `on-ink` label; accent and green never fill a button. Labels are
-//! 500 weight. Disabled is 40% and inert. Not built: the 0.97 press scale (GPUI has no transform on
+//! 500 weight. Disabled is 40% and inert. Focusable, with the accent focus ring on keyboard focus (`focus.rs`;
+//! Enter and Space press it). Not built: the 0.97 press scale (GPUI has no transform on
 //! divs) and the colour transitions.
 
 use std::rc::Rc;
 
 use gpui::{App, ClickEvent, ElementId, FontWeight, Hsla, IntoElement, RenderOnce, SharedString, Window, div, prelude::*, px, svg};
 
+use super::focus::{focus_ring, item_focus};
 use super::{Icon, IconName, IconSize};
 use crate::theme::{ActiveTheme, CONTROL_MD, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, TEXT_12, TEXT_13, TextStep, TextStepExt, Theme};
 
@@ -137,15 +139,19 @@ impl Button {
 }
 
 impl RenderOnce for Button {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = *cx.theme();
         let (height, padding, text) = self.size.metrics();
         let (fill, label, hover_fill, hover_label, fade) = look(self.variant, &theme);
         let selector: SharedString = self.selector.map(SharedString::from).unwrap_or_else(|| self.id.to_string().into());
         let enabled = !self.disabled;
+        let handle = item_focus(&self.id, window, cx);
+        let ring_radius = if self.pill { height / 2.0 } else { RADIUS_CONTROL };
         div()
             .id(self.id)
             .debug_selector(move || selector.to_string())
+            .when(enabled, |el| el.track_focus(&handle))
+            .relative()
             .flex()
             .flex_none()
             .items_center()
@@ -178,6 +184,7 @@ impl RenderOnce for Button {
             .when_some(self.on_click.filter(|_| enabled), |el, handler| el.on_click(move |event, window, cx| handler(event, window, cx)))
             .when_some(self.icon, |el, icon| el.child(Icon::new(icon).size(IconSize::S14).color(label)))
             .child(self.label)
+            .child(focus_ring(&handle, ring_radius))
     }
 }
 
@@ -187,6 +194,9 @@ const GROUP: &str = "icon-button";
 /// Square icon-only button sizes; the glyph follows the desktop (`GLYPH` in Button.tsx).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum IconButtonSize {
+    /// 20px, 12px glyph: inline in a dense row (DESIGN.md: reaches the 24px hit area through its `::before`,
+    /// which GPUI cannot extend, so keep 2px clear of neighbours and treat 24 as the target floor).
+    S20,
     /// 24px, 14px glyph: window chrome and inline.
     S24,
     /// 28px, 16px glyph: the default.
@@ -258,9 +268,11 @@ impl IconButton {
 }
 
 impl RenderOnce for IconButton {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = *cx.theme();
+        let handle = item_focus(&self.id, window, cx);
         let (box_size, default_glyph) = match self.size {
+            IconButtonSize::S20 => (px(20.0), IconSize::S12),
             IconButtonSize::S24 => (CONTROL_XS, IconSize::S14),
             IconButtonSize::S28 => (CONTROL_SM, IconSize::S16),
             IconButtonSize::S32 => (CONTROL_MD, IconSize::S16),
@@ -271,9 +283,12 @@ impl RenderOnce for IconButton {
         let ink = theme.ink;
         let enabled = !self.disabled;
         let hover = theme.hover;
+        let ring_radius = if self.pill { box_size / 2.0 } else { RADIUS_CONTROL };
         div()
             .id(self.id)
             .debug_selector(move || selector.clone())
+            .when(enabled, |el| el.track_focus(&handle))
+            .relative()
             .flex()
             .flex_none()
             .items_center()
@@ -296,5 +311,6 @@ impl RenderOnce for IconButton {
                     .text_color(glyph)
                     .when(enabled, |el| el.group_hover(GROUP, move |style| style.text_color(ink))),
             )
+            .child(focus_ring(&handle, ring_radius))
     }
 }
