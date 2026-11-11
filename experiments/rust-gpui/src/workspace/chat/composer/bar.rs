@@ -5,7 +5,7 @@
 //!
 //! - Attach opens the platform's file prompt (`Composer::open_file_picker`); the chosen paths go to the tray.
 //! - The model chip is a trigger chip (`ui::Chip`, transparent `ink-2`, `hover-2` while open); its picker is
-//!   `model_picker.rs`. It carries an orange shield while Full permissions are on.
+//!   `model_picker.rs`.
 //! - The context slot is the ring and its card (`context.rs`), shown once the data layer gives the tokens
 //!   ([`Composer::set_context`], [`Composer::set_context_percent`]).
 //! - The send button is `send::SendState`'s decision: Send, Send now (steers), Queue message, or Stop (a 10px

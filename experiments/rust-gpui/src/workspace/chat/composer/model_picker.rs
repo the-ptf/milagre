@@ -4,8 +4,8 @@
 //! multiplier at the row's end) and, when the picked model has any, its settings on the right: the thinking-effort
 //! slider with its caption, then the Fast and Ultracode tiles (bordered, taking their tint when on).
 //!
-//! Under it all sits the permission footer (`permission.rs`): Ask, Auto or Full, Full in orange. The chip shows an
-//! orange shield before the provider mark while Full is on, and the Fast bolt after the effort while Fast is on.
+//! Under it all sits the permission footer (`permission.rs`): Ask, Auto or Full, Full in orange. The chip shows a
+//! Fast bolt after the effort while Fast is on.
 //!
 //! The list is [`models::catalog`], a fixture. Not built: the search field, the per-Project account select, the CLI
 //! update notice and a row's description tooltip.
@@ -65,14 +65,13 @@ impl Composer {
     pub(super) fn model_chip(&self, theme: &Theme, cx: &mut gpui::Context<Self>) -> AnyElement {
         let (provider, name, effort) = (self.bar.provider, self.bar.model_name.clone(), self.bar.effort.clone());
         let (dim, warn) = (theme.ink3, theme.orange_ink);
-        let (full, fast) = (self.bar.permission == crate::data::PermissionMode::Full, self.bar.fast);
+        let fast = self.bar.fast;
         let composer = cx.entity();
         let open = matches!(self.bar.open, Some("composer-model" | "composer-permission"));
         super::pick_list::popup(&composer, "composer-model", open)
             .trigger(move |open| {
                 Chip::new("composer-model-chip")
                     .on(open)
-                    .when(full, |chip| chip.child(Icon::new(IconName::ShieldAlert).size(IconSize::S14).color(warn)))
                     .child(ProviderLogo::new(provider).size(14.0))
                     .child(div().min_w_0().max_w(px(112.0)).truncate().child(name.clone()))
                     .when_some(effort.clone(), |chip, effort| {
