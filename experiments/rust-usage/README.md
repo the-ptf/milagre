@@ -100,9 +100,14 @@ only the scope string; it must never supply account snapshots, selected IDs, env
 
 Account metadata types are a narrow adapter contract, not a dependency on or implementation of rust-accounts.
 The adapter must retain captured `Selection` together with explicit `EnvironmentContext.directory` when calling
-rust-accounts. `AccountSandbox` preparation is additive and does not imply login: variable-length
-`PendingCreation.pending()` may distinguish profile preparation from login-only work. Readiness still comes from
-the trusted account snapshot. This crate never inspects preparation state or derives a profile directory.
+rust-accounts. The parent reports account preparation checkpoint `e192330e` with additive service methods
+`seed_synthetic_sources(&SyntheticSources)`, `prepare_creation(&mut PendingCreation)`,
+`prepare_synthetic_antigravity_default()` and `inherit_synthetic_mcp(provider, id, Option<&str>) -> McpRefresh`.
+`Accounts`, `Selection` and environment APIs remain unchanged. `PendingCreation.pending` is a variable-length
+`Vec`; `preparation()` reports `Pending` or `Complete`. Preparation completion still leaves login pending and must
+never imply readiness. Readiness comes only from the trusted account snapshot. These preparation methods are
+synthetic-only; metadata-first creation and multi-file recovery remain account-service gaps. This crate does not
+invoke preparation, inspect its state or derive a profile directory; usage persistence remains isolated.
 
 ## Temporary persistence API
 
