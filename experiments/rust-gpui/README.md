@@ -592,16 +592,23 @@ WP-22 (2026-11-11): the activity fold and the tool rows, in `workspace/chat/tran
 
 ## Panel notes
 
-- Dock (`workspace/panel/dock.rs`): the Chat and the panel are one gpui-component `h_resizable` group; the panel's left edge drags
-  (min/default/max per kind from `panel-width.ts`: Changes and PR 280/320/640, Designs and Artifact
-  440/560/1400; the Chat keeps 420). The width is remembered per kind for the session; a double-click on the edge resets it (read by a
-  window-level listener, because the handle occludes hit-tested ones). Every layout change (open, close, expand, tab, Chat) makes a fresh
-  `ResizableState`, so the panel always opens at its remembered width. Expanded drops the group: the panel takes the width, and an open diff draws inside it (under the tab strip, in place of the list) instead of over the Chat column; collapsing moves it back.
+- Dock (`workspace/panel/dock.rs`): the Chat and the panel are one gpui-component `h_resizable` group; the panel's left edge drags.
+  One width serves every tab and Chat (`dock::WIDTH_RULE`: min 280, default 320 as Changes had, max 1400; the Chat keeps
+  420). A drag sets it for all tabs, switching tabs never changes it, and it lasts the session (the window state does not
+  persist it yet); a double-click on the edge resets it (read by a window-level listener, because the handle occludes hit-tested
+  ones). Opening the panel, or switching Chat, makes a fresh `ResizableState` so it opens at that width. The tab strip is only the scrolling
+  tab list: no Expand and no Close button, so there is no full-width mode. The panel opens and closes through its shortcuts (and the
+  Chat corner's panel toggle); an open diff always draws over the Chat column.
 - Shortcuts: `changes.toggle`, `terminal.toggle`, `designs.toggle`, `artifacts.toggle` are bound from
   `logic::keybindings` (`dock::install_keys`, once) and handled on the Workspace root; a shortcut hides the panel when its tab is the open one.
-- Per Chat: `Panel` keeps open/tab/expanded by Chat key. The sidebar does not notify itself on a selection, so `Workspace::render`
+- Per Chat: `Panel` keeps open and tab by Chat key. The sidebar does not notify itself on a selection, so `Workspace::render`
   (which re-renders when a row does) calls `follow_sidebar`. Designs, Artifact and PR tabs show only for Chats that have content
   (`panel/fixture.rs`, the seam for the daemon); Changes always does.
+- Details (`panel/details/`, new, not in React): sections Environment (computer and its state, repo, branch middle-truncated, path
+  that copies on click with Finder and editor buttons recorded in `DetailsView::requests`), Context (the composer ring's data and bar,
+  `composer/context.rs::bar_at`), Subchats (nested rows, a Parent row on a Subchat; a click emits `DetailsEvent::OpenChat(key)` which the
+  Workspace turns into a selection, and `Panel::set_family` takes the sidebar's `family_chats()`), Background tasks (commands, ports,
+  subagents with time and stop; "N finished" expands) and Links (Linear issue, PR, linked Projects, only when present).
 - Each tab body is a cached view (`size_full`): `ChangesView`, the PR, Designs, Artifact or Simulator view. Typing in the composer renders neither the panel nor a body
   (`dock_tests.rs`); a view mounted cached sees the first key after a mouse press as a refresh, so tests type once before measuring.
 - Changes (`panel/changes/`): `data.rs` panel-local input types over `logic::diff::git`; `fixture.rs` 13 files not committed, 3 on the

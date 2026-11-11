@@ -48,18 +48,13 @@ fn clicking_designs_activates_it(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn expand_and_close_stay_inside_the_panel_right_edge(cx: &mut TestAppContext) {
+fn the_strip_is_only_the_scrolling_tab_list(cx: &mut TestAppContext) {
     let (_panel, cx) = mount(cx);
     let window_width = cx.update(|window, _| window.viewport_size().width);
     let list = cx.debug_bounds("panel-tab-list").expect("tab list is drawn");
-    let expand = cx.debug_bounds("panel-expand").expect("expand is drawn");
-    let close = cx.debug_bounds("panel-close").expect("close is drawn");
-    assert_eq!(expand.size.width, px(24.0));
-    assert!(close.right() <= window_width, "close inside the window");
-    assert_eq!(close.right(), window_width - px(8.0), "8px header padding");
-    assert!(expand.right() <= close.left());
-    assert!(list.right() <= expand.left(), "tabs scroll outside the pinned buttons");
-    assert!(close.left() >= window_width - px(PANEL_WIDTH));
+    assert!(cx.debug_bounds("panel-expand").is_none() && cx.debug_bounds("panel-close").is_none());
+    assert_eq!(list.right(), window_width - px(8.0), "8px header padding");
+    assert!(list.left() >= window_width - px(PANEL_WIDTH));
 }
 
 #[gpui::test]

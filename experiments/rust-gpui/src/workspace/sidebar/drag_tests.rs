@@ -150,7 +150,7 @@ fn dragging_a_row_onto_the_chat_lands_nowhere_and_escape_calls_a_drag_off(cx: &m
     // The right part of the Chat column, left of the side panel.
     let panel = workspace.read_with(cx, |w, cx| {
         let panel = w.panel.read(cx);
-        if panel.is_open() && !panel.is_expanded() { panel.width() } else { 0.0 }
+        if panel.is_open() { panel.width() } else { 0.0 }
     });
     let size = cx.update(|window, _| window.viewport_size());
     let right = point(size.width - px(panel + 60.0), size.height / 2.0);

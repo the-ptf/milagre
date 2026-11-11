@@ -1,13 +1,13 @@
 //! The All Chats list built from domain data through the shared rules: a port of `scopeChats`, `mergeScopeChats`
-//! and `runKeys` (`apps/desktop/app/src/lib/sidebar-scopes.ts`) on top of
+//! and `runKeys` (`apps/desktop/app/src/lib/sidebar-scopes.ts`) and `shownChats` (`lib/subchat-rows.ts`), on top of
 //! `logic::lists` (listing, pins, order, Done, Subchat families) and `logic::marks` (the mark and its activity).
 //!
 //! What the desktop's one-list sidebar shows, in this order: every scope's pinned Chats (Chats homes first), then
-//! the list of every scope's unpinned top-level Chats merged by the Chat order setting (Subchats are not listed:
-//! the Details panel has them), then the Done section (most recently marked
+//! the "All Chats" list (every scope's unpinned Chats merged by the Chat order setting, Subchats under their
+//! family's top Chat, folded unless this device opened the family), then the Done section (most recently marked
 //! first). Hidden Projects are left out; an offline computer's scopes show from their last state, without runs.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use gpui::{Global, SharedString};
@@ -18,6 +18,7 @@ use crate::data::{
 };
 use crate::logic::lists::order::{ChatOrder, order_chats};
 use crate::logic::lists::pins::{DevicePins, sessions_with_pins};
+use crate::logic::lists::subchats::nest_subchats;
 use crate::logic::marks::activity::Activity;
 use crate::logic::marks::{ChatMark, MarkInput, chat_mark};
 
@@ -26,6 +27,7 @@ use crate::logic::marks::{ChatMark, MarkInput, chat_mark};
 /// these; until then the app seeds them (from the fixture).
 #[derive(Clone, Debug, Default)]
 pub struct SidebarSeed {
+    pub open_families: HashSet<String>,
     pub open_chat: Option<String>,
 }
 
@@ -160,11 +162,6 @@ fn scope_chats(scope: usize, data: &ScopeData, order: ChatOrder, marks: &RunMark
         .collect()
 }
 
-/// One Chat of a scope as the list would show it, whether or not the list does (a Subchat has no row).
-pub fn listed_chat(data: &SidebarData, scope: usize, key: &str, pins: &DevicePins) -> Option<ListedChat> {
-    scope_chats(scope, &data.scopes[scope], ChatOrder::Created, &RunMarks(&data.runs), pins).into_iter().find(|row| row.key == key)
-}
-
 /// `mergeScopeChats`: every scope's rows as one list. Pinned first by pin order, then the rest by the Chat order
 /// (created: by the first message's time, else the latest; recent: by the latest), each scope keeping its own order
 /// and the scopes interleaving by the row each has next. Ties go to the earlier scope.
@@ -202,16 +199,46 @@ fn merge_scope_chats(scopes: &[Vec<ListedChat>], order: ChatOrder) -> Vec<Listed
     merged
 }
 
-/// A row as the list shows it: the Chat. Subchats are not listed (the Details panel shows them); a pinned one is a
-/// row like any other.
+/// A family's count on its parent's row (`ShownRow.family`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Family {
+    pub count: usize,
+    pub folded: bool,
+    /// A Subchat in it waits on the user.
+    pub asking: bool,
+}
+
+/// A row as the list shows it: the Chat, how deep it sits (0 top-level, 1 or 2 a Subchat) and, on a family's
+/// parent, its family.
 #[derive(Clone, Debug)]
 pub struct ShownChat {
     pub item: ListedChat,
+    pub depth: usize,
+    pub family: Option<Family>,
 }
 
-/// `shownChats` without the families: only top-level Chats.
-fn shown_chats(rows: Vec<ListedChat>) -> Vec<ShownChat> {
-    rows.into_iter().filter(|row| row.parent.is_none()).map(|item| ShownChat { item }).collect()
+/// `shownChats`: each Subchat under its topmost listed ancestor; a folded family shows its parent alone.
+fn shown_chats(rows: Vec<ListedChat>, opened: &HashSet<String>) -> Vec<ShownChat> {
+    if rows.iter().all(|row| row.parent.is_none()) {
+        return rows.into_iter().map(|item| ShownChat { item, depth: 0, family: None }).collect();
+    }
+    let parents: HashMap<String, Option<String>> = rows.iter().map(|row| (row.key.clone(), row.parent.clone())).collect();
+    let mut shown = Vec::new();
+    for group in nest_subchats(&rows, |row| row.key.clone(), |at| parents.get(at).cloned().flatten()) {
+        if group.children.is_empty() {
+            shown.push(ShownChat { item: group.row, depth: 0, family: None });
+            continue;
+        }
+        let folded = !opened.contains(&group.row.key);
+        let asking = group.children.iter().any(|child| matches!(child.mark, ChatMark::Question | ChatMark::Waiting));
+        shown.push(ShownChat { item: group.row, depth: 0, family: Some(Family { count: group.children.len(), folded, asking }) });
+        if !folded {
+            for (child, depth) in group.children.into_iter().zip(group.depths) {
+                shown.push(ShownChat { item: child, depth, family: None });
+            }
+        }
+    }
+    shown
 }
 
 /// The sidebar's lists.
@@ -235,12 +262,12 @@ pub struct ListFilters {
 }
 
 /// The sidebar's lists from its data: the one-list layout's Pinned, All Chats and Done.
-pub fn chat_lists(data: &SidebarData, order: ChatOrder) -> ChatLists {
-    chat_lists_with(data, order, &ListFilters::default())
+pub fn chat_lists(data: &SidebarData, order: ChatOrder, opened: &HashSet<String>) -> ChatLists {
+    chat_lists_with(data, order, opened, &ListFilters::default())
 }
 
 /// [`chat_lists`] with this device's pins and filters.
-pub fn chat_lists_with(data: &SidebarData, order: ChatOrder, filters: &ListFilters) -> ChatLists {
+pub fn chat_lists_with(data: &SidebarData, order: ChatOrder, opened: &HashSet<String>, filters: &ListFilters) -> ChatLists {
     let marks = RunMarks(&data.runs);
     let all: Vec<Vec<ListedChat>> = data
         .scopes
@@ -263,8 +290,8 @@ pub fn chat_lists_with(data: &SidebarData, order: ChatOrder, filters: &ListFilte
     let pinned = live.iter().flat_map(|rows| rows.iter().filter(|row| row.chat.pinned).cloned()).collect::<Vec<_>>();
     let rest: Vec<Vec<ListedChat>> = live.iter().map(|rows| rows.iter().filter(|row| !row.chat.pinned).cloned().collect()).collect();
     ChatLists {
-        pinned: pinned.into_iter().map(|item| ShownChat { item }).collect(),
-        rows: shown_chats(merge_scope_chats(&rest, order)),
+        pinned: pinned.into_iter().map(|item| ShownChat { item, depth: 0, family: None }).collect(),
+        rows: shown_chats(merge_scope_chats(&rest, order), opened),
         done,
     }
 }

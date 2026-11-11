@@ -32,14 +32,14 @@ fn clicking_a_panel_tab_makes_it_active(cx: &mut TestAppContext) {
 fn clicking_a_chat_row_selects_it(cx: &mut TestAppContext) {
     let (workspace, cx) = testing::mount_workspace(cx);
     let sidebar = workspace.read_with(cx, |workspace, _| workspace.sidebar.clone());
-    // The fixture's Chat on screen, after two pinned rows and one top-level Chat (Subchats are not listed).
-    assert_eq!(sidebar.read_with(cx, |sidebar, _| sidebar.selected()), Some(3));
+    // The fixture's Chat on screen, after two pinned rows and the opened Subchat family.
+    assert_eq!(sidebar.read_with(cx, |sidebar, _| sidebar.selected()), Some(6));
 
-    let row = cx.debug_bounds("chat-row-4").expect("row 4 is drawn by the uniform_list");
+    let row = cx.debug_bounds("chat-row-7").expect("row 7 is drawn by the uniform_list");
     assert_eq!(row.size.height, crate::theme::ROW_TWO_LINE);
     assert_eq!(row.size.width, gpui::px(crate::workspace::sidebar::SIDEBAR_WIDTH - 16.0), "8px inset on each side");
     cx.simulate_click(row.center(), Modifiers::none());
-    assert_eq!(sidebar.read_with(cx, |sidebar, _| sidebar.selected()), Some(4));
+    assert_eq!(sidebar.read_with(cx, |sidebar, _| sidebar.selected()), Some(7));
 }
 
 #[gpui::test]

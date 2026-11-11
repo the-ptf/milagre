@@ -108,7 +108,10 @@ pub fn install_fixture(cx: &mut App) {
         crate::data::FixtureSource::new()
     };
     let data = source.data();
-    cx.set_global(crate::workspace::sidebar::SidebarSeed { open_chat: Some(data.open_chat.clone()) });
+    cx.set_global(crate::workspace::sidebar::SidebarSeed {
+        open_families: data.open_families.iter().cloned().collect(),
+        open_chat: Some(data.open_chat.clone()),
+    });
     cx.set_global(crate::data::Data(std::sync::Arc::new(source)));
 }
 

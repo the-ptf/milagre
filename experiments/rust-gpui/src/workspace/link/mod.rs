@@ -91,6 +91,8 @@ impl LinkWorkspace {
             mark: chat.mark,
             failed: false,
             background: 0,
+            depth: 0,
+            family: None,
         }
     }
 

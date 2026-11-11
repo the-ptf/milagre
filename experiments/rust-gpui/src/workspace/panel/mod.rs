@@ -42,8 +42,8 @@ use self::fixture::ChatContent;
 use self::pr::{PrEvent, PrView};
 use self::simulator::{SimulatorEvent, SimulatorView};
 use crate::theme::ActiveTheme;
-use crate::ui::{IconButton, IconButtonSize, IconName, IconSize, Tab};
-use crate::workspace::chrome::{self, NoDrag};
+use crate::ui::{IconName, Tab};
+use crate::workspace::chrome;
 use crate::workspace::sidebar::SidebarSeed;
 
 /// The Changes panel's default width (`PANEL_WIDTHS.changes.default`), where the panel opens.
@@ -108,12 +108,11 @@ impl EventEmitter<PanelEvent> for Panel {}
 struct ChatPanel {
     open: bool,
     tab: PanelTab,
-    expanded: bool,
 }
 
 impl Default for ChatPanel {
     fn default() -> Self {
-        Self { open: true, tab: PanelTab::Changes, expanded: false }
+        Self { open: true, tab: PanelTab::Changes }
     }
 }
 
@@ -246,9 +245,6 @@ impl Panel {
         if let Some(tab) = std::env::var("MILAGRE_GPUI_PANEL_TAB").ok().and_then(|n| PanelTab::SHOWN.into_iter().find(|t| t.label() == n)) {
             self.state_mut().tab = tab;
         }
-        if std::env::var("MILAGRE_GPUI_PANEL_EXPANDED").is_ok_and(|v| v == "1") {
-            self.state_mut().expanded = true;
-        }
         if let Ok(path) = std::env::var("MILAGRE_GPUI_CHANGES_FILE") {
             self.changes
                 .update(cx, |changes, cx| changes.select_file(changes::Source::Section(changes::data::Section::Uncommitted), path, cx));
@@ -269,10 +265,6 @@ impl Panel {
 
     pub fn is_open(&self) -> bool {
         self.state().open
-    }
-
-    pub fn is_expanded(&self) -> bool {
-        self.state().expanded
     }
 
     pub fn chat(&self) -> &str {
@@ -311,18 +303,6 @@ impl Panel {
 
     /// The diff the window draws over the Chat column: the shown tab's, while the panel is open beside the Chat.
     pub fn diff_over_chat(&self, cx: &gpui::App) -> Option<diff::over_chat::OpenDiff> {
-        if self.is_expanded() {
-            return None;
-        }
-        self.open_diff(cx)
-    }
-
-    /// The diff the panel draws itself: the shown tab's while the panel is expanded to the full width, where nothing
-    /// else could show it (collapsing moves it back over the Chat column).
-    fn diff_in_panel(&self, cx: &gpui::App) -> Option<diff::over_chat::OpenDiff> {
-        if !self.is_expanded() {
-            return None;
-        }
         self.open_diff(cx)
     }
 
@@ -417,19 +397,11 @@ impl Panel {
     pub fn close(&mut self, cx: &mut Context<Self>) {
         let state = self.state_mut();
         state.open = false;
-        state.expanded = false;
-        self.relayout(cx);
-    }
-
-    pub fn toggle_expand(&mut self, cx: &mut Context<Self>) {
-        let state = self.state_mut();
-        state.expanded = !state.expanded;
         self.relayout(cx);
     }
 
     fn header(&self, cx: &mut Context<Self>) -> AnyElement {
         let active = self.active();
-        let expanded = self.is_expanded();
         let tabs = self.visible_tabs().into_iter().map(|tab| {
             Tab::new(tab.label(), tab.label())
                 .selector(format!("panel-tab-{}", tab.label()))
@@ -441,16 +413,6 @@ impl Panel {
                 .when_some(self.content.pr.filter(|_| tab == PanelTab::Pr), |el, number| el.count(format!("#{number}")))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| this.activate(tab, cx)))
         });
-        // Expand and close: 24px buttons with 16px glyphs, pinned right of the scrolling tabs.
-        let button = |id: &'static str, icon: IconName, pressed: bool, on_click: fn(&mut Panel, &mut Context<Panel>)| {
-            div().flex_none().no_drag().child(
-                IconButton::new(id, icon)
-                    .size(IconButtonSize::S24)
-                    .glyph(IconSize::S16)
-                    .pressed(pressed)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| on_click(this, cx))),
-            )
-        };
         let tab_list = div()
             .id("panel-tab-list")
             .debug_selector(|| "panel-tab-list".to_string())
@@ -463,35 +425,18 @@ impl Panel {
             .overflow_x_scroll()
             .track_scroll(&self.tabs_scroll)
             .children(tabs);
-        chrome::header("panel-tabs")
-            .debug_selector(|| "panel-header".to_string())
-            .px_2()
-            .gap_1()
-            .child(tab_list)
-            .child(button("panel-expand", IconName::ArrowExpand01, expanded, Panel::toggle_expand))
-            .child(button("panel-close", IconName::Cancel01, false, Panel::close))
-            .into_any_element()
+        chrome::header("panel-tabs").debug_selector(|| "panel-header".to_string()).px_2().gap_1().child(tab_list).into_any_element()
     }
 }
 
 impl Render for Panel {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.renders += 1;
         let theme = *cx.theme();
         let header = self.header(cx);
         // Each body is a cached view with a fixed size, so what changes inside it never rebuilds the panel. An open
-        // diff takes the body's place while the panel is expanded (`diff_in_panel`); Back returns to the list.
-        let body = match self.diff_in_panel(cx) {
-            Some(diff::over_chat::OpenDiff::Changes(view)) => {
-                view.update(cx, |diff, cx| diff.set_over_chat(None, cx));
-                Some(AnyView::from(view).cached(StyleRefinement::default().size_full()).into_any_element())
-            }
-            Some(diff::over_chat::OpenDiff::Pr(pr)) => {
-                let pane = pr.update(cx, |pr, cx| pr.diff_over_chat_pane(None, window, cx));
-                Some(div().id("panel-diff").size_full().child(pane).into_any_element())
-            }
-            None => self.body_view(self.active()).map(|view| view.cached(StyleRefinement::default().size_full()).into_any_element()),
-        };
+        // diff is drawn by the window over the Chat column, never in the panel.
+        let body = self.body_view(self.active()).map(|view| view.cached(StyleRefinement::default().size_full()).into_any_element());
         div()
             .flex()
             .flex_col()

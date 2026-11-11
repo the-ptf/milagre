@@ -191,7 +191,7 @@ impl Workspace {
     /// The corner's toggles for the Chat on screen.
     pub fn corner_items(&self, cx: &gpui::App) -> Vec<CornerItem> {
         let panel = self.panel.read(cx);
-        let showing = (panel.is_open() && !panel.is_expanded()).then(|| panel.active());
+        let showing = panel.is_open().then(|| panel.active());
         top_bar::corner_items(&panel.visible_tabs(), showing, self.terminals.read(cx).is_open())
     }
 }

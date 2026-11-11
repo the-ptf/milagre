@@ -101,22 +101,19 @@ pub fn on_actions<E: InteractiveElement>(element: E, panel: &Entity<Panel>) -> E
 }
 
 /// The columns right of the sidebar: the Chat, and the panel beside it when open. Open, they are one
-/// `h_resizable` group (the panel's left edge drags); expanded, the panel takes the whole width; closed, the Chat.
+/// `h_resizable` group (the panel's left edge drags); closed, the Chat alone.
 pub fn layout(panel: &Entity<Panel>, chat: impl IntoElement + 'static, cx: &mut App) -> AnyElement {
-    let (open, expanded, width, state) = {
+    let (open, width, state) = {
         let p = panel.read(cx);
-        (p.is_open(), p.is_expanded(), p.width(), p.resizable().clone())
+        (p.is_open(), p.width(), p.resizable().clone())
     };
     // A closing panel stays laid out under its cover until the slide is done (`slide.rs`).
     let chat_key = panel.read(cx).chat().to_string();
-    let slide = super::slide::track("panel", &chat_key, open && !expanded, super::slide::Edge::Right, PANEL_SLIDE, cx);
+    let slide = super::slide::track("panel", &chat_key, open, super::slide::Edge::Right, PANEL_SLIDE, cx);
     let open = open || slide.held;
     let body = |panel: &Entity<Panel>| AnyView::from(panel.clone()).cached(StyleRefinement::default().size_full());
     if !open {
         return div().flex().flex_1().min_w_0().h_full().child(chat).into_any_element();
-    }
-    if expanded {
-        return div().flex().flex_1().min_w_0().h_full().child(body(panel)).into_any_element();
     }
     let rule = WIDTH_RULE;
     let on_resize = {

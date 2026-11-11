@@ -502,7 +502,7 @@ impl Drop for ArtifactsView {
 }
 
 /// `MILAGRE_GPUI_WEBVIEW_PROBE`: checks the native view against the GPUI element in a real window and prints the
-/// result, then quits. `1` checks the panel as is, then after a window resize and with the panel expanded (it moves left); `scroll` puts
+/// result, then quits. `1` checks the panel as is, then after a window resize; `scroll` puts
 /// the page in a scrolled container that cuts its top and bottom off, to check the clipping.
 mod probe {
     use super::*;
@@ -609,14 +609,7 @@ mod probe {
             let _ = cx.update_window(window, |_, window, _| window.resize(gpui::size(px(1280.0), px(780.0))));
             wait(600).await;
             ok &= cx.update(|cx| check("after window resize to 1280x780", &view, cx));
-            if mode == Mode::Panel {
-                let panel = cx.update(|cx| view.read(cx).panel.upgrade());
-                if let Some(panel) = panel {
-                    cx.update(|cx| panel.update(cx, |panel, cx| panel.toggle_expand(cx)));
-                    wait(600).await;
-                    ok &= cx.update(|cx| check("after expanding the panel over the Chat", &view, cx));
-                }
-            } else {
+            if mode != Mode::Panel {
                 let _ = cx.update_window(window, |_, window, cx| {
                     view.update(cx, |view, cx| {
                         view.probe_scroll.set_offset(point(px(0.0), px(-(SCROLLED + 80.0))));

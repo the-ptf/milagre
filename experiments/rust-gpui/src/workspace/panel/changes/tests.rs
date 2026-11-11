@@ -244,23 +244,12 @@ fn the_diff_shows_over_the_chat_with_back_named_after_it_and_goes_with_the_panel
 }
 
 #[gpui::test]
-fn an_expanded_panel_draws_the_diff_itself_and_collapsing_moves_it_back_over_the_chat(cx: &mut TestAppContext) {
+fn the_diff_always_opens_over_the_chat_column_and_back_returns_to_the_list(cx: &mut TestAppContext) {
     let (workspace, cx) = testing::mount_workspace(cx);
-    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
+    let _ = workspace;
     click(cx, format!("file-u-{PANEL}"));
     assert!(cx.debug_bounds("diff-over-chat").is_some());
-    panel.update(cx, |p, cx| p.toggle_expand(cx));
-    settle(cx);
-    assert!(cx.debug_bounds("diff-over-chat").is_none(), "nothing is drawn over the Chat column now");
-    let body = cx.debug_bounds("diff-body").expect("the diff shows, inside the expanded panel");
-    let header = cx.debug_bounds("panel-header").expect("the panel's header");
-    assert!(body.top() >= header.bottom() && body.left() >= header.left() - gpui::px(1.0), "{body:?} under {header:?}");
-    assert!(cx.debug_bounds("changes-list").is_none(), "the diff takes the list's place");
+    assert!(cx.debug_bounds("changes-list").is_some(), "the list stays in the panel");
     click(cx, "diff-back".to_string());
-    assert!(cx.debug_bounds("diff-body").is_none(), "Back closes the diff");
-    assert!(cx.debug_bounds("changes-list").is_some(), "and the list is back");
-    click(cx, format!("file-u-{PANEL}"));
-    panel.update(cx, |p, cx| p.toggle_expand(cx));
-    settle(cx);
-    assert!(cx.debug_bounds("diff-over-chat").is_some(), "collapsing moves the diff back over the Chat column");
+    assert!(cx.debug_bounds("diff-over-chat").is_none(), "Back closes the diff");
 }

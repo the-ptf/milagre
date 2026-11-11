@@ -21,7 +21,7 @@ use gpui::{
     Window, canvas, div, prelude::*, px,
 };
 
-use super::list::{ShownChat, SidebarData, project_label};
+use super::list::{Family, ShownChat, SidebarData, project_label};
 use crate::logic::identity::project_list::project_initial;
 use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::marks::{ChatMark, MarkIcon, Tone, chat_mark_presentation};
@@ -34,10 +34,19 @@ pub const ROW_INSET: f32 = 8.0;
 const TILE_SIZE: f32 = 24.0;
 /// The trailing status slot of a row.
 const MARK_SLOT: f32 = 16.0;
-/// The background-work ring in the status slot (16px).
+/// A Subchat's indent: 16px under its parent, 32px two deep (`pl-4`, `pl-8`).
+const SUBCHAT_INDENT: f32 = 16.0;
+/// The guide lines at the left of a Subchat row (`left-[19px]`, `left-[35px]`).
+const GUIDE_X: [f32; 2] = [19.0, 35.0];
+/// The family count over the parent's tile (`top-[18px] left-[26px]`, 16px high).
+const BADGE_TOP: f32 = 18.0;
+const BADGE_LEFT: f32 = 26.0;
 const BADGE_SIZE: f32 = 16.0;
+
 pub enum RowEvent {
     Clicked,
+    /// The family count was clicked: fold or unfold the family.
+    ToggleFamily,
     /// A right press: the row's context menu opens at the pointer.
     ContextMenu(Point<Pixels>),
     /// The pointer came onto the row (with the row's bounds in the window) or left it.
@@ -63,6 +72,9 @@ pub struct ChatRow {
     pub failed: bool,
     /// Background work still going, while the mark is Background.
     pub background: usize,
+    /// 0 for a top-level Chat, 1 or 2 for a Subchat.
+    pub depth: usize,
+    pub family: Option<Family>,
 }
 
 /// What the menus need about a row that the row does not show (it stays literal-constructible for the Run Chat's
@@ -153,6 +165,8 @@ impl ChatRow {
             mark: listed.mark,
             failed: listed.failed,
             background: listed.background,
+            depth: shown.depth,
+            family: shown.family,
         }
     }
 }
@@ -230,90 +244,101 @@ impl Render for ChatRowView {
         let theme = *cx.theme();
         let (ix, row, selected) = (self.ix, &self.row, self.selected);
         let hover = theme.hover;
+        let indent = SUBCHAT_INDENT * row.depth.min(2) as f32;
         let detail = match &row.offline {
             Some(range) => StyledText::new(row.detail.clone())
                 .with_highlights([(range.clone(), HighlightStyle { color: Some(theme.orange_ink.into()), ..HighlightStyle::default() })]),
             None => StyledText::new(row.detail.clone()),
         };
         // Outer box carries the 8px side inset so the rounded fill stops short of the edges.
-        div().relative().w_full().h(ROW_TWO_LINE).pl(px(ROW_INSET)).pr(px(ROW_INSET)).child(
-            div()
-                .id(("chat-row", ix))
-                .debug_selector(move || format!("chat-row-{ix}"))
-                .h(ROW_TWO_LINE)
-                .px_2()
-                .flex()
-                .items_center()
-                .gap_2()
-                .rounded(RADIUS_CONTROL)
-                .cursor_pointer()
-                .when(selected, |el| el.bg(theme.hover2))
-                .when(!selected, |el| el.hover(move |style| style.bg(hover)))
-                .when(self.dragging, |el| el.opacity(0.5))
-                .when(self.draggable, |el| {
-                    let drag = super::drag::ChatDrag { key: row.key.to_string(), pinned: self.pinned };
-                    el.on_drag(drag, |_, _, _, cx| cx.new(|_| super::drag::DragGhost))
-                })
-                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(RowEvent::Clicked)))
-                .on_mouse_down(
-                    MouseButton::Right,
-                    cx.listener(|_, event: &gpui::MouseDownEvent, _, cx| {
-                        cx.stop_propagation();
-                        cx.emit(RowEvent::ContextMenu(event.position));
-                    }),
-                )
-                .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                    cx.emit(RowEvent::Hover(hovered.then(|| this.bounds.get())));
-                }))
-                .child({
-                    let cell = self.bounds.clone();
-                    canvas(move |bounds, _, _| cell.set(bounds), |_, _, _, _| ()).absolute().size_full()
-                })
-                .child(project_tile(row, &theme))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .child(match &self.rename {
-                            Some(field) => div().h(px(18.0)).child(field.clone()).into_any_element(),
-                            // `InboxTitleLine`: a pinned Chat's 12px pin sits before the title, in `ink-3`.
-                            None => div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .min_w_0()
-                                .when(self.pinned, |el| {
-                                    el.child(
+        div()
+            .relative()
+            .w_full()
+            .h(ROW_TWO_LINE)
+            .pl(px(ROW_INSET + indent))
+            .pr(px(ROW_INSET))
+            .children(
+                GUIDE_X.iter().take(row.depth.min(2)).map(|x| div().absolute().left(px(*x)).top_0().bottom_0().w(px(1.0)).bg(theme.line)),
+            )
+            .child(
+                div()
+                    .id(("chat-row", ix))
+                    .debug_selector(move || format!("chat-row-{ix}"))
+                    .h(ROW_TWO_LINE)
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .rounded(RADIUS_CONTROL)
+                    .cursor_pointer()
+                    .when(selected, |el| el.bg(theme.hover2))
+                    .when(!selected, |el| el.hover(move |style| style.bg(hover)))
+                    .when(self.dragging, |el| el.opacity(0.5))
+                    .when(self.draggable, |el| {
+                        let drag = super::drag::ChatDrag { key: row.key.to_string(), pinned: self.pinned };
+                        el.on_drag(drag, |_, _, _, cx| cx.new(|_| super::drag::DragGhost))
+                    })
+                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(RowEvent::Clicked)))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(|_, event: &gpui::MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            cx.emit(RowEvent::ContextMenu(event.position));
+                        }),
+                    )
+                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                        cx.emit(RowEvent::Hover(hovered.then(|| this.bounds.get())));
+                    }))
+                    .child({
+                        let cell = self.bounds.clone();
+                        canvas(move |bounds, _, _| cell.set(bounds), |_, _, _, _| ()).absolute().size_full()
+                    })
+                    .child(project_tile(row, &theme))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .child(match &self.rename {
+                                Some(field) => div().h(px(18.0)).child(field.clone()).into_any_element(),
+                                // `InboxTitleLine`: a pinned Chat's 12px pin sits before the title, in `ink-3`.
+                                None => div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.0))
+                                    .min_w_0()
+                                    .when(self.pinned, |el| {
+                                        el.child(
+                                            div()
+                                                .debug_selector(|| "chat-pinned".into())
+                                                .flex_none()
+                                                .child(Icon::new(IconName::Pin).size(IconSize::S12).color(theme.ink3)),
+                                        )
+                                    })
+                                    .child(
                                         div()
-                                            .debug_selector(|| "chat-pinned".into())
-                                            .flex_none()
-                                            .child(Icon::new(IconName::Pin).size(IconSize::S12).color(theme.ink3)),
+                                            .min_w_0()
+                                            .text_step(sidebar_step(TEXT_13))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(theme.ink)
+                                            .truncate()
+                                            .child(row.title.clone()),
                                     )
-                                })
-                                .child(
-                                    div()
-                                        .min_w_0()
-                                        .text_step(sidebar_step(TEXT_13))
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(theme.ink)
-                                        .truncate()
-                                        .child(row.title.clone()),
-                                )
-                                .into_any_element(),
-                        })
-                        .child(
-                            div()
-                                .text_step(sidebar_step(TEXT_12))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme.ink3)
-                                .truncate()
-                                .child(detail),
-                        ),
-                )
-                .child(div().flex().flex_none().items_center().justify_center().w(px(MARK_SLOT)).child(status_mark(ix, row, &theme))),
-        )
+                                    .into_any_element(),
+                            })
+                            .child(
+                                div()
+                                    .text_step(sidebar_step(TEXT_12))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme.ink3)
+                                    .truncate()
+                                    .child(detail),
+                            ),
+                    )
+                    .child(div().flex().flex_none().items_center().justify_center().w(px(MARK_SLOT)).child(status_mark(ix, row, &theme))),
+            )
+            .when_some(row.family, |el, family| el.child(family_badge(ix, family, indent, &theme, cx)))
     }
 }
 
@@ -386,4 +411,39 @@ fn background_ring(count: usize, theme: &Theme) -> impl IntoElement + use<> {
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme.ink3)
         .child(label)
+}
+
+/// A family's count over its parent's tile: `line-strong` folded, `accent-tint` open, orange when a Subchat waits on
+/// the user. Clicking it folds or unfolds the family.
+fn family_badge(ix: usize, family: Family, indent: f32, theme: &Theme, cx: &mut Context<ChatRowView>) -> impl IntoElement + use<> {
+    let (fill, ink) = if family.asking {
+        (theme.orange, hex("#000000"))
+    } else if family.folded {
+        (theme.line_strong, theme.ink)
+    } else {
+        (theme.accent_tint, theme.accent_ink)
+    };
+    div()
+        .id(("chat-family", ix))
+        .debug_selector(move || format!("chat-family-{ix}"))
+        .absolute()
+        .top(px(BADGE_TOP))
+        .left(px(BADGE_LEFT + indent))
+        .h(px(BADGE_SIZE))
+        .min_w(px(BADGE_SIZE))
+        .px(px(4.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(theme.surface)
+        .border_2()
+        .border_color(theme.surface)
+        .child(div().absolute().inset_0().rounded_full().bg(fill))
+        .child(div().relative().text_step(TEXT_10).font_weight(FontWeight::SEMIBOLD).text_color(ink).child(family.count.to_string()))
+        .cursor_pointer()
+        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+            cx.stop_propagation();
+            cx.emit(RowEvent::ToggleFamily);
+        }))
 }

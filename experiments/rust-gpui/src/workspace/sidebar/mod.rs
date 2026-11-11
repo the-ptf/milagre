@@ -44,7 +44,7 @@ pub mod undo;
 mod tests;
 
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -77,6 +77,8 @@ const CHAT_ORDER: ChatOrder = ChatOrder::Created;
 
 pub struct Sidebar {
     data: SidebarData,
+    /// The families this device opened, by the parent's Chat key.
+    opened: HashSet<String>,
     /// The Pinned rows, then the All Chats rows.
     rows: Vec<ChatRow>,
     /// Where each row's Chat lives, parallel to `rows`.
@@ -87,9 +89,8 @@ pub struct Sidebar {
     /// the session (the desktop keeps it in `milagre.sidebarDoneOpen`).
     done_rows: Vec<ChatRow>,
     done_open: bool,
-    /// The Chat on screen while no list row is selected: a Done row picked, or a Chat with no row (a Subchat opened from
-    /// the Details panel).
-    picked: Option<ChatRow>,
+    /// The Done row picked: the Chat on screen while no list row is selected.
+    done_selected: Option<String>,
     done_scroll: UniformListScrollHandle,
     selected: Option<usize>,
     focus: FocusHandle,
@@ -158,13 +159,14 @@ impl Sidebar {
         };
         let mut this = Self {
             data: SidebarData::default(),
+            opened: seed.open_families,
             rows: Vec::new(),
             meta: Vec::new(),
             pinned: 0,
             done: 0,
             done_rows: Vec::new(),
             done_open: false,
-            picked: None,
+            done_selected: None,
             done_scroll: UniformListScrollHandle::new(),
             selected: None,
             focus: cx.focus_handle(),
@@ -232,13 +234,16 @@ impl Sidebar {
     fn rebuild(&mut self, select: Option<&str>) {
         let selected_key =
             select.map(str::to_owned).or_else(|| self.selected.and_then(|ix| self.rows.get(ix)).map(|row| row.key.to_string()));
-        let picked = self.picked.take().filter(|_| select.is_none() && selected_key.is_none());
-        let lists = list::chat_lists_with(&self.data, CHAT_ORDER, &self.list_filters);
+        let done_key = self.done_selected.take().filter(|_| select.is_none() && selected_key.is_none());
+        let lists = list::chat_lists_with(&self.data, CHAT_ORDER, &self.opened, &self.list_filters);
         self.pinned = lists.pinned.len();
         self.done = lists.done.len();
-        self.done_rows =
-            lists.done.iter().map(|item| ChatRow::with_show(&list::ShownChat { item: item.clone() }, &self.data, self.show)).collect();
-        self.picked = picked.filter(|row| self.selected.is_none() && self.locate(row.key.as_ref()).is_some());
+        self.done_rows = lists
+            .done
+            .iter()
+            .map(|item| ChatRow::with_show(&list::ShownChat { item: item.clone(), depth: 0, family: None }, &self.data, self.show))
+            .collect();
+        self.done_selected = done_key.filter(|key| self.done_rows.iter().any(|row| row.key.as_ref() == key));
         self.rows = lists.pinned.iter().chain(&lists.rows).map(|shown| ChatRow::with_show(shown, &self.data, self.show)).collect();
         self.meta = lists.pinned.iter().chain(&lists.rows).map(RowMeta::of).collect();
         self.selected = selected_key.and_then(|key| self.rows.iter().position(|row| row.key.as_ref() == key));
@@ -262,7 +267,7 @@ impl Sidebar {
     pub fn selected_row(&self) -> Option<&ChatRow> {
         match self.selected {
             Some(ix) => self.rows.get(ix),
-            None => self.picked.as_ref(),
+            None => self.done_selected.as_ref().and_then(|key| self.done_rows.iter().find(|row| row.key.as_ref() == key)),
         }
     }
 
@@ -282,34 +287,13 @@ impl Sidebar {
 
     /// A Done row clicked: its Chat opens, with no list row selected.
     pub fn select_done(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(row) = self.done_rows.get(ix).cloned() else { return };
-        self.pick(row, cx);
-    }
-
-    /// Shows a Chat that has no list row: nothing in the list is selected.
-    fn pick(&mut self, row: ChatRow, cx: &mut Context<Self>) {
+        let Some(key) = self.done_rows.get(ix).map(|row| row.key.to_string()) else { return };
         if let Some((view, _)) = self.selected.and_then(|row| self.row_views.get(&row)) {
             view.update(cx, |view, cx| view.set_selected(false, cx));
         }
         self.selected = None;
-        self.picked = Some(row);
+        self.done_selected = Some(key);
         cx.notify();
-    }
-
-    /// Opens the Chat with this key whether or not it has a row (the Details panel's Subchats have none).
-    pub fn open_key(&mut self, key: &str, cx: &mut Context<Self>) {
-        if self.rows.iter().any(|row| row.key.as_ref() == key) {
-            self.select_key(key, cx);
-        } else if let Some(row) = self.row_of(key) {
-            self.pick(row, cx);
-        }
-    }
-
-    /// A row for any Chat of the data, listed or not.
-    fn row_of(&self, key: &str) -> Option<ChatRow> {
-        let (scope, _) = self.locate(key)?;
-        let listed = list::listed_chat(&self.data, scope, key, &self.list_filters.pins)?;
-        Some(ChatRow::with_show(&list::ShownChat { item: listed }, &self.data, self.show))
     }
 
     /// Every Chat of every visible scope as the bookmark and the family menu read it. A Chat with a row borrows the
@@ -394,7 +378,7 @@ impl Sidebar {
             }
         }
         self.selected = Some(ix);
-        self.picked = None;
+        self.done_selected = None;
     }
 
     fn move_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
@@ -412,6 +396,15 @@ impl Sidebar {
                 self.scroll.scroll_to_item(item, ScrollStrategy::Bottom);
             }
         }
+        cx.notify();
+    }
+
+    fn toggle_family(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(key) = self.rows.get(ix).map(|row| row.key.to_string()) else { return };
+        if !self.opened.remove(&key) {
+            self.opened.insert(key);
+        }
+        self.rebuild(None);
         cx.notify();
     }
 
@@ -448,6 +441,7 @@ impl Sidebar {
                         window.focus(&this.focus, cx);
                         this.select(ix, cx);
                     }
+                    RowEvent::ToggleFamily => this.toggle_family(ix, cx),
                     RowEvent::ContextMenu(at) => this.open_menu(ix, *at, window, cx),
                     RowEvent::Hover(bounds) => this.hover_row(ix, *bounds, cx),
                 });
@@ -477,7 +471,7 @@ impl Sidebar {
         range
             .filter_map(|ix| {
                 let row = self.done_rows.get(ix)?.clone();
-                let selected = self.picked.as_ref().is_some_and(|picked| picked.key == row.key);
+                let selected = self.done_selected.as_deref() == Some(row.key.as_ref());
                 let hover = theme.hover2;
                 Some(
                     div()

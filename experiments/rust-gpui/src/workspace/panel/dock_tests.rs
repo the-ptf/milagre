@@ -96,23 +96,16 @@ fn double_clicking_the_edge_resets_the_width(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn close_and_expand_buttons_change_the_layout(cx: &mut TestAppContext) {
+fn the_strip_has_no_expand_or_close_button(cx: &mut TestAppContext) {
     let (workspace, cx) = mount(cx);
-    let width = window_width(cx);
-    let expand = cx.debug_bounds("panel-expand").expect("expand").center();
-    cx.simulate_click(expand, Modifiers::none());
-    settle(cx);
-    assert_eq!(panel_left(cx), px(305.0), "expanded, the panel fills the width beside the sidebar");
-    assert!(cx.debug_bounds("composer").is_none() || cx.debug_bounds("composer").is_some_and(|b| b.left() >= width));
-    let expand = cx.debug_bounds("panel-expand").expect("expand").center();
-    cx.simulate_click(expand, Modifiers::none());
-    settle(cx);
-    assert_eq!(panel_left(cx), width - px(320.0));
-    let close = cx.debug_bounds("panel-close").expect("close").center();
-    cx.simulate_click(close, Modifiers::none());
+    assert!(cx.debug_bounds("panel-expand").is_none(), "there is no full-width mode");
+    assert!(cx.debug_bounds("panel-close").is_none(), "the corner toggle and the shortcuts close the panel");
+    let list = cx.debug_bounds("panel-tab-list").expect("tab list");
+    assert_eq!(list.right(), window_width(cx) - px(8.0), "the tab list takes the strip to its 8px padding");
+    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
+    panel.update(cx, |p, cx| p.close(cx));
     settle(cx);
     assert!(cx.debug_bounds("panel-header").is_none(), "closed, the panel is not drawn");
-    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
     assert!(!panel.read_with(cx, |p, _| p.is_open()));
 }
 
@@ -147,18 +140,18 @@ fn each_chat_keeps_its_tab_and_the_panel_comes_back_to_it(cx: &mut TestAppContex
     cx.simulate_click(designs, Modifiers::none());
     settle(cx);
     assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Designs);
-    let row = cx.debug_bounds("chat-row-4").expect("row 4");
+    let row = cx.debug_bounds("chat-row-7").expect("row 7");
     cx.simulate_click(row.center(), Modifiers::none());
     settle(cx);
     let second = panel.read_with(cx, |p, _| p.chat().to_string());
     assert_ne!(first, second, "the panel follows the sidebar's selection");
     assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Changes, "another Chat starts on Changes");
-    let row = cx.debug_bounds("chat-row-3").expect("row 3");
+    let row = cx.debug_bounds("chat-row-6").expect("row 6");
     cx.simulate_click(row.center(), Modifiers::none());
     settle(cx);
     assert_eq!(panel.read_with(cx, |p, _| p.chat().to_string()), first);
     assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Designs, "the first Chat's tab is restored");
-    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), Some(3));
+    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), Some(6));
 }
 
 /// Tabs a Chat has no content for are hidden (Designs, Artifact and PR); the rest stay.
