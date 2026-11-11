@@ -84,6 +84,12 @@ pub struct Bar {
     pub on_link_projects: Handler,
 }
 
+/// The collapsed window's title band: the full window width and 44px, one `page` background with no hairline (the
+/// desktop's compact top bar has none either). The traffic lights and [`bar`] sit in it; it drags the window.
+pub fn title_band(theme: &Theme) -> AnyElement {
+    crate::workspace::chrome::header("title-band").debug_selector(|| "title-band".into()).w_full().bg(theme.page).into_any_element()
+}
+
 /// The bar, positioned absolutely in the window's top-left. It occludes what is under it, so a press on it never
 /// reaches the header's window drag.
 pub fn bar(bar: Bar, theme: &Theme) -> AnyElement {
@@ -170,6 +176,7 @@ impl Corner {
             Corner::Tab(PanelTab::Designs) => "toggle-designs",
             Corner::Tab(PanelTab::Pr) => "toggle-pr",
             Corner::Tab(PanelTab::Changes) => "toggle-changes",
+            Corner::Tab(PanelTab::Details) => "toggle-details",
             Corner::Tab(PanelTab::Simulator) => "toggle-simulator",
         }
     }
@@ -189,6 +196,7 @@ impl Corner {
             Corner::Tab(PanelTab::Designs) => "designs",
             Corner::Tab(PanelTab::Pr) => return "Pull request".into(),
             Corner::Tab(PanelTab::Changes) => "Changes",
+            Corner::Tab(PanelTab::Details) => return "Details".into(),
             Corner::Tab(PanelTab::Simulator) => "simulator",
         };
         format!("{} {name}", if pressed { "Hide" } else { "Show" }).into()
@@ -201,7 +209,7 @@ impl Corner {
             Corner::Tab(PanelTab::Designs) => Some("designs.toggle"),
             Corner::Tab(PanelTab::Changes) => Some("changes.toggle"),
             Corner::Tab(PanelTab::Simulator) => Some("simulator.toggle"),
-            Corner::Tab(PanelTab::Pr) => None,
+            Corner::Tab(PanelTab::Pr) | Corner::Tab(PanelTab::Details) => None,
         }
     }
 }

@@ -462,9 +462,7 @@ impl Sidebar {
             .h_full()
             .bg(theme.canvas)
             .text_color(theme.ink)
-            // The traffic lights and the window's bar (with its Expand sidebar toggle) sit over this header and run on
-            // past the rail's edge (`workspace/shell/top_bar.rs`).
-            .child(chrome::header("sidebar-header"))
+            // The traffic lights and the window's bar sit in the title band above the rail (`workspace/shell`).
             .child(div().h(px(8.0)).flex_none())
             .child(uniform_list("rail-list", self.rows.len(), cx.processor(Self::render_rail)).flex_1().min_h_0())
             .child(toast)

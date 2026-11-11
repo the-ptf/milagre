@@ -26,7 +26,7 @@ use gpui::{AnyElement, Context, KeyDownEvent, Window, div, prelude::*};
 use self::top_bar::{Bar, Corner, CornerItem};
 use super::Workspace;
 use crate::theme::ActiveTheme;
-use crate::workspace::sidebar::{SIDEBAR_WIDTH, rail::RAIL_WIDTH};
+use crate::workspace::sidebar::SIDEBAR_WIDTH;
 
 /// What the window shows right of the sidebar. Settings opens over either (`SettingsModal`); the Canvas view is not
 /// migrated (PORT-MAP scope decisions).
@@ -176,7 +176,8 @@ impl Workspace {
     pub(super) fn chat_column(&self, column: AnyElement, cx: &mut Context<Self>) -> AnyElement {
         let items = self.corner_items(cx);
         let collapsed = self.sidebar.read(cx).is_collapsed();
-        let column_left = if collapsed { RAIL_WIDTH } else { SIDEBAR_WIDTH } + 1.0;
+        // The rail sits under the title band, so nothing reaches over the Chat header then.
+        let column_left = if collapsed && self.link.is_none() { top_bar::controls_end() } else { SIDEBAR_WIDTH + 1.0 };
         let insets = (top_bar::chat_leading_inset(column_left), top_bar::chat_trailing_inset(items.len()));
         self.chat.update(cx, |chat, _| chat.set_header_insets(insets.0, insets.1));
         let (panel, terminals) = (self.panel.clone(), self.terminals.clone());

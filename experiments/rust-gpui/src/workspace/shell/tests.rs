@@ -28,21 +28,25 @@ fn the_bar_sits_beside_the_traffic_lights(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_collapsed_rail_keeps_the_chat_header_clear_of_the_lights_and_the_bar(cx: &mut TestAppContext) {
+fn the_collapsed_rail_sits_under_a_full_width_title_band_that_holds_the_lights_and_the_bar(cx: &mut TestAppContext) {
     let (workspace, cx) = testing::mount_workspace(cx);
+    assert!(cx.debug_bounds("title-band").is_none(), "open, the sidebar's header carries the bar");
     cx.simulate_keystrokes("cmd-b");
     let sidebar = workspace.read_with(cx, |w, _| w.sidebar.clone());
     assert!(sidebar.read_with(cx, |s, _| s.is_collapsed()), "⌘B collapses the sidebar");
-    let icon = cx.debug_bounds("rail-item-0").expect("the rail is drawn");
-    assert!(icon.right() <= px(RAIL_WIDTH));
-    // The rail is narrower than the lights: the bar stays where it was, over the Chat header.
+    let window = cx.update(|window, _| window.viewport_size());
+    let band = cx.debug_bounds("title-band").expect("the band is drawn");
+    assert_eq!((band.origin.x, band.origin.y, band.size.width, band.size.height), (px(0.0), px(0.0), window.width, px(44.0)));
+    // The bar follows the lights inside the band, and the rail and the Chat header start under it.
     let toggle = cx.debug_bounds("bar-sidebar-toggle").unwrap();
     assert_eq!(toggle.origin.x, px(top_bar::BAR_LEFT));
+    assert!(toggle.bottom() <= band.bottom());
+    let icon = cx.debug_bounds("rail-item-0").expect("the rail is drawn");
+    assert!(icon.right() <= px(RAIL_WIDTH) && icon.top() >= band.bottom());
     let identity = cx.debug_bounds("chat-identity-title").expect("the fixture Chat shows its identity");
-    assert!(identity.left() >= px(top_bar::controls_end()), "the Chat's identity starts after the bar: {identity:?}");
+    assert!(identity.top() >= band.bottom(), "the Chat header starts under the band: {identity:?}");
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
-    let (leading, _) = chat.read_with(cx, |c, _| c.header_insets());
-    assert_eq!(leading, px(top_bar::controls_end() - RAIL_WIDTH - 1.0));
+    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).0, px(top_bar::HEADER_PAD), "nothing reaches over the Chat header");
     // The bar's toggle expands it again.
     cx.simulate_click(toggle.center(), Modifiers::none());
     assert!(!sidebar.read_with(cx, |s, _| s.is_collapsed()));
