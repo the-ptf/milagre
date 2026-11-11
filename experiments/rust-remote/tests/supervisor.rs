@@ -918,3 +918,242 @@ fn work_pages_retry_without_claiming_and_replacement_rejects_old_cursor() {
         .all(|t| t.status() == WorkStatus::Cancelled));
     drop(s);
 }
+
+fn http_reply(body: Vec<u8>) -> milagre_remote::http_dispatch::MemoryHttp {
+    milagre_remote::http_dispatch::MemoryHttp::new(
+        milagre_remote::http_dispatch::Outcome::Response {
+            status: 201,
+            headers: Headers::from([("content-type".into(), "application/octet-stream".into())]),
+            body,
+        },
+    )
+    .unwrap()
+}
+#[test]
+fn synthetic_http_dispatch_returns_ordered_frames_and_never_replays() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let (s, c, _) = start(Limits::default());
+    run(&c, Command::OpenPairing);
+    let (h, m, mut ch) = phone(&c, 1, 2);
+    work(&c, &h, &mut ch, 1);
+    let token = next_work(&c);
+    let body = vec![165; milagre_remote::phone::CHUNK + 1];
+    let http = http_reply(body.clone());
+    let result = run(
+        &c,
+        Command::DispatchSynthetic {
+            token: token.clone(),
+            http: http.clone(),
+        },
+    );
+    match result {
+        Reply::Dispatched(record) => {
+            assert_eq!(record.sent_body_bytes, Some(20));
+            assert_eq!(record.status, 201);
+            assert_eq!(record.response_parts, 2);
+        }
+        _ => panic!(),
+    }
+    let mut joined = Vec::new();
+    for more in [true, false] {
+        let bytes = ch.open_encoded(&m.receive().unwrap()).unwrap();
+        let frame: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(frame["t"], "res");
+        assert_eq!(frame["id"], 1);
+        assert_eq!(frame["more"], more);
+        joined.extend(STANDARD.decode(frame["chunk"].as_str().unwrap()).unwrap());
+    }
+    assert_eq!(joined, body);
+    assert_eq!(token.status(), WorkStatus::Completed);
+    assert_eq!(http.calls(), 1);
+    assert!(c
+        .submit(Command::DispatchSynthetic {
+            token,
+            http: http.clone()
+        })
+        .unwrap()
+        .wait(WAIT)
+        .is_err());
+    assert_eq!(http.calls(), 1);
+    assert!(m.receive().is_none());
+    drop(s);
+}
+#[test]
+fn stale_expired_removed_and_disposed_work_never_invokes_synthetic_http() {
+    for action in 0..4 {
+        let limits = Limits {
+            registry: milagre_remote::registry::Limits {
+                request_ms: 10,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let (s, c, clock) = start(limits);
+        let mut s = Some(s);
+        run(&c, Command::OpenPairing);
+        let (h, m, mut ch) = phone(&c, 1, 2);
+        work(&c, &h, &mut ch, 1);
+        let token = next_work(&c);
+        let http = http_reply(vec![1]);
+        match action {
+            0 => {
+                run(&c, Command::Disconnect(h));
+            }
+            1 => {
+                clock.advance_to(11).unwrap();
+            }
+            2 => {
+                run(&c, Command::RemoveDevice(base64_key(2)));
+            }
+            3 => {
+                s.take().unwrap().shutdown();
+            }
+            _ => unreachable!(),
+        }
+        match c.submit(Command::DispatchSynthetic {
+            token,
+            http: http.clone(),
+        }) {
+            Ok(receipt) => assert!(receipt.wait(WAIT).is_err()),
+            Err(Error::NotExecuted) => {}
+            _ => panic!(),
+        }
+        assert_eq!(http.calls(), 0);
+        assert!(m.receive().is_none());
+        drop(s);
+    }
+}
+#[test]
+fn synthetic_http_unknown_delivery_cannot_reinvoke_or_replay() {
+    let (s, c, _) = start(Limits::default());
+    run(&c, Command::OpenPairing);
+    let (h, m, mut ch) = phone(&c, 1, 2);
+    work(&c, &h, &mut ch, 1);
+    let token = next_work(&c);
+    let http = http_reply(vec![1]);
+    m.inject_unknown_delivery();
+    assert!(matches!(
+        c.submit(Command::DispatchSynthetic {
+            token: token.clone(),
+            http: http.clone()
+        })
+        .unwrap()
+        .wait(WAIT),
+        Err(Error::DeliveryUnknown)
+    ));
+    assert_eq!(http.calls(), 1);
+    let attempts = m.delivery_attempts();
+    assert!(c
+        .submit(Command::DispatchSynthetic {
+            token,
+            http: http.clone()
+        })
+        .unwrap()
+        .wait(WAIT)
+        .is_err());
+    assert_eq!(http.calls(), 1);
+    assert_eq!(m.delivery_attempts(), attempts);
+    assert!(m.is_closed());
+    drop(s);
+}
+#[test]
+fn dispatch_promotes_queued_work_and_budget_failure_precedes_invocation() {
+    let limits = Limits {
+        registry: milagre_remote::registry::Limits {
+            inflight: 1,
+            outbound_bytes: 2048,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (s, c, _) = start(limits);
+    run(&c, Command::OpenPairing);
+    let (h, m, mut ch) = phone(&c, 1, 2);
+    work(&c, &h, &mut ch, 1);
+    let first = next_work(&c);
+    work(&c, &h, &mut ch, 2);
+    run(
+        &c,
+        Command::DispatchSynthetic {
+            token: first,
+            http: http_reply(vec![]),
+        },
+    );
+    let second = next_work(&c);
+    assert_eq!(second.id(), 2);
+    assert!(m.receive().is_some());
+    let http = http_reply(vec![0; 4096]);
+    assert!(c
+        .submit(Command::DispatchSynthetic {
+            token: second.clone(),
+            http: http.clone()
+        })
+        .unwrap()
+        .wait(WAIT)
+        .is_err());
+    assert_eq!(http.calls(), 0);
+    assert_eq!(second.status(), WorkStatus::Cancelled);
+    assert!(m.is_closed());
+    drop(s);
+    assert_eq!(c.retained_bytes(), 0);
+}
+
+#[test]
+fn synthetic_http_command_charges_capacity_before_admission() {
+    let (s, c, _) = start(Limits {
+        command_bytes: 4096,
+        ..Default::default()
+    });
+    run(&c, Command::OpenPairing);
+    let (h, _, mut ch) = phone(&c, 1, 2);
+    work(&c, &h, &mut ch, 1);
+    let token = next_work(&c);
+    let mut body = Vec::with_capacity(8192);
+    body.push(1);
+    let http = http_reply(body);
+    assert!(matches!(
+        c.submit(Command::DispatchSynthetic {
+            token: token.clone(),
+            http: http.clone()
+        }),
+        Err(Error::Full)
+    ));
+    assert_eq!(http.calls(), 0);
+    assert_eq!(token.status(), WorkStatus::InFlight);
+    run(
+        &c,
+        Command::DispatchSynthetic {
+            token,
+            http: http_reply(vec![]),
+        },
+    );
+    drop(s);
+}
+#[test]
+fn synthetic_http_outcome_is_one_shot_even_for_distinct_work_tokens() {
+    let (s, c, _) = start(Limits::default());
+    run(&c, Command::OpenPairing);
+    let (h, _, mut ch) = phone(&c, 1, 2);
+    work(&c, &h, &mut ch, 1);
+    let first = next_work(&c);
+    let http = http_reply(vec![]);
+    run(
+        &c,
+        Command::DispatchSynthetic {
+            token: first,
+            http: http.clone(),
+        },
+    );
+    work(&c, &h, &mut ch, 2);
+    let second = next_work(&c);
+    assert!(c
+        .submit(Command::DispatchSynthetic {
+            token: second,
+            http: http.clone()
+        })
+        .unwrap()
+        .wait(WAIT)
+        .is_err());
+    assert_eq!(http.calls(), 1);
+    drop(s);
+}

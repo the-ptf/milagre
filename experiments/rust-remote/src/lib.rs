@@ -5,6 +5,7 @@ pub mod budget;
 pub mod channel;
 pub mod envelope;
 pub mod host_proof;
+pub mod http_dispatch;
 pub mod peer;
 pub mod phone;
 pub mod policy;

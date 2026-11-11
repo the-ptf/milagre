@@ -223,6 +223,10 @@ pub enum Event {
     Closed(Handle),
 }
 pub enum Command {
+    DispatchSynthetic {
+        token: WorkToken,
+        http: crate::http_dispatch::MemoryHttp,
+    },
     DrainWork {
         cursor: Option<WorkCursor>,
         limit: usize,
@@ -262,12 +266,15 @@ impl Command {
             | Self::Request { handle, .. }
             | Self::Send { handle, .. } => Some(handle.clone()),
             Self::Approve(permit) => Some(permit.handle.clone()),
-            Self::Finish { token, .. } => Some(token.handle().clone()),
+            Self::Finish { token, .. } | Self::DispatchSynthetic { token, .. } => {
+                Some(token.handle().clone())
+            }
             _ => None,
         }
     }
     fn cost(&self) -> Option<usize> {
         let payload = match self {
+            Self::DispatchSynthetic { http, .. } => http.retained_capacity(),
             Self::Hello { bytes, .. } if bytes.len() <= MAX_HELLO_BYTES => bytes.capacity(),
             Self::Request { bytes, .. } if bytes.len() <= crate::envelope::MAX_PAYLOAD => {
                 bytes.capacity()
@@ -290,6 +297,7 @@ impl Command {
     }
 }
 pub enum Reply {
+    Dispatched(crate::http_dispatch::DispatchRecord),
     Work(WorkPage),
     Done,
     Attached(Handle),
@@ -876,6 +884,11 @@ impl Actor {
     fn apply(&mut self, command: Command) -> Result<Reply> {
         let now = self.clock.now();
         match command {
+            Command::DispatchSynthetic { token, http } => {
+                let (record, started) = self.registry.dispatch_synthetic(&token, &http, now)?;
+                self.work_available(started);
+                return Ok(Reply::Dispatched(record));
+            }
             Command::DrainWork { cursor, limit } => {
                 return Ok(Reply::Work(self.registry.drain_work(
                     cursor.as_ref(),

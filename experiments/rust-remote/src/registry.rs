@@ -833,6 +833,43 @@ impl Registry {
         })();
         self.failure(&t.handle, result)
     }
+    /// Trusted one-shot synthetic bridge. Revalidation precedes invocation and all output.
+    pub fn dispatch_synthetic(
+        &mut self,
+        t: &WorkToken,
+        http: &crate::http_dispatch::MemoryHttp,
+        now: u64,
+    ) -> Result<(crate::http_dispatch::DispatchRecord, Vec<WorkToken>)> {
+        let limits = self.limits;
+        let a = self.work(t, now)?;
+        let result = (|| {
+            let (wire, parts) = http.output_bound()?;
+            if parts > limits.outbound_frames.saturating_sub(a.outbound.len())
+                || wire > limits.outbound_bytes.saturating_sub(a.outbound_bytes)
+            {
+                return Err(Error::Budget);
+            }
+            let request = a.jobs[&t.id].request.request();
+            let metadata = request.path.len()
+                + request
+                    .headers
+                    .iter()
+                    .map(|(k, v)| k.len() + v.len() + 128)
+                    .sum::<usize>();
+            let _scratch = a.budget().reserve(wire * 2 + metadata * 3 + 4096)?;
+            let (response, record) = a.session.with_access(|| {
+                let plan = crate::http_dispatch::prepare(request)?;
+                http.exchange(t.id, &plan)
+            })?;
+            for frame in crate::phone::response_parts(&response)? {
+                a.push(&frame, limits, true)?;
+            }
+            a.remove_job(t.id, WorkStatus::Completed);
+            let started = a.promote(now, limits)?;
+            Ok((record, started))
+        })();
+        self.failure(&t.handle, result)
+    }
     /// Drive periodically even with NO incoming frames. Returns newly started work;
     /// cancelled/timed-out tokens are observable without retaining request payloads.
     pub fn tick(&mut self, now: u64) -> Result<Vec<WorkToken>> {

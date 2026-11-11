@@ -1,0 +1,256 @@
+{
+  "sourceSha256": "8145755f04dc1a496faddc7bc736d88a4caaee7c370a468597514a5752063b76",
+  "rpcSha256": "bd460e31fde9c8b9858faf3c417800d3d4aefbe73add2001c64a33704655e80c",
+  "cases": [
+    {
+      "name": "get-filter-and-ignore-body",
+      "request": {
+        "id": 1,
+        "method": "GET",
+        "path": "/rpc?x=1",
+        "headers": {
+          "2": "two",
+          "10": "ten",
+          "z": "last",
+          "Host": "bad",
+          "ORIGIN": "bad",
+          "AUTHORIZATION": "bad",
+          "Connection": "bad",
+          "Content-Length": "1",
+          "Transfer-Encoding": "bad",
+          "Upgrade": "bad",
+          "Cookie": "bad",
+          "__proto__": "ignored",
+          "X-Test": "keep"
+        },
+        "body": {
+          "hex": "ff00"
+        }
+      },
+      "outcome": {
+        "kind": "response",
+        "status": 200,
+        "headers": {
+          "Content-Type": " application/octet-stream\t",
+          "ETag": "one",
+          "etag": "two",
+          "set-cookie": "secret",
+          "x-other": "drop"
+        },
+        "body": {
+          "hex": "ff000180"
+        }
+      }
+    },
+    {
+      "name": "post-lossless-json-bytes",
+      "request": {
+        "id": 2,
+        "method": "POST",
+        "path": "/rpc",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "hex": "7b226c6f6e65223a225c7564383030222c22707561223a22ee8080227d"
+        }
+      },
+      "outcome": {
+        "kind": "response",
+        "status": 201,
+        "headers": {},
+        "body": {
+          "hex": ""
+        }
+      }
+    },
+    {
+      "name": "empty-post-multipart",
+      "request": {
+        "id": 3,
+        "method": "POST",
+        "path": "/rpc",
+        "headers": {},
+        "body": {
+          "hex": ""
+        }
+      },
+      "outcome": {
+        "kind": "response",
+        "status": 206,
+        "headers": {
+          "content-type": "application/octet-stream"
+        },
+        "body": {
+          "size": 262145,
+          "byte": 165
+        }
+      }
+    },
+    {
+      "name": "timeout",
+      "request": {
+        "id": 4,
+        "method": "GET",
+        "path": "/rpc",
+        "headers": {},
+        "body": {
+          "hex": ""
+        }
+      },
+      "outcome": {
+        "kind": "timeout"
+      }
+    },
+    {
+      "name": "unavailable",
+      "request": {
+        "id": 5,
+        "method": "GET",
+        "path": "/rpc",
+        "headers": {},
+        "body": {
+          "hex": ""
+        }
+      },
+      "outcome": {
+        "kind": "unavailable"
+      }
+    },
+    {
+      "name": "too-large",
+      "request": {
+        "id": 6,
+        "method": "GET",
+        "path": "/rpc",
+        "headers": {},
+        "body": {
+          "hex": ""
+        }
+      },
+      "outcome": {
+        "kind": "too-large"
+      }
+    }
+  ],
+  "observed": [
+    {
+      "plan": {
+        "method": "GET",
+        "url": "http://synthetic.invalid/rpc?x=1",
+        "headers": {
+          "2": "two",
+          "10": "ten",
+          "z": "last",
+          "X-Test": "keep",
+          "Authorization": "Bearer synthetic-http-bridge-token"
+        },
+        "bodyBytes": null,
+        "bodySha256": null,
+        "timeoutMs": 340000
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/octet-stream",
+        "etag": "one, two"
+      },
+      "bodyBytes": 4,
+      "bodySha256": "758a1d1d540fc17c30b4e3737efd7cdb83cfe8ebb0d3f67dc82e72422f4ce1ac",
+      "frames": ["ab421119cc46c51b11ce8b2f06fbe8b9a4e8468c7bd62c497ca0c0223f57f44f"]
+    },
+    {
+      "plan": {
+        "method": "POST",
+        "url": "http://synthetic.invalid/rpc",
+        "headers": {
+          "content-type": "application/json",
+          "Authorization": "Bearer synthetic-http-bridge-token"
+        },
+        "bodyBytes": 29,
+        "bodySha256": "eab9db7615b0b75ab2ca5ba0d71391ee819746bf4e691476e668601830f08f6a",
+        "timeoutMs": 340000
+      },
+      "status": 201,
+      "headers": {},
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "frames": ["be72712968bf8d7b2b417a55dc91d2a5c0c84befbbe9090c1a17a1cd6195f690"]
+    },
+    {
+      "plan": {
+        "method": "POST",
+        "url": "http://synthetic.invalid/rpc",
+        "headers": {
+          "Authorization": "Bearer synthetic-http-bridge-token"
+        },
+        "bodyBytes": null,
+        "bodySha256": null,
+        "timeoutMs": 340000
+      },
+      "status": 206,
+      "headers": {
+        "content-type": "application/octet-stream"
+      },
+      "bodyBytes": 262145,
+      "bodySha256": "11632ad4f4558363fa99bb503b3f343f4cfbc9e6e136f6df038afca8905bd7d4",
+      "frames": ["80b07841fffd9279a11b98782e289efb801903597d4072a0ce559a8a624e21ff", "73b2713704ebc3c64fa570f9d4cefc69b0952764a6ced335c7a9eaa85329dc24"]
+    },
+    {
+      "plan": {
+        "method": "GET",
+        "url": "http://synthetic.invalid/rpc",
+        "headers": {
+          "Authorization": "Bearer synthetic-http-bridge-token"
+        },
+        "bodyBytes": null,
+        "bodySha256": null,
+        "timeoutMs": 340000
+      },
+      "status": 504,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "bodyBytes": 66,
+      "bodySha256": "1f076c11f879fa4682e96da597278c63aea58803d94d303a086ef15b67e355a8",
+      "frames": ["03c6cd06cbbc3e9473eb6f3eabaa53c658670434190aa10005f4a07d90a3006a"]
+    },
+    {
+      "plan": {
+        "method": "GET",
+        "url": "http://synthetic.invalid/rpc",
+        "headers": {
+          "Authorization": "Bearer synthetic-http-bridge-token"
+        },
+        "bodyBytes": null,
+        "bodySha256": null,
+        "timeoutMs": 340000
+      },
+      "status": 502,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "bodyBytes": 63,
+      "bodySha256": "17fde4402c2dc044c49045ada87e794a57e09838e1f048a76d1904131d0946ac",
+      "frames": ["3fe4d5945640ee4f6c9a7d5b5cb4787c31ee8671887b18f74dac75c2fa340dfa"]
+    },
+    {
+      "plan": {
+        "method": "GET",
+        "url": "http://synthetic.invalid/rpc",
+        "headers": {
+          "Authorization": "Bearer synthetic-http-bridge-token"
+        },
+        "bodyBytes": null,
+        "bodySha256": null,
+        "timeoutMs": 340000
+      },
+      "status": 502,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "bodyBytes": 48,
+      "bodySha256": "6125d701f223f8b427e6759d623daf8c1e135fa677f4cc46cf3a58c826d11ff1",
+      "frames": ["703c539f5b24fb52f4eca922f0cd5c1ba5c138cbe4bb3e9cf2b487fab57d9768"]
+    }
+  ]
+}
