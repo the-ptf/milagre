@@ -6,11 +6,39 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+Ordinary Claude assembly `991d730b` is accepted within the fixed native fake scope.
+Root passes 137 rust-claude tests (one live test ignored), 93 combined runtime tests,
+all twelve production Node-client fixture scenarios, strict all-target Clippy and fmt.
+Both non-writing recorders match fresh actual Node behavior: 81 instruction texts,
+eight existing session traces, two ordinary launch queries and 40 prompt-suggestion
+cases. Independent source review finds no P1/P2 in that scope. The default TLDR/reply
+settings and a no-background idle TLDR-change restart/resume are now admitted.
+Background-aware session retention, real-CLI private-file versus initialize prompt
+equivalence, Auto/Full workspace access, images, account routing and broader tools remain
+open. No MonoCode code was copied. Detailed evidence and the corrected initial missing
+NODE_PATH test attempt are recorded in [CLAUDE-FIXTURE.md](../rust-runtime/CLAUDE-FIXTURE.md).
+
+Routine slice 3 `2a6fff36` is accepted as test-only retained-parent crash/reopen evidence.
+Root passes 87 Rust tests plus one doctest, strict Clippy/fmt, three native controls and
+all six compiled native mutants. Seven new tests exercise fourteen owned child processes;
+reconciliation requires exact reap plus the original retained descriptors and candidate
+inode. Independent review finds no P1/P2. Four OS/setup/IPC failure paths remain
+source-only; arbitrary restart recovery, lost-parent recovery, power-loss durability and
+production storage remain open. See [CRASH-WRITER-CHECKPOINT.md](../rust-routines/CRASH-WRITER-CHECKPOINT.md).
+
+The runtime rebuild replaced the development app-fixture binary with SHA-256
+`51e90342bf427d7160ff658f7e5c73e50ed7d9b4dad8148b80cc7688bc36a15d`.
+Root reran the shared client's five real owned-child scenarios against it, with Complete
+cleanup and removed stage (`/tmp/milagre-client-ordinary-root-fixture.log`). The client
+API/tree is unchanged. GPUI Chat 11899 was notified that its old `0a909ce5` daemon pin
+must be updated only after its own adapter checks pass. The installed ordinary Tauri
+binary/signature and production host PIDs are unchanged; no fixture is installed.
+
 Offline HTTP probe `5dacc23e` is accepted as a standalone prerequisite. It drives real Hyper HTTP/1 over bounded generated memory IO without sockets, a runtime, production authority or HTTP Begin. Root passes its single aggregate Rust test (30 parser rows and nine ownership/cancellation rows), strict Clippy, formatting and all seven source/manifest/lock hashes; an independent subagent review found no code blocker. Every captured allocation is released after final disposal. The full 8 MiB upload plus 64 MiB response/trailer trace peaks at 76,009,090 requested-layout bytes. This is measurement, not a certified heap/RSS or admission bound. Transport overhead, forwarded headers, original request capacity, server/socket ownership and composed prepayment still need evidence before actual HTTP integration. Root logs: `/tmp/milagre-http-probe-root-{tests,clippy,fmt}.log`.
 
 Fresh routine writer `e5c34652` is accepted after root 80 Rust tests plus one doctest, strict Clippy/fmt and Claude Sonnet's independent source rereview closing all four findings. The added post-rename Drop regression proves retained locks/capacity, saved candidate bytes, close-only cleanup and no claim redelivery. Source pins now account for all ten plan rows; unused intent bookkeeping is removed and poisoned-writer refusal is explicitly permanent. Root's preceding copied-file and model fixtures each matched 841 actual Node observations plus 98 separate refusals; the implementation agent repeated the copied-file oracle after amendments. These are isolated in-process writer checks, not crash/reopen, native-owner mutation or production durability evidence. Logs: `/tmp/milagre-routines-writer-root-amended-{tests,clippy,fmt}.log`; exact transient test-artifact cleanup and the initial over-specific assertion are recorded in `COPIED-WRITER-CHECKPOINT.md`.
 
-The user retained the full feature scope and asked Claude to accelerate. Claude Opus is implementing ordinary Claude turn assembly in the isolated provider bridge: desktop-default TLDR/reply settings, exact instruction/launch mapping and idle TLDR-change restart/resume. Root confirmed the current bridge refuses those defaults. Existing provider gates remain; this is ongoing implementation, not a successful real-provider turn or production authorization. Claude advisors run in this Chat, without new sidebar subchats. Root retains integration, commits and final validation.
+The user retained the full feature scope and asked Claude to accelerate. Ordinary Claude assembly is now accepted above. Claude Opus is assigned the next bounded increment: Auto/Full and workspace-access composition against explicit synthetic/copied inputs and actual Node oracles. New service authority or policy enforcement gaps require a concrete proposal; live provider execution remains gated. Background-aware TLDR restart is still outstanding. Claude advisors run in this Chat, without new sidebar subchats. Root retains integration, commits and final validation.
 
 At the user's request, root and a read-only subagent inspected `hardbeat920/monocode` at `7e5a9e3690d5b96a7d93ebf884397835e57b9b7e`. The user explicitly authorizes direct reuse of suitable MIT-licensed code, superseding the intervening reference-only direction. Preserve copyright/license notices and separately applicable third-party notices; record copied-source provenance. This does not require an MIT attribution badge in the product UI. Both the Claude implementation advisor and GPUI Chat 11899 received the correction. Monocode's remote host still packages Node 24.21.0; its storage/protocol assumptions do not replace Milagre ownership or compatibility work. GPUI is evaluating its headless Metal snapshot approach and clipping/blur patches. At the assessment checkpoint no upstream code was installed or run, and no frontend replacement or shared-client pin change followed.
 
