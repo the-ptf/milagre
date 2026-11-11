@@ -139,7 +139,8 @@ pub enum ProviderEvent {
 /// - `respond_permission` / `answer_question`: hand the user's answer to the session waiting on it (decision is one
 ///   of `allow`, `allow-for-chat`, `deny`; answers are null or question id -> strings, already validated). `Ok(false)`
 ///   when nothing waits on that request.
-/// - `close_chat(chat)`: end the Chat's session (its process may stay for others). `shutdown()`: end every session.
+/// - `close_chat(chat, turn)`: end the Chat's session of that generation (the one that ran `turn`), and only that one:
+///   a newer session started since (Send now) stays. `shutdown()`: end every session.
 pub trait Provider: Send {
     fn name(&self) -> &str;
     fn start_turn(
@@ -160,7 +161,7 @@ pub trait Provider: Send {
         request_id: &str,
         answers: &Value,
     ) -> std::result::Result<bool, ProviderError>;
-    fn close_chat(&mut self, chat: &str) -> std::result::Result<(), ProviderError>;
+    fn close_chat(&mut self, chat: &str, turn: TurnId) -> std::result::Result<(), ProviderError>;
     fn shutdown(&mut self);
     fn take_events(&mut self) -> Vec<ProviderEvent>;
 }
@@ -291,7 +292,7 @@ impl Provider for MockProvider {
     ) -> std::result::Result<bool, ProviderError> {
         Ok(false)
     }
-    fn close_chat(&mut self, chat: &str) -> std::result::Result<(), ProviderError> {
+    fn close_chat(&mut self, chat: &str, _turn: TurnId) -> std::result::Result<(), ProviderError> {
         self.state.lock().unwrap().closed.push(chat.into());
         Ok(())
     }
@@ -442,6 +443,10 @@ pub struct ChatHost {
     /// The turn running per Chat and its provider: what interrupts and stale-event checks go by.
     active: HashMap<String, (TurnId, String)>,
     next_turn: u64,
+    /// Set from the start of `shutdown`: no queued message starts and no send is taken.
+    quitting: bool,
+    /// Projects a `forget` is closing: no queued message starts in them and no send to them is taken.
+    closing: HashSet<PathBuf>,
     /// Turn ends whose fold failed (the save or load behind it): kept and tried again, so the run doesn't stay open.
     stuck: BTreeMap<String, (TurnId, Value)>,
     /// Each Chat's latest turn: its session's generation. Chat-level events must name it.
@@ -463,7 +468,7 @@ pub struct ChatHost {
     turns: HashMap<String, Value>,
     /// The Chat shown in a focused window (Node's openChat with isFocused): a turn ending there isn't unread.
     pub open_chat: Option<String>,
-    notices: Vec<Notice>,
+    notices: std::collections::VecDeque<Notice>,
     ids: Box<dyn FnMut() -> String + Send>,
     /// Chats the states were told are busy (Node's ProjectStates asks ChatHost.isBusy before unloading a Chat).
     busy: HashSet<String>,
@@ -477,6 +482,8 @@ impl ChatHost {
             runs: Runs::new(),
             active: HashMap::new(),
             next_turn: 0,
+            quitting: false,
+            closing: HashSet::new(),
             stuck: BTreeMap::new(),
             latest: HashMap::new(),
             deadlines: HashMap::new(),
@@ -490,7 +497,7 @@ impl ChatHost {
             queue_waiters: HashSet::new(),
             turns: HashMap::new(),
             open_chat: None,
-            notices: Vec::new(),
+            notices: std::collections::VecDeque::new(),
             ids: Box::new(crate::ownership::random_uuid),
             busy: HashSet::new(),
         }
@@ -512,7 +519,7 @@ impl ChatHost {
     /// What the clients would hear since the last take. Notices past `MAX_NOTICES` drop the oldest, and the take
     /// ends with a `Failed` notice that counts them.
     pub fn take_notices(&mut self) -> Vec<Notice> {
-        let mut notices = std::mem::take(&mut self.notices);
+        let mut notices: Vec<Notice> = std::mem::take(&mut self.notices).into();
         if self.dropped_notices > 0 {
             notices.push(Notice::Failed {
                 chat: String::new(),
@@ -526,10 +533,10 @@ impl ChatHost {
 
     fn notice(&mut self, notice: Notice) {
         if self.notices.len() >= MAX_NOTICES {
-            self.notices.remove(0);
+            self.notices.pop_front();
             self.dropped_notices += 1;
         }
-        self.notices.push(notice);
+        self.notices.push_back(notice);
     }
 
     /// Whether a Chat's turn runs or is about to start.
@@ -655,6 +662,16 @@ impl ChatHost {
             .unwrap_or("")
             .to_string();
         let project = self.canonical_project(&project_text)?;
+        if self.quitting {
+            return Err(StoreError::Invalid(
+                "Milagre is quitting; the message wasn't sent.".into(),
+            ));
+        }
+        if self.closing.contains(&project) {
+            return Err(StoreError::Invalid(
+                "This Project is closing; the message wasn't sent.".into(),
+            ));
+        }
         // A Project already open here must still be ours before anything is staged in memory.
         if self.states.has(&project) {
             self.states.assert_owned(&project)?;
@@ -1327,7 +1344,8 @@ impl ChatHost {
     pub fn pump(&mut self) -> Vec<StoreError> {
         let mut errors = self.retry_stuck();
         for round in 0.. {
-            let mut events = Vec::new();
+            // What a bounded pump left comes first, whether or not a provider sent more since.
+            let mut events: Vec<ProviderEvent> = std::mem::take(&mut self.held_events);
             for provider in self.providers.values_mut() {
                 events.extend(provider.take_events());
             }
@@ -1342,8 +1360,7 @@ impl ChatHost {
                 )));
                 break;
             }
-            let held: Vec<ProviderEvent> = std::mem::take(&mut self.held_events);
-            for event in held.into_iter().chain(events) {
+            for event in events {
                 if let Err(error) = self.deliver(event) {
                     errors.push(error);
                 }
@@ -1353,12 +1370,13 @@ impl ChatHost {
     }
 
     /// The runtime's tick, from the one task that owns the host: the clock moves (debounced saves, sweeps), interrupts
-    /// past their grace are forced, kept turn ends are tried again, and providers' events are handled.
+    /// past their grace are forced, kept turn ends are tried again, and providers' events are handled. Events are
+    /// handled before anything is forced, so an end that came within the grace counts.
     pub fn tick(&mut self, now: i64) -> Vec<StoreError> {
-        let mut errors = Vec::new();
         if now > self.states.now() {
             self.states.advance(now);
         }
+        let mut errors = self.pump();
         let overdue: Vec<(String, TurnId)> = self
             .deadlines
             .iter()
@@ -1401,6 +1419,12 @@ impl ChatHost {
     pub fn deliver(&mut self, event: ProviderEvent) -> Result<()> {
         match event {
             ProviderEvent::Started { chat, turn, result } => {
+                if self.active_turn(&chat) != Some(turn) {
+                    return Err(StoreError::Invalid(format!(
+                        "A late start of turn {} was dropped: it no longer runs in {chat}.",
+                        turn.0
+                    )));
+                }
                 self.notice(Notice::Started {
                     chat,
                     turn,
@@ -1554,7 +1578,7 @@ impl ChatHost {
     fn force_end(&mut self, chat: &str, turn: TurnId, message: &str) {
         if let Some((_, provider)) = self.active.get(chat).cloned() {
             if let Some(adapter) = self.providers.get_mut(&provider) {
-                if let Err(error) = adapter.close_chat(chat) {
+                if let Err(error) = adapter.close_chat(chat, turn) {
                     self.notice(Notice::Failed {
                         chat: chat.into(),
                         what: "closing the agent's session".into(),
@@ -1576,7 +1600,10 @@ impl ChatHost {
                 error: error.to_string(),
             });
         }
-        self.latest.remove(chat);
+        // Only that session's generation: a turn Send now started meanwhile keeps its own.
+        if self.latest.get(chat) == Some(&turn) {
+            self.latest.remove(chat);
+        }
         self.sync_busy();
     }
 
@@ -1695,6 +1722,10 @@ impl ChatHost {
     /// every turn end).
     fn after_turn(&mut self, chat: &str, event: &Value) -> Result<()> {
         let project = Self::project_path(agent_runs::project_of_key(chat));
+        // A quit or a closing Project leaves the queue as it is (Node's quitting): nothing starts under a close.
+        if self.quitting || self.closing.contains(&project) {
+            return Ok(());
+        }
         let session_id = session_of_key(chat).unwrap_or(-1);
         let mut next = self.send_next.remove(chat);
         loop {
@@ -1990,8 +2021,10 @@ impl ChatHost {
                 .and_then(|turn| turn.get("provider"))
                 .and_then(Value::as_str)
                 .map(str::to_string);
-            if let Some(adapter) = provider.and_then(|name| self.providers.get_mut(&name)) {
-                if let Err(error) = adapter.close_chat(&chat) {
+            let generation = self.latest.get(&chat).copied();
+            let adapter = provider.and_then(|name| self.providers.get_mut(&name));
+            if let (Some(adapter), Some(generation)) = (adapter, generation) {
+                if let Err(error) = adapter.close_chat(&chat, generation) {
                     self.notice(Notice::Failed {
                         chat: chat.clone(),
                         what: "closing the agent's session".into(),
@@ -2019,6 +2052,8 @@ impl ChatHost {
             .chain(self.active.keys())
             .filter(|chat| in_project(chat))
             .cloned()
+            .collect::<HashSet<_>>()
+            .into_iter()
             .collect();
         if let Some(chat) = busy.first() {
             if !force {
@@ -2027,6 +2062,9 @@ impl ChatHost {
                 )));
             }
         }
+        // While it closes, nothing starts in it: a forced end must not start a Send-now pick or the queue.
+        self.closing.insert(key.clone());
+        self.send_next.retain(|chat, _| !in_project(chat));
         for chat in &busy {
             if let Some(turn) = self.active_turn(chat) {
                 self.force_end(
@@ -2040,7 +2078,61 @@ impl ChatHost {
         }
         self.sync_busy();
         self.close_sessions(&key);
-        self.states.forget(&key)
+        self.release_waiters(Some(&key));
+        let closed = self.states.forget(&key);
+        self.closing.remove(&key);
+        closed
+    }
+
+    /// Senders still waiting on a queued message's start (or a start in flight) hear `null` (Node's "Milagre
+    /// restarted first"); the entries stay queued on disk. `project` limits it to one Project.
+    fn release_waiters(&mut self, project: Option<&Path>) {
+        let in_scope = |chat: &str| {
+            project.is_none_or(|key| Path::new(agent_runs::project_of_key(chat)) == key)
+        };
+        let starting: Vec<(TurnId, String, String)> = self
+            .queue_turns
+            .iter()
+            .filter(|(_, (_, chat))| in_scope(chat))
+            .map(|(turn, (id, chat))| (*turn, id.clone(), chat.clone()))
+            .collect();
+        for (turn, id, chat) in starting {
+            self.queue_turns.remove(&turn);
+            self.tell_queue_started(&chat, &id, Value::Null);
+        }
+        let projects: Vec<PathBuf> = match project {
+            Some(key) => vec![key.to_path_buf()],
+            None => self.states.projects(),
+        };
+        for key in projects {
+            let Some(state) = self.states.current(&key) else {
+                continue;
+            };
+            let Some(sessions) = state.sessions() else {
+                continue;
+            };
+            let mut waiting = Vec::new();
+            for (session_id, session) in jsjson::js_entries(sessions) {
+                for entry in session
+                    .get("queued")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    if let Some(id) = entry
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .filter(|id| self.queue_waiters.contains(*id))
+                    {
+                        waiting.push((format!("{}#{session_id}", key.display()), id.to_string()));
+                    }
+                }
+            }
+            for (chat, id) in waiting {
+                self.tell_queue_started(&chat, &id, Value::Null);
+            }
+        }
+        self.deadlines.retain(|chat, _| !in_scope(chat));
     }
 
     /// Ends the host. Providers' waiting events are handled first. Refused while a turn runs (quit-time suspend and
@@ -2048,6 +2140,8 @@ impl ChatHost {
     /// provider shuts down (nonblocking by the trait's contract) and the states close (a failed close keeps them, see
     /// ProjectStates::close).
     pub fn shutdown(&mut self, force: bool) -> Result<()> {
+        // From here no queued message starts and no send is taken, not even from the events handled below.
+        self.quitting = true;
         let errors = self.pump();
         for error in errors {
             self.notice(Notice::Failed {
@@ -2066,11 +2160,13 @@ impl ChatHost {
             .collect();
         if let Some(chat) = running.first() {
             if !force {
+                self.quitting = false;
                 return Err(gate(&format!(
                     "Quitting while a turn runs in {chat} (suspend and resume)"
                 )));
             }
         }
+        self.send_next.clear();
         for chat in &running {
             if let Some(turn) = self.active_turn(chat) {
                 self.force_end(chat, turn, "Milagre quit before the turn ended.");
@@ -2080,6 +2176,7 @@ impl ChatHost {
         for provider in self.providers.values_mut() {
             provider.shutdown();
         }
+        self.release_waiters(None);
         self.latest.clear();
         self.sync_busy();
         self.states.close()

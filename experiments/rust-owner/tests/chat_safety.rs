@@ -636,3 +636,115 @@ fn a_large_message_is_saved_once() {
     assert_eq!(saved.len(), 1, "the message was saved twice");
     assert_eq!(saved[0]["files"].as_array().unwrap().len(), 40);
 }
+
+/// Starts turn A, queues B behind it and picks B with Send now; the provider ignores the interrupt.
+fn send_now_pending(copy: &mut Copy) -> (TurnId, String) {
+    let first = copy.send("one", "c1", json!({})).unwrap().turn.unwrap();
+    copy.host.pump();
+    copy.native();
+    let queued = copy.send("two", "c2", json!({})).unwrap();
+    assert!(queued.queued);
+    let id = copy.session()["queued"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    copy.host.send_queued_now(&copy.chat(), &id).unwrap();
+    (first, id)
+}
+
+/// Policy review P2-1: Send now whose interrupt is ignored: the forced end starts the pick, and the pick's session
+/// keeps its generation (its `session-started` is folded, so the next turn can resume).
+#[test]
+fn a_forced_interrupt_keeps_the_send_now_pick_session() {
+    let mut copy = Copy::plain();
+    let (first, _) = send_now_pending(&mut copy);
+    let chat = copy.chat();
+    let now = copy.host.states.now();
+    assert!(copy
+        .host
+        .tick(now + copy.host.interrupt_grace_ms)
+        .is_empty());
+    let second = copy
+        .host
+        .active_turn(&chat)
+        .expect("the Send-now pick started");
+    assert_ne!(first, second);
+    assert_eq!(copy.started(), 2);
+    copy.kiro.emit(
+        &chat,
+        json!({ "type": "session-started", "nativeId": "native-2" }),
+    );
+    assert!(
+        copy.host.pump().is_empty(),
+        "the new session's event was dropped"
+    );
+    assert_eq!(copy.session()["native_session_id"], "native-2");
+}
+
+/// Policy review P2-2: a forced quit with a Send-now pick waiting starts no provider turn; the pick stays queued, its
+/// sender hears `null`, and nothing is sent afterwards.
+#[test]
+fn a_forced_quit_starts_nothing() {
+    let mut copy = Copy::plain();
+    let (_, id) = send_now_pending(&mut copy);
+    copy.host.take_notices();
+    copy.host.shutdown(true).unwrap();
+    assert_eq!(copy.started(), 1, "a forced quit started the Send-now pick");
+    assert!(copy.host.active_turn(&copy.chat()).is_none());
+    let notices = copy.host.take_notices();
+    assert!(notices.iter().any(|n| matches!(n, Notice::QueueStarted { id: started, result } if *started == id && result.is_null())), "{notices:?}");
+    let error = copy.send("three", "c3", json!({})).unwrap_err().to_string();
+    assert!(error.contains("quitting"), "{error}");
+}
+
+/// Policy review P2-2: a forced close of the Project with a Send-now pick waiting starts nothing either.
+#[test]
+fn a_forced_close_starts_nothing() {
+    let mut copy = Copy::plain();
+    let (_, id) = send_now_pending(&mut copy);
+    copy.host.take_notices();
+    let project = copy.project.clone();
+    copy.host.forget(&project, true).unwrap();
+    assert_eq!(
+        copy.started(),
+        1,
+        "a forced close started the Send-now pick"
+    );
+    assert!(!copy.host.is_busy(&copy.chat()));
+    assert!(copy.host.active_turn(&copy.chat()).is_none());
+    let notices = copy.host.take_notices();
+    assert!(notices.iter().any(|n| matches!(n, Notice::QueueStarted { id: started, result } if *started == id && result.is_null())), "{notices:?}");
+    // The pick is still queued on disk, and the Project can be opened again.
+    copy.host.states.get(&project).unwrap();
+    assert_eq!(copy.session()["queued"][0]["id"], id.as_str());
+}
+
+/// Policy review P3-3/P3-8: an end that came within the grace but wasn't handled yet counts (the tick handles events
+/// before forcing), and a late start of a finished turn is dropped.
+#[test]
+fn a_tick_handles_events_before_forcing() {
+    let mut copy = Copy::plain();
+    let turn = copy.send("one", "c1", json!({})).unwrap().turn.unwrap();
+    copy.host.pump();
+    let chat = copy.chat();
+    copy.host.interrupt(&chat).unwrap();
+    copy.kiro.emit(&chat, json!({ "type": "turn-cancelled" }));
+    let now = copy.host.states.now();
+    assert!(copy
+        .host
+        .tick(now + copy.host.interrupt_grace_ms)
+        .is_empty());
+    assert!(
+        copy.kiro.state.lock().unwrap().closed.is_empty(),
+        "a turn that ended in time was forced"
+    );
+    assert_eq!(copy.messages().last().unwrap()["outcome"], "cancelled");
+    copy.host.take_notices();
+    copy.kiro.push(ProviderEvent::Started {
+        chat,
+        turn,
+        result: json!({ "turnId": "late", "steered": false }),
+    });
+    assert_eq!(copy.host.pump().len(), 1);
+    assert!(copy.host.take_notices().is_empty());
+}
