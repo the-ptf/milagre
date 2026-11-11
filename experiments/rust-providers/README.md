@@ -114,6 +114,9 @@ while let Some(event) = events.recv().await {
 
 ## Not ported yet (owner or later work)
 
+See [the owner integration inventory](INTEGRATION-GAPS.md) for policy, MCP and image contracts,
+proposed boundaries and acceptance checks.
+
 - Host I/O: `images` turn input files, `saveGeneratedImage`, `toolImageEvents` (tool images as
   image steps), `sessionInstructions` text.
 - Babysit guard (`babysitDenial` / `withRefusal`; the session passes `writes_remote = |_| false`),
@@ -122,7 +125,11 @@ while let Some(event) = events.recv().await {
   `insideWorkspace`: canonical roots, nearest existing ancestor for new files, root itself
   excluded, errors fail closed) puts every file inside cwd / `workspace_roots`; the same check
   runs again when the mode switches to Auto. Unlike Node it is also used for a lone cwd (Node's
-  `insideRoot` is lexical there). Deliberate security differences from Node: dangling symlinks,
+  `insideRoot` is lexical there). Cwd and roots are canonicalized as supplied, without lexical
+  folding, so a `link/..` in either resolves to the actual kernel directory; missing cwd fails
+  closed. `/tmp` aliases still resolve normally. On Windows, cwd/roots containing `..` also fail
+  closed to avoid lexical folding when joining canonical verbatim paths. Deliberate security
+  differences from Node: dangling symlinks,
   any requested `..` component (including an otherwise safe parent traversal), and missing,
   non-string, empty/whitespace-only or NUL-containing paths require a card. Display coercions
   such as a missing path rendered as `"undefined"` never authorize a write; a real string filename

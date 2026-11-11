@@ -143,6 +143,11 @@ fn errors_fail_closed() {
     // A root that doesn't exist.
     let missing = [t.base.join("no-such-root")];
     assert!(!inside_workspace(&missing, &[t.base.join("no-such-root/x")], &t.repo()));
+    // A missing cwd must fail even for an otherwise valid absolute file and root.
+    assert!(!inside_workspace(&[t.repo()], &[t.repo().join("src/a.txt")], &t.base.join("no-such-cwd")));
+    // Missing intermediate directories cannot be hidden by lexical parent folding.
+    assert!(!inside_workspace(&[t.repo().join("missing/..")], &[t.repo().join("src/a.txt")], &t.repo()));
+    assert!(!inside_workspace(&[t.repo()], &["src/a.txt"], &t.repo().join("missing/..")));
     // Under a regular file: not a directory.
     assert!(!t.inside(&[&t.abs("repo/src/a.txt/child")]));
     // Several roots: the file only needs one.
@@ -197,4 +202,52 @@ fn symlink_then_parent_never_uses_the_lexically_folded_path() {
 fn empty_file_is_rejected_even_when_cwd_is_below_root() {
     let t = Tree::new("empty");
     assert!(!inside_workspace(&[t.repo()], &[""], &t.repo().join("src")));
+}
+
+#[cfg(unix)]
+#[test]
+fn cwd_with_symlink_parent_uses_the_childs_real_directory() {
+    let t = Tree::new("cwd-link-parent");
+    std::fs::create_dir(t.outside().join("sub")).unwrap();
+    link(&t.outside().join("sub"), &t.repo().join("link"));
+    let cwd = t.repo().join("link/..");
+    let real_cwd = std::fs::canonicalize(&cwd).unwrap();
+    assert_eq!(real_cwd, std::fs::canonicalize(t.outside()).unwrap());
+    let child = std::process::Command::new("/bin/pwd").arg("-P").current_dir(&cwd).output().unwrap();
+    assert!(child.status.success());
+    assert_eq!(Path::new(std::str::from_utf8(&child.stdout).unwrap().trim()), real_cwd);
+    for file in ["secret.txt", "new.txt", "new/deep.txt"] {
+        assert!(!inside_workspace(&[t.repo()], &[file], &cwd), "cwd must not fold to repo: {file}");
+        assert!(inside_workspace(&[t.outside()], &[file], &cwd), "real cwd is allowed: {file}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn roots_with_symlink_parent_authorize_only_the_kernel_target() {
+    let t = Tree::new("root-link-parent");
+    std::fs::create_dir(t.outside().join("sub")).unwrap();
+    link(&t.outside().join("sub"), &t.repo().join("link"));
+    for root in [t.repo().join("link/.."), PathBuf::from("link/..")] {
+        for file in ["src/a.txt", "new.txt"] {
+            assert!(!inside_workspace(std::slice::from_ref(&root), &[t.repo().join(file)], &t.repo()), "root must not fold to repo");
+        }
+        for file in ["secret.txt", "new.txt", "new/deep.txt"] {
+            assert!(inside_workspace(std::slice::from_ref(&root), &[t.outside().join(file)], &t.repo()), "real root is allowed");
+        }
+    }
+    // The session includes cwd itself among its roots. Both must resolve to the same real directory.
+    let cwd = t.repo().join("link/..");
+    assert!(inside_workspace(std::slice::from_ref(&cwd), &["secret.txt"], &cwd));
+    assert!(!inside_workspace(std::slice::from_ref(&cwd), &[t.repo().join("src/a.txt")], &cwd));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_cwd_and_roots_with_parent_components_fail_closed() {
+    let t = Tree::new("windows-parent");
+    let parent = t.repo().join("src/..");
+    assert!(!inside_workspace(&[t.repo()], &["src/a.txt"], &parent));
+    assert!(!inside_workspace(&[parent], &["src/a.txt"], &t.repo()));
+    assert!(!inside_workspace(&["src/.."], &["src/a.txt"], &t.repo()));
 }

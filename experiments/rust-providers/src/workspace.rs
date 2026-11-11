@@ -5,8 +5,10 @@
 //! - Requested files containing `..` fail closed before normalization: a symlink followed by
 //!   `..` has different kernel and lexical meanings. This deliberately differs from Node.
 //! - Empty paths fail closed; other files are resolved against `cwd`.
-//! - Roots are canonicalized (`realpath`); a root that can't be is an error, and every error fails
-//!   closed (`false`).
+//! - Cwd and roots are canonicalized as supplied, before any lexical folding, so `link/..`
+//!   follows the same directory as the child process. Any resolution error fails closed (`false`).
+//!   On Windows, cwd/roots containing `..` fail closed too: joining a canonical verbatim path
+//!   can fold parent components before filesystem resolution.
 //! - A file is canonicalized; one that doesn't exist yet takes its nearest existing ancestor's
 //!   canonical path plus the missing rest, so a symlinked ancestor can't alias out of a root.
 //! - A path that exists but can't be canonicalized (a dangling symlink, a loop) fails closed; Node
@@ -25,15 +27,20 @@ fn check<R: AsRef<Path>, F: AsRef<Path>>(roots: &[R], files: &[F], cwd: &Path) -
     if files.is_empty() || roots.is_empty() {
         return Ok(false);
     }
-    let cwd = absolute(cwd)?;
-    let canonical: Vec<PathBuf> =
-        roots.iter().map(|root| std::fs::canonicalize(absolute_from(&cwd, root.as_ref()))).collect::<io::Result<_>>()?;
+    #[cfg(windows)]
+    if cwd.components().any(|c| c == Component::ParentDir)
+        || roots.iter().any(|root| root.as_ref().components().any(|c| c == Component::ParentDir))
+    {
+        return Ok(false);
+    }
+    let cwd = std::fs::canonicalize(cwd)?;
+    let canonical: Vec<PathBuf> = roots.iter().map(|root| std::fs::canonicalize(cwd.join(root.as_ref()))).collect::<io::Result<_>>()?;
     for file in files {
         let file = file.as_ref();
         if file.as_os_str().is_empty() || file.components().any(|c| c == Component::ParentDir) {
             return Ok(false);
         }
-        let resolved = resolve(&absolute_from(&cwd, file))?;
+        let resolved = resolve(&cwd.join(file))?;
         let inside = canonical.iter().any(|root| match resolved.strip_prefix(root) {
             Ok(rest) => rest.components().next().is_some(),
             Err(_) => false,
@@ -43,33 +50,6 @@ fn check<R: AsRef<Path>, F: AsRef<Path>>(roots: &[R], files: &[F], cwd: &Path) -
         }
     }
     Ok(true)
-}
-
-/// `path.resolve(process.cwd(), path)`.
-fn absolute(path: &Path) -> io::Result<PathBuf> {
-    Ok(normalize(&std::env::current_dir()?.join(path)))
-}
-
-/// `path.resolve(cwd, file)`: joined (an absolute file replaces cwd), then `.` and `..` folded lexically.
-fn absolute_from(cwd: &Path, file: &Path) -> PathBuf {
-    normalize(&cwd.join(file))
-}
-
-fn normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::Prefix(prefix) => out.push(prefix.as_os_str()),
-            Component::RootDir => out.push(Component::RootDir.as_os_str()),
-            Component::CurDir => {}
-            // `/..` stays `/`, as in Node.
-            Component::ParentDir => {
-                out.pop();
-            }
-            Component::Normal(part) => out.push(part),
-        }
-    }
-    out
 }
 
 /// The canonical path, or for a missing file its nearest existing ancestor's canonical path plus
