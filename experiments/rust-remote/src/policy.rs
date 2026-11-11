@@ -66,6 +66,18 @@ impl Default for Limits {
         }
     }
 }
+impl Limits {
+    fn valid(self) -> bool {
+        !(self.records == 0
+            || self.records > 4096
+            || self.pending == 0
+            || self.pending > 64
+            || self.pending_desktops > self.pending
+            || !self.admission.valid()
+            || self.pairing_window_ms == 0
+            || self.known_ticket_ms == 0)
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 enum Record {
     Active { kind: DeviceKind },
@@ -389,17 +401,7 @@ impl TemporaryAuthority {
         rng: &mut (impl RngCore + CryptoRng),
         global: GlobalBudget,
     ) -> Result<Self> {
-        if token.is_empty()
-            || token.len() > 1024
-            || limits.records == 0
-            || limits.records > 4096
-            || limits.pending == 0
-            || limits.pending > 64
-            || limits.pending_desktops > limits.pending
-            || !limits.admission.valid()
-            || limits.pairing_window_ms == 0
-            || limits.known_ticket_ms == 0
-        {
+        if token.is_empty() || token.len() > 1024 || !limits.valid() {
             return Err(PolicyError::Limited);
         }
         let mut instance = [0; 16];

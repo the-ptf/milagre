@@ -311,6 +311,7 @@ fn process_child() {
             attempt: 1,
             finished: false,
             poisoned: false,
+            write_attempted: false,
             fail_next: None,
             last: None,
         };
@@ -341,6 +342,7 @@ fn process_child() {
             attempt,
             finished: false,
             poisoned: false,
+            write_attempted: false,
             fail_next: None,
             last: Some(prior),
         };
@@ -610,4 +612,82 @@ fn subprocess_authority_clean_restart_and_crash_after_removal_revocation() {
         drop(writer);
         p.destroy().unwrap();
     }
+}
+#[test]
+fn prewrite_release_rechecks_descriptors_and_retains_exact_locks_on_failure() {
+    use crate::persistent::{OpenedAuthority, PersistentAuthority, PersistentLimits};
+    let _disk_test = testing_lock();
+    let mut p = profile();
+    let before = saved(&p);
+    let limits = PersistentLimits {
+        policy: crate::policy::Limits {
+            records: 0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let r = match PersistentAuthority::resume(p.acquire_writer().unwrap(), limits, &mut OsRng) {
+        OpenedAuthority::Rejected(r) => r,
+        _ => panic!("rejected"),
+    };
+    fs::renameat(&p.core.root, LOCK, &p.core.root, "original.lock").unwrap();
+    drop(new_file(&p.core.root, LOCK).unwrap());
+    let (fault, q) = match r.release() {
+        Err(f) => f.into_parts(),
+        _ => panic!("substitution"),
+    };
+    assert_eq!(fault, StoreFault::IdentityChanged);
+    assert_eq!(saved(&p), before);
+    assert!(matches!(p.acquire_writer(), Err(StoreFault::Busy)));
+    assert!(matches!(Locks::acquire(&p.core), Err(StoreFault::Busy)));
+    fs::unlinkat(&p.core.root, LOCK, AtFlags::empty()).unwrap();
+    fs::renameat(&p.core.root, "original.lock", &p.core.root, LOCK).unwrap();
+    q.release();
+    let w = p.acquire_writer().unwrap();
+    assert_eq!(w.diagnostics().fault, Some(StoreFault::DirtyRun));
+    drop(w);
+    p.destroy().unwrap();
+}
+#[test]
+fn every_commit_attempt_and_poisoned_ledger_forbid_prewrite_restoration() {
+    let _disk_test = testing_lock();
+    for case in 0..3 {
+        let valid = case > 0;
+        let mut p = profile();
+        let mut w = p.acquire_writer().unwrap();
+        let mut state = w.load().unwrap();
+        if valid {
+            state.revision += 1;
+            state.boot += 1;
+            state.running = true;
+        }
+        let before = saved(&p);
+        if case == 2 {
+            w.fail_next = Some(IoStage::SyncDirectory);
+        }
+        let result = w.commit(&state);
+        assert_eq!(result.is_ok(), case == 1);
+        assert_eq!(w.restore_unstarted(), Err(StoreFault::DirtyRun));
+        if !valid {
+            assert_eq!(saved(&p), before);
+        }
+        assert!(matches!(p.acquire_writer(), Err(StoreFault::Busy)));
+        drop(w);
+        p.destroy().unwrap();
+    }
+    let mut p = profile();
+    let mut w = p.acquire_writer().unwrap();
+    let core = p.core.clone();
+    assert!(std::thread::spawn(move || {
+        let _held = core.ledger.lock().unwrap();
+        panic!("synthetic ledger poison");
+    })
+    .join()
+    .is_err());
+    assert_eq!(w.restore_unstarted(), Err(StoreFault::DirtyRun));
+    drop(w);
+    let w = p.acquire_writer().unwrap();
+    assert_eq!(w.diagnostics().fault, Some(StoreFault::DirtyRun));
+    drop(w);
+    p.destroy().unwrap();
 }

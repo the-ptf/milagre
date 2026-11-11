@@ -338,6 +338,7 @@ pub struct WriterLease {
     attempt: u64,
     finished: bool,
     poisoned: bool,
+    write_attempted: bool,
     #[cfg(test)]
     pub(crate) fail_next: Option<IoStage>,
     last: Option<Stamp>,
@@ -472,6 +473,7 @@ impl SyntheticProfile {
             attempt,
             finished: false,
             poisoned: false,
+            write_attempted: false,
             #[cfg(test)]
             fail_next: None,
             last: prior,
@@ -718,6 +720,37 @@ impl WriterLease {
         }
         Ok(snapshot)
     }
+    pub(crate) fn check_unstarted(&self) -> Result<()> {
+        self.core.pid()?;
+        if self.finished
+            || self.poisoned
+            || self.write_attempted
+            || self.prior.is_none()
+            || self.last != self.prior
+        {
+            return Err(StoreFault::DirtyRun);
+        }
+        self.load()?; // exact prior Clean stamp, strict schema and pinned descriptors
+        let ledger = self.core.ledger.lock().map_err(|_| StoreFault::DirtyRun)?;
+        if !ledger.active || ledger.attempt != self.attempt || ledger.ack.is_some() {
+            return Err(StoreFault::DirtyRun);
+        }
+        Ok(())
+    }
+    // Only the typed RejectedAuthority calls this. Generic WriterLease Drop stays dirty.
+    pub(crate) fn restore_unstarted(&mut self) -> Result<()> {
+        self.check_unstarted()?;
+        self.check()?;
+        let mut ledger = self.core.ledger.lock().map_err(|_| StoreFault::DirtyRun)?;
+        if !ledger.active || ledger.attempt != self.attempt || ledger.ack.is_some() {
+            return Err(StoreFault::DirtyRun);
+        }
+        self.locks.take();
+        ledger.ack = self.prior;
+        ledger.active = false;
+        self.finished = true;
+        Ok(())
+    }
     pub(crate) fn global(&self) -> GlobalBudget {
         self.core.global.clone()
     }
@@ -732,6 +765,7 @@ impl WriterLease {
         self.commit_at(snapshot, fail)
     }
     fn commit_at(&mut self, snapshot: &Snapshot, fail: Option<IoStage>) -> Result<CommitReceipt> {
+        self.write_attempted = true;
         if self.poisoned {
             return Err(StoreFault::DirtyRun);
         }

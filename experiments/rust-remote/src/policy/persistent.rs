@@ -19,8 +19,84 @@ pub struct PersistentLimits {
 #[allow(clippy::large_enum_variant)]
 pub enum OpenedAuthority {
     Ready(PersistentAuthority),
+    Rejected(RejectedAuthority),
     Quarantined(Quarantine),
     Retired(RetiredProfile),
+}
+impl PersistentLimits {
+    /// Pure configuration check. Call before acquiring a writer when possible.
+    pub fn validate(&self) -> std::result::Result<(), StoreFault> {
+        if !self.policy.valid() || !self.registry.valid() {
+            return Err(StoreFault::InvalidLimits);
+        }
+        Ok(())
+    }
+}
+/// A validated, read-only limit rejection. No write attempt can produce this proof.
+pub struct RejectedAuthority {
+    writer: Option<WriterLease>,
+    diagnostics: StoreDiagnostics,
+}
+pub struct RejectedReleaseFailure {
+    fault: StoreFault,
+    quarantine: Quarantine,
+}
+impl RejectedReleaseFailure {
+    pub fn into_parts(self) -> (StoreFault, Quarantine) {
+        (self.fault, self.quarantine)
+    }
+}
+impl RejectedAuthority {
+    fn reject(writer: WriterLease, mut diag: StoreDiagnostics) -> OpenedAuthority {
+        if let Err(fault) = writer.check_unstarted() {
+            return OpenedAuthority::Quarantined(Quarantine(stopped(writer, diag, fault)));
+        }
+        diag.fault = Some(StoreFault::InvalidLimits);
+        OpenedAuthority::Rejected(Self {
+            writer: Some(writer),
+            diagnostics: diag,
+        })
+    }
+    pub fn diagnostics(&self) -> StoreDiagnostics {
+        self.diagnostics
+    }
+    pub fn retry(
+        mut self,
+        limits: PersistentLimits,
+        rng: &mut (impl RngCore + CryptoRng),
+    ) -> OpenedAuthority {
+        let writer = self.writer.take().unwrap();
+        if let Err(fault) = writer.check_unstarted() {
+            return OpenedAuthority::Quarantined(Quarantine(stopped(
+                writer,
+                self.diagnostics,
+                fault,
+            )));
+        }
+        PersistentAuthority::resume(writer, limits, rng)
+    }
+    #[expect(
+        clippy::result_large_err,
+        reason = "retain exact locks without allocating on failure"
+    )]
+    pub fn release(mut self) -> std::result::Result<Released, RejectedReleaseFailure> {
+        let mut writer = self.writer.take().unwrap();
+        match writer.restore_unstarted() {
+            Ok(()) => Ok(writer.release()),
+            Err(fault) => Err(RejectedReleaseFailure {
+                fault,
+                quarantine: Quarantine(stopped(writer, self.diagnostics, fault)),
+            }),
+        }
+    }
+}
+impl Drop for RejectedAuthority {
+    fn drop(&mut self) {
+        if let Some(writer) = &mut self.writer {
+            let _ = writer.restore_unstarted();
+        }
+        // Failed proof checks fall through to ordinary dirty WriterLease Drop.
+    }
 }
 pub struct CleanStop(StoreDiagnostics);
 pub struct RetiredStop(StoreDiagnostics);
@@ -253,31 +329,14 @@ impl PersistentAuthority {
             }));
         }
         let l = limits.policy;
-        if l.records == 0
-            || l.records > 4096
-            || l.pending == 0
-            || l.pending > 64
-            || l.pending_desktops > l.pending
-            || !l.admission.valid()
-            || l.pairing_window_ms == 0
-            || l.known_ticket_ms == 0
+        if limits.validate().is_err()
             || state.devices.iter().filter(|d| d.removed.is_none()).count() > l.records
         {
-            return OpenedAuthority::Quarantined(Quarantine(stopped(
-                writer,
-                diag,
-                StoreFault::InvalidLimits,
-            )));
+            return RejectedAuthority::reject(writer, diag);
         }
         let mut registry = match Registry::new(limits.registry, rng) {
             Ok(r) => r,
-            Err(_) => {
-                return OpenedAuthority::Quarantined(Quarantine(stopped(
-                    writer,
-                    diag,
-                    StoreFault::InvalidLimits,
-                )))
-            }
+            Err(_) => return RejectedAuthority::reject(writer, diag),
         };
         let running = (|| {
             increment(&mut state.revision)?;

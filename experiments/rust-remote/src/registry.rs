@@ -309,26 +309,30 @@ pub struct Registry {
     retired: bool,
     entries: BTreeMap<u64, Entry>,
 }
+impl Limits {
+    pub(crate) fn valid(self) -> bool {
+        !(self.carriers == 0
+            || self.carriers > 16
+            || self.pending_carriers == 0
+            || self.pending_carriers > 16
+            || self.hello_ms == 0
+            || self.idle_ms == 0
+            || self.inflight == 0
+            || self.inflight > 16
+            || self.queued > 64
+            || self.queue_wait_ms == 0
+            || self.request_ms == 0
+            || self.request_bytes == 0
+            || self.request_bytes > 16 * 1024 * 1024
+            || self.outbound_bytes == 0
+            || self.outbound_bytes > 32 * 1024 * 1024
+            || self.outbound_frames == 0
+            || self.outbound_frames > 256)
+    }
+}
 impl Registry {
     pub fn new(limits: Limits, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self> {
-        if limits.carriers == 0
-            || limits.carriers > 16
-            || limits.pending_carriers == 0
-            || limits.pending_carriers > 16
-            || limits.hello_ms == 0
-            || limits.idle_ms == 0
-            || limits.inflight == 0
-            || limits.inflight > 16
-            || limits.queued > 64
-            || limits.queue_wait_ms == 0
-            || limits.request_ms == 0
-            || limits.request_bytes == 0
-            || limits.request_bytes > 16 * 1024 * 1024
-            || limits.outbound_bytes == 0
-            || limits.outbound_bytes > 32 * 1024 * 1024
-            || limits.outbound_frames == 0
-            || limits.outbound_frames > 256
-        {
+        if !limits.valid() {
             return Err(Error::TooLarge.into());
         }
         let mut owner = [0; 16];

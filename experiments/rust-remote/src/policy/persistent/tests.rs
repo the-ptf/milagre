@@ -378,7 +378,7 @@ fn running_removal_enrollment_and_window_faults_never_release_authorization() {
     }
 }
 #[test]
-fn retirement_is_terminal_and_invalid_configuration_retains_quarantine() {
+fn retirement_is_terminal_and_invalid_configuration_preserves_clean_eligibility() {
     let _disk_test = crate::synthetic_store::testing_lock();
     let mut p = profile(StoreLimits::default());
     let a = resume(&mut p, Default::default());
@@ -402,12 +402,13 @@ fn retirement_is_terminal_and_invalid_configuration_retains_quarantine() {
         ..Default::default()
     };
     match PersistentAuthority::resume(p.acquire_writer().unwrap(), limits, &mut OsRng) {
-        OpenedAuthority::Quarantined(q) => {
+        OpenedAuthority::Rejected(q) => {
             assert_eq!(q.diagnostics().fault, Some(StoreFault::InvalidLimits));
-            q.release();
+            q.release().unwrap_or_else(|_| panic!("release unstarted"));
         }
         _ => panic!("limits"),
     };
+    clean(resume(&mut p, Default::default()));
     p.destroy().unwrap();
 }
 #[test]
@@ -653,4 +654,77 @@ pub(crate) fn worker(writer: WriterLease, mode: &str, attempt: u64) {
         receipt.revision.unwrap(),
         receipt.boot.unwrap()
     );
+}
+#[test]
+fn prewrite_rejections_retry_same_lease_and_drop_preserves_prior_eligibility() {
+    let _disk_test = crate::synthetic_store::testing_lock();
+    let variants = [
+        PersistentLimits {
+            policy: Limits {
+                records: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        PersistentLimits {
+            registry: registry::Limits {
+                carriers: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    ];
+    for limits in variants {
+        assert_eq!(limits.validate(), Err(StoreFault::InvalidLimits));
+        let mut p = profile(StoreLimits::default());
+        let rejected =
+            match PersistentAuthority::resume(p.acquire_writer().unwrap(), limits, &mut OsRng) {
+                OpenedAuthority::Rejected(r) => r,
+                _ => panic!("prewrite rejection"),
+            };
+        assert_eq!(rejected.diagnostics().boot, Some(0));
+        assert!(matches!(p.acquire_writer(), Err(StoreFault::Busy)));
+        let a = match rejected.retry(Default::default(), &mut OsRng) {
+            OpenedAuthority::Ready(a) => a,
+            _ => panic!("corrected retry"),
+        };
+        assert_eq!(a.diagnostics().boot, Some(1));
+        let previous = clean(a);
+        let rejected =
+            match PersistentAuthority::resume(p.acquire_writer().unwrap(), limits, &mut OsRng) {
+                OpenedAuthority::Rejected(r) => r,
+                _ => panic!("prewrite rejection"),
+            };
+        drop(rejected);
+        let a = resume(&mut p, Default::default());
+        assert_eq!(a.diagnostics().boot, previous.boot.map(|b| b + 1));
+        clean(a);
+    }
+}
+#[test]
+fn snapshot_dependent_record_limit_rejection_can_be_corrected() {
+    let _disk_test = crate::synthetic_store::testing_lock();
+    let mut p = profile(StoreLimits::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    pair(&mut a, 1, 4, 1);
+    pair(&mut a, 2, 5, 1);
+    let previous = clean(a);
+    let limits = PersistentLimits {
+        policy: Limits {
+            records: 1,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert!(limits.validate().is_ok());
+    let r = match PersistentAuthority::resume(p.acquire_writer().unwrap(), limits, &mut OsRng) {
+        OpenedAuthority::Rejected(r) => r,
+        _ => panic!("active count rejection"),
+    };
+    assert_eq!(r.diagnostics().revision, previous.revision);
+    r.release().unwrap_or_else(|_| panic!("release"));
+    let mut a = resume(&mut p, Default::default());
+    assert_eq!(store(&mut a).state.devices.len(), 2);
+    clean(a);
 }
