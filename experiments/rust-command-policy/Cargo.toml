@@ -1,0 +1,19 @@
+[package]
+name = "milagre-command-policy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Fail-closed static shell remote-action classification for the isolated Rust owner"
+
+[workspace]
+
+[dependencies]
+milagre-providers = { path = "../rust-providers" }
+tree-sitter = "0.25.10"
+tree-sitter-bash = "0.25.1"
+regex = "1"
+graphql-parser = "0.4.1"
+
+[dev-dependencies]
+serde_json = "1"

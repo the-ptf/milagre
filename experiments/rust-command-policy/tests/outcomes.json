@@ -1,0 +1,874 @@
+[
+  {
+    "command": "git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --force-with-lease origin HEAD",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push origin HEAD",
+    "actions": ["push"]
+  },
+  {
+    "command": "git commit -m 'fix' && git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "git -C /repo push",
+    "actions": ["push"]
+  },
+  {
+    "command": "git -c user.name=x push origin",
+    "actions": ["push"]
+  },
+  {
+    "command": "git --no-pager push",
+    "actions": ["push"]
+  },
+  {
+    "command": "git --git-dir /repo/.git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "/usr/bin/git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "FOO=1 git push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "env GIT_TRACE=1 git push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "sudo -u me git push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "nohup git push &",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo origin | xargs git push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git -c alias.ship=push ship",
+    "actions": ["push"]
+  },
+  {
+    "command": "git send-pack origin main",
+    "actions": ["push"]
+  },
+  {
+    "command": "git subtree push --prefix=docs origin gh-pages",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh pr update-branch 4",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh pr update-branch 4 --rebase",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh repo sync owner/fork --branch main",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh api --method PUT repos/o/r/pulls/1/update-branch",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh api --method PUT repos/o/r/pulls/1/update-branch/",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh api graphql -f query='mutation { createCommitOnBranch(input: {}) { commit { oid } } }'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git status && git log --oneline -3 && git fetch origin",
+    "actions": []
+  },
+  {
+    "command": "gh api repos/o/r/git/refs/heads/main",
+    "actions": []
+  },
+  {
+    "command": "git commit -m \"don't git push yet; gh pr merge later\"",
+    "actions": []
+  },
+  {
+    "command": "echo 'git push' > notes.txt",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "grep -rn \"gh pr comment\" docs",
+    "actions": []
+  },
+  {
+    "command": "gh pr comment 42 --body \"Fixed in abc123\"",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr review 42 --comment -b 'done'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh issue comment 42 --body hi",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X POST repos/o/r/pulls/42/comments/7/replies -f body=done",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api --method=POST repos/o/r/issues/42/comments -f body=done",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api repos/o/r/issues/42/comments -f body=done",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -XPATCH repos/o/r/issues/comments/9 -f body=edited",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api repos/o/r/pulls/42/reviews --input review.json",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api graphql -f query='mutation { addPullRequestReviewThreadReply(input: {}) { comment { id } } }'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api graphql -F query='mutation($id: ID!) { addPullRequestReviewComment(input: {}) { clientMutationId } }'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api graphql --raw-field query='mutation { addComment(input: {subjectId: \"x\", body: \"y\"}) { clientMutationId } }'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api repos/o/r/pulls/42/comments",
+    "actions": []
+  },
+  {
+    "command": "gh api -X GET repos/o/r/issues/42/comments",
+    "actions": []
+  },
+  {
+    "command": "gh pr view 42 --comments && gh pr checks 42",
+    "actions": []
+  },
+  {
+    "command": "gh pr comment 42 --body \"Fixed in abc123 <!-- milagre-babysit -->\"",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr edit 42 --add-reviewer alice",
+    "actions": ["rerequest"]
+  },
+  {
+    "command": "gh pr edit 42 --add-reviewer=alice",
+    "actions": ["rerequest"]
+  },
+  {
+    "command": "gh api -X POST repos/o/r/pulls/42/requested_reviewers -f 'reviewers[]=alice'",
+    "actions": ["rerequest"]
+  },
+  {
+    "command": "gh api -X POST repos/o/r/pulls/42/requested_reviewers/ -f 'reviewers[]=alice'",
+    "actions": ["rerequest"]
+  },
+  {
+    "command": "gh api graphql -f query='mutation { requestReviews(input: {pullRequestId: \"x\", userIds: [\"y\"]}) { clientMutationId } }'",
+    "actions": ["rerequest"]
+  },
+  {
+    "command": "gh pr edit 42 --add-reviewer alice -R o/r",
+    "actions": ["rerequest"]
+  },
+  {
+    "command": "gh api repos/o/r/pulls/42/requested_reviewers",
+    "actions": []
+  },
+  {
+    "command": "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"t\"}) { thread { isResolved } } }'",
+    "actions": ["resolve"]
+  },
+  {
+    "command": "gh api graphql -f query='query { repository(owner: \"o\", name: \"r\") { pullRequest(number: 1) { reviewThreads(first: 50) { nodes { isResolved } } } } }'",
+    "actions": []
+  },
+  {
+    "command": "gh pr merge 42 --squash",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api -X PUT repos/o/r/pulls/42/merge",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api -X PUT /repos/o/r/pulls/42/merge/",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {}) { clientMutationId } }'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "git merge origin/main",
+    "actions": []
+  },
+  {
+    "command": "npm test && git push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "npm test || git push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "npm test; git push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "npm test & git push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git status | git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "npm test\ngit push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "bash -c 'npm test && git push'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "sh -c \"git -C /repo push\"",
+    "actions": ["push"]
+  },
+  {
+    "command": "zsh -lc 'git push'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "echo $(git push)",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo `git push`",
+    "actions": ["push"]
+  },
+  {
+    "command": "eval \"git push\"",
+    "actions": ["push"]
+  },
+  {
+    "command": "(cd /repo && git push)",
+    "actions": ["push"]
+  },
+  {
+    "command": "{ git push; }",
+    "actions": ["push"]
+  },
+  {
+    "command": "if true; then git push; fi",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo '{\"query\":\"mutation { mergePullRequest(input: {}) { clientMutationId } }\"}' | gh api graphql --input -",
+    "actions": ["graphql-file"]
+  },
+  {
+    "command": "gh api graphql --input - <<'EOF'\n{\"query\":\"mutation { resolveReviewThread(input: {}) { clientMutationId } }\"}\nEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh api graphql --input body.json",
+    "actions": ["graphql-file"]
+  },
+  {
+    "command": "gh api graphql -F query=@mutation.graphql",
+    "actions": ["graphql-file"]
+  },
+  {
+    "command": "gh api graphql -f query='query { viewer { login } }'",
+    "actions": []
+  },
+  {
+    "command": "git commit -m \"$(cat <<'EOF'\nFix the flaky test\n\nDon't git push until CI is green; gh pr merge later.\nEOF\n)\"",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh pr comment 4 --body-file - <<'EOF'\nFixed in abc123. I won't gh pr merge this myself.\nEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "cat <<-\"NOTE\" > notes.txt\n\tgit push when ready\n\tNOTE\nnpm test",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "cat <<EOF > notes.txt\ngit push\nEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "cat <<'EOF' > notes.txt\nnothing here\nEOF\ngit push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "cat <<'EOF' | git push\nbody\nEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh pr comment 4 --body-file - <<'EOF'\nFixed.\nEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "bash <<'EOF'\ngit push\nEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "sh <<EOF\ngit push\nEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "cat <<EOF | sh\ngit push\nEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "zsh -s <<-EOF\n\tnpm test && git push\n\tEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "source /dev/stdin <<EOF\ngit push\nEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "eval \"$(cat <<'EOF'\ngit push\nEOF\n)\"",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "$(cat <<EOF\ngit push\nEOF\n)",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "echo 'git push' | sh",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "cat <<EOF | bash -s\ngh pr merge 4\nEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git commit -m \"$(cat <<'EOF'\nDon't git push yet.\nEOF\n)\"",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh pr comment 4 --body-file - <<'EOF'\nI won't gh pr merge this.\nEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "bash <<< \"git push\"",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "bash <<<\"git push origin HEAD\"",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "cat <<< \"git push\" | sh",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "sh <<< 'gh pr merge 1'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "echo \"$(bash <<< 'git push')\"",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "grep foo <<< \"git push\"",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "grep foo <<< \"x\"; git push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh pr close 42",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh pr close 42 --delete-branch -c done",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh pr reopen 42",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api graphql -f query='mutation { closePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 -f state=closed",
+    "actions": ["close"]
+  },
+  {
+    "command": "echo '{\"state\":\"closed\"}' | gh api -X PATCH repos/o/r/pulls/42 --input -",
+    "actions": ["body-file"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/issues/42 --input - <<< '{\"state\": \"open\"}'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 -F state=closed",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 --raw-field=state=closed",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 --input body.json",
+    "actions": ["body-file"]
+  },
+  {
+    "command": "cat body.json | gh api -X PATCH repos/o/r/pulls/42 --input -",
+    "actions": ["body-file"]
+  },
+  {
+    "command": "echo \"{\\\"state\\\":\\\"closed\\\"}\" | gh api -X PATCH repos/o/r/pulls/42 --input -",
+    "actions": ["body-file"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 --input - <<< \"{\\\"state\\\":\\\"closed\\\"}\"",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "echo '{\"st'ate'\":\"closed\"}' | gh api -X PATCH repos/o/r/issues/42 --input -",
+    "actions": ["body-file"]
+  },
+  {
+    "command": "echo '{\"title\":\"Better\"}' | gh api -X PATCH repos/o/r/pulls/42 --input -",
+    "actions": ["body-file"]
+  },
+  {
+    "command": "gh issue close 42",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh issue close 42 --reason 'not planned'",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh issue reopen 42",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh issue edit 42 --add-label bug",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh issue view 42",
+    "actions": []
+  },
+  {
+    "command": "bash -c $'git push'",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo $'git push' | sh",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "$'git' push",
+    "actions": ["push"]
+  },
+  {
+    "command": "$'\\x67it' push",
+    "actions": ["push"]
+  },
+  {
+    "command": "$'\\147it' push",
+    "actions": ["push"]
+  },
+  {
+    "command": "$'\\u0067it' push",
+    "actions": ["push"]
+  },
+  {
+    "command": "bash -c $'git\\tpush'",
+    "actions": ["push"]
+  },
+  {
+    "command": "sh -c $'gh pr merge 1'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "echo $'line one\\nline two'",
+    "actions": []
+  },
+  {
+    "command": "grep $'git push' notes.txt",
+    "actions": []
+  },
+  {
+    "command": "echo $'\\U7fffffff'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh api -X POST repos/o/r/issues/42/labels -f 'labels[]=bug'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X DELETE repos/o/r/issues/42/labels/bug",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X PUT repos/o/r/issues/42/labels -f 'labels[]=bug'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X POST repos/o/r/issues/42/assignees -f 'assignees[]=me'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X DELETE repos/o/r/issues/42/assignees -f 'assignees[]=me'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/issues/42 -F milestone=3",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 -f 'assignees[]=me'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api repos/o/r/issues/42/labels",
+    "actions": []
+  },
+  {
+    "command": "gh pr edit 42 --title 'Better title'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr ready 42",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr ready 42 --undo",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr edit 42 --body-file notes.md",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr edit 42 --add-label bug",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 -f title=Better",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr edit 42 --add-reviewer alice --title x",
+    "actions": ["rerequest", "reply"]
+  },
+  {
+    "command": "gh pr view 42 --json isDraft",
+    "actions": []
+  },
+  {
+    "command": "(( x = 1 << 2 ))\ngit push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "echo $((1<<2))\ngit push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "(( y <<= 1 )); git push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "",
+    "actions": []
+  },
+  {
+    "command": "ls",
+    "actions": []
+  },
+  {
+    "command": "npm test",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh pr checks 42 --watch",
+    "actions": []
+  },
+  {
+    "command": "gh run view 123 --log-failed",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git rebase origin/main",
+    "actions": []
+  },
+  {
+    "command": "git commit -am wip",
+    "actions": []
+  },
+  {
+    "command": "echo 'git push'",
+    "actions": []
+  },
+  {
+    "command": "echo git push",
+    "actions": []
+  },
+  {
+    "command": "git 'pu'\"sh\" origin HEAD",
+    "actions": ["push"]
+  },
+  {
+    "command": "$'g\\x69t' push",
+    "actions": ["push"]
+  },
+  {
+    "command": "command -- git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "env -i nohup git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "bash -c 'gh pr merge 1'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "echo $(gh pr merge 1)",
+    "actions": ["merge"]
+  },
+  {
+    "command": "printf '%s' \"$(git push)\"",
+    "actions": ["push"]
+  },
+  {
+    "command": "eval 'git push'",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { x: mergePullRequest(input: {}) { clientMutationId } }'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { closePullRequest(input: {}) { clientMutationId } resolveReviewThread(input: {}) { clientMutationId } }'",
+    "actions": ["close", "resolve"]
+  },
+  {
+    "command": "gh api graphql -f 'query=query { repository(name: \"mergePullRequest\") { id } }'",
+    "actions": []
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { addComment(input: {body: \"mergePullRequest\"}) { clientMutationId } }'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { futureMutation(input: {}) { id } }'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { ...X } fragment X on Mutation { mergePullRequest(input: {}) { clientMutationId } }'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh api -X POST repos/o/r/unknown",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/1 -f state=closed",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/1 --input -",
+    "actions": ["body-file"]
+  },
+  {
+    "command": "gh api graphql --input -",
+    "actions": ["graphql-file"]
+  },
+  {
+    "command": "gh api -é whatever",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git -c alias.ship='!gh pr merge 1' ship",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git ship",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git rebase -x 'gh pr merge 1' main",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git fetch 'ext::gh pr merge 1'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git -c core.sshCommand='gh pr merge 1' fetch",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "rg --pre 'gh pr merge 1' hi",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "printf -v BASH_ENV hook; bash -c 'git status'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "env BASH_ENV=hook bash -c 'git status'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "bash -lc 'git status'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "python -c 'import os; os.system(\"git push\")'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "curl -X POST https://api.github.com/repos/o/r/pulls/1/merge",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "xargs git push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "echo 'gh pr merge 1' | bash",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "bash <<EOF\ngh pr merge 1\nEOF",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "$(echo gh) pr merge 1",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git ${subcommand}",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "g${x}it push",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git p*sh",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git {push,status}",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "source hook",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "alias x='git push'; x",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "function git() { gh pr merge 1; }; git status",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "for x in git; do $x push; done",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "echo <(git push)",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "echo $((x[$(git push)]))",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git push 'unterminated",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "/tmp/git status",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "echo $'\\0git'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh api -X POST repos/o/r/%70ulls/1/merge",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "printf '%n' BASH_ENV; bash -c 'git status'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "printf '%5n' BASH_ENV",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "printf \"$(echo %n)\" BASH_ENV",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { updatePullRequest(input: {pullRequestId: \"x\", state: CLOSED}) { clientMutationId } }'",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { updatePullRequest(input: {pullRequestId: \"x\", state: OPEN}) { clientMutationId } }'",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation ($input: UpdatePullRequestInput!) { updatePullRequest(input: $input) { clientMutationId } }' -F input=@body.json",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "gh api -X PATCH 'repos/o/r/pulls/1?state=closed'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  }
+]

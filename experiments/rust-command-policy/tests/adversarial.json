@@ -1,0 +1,242 @@
+[
+  {
+    "command": "echo 'git push'",
+    "actions": []
+  },
+  {
+    "command": "echo git push",
+    "actions": []
+  },
+  {
+    "command": "git 'pu'\"sh\" origin HEAD",
+    "actions": ["push"]
+  },
+  {
+    "command": "$'g\\x69t' push",
+    "actions": ["push"]
+  },
+  {
+    "command": "command -- git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "env -i nohup git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "bash -c 'gh pr merge 1'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "echo $(gh pr merge 1)",
+    "actions": ["merge"]
+  },
+  {
+    "command": "printf '%s' \"$(git push)\"",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo `git push`",
+    "actions": ["push"]
+  },
+  {
+    "command": "eval 'git push'",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { x: mergePullRequest(input: {}) { clientMutationId } }'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { closePullRequest(input: {}) { clientMutationId } resolveReviewThread(input: {}) { clientMutationId } }'",
+    "actions": ["close", "resolve"]
+  },
+  {
+    "command": "gh api graphql -f 'query=query { repository(name: \"mergePullRequest\") { id } }'",
+    "actions": []
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { addComment(input: {body: \"mergePullRequest\"}) { clientMutationId } }'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { futureMutation(input: {}) { id } }'",
+    "error": true
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { ...X } fragment X on Mutation { mergePullRequest(input: {}) { clientMutationId } }'",
+    "error": true
+  },
+  {
+    "command": "gh api -X POST repos/o/r/unknown",
+    "error": true
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/1 -f state=closed",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/1 --input -",
+    "actions": ["body-file"]
+  },
+  {
+    "command": "gh api graphql --input -",
+    "actions": ["graphql-file"]
+  },
+  {
+    "command": "gh api -\u00e9 whatever",
+    "error": true
+  },
+  {
+    "command": "git -c alias.ship='!gh pr merge 1' ship",
+    "error": true
+  },
+  {
+    "command": "git ship",
+    "error": true
+  },
+  {
+    "command": "git rebase -x 'gh pr merge 1' main",
+    "error": true
+  },
+  {
+    "command": "git fetch 'ext::gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git -c core.sshCommand='gh pr merge 1' fetch",
+    "error": true
+  },
+  {
+    "command": "rg --pre 'gh pr merge 1' hi",
+    "error": true
+  },
+  {
+    "command": "printf -v BASH_ENV hook; bash -c 'git status'",
+    "error": true
+  },
+  {
+    "command": "env BASH_ENV=hook bash -c 'git status'",
+    "error": true
+  },
+  {
+    "command": "bash -lc 'git status'",
+    "error": true
+  },
+  {
+    "command": "python -c 'import os; os.system(\"git push\")'",
+    "error": true
+  },
+  {
+    "command": "npm test",
+    "error": true
+  },
+  {
+    "command": "curl -X POST https://api.github.com/repos/o/r/pulls/1/merge",
+    "error": true
+  },
+  {
+    "command": "xargs git push",
+    "error": true
+  },
+  {
+    "command": "echo 'gh pr merge 1' | bash",
+    "error": true
+  },
+  {
+    "command": "bash <<EOF\ngh pr merge 1\nEOF",
+    "error": true
+  },
+  {
+    "command": "sh <<< 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "$(echo gh) pr merge 1",
+    "error": true
+  },
+  {
+    "command": "git ${subcommand}",
+    "error": true
+  },
+  {
+    "command": "g${x}it push",
+    "error": true
+  },
+  {
+    "command": "git p*sh",
+    "error": true
+  },
+  {
+    "command": "git {push,status}",
+    "error": true
+  },
+  {
+    "command": "source hook",
+    "error": true
+  },
+  {
+    "command": "alias x='git push'; x",
+    "error": true
+  },
+  {
+    "command": "function git() { gh pr merge 1; }; git status",
+    "error": true
+  },
+  {
+    "command": "for x in git; do $x push; done",
+    "error": true
+  },
+  {
+    "command": "echo <(git push)",
+    "error": true
+  },
+  {
+    "command": "echo $((x[$(git push)]))",
+    "error": true
+  },
+  {
+    "command": "git push 'unterminated",
+    "error": true
+  },
+  {
+    "command": "/tmp/git status",
+    "error": true
+  },
+  {
+    "command": "echo $'\\0git'",
+    "error": true
+  },
+  {
+    "command": "gh api -X POST repos/o/r/%70ulls/1/merge",
+    "error": true
+  },
+  {
+    "command": "printf '%n' BASH_ENV; bash -c 'git status'",
+    "error": true
+  },
+  {
+    "command": "printf '%5n' BASH_ENV",
+    "error": true
+  },
+  {
+    "command": "printf \"$(echo %n)\" BASH_ENV",
+    "error": true
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { updatePullRequest(input: {pullRequestId: \"x\", state: CLOSED}) { clientMutationId } }'",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { updatePullRequest(input: {pullRequestId: \"x\", state: OPEN}) { clientMutationId } }'",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation ($input: UpdatePullRequestInput!) { updatePullRequest(input: $input) { clientMutationId } }' -F input=@body.json",
+    "error": true
+  },
+  {
+    "command": "gh api -X PATCH 'repos/o/r/pulls/1?state=closed'",
+    "error": true
+  }
+]
