@@ -125,7 +125,7 @@ async function run(tracesFile, name, dir) {
           throw error;
         }
       },
-      compact: m.store.compactProjectDetails,
+      compact: m.store.compactProjectState,
       persistenceChanged: (_key, state) => events.push({ persistence: cleanValue(state?.persistence ?? null) }),
       messages: {
         directory: (key) => key,

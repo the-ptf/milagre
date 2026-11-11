@@ -28,6 +28,7 @@ pub mod brief;
 pub mod changed_files;
 pub mod chat_db;
 pub mod chat_host;
+pub mod chat_summaries;
 pub mod commands;
 pub mod error;
 pub mod handover;

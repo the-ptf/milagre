@@ -97,7 +97,7 @@ async function run(tracesFile, name, dir) {
     states = new m.ProjectStates({
       read: m.store.readProjectState,
       save: m.store.saveProjectState,
-      compact: m.store.compactProjectDetails,
+      compact: m.store.compactProjectState,
       messages: { directory: (key) => key, now: () => Date.now(), active: (_key, id) => Boolean(host?.isBusy(`${dir}#${id}`)) },
     });
     host = new m.ChatHost({

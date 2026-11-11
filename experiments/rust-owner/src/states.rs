@@ -282,6 +282,8 @@ impl ProjectStates {
             }
         };
         let mut state = Self::slim(&owner, state, None);
+        // compactProjectState on a read: every Chat's summary made from its messages (no activity stamped).
+        state = crate::chat_summaries::with_chat_summaries(state, None, self.now);
         // A change that names no Chats loads every one back, so only a read that names them sheds the old ones here.
         if self.timing.lazy && chats.is_some() {
             state = self.shed_old(key, &mut owner, &state);
@@ -443,6 +445,8 @@ impl ProjectStates {
         if let Some(unloaded) = unloaded {
             next.unloaded = unloaded;
         }
+        // compactProjectState: Chat summaries current with the change (a read from disk keeps what it had).
+        next = crate::chat_summaries::with_chat_summaries(next, Some(&state), self.now);
         next = Self::with_persistence(slot.failure.as_ref(), next);
         slot.state = next.clone();
         if persist {
