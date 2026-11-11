@@ -54,7 +54,7 @@ control acknowledgement, without waiting for a JSON-RPC reply.
 Eight fake-CLI bridge tests cover lifecycle, exact manifests, static errors, conflicts and limits.
 Three separate integration tests exercise actual ContentOwner initialize/list/call/schema errors,
 notifications, revocation/shutdown, shared renderer visibility and the escalation 6+2 budget.
-`scripts/test-content-owner.py` builds those against pinned source `d2ac471b` in a temporary snapshot.
+`scripts/test-content-owner.py` builds those against pinned source `1e69dd81` in a temporary snapshot.
 The base crate has no ContentOwner dependency. One attached in-process handler per session is
 supported; multi-handler composition, full host chat/worktree tools, account-specific discovery,
 production owner worker and runtime adapter remain outside this checkpoint.

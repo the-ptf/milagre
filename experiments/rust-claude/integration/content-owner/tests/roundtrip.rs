@@ -7,7 +7,7 @@ use milagre_claude::{
 use milagre_content_store::{Error, SystemRuntime};
 use milagre_owner_store::{Isolation, Policy};
 use milagre_tools::{
-    policy::{HostRole, PolicyOptions, WakeRequest},
+    policy::{PolicyOptions, WakeRequest},
     Caller, ContentOwner, DesignScope, Dispatcher,
 };
 use serde_json::{json, Value};
@@ -148,7 +148,10 @@ async fn initialize_list_call_errors_and_shared_renderer_use_one_owner() {
         ("init", rpc(1, "initialize", json!({"protocolVersion":"2025-03-26","capabilities":{}}))),
         ("notify", json!({"jsonrpc":"2.0","method":"notifications/initialized"})),
         ("list", rpc(2, "tools/list", json!({}))),
-        ("show", rpc(3, "tools/call", json!({"name":"artifact_show","arguments":{"id":"artifact","title":"Shared","html":"<p>one owner</p>"}}))),
+        (
+            "show",
+            rpc(3, "tools/call", json!({"name":"artifact_show","arguments":{"id":"artifact","title":"Shared","html":"<p>one owner</p>"}})),
+        ),
         ("read", rpc(4, "tools/call", json!({"name":"artifact_read","arguments":{"id":"artifact"}}))),
         ("bad-tool", rpc(5, "tools/call", json!({"name":"unavailable","arguments":{}}))),
         ("bad-method", rpc(6, "missing/method", json!({}))),
@@ -237,23 +240,21 @@ async fn host_role_manifest_and_budget_survive_provider_control_transport() {
     let temp = tempfile::tempdir().unwrap();
     let owner = owner(temp.path());
     let stops = Arc::new(AtomicUsize::new(0));
+    let caller = caller(Arc::new(AtomicBool::new(true)));
+    let wake = owner.issue_wake(&caller, vec![WakeRequest { chat_id: "/child#2".into(), request_id: "q1".into() }]).unwrap();
     let dispatcher = Arc::new(
         owner
             .session_with_policy(
-                caller(Arc::new(AtomicBool::new(true))),
-                PolicyOptions {
-                    role: HostRole::Escalation {
-                        wake_id: "fixture-wake".into(),
-                        requests: vec![WakeRequest { chat_id: "/child#2".into(), request_id: "q1".into() }],
-                    },
-                    manifest: None,
-                    on_sealed: Some(Arc::new({
+                caller,
+                PolicyOptions::escalation(
+                    wake.clone(),
+                    Arc::new({
                         let stops = stops.clone();
                         move || {
                             stops.fetch_add(1, Ordering::SeqCst);
                         }
-                    })),
-                },
+                    }),
+                ),
             )
             .unwrap(),
     );
@@ -267,6 +268,7 @@ async fn host_role_manifest_and_budget_survive_provider_control_transport() {
             expect(),
         ]);
     }
+    script.extend([json!({"expect":{"type":"user"}}), send("released", rpc(10, "tools/list", json!({}))), expect()]);
     let mut config = options(temp.path(), script);
     registration.attach(&mut config).unwrap();
     assert!(registration.provider_manifest().iter().all(|t| t.read_only));
@@ -280,6 +282,9 @@ async fn host_role_manifest_and_budget_survive_provider_control_transport() {
     assert_eq!(dispatcher.budget_status().attempts, 9);
     assert!(dispatcher.budget_status().sealed);
     assert_eq!(stops.load(Ordering::SeqCst), 1);
+    wake.release();
+    client.send_user_text("fixture barrier").await.unwrap();
+    assert_eq!(reply(&mut events).await["error"]["code"], -32000);
     assert_eq!(client.close().await.code, Some(0));
     worker.close();
     owner.shutdown();

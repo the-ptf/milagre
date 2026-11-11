@@ -126,7 +126,7 @@ Run the real isolated ContentOwner tests (temporary storage, fake CLI, no provid
 python3 experiments/rust-claude/scripts/test-content-owner.py
 ```
 
-This snapshots `rust-tools`, `rust-content-store` and `rust-owner` from `d2ac471b` into a temporary
+This snapshots `rust-tools`, `rust-content-store` and `rust-owner` from `1e69dd81` into a temporary
 directory and copies this crate beside them. Pass a revision argument to test a later owner.
 The separate `integration/content-owner` workspace keeps owner dependencies out of base builds.
 

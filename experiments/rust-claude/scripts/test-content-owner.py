@@ -11,7 +11,7 @@ import tempfile
 
 crate = Path(__file__).resolve().parents[1]
 repo = crate.parents[1]
-revision = sys.argv[1] if len(sys.argv) > 1 else "d2ac471b"
+revision = sys.argv[1] if len(sys.argv) > 1 else "1e69dd81"
 subprocess.run(["cargo", "build", "--manifest-path", str(crate / "Cargo.toml"), "--bin", "fake-claude"], check=True)
 archive = subprocess.check_output(["git", "archive", revision, "experiments/rust-tools", "experiments/rust-content-store", "experiments/rust-owner"], cwd=repo)
 with tempfile.TemporaryDirectory(prefix="claude-content-owner-") as scratch:
