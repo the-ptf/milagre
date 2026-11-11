@@ -4,6 +4,12 @@ This branch is a Rust desktop-shell migration, not a completed Rust backend migr
 
 The installed Electron app and this client share the daemon through its existing private socket. They must never create concurrent writers for the same Project. This preserves ADR-0003, the SQLite/JSON stores and existing desktop/mobile event contracts. The Rust app currently depends on that daemon already being available. It is not yet a standalone replacement installer.
 
+## Current safety gate (2026-11-11)
+
+Independent review found an open-Project containment regression in0485162c, registry Link/Git identity and pruning gaps, and a non-UTF-8 diagnostic regression in Claude7fd81353. Fixes are assigned. The recorded streaming benchmark is provisional until root identity is pinned/rechecked and the fixed code is remeasured. These experiments must not adopt live stores.
+
+Latest isolated integrations include runtime22893f24 (43 root tests), Claude b04158bc (127 root tests plus8 ContentOwner checks), usage25ebb2e6 (56 root tests), remote ec313600/53c60712 (79 tests plus4 compile-fail checks and5 Node checks), accounts3c431d22 (32 agent tests) and registryf823eac1 (14 agent tests). [MIGRATION-STATUS.md](MIGRATION-STATUS.md) is authoritative for current validation and review gates; historical inventory counts below describe earlier checkpoints. The installed shell and production Node host remain unchanged.
+
 ## What has moved
 
 | Layer                                                                                                               | Current implementation                                                             | Remaining dependency                                                                                                       |
