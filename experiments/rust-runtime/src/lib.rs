@@ -1,5 +1,5 @@
 //! Isolated read/PTY adapters. Optional ProjectStates ownership covers fresh fixture copies only.
-//! No live profile, provider execution, mutation command, or arbitrary Project folder access.
+//! No live profile, provider execution, Project mutation, or arbitrary Project folder access.
 mod artifacts;
 mod copies;
 mod inbox;
@@ -154,6 +154,8 @@ const READ_METHODS: &[&str] = &[
     "chat:message",
     "chat:send-status",
     "chat:inbox",
+    "designs:enabled:read",
+    "designs:enabled:save",
 ];
 // Explicit failure beats a successful-looking empty response. These remain unsupported in the fixture runtime.
 const UNSUPPORTED_MUTATIONS: &[&str] = &[
@@ -201,6 +203,8 @@ impl Handler for ReadHandler {
         if self.artifacts.is_some() {
             methods.extend(artifacts::METHODS.iter().map(|name| (*name).into()));
         }
+        methods.sort();
+        methods.dedup();
         methods
     }
     fn encode_result(&self, result: &Value) -> Result<String, RpcError> {
@@ -237,16 +241,19 @@ impl Handler for ReadHandler {
             .map_err(|error| RpcError::new("INVALID_REQUEST", error))?;
         let args = imported.as_array().expect("array encoded above");
         if artifacts::METHODS.contains(&method) {
-            return self
-                .artifacts
-                .as_ref()
-                .ok_or_else(|| {
-                    RpcError::new(
-                        "UNSUPPORTED_SERVICE",
-                        "Artifacts require verified isolated ownership",
-                    )
-                })?
-                .invoke(method, args.first().unwrap_or(&Value::Null));
+            if let Some(artifacts) = &self.artifacts {
+                return artifacts.invoke(method, args.first().unwrap_or(&Value::Null));
+            }
+            if method != "artifact:apply" {
+                return Err(RpcError::new(
+                    "UNSUPPORTED_SERVICE",
+                    "Artifacts require verified isolated ownership",
+                ));
+            }
+        }
+        if matches!(method, "designs:enabled:read" | "designs:enabled:save") {
+            // Production keeps Designs enabled even when an old client writes the retired switch.
+            return Ok(json!({"enabled":true}));
         }
         if UNSUPPORTED_MUTATIONS.contains(&method) {
             return Err(RpcError::new(

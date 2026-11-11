@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
+const { createDesignKits } = require("../../../packages/core/src/design-kits.cjs");
 const { createChatArtifacts } = require("../../../packages/core/src/chat-artifacts.cjs");
 async function generate() {
   assert.deepEqual(process.argv.slice(2), ["--record"]);
@@ -18,7 +19,14 @@ async function generate() {
     await fs.writeFile(path.join(worktree, "sample.bin"), Buffer.alloc(300 * 1024, 7));
     await fs.writeFile(path.join(worktree, "caption.txt"), "Artifact asset 🦀\n");
     const chatId = "/fixture#1";
-    const api = createChatArtifacts({ directory: store, validateChat: async (id) => assert.equal(id, chatId) });
+    const kits = createDesignKits({
+      directory: path.join(root, "design-kits"),
+      projectForChat: async (id) => {
+        assert.equal(id, chatId);
+        return "/fixture";
+      },
+    });
+    const api = createChatArtifacts({ directory: store, validateChat: async (id) => assert.equal(id, chatId), readKit: (request) => kits.read(request) });
     await api.show({ chatId, id: "report", title: "Fixture report", html: "<main>Saved first version</main>" });
     await api.show(
       {
@@ -50,6 +58,43 @@ async function generate() {
         },
       ],
     });
+    const kit = await kits.save({
+      chatId,
+      expectedVersion: 0,
+      kit: {
+        title: "Milagre fixture kit",
+        colors: { paper: "#ffffff", ink: "#202720", accent: "#a85532" },
+        textStyles: { body: { fontFamily: "Inter", fontSize: 16 } },
+        spacing: { base: 8 },
+        radii: { control: 6 },
+      },
+    });
+    await api.showDesign({
+      chatId,
+      id: "welcome",
+      title: "Fixture welcome",
+      group: "Runtime",
+      document: {
+        schemaVersion: 1,
+        width: 390,
+        height: 320,
+        background: "$paper",
+        kit,
+        consistency: { mode: "strict" },
+        nodes: [{ id: "heading", type: "text", x: 20, y: 20, width: 340, height: 48, text: "Saved Design 🦀", textStyle: "body", fill: "$ink" }],
+      },
+    });
+    // Keep a newer kit snapshot to prove existing Designs retain their pinned immutable version.
+    await kits.save({
+      chatId,
+      expectedVersion: 1,
+      kit: { title: "Newer fixture kit", colors: { ...kit.colors, accent: "#9a4d30" }, textStyles: kit.textStyles, spacing: kit.spacing, radii: kit.radii },
+    });
+    const kitHash = createHash("sha256").update("/fixture").digest("hex");
+    const kitTarget = path.join(__dirname, "design-kits", "alpha");
+    await fs.mkdir(kitTarget, { recursive: true });
+    await fs.copyFile(path.join(root, "design-kits", kitHash, "project.json"), path.join(kitTarget, "project.json.fixture"));
+    await kits.close();
     const hash = createHash("sha256").update(chatId).digest("hex").slice(0, 32);
     const source = path.join(store, hash);
     // Copy only generated saved files. No production directories or arbitrary output argument are accepted.

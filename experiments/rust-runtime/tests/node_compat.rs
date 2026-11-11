@@ -74,3 +74,22 @@ fn production_node_client_reads_only_owned_isolated_artifacts() {
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("conformance passed"));
 }
+
+#[test]
+fn production_node_client_edits_owned_designs_with_native_rendering() {
+    let output = std::process::Command::new("node")
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/design-compat.cjs"
+        ))
+        .arg(env!("CARGO_BIN_EXE_owned-runtime"))
+        .output()
+        .expect("Node is required for saved native Design conformance");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("conformance passed"));
+}

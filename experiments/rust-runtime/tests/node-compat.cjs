@@ -167,7 +167,17 @@ async function run() {
   assert.ok(lastSnapshot === undefined || Array.isArray(lastSnapshot.projects));
 
   stage = "unsupported mutations leave copies byte-identical";
-  for (const method of ["chat:send", "chat:delete", "worktree:create", "project:forget", "scope:retry-save", "command:run", "desktop:invoke", "link:open"]) {
+  for (const method of [
+    "chat:send",
+    "chat:delete",
+    "worktree:create",
+    "project:forget",
+    "scope:retry-save",
+    "command:run",
+    "desktop:invoke",
+    "link:open",
+    "artifact:apply",
+  ]) {
     await assert.rejects(runtime.invoke(method, [alpha, { body: "must not be saved", clientMessageId: "never-sent" }]), {
       code: "UNSUPPORTED_MUTATION",
       message: "The isolated Rust read runtime does not execute mutations or start services",

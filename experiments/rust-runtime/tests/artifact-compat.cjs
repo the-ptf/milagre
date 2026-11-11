@@ -91,6 +91,7 @@ async function scenario(failure) {
       { id: "report" },
       { id: "report", version: 1 },
       { id: "report", format: "html" },
+      { id: "report", fonts: { have: [] } },
       { id: "report", format: "design" },
       { id: "missing" },
       { id: "../report" },
@@ -132,7 +133,7 @@ async function scenario(failure) {
       code: "COMMAND_FAILED",
       message: "Open an existing Chat before showing a design.",
     });
-    await assert.rejects(runtime.invoke("artifact:apply", [{ chatId, id: "report", expectedVersion: 2, operations: [] }]), { code: "UNSUPPORTED_MUTATION" });
+    await assert.rejects(runtime.invoke("artifact:delete", [{ chatId, id: "welcome" }]), { code: "UNSUPPORTED_MUTATION" });
     assert.equal(digestTree(root), sourceDigest, "split saved Artifact reads and rejected mutations preserve every content byte");
     assert.deepEqual(await runtime.invoke("state:read", [project]), beforeState, "Artifact reads leave whole Project state and its content revision unchanged");
     stage = `${failure} permanently stops Artifact reads`;

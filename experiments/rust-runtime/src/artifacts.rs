@@ -1,6 +1,9 @@
-//! Saved Artifact reads only. Legacy reads can migrate files, so every operation requires verified ownership.
+//! Saved Artifact reads and Design edits require verified ownership of isolated copies.
 use crate::ReadBackend;
-use milagre_content_store::{ArtifactStore, Error as ContentError, SystemRuntime};
+use milagre_content_store::{
+    design::{self, DesignKits},
+    ArtifactStore, Error as ContentError, SystemRuntime,
+};
 use milagre_owner_store::{
     jsjson,
     ownership::{OwnerGuard, RustOwnerLock},
@@ -9,6 +12,7 @@ use milagre_owner_store::{
 };
 use milagre_owner_wire::{RpcError, RpcResult};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::Write,
@@ -25,6 +29,7 @@ pub const METHODS: &[&str] = &[
     "artifact:get",
     "artifact:asset",
     "artifact:comments",
+    "artifact:apply",
 ];
 
 struct Authority {
@@ -68,6 +73,7 @@ fn verify_owner(guard: &OwnerGuard) -> Result<(), ContentError> {
 
 pub struct ArtifactService {
     store: Mutex<Option<ArtifactStore>>,
+    kits: Mutex<Option<DesignKits>>,
     authority: Arc<Authority>,
     isolation: Isolation,
     opened: Arc<Mutex<Vec<String>>>,
@@ -108,11 +114,28 @@ impl ArtifactService {
                 .open(file)?
                 .write_all(bytes)?;
         }
+        let kit_directory = isolation
+            .root()
+            .join("design-kits")
+            .join(hex::encode(Sha256::digest(alpha.path.as_bytes())));
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&kit_directory)?;
+        fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(kit_directory.join("project.json"))?
+            .write_all(include_bytes!(
+                "../fixtures/design-kits/alpha/project.json.fixture"
+            ))?;
         let guard = RustOwnerLock
             .acquire(&isolation.root().join("artifact-owner.lock"))
             .map_err(|error| RpcError::new("CONTENT_OWNERSHIP", error.to_string()))?;
         Ok(Self {
             store: Mutex::new(None),
+            kits: Mutex::new(None),
             authority: Arc::new(Authority {
                 guard: Mutex::new(guard),
                 backend,
@@ -158,6 +181,11 @@ impl ArtifactService {
                 "artifact:get" => store.get(request),
                 "artifact:asset" => store.asset(request),
                 "artifact:comments" => store.comments(request),
+                "artifact:apply" => {
+                    let reader = |request: &Value| self.read_kit(request);
+                    let prepared = store.prepare_design_apply(request, &reader)?;
+                    store.commit_design(prepared, &reader, &design::render_html)
+                }
                 _ => {
                     return Err(ContentError::coded(
                         "COMMAND_FAILED",
@@ -173,9 +201,28 @@ impl ArtifactService {
         }
         outcome.map_err(convert)
     }
+    fn read_kit(&self, request: &Value) -> Result<Value, ContentError> {
+        self.authority.check()?;
+        let mut kits = self.kits.lock().unwrap();
+        if kits.is_none() {
+            let backend = self.authority.backend.clone();
+            let opened = self.opened.clone();
+            let authority = self.authority.clone();
+            *kits = Some(DesignKits::open(
+                self.isolation.clone(),
+                Path::new("design-kits"),
+                Arc::new(move |chat| validate_chat(&backend, &opened, chat)),
+                Arc::new(move || authority.check()),
+            )?);
+        }
+        let value = kits.as_mut().unwrap().read(request)?;
+        self.authority.check()?;
+        Ok(value)
+    }
     pub fn shutdown(&self) -> Result<(), RpcError> {
         self.authority.fail();
         self.store.lock().unwrap().take();
+        self.kits.lock().unwrap().take();
         self.authority
             .guard
             .lock()
