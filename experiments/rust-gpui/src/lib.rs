@@ -4,6 +4,7 @@
 
 pub mod chat;
 pub mod chrome;
+pub mod fixtures;
 pub mod panel;
 pub mod sidebar;
 #[cfg(target_os = "macos")]
@@ -13,3 +14,6 @@ pub mod workspace;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod sidebar_tests;
