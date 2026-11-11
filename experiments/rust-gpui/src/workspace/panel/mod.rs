@@ -54,15 +54,22 @@ pub struct Panel {
     active: PanelTab,
     /// Horizontal scroll of the tab list; also used to bring a clicked tab fully into view.
     tabs_scroll: ScrollHandle,
+    /// Every `render`, for the tests that check what a change elsewhere re-renders.
+    renders: usize,
 }
 
 impl Panel {
     pub fn new(_cx: &mut Context<Self>) -> Self {
-        Self { active: PanelTab::Changes, tabs_scroll: ScrollHandle::new() }
+        Self { active: PanelTab::Changes, tabs_scroll: ScrollHandle::new(), renders: 0 }
     }
 
     pub fn active(&self) -> PanelTab {
         self.active
+    }
+
+    /// How many times the panel has rendered.
+    pub fn renders(&self) -> usize {
+        self.renders
     }
 
     pub fn tabs_scroll(&self) -> &ScrollHandle {
@@ -80,6 +87,7 @@ impl Panel {
 
 impl Render for Panel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.renders += 1;
         let theme = cx.theme();
         let tabs = PanelTab::ALL.map(|tab| {
             Tab::new(tab.label(), tab.label())

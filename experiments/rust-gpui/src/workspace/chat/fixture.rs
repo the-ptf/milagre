@@ -1,7 +1,8 @@
 //! Fixture transcript: a long, deterministic history ending in the conversation on the first screen.
 //!
-//! The last six items are the screen the spike is judged on (a user message, its activity, a prose
-//! answer, an edit, an approval waiting on Run the onboarding check, and the running row). Above
+//! The last five items are the screen the spike is judged on (a user message, its activity, a prose
+//! answer, an edit, and an approval waiting on Run the onboarding check; the running row under them is
+//! `ChatView`'s, not an item). Above
 //! them, `history` generates turns from a fixed seed: user messages short and long, activity rows,
 //! tool rows, settled approvals and markdown answers, every fourth one long with lists and code.
 
@@ -52,7 +53,6 @@ pub fn first_screen() -> Vec<Item> {
             command: "npm test -- --only test-onboarding".into(),
             state: ApprovalState::Waiting,
         }),
-        Item::Running("2m 18s".into()),
     ]
 }
 

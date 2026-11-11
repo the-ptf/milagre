@@ -15,8 +15,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, ClickEvent, Context, FontWeight, ListAlignment, ListOffset, ListState, Rgba, SharedString,
-    Window, canvas, div, list, prelude::*, px,
+    AnyElement, ClickEvent, Context, FontWeight, ListAlignment, ListOffset, ListState, Pixels, Rgba, SharedString, Window, canvas, div,
+    list, prelude::*, px,
 };
 
 use crate::theme::{
@@ -29,6 +29,8 @@ use crate::workspace::chat::markdown::{self, Block};
 pub const COLUMN_WIDTH: f32 = 536.0;
 /// Room left under the last item for the floating pills.
 pub const BOTTOM_CLEARANCE: f32 = 48.0;
+/// The gap between the last item and the running row.
+pub const RUNNING_GAP: f32 = 12.0;
 const USER_MAX_WIDTH: f32 = 420.0;
 const MARK_SIZE: f32 = 20.0;
 const MARK_OVERLAP: f32 = 6.0;
@@ -43,7 +45,6 @@ pub enum Item {
     Prose(Vec<Block>),
     Tool(Tool),
     Approval(Approval),
-    Running(SharedString),
 }
 
 /// A folded reply's summary: up to three marks, one line of what happened, and how long it took.
@@ -94,7 +95,9 @@ pub struct Transcript {
     list: ListState,
     /// Every call to `render_item`, for the "only visible items are laid out" check.
     item_renders: Rc<Cell<usize>>,
-    animate_running: bool,
+    /// Room kept under the last item for the running row, which `ChatView` draws over the list's bottom
+    /// edge as a view of its own (`running.rs`).
+    footer: Pixels,
     probe: Option<Probe>,
 }
 
@@ -118,9 +121,16 @@ impl Transcript {
 
     pub fn with_items(items: Vec<Item>, _cx: &mut Context<Self>) -> Self {
         let list = ListState::new(items.len(), ListAlignment::Bottom, px(OVERDRAW));
-        // The running mark breathes in the app. The headless test platform keeps it still so a
-        // test can count item renders without an animation frame re-rendering the list.
-        Self { items, list, item_renders: Rc::new(Cell::new(0)), animate_running: !cfg!(test), probe: None }
+        Self { items, list, item_renders: Rc::new(Cell::new(0)), footer: px(0.0), probe: None }
+    }
+
+    /// Keeps room for the running row under the last item (or gives it back when the turn ends).
+    pub fn set_running_row(&mut self, shown: bool, cx: &mut Context<Self>) {
+        let footer = if shown { px(RUNNING_GAP) + CONTROL_XS } else { px(0.0) };
+        if self.footer != footer {
+            self.footer = footer;
+            cx.notify();
+        }
     }
 
     pub fn items(&self) -> &[Item] {
@@ -172,7 +182,6 @@ impl Transcript {
             Item::Prose(blocks) => markdown::render(blocks, ix, &theme).into_any_element(),
             Item::Tool(tool) => tool_row(tool, &theme).into_any_element(),
             Item::Approval(approval) => self.approval(ix, approval, &theme, cx).into_any_element(),
-            Item::Running(elapsed) => running_row(elapsed.clone(), self.animate_running, &theme).into_any_element(),
         };
         div()
             .debug_selector(move || format!("transcript-item-{ix}"))
@@ -269,7 +278,7 @@ impl Render for Transcript {
         let frame = self.probe.as_mut().map(|probe| probe.frame(&self.item_renders));
         div()
             .size_full()
-            .child(list(self.list.clone(), cx.processor(Self::render_item)).size_full().pt(px(16.0)).pb(px(BOTTOM_CLEARANCE)))
+            .child(list(self.list.clone(), cx.processor(Self::render_item)).size_full().pt(px(16.0)).pb(px(BOTTOM_CLEARANCE) + self.footer))
             .children(frame.map(|frame| {
                 // Zero-size and last: its paint runs after every item of this frame has painted.
                 canvas(|_, _, _| {}, move |_, _, _, _| frame.painted()).absolute().size(px(0.0))
@@ -285,7 +294,6 @@ fn top_gap(previous: Option<&Item>, item: &Item) -> f32 {
         Item::Prose(_) => 8.0,
         Item::Tool(_) | Item::Approval(_) if stacked(previous) => 0.0,
         Item::Tool(_) | Item::Approval(_) => 8.0,
-        Item::Running(_) => 12.0,
     }
 }
 
@@ -362,28 +370,6 @@ fn count(text: String, color: Rgba) -> impl IntoElement {
     div().flex_none().text_step(TEXT_12).font_weight(FontWeight::MEDIUM).text_color(color).child(text)
 }
 
-fn running_row(elapsed: SharedString, animate: bool, theme: &Theme) -> impl IntoElement + use<> {
-    let mark = div().flex_none().size(px(10.0)).rounded_full().border_2().border_color(theme.ink3);
-    let mark = if animate {
-        mark.with_animation(
-            "running-mark",
-            Animation::new(Duration::from_millis(1600)).repeat().with_easing(gpui::pulsating_between(0.35, 1.0)),
-            |mark, delta| mark.opacity(delta),
-        )
-        .into_any_element()
-    } else {
-        mark.into_any_element()
-    };
-    div()
-        .debug_selector(|| "running-row".into())
-        .flex()
-        .items_center()
-        .gap_2()
-        .h(CONTROL_XS)
-        .child(div().flex().flex_none().items_center().justify_center().size(px(16.0)).child(mark))
-        .child(div().text_step(TEXT_12).text_color(theme.ink3).child(elapsed))
-}
-
 /// What a tool row or an activity mark stands for. Each kind draws the desktop's glyph
 /// (`agents/ActivitySource.tsx`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -417,7 +403,7 @@ fn ms(duration: Duration) -> f64 {
 ///
 /// Script, timed from the transcript's creation, all inside snapshot mode's 1.5 s (which then quits
 /// the app): append one item at the bottom (+400 ms); count frames and item renders over 500 ms of
-/// idle with the running mark animating (+500 ms); jump 300 items up into history that was never
+/// idle while the running mark animates outside the list (+500 ms); jump 300 items up into history that was never
 /// measured (+1,050 ms); scroll 120 px further up, as one wheel step would (+1,150 ms).
 struct Probe {
     created: Instant,
@@ -448,7 +434,7 @@ impl Probe {
             this.update(cx, |this, _| {
                 let (renders, frames) = counters(this);
                 eprintln!(
-                    "timing: idle 500 ms, running mark animating: {} transcript frames, {} item renders",
+                    "timing: idle 500 ms, running mark animating outside the list: {} transcript frames, {} item renders",
                     frames - before.1,
                     renders - before.0
                 );

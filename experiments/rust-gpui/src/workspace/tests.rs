@@ -113,3 +113,89 @@ fn headers_move_and_zoom_the_window_but_their_controls_do_not(cx: &mut TestAppCo
     double_click(cx, tab);
     assert!(chrome_calls().is_empty(), "a double-click on a tab does not");
 }
+
+/// What one keystroke and one animation frame of the running mark re-render: only the views on their
+/// path to the root, never the transcript's items, the sidebar's rows or the panel (all cached).
+#[gpui::test]
+fn a_keystroke_or_a_running_frame_repaints_only_its_own_path(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    let (sidebar, chat, panel) = workspace.read_with(cx, |w, _| (w.sidebar.clone(), w.chat.clone(), w.panel.clone()));
+    let (transcript, running) = chat.read_with(cx, |c, _| (c.transcript.clone(), c.running.clone().expect("the fixture Chat runs")));
+    // The first key switches GPUI to keyboard input, which refreshes every view once: do it first.
+    cx.simulate_input("a");
+    let counts = |cx: &mut gpui::VisualTestContext| {
+        (
+            transcript.read_with(cx, |t, _| t.item_renders()),
+            sidebar.read_with(cx, |s, _| s.rows_built()),
+            panel.read_with(cx, |p, _| p.renders()),
+            running.read_with(cx, |r, _| r.renders()),
+        )
+    };
+    let before = counts(cx);
+    cx.simulate_input("bc");
+    assert_eq!(counts(cx), before, "typing re-renders no item, no row, not the panel, not the running row");
+
+    running.update(cx, |_, cx| cx.notify()); // what each animation frame does
+    cx.run_until_parked();
+    let (items, rows, panel_renders, running_renders) = counts(cx);
+    assert_eq!((items, rows, panel_renders), (before.0, before.1, before.2), "a running frame repaints none of them");
+    assert_eq!(running_renders, before.3 + 1, "only the running row itself");
+}
+
+/// GPUI's caching rules this layout relies on (gpui-pre 0.3.12, `view.rs`): a dirty cached view
+/// re-renders its whole subtree, cached views inside it included; a plain view does not. If an upgrade
+/// changes this, the structure in `workspace/mod.rs` can be revisited.
+#[gpui::test]
+fn a_dirty_cached_view_rebuilds_the_cached_views_inside_it(cx: &mut TestAppContext) {
+    use gpui::{AnyView, Context, Entity, StyleRefinement, Window, div, prelude::*};
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    struct Leaf(Rc<Cell<usize>>);
+    impl Render for Leaf {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            self.0.set(self.0.get() + 1);
+            div().size_full()
+        }
+    }
+    struct Outer {
+        leaf: Entity<Leaf>,
+        cache_self: bool,
+    }
+    impl Render for Outer {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(AnyView::from(self.leaf.clone()).cached(StyleRefinement::default().size_full()))
+        }
+    }
+    struct Root(Entity<Outer>);
+    impl Render for Root {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let outer = AnyView::from(self.0.clone());
+            let cached = self.0.read(cx).cache_self;
+            div().size_full().child(if cached {
+                outer.cached(StyleRefinement::default().size_full()).into_any_element()
+            } else {
+                outer.into_any_element()
+            })
+        }
+    }
+
+    for cache_outer in [false, true] {
+        let renders = Rc::new(Cell::new(0));
+        testing::init(cx);
+        let (root, window) = cx.add_window_view({
+            let renders = renders.clone();
+            move |_, cx| {
+                let leaf = cx.new(|_| Leaf(renders));
+                Root(cx.new(|_| Outer { leaf, cache_self: cache_outer }))
+            }
+        });
+        window.run_until_parked();
+        let outer = root.read_with(window, |r, _| r.0.clone());
+        let before = renders.get();
+        outer.update(window, |_, cx| cx.notify());
+        window.run_until_parked();
+        let rebuilt = renders.get() - before;
+        assert_eq!(rebuilt, usize::from(cache_outer), "outer cached: {cache_outer}; the cached leaf rebuilt {rebuilt} times");
+    }
+}
