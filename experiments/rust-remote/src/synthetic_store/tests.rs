@@ -313,6 +313,7 @@ fn process_child() {
             poisoned: false,
             write_attempted: false,
             fail_next: None,
+            partial_write: None,
             last: None,
         };
         assert_eq!(w.diagnostics().fault, Some(StoreFault::WrongProcess));
@@ -344,6 +345,7 @@ fn process_child() {
             poisoned: false,
             write_attempted: false,
             fail_next: None,
+            partial_write: None,
             last: Some(prior),
         };
         if mode.starts_with("worker-authority-") {
@@ -360,6 +362,25 @@ fn process_child() {
         }
         state.revision += 1;
         state.running = false;
+        if mode == "worker-txn-empty" || mode == "worker-txn-partial" {
+            if mode == "worker-txn-partial" {
+                writer.partial_write = Some(19);
+            }
+            assert!(writer
+                .commit_at(
+                    &state,
+                    if mode == "worker-txn-empty" {
+                        Some(IoStage::WriteTransaction)
+                    } else {
+                        None
+                    }
+                )
+                .is_err());
+            println!("INTERRUPTED");
+            std::io::stdout().flush().unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            return;
+        }
         if mode == "worker-ambiguous" {
             assert!(writer
                 .commit_at(&state, Some(IoStage::SyncDirectory))
@@ -689,5 +710,144 @@ fn every_commit_attempt_and_poisoned_ledger_forbid_prewrite_restoration() {
     let w = p.acquire_writer().unwrap();
     assert_eq!(w.diagnostics().fault, Some(StoreFault::DirtyRun));
     drop(w);
+    p.destroy().unwrap();
+}
+struct JoinedChild(std::process::Child);
+impl Drop for JoinedChild {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+fn both_locks_are_held(root: &File) {
+    let fresh_root = File::from(fs::openat(root, ".", DIR_FLAGS, Mode::empty()).unwrap());
+    let fresh_file = File::from(fs::openat(root, LOCK, FILE_FLAGS, Mode::empty()).unwrap());
+    for fd in [&fresh_root, &fresh_file] {
+        assert_eq!(
+            fs::flock(fd, FlockOperation::NonBlockingLockExclusive),
+            Err(rustix::io::Errno::WOULDBLOCK)
+        );
+    }
+}
+#[test]
+fn killed_worker_empty_and_partial_transactions_are_deleted_only_under_both_locks() {
+    use crate::persistent::{OpenedAuthority, PersistentAuthority};
+    let _disk_test = testing_lock();
+    for mode in ["worker-txn-empty", "worker-txn-partial"] {
+        let mut p = profile();
+        {
+            let mut ledger = p.core.ledger();
+            ledger.attempt += 1;
+            ledger.active = true;
+        }
+        let mut worker = JoinedChild(child(&p, &p.core.root, mode));
+        let mut reader = std::io::BufReader::new(worker.0.stdout.take().unwrap());
+        let mut line = String::new();
+        loop {
+            line.clear();
+            assert!(reader.read_line(&mut line).unwrap() > 0);
+            if line.trim() == "INTERRUPTED" {
+                break;
+            }
+        }
+        assert!(matches!(p.acquire_writer(), Err(StoreFault::Busy)));
+        both_locks_are_held(&p.core.root);
+        worker.0.kill().unwrap();
+        worker.0.wait().unwrap();
+        {
+            let mut ledger = p.core.ledger();
+            ledger.active = false;
+            ledger.ack = None;
+            assert!(ledger.transaction.is_none());
+        }
+        let metadata = fs::statat(&p.core.root, TXN, AtFlags::SYMLINK_NOFOLLOW).unwrap();
+        assert_eq!(
+            metadata.st_size,
+            if mode == "worker-txn-empty" { 0 } else { 19 }
+        );
+        let guard = match PersistentAuthority::resume(
+            p.acquire_writer().unwrap(),
+            Default::default(),
+            &mut OsRng,
+        ) {
+            OpenedAuthority::Quarantined(q) => q,
+            _ => panic!("interrupted write must quarantine"),
+        };
+        assert_eq!(guard.diagnostics().fault, Some(StoreFault::UnexpectedEntry));
+        assert!(matches!(p.destroy(), Err(StoreFault::Busy)));
+        guard.release();
+        let before = saved(&p);
+        // Stop just after deletion-only adoption/unlink; snapshot remains untouched.
+        assert!(p.destroy_at(Some(0)).is_err());
+        assert_eq!(saved(&p), before);
+        assert!(matches!(p.acquire_writer(), Err(StoreFault::DirtyRun)));
+        both_locks_are_held(&p.core.root);
+        assert!(fs::statat(&p.core.root, TXN, AtFlags::SYMLINK_NOFOLLOW).is_err());
+        p.destroy().unwrap();
+    }
+}
+#[test]
+fn cleanup_refuses_unknown_entries_hardlinks_symlinks_modes_and_recorded_substitution() {
+    use std::os::unix::fs::PermissionsExt;
+    let _disk_test = testing_lock();
+    for case in 0..5 {
+        let mut p = profile();
+        let before = saved(&p);
+        let held = match case {
+            0 => {
+                drop(new_file(&p.core.root, TXN).unwrap());
+                Some(new_file(&p.core.root, "unowned").unwrap())
+            }
+            1 => {
+                fs::linkat(&p.core.root, SNAPSHOT, &p.core.root, TXN, AtFlags::empty()).unwrap();
+                None
+            }
+            2 => {
+                fs::symlinkat(SNAPSHOT, &p.core.root, TXN).unwrap();
+                None
+            }
+            3 => {
+                let f = new_file(&p.core.root, TXN).unwrap();
+                f.set_permissions(std::fs::Permissions::from_mode(0o644))
+                    .unwrap();
+                Some(f)
+            }
+            _ => {
+                let original = new_file(&p.core.root, TXN).unwrap();
+                p.core.ledger().transaction = Some(Identity::of(&stat(&original).unwrap()));
+                fs::unlinkat(&p.core.root, TXN, AtFlags::empty()).unwrap();
+                drop(new_file(&p.core.root, TXN).unwrap());
+                Some(original)
+            }
+        };
+        assert!(p.destroy().is_err());
+        assert_eq!(saved(&p), before);
+        assert!(fs::statat(&p.core.root, TXN, AtFlags::SYMLINK_NOFOLLOW).is_ok());
+        both_locks_are_held(&p.core.root);
+        fs::unlinkat(&p.core.root, TXN, AtFlags::empty()).unwrap();
+        if case == 0 {
+            assert!(fs::statat(&p.core.root, "unowned", AtFlags::SYMLINK_NOFOLLOW).is_ok());
+            fs::unlinkat(&p.core.root, "unowned", AtFlags::empty()).unwrap();
+        }
+        drop(held);
+        p.destroy().unwrap();
+    }
+}
+#[test]
+fn cleanup_rechecks_pinned_transaction_descriptor_before_unlink() {
+    let _disk_test = testing_lock();
+    let mut p = profile();
+    let before = saved(&p);
+    drop(new_file(&p.core.root, TXN).unwrap());
+    p.before_destroy_unlink = Some(|root| {
+        fs::renameat(root, TXN, root, "displaced").unwrap();
+        drop(new_file(root, TXN).unwrap());
+    });
+    assert_eq!(p.destroy().err(), Some(StoreFault::IdentityChanged));
+    assert_eq!(saved(&p), before);
+    both_locks_are_held(&p.core.root);
+    assert!(fs::statat(&p.core.root, "displaced", AtFlags::SYMLINK_NOFOLLOW).is_ok());
+    fs::unlinkat(&p.core.root, TXN, AtFlags::empty()).unwrap();
+    fs::renameat(&p.core.root, "displaced", &p.core.root, TXN).unwrap();
     p.destroy().unwrap();
 }

@@ -229,6 +229,8 @@ pub struct SyntheticProfile {
     cleanup: Option<Locks>,
     deleted: u8,
     directory_unlinked: bool,
+    #[cfg(test)]
+    before_destroy_unlink: Option<fn(&File)>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StoreDiagnostics {
@@ -341,6 +343,8 @@ pub struct WriterLease {
     write_attempted: bool,
     #[cfg(test)]
     pub(crate) fail_next: Option<IoStage>,
+    #[cfg(test)]
+    partial_write: Option<usize>,
     last: Option<Stamp>,
 }
 impl SyntheticProfile {
@@ -446,6 +450,8 @@ impl SyntheticProfile {
             cleanup: None,
             deleted: 0,
             directory_unlinked: false,
+            #[cfg(test)]
+            before_destroy_unlink: None,
         })
     }
     pub fn acquire_writer(&mut self) -> Result<WriterLease> {
@@ -476,6 +482,8 @@ impl SyntheticProfile {
             write_attempted: false,
             #[cfg(test)]
             fail_next: None,
+            #[cfg(test)]
+            partial_write: None,
             last: prior,
         })
     }
@@ -560,14 +568,69 @@ impl SyntheticProfile {
             let m = fs::statat(&locks.root, known, AtFlags::SYMLINK_NOFOLLOW)
                 .map_err(|e| io(IoStage::Validate, e))?;
             check(&m, false)?;
-            if known == TXN && Some(Identity::of(&m)) != self.core.ledger().transaction {
+            let file = File::from(
+                fs::openat(
+                    &locks.root,
+                    known,
+                    FILE_FLAGS | OFlags::NONBLOCK,
+                    Mode::empty(),
+                )
+                .map_err(|e| io(IoStage::Validate, e))?,
+            );
+            let held = stat(&file)?;
+            check(&held, false)?;
+            let id = Identity::of(&held);
+            if id != Identity::of(&m) {
+                return Err(StoreFault::IdentityChanged);
+            }
+            if known == TXN
+                && self
+                    .core
+                    .ledger()
+                    .transaction
+                    .is_some_and(|expected| expected != id)
+            {
                 return Err(StoreFault::UnexpectedEntry);
             }
-            names.push(known);
+            names.push((known, file, id));
         }
-        // Validate everything before deleting anything; never follow paths or recurse.
+        // Adopt only the reserved transaction entry in this fresh private namespace,
+        // after the entire inventory passed. This is deletion authority, never replay.
+        if let Some((_, _, id)) = names.iter().find(|(name, _, _)| *name == TXN) {
+            self.core.ledger().transaction = Some(*id);
+        }
+        #[cfg(test)]
+        if let Some(hook) = self.before_destroy_unlink.take() {
+            hook(&locks.root);
+        }
+        // Keep descriptors pinned through unlink and revalidate each spelling.
         for (i, name) in [TXN, SNAPSHOT, MARKER, LOCK].into_iter().enumerate() {
-            if names.contains(&name) {
+            if let Some((_, file, id)) = names.iter().find(|(n, _, _)| *n == name) {
+                self.core.pid()?;
+                let parent = fs::statat(
+                    &self.core.parent,
+                    &self.core.name,
+                    AtFlags::SYMLINK_NOFOLLOW,
+                )
+                .map_err(|e| io(IoStage::Validate, e))?;
+                if Identity::of(&parent) != self.core.root_id {
+                    return Err(StoreFault::IdentityChanged);
+                }
+                let root = stat(&locks.root)?;
+                check(&root, true)?;
+                if Identity::of(&root) != self.core.root_id
+                    || Identity::of(&stat(&locks._file)?) != self.core.lock_id
+                {
+                    return Err(StoreFault::IdentityChanged);
+                }
+                let held = stat(file)?;
+                check(&held, false)?;
+                let entry = fs::statat(&locks.root, name, AtFlags::SYMLINK_NOFOLLOW)
+                    .map_err(|e| io(IoStage::Validate, e))?;
+                check(&entry, false)?;
+                if Identity::of(&held) != *id || Identity::of(&entry) != *id {
+                    return Err(StoreFault::IdentityChanged);
+                }
                 fs::unlinkat(&locks.root, name, AtFlags::empty())
                     .map_err(|e| io(IoStage::Unlink, e))?;
                 self.deleted |= 1 << i;
@@ -814,6 +877,16 @@ impl WriterLease {
         let mut transaction = new_file(&locks.root, TXN)?;
         self.core.ledger().transaction = Some(Identity::of(&stat(&transaction)?));
         stop(IoStage::WriteTransaction)?;
+        #[cfg(test)]
+        if let Some(n) = self.partial_write {
+            transaction
+                .write_all(&bytes[..n.min(bytes.len())])
+                .map_err(|e| io(IoStage::WriteTransaction, e))?;
+            return Err(StoreFault::Io {
+                stage: IoStage::WriteTransaction,
+                kind: std::io::ErrorKind::StorageFull,
+            });
+        }
         transaction
             .write_all(&bytes)
             .map_err(|e| io(IoStage::WriteTransaction, e))?;
