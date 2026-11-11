@@ -120,9 +120,10 @@ fn settings_nav_switches_between_simple_sections_and_placeholders(cx: &mut TestA
     assert!(cx.debug_bounds("settings-section-accounts").is_some());
     assert!(cx.debug_bounds("settings-placeholder-WP-42").is_none());
 
-    // MCP is a WP-43 placeholder.
+    // MCP is a WP-43 page.
     click(cx, "settings-nav-mcp");
-    assert!(cx.debug_bounds("settings-placeholder-WP-43").is_some());
+    assert!(cx.debug_bounds("settings-section-mcp").is_some());
+    assert!(cx.debug_bounds("settings-placeholder-WP-43").is_none());
 
     // Simple sections draw their full bodies.
     for (nav_sel, sec_sel, expected) in [

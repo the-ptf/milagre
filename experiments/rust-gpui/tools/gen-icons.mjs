@@ -181,6 +181,10 @@ const ICONS = [
   // ArrowDown01, ArrowRight01, ArrowLeft01, AlertCircle and CheckmarkCircle02 are in other blocks.
   "RamMemory",
   "HardDrive",
+  // WP-43 MCP, Milagre MCP, skills and integrations (McpServerRow, BabysitPrsSettings)
+  "FolderGit",
+  "Message01",
+  "Upload01",
 ];
 
 /** The stroke written into every icon file; `src/assets` replaces it for the 12px (1.6) and 18px (2) sizes. */
