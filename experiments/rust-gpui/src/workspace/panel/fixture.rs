@@ -18,11 +18,11 @@ pub struct ChatContent {
 }
 
 impl ChatContent {
-    /// Whether the Chat has something for `tab`. Changes and Browser are always there (the
-    /// desktop's toggles are); Designs, Artifacts and the PR tab exist only once the Chat has one.
+    /// Whether the Chat has something for `tab`. Changes is always there (the
+    /// desktop's toggle is); Designs, Artifacts and the PR tab exist only once the Chat has one.
     pub fn has(&self, tab: PanelTab) -> bool {
         match tab {
-            PanelTab::Changes | PanelTab::Browser => true,
+            PanelTab::Changes => true,
             PanelTab::Designs => self.designs,
             PanelTab::Artifact => self.artifacts,
             PanelTab::Pr => self.pr.is_some(),

@@ -12,9 +12,9 @@ fn clicking_a_panel_tab_makes_it_active(cx: &mut TestAppContext) {
     let panel = workspace.read_with(cx, |workspace, _| workspace.panel.clone());
     assert_eq!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Changes);
 
-    let browser = cx.debug_bounds("panel-tab-Browser").expect("the Browser tab is drawn");
-    cx.simulate_click(browser.center(), Modifiers::none());
-    assert_eq!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Browser);
+    let designs = cx.debug_bounds("panel-tab-Designs").expect("the Designs tab is drawn");
+    cx.simulate_click(designs.center(), Modifiers::none());
+    assert_eq!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Designs);
 
     // At the Changes panel's 320px the tab list scrolls: bring the end of it into view, then click Artifact.
     panel.read_with(cx, |panel, _| {
@@ -116,7 +116,7 @@ fn headers_move_and_zoom_the_window_but_their_controls_do_not(cx: &mut TestAppCo
 
     double_click(cx, point(px(700.0), px(22.0)));
     assert_eq!(chrome_calls(), ["double-click"], "a double-click on the Chat header zooms");
-    let tab = cx.debug_bounds("panel-tab-Browser").expect("the Browser tab is drawn").center();
+    let tab = cx.debug_bounds("panel-tab-Changes").expect("the Changes tab is drawn").center();
     double_click(cx, tab);
     assert!(chrome_calls().is_empty(), "a double-click on a tab does not");
 }

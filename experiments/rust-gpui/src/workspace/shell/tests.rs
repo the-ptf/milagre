@@ -56,7 +56,6 @@ fn the_corner_toggles_show_and_hide_panels(cx: &mut TestAppContext) {
     let items = workspace.read_with(cx, |w, cx| w.corner_items(cx));
     assert_eq!(items.first().map(|i| i.corner), Some(Corner::Terminal));
     assert_eq!(items.last().map(|i| i.corner), Some(Corner::Tab(PanelTab::Changes)), "Changes is rightmost");
-    assert!(items.iter().all(|i| i.corner != Corner::Tab(PanelTab::Browser)), "the Browser panel is not migrated");
     // The fixture opens on Changes: its toggle is pressed, 12px from the Chat column's right edge.
     assert!(items.last().unwrap().pressed);
     let changes = cx.debug_bounds("toggle-changes").expect("the Changes toggle is drawn");
@@ -80,7 +79,7 @@ fn the_corner_toggles_show_and_hide_panels(cx: &mut TestAppContext) {
 
 #[test]
 fn corner_items_follow_the_desktop_order() {
-    let tabs = [PanelTab::Changes, PanelTab::Browser, PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr];
+    let tabs = [PanelTab::Changes, PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr];
     let items = top_bar::corner_items(&tabs, Some(PanelTab::Designs), true);
     let order: Vec<Corner> = items.iter().map(|i| i.corner).collect();
     assert_eq!(

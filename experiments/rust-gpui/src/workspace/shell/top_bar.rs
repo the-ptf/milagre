@@ -10,7 +10,7 @@
 //! The corner (`PanelToggles.tsx`): Terminals, Artifacts, Designs, the pull request and Changes, right to left from
 //! 12px in, 40px apart, each pressed while its panel shows. Design A keeps the panel's own tab strip, so the corner
 //! is the Chat column's top-right rather than the window's; the Chat header ends short of it
-//! ([`chat_trailing_inset`]). The Browser toggle is left out (not migrated); Simulators has no panel here yet.
+//! ([`chat_trailing_inset`]).
 
 use std::rc::Rc;
 
@@ -171,7 +171,6 @@ impl Corner {
             Corner::Tab(PanelTab::Designs) => "toggle-designs",
             Corner::Tab(PanelTab::Pr) => "toggle-pr",
             Corner::Tab(PanelTab::Changes) => "toggle-changes",
-            Corner::Tab(PanelTab::Browser) => "toggle-browser",
             Corner::Tab(PanelTab::Simulator) => "toggle-simulator",
         }
     }
@@ -191,7 +190,6 @@ impl Corner {
             Corner::Tab(PanelTab::Designs) => "designs",
             Corner::Tab(PanelTab::Pr) => return "Pull request".into(),
             Corner::Tab(PanelTab::Changes) => "Changes",
-            Corner::Tab(PanelTab::Browser) => "Browser panel",
             Corner::Tab(PanelTab::Simulator) => "simulator",
         };
         format!("{} {name}", if pressed { "Hide" } else { "Show" }).into()
@@ -203,7 +201,6 @@ impl Corner {
             Corner::Tab(PanelTab::Artifact) => Some("artifacts.toggle"),
             Corner::Tab(PanelTab::Designs) => Some("designs.toggle"),
             Corner::Tab(PanelTab::Changes) => Some("changes.toggle"),
-            Corner::Tab(PanelTab::Browser) => Some("browser.toggle"),
             Corner::Tab(PanelTab::Simulator) => Some("simulator.toggle"),
             Corner::Tab(PanelTab::Pr) => None,
         }

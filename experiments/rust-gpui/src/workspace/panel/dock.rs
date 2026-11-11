@@ -39,7 +39,6 @@ impl PanelTab {
     pub fn width_rule(self) -> WidthRule {
         match self {
             PanelTab::Changes | PanelTab::Pr => WidthRule { min: 280.0, default: 320.0, max: 640.0 },
-            PanelTab::Browser => WidthRule { min: 360.0, default: 440.0, max: 1400.0 },
             PanelTab::Designs | PanelTab::Artifact => WidthRule { min: 440.0, default: 560.0, max: 1400.0 },
             PanelTab::Simulator => WidthRule { min: 320.0, default: 400.0, max: 800.0 },
         }
@@ -54,11 +53,10 @@ impl PanelTab {
     }
 }
 
-actions!(milagre_gpui_panel, [ToggleChanges, ToggleTerminal, ToggleBrowser, ToggleDesigns, ToggleArtifacts, ToggleSimulator]);
+actions!(milagre_gpui_panel, [ToggleChanges, ToggleTerminal, ToggleDesigns, ToggleArtifacts, ToggleSimulator]);
 
 /// The commands bound here. `terminal.toggle` shows the Terminals drawer (`panel/terminal/`), not a panel tab.
-const COMMANDS: [&str; 6] =
-    ["changes.toggle", "terminal.toggle", "browser.toggle", "designs.toggle", "artifacts.toggle", "simulator.toggle"];
+const COMMANDS: [&str; 5] = ["changes.toggle", "terminal.toggle", "designs.toggle", "artifacts.toggle", "simulator.toggle"];
 
 /// Binds the panel's commands from the effective key table (`default_keybindings`), once per app.
 pub fn install_keys(cx: &mut App) {
@@ -78,7 +76,6 @@ pub fn install_keys(cx: &mut App) {
             Some(match binding.command.as_str() {
                 "changes.toggle" => KeyBinding::new(stroke, ToggleChanges, context),
                 "terminal.toggle" => KeyBinding::new(stroke, ToggleTerminal, context),
-                "browser.toggle" => KeyBinding::new(stroke, ToggleBrowser, context),
                 "designs.toggle" => KeyBinding::new(stroke, ToggleDesigns, context),
                 "artifacts.toggle" => KeyBinding::new(stroke, ToggleArtifacts, context),
                 "simulator.toggle" => KeyBinding::new(stroke, ToggleSimulator, context),
@@ -96,15 +93,10 @@ pub fn on_actions<E: InteractiveElement>(element: E, panel: &Entity<Panel>) -> E
         let panel = panel.clone();
         move |cx: &mut App| panel.update(cx, |panel, cx| panel.toggle_tab(tab, cx))
     };
-    let (changes, browser, designs, artifacts) = (
-        toggle(panel, PanelTab::Changes),
-        toggle(panel, PanelTab::Browser),
-        toggle(panel, PanelTab::Designs),
-        toggle(panel, PanelTab::Artifact),
-    );
+    let (changes, designs, artifacts) =
+        (toggle(panel, PanelTab::Changes), toggle(panel, PanelTab::Designs), toggle(panel, PanelTab::Artifact));
     element
         .on_action(move |_: &ToggleChanges, _, cx| changes(cx))
-        .on_action(move |_: &ToggleBrowser, _, cx| browser(cx))
         .on_action(move |_: &ToggleDesigns, _, cx| designs(cx))
         .on_action(move |_: &ToggleArtifacts, _, cx| artifacts(cx))
         .on_action({
@@ -123,9 +115,15 @@ pub fn on_actions<E: InteractiveElement>(element: E, panel: &Entity<Panel>) -> E
 /// The columns right of the sidebar: the Chat, and the panel beside it when open. Open, they are one
 /// `h_resizable` group (the panel's left edge drags); expanded, the panel takes the whole width; closed, the Chat.
 pub fn layout(panel: &Entity<Panel>, chat: impl IntoElement + 'static, cx: &mut App) -> AnyElement {
+    let slide = super::slide::track(panel, cx);
     let (open, expanded, tab, width, state) = {
         let p = panel.read(cx);
         (p.is_open(), p.is_expanded(), p.active(), p.width(), p.resizable().clone())
+    };
+    // A closing panel stays laid out under its cover until the slide is done (`slide.rs`).
+    let (open, tab, width) = match slide.held {
+        Some((tab, width)) => (true, tab, width),
+        None => (open, tab, width),
     };
     let body = |panel: &Entity<Panel>| AnyView::from(panel.clone()).cached(StyleRefinement::default().size_full());
     if !open {
@@ -178,7 +176,13 @@ pub fn layout(panel: &Entity<Panel>, chat: impl IntoElement + 'static, cx: &mut 
                 .with_state(&state)
                 .on_resize(on_resize)
                 .child(resizable_panel().size_range(px(MIN_CHAT_WIDTH)..Pixels::MAX).child(chat))
-                .child(resizable_panel().size(px(width)).size_range(px(rule.min)..px(rule.max)).fixed().child(body(panel))),
+                .child(
+                    resizable_panel()
+                        .size(px(width))
+                        .size_range(px(rule.min)..px(rule.max))
+                        .fixed()
+                        .child(div().relative().size_full().child(body(panel)).children(slide.cover)),
+                ),
         )
         .into_any_element()
 }

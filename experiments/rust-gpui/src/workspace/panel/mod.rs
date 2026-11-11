@@ -5,12 +5,11 @@
 //!   the sidebar ([`Panel::set_chat`], driven by the Workspace) brings back that Chat's, and shows only the tabs the
 //!   Chat has content for (`fixture::ChatContent::has`).
 //! - Widths are per panel kind and last the session (`dock.rs`, the desktop's `panel-width.ts`).
-//! - Every body is its own view mounted cached with a fixed size: the Changes tab is [`ChangesView`], the rest are
-//!   [`body::TabPlaceholder`]s. The panel itself holds no state a body changes, so typing in the composer or a
+//! - Every body is its own view mounted cached with a fixed size ([`ChangesView`], the PR, Designs, Artifact and
+//!   Simulator views). The panel itself holds no state a body changes, so typing in the composer or a
 //!   transcript animation re-renders none of them.
 
 pub mod artifacts;
-pub mod body;
 pub mod changes;
 pub mod designs;
 pub mod diff;
@@ -18,6 +17,7 @@ pub mod dock;
 pub mod fixture;
 pub mod pr;
 pub mod simulator;
+pub mod slide;
 pub mod terminal;
 
 #[cfg(test)]
@@ -34,7 +34,6 @@ use gpui::{
 use gpui_component::resizable::ResizableState;
 
 use self::artifacts::ArtifactsView;
-use self::body::TabPlaceholder;
 use self::changes::ChangesView;
 use self::designs::DesignsView;
 use self::fixture::ChatContent;
@@ -51,7 +50,6 @@ pub const PANEL_WIDTH: f32 = 320.0;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PanelTab {
     Changes,
-    Browser,
     Designs,
     Artifact,
     Pr,
@@ -61,12 +59,11 @@ pub enum PanelTab {
 
 impl PanelTab {
     /// Terminals live in the drawer under the Chat (`panel/terminal/`), as on the desktop.
-    pub const ALL: [PanelTab; 5] = [PanelTab::Changes, PanelTab::Browser, PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr];
+    pub const ALL: [PanelTab; 4] = [PanelTab::Changes, PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr];
 
     pub fn label(self) -> &'static str {
         match self {
             PanelTab::Changes => "Changes",
-            PanelTab::Browser => "Browser",
             PanelTab::Designs => "Designs",
             PanelTab::Artifact => "Artifact",
             PanelTab::Pr => "PR",
@@ -78,7 +75,6 @@ impl PanelTab {
     pub fn icon(self) -> IconName {
         match self {
             PanelTab::Changes => IconName::FileDiff,
-            PanelTab::Browser => IconName::Globe02,
             PanelTab::Designs => IconName::PaintBoard,
             PanelTab::Artifact => IconName::File01,
             PanelTab::Pr => IconName::GitPullRequest,
@@ -127,7 +123,6 @@ pub struct Panel {
     designs: Entity<DesignsView>,
     pr: Entity<PrView>,
     simulator: Entity<SimulatorView>,
-    placeholders: HashMap<PanelTab, Entity<TabPlaceholder>>,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
     renders: usize,
 }
@@ -161,11 +156,6 @@ impl Panel {
             SimulatorEvent::Attached(count) => panel.set_simulator_attached(count > 0, cx),
         })
         .detach();
-        let placeholders = PanelTab::ALL
-            .into_iter()
-            .filter(|tab| !matches!(tab, PanelTab::Changes | PanelTab::Pr))
-            .map(|tab| (tab, cx.new(|_| TabPlaceholder::new(tab))))
-            .collect();
         let mut panel = Self {
             chat,
             seeded,
@@ -182,7 +172,6 @@ impl Panel {
             pr,
             designs: cx.new(DesignsView::new),
             simulator,
-            placeholders,
             renders: 0,
         };
         panel.load_simulator(cx);
@@ -317,7 +306,6 @@ impl Panel {
             PanelTab::Designs => Some(self.designs.clone().into()),
             PanelTab::Pr => Some(self.pr.clone().into()),
             PanelTab::Simulator => Some(self.simulator.clone().into()),
-            other => self.placeholders.get(&other).map(|view| view.clone().into()),
         }
     }
 

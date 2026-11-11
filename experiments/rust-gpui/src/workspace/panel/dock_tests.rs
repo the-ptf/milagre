@@ -38,8 +38,6 @@ fn drag_edge(cx: &mut gpui::VisualTestContext, to_x: gpui::Pixels) {
 fn width_rules_are_the_desktops() {
     let changes = PanelTab::Changes.width_rule();
     assert_eq!((changes.min, changes.default, changes.max), (280.0, 320.0, 640.0));
-    let browser = PanelTab::Browser.width_rule();
-    assert_eq!((browser.min, browser.default, browser.max), (360.0, 440.0, 1400.0));
     let designs = PanelTab::Designs.width_rule();
     assert_eq!((designs.min, designs.default, designs.max), (440.0, 560.0, 1400.0));
     assert_eq!(PanelTab::Artifact.width_rule(), designs);
@@ -132,11 +130,11 @@ fn the_desktops_shortcuts_show_and_hide_the_panel(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("shift-cmd-d");
     settle(cx);
     assert_eq!(state(cx), (true, PanelTab::Changes), "and shows it again");
-    cx.simulate_keystrokes("shift-cmd-b");
+    cx.simulate_keystrokes("shift-cmd-e");
     settle(cx);
-    assert_eq!(state(cx), (true, PanelTab::Browser), "browser.toggle switches to Browser");
-    assert_eq!(panel_left(cx), window_width(cx) - px(440.0), "at Browser's own default width");
-    cx.simulate_keystrokes("shift-cmd-b");
+    assert_eq!(state(cx), (true, PanelTab::Designs), "designs.toggle switches to Designs");
+    assert_eq!(panel_left(cx), window_width(cx) - px(560.0), "at Designs' own default width");
+    cx.simulate_keystrokes("shift-cmd-e");
     settle(cx);
     assert!(!state(cx).0);
 }
@@ -147,10 +145,10 @@ fn each_chat_keeps_its_tab_and_the_panel_comes_back_to_it(cx: &mut TestAppContex
     let (workspace, cx) = mount(cx);
     let (sidebar, panel) = workspace.read_with(cx, |w, _| (w.sidebar.clone(), w.panel.clone()));
     let first = panel.read_with(cx, |p, _| p.chat().to_string());
-    let browser = cx.debug_bounds("panel-tab-Browser").expect("Browser").center();
-    cx.simulate_click(browser, Modifiers::none());
+    let designs = cx.debug_bounds("panel-tab-Designs").expect("Designs").center();
+    cx.simulate_click(designs, Modifiers::none());
     settle(cx);
-    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Browser);
+    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Designs);
     let row = cx.debug_bounds("chat-row-7").expect("row 7");
     cx.simulate_click(row.center(), Modifiers::none());
     settle(cx);
@@ -161,7 +159,7 @@ fn each_chat_keeps_its_tab_and_the_panel_comes_back_to_it(cx: &mut TestAppContex
     cx.simulate_click(row.center(), Modifiers::none());
     settle(cx);
     assert_eq!(panel.read_with(cx, |p, _| p.chat().to_string()), first);
-    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Browser, "the first Chat's tab is restored");
+    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Designs, "the first Chat's tab is restored");
     assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), Some(6));
 }
 
@@ -170,7 +168,7 @@ fn each_chat_keeps_its_tab_and_the_panel_comes_back_to_it(cx: &mut TestAppContex
 fn tabs_without_content_are_hidden(cx: &mut TestAppContext) {
     let (workspace, cx) = mount(cx);
     let (sidebar, panel) = workspace.read_with(cx, |w, _| (w.sidebar.clone(), w.panel.clone()));
-    assert_eq!(panel.read_with(cx, |p, _| p.visible_tabs().len()), 5, "the Chat on screen has everything");
+    assert_eq!(panel.read_with(cx, |p, _| p.visible_tabs().len()), 4, "the Chat on screen has everything");
     let seeded = panel.read_with(cx, |p, _| p.chat().to_string());
     // Find a visible row whose Chat has fewer than six tabs.
     let mut found = None;
@@ -188,8 +186,7 @@ fn tabs_without_content_are_hidden(cx: &mut TestAppContext) {
     settle(cx);
     assert!(cx.debug_bounds("panel-tab-Designs").is_none(), "Designs is hidden");
     assert!(cx.debug_bounds("panel-tab-Changes").is_some());
-    assert!(cx.debug_bounds("panel-tab-Browser").is_some());
-    assert!(panel.read_with(cx, |p, _| p.visible_tabs().len()) < 5);
+    assert!(panel.read_with(cx, |p, _| p.visible_tabs().len()) < 4);
 }
 
 /// Typing in the composer re-renders the root, the sidebar and the Chat column, never the panel nor any tab body.
