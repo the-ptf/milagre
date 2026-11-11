@@ -265,14 +265,6 @@ impl Engine {
             return Ok(true);
         }
         let scope = event_scope(&channel, &payload);
-        if payload["stateTooLarge"] == true {
-            return Err(Error::StateTooLarge {
-                hydration: scope.map(|scope| Hydration {
-                    scope,
-                    method: "project:read".into(),
-                }),
-            });
-        }
         let bytes = event.to_string().len();
         self.notices.push(
             Notice::Event {
@@ -284,6 +276,30 @@ impl Engine {
             bytes,
         )?;
         Ok(true)
+    }
+    /// One bounded read per worker iteration; all failures are terminal for events.
+    pub(crate) fn hydrate(&mut self) -> Result<()> {
+        let Some(batch) = self.notices.hydration() else {
+            return Ok(());
+        };
+        if batch.scope.as_deref() != Some(&self.authority.project) {
+            return Err(Error::StateTooLarge {
+                hydration: batch.scope.map(|scope| Hydration {
+                    scope,
+                    method: "project:read".into(),
+                }),
+            });
+        }
+        let mut body = self.request(
+            "project:read",
+            json!([self.authority.project, {"state":true}]),
+            batch.expires,
+        )?;
+        if body["path"].as_str() != Some(&self.authority.project) || !body["state"].is_object() {
+            return Err(protocol("invalid Project hydration result"));
+        }
+        let state = body.as_object_mut().unwrap().remove("state").unwrap();
+        self.notices.hydrated(batch, state)
     }
     pub(crate) fn snapshot(&mut self, expires: Instant) -> Result<RuntimeSnapshot> {
         self.notices.hold();
@@ -418,9 +434,12 @@ fn event_scope(channel: &str, payload: &Value) -> Option<String> {
             .as_str()
             .map(|id| format!("milagre-link:{id}"));
     }
-    payload["chatId"].as_str().map(|id| {
-        id.rsplit_once('#')
-            .map_or(id, |(scope, _)| scope)
-            .to_owned()
-    })
+    payload["chatId"]
+        .as_str()
+        .map(|id| {
+            id.rsplit_once('#')
+                .map_or(id, |(scope, _)| scope)
+                .to_owned()
+        })
+        .or_else(|| payload["projectPath"].as_str().map(str::to_owned))
 }

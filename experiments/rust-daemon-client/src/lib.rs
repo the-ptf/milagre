@@ -3,7 +3,8 @@
 //! [`FixtureGuard::launch`] owns the fixed sibling `app-fixture` on macOS and is
 //! the only public source of endpoint authority. There is no arbitrary path or
 //! socket constructor. The launcher and protocol have isolated real-daemon and
-//! Unix-pair tests. Oversized event hydration and app adoption remain separate.
+//! Unix-pair tests, including bounded oversized Project-state hydration. App adoption
+//! remains separate.
 #![cfg(unix)]
 
 mod client;
@@ -86,6 +87,7 @@ pub enum Notice {
         wire_seq: u64,
         scope: Option<String>,
         channel: String,
+        /// Oversized state is a current deferred read, not historical at `wire_seq`.
         payload: Value,
     },
     Closed(Error),

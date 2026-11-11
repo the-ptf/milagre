@@ -53,6 +53,23 @@ pub struct Client {
     handle: Arc<Handle>,
 }
 
+// Always seal notices and the socket, including unwinding after a caller waker panics.
+// Normal errors close first; Queue::close preserves that first cause.
+struct WorkerExit {
+    notices: Arc<Queue>,
+    stop: Arc<AtomicBool>,
+    socket: Arc<Mutex<Option<UnixStream>>>,
+}
+impl Drop for WorkerExit {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(socket) = self.socket.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            let _ = socket.shutdown(Shutdown::Both);
+        }
+        self.notices.close(Error::Disconnected);
+    }
+}
+
 struct Permit(Arc<AtomicUsize>);
 impl Drop for Permit {
     fn drop(&mut self) {
@@ -103,6 +120,11 @@ impl Client {
         thread::Builder::new()
             .name("milagre-daemon-client".into())
             .spawn(move || {
+                let _exit = WorkerExit {
+                    notices: notices.clone(),
+                    stop: stop.clone(),
+                    socket: socket.clone(),
+                };
                 let result = (endpoint.authority.connect)().and_then(|stream| {
                     *socket.lock().unwrap_or_else(|p| p.into_inner()) =
                         Some(stream.try_clone().map_err(|_| Error::Disconnected)?);
@@ -148,9 +170,7 @@ impl Client {
                     drop(permit);
                     reject(kind, reason.clone());
                 }
-                if let Some(socket) = socket.lock().unwrap_or_else(|p| p.into_inner()).take() {
-                    let _ = socket.shutdown(Shutdown::Both);
-                }
+                // WorkerExit closes the socket without a tail-expression mutex guard.
                 // Engine retains exact authority until the socket worker has stopped.
             })
             .map_err(|_| protocol("could not start the client I/O thread"))?;
@@ -299,6 +319,11 @@ fn run(engine: &mut Engine, receiver: &mpsc::Receiver<Job>, stop: &AtomicBool) -
     loop {
         if stop.load(Ordering::Acquire) {
             return Error::Disconnected;
+        }
+        // One batch, then one caller operation, so even a sustained event stream
+        // cannot starve a queued explicit snapshot or its acknowledgment.
+        if let Err(error) = engine.hydrate() {
+            return error;
         }
         match receiver.try_recv() {
             Ok(job) => {

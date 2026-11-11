@@ -512,25 +512,6 @@ fn held_notification_overflow_is_terminal_and_visible() {
 }
 
 #[test]
-fn oversized_state_event_reports_required_hydration_and_closes() {
-    let (guard, worker) = server(|peer| {
-        let _request = peer.request("chat:runs");
-        peer.send(json!({"v":1,"event":{"seq":1,"channel":"project:state","payload":{"path":PROJECT,"stateTooLarge":true}}}));
-        peer.closed();
-    });
-    let (client, _, mut events) = connect(&guard);
-    let expected = Error::StateTooLarge {
-        hydration: Some(Hydration {
-            scope: PROJECT.into(),
-            method: "project:read".into(),
-        }),
-    };
-    assert_eq!(block_on(client.chat_runs()), Err(expected.clone()));
-    assert_eq!(block_on(events.next()), Some(Notice::Closed(expected)));
-    worker.join().unwrap();
-}
-
-#[test]
 fn invalid_pages_fail_closed_and_never_return_a_partial_body() {
     for malformed in [
         json!({"pageId":1,"pageCount":0}),
@@ -990,3 +971,5 @@ fn an_old_accepted_receipt_cannot_release_a_new_capture_hold() {
     client.disconnect();
     worker.join().unwrap();
 }
+
+mod hydration;

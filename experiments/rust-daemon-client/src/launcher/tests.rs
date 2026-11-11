@@ -1,6 +1,6 @@
 use super::*;
-use crate::{ChatPageOptions, Client, ClientOptions};
-use futures::executor::block_on;
+use crate::{ChatPageOptions, Client, ClientOptions, Notice};
+use futures::{executor::block_on, FutureExt};
 use std::{
     collections::VecDeque,
     os::unix::{fs::symlink, net::UnixListener, process::ExitStatusExt},
@@ -413,9 +413,10 @@ fn owned_fixture_end_to_end() {
             })
         ));
         fs::set_permissions(&info.socket, fs::Permissions::from_mode(0o600)).unwrap();
-        let (client, hello, _events) = Client::connect(guard.endpoint(), ClientOptions::default())
-            .await
-            .unwrap();
+        let (client, hello, mut events) =
+            Client::connect(guard.endpoint(), ClientOptions::default())
+                .await
+                .unwrap();
         assert_eq!(hello.owner["pid"], info.pid);
         assert_eq!(client.project_current().await.unwrap()["path"], project);
         client.open_view(&project).await.unwrap();
@@ -444,9 +445,39 @@ fn owned_fixture_end_to_end() {
         let initial = client.runtime_snapshot().await.unwrap();
         client.accept_snapshot(&initial).await.unwrap();
         client.accept_snapshot(&initial).await.unwrap();
+        seed_scripted(&guard);
+        let mut live_terminal_events = 0;
+        let mut live_hydrated_events = 0;
+        let mut last_wire_seq = initial.event_seq;
+        let until = Instant::now() + Duration::from_secs(10);
+        while live_terminal_events < 3 {
+            assert!(Instant::now() < until, "live hydration did not finish");
+            match events.next().now_or_never() {
+                Some(Some(Notice::Event {
+                    wire_seq,
+                    channel,
+                    payload,
+                    ..
+                })) => {
+                    assert!(wire_seq > last_wire_seq);
+                    last_wire_seq = wire_seq;
+                    assert_ne!(payload["stateTooLarge"], true);
+                    // This body could not have arrived whole in a 4,096-byte frame.
+                    if payload["state"].is_object() && payload["state"].to_string().len() > 4096 {
+                        live_hydrated_events += 1;
+                    }
+                    if channel == "agent:event" && payload["event"]["type"] == "turn-completed" {
+                        assert!(payload["state"].is_object());
+                        live_terminal_events += 1;
+                    }
+                }
+                Some(other) => panic!("live hydration closed unexpectedly: {other:?}"),
+                None => thread::sleep(Duration::from_millis(10)),
+            }
+        }
+        assert!(live_hydrated_events > 0);
         client.disconnect();
         drop(client);
-        seed_scripted(&guard);
         let (client, hello, _events) = Client::connect(guard.endpoint(), ClientOptions::default())
             .await
             .unwrap();
@@ -521,7 +552,7 @@ fn owned_fixture_end_to_end() {
         wait_removed(&info);
         println!(
             "OWNED_FIXTURE_EVIDENCE {}",
-            json!({"pid":info.pid,"profile":info.profile,"socket":info.socket,"launchRoot":info.launch_root,"reads":6,"scriptedSends":3,"messages":6,"resultBytes":messages.to_string().len(),"snapshotBytes":snapshot.body.to_string().len(),"eventSeq":snapshot.event_seq,"stopAcknowledged":cleanup.stop_acknowledged,"exitCode":cleanup.exit_code,"profileRemoved":cleanup.profile_removed,"socketRemoved":cleanup.socket_removed,"launchRootRemoved":cleanup.launch_storage_removed})
+            json!({"pid":info.pid,"profile":info.profile,"socket":info.socket,"launchRoot":info.launch_root,"reads":6,"scriptedSends":3,"liveTerminalEvents":live_terminal_events,"liveHydratedEvents":live_hydrated_events,"messages":6,"resultBytes":messages.to_string().len(),"snapshotBytes":snapshot.body.to_string().len(),"eventSeq":snapshot.event_seq,"stopAcknowledged":cleanup.stop_acknowledged,"exitCode":cleanup.exit_code,"profileRemoved":cleanup.profile_removed,"socketRemoved":cleanup.socket_removed,"launchRootRemoved":cleanup.launch_storage_removed})
         );
         drop(client);
         drop(guard);
