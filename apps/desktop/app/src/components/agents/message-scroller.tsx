@@ -95,6 +95,17 @@ export const TRANSCRIPT_SHOWN_EVENT = "milagre:transcript-shown";
  */
 export const TRANSCRIPT_END_EVENT = "milagre:transcript-end";
 
+/** A nested output/table owns the gesture while it can scroll, or when it prevents scroll chaining. */
+function scrollsInside(target: EventTarget | null, viewport: HTMLElement, direction: number) {
+  for (let node = target instanceof Element ? target : null; node && node !== viewport; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    if (!/(auto|scroll)/.test(style.overflowY)) continue;
+    if (style.overscrollBehaviorY !== "auto") return true;
+    if (direction < 0 ? node.scrollTop > 0 : node.scrollTop + node.clientHeight < node.scrollHeight - 1) return true;
+  }
+  return false;
+}
+
 export function MessageScroller({
   followOutput = true,
   followThreshold = 56,
@@ -121,6 +132,11 @@ export function MessageScroller({
   const contentRef = useRef<HTMLDivElement>(null);
   const followingRef = useRef(followOutput);
   const programmaticScrollRef = useRef(false);
+  // User intent wins even inside the follow threshold. Layout/anchor events cannot resume it.
+  const readingRef = useRef(false);
+  const inputDirectionRef = useRef(0);
+  const previousTopRef = useRef(0);
+  const touchYRef = useRef<number | undefined>(undefined);
   const scrollTimerRef = useRef<number | undefined>(undefined);
   const scrollSettleFrameRef = useRef<number | undefined>(undefined);
   const railFrameRef = useRef<number | undefined>(undefined);
@@ -142,6 +158,7 @@ export function MessageScroller({
     onScroll: onViewportScroll,
     onWheel: onViewportWheel,
     onTouchStart: onViewportTouchStart,
+    onTouchMove: onViewportTouchMove,
     onKeyDown: onViewportKeyDown,
     ...restViewportProps
   } = viewportProps ?? {};
@@ -161,6 +178,7 @@ export function MessageScroller({
 
   const setFollowing = useCallback(
     (next: boolean) => {
+      if (next) readingRef.current = false;
       if (followingRef.current === next) return;
       followingRef.current = next;
       onFollowChange?.(next);
@@ -336,6 +354,8 @@ export function MessageScroller({
   const handleScroll = useCallback(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
+    const previousTop = previousTopRef.current;
+    previousTopRef.current = viewport.scrollTop;
     // The active item follows every scroll, including the ones that chase streamed output.
     scheduleActiveRailItem();
     updateJumpToBottom();
@@ -346,12 +366,32 @@ export function MessageScroller({
       if (distance <= 1) programmaticScrollRef.current = false;
       return;
     }
+    if (readingRef.current) {
+      // Only a downward gesture reaching the actual end resumes following, not growth within 56px of it.
+      if (inputDirectionRef.current > 0 && viewport.scrollTop > previousTop && distance <= 1) setFollowing(true);
+      return;
+    }
     setFollowing(distance <= followThreshold);
   }, [followThreshold, scheduleActiveRailItem, setFollowing, updateJumpToBottom]);
 
-  const leaveLiveEdge = useCallback(() => {
-    programmaticScrollRef.current = false;
-  }, []);
+  const manualScroll = useCallback(
+    (direction: number, target: EventTarget | null) => {
+      const viewport = viewportRef.current;
+      if (!viewport || !direction || scrollsInside(target, viewport, direction)) return;
+      inputDirectionRef.current = direction;
+      if (direction < 0) {
+        readingRef.current = true;
+        setFollowing(false);
+      }
+      const wasProgrammatic = programmaticScrollRef.current;
+      programmaticScrollRef.current = false;
+      if (scrollTimerRef.current) window.clearTimeout(scrollTimerRef.current);
+      if (scrollSettleFrameRef.current) cancelAnimationFrame(scrollSettleFrameRef.current);
+      // Cancel a smooth jump before the browser applies this wheel/key/touch gesture.
+      if (wasProgrammatic) viewport.scrollTo({ top: viewport.scrollTop, behavior: "instant" });
+    },
+    [setFollowing],
+  );
 
   // A parked transcript put back in the document (ChatComposer's TranscriptSlots) with messages whose size
   // contain-intrinsic-size never learned measures every message once more.
@@ -547,16 +587,35 @@ export function MessageScroller({
         onViewportScroll?.(event);
       }}
       onWheel={(event) => {
-        leaveLiveEdge();
         onViewportWheel?.(event);
+        if (!event.defaultPrevented && !event.ctrlKey && Math.abs(event.deltaY) > Math.abs(event.deltaX)) manualScroll(event.deltaY, event.target);
       }}
       onTouchStart={(event) => {
-        leaveLiveEdge();
+        touchYRef.current = event.touches[0]?.clientY;
         onViewportTouchStart?.(event);
       }}
+      onTouchMove={(event) => {
+        onViewportTouchMove?.(event);
+        const y = event.touches[0]?.clientY;
+        if (!event.defaultPrevented && y !== undefined && touchYRef.current !== undefined) manualScroll(touchYRef.current - y, event.target);
+        touchYRef.current = y;
+      }}
       onKeyDown={(event) => {
-        if (["ArrowUp", "PageUp", "Home"].includes(event.key)) leaveLiveEdge();
         onViewportKeyDown?.(event);
+        if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+        // Space activates controls; arrows edit fields. Neither is transcript navigation.
+        if (
+          event.target instanceof Element &&
+          event.target.closest('input, textarea, select, button, a[href], [contenteditable="true"], [role="textbox"], [role="slider"]')
+        )
+          return;
+        const direction =
+          ["ArrowUp", "PageUp", "Home"].includes(event.key) || (event.key === " " && event.shiftKey)
+            ? -1
+            : ["ArrowDown", "PageDown", "End", " "].includes(event.key)
+              ? 1
+              : 0;
+        manualScroll(direction, event.target);
       }}
       className={`h-full min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain focus-visible:-outline-offset-2 [overflow-anchor:none] ${navigation === "rail" ? "message-scroller-viewport [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" : "[scrollbar-gutter:stable]"} ${viewportClassName}`}
     >

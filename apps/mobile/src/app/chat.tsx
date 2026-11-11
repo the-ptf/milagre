@@ -2375,6 +2375,8 @@ function ChatPane({
                   onScrollBeginDrag={() => {
                     dragging.current = true;
                     scrollingToBottom.current = false;
+                    // Pause before the first scroll event: a small drag must not compete with streamed growth.
+                    following.current = false;
                   }}
                   onScrollEndDrag={() => {
                     dragging.current = false;
@@ -2404,7 +2406,9 @@ function ChatPane({
                       scrollToBottom(false);
                       return;
                     }
-                    following.current = distance < 120;
+                    // Once the reader takes over, stay paused inside the old 120px threshold too. Only moving
+                    // down to the actual end (or Go to bottom) resumes following; anchor/layout events don't.
+                    following.current = following.current ? distance < 120 : e.contentOffset.y > previous && distance <= 1;
                     if (placed && e.contentOffset.y < previous && e.contentOffset.y <= 160 && !(historyState.key === scrollKey && historyState.error))
                       void showEarlier();
                   }}
