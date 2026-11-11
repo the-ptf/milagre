@@ -624,13 +624,23 @@ impl Registry {
         now: u64,
         consume: impl FnOnce(&[u8]) -> crate::Result<()>,
     ) -> Result<bool> {
+        self.take_output_owned(h, now, |bytes, _lease| consume(&bytes))
+    }
+    /// Internal mailbox transfer: ciphertext and its existing lease move together.
+    pub(crate) fn take_output_owned(
+        &mut self,
+        h: &Handle,
+        now: u64,
+        consume: impl FnOnce(Vec<u8>, Reservation) -> crate::Result<()>,
+    ) -> Result<bool> {
         let a = self.active(h, now)?;
         let Some(buffer) = a.outbound.pop_front() else {
             return Ok(false);
         };
         a.outbound_bytes -= buffer.bytes.len();
-        let result = a.session.with_access(|| consume(&buffer.bytes));
-        drop(buffer);
+        let result = a
+            .session
+            .with_access(|| consume(buffer.bytes, buffer._lease));
         match result {
             Ok(()) => Ok(true),
             Err(e) => {
@@ -840,29 +850,38 @@ impl Registry {
         http: &crate::http_dispatch::MemoryHttp,
         now: u64,
     ) -> Result<(crate::http_dispatch::DispatchRecord, Vec<WorkToken>)> {
+        // Owner misuse of a spent fake is not a protocol failure on this carrier.
+        let exchange = http.prepare_exchange()?;
         let limits = self.limits;
         let a = self.work(t, now)?;
+        let request = a.jobs[&t.id].request.request();
+        let bounds = exchange.bounds(request)?;
+        if bounds.parts > limits.outbound_frames.saturating_sub(a.outbound.len())
+            || bounds.wire > limits.outbound_bytes.saturating_sub(a.outbound_bytes)
+        {
+            return Err(Error::Budget.into());
+        }
+        // Pre-invocation failures leave both work and fake outcome available for retry.
+        let mut reserved = a.budget().reserve(bounds.total)?;
+        let plan = crate::http_dispatch::prepare(request)?;
+        let invoked = a.session.with_access(|| exchange.exchange(t.id, &plan));
+        drop(plan);
         let result = (|| {
-            let (wire, parts) = http.output_bound()?;
-            if parts > limits.outbound_frames.saturating_sub(a.outbound.len())
-                || wire > limits.outbound_bytes.saturating_sub(a.outbound_bytes)
-            {
-                return Err(Error::Budget);
-            }
-            let request = a.jobs[&t.id].request.request();
-            let metadata = request.path.len()
-                + request
-                    .headers
-                    .iter()
-                    .map(|(k, v)| k.len() + v.len() + 128)
-                    .sum::<usize>();
-            let _scratch = a.budget().reserve(wire * 2 + metadata * 3 + 4096)?;
-            let (response, record) = a.session.with_access(|| {
-                let plan = crate::http_dispatch::prepare(request)?;
-                http.exchange(t.id, &plan)
-            })?;
+            let (response, record) = invoked?;
             for frame in crate::phone::response_parts(&response)? {
-                a.push(&frame, limits, true)?;
+                let length = frame.len().checked_add(25).ok_or(Error::TooLarge)?;
+                if a.outbound.len() >= limits.outbound_frames
+                    || length > limits.outbound_bytes.saturating_sub(a.outbound_bytes)
+                {
+                    return Err(Error::TooLarge);
+                }
+                let lease = reserved.split(length + 512)?;
+                let bytes = a.session.seal_encoded(&frame)?;
+                a.outbound_bytes += bytes.len();
+                a.outbound.push_back(Bytes {
+                    bytes,
+                    _lease: lease,
+                });
             }
             a.remove_job(t.id, WorkStatus::Completed);
             let started = a.promote(now, limits)?;

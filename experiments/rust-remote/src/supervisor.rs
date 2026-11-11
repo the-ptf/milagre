@@ -180,12 +180,7 @@ impl MemoryCarrier {
         m.packets.clear();
         m.bytes = 0;
     }
-    fn deliver(
-        &self,
-        bytes: &[u8],
-        budget: &ConnectionBudget,
-        limits: Limits,
-    ) -> crate::Result<()> {
+    fn deliver(&self, bytes: Vec<u8>, lease: Reservation, limits: Limits) -> crate::Result<()> {
         let mut m = self.0.lock().unwrap_or_else(|e| e.into_inner());
         if m.closed {
             return Err(crate::Error::Unauthorized);
@@ -195,7 +190,6 @@ impl MemoryCarrier {
         {
             return Err(crate::Error::Budget);
         }
-        let lease = budget.reserve(bytes.len() + 256)?;
         m.attempts = m.attempts.saturating_add(1);
         if m.unknown_next {
             m.unknown_next = false;
@@ -203,7 +197,7 @@ impl MemoryCarrier {
         }
         m.bytes += bytes.len();
         m.packets.push_back(Packet {
-            bytes: bytes.to_vec(),
+            bytes,
             _lease: lease,
         });
         Ok(())
@@ -724,7 +718,6 @@ fn make_authority(
 struct Carrier {
     handle: Handle,
     memory: MemoryCarrier,
-    budget: Option<ConnectionBudget>,
 }
 struct Pending {
     ticket: Ticket,
@@ -871,14 +864,15 @@ impl Actor {
             .collect();
         for h in handles {
             let c = &self.carriers[&h.carrier()];
-            let budget = c.budget.as_ref().unwrap();
             loop {
                 if self.shared.stop.load(Ordering::SeqCst) != 0 {
                     break;
                 }
-                let result = self.registry.take_output(&h, self.clock.now(), |bytes| {
-                    c.memory.deliver(bytes, budget, self.shared.limits)
-                });
+                let result =
+                    self.registry
+                        .take_output_owned(&h, self.clock.now(), |bytes, lease| {
+                            c.memory.deliver(bytes, lease, self.shared.limits)
+                        });
                 if !matches!(result, Ok(true)) {
                     if result.is_err() {
                         failed.push(h.clone());
@@ -901,7 +895,6 @@ impl Actor {
             let session = self
                 .authority
                 .complete(ticket.take().unwrap(), || self.clock.now())?;
-            let budget = session.budget();
             let access = session.access();
             self.registry.establish(h, session, self.clock.now())?;
             let carrier = self.carriers.get_mut(&h.carrier()).unwrap();
@@ -911,7 +904,6 @@ impl Actor {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .access = Some(access);
-            carrier.budget = Some(budget);
             Ok(())
         })();
         if result.is_err() {
@@ -999,7 +991,6 @@ impl Actor {
                     Carrier {
                         handle: h.clone(),
                         memory: carrier,
-                        budget: None,
                     },
                 );
                 return Ok(Reply::Attached(h));
@@ -1686,5 +1677,56 @@ mod tests {
             })
             .unwrap();
         assert!(!c.0.queues.lock().unwrap().work_ready);
+    }
+    #[test]
+    fn prepaid_ciphertext_moves_to_mailbox_without_a_second_budget_charge() {
+        let (mut actor, c, clock, _) = fixture(Limits::default());
+        clock.advance_to(1).unwrap();
+        actor.execute(Command::OpenPairing).unwrap();
+        let (h, memory) = attach_direct(&mut actor, 1);
+        let (hello, pending) = synthetic_hello(2, DeviceKind::Phone);
+        actor
+            .execute(Command::Hello {
+                handle: h.clone(),
+                source: Source::Relay,
+                bytes: hello,
+            })
+            .unwrap();
+        let mut phone = pending.finish(&memory.receive().unwrap()).unwrap();
+        let request = crate::phone::Request {
+            id: 1,
+            method: crate::phone::Method::GET,
+            path: "/rpc".into(),
+            headers: Default::default(),
+            body: vec![],
+        };
+        let frame = crate::phone::request_parts(&request)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let work = actor
+            .registry
+            .receive_request(&h, &phone.seal_encoded(&frame).unwrap(), 1)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let http =
+            crate::http_dispatch::MemoryHttp::new(crate::http_dispatch::Outcome::Timeout).unwrap();
+        actor.registry.dispatch_synthetic(&work, &http, 1).unwrap();
+        let held = actor
+            .shared
+            .global
+            .connection(256 * 1024 * 1024)
+            .unwrap()
+            .reserve(256 * 1024 * 1024 - c.retained_bytes())
+            .unwrap();
+        assert!(actor.flush().is_empty());
+        let bytes = phone.open_encoded(&memory.receive().unwrap()).unwrap();
+        let response: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(response["status"], 504);
+        assert_eq!(http.calls(), 1);
+        drop(held);
+        drop(actor);
+        assert_eq!(c.retained_bytes(), 0);
     }
 }

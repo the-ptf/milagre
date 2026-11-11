@@ -1101,8 +1101,8 @@ fn dispatch_promotes_queued_work_and_budget_failure_precedes_invocation() {
         .wait(WAIT)
         .is_err());
     assert_eq!(http.calls(), 0);
-    assert_eq!(second.status(), WorkStatus::Cancelled);
-    assert!(m.is_closed());
+    assert_eq!(second.status(), WorkStatus::InFlight);
+    assert!(!m.is_closed());
     drop(s);
     assert_eq!(c.retained_bytes(), 0);
 }
@@ -1153,16 +1153,28 @@ fn synthetic_http_outcome_is_one_shot_even_for_distinct_work_tokens() {
             http: http.clone(),
         },
     );
-    work(&c, &h, &mut ch, 2);
+    let (other, memory, mut other_ch) = phone(&c, 2, 3);
+    work(&c, &other, &mut other_ch, 2);
     let second = next_work(&c);
     assert!(c
         .submit(Command::DispatchSynthetic {
-            token: second,
+            token: second.clone(),
             http: http.clone()
         })
         .unwrap()
         .wait(WAIT)
         .is_err());
     assert_eq!(http.calls(), 1);
+    assert_eq!(other.status(), CarrierStatus::Active);
+    assert_eq!(second.status(), WorkStatus::InFlight);
+    assert!(!memory.is_closed());
+    run(
+        &c,
+        Command::DispatchSynthetic {
+            token: second,
+            http: http_reply(vec![]),
+        },
+    );
+    assert!(memory.receive().is_some());
     drop(s);
 }

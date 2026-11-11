@@ -583,3 +583,55 @@ fn pending_carrier_flood_evicts_oldest_pending_and_preserves_established_phones(
     r.establish(&h, known, 1).unwrap();
     assert_eq!(h.status(), CarrierStatus::Active);
 }
+
+#[test]
+fn synthetic_dispatch_reserves_exact_connection_threshold_before_invoking() {
+    use milagre_remote::http_dispatch::{MemoryHttp, Outcome};
+    let mut a = authority();
+    let mut r = registry(Default::default());
+    let (h, mut ch, budget, _) = install(&mut r, &mut a, 1, 2, DeviceKind::Phone, 0);
+    let token = request(&mut r, &h, &mut ch, 1, 20, 0).pop().unwrap();
+    let http = MemoryHttp::new(Outcome::Response {
+        status: 200,
+        headers: Headers::new(),
+        body: vec![165; CHUNK + 1],
+    })
+    .unwrap();
+    let needed = r
+        .with_request(&token, 0, |request| http.required_bytes(request).unwrap())
+        .unwrap();
+    let baseline = budget.used();
+    let occupied = budget
+        .reserve(64 * 1024 * 1024 - baseline - (needed - 1))
+        .unwrap();
+    assert!(matches!(
+        r.dispatch_synthetic(&token, &http, 0),
+        Err(RegistryError::Protocol(Error::Budget))
+    ));
+    assert_eq!(http.calls(), 0);
+    assert_eq!(h.status(), CarrierStatus::Active);
+    assert_eq!(token.status(), WorkStatus::InFlight);
+    drop(occupied);
+    assert_eq!(budget.used(), baseline);
+    let occupied = budget
+        .reserve(64 * 1024 * 1024 - baseline - needed)
+        .unwrap();
+    let (record, _) = r.dispatch_synthetic(&token, &http, 0).unwrap();
+    assert_eq!(record.response_parts, 2);
+    assert_eq!(http.calls(), 1);
+    assert_eq!(token.status(), WorkStatus::Completed);
+    let mut count = 0;
+    while r
+        .take_output(&h, 0, |bytes| {
+            ch.open_encoded(bytes).unwrap();
+            count += 1;
+            Ok(())
+        })
+        .unwrap()
+    {}
+    assert_eq!(count, 2);
+    r.close(&h, CloseReason::Disconnected);
+    drop(occupied);
+    assert_eq!(budget.used(), 0);
+    assert_eq!(budget.global_used(), 0);
+}

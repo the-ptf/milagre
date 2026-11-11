@@ -3,7 +3,7 @@ use crate::phone::{Headers, Method, Request, Response, CHUNK, MAX_RESPONSE, MAX_
 use crate::{Error, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 pub const TARGET: &str = "http://synthetic.invalid";
 pub const TOKEN: &str = "synthetic-http-bridge-token";
 pub const TIMEOUT_MS: u64 = 340_000;
@@ -220,23 +220,56 @@ impl MemoryHttp {
             _ => 512,
         }
     }
-    pub(crate) fn output_bound(&self) -> Result<(usize, usize)> {
+    /// Conservative additional connection/device/global bytes required before invocation.
+    /// Diagnostic only: dispatch takes the reservation atomically, not this observation.
+    pub fn required_bytes(&self, request: &Request) -> Result<usize> {
+        self.prepare_exchange()?.bounds(request).map(|b| b.total)
+    }
+    pub(crate) fn prepare_exchange(&self) -> Result<PreparedExchange<'_>> {
         let state = self.0.lock().map_err(|_| Error::Unauthorized)?;
-        let (bytes, headers) = match state.outcome.as_ref().ok_or(Error::Order)? {
+        if state.outcome.is_none() {
+            return Err(Error::Order);
+        }
+        Ok(PreparedExchange(state))
+    }
+}
+pub(crate) struct DispatchBounds {
+    pub wire: usize,
+    pub parts: usize,
+    pub total: usize,
+}
+/// Locks the one-shot fake until preflight succeeds or the attempt is abandoned.
+pub(crate) struct PreparedExchange<'a>(MutexGuard<'a, State>);
+impl PreparedExchange<'_> {
+    pub(crate) fn bounds(&self, request: &Request) -> Result<DispatchBounds> {
+        let (bytes, headers) = match self.0.outcome.as_ref().ok_or(Error::Order)? {
             Outcome::Response { body, headers, .. } => (body.len(), header_bytes(headers)?),
             _ => (128, 256),
         };
         let parts = bytes.div_ceil(CHUNK).max(1);
-        // JSON escaping, repeated response metadata, base64 and encryption overhead.
-        Ok((bytes.div_ceil(3) * 4 + parts * (headers * 6 + 512), parts))
+        let wire = bytes.div_ceil(3) * 4 + parts * (headers * 6 + 512);
+        let metadata = request
+            .path
+            .len()
+            .checked_add(header_bytes(&request.headers)?)
+            .ok_or(Error::TooLarge)?;
+        // All frame leases + encoding/encryption scratch, retained simultaneously.
+        // The same final frame lease moves into the mailbox; delivery adds no charge.
+        let total = wire
+            .checked_mul(4)
+            .and_then(|n| n.checked_add(parts * 512))
+            .and_then(|n| n.checked_add(metadata.checked_mul(3)?))
+            .and_then(|n| n.checked_add(4096))
+            .ok_or(Error::TooLarge)?;
+        Ok(DispatchBounds { wire, parts, total })
     }
-    pub(crate) fn exchange(&self, id: i64, plan: &Plan<'_>) -> Result<(Response, DispatchRecord)> {
-        let outcome = {
-            let mut s = self.0.lock().map_err(|_| Error::Unauthorized)?;
-            let result = s.outcome.take().ok_or(Error::Order)?;
-            s.calls += 1;
-            result
-        };
+    pub(crate) fn exchange(
+        mut self,
+        id: i64,
+        plan: &Plan<'_>,
+    ) -> Result<(Response, DispatchRecord)> {
+        let outcome = self.0.outcome.take().ok_or(Error::Order)?;
+        self.0.calls += 1;
         let response = response(id, outcome)?;
         let record = DispatchRecord {
             request_id: id,
@@ -247,5 +280,50 @@ impl MemoryHttp {
             response_parts: response.body.len().div_ceil(CHUNK).max(1),
         };
         Ok((response, record))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn output_estimate_covers_escaping_headers_and_every_chunk_boundary() {
+        for len in [0, 1, 2, 3, CHUNK - 1, CHUNK, CHUNK + 1, CHUNK * 2 + 2] {
+            for repetitions in [0, 1, 100] {
+                let controls: String = (1..32u8)
+                    .filter(|b| !matches!(b, b'\r' | b'\n'))
+                    .map(char::from)
+                    .collect();
+                let headers = Headers::from([
+                    (
+                        "content-type".into(),
+                        format!("{}\\\"", controls.repeat(repetitions)),
+                    ),
+                    ("ETag".into(), "\tfirst\t".into()),
+                    ("etag".into(), "second".into()),
+                ]);
+                let http = MemoryHttp::new(Outcome::Response {
+                    status: 200,
+                    headers,
+                    body: vec![255; len],
+                })
+                .unwrap();
+                let request = Request {
+                    id: -9_007_199_254_740_991,
+                    method: Method::GET,
+                    path: "/rpc".into(),
+                    headers: Headers::new(),
+                    body: vec![],
+                };
+                let exchange = http.prepare_exchange().unwrap();
+                let bound = exchange.bounds(&request).unwrap();
+                let (response, _) = exchange
+                    .exchange(request.id, &prepare(&request).unwrap())
+                    .unwrap();
+                let frames = crate::phone::response_parts(&response).unwrap();
+                assert_eq!(bound.parts, frames.len());
+                assert!(frames.iter().map(|f| f.len() + 25).sum::<usize>() <= bound.wire);
+            }
+        }
     }
 }

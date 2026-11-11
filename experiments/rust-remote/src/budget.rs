@@ -139,6 +139,19 @@ impl ConnectionBudget {
             .unwrap()
     }
 }
+impl Reservation {
+    /// Transfer part of an existing charge without releasing/reacquiring counters.
+    pub(crate) fn split(&mut self, bytes: usize) -> Result<Self> {
+        if bytes > self.bytes {
+            return Err(Error::Budget);
+        }
+        self.bytes -= bytes;
+        Ok(Self {
+            budget: self.budget.clone(),
+            bytes,
+        })
+    }
+}
 impl Drop for Reservation {
     fn drop(&mut self) {
         self.budget.global.0.release(self.bytes);
