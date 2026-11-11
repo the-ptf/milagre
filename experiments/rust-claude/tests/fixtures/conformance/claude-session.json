@@ -1,0 +1,348 @@
+{
+  "generatedBy": "scripts/generate-session.cjs",
+  "cases": [
+    {
+      "name": "reply-and-suggestion",
+      "messages": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "session_id": "session-1"
+        },
+        {
+          "type": "stream_event",
+          "event": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "text_delta",
+              "text": "hello"
+            }
+          }
+        },
+        {
+          "type": "result",
+          "subtype": "success",
+          "num_turns": 1,
+          "result": "done"
+        },
+        {
+          "type": "prompt_suggestion",
+          "session_id": "session-1",
+          "suggestion": "Run tests"
+        },
+        {
+          "type": "prompt_suggestion",
+          "session_id": "session-1",
+          "suggestion": "Run tests"
+        }
+      ],
+      "events": [
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "session-started",
+          "nativeId": "session-1"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "hello"
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "prompt-suggestion",
+          "text": "Run tests",
+          "turnId": "turn-1"
+        }
+      ]
+    },
+    {
+      "name": "implicit-turn",
+      "rustCorrections": ["implicit-text-owner"],
+      "messages": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "session_id": "session-1"
+        },
+        {
+          "type": "stream_event",
+          "event": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "text_delta",
+              "text": "first"
+            }
+          }
+        },
+        {
+          "type": "result",
+          "subtype": "success",
+          "num_turns": 1,
+          "result": "done"
+        },
+        {
+          "type": "system",
+          "subtype": "init",
+          "session_id": "session-1"
+        },
+        {
+          "type": "stream_event",
+          "event": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "text_delta",
+              "text": "next"
+            }
+          }
+        },
+        {
+          "type": "result",
+          "subtype": "success",
+          "num_turns": 1,
+          "result": "done"
+        }
+      ],
+      "events": [
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "session-started",
+          "nativeId": "session-1"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "first"
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-2",
+          "continues": "turn-1"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "next"
+        },
+        {
+          "type": "turn-completed"
+        }
+      ]
+    },
+    {
+      "name": "notification-only",
+      "messages": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "session_id": "session-1"
+        },
+        {
+          "type": "result",
+          "subtype": "success",
+          "num_turns": 1,
+          "result": "done"
+        },
+        {
+          "type": "system",
+          "subtype": "init",
+          "session_id": "session-1"
+        },
+        {
+          "type": "result",
+          "subtype": "success",
+          "num_turns": 0,
+          "result": ""
+        }
+      ],
+      "events": [
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "session-started",
+          "nativeId": "session-1"
+        },
+        {
+          "type": "turn-completed"
+        }
+      ]
+    },
+    {
+      "name": "new-session-login",
+      "messages": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "session_id": "session-1"
+        },
+        {
+          "type": "assistant",
+          "error": "authentication_failed",
+          "message": {
+            "content": []
+          }
+        },
+        {
+          "type": "result",
+          "subtype": "error_during_execution",
+          "errors": ["not logged in"]
+        }
+      ],
+      "events": [
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "session-started",
+          "nativeId": "session-1"
+        },
+        {
+          "type": "session-reset"
+        },
+        {
+          "type": "turn-failed",
+          "message": "Claude Code isn't logged in. Run `claude auth login` in a terminal, then send your message again.",
+          "notice": true,
+          "login": true
+        }
+      ]
+    },
+    {
+      "name": "resumed-session-login",
+      "resumeId": "session-1",
+      "messages": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "session_id": "session-1"
+        },
+        {
+          "type": "assistant",
+          "error": "authentication_failed",
+          "message": {
+            "content": []
+          }
+        },
+        {
+          "type": "result",
+          "subtype": "error_during_execution",
+          "errors": ["not logged in"]
+        }
+      ],
+      "events": [
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "turn-failed",
+          "message": "Claude Code isn't logged in. Run `claude auth login` in a terminal, then send your message again.",
+          "notice": true,
+          "login": true
+        }
+      ]
+    },
+    {
+      "name": "missing-resume",
+      "resumeId": "session-1",
+      "messages": [
+        {
+          "type": "result",
+          "subtype": "error_during_execution",
+          "errors": ["No conversation found"]
+        }
+      ],
+      "events": [
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "session-reset"
+        },
+        {
+          "type": "turn-failed",
+          "message": "Couldn't resume this chat's earlier agent session; it may have been deleted. Send your message again to continue in a fresh session.",
+          "notice": true
+        }
+      ]
+    },
+    {
+      "name": "ordinary-error-keeps-resume",
+      "resumeId": "session-1",
+      "messages": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "session_id": "session-1"
+        },
+        {
+          "type": "result",
+          "subtype": "error_during_execution",
+          "errors": ["Request was aborted."]
+        }
+      ],
+      "events": [
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "turn-failed",
+          "message": "Request was aborted."
+        }
+      ]
+    },
+    {
+      "name": "disabled-suggestions",
+      "promptSuggestions": false,
+      "messages": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "session_id": "session-1"
+        },
+        {
+          "type": "result",
+          "subtype": "success",
+          "num_turns": 1,
+          "result": "done"
+        },
+        {
+          "type": "prompt_suggestion",
+          "session_id": "session-1",
+          "suggestion": "Run tests"
+        }
+      ],
+      "events": [
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "session-started",
+          "nativeId": "session-1"
+        },
+        {
+          "type": "turn-completed"
+        }
+      ]
+    }
+  ]
+}

@@ -134,6 +134,13 @@ fn main() {
                         fail(format!("expected subtype {subtype}, got {line}"));
                     }
                 }
+                if let Some(fields) = arg.get("fields").and_then(Value::as_object) {
+                    for (pointer, expected) in fields {
+                        if frame.pointer(pointer) != Some(expected) {
+                            fail(format!("expected {pointer} = {expected}, got {frame}"));
+                        }
+                    }
+                }
                 if arg.get("echo") == Some(&Value::Bool(true)) {
                     out.line(&json!({ "type": "fake_received", "frame": frame }));
                 }
@@ -141,6 +148,26 @@ fn main() {
                     saved.insert(name.to_owned(), frame.clone());
                 }
                 last = frame;
+            }
+            // Match concurrent request/reply lanes in either order. Each expected map holds JSON
+            // pointers and their exact values. Host controls are acknowledged automatically.
+            "expect_pair" => {
+                let mut wanted = arg.as_array().cloned().unwrap_or_default();
+                let count = wanted.len();
+                for _ in 0..count {
+                    let line = lines.recv().ok().flatten().unwrap_or_else(|| fail("stdin ended".into()));
+                    let frame: Value = serde_json::from_str(&line).unwrap_or_else(|e| fail(e.to_string()));
+                    let index = wanted
+                        .iter()
+                        .position(|expected| {
+                            expected.as_object().unwrap().iter().all(|(pointer, value)| frame.pointer(pointer) == Some(value))
+                        })
+                        .unwrap_or_else(|| fail(format!("unexpected concurrent frame: {frame}; wanted {wanted:?}")));
+                    wanted.remove(index);
+                    if frame["type"] == "control_request" {
+                        out.line(&json!({"type":"control_response", "response":{"subtype":"success","request_id":frame["request_id"],"response":{}}}));
+                    }
+                }
             }
             "expect_skip" => {
                 let kind = arg["type"].as_str().unwrap_or("");

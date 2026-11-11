@@ -77,7 +77,7 @@ fn replaced(old: Option<&Value>, new: Option<&Value>) -> String {
     format!("{}\n{}", prefix_lines(&js_string(old), "-"), prefix_lines(&js_string(new), "+"))
 }
 
-fn edit_diff(tool_name: &str, input: &Value) -> String {
+pub(crate) fn edit_diff(tool_name: &str, input: &Value) -> String {
     let text = match tool_name {
         "Edit" => replaced(input.get("old_string"), input.get("new_string")),
         "MultiEdit" => input

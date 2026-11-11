@@ -1,12 +1,14 @@
 # milagre-claude (experiment)
 
-Rust transport for the Claude Code CLI's stream-json control protocol, for Milagre's Rust backend
+Rust transport, event mapper and session state machine for the Claude Code CLI's stream-json control protocol, for Milagre's Rust backend
 migration. It talks to the user's installed native CLI (`~/.local/share/claude/versions/2.1.322`)
 directly. There is no Milagre-owned Node process: no `@anthropic-ai/claude-agent-sdk` sidecar, no
 JavaScript at runtime. The CLI is the external provider runtime, separate from Milagre's host.
 
 Standalone crate (own `[workspace]`). It depends on neither `experiments/rust-owner` nor
-`experiments/rust-providers`, holds no Milagre state, and is not wired into any live owner.
+`experiments/rust-providers`, holds no persisted Milagre state, and is not wired into any live owner.
+
+See [TRANSPORT-REVIEW.md](TRANSPORT-REVIEW.md) for the independent close, broken-stdin and initialize-buffer fixes.
 
 ## Protocol sources
 
@@ -35,7 +37,63 @@ this protocol, and the transport exposes each one.
 | `process`  | Process-group signals, stderr tail.                                                                                                                                                                                                                                                                             |
 | `milagre`  | Ports of Milagre's current Claude shapes: `claudeRequest` (`permission_card`), `claudeResult` (`permission_result`), `claudeQuestionRequest` (`question_card`), `claudeQuestionResult` (`question_result`), `PendingQuestions.answer` (`settle_answers`), `CLAUDE_MODES` / `nativeMode`, `userMessage` content. |
 
-## Owner API
+## Session API
+
+`ClaudeSession` owns one process and its turn lifecycle. The transport API below remains available
+for lower-level integrations.
+
+```rust
+use milagre_claude::{ClaudeSession, SessionOptions, TurnRequest, LaunchOptions};
+use serde_json::json;
+
+let mut launch = LaunchOptions::new(claude_path);
+launch.cwd = Some(worktree);
+// The owner supplies environment/account routing, prompt, MCP definitions and allowed tools.
+let mut options = SessionOptions::new(launch);
+options.resume_id = saved_session_id;
+let (session, mut events) = ClaudeSession::new(options);
+let reader = tokio::spawn(async move {
+    while let Some(event) = events.recv().await {
+        // Forward AgentEvent JSON to the owner's existing event reducer.
+    }
+});
+let started = session.start_turn(TurnRequest {
+    content: vec![json!({"type":"text", "text":"Hello"})],
+    model: "sonnet".into(), permission_mode: Some("ask".into()),
+    ..Default::default()
+}).await?;
+// Starting while active steers; starting while cancellation is pending waits for the turn to end.
+// TurnRequest also carries effort, ultracode, fast_mode, replies and an optional can_start check.
+session.respond_to_permission(request_id, "allow"); // also allow-for-chat / deny
+session.answer_question(question_id, Some(&answers)); // ids -> arrays of strings; None dismisses
+session.set_permission_mode("auto").await;
+session.interrupt().await;
+session.close().await;
+reader.await?;
+```
+
+- Events are in session order. A turn gets at most one terminal event; preparation can fail before
+  `turn-started`, and `can_start == false` produces no turn events. Invisible notification-only
+  implicit turns stay invisible. Prompt suggestions belong only to completed, unsteered turns.
+- Starts, steering and public mode changes serialize. Close and interrupt remain independent so they
+  can stop initialization or a blocked control request. Dropping an accepted start/steer future closes
+  the session synchronously; cleanup runs independently. A caller cancelled while waiting for the
+  operation lock has made no change. Dropping `close()` cannot abandon its process cleanup.
+- Permission and question callbacks release the session before waiting. Withdrawal/turn end settles
+  pending cards once; private card tokens prevent an old cancellation from resolving a reused id.
+  Questions still appear in Full; steering dismisses them. Access/guard decisions are injected via
+  `AccessPolicy` and `PreToolUseGuard`, not read from live Milagre state.
+- The session event capacity is a **backpressure threshold**, not a strict event count: a single
+  mapped frame or concurrent permission callbacks can produce a burst. The underlying transport
+  still bounds frames, queues and outstanding controls. Drain events concurrently with all control
+  calls. `try_recv()` releases backpressure just as `recv()` does.
+- Intentional differences from Node: failed initialization closes the half-initialized session;
+  steering reports failed sends, rechecks ownership after a mode change, and never acknowledges a
+  rejected oversize frame; the first implicit text belongs to its new turn. Node's current
+  `readMessages` maps that text before allocating the new id. The original Node trace remains in the
+  fixture with this one correction explicitly marked in the Rust comparison.
+
+## Transport API
 
 ```rust
 use milagre_claude::{milagre, *};
@@ -67,7 +125,7 @@ let exit = client.close().await;                      // stdin EOF, grace, SIGTE
 ```
 
 Events: `ClaudeEvent::Message(Value)` is every non-control stdout frame byte-for-byte as JSON (field
-order preserved, unknown fields kept) for the future `events.cjs` mapper; `Diagnostic` is never
+order preserved, unknown fields kept) for the `events.cjs` mapper; `Diagnostic` is never
 fatal; `Exit(ExitInfo)` is last. `session_id()` follows `system/init`; `initialization()` keeps the
 whole `initialize` reply, including envelope fields such as `pending_permission_requests`.
 
@@ -113,14 +171,17 @@ FnPermission(move |request, mut cancel| Box::pin(async move {
 - **Stalled stdin**: a single write blocked for `stall_timeout` (30 s) kills the process
   (`ExitReason::InputStalled`); a frame is written whole or the process is stopped, so no half line is
   ever followed by another frame. A control request whose caller gave up before it was written is
-  skipped; only one the CLI has seen gets `control_cancel_request`.
+  skipped; only one the CLI has seen gets `control_cancel_request`. A write/flush error while the
+  process is live also stops it (`WriteError`) and settles pending requests.
 - **Backpressure**: stdout messages go through a bounded channel (`event_capacity`); a slow owner
   slows the reader and then the CLI, nothing is dropped, order is kept. stdin writes go through a
   bounded queue; a full queue fails after `write_timeout` with `Backpressure`, nothing written.
   Outgoing frames over `max_outgoing_frame_bytes` fail with `FrameTooLarge`. Control replies and the
   CLI's control requests share stdout with messages, so **an owner awaiting a control reply must keep
   draining events concurrently**; `connect()` does this itself while `initialize` is pending and hands
-  the buffered events back first (`EventStream`). After an exit, replies already in the pipe get
+  the buffered events back first (`EventStream`). Its additional buffer is bounded by
+  `max_initialize_events` (1024) and `max_initialize_bytes` (8 MiB); overflow kills the process and
+  returns `InitializeBufferFull`. After an exit, replies already in the pipe get
   `drain_grace` to reach their waiters, then every waiter fails even if nobody drains events.
   Diagnostics use `try_send` and never block; nothing fatal depends on them.
 - **Process cleanup**: the CLI leads its own process group. `close()` closes stdin, waits
@@ -142,7 +203,10 @@ FnPermission(move |request, mut cancel| Box::pin(async move {
 cargo test                    # unit, fake-CLI integration, Node conformance
 MILAGRE_CLAUDE_LIVE=1 cargo test --test live_claude -- --ignored --nocapture   # installed CLI, no turn
 NODE_PATH=<checkout>/node_modules node experiments/rust-claude/scripts/generate-conformance.cjs  # refresh fixtures
-npx oxfmt experiments/rust-claude/tests/fixtures/conformance/claude-contract.json
+NODE_PATH=<checkout>/node_modules node experiments/rust-claude/scripts/generate-events.cjs
+NODE_PATH=<checkout>/node_modules node experiments/rust-claude/scripts/generate-session.cjs
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
 ```
 
 - `tests/client.rs` runs `src/bin/fake_claude.rs`, a deterministic stand-in driven by a JSON script per
@@ -152,6 +216,16 @@ npx oxfmt experiments/rust-claude/tests/fixtures/conformance/claude-contract.jso
   `tests/fixtures/conformance/claude-contract.json`, generated from `permissions.cjs` and
   `questions.cjs` (21 permission cards incl. caps at 20,000 UTF-16 units, MCP names, blocked paths;
   8 results; 6 question cards; 6 question results; 4 answer settlements).
+- `tests/events.rs` compares 32 message sequences with Node `mapClaudeMessage`: streaming text,
+  thinking, steps/results, tasks, design drafts, subagent artifact steps, usage/compaction, local
+  commands, login/rate-limit errors and suggestions. Its generator uses a deterministic clock.
+- `tests/session.rs` covers 22 integration cases, including eight Node `ClaudeSession` traces:
+  starts/steering, implicit turns, notification-only turns, suggestions, permissions/questions,
+  settings ordering, can-start, resume/login/crashes, backpressure, oversize sends, dropped startup,
+  dropped steering, dropped close, session drop and interrupt grace. Fake processes only. Existing
+  transport stalled-write/drop tests continue to ensure no partial frame is followed by another.
+- `scripts/generate-session.cjs` runs the actual Node session with an in-memory query double. No real
+  SDK is loaded, no process is launched and no profile is written. The only writes are the fixture.
 - `tests/live_claude.rs` (opt-in, `#[ignore]`): spawns the installed CLI with HOME and
   `CLAUDE_CONFIG_DIR` in a fresh temp dir (no credentials, no user settings or transcripts read or written),
   an empty cwd, `--strict-mcp-config`, `--no-session-persistence`,
@@ -167,24 +241,26 @@ npx oxfmt experiments/rust-claude/tests/fixtures/conformance/claude-contract.jso
 
 ## Gaps (not done here)
 
-Owner and session behavior (`claude-provider.cjs` `ClaudeSession`, to port on top of this client):
+Owner integration and remaining mapping:
 
-1. Turn state machine: `startTurn` vs `steer` into a running turn, implicit turns started by a
-   `system/init` while idle, `turn-started` / `turn-completed` / `turn-failed` / `turn-cancelled`,
-   `cancelRequested`, the 3 s interrupt grace that then closes the process, `canStart`, `turnReady` /
-   `turnEnded` ordering, questions dismissed by a steering message.
-2. `events.cjs` `mapClaudeMessage`: steps, thinking, subagents (`settleSubagents`), token usage, prompt
-   suggestions gating, login failures (`session-reset` then close), `No conversation found` resume
-   failure (`resumeGone`), crash text. Messages are forwarded raw instead.
+1. The standalone session is not wired to `rust-owner` or `rust-providers`; provider selection,
+   durable turn ownership, persistence and desktop/mobile fanout still belong to that integration.
+2. `events.cjs` text/thinking, tool steps/results, task lists, live design drafts, compaction/context
+   usage, errors and suggestions are ported. `claudeSubagents`/`settleSubagents` (subagent transcript,
+   progress and background-task lifecycle) and `claudeReadImages` (image-file persistence) are not.
+   Mapper fixtures explicitly exclude those subagent event families and Read-image cases. Do not
+   treat this as a complete production event mapper.
 3. In-process MCP server for linked tools (`createSdkMcpServer` + `runTool`): only the `mcp_message`
    hook exists; MCP `initialize` / `tools/list` / `tools/call` serving, `alwaysLoad`, annotations and
    `sdkMcpServerManifests` are not implemented.
-4. Policy: `WorkspaceAccess` auto-answers and `addDirectories` learning, `PendingPermissions` mode
-   auto-allow, babysit guard and wake escalation (the PreToolUse hook bodies), `advisorPolicy`,
-   execution-advisor disallowed tools, `SubagentStart` instructions, QA agents, `sessionInstructions`,
-   MCP extras (`readMcpExtras`, toggling off servers after init), `promptSuggestionsEnabled` settings
-   read, reply style / effort / ultracode / fastMode change ordering, `taskOutput` shaping. The control
-   calls each needs exist (`apply_flag_settings`, `mcp_toggle`, `get_task_output`, ...).
+4. Owner policy/config assembly: real `WorkspaceAccess` root tracking/learning, babysit and wake
+   guard rules, `advisorPolicy`, QA agents, `sessionInstructions`, linked tools and settings discovery
+   are not implemented. Access and pre-tool guard interfaces accept owner-supplied decisions, but
+   do not supply safe analysis/advisor policies on their own. Execution-advisor disallowed tools,
+   question denial, SubagentStart context, MCP off toggles, prompt-suggestion gating, reply style,
+   effort/ultracode/fast mode ordering and task output are implemented. `prompt_suggestions` is an
+   explicit option; the owner must read the user's setting. Per-turn wake/babysit guard replacement
+   and escalation accounting remain outside this checkpoint.
 5. `promptImageBlocks` ordering (`[Image #N]` tokens) is not ported: the owner passes ordered parts.
 6. Accounts: no `CLAUDE_CONFIG_DIR` routing or account switching; the owner sets the environment.
 
@@ -213,7 +289,7 @@ Protocol and process:
     after a withdrawal or exit (its reply is discarded). Tested not to delay the exit.
 13. stderr is kept as a 4000-byte tail (as Node), not streamed.
 14. `uuid()` is random but not cryptographic (ids only).
-15. `milagre` ports approximate JS `String()` for non-string inputs (objects, nested arrays) and can
+15. JSON ports approximate JS `String()` for non-string inputs (objects, nested arrays) and can
     differ from JS for non-finite or float-formatted numbers and for a lone UTF-16 surrogate at the
     20,000-unit cap.
 16. Process-group helpers duplicate `experiments/rust-providers`; sharing them is left for the owner

@@ -2,16 +2,23 @@
 //!
 //! Speaks the CLI's documented stream-json control protocol directly (no Node SDK sidecar): bounded
 //! NDJSON framing ([`frame`]), control envelopes ([`protocol`]), launch arguments and `initialize`
-//! ([`launch`]), owner handler interfaces ([`handlers`]), the process client ([`client`]) and ports of
-//! Milagre's current Claude card/result shapes ([`milagre`]). See README.md for sources and gaps.
+//! ([`launch`]), owner handler interfaces ([`handlers`]), the process client ([`client`]), Milagre
+//! card/result shapes ([`milagre`]), the event mapper ([`events`]) and Chat session ([`session`]).
+//! See README.md for sources, conformance coverage and remaining integration gaps.
 
 pub mod client;
+pub mod drafts;
+pub mod events;
 pub mod frame;
 pub mod handlers;
 pub mod launch;
 pub mod milagre;
 pub mod process;
 pub mod protocol;
+pub mod session;
+pub mod steps;
+pub mod tasks;
+pub mod text;
 
 pub use client::{ClaudeClient, ClaudeEvent, ClientError, ControlReply, Diagnostic, EventStream, ExitInfo, ExitReason, Limits};
 pub use handlers::{
@@ -19,3 +26,8 @@ pub use handlers::{
 };
 pub use launch::{HookMatcher, InitializeOptions, LaunchOptions, SystemPrompt};
 pub use protocol::{HookCallback, McpMessage, PermissionRequest, PermissionResult};
+
+pub use events::ClaudeMapper;
+pub use session::{
+    AccessDecision, AccessPolicy, ClaudeSession, PreToolUseGuard, SessionError, SessionEvents, SessionOptions, TurnRequest, TurnStart,
+};

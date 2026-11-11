@@ -1,0 +1,3094 @@
+{
+  "generatedBy": "experiments/rust-claude/scripts/generate-events.cjs",
+  "cases": [
+    {
+      "name": "text-reply",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "s-1",
+            "model": "claude-opus-5-5",
+            "tools": []
+          },
+          "events": [
+            {
+              "type": "session-started",
+              "nativeId": "s-1"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "text",
+                "text": ""
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "text_delta",
+                "text": "Hel"
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "text-delta",
+              "messageId": "turn-1",
+              "text": "Hel"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "text_delta",
+                "text": "lo"
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "text-delta",
+              "messageId": "turn-1",
+              "text": "lo"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_start",
+              "index": 1,
+              "content_block": {
+                "type": "text",
+                "text": ""
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "text-delta",
+              "messageId": "turn-1",
+              "text": "\n\n",
+              "startsMessage": true
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "text_delta",
+                "text": "Second"
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "text-delta",
+              "messageId": "turn-1",
+              "text": "Second"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "num_turns": 1,
+            "result": "ok"
+          },
+          "events": [
+            {
+              "type": "turn-completed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "same-session-init-twice",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "s-1",
+            "model": "claude-opus-5-5",
+            "tools": []
+          },
+          "events": [
+            {
+              "type": "session-started",
+              "nativeId": "s-1"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "s-1",
+            "model": "claude-opus-5-5",
+            "tools": []
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "s-2",
+            "model": "claude-opus-5-5",
+            "tools": []
+          },
+          "events": [
+            {
+              "type": "session-started",
+              "nativeId": "s-2"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "num_turns": 1,
+            "result": "ok"
+          },
+          "events": [
+            {
+              "type": "turn-completed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "thinking",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "s-1",
+            "model": "claude-opus-5-5",
+            "tools": []
+          },
+          "events": [
+            {
+              "type": "session-started",
+              "nativeId": "s-1"
+            }
+          ]
+        },
+        {
+          "at": 1000,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "thinking"
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "thinking-1",
+                "kind": "thinking",
+                "title": "Thinking"
+              }
+            }
+          ]
+        },
+        {
+          "at": 1200,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "Let me "
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-output",
+              "id": "thinking-1",
+              "text": "Let me "
+            }
+          ]
+        },
+        {
+          "at": 1300,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "check."
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-output",
+              "id": "thinking-1",
+              "text": "check."
+            }
+          ]
+        },
+        {
+          "at": 5600,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_stop",
+              "index": 0
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "thinking-1",
+              "status": "done",
+              "title": "Thought for 5s",
+              "detail": "Let me check.",
+              "durationMs": 4600
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "num_turns": 1,
+            "result": "ok"
+          },
+          "events": [
+            {
+              "type": "turn-completed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "thinking-redacted-long",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_start",
+              "index": 2,
+              "content_block": {
+                "type": "redacted_thinking"
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "thinking-1",
+                "kind": "thinking",
+                "title": "Thinking"
+              }
+            }
+          ]
+        },
+        {
+          "at": 65400,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_stop",
+              "index": 2
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "thinking-1",
+              "status": "done",
+              "title": "Thought for 1m 5s",
+              "durationMs": 65400
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "thinking-other-index-ignored",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "thinking"
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "thinking-1",
+                "kind": "thinking",
+                "title": "Thinking"
+              }
+            }
+          ]
+        },
+        {
+          "at": 10,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_stop",
+              "index": 1
+            },
+            "session_id": "s-1"
+          },
+          "events": []
+        },
+        {
+          "at": 20,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_stop",
+              "index": 0
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "thinking-1",
+              "status": "done",
+              "title": "Thought for 1s",
+              "durationMs": 20
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bash-step",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "s-1",
+            "model": "claude-opus-5-5",
+            "tools": []
+          },
+          "events": [
+            {
+              "type": "session-started",
+              "nativeId": "s-1"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "t1",
+                  "name": "Bash",
+                  "input": {
+                    "command": "npm test"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "t1",
+                "kind": "shell",
+                "title": "Ran `npm test`",
+                "detail": "$ npm test\n"
+              }
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "t1",
+                  "content": "ok\n3 passed"
+                }
+              ]
+            },
+            "tool_use_result": {
+              "stdout": "ok",
+              "stderr": ""
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "t1",
+              "status": "done",
+              "detail": "$ npm test\nok\n3 passed"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "num_turns": 1,
+            "result": "ok"
+          },
+          "events": [
+            {
+              "type": "turn-completed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bash-failed",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "t1",
+                  "name": "Bash",
+                  "input": {
+                    "command": "false"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "t1",
+                "kind": "shell",
+                "title": "Ran `false`",
+                "detail": "$ false\n"
+              }
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "t1",
+                  "content": "Exit code 1",
+                  "is_error": true
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "t1",
+              "status": "failed",
+              "detail": "$ false\nExit code 1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "read-grep-glob",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "r",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/repo/src/App.tsx"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "g",
+                  "name": "Grep",
+                  "input": {
+                    "pattern": "TODO",
+                    "path": "src"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "gl",
+                  "name": "Glob",
+                  "input": {
+                    "pattern": "**/*.ts"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "r",
+                "kind": "read",
+                "title": "Read `App.tsx`",
+                "file": "/repo/src/App.tsx"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "g",
+                "kind": "search",
+                "title": "Searched for `TODO` in `src`"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "gl",
+                "kind": "search",
+                "title": "Found files matching `**/*.ts`"
+              }
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "r",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "1\tconst a = 1;"
+                    }
+                  ]
+                }
+              ]
+            },
+            "tool_use_result": {
+              "type": "text",
+              "file": {
+                "filePath": "/repo/src/App.tsx",
+                "numLines": 12
+              }
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "r",
+              "status": "done",
+              "summary": "12 lines"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "g",
+                  "content": "src/a.ts:1:TODO"
+                }
+              ]
+            },
+            "tool_use_result": {
+              "numMatches": 1,
+              "mode": "content"
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "g",
+              "status": "done",
+              "detail": "src/a.ts:1:TODO",
+              "summary": "1 matches"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "gl",
+                  "content": "a.ts\nb.ts"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "gl",
+              "status": "done",
+              "detail": "a.ts\nb.ts"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "edit-write",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "e",
+                  "name": "Edit",
+                  "input": {
+                    "file_path": "/repo/a.ts",
+                    "old_string": "a",
+                    "new_string": "b"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "w",
+                  "name": "Write",
+                  "input": {
+                    "file_path": "/repo/new.ts",
+                    "content": "x\ny"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "e",
+                "kind": "edit",
+                "title": "Edited `a.ts`",
+                "file": "/repo/a.ts"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "w",
+                "kind": "edit",
+                "title": "Wrote `new.ts`",
+                "file": "/repo/new.ts"
+              }
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "e",
+                  "content": "edited"
+                }
+              ]
+            },
+            "tool_use_result": {
+              "structuredPatch": [
+                {
+                  "oldStart": 1,
+                  "oldLines": 1,
+                  "newStart": 1,
+                  "newLines": 1,
+                  "lines": ["-a", "+b"]
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "e",
+              "status": "done",
+              "detail": "@@ -1,1 +1,1 @@\n-a\n+b"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "w",
+                  "content": "written"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "w",
+              "status": "done",
+              "detail": "+x\n+y"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "batched-results-skip-structured",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "a",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "a.md"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "b",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "b.md"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "a",
+                "kind": "read",
+                "title": "Read `a.md`",
+                "file": "a.md"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "b",
+                "kind": "read",
+                "title": "Read `b.md`",
+                "file": "b.md"
+              }
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "a",
+                  "content": "x"
+                },
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "b",
+                  "content": "y"
+                }
+              ]
+            },
+            "tool_use_result": {
+              "file": {
+                "numLines": 5
+              }
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "a",
+              "status": "done"
+            },
+            {
+              "type": "step-completed",
+              "id": "b",
+              "status": "done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "web-agent-todo-other",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "ws",
+                  "name": "WebSearch",
+                  "input": {
+                    "query": "rust tokio"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "wf",
+                  "name": "WebFetch",
+                  "input": {
+                    "url": "https://example.com"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "ag",
+                  "name": "Agent",
+                  "input": {
+                    "description": "Explore code",
+                    "prompt": "look",
+                    "subagent_type": "Explore"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "td",
+                  "name": "TodoWrite",
+                  "input": {
+                    "todos": [
+                      {
+                        "content": "Plan",
+                        "status": "completed",
+                        "activeForm": "Planning"
+                      },
+                      {
+                        "content": "Build",
+                        "status": "in_progress"
+                      },
+                      {
+                        "content": "  "
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "nb",
+                  "name": "NotebookEdit",
+                  "input": {
+                    "notebook_path": "/repo/n.ipynb",
+                    "new_source": "print(1)"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "x",
+                  "name": "SomethingNew",
+                  "input": {
+                    "a": 1
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "ws",
+                "kind": "search",
+                "title": "Searched the web for `rust tokio`"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "wf",
+                "kind": "other",
+                "title": "Fetched `https://example.com`"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "ag",
+                "kind": "other",
+                "title": "Ran an agent: Explore code"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "td",
+                "kind": "other",
+                "title": "Updated the to-do list"
+              }
+            },
+            {
+              "type": "tasks-updated",
+              "tasks": [
+                {
+                  "id": "0",
+                  "content": "Plan",
+                  "activeForm": "Planning",
+                  "status": "completed"
+                },
+                {
+                  "id": "1",
+                  "content": "Build",
+                  "status": "in_progress"
+                }
+              ]
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "nb",
+                "kind": "edit",
+                "title": "Edited `n.ipynb`",
+                "file": "/repo/n.ipynb"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "x",
+                "kind": "other",
+                "title": "Used SomethingNew"
+              }
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "ag",
+                  "content": "done"
+                }
+              ]
+            },
+            "tool_use_result": {
+              "status": "completed",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Found it"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "ag",
+              "status": "done",
+              "detail": "Found it"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "td",
+                  "content": "ok"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "td",
+              "status": "done",
+              "detail": "[x] Plan\n[~] Build\n[ ]   "
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "nb",
+                  "content": "ok"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "nb",
+              "status": "done",
+              "detail": "+print(1)"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "x",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "r1"
+                    },
+                    {
+                      "type": "image",
+                      "source": {}
+                    },
+                    {
+                      "foo": 1
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "x",
+              "status": "done",
+              "detail": "r1\n[image]"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "ws",
+                  "content": "results"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "ws",
+              "status": "done",
+              "detail": "results"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "wf",
+                  "content": "page"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "wf",
+              "status": "done",
+              "detail": "page"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "agent-async",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "ag",
+                  "name": "Task",
+                  "input": {
+                    "prompt": "go"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "ag",
+                "kind": "other",
+                "title": "Ran an agent: a subtask"
+              }
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "ag",
+                  "content": "launched"
+                }
+              ]
+            },
+            "tool_use_result": {
+              "status": "async_launched"
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "ag",
+              "status": "done",
+              "title": "Started an agent: a subtask"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mcp-tools",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "m1",
+                  "name": "mcp__milagre__chat_stop",
+                  "input": {
+                    "chatId": "c1",
+                    "api_key": "sk-1",
+                    "nested": {
+                      "token": "t",
+                      "ok": true
+                    }
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "m2",
+                  "name": "mcp__slack__send_message",
+                  "input": {
+                    "channel": "#ops",
+                    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "m3",
+                  "name": "mcp__milagre__design_show",
+                  "input": {
+                    "title": "Home",
+                    "document": {}
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "m4",
+                  "name": "mcp__milagre__artifact_resolve_comment",
+                  "input": {
+                    "id": "c",
+                    "note": "Fixed spacing"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "m5",
+                  "name": "mcp__milagre__heartbeat_create",
+                  "input": {
+                    "name": "Watch PR"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "m6",
+                  "name": "mcp__milagre__routine_delete",
+                  "input": {
+                    "id": "r"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "m7",
+                  "name": "mcp__milagre__routine_list",
+                  "input": {}
+                },
+                {
+                  "type": "tool_use",
+                  "id": "m8",
+                  "name": "mcp__milagre__tasks_read",
+                  "input": {}
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "m1",
+                "kind": "other",
+                "title": "Used `chat_stop` from milagre",
+                "source": {
+                  "name": "chat_stop",
+                  "server": "milagre"
+                },
+                "input": "{\n  \"chatId\": \"c1\",\n  \"api_key\": \"[redacted]\",\n  \"nested\": {\n    \"token\": \"[redacted]\",\n    \"ok\": true\n  }\n}"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "m2",
+                "kind": "other",
+                "title": "Used `send_message` from slack",
+                "source": {
+                  "name": "send_message",
+                  "server": "slack"
+                },
+                "input": "{\n  \"channel\": \"#ops\",\n  \"text\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n… input truncated"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "m3",
+                "kind": "artifact",
+                "title": "Showed `Home`",
+                "source": {
+                  "name": "design_show",
+                  "server": "milagre"
+                },
+                "tool": "design_show"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "m4",
+                "kind": "other",
+                "title": "Resolved a design comment",
+                "detail": "Fixed spacing",
+                "source": {
+                  "name": "artifact_resolve_comment",
+                  "server": "milagre"
+                },
+                "input": "{\n  \"id\": \"c\",\n  \"note\": \"Fixed spacing\"\n}"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "m5",
+                "kind": "other",
+                "title": "Set Heartbeat \"Watch PR\"",
+                "source": {
+                  "name": "heartbeat_create",
+                  "server": "milagre"
+                },
+                "input": "{\n  \"name\": \"Watch PR\"\n}"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "m6",
+                "kind": "other",
+                "title": "Stopped a Routine",
+                "source": {
+                  "name": "routine_delete",
+                  "server": "milagre"
+                },
+                "input": "{\n  \"id\": \"r\"\n}"
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "m7",
+                "kind": "other",
+                "title": "Checked Routines",
+                "source": {
+                  "name": "routine_list",
+                  "server": "milagre"
+                }
+              }
+            },
+            {
+              "type": "step-started",
+              "step": {
+                "id": "m8",
+                "kind": "other",
+                "title": "Used `tasks_read` from milagre",
+                "source": {
+                  "name": "tasks_read",
+                  "server": "milagre"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "m3",
+                  "content": "{\"id\":\"home\",\"version\":2,\"title\":\"Home v2\",\"format\":\"design\",\"group\":\"Onboarding\",\"inline\":true,\"height\":300}\n[image]"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "m3",
+              "status": "done",
+              "artifact": {
+                "id": "home",
+                "version": 2,
+                "title": "Home v2",
+                "inline": true,
+                "height": 300,
+                "format": "design",
+                "group": "Onboarding"
+              },
+              "title": "Showed `Home v2`"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "m5",
+                  "content": "{\"routine\":{\"id\":\"h1\",\"name\":\"Watch PR\"}}\nRuns every 15m"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "m5",
+              "status": "done",
+              "routine": {
+                "id": "h1",
+                "name": "Watch PR"
+              },
+              "detail": "Runs every 15m"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "m4",
+                  "content": "ok"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "m4",
+              "status": "done",
+              "detail": "Fixed spacing"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "m1",
+                  "content": "stopped"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "m1",
+              "status": "done",
+              "detail": "stopped"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "m2",
+                  "content": "sent",
+                  "is_error": true
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "m2",
+              "status": "failed",
+              "detail": "sent"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tasks-create-update-list",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "c1",
+                  "name": "TaskCreate",
+                  "input": {
+                    "subject": "Write tests",
+                    "activeForm": "Writing tests"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "c1",
+                "kind": "other",
+                "title": "Used TaskCreate"
+              }
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "c1",
+                  "content": "Task #7 created successfully"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "c1",
+              "status": "done",
+              "detail": "Task #7 created successfully"
+            },
+            {
+              "type": "tasks-updated",
+              "tasks": [
+                {
+                  "id": "7",
+                  "content": "Write tests",
+                  "activeForm": "Writing tests",
+                  "status": "pending"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "c2",
+                  "name": "TaskCreate",
+                  "input": {
+                    "subject": "Ship"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "c2",
+                "kind": "other",
+                "title": "Used TaskCreate"
+              }
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "c2",
+                  "content": "created"
+                }
+              ]
+            },
+            "tool_use_result": {
+              "task": {
+                "id": 9
+              }
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "c2",
+              "status": "done",
+              "detail": "created"
+            },
+            {
+              "type": "tasks-updated",
+              "tasks": [
+                {
+                  "id": "7",
+                  "content": "Write tests",
+                  "activeForm": "Writing tests",
+                  "status": "pending"
+                },
+                {
+                  "id": "9",
+                  "content": "Ship",
+                  "status": "pending"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "u1",
+                  "name": "TaskUpdate",
+                  "input": {
+                    "taskId": "7",
+                    "status": "in_progress"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "u1",
+                "kind": "other",
+                "title": "Used TaskUpdate"
+              }
+            },
+            {
+              "type": "tasks-updated",
+              "tasks": [
+                {
+                  "id": "7",
+                  "content": "Write tests",
+                  "activeForm": "Writing tests",
+                  "status": "in_progress"
+                },
+                {
+                  "id": "9",
+                  "content": "Ship",
+                  "status": "pending"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "u2",
+                  "name": "TaskUpdate",
+                  "input": {
+                    "taskId": 9,
+                    "subject": "Ship it",
+                    "status": "deleted"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "u2",
+                "kind": "other",
+                "title": "Used TaskUpdate"
+              }
+            },
+            {
+              "type": "tasks-updated",
+              "tasks": [
+                {
+                  "id": "7",
+                  "content": "Write tests",
+                  "activeForm": "Writing tests",
+                  "status": "in_progress"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "l1",
+                  "name": "TaskList",
+                  "input": {}
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "l1",
+                "kind": "other",
+                "title": "Used TaskList"
+              }
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "l1",
+                  "content": "list"
+                }
+              ]
+            },
+            "tool_use_result": {
+              "tasks": [
+                {
+                  "id": "7",
+                  "subject": "Write tests",
+                  "status": "completed"
+                },
+                {
+                  "id": "8",
+                  "subject": "New one"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "l1",
+              "status": "done",
+              "detail": "list"
+            },
+            {
+              "type": "tasks-updated",
+              "tasks": [
+                {
+                  "id": "7",
+                  "content": "Write tests",
+                  "activeForm": "Writing tests",
+                  "status": "completed"
+                },
+                {
+                  "id": "8",
+                  "content": "New one",
+                  "status": "pending"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ask-user-question-no-step",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "q",
+                  "name": "AskUserQuestion",
+                  "input": {
+                    "questions": []
+                  }
+                }
+              ]
+            }
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "q",
+                  "content": "answered"
+                }
+              ]
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "result-without-call",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "nope",
+                  "content": "x"
+                }
+              ]
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "design-drafts",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "message_start"
+            },
+            "session_id": "s-1"
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_start",
+              "index": 1,
+              "content_block": {
+                "type": "tool_use",
+                "id": "d1",
+                "name": "mcp__milagre__design_show",
+                "input": {}
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-draft",
+              "id": "d1",
+              "tool": "design_show",
+              "offset": 0,
+              "text": ""
+            }
+          ]
+        },
+        {
+          "at": 50,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "input_json_delta",
+                "partial_json": "{\"ti"
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": []
+        },
+        {
+          "at": 130,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "input_json_delta",
+                "partial_json": "tle\":\"é"
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-draft",
+              "id": "d1",
+              "tool": "design_show",
+              "offset": 0,
+              "text": "{\"title\":\"é"
+            }
+          ]
+        },
+        {
+          "at": 140,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "input_json_delta",
+                "partial_json": "\"}"
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": []
+        },
+        {
+          "at": 150,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_stop",
+              "index": 1
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-draft",
+              "id": "d1",
+              "tool": "design_show",
+              "offset": 11,
+              "text": "\"}",
+              "done": true
+            }
+          ]
+        },
+        {
+          "at": 160,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_start",
+              "index": 2,
+              "content_block": {
+                "type": "tool_use",
+                "id": "other",
+                "name": "Bash",
+                "input": {}
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "subagent-artifacts",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": "agent-1",
+            "event": {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "tool_use",
+                "id": "sd",
+                "name": "mcp__milagre__design_apply"
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-draft",
+              "id": "sd",
+              "tool": "design_apply",
+              "offset": 0,
+              "text": "",
+              "agent": "agent-1"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": "agent-1",
+            "event": {
+              "type": "content_block_stop",
+              "index": 0
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "step-draft",
+              "id": "sd",
+              "tool": "design_apply",
+              "offset": 0,
+              "text": "",
+              "done": true,
+              "agent": "agent-1"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": "agent-1",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "sa",
+                  "name": "mcp__milagre__design_apply",
+                  "input": {
+                    "title": "Card"
+                  }
+                },
+                {
+                  "type": "tool_use",
+                  "id": "sb",
+                  "name": "Bash",
+                  "input": {
+                    "command": "ls"
+                  }
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-started",
+              "step": {
+                "id": "sa",
+                "kind": "artifact",
+                "title": "Edited `Card`",
+                "source": {
+                  "name": "design_apply",
+                  "server": "milagre"
+                },
+                "tool": "design_apply",
+                "agent": "agent-1"
+              }
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "user",
+            "parent_tool_use_id": "agent-1",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "sa",
+                  "content": "{\"id\":\"card\",\"version\":3,\"title\":\"Card\"}"
+                },
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "sb",
+                  "content": "x"
+                }
+              ]
+            }
+          },
+          "events": [
+            {
+              "type": "step-completed",
+              "id": "sa",
+              "status": "done",
+              "artifact": {
+                "id": "card",
+                "version": 3,
+                "title": "Card"
+              },
+              "title": "Edited `Card`"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": "agent-1",
+            "event": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "text_delta",
+                "text": "subagent text"
+              }
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "usage-and-window",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hi"
+                }
+              ],
+              "model": "claude-opus-5-5",
+              "usage": {
+                "input_tokens": 10,
+                "cache_read_input_tokens": 1000,
+                "cache_creation_input_tokens": 5,
+                "output_tokens": 20
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [],
+              "model": "<synthetic>",
+              "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0
+              }
+            }
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "num_turns": 1,
+            "result": "ok",
+            "modelUsage": {
+              "claude-opus-5-5": {
+                "contextWindow": 200000
+              },
+              "haiku": {
+                "contextWindow": 100000
+              }
+            }
+          },
+          "events": [
+            {
+              "type": "context-usage",
+              "used": 1035,
+              "size": 200000
+            },
+            {
+              "type": "turn-completed"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [],
+              "model": "claude-opus-5-5",
+              "usage": {
+                "input_tokens": 5
+              }
+            }
+          },
+          "events": [
+            {
+              "type": "context-usage",
+              "used": 5,
+              "size": 200000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "compaction",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "status",
+            "status": "compacting",
+            "parent_tool_use_id": null
+          },
+          "events": [
+            {
+              "type": "context-compacting"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "status",
+            "status": "compacting",
+            "parent_tool_use_id": null
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "parent_tool_use_id": null,
+            "compact_metadata": {
+              "trigger": "manual",
+              "pre_tokens": 150000,
+              "post_tokens": 20000
+            }
+          },
+          "events": [
+            {
+              "type": "context-compacted",
+              "trigger": "manual",
+              "before": 150000,
+              "after": 20000
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "compact_metadata": {
+              "trigger": "auto"
+            }
+          },
+          "events": [
+            {
+              "type": "context-compacted",
+              "trigger": "auto"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "local-command",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "s-1",
+            "model": "claude-opus-5-5",
+            "tools": []
+          },
+          "events": [
+            {
+              "type": "session-started",
+              "nativeId": "s-1"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "text",
+                "text": ""
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "text_delta",
+                "text": "Before"
+              }
+            },
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "text-delta",
+              "messageId": "turn-1",
+              "text": "Before"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Total cost: $0.10\nDuration: 2s"
+                }
+              ],
+              "model": "<synthetic>"
+            },
+            "local_command_source": "<local-command-stdout>Total cost: $0.10</local-command-stdout>"
+          },
+          "events": [
+            {
+              "type": "text-delta",
+              "messageId": "turn-1",
+              "text": "\n\n",
+              "startsMessage": true
+            },
+            {
+              "type": "text-delta",
+              "messageId": "turn-1",
+              "text": "Total cost: $0.10  \nDuration: 2s"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "num_turns": 1,
+            "result": ""
+          },
+          "events": [
+            {
+              "type": "turn-completed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "local-command-failed",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": []
+            },
+            "local_command_source": "<local-command-stdout>partial</local-command-stdout><local-command-stderr>\u001b[31mError: no context\u001b[0m &lt;x&gt;</local-command-stderr>"
+          },
+          "events": [
+            {
+              "type": "text-delta",
+              "messageId": "turn-1",
+              "text": "partial"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "num_turns": 1,
+            "result": ""
+          },
+          "events": [
+            {
+              "type": "turn-failed",
+              "message": "Error: no context <x>"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "local-command-outcome-failed",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Nothing to compact"
+                }
+              ]
+            },
+            "local_command_source": "",
+            "local_command_outcome": {
+              "kind": "failed"
+            }
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "num_turns": 1,
+            "result": "ok"
+          },
+          "events": [
+            {
+              "type": "turn-failed",
+              "message": "Nothing to compact"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "login-failure",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "s-1",
+            "model": "claude-opus-5-5",
+            "tools": []
+          },
+          "events": [
+            {
+              "type": "session-started",
+              "nativeId": "s-1"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Not logged in · Please run /login"
+                }
+              ]
+            },
+            "error": "authentication_failed"
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "success",
+            "is_error": true,
+            "result": "Not logged in"
+          },
+          "events": [
+            {
+              "type": "turn-failed",
+              "message": "Claude Code isn't logged in. Run `claude auth login` in a terminal, then send your message again.",
+              "notice": true,
+              "login": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "usage-limit",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+              "status": "rejected",
+              "rateLimitType": "five_hour",
+              "resetsAt": 1700000000
+            }
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "You've hit your session limit"
+                }
+              ]
+            },
+            "error": "rate_limit"
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "success",
+            "is_error": true,
+            "result": "You've hit your session limit · resets 12:10pm"
+          },
+          "events": [
+            {
+              "type": "turn-failed",
+              "message": "You've hit your session limit · resets 12:10pm",
+              "notice": true,
+              "limit": {
+                "provider": "claude",
+                "window": "five_hour",
+                "resetsAt": "2023-11-14T22:13:20.000Z"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "usage-limit-no-info",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": []
+            },
+            "error": "rate_limit"
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": true
+          },
+          "events": [
+            {
+              "type": "turn-failed",
+              "message": "Claude hit its usage limit.",
+              "notice": true,
+              "limit": {
+                "provider": "claude"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "error-result",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": true,
+            "errors": ["Request was aborted.", null, "second"]
+          },
+          "events": [
+            {
+              "type": "turn-failed",
+              "message": "Request was aborted.\n\nsecond"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "error-result-text",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "error_max_turns",
+            "is_error": true,
+            "result": "Max turns"
+          },
+          "events": [
+            {
+              "type": "turn-failed",
+              "message": "Max turns"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "error_max_turns",
+            "is_error": true
+          },
+          "events": [
+            {
+              "type": "turn-failed",
+              "message": "Claude could not finish this turn."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "task-notification-result",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "num_turns": 0,
+            "result": ""
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "num_turns": 0,
+            "result": "",
+            "user_message_uuids": ["u"]
+          },
+          "events": [
+            {
+              "type": "turn-completed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "prompt-suggestion",
+      "initial": {
+        "suggestionTurnId": "turn-0"
+      },
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "s-1",
+            "model": "claude-opus-5-5",
+            "tools": []
+          },
+          "events": [
+            {
+              "type": "session-started",
+              "nativeId": "s-1"
+            }
+          ]
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "prompt_suggestion",
+            "suggestion": "Run the tests",
+            "session_id": "s-1"
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "prompt_suggestion",
+            "suggestion": "  ",
+            "session_id": "s-1"
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "prompt_suggestion",
+            "suggestion": "Other session",
+            "session_id": "s-2"
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "prompt-suggestion-after-init-cleared",
+      "initial": {
+        "sessionId": "s-1",
+        "suggestionTurnId": "turn-0"
+      },
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "prompt_suggestion",
+            "suggestion": "x",
+            "session_id": "s-1"
+          },
+          "events": [
+            {
+              "type": "prompt-suggestion",
+              "text": "x",
+              "turnId": "turn-0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "unknown-messages",
+      "initial": {},
+      "steps": [
+        {
+          "at": 0,
+          "message": {
+            "type": "future_kind",
+            "data": 1
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "system",
+            "subtype": "hook_started"
+          },
+          "events": []
+        },
+        {
+          "at": 0,
+          "message": {
+            "type": "keep_alive"
+          },
+          "events": []
+        }
+      ]
+    }
+  ]
+}
