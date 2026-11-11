@@ -198,6 +198,7 @@ impl Drop for ReplyGuard {
     }
 }
 struct Slot {
+    content_scope: Arc<crate::claude_content::SessionContent>,
     start: mpsc::Sender<Start>,
     answers: mpsc::Sender<Reply>,
     close: watch::Sender<bool>,
@@ -208,6 +209,7 @@ struct Slot {
     native_id: Arc<Mutex<Option<String>>>,
 }
 struct Worker {
+    content_scope: Arc<crate::claude_content::SessionContent>,
     shared: Arc<Shared>,
     _profile: Arc<IsolatedProfile>,
     project: PathBuf,
@@ -222,6 +224,7 @@ struct Worker {
 }
 impl Drop for Worker {
     fn drop(&mut self) {
+        self.content_scope.revoke();
         self.active.store(false, Ordering::Release);
         self.done.store(true, Ordering::Release);
         *self.shared.workers.lock().unwrap() -= 1;
@@ -471,7 +474,9 @@ impl Provider for ClaudeFixture {
             let done = Arc::new(AtomicBool::new(false));
             let latest = Arc::new(AtomicU64::new(0));
             let native_id = Arc::new(Mutex::new(None));
+            let content_scope = crate::claude_content::SessionContent::new();
             let worker = Worker {
+                content_scope: content_scope.clone(),
                 shared: self.shared.clone(),
                 _profile: self.profile.clone(),
                 project: self.project.clone(),
@@ -523,6 +528,7 @@ impl Provider for ClaudeFixture {
             self.slots.insert(
                 chat.clone(),
                 Slot {
+                    content_scope,
                     start,
                     answers,
                     close,
@@ -592,6 +598,7 @@ impl Provider for ClaudeFixture {
         // Detach the captured slot at admission. Its worker retains the profile and
         // reaps independently; a new turn gets a fresh session and MCP registration.
         let slot = self.slots.remove(chat).expect("generation checked");
+        slot.content_scope.revoke();
         slot.close.send_replace(true);
         Ok(())
     }
@@ -661,6 +668,7 @@ impl Provider for ClaudeFixture {
             content.revoke();
         }
         for slot in self.slots.values() {
+            slot.content_scope.revoke();
             slot.close.send_replace(true);
         }
     }
@@ -746,7 +754,7 @@ impl Worker {
         options.event_capacity = 256;
         options.event_bytes = BYTES;
         let _registration = match &self.content {
-            Some(content) => match content.attach(&self.chat, &mut options) {
+            Some(content) => match content.attach(&self.chat, &mut options, &self.content_scope) {
                 Ok(registration) => Some(registration),
                 Err(_) => {
                     self.shared.emit(
@@ -970,4 +978,93 @@ fn design_steps() -> Vec<Value> {
         steps.push(json!({"emit":{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":id,"content":[{"type":"text","text":text}]}]}}}));
     }
     steps
+}
+
+#[cfg(test)]
+mod content_close_tests {
+    use super::*;
+    use milagre_content_store::{Runtime, SystemRuntime};
+    struct PausedClock {
+        once: AtomicBool,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+    impl Runtime for PausedClock {
+        fn now_ms(&self) -> u64 {
+            if self.once.swap(false, Ordering::AcqRel) {
+                self.entered.send(()).unwrap();
+                let _ = self.release.lock().unwrap().recv();
+            }
+            SystemRuntime.now_ms()
+        }
+        fn uuid(&self) -> String {
+            SystemRuntime.uuid()
+        }
+    }
+    #[test]
+    fn closing_slot_revokes_paused_write_and_replacement_uses_the_same_writer_once() {
+        let mut provider = ClaudeFixture::create(Scenario::Content).unwrap();
+        // Replace only the trusted clock inside this private fixture, after releasing its first writer.
+        provider.content.take().unwrap().shutdown();
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let content = crate::claude_content::SharedContent::with_runtime(
+            provider.isolation(),
+            provider.project().to_path_buf(),
+            None,
+            Arc::new(PausedClock {
+                once: AtomicBool::new(true),
+                entered: entered_tx,
+                release: Mutex::new(release_rx),
+            }),
+        )
+        .unwrap();
+        content.opened(true);
+        provider.content = Some(content.clone());
+        let chat = format!("{}#1", provider.project().display());
+        let request = RawJson(
+            json!({"provider":"claude","chatId":chat,"cwd":provider.project(),"prompt":"fixture input","permissionMode":"ask"}),
+        );
+        provider.start_turn(TurnId(1), &request).unwrap();
+        entered_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        let closing = provider.slots.get(&chat).unwrap().content_scope.clone();
+        provider.close_chat(&chat, TurnId(1)).unwrap();
+        assert!(
+            closing.check().is_err(),
+            "close revokes before the paused commit is released"
+        );
+        provider.start_turn(TurnId(2), &request).unwrap();
+        assert!(!Arc::ptr_eq(
+            &closing,
+            &provider.slots.get(&chat).unwrap().content_scope
+        ));
+        release_tx.send(()).unwrap();
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        let mut events = Vec::new();
+        loop {
+            events.extend(provider.take_events());
+            if events.iter().any(|e|matches!(e,ProviderEvent::Agent{turn:TurnId(2),event:RawJson(v),..}if v["type"]=="turn-completed")){break;}
+            assert!(std::time::Instant::now() < until, "{events:?}");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let artifacts = content
+            .renderer("artifact:list", &json!({"chatId":chat}))
+            .unwrap();
+        assert_eq!(artifacts.as_array().unwrap().len(), 1);
+        assert_eq!(
+            artifacts[0]["version"], 1,
+            "the revoked write is not replayed into the replacement"
+        );
+        let page = content
+            .renderer(
+                "artifact:get",
+                &json!({"chatId":chat,"id":artifacts[0]["id"]}),
+            )
+            .unwrap();
+        assert!(page.to_string().contains("Native shared content"));
+        assert!(closing.check().is_err());
+        provider.shutdown();
+        assert!(provider.monitor().wait_stopped(Duration::from_secs(3)));
+        content.shutdown();
+    }
 }

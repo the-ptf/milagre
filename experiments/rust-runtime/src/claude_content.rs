@@ -3,10 +3,12 @@ use milagre_claude::{
     mcp::{DispatchError, FnDispatch, InProcessMcp, McpLimits, McpRegistration, McpTool},
     SessionOptions,
 };
-use milagre_content_store::{design::raster::RasterRenderer, ActiveCheck, Error, SystemRuntime};
+use milagre_content_store::{
+    design::raster::RasterRenderer, ActiveCheck, Error, Runtime, SystemRuntime,
+};
 use milagre_owner_store::Isolation;
 use milagre_owner_wire::{RpcError, RpcResult};
-use milagre_tools::{Caller, ContentOwner, DesignScope, Dispatcher};
+use milagre_tools::{Caller, ContentOwner, DesignScope};
 use serde_json::Value;
 use std::{
     path::PathBuf,
@@ -15,6 +17,70 @@ use std::{
         Arc, Mutex,
     },
 };
+
+/// One native session's revocable grant. It never owns a second content store.
+pub(crate) struct SessionContent {
+    active: AtomicBool,
+    registration: Mutex<Option<Arc<McpRegistration>>>,
+}
+impl SessionContent {
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(Self {
+            active: AtomicBool::new(true),
+            registration: Mutex::new(None),
+        })
+    }
+    pub(crate) fn check(&self) -> Result<(), Error> {
+        if self.active.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(Error::coded(
+                "FIXTURE_SESSION_REVOKED",
+                "The native session content grant was closed",
+            ))
+        }
+    }
+    pub(crate) fn revoke(&self) {
+        self.active.store(false, Ordering::Release);
+        let registration = self.registration.lock().unwrap().take();
+        if let Some(registration) = registration {
+            registration.revoke();
+        }
+    }
+    fn authorize(self: &Arc<Self>, mut caller: Caller) -> Caller {
+        let weak = Arc::downgrade(self);
+        let previous = caller.assert_active;
+        caller.assert_active = Arc::new(move || {
+            weak.upgrade()
+                .ok_or_else(|| {
+                    Error::coded(
+                        "FIXTURE_SESSION_REVOKED",
+                        "The native session content grant was released",
+                    )
+                })?
+                .check()?;
+            previous()
+        });
+        caller
+    }
+    fn install(&self, registration: Arc<McpRegistration>) -> Result<(), Error> {
+        let mut current = self.registration.lock().unwrap();
+        if self.check().is_err() || current.is_some() {
+            registration.revoke();
+            return Err(Error::coded(
+                "FIXTURE_SESSION_REVOKED",
+                "The native session registration cannot be attached",
+            ));
+        }
+        *current = Some(registration);
+        Ok(())
+    }
+}
+impl Drop for SessionContent {
+    fn drop(&mut self) {
+        self.revoke();
+    }
+}
 
 pub(crate) struct SharedContent {
     owner: Arc<ContentOwner>,
@@ -48,6 +114,14 @@ impl SharedContent {
         isolation: Isolation,
         project: PathBuf,
         raster: Option<Arc<RasterRenderer>>,
+    ) -> Result<Arc<Self>, Error> {
+        Self::with_runtime(isolation, project, raster, Arc::new(SystemRuntime))
+    }
+    pub(crate) fn with_runtime(
+        isolation: Isolation,
+        project: PathBuf,
+        raster: Option<Arc<RasterRenderer>>,
+        runtime: Arc<dyn Runtime>,
     ) -> Result<Arc<Self>, Error> {
         let project = project.to_string_lossy().into_owned();
         let active = Arc::new(AtomicBool::new(true));
@@ -93,7 +167,7 @@ impl SharedContent {
                 }
             }),
             guard(active.clone(), None),
-            Arc::new(SystemRuntime),
+            runtime,
             raster,
         )?;
         Ok(Arc::new(Self {
@@ -172,15 +246,18 @@ impl SharedContent {
             assert_active: self.caller_guard(),
         }
     }
-    fn dispatcher(&self, chat: &str) -> Result<Dispatcher, Error> {
+    #[cfg(test)]
+    fn dispatcher(&self, chat: &str) -> Result<milagre_tools::Dispatcher, Error> {
         self.owner.session(self.caller(chat))
     }
     pub(crate) fn attach(
         &self,
         chat: &str,
         options: &mut SessionOptions,
-    ) -> Result<McpRegistration, Error> {
-        let dispatcher = self.dispatcher(chat)?;
+        scope: &Arc<SessionContent>,
+    ) -> Result<Arc<McpRegistration>, Error> {
+        scope.check()?;
+        let dispatcher = self.owner.session(scope.authorize(self.caller(chat)))?;
         let manifest = dispatcher
             .provider_manifest()
             .into_iter()
@@ -210,6 +287,8 @@ impl SharedContent {
                 }}
             }) as milagre_claude::BoxFuture<Result<Option<Vec<u8>>,DispatchError>>
         })),McpLimits::default()).map_err(|_|Error::coded("FIXTURE_MCP_FAILED","Could not register the private content scope"))?;
+        let registration = Arc::new(registration);
+        scope.install(registration.clone())?;
         registration.attach(options).map_err(|_| {
             Error::coded(
                 "FIXTURE_MCP_FAILED",
@@ -329,7 +408,8 @@ mod tests {
             true
         );
         let mut options = SessionOptions::new(milagre_claude::LaunchOptions::new("unused-fixture"));
-        let registration = content.attach(&chat, &mut options).unwrap();
+        let session_scope = SessionContent::new();
+        let registration = content.attach(&chat, &mut options, &session_scope).unwrap();
         let mut expected: Vec<_> = new
             .provider_manifest()
             .into_iter()
@@ -340,6 +420,26 @@ mod tests {
         let mut installed = options.launch.allowed_tools.clone();
         installed.sort();
         assert_eq!(installed, expected);
+        session_scope.revoke();
+        let mut refused_options =
+            SessionOptions::new(milagre_claude::LaunchOptions::new("unused-fixture"));
+        assert!(
+            registration.attach(&mut refused_options).is_err(),
+            "the endpoint is revoked even with a retained registration handle"
+        );
+        assert!(
+            content
+                .attach(&chat, &mut refused_options, &session_scope)
+                .is_err(),
+            "a close before attach cannot mint a late registration"
+        );
+        let scoped = content
+            .owner
+            .session(session_scope.authorize(content.caller(&chat)));
+        assert!(
+            scoped.is_err(),
+            "the revoked write lease also refuses bypassing native MCP"
+        );
         let (send, receive) = std::sync::mpsc::sync_channel(0);
         let (release, resume) = std::sync::mpsc::sync_channel(0);
         let issuer = content.clone();
