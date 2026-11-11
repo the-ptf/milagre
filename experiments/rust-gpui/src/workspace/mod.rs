@@ -46,6 +46,8 @@ pub struct Workspace {
     /// The window's own focus, where it falls back to when a modal closes over a column that is gone.
     focus: gpui::FocusHandle,
     allow_prompt: Entity<crate::overlays::dialogs::allow_prompt::ComputerAllowPrompt>,
+    /// The update pill and card, the provider update card and the host and save notices (WP-52).
+    pub notices: Entity<crate::notices::NoticesLayer>,
     /// Each Chat's Terminals, in a drawer under the Chat column.
     pub terminals: Entity<TerminalDrawer>,
     /// The Routines page, in place of the Chat column while the sidebar's Routines button is on (WP-45).
@@ -72,6 +74,10 @@ impl Workspace {
         let palette = cx.new(PaletteView::new);
         let dialog_host: crate::overlays::dialogs::Host = std::rc::Rc::new(crate::overlays::dialogs::FixtureHost::new());
         let allow_prompt = crate::overlays::dialogs::allow_prompt::new(dialog_host.clone(), "this computer", cx);
+        let notices = cx.new(|cx| crate::notices::NoticesLayer::new(dialog_host.clone(), cx));
+        let notice_events = cx.subscribe_in(&notices, window, |this, _, event: &crate::notices::NoticeEvent, window, cx| match event {
+            crate::notices::NoticeEvent::OpenSettings => this.settings.update(cx, |settings, cx| settings.open(window, cx)),
+        });
         let palette_events =
             cx.subscribe_in(&palette, window, |this, _, event: &PaletteEvent, window, cx| this.on_palette_event(event, window, cx));
         let new_chat = cx.subscribe(&sidebar, |this, _, event: &SidebarEvent, cx| match event {
@@ -103,11 +109,12 @@ impl Workspace {
             dialog_host,
             focus: cx.focus_handle(),
             allow_prompt,
+            notices,
             terminals: cx.new(TerminalDrawer::new),
             routines,
             routines_open,
             routines_at,
-            _subscriptions: vec![layout, follow, web, new_chat, open_chat, palette_events],
+            _subscriptions: vec![layout, follow, web, new_chat, open_chat, palette_events, notice_events],
         }
     }
 
@@ -187,6 +194,7 @@ impl Render for Workspace {
             .child(columns)
             // Over the columns' headers, under Settings and the overlays.
             .child(self.top_bar(cx))
+            .child(self.notices.clone())
             .child(self.settings.clone())
             .child(palette)
     }
