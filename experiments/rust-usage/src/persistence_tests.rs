@@ -377,3 +377,55 @@ async fn persistence_poison_recovery_allows_flush_close_and_reopen_without_losin
     assert_eq!(next.load_scan().unwrap().version, 3);
     next.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn quota_budget_charges_file_bytes_and_releases_with_last_store_owner() {
+    let cap = TempCache::fresh().unwrap();
+    let owner = cap.open().unwrap();
+    let a = Selection::default();
+    let b = Selection { claude: "other".into(), ..Selection::default() };
+    let bytes = format!("{}{}", " ".repeat(500), serde_json::to_string(&saved_quota(&fixture(), 27).to_json()).unwrap());
+    fs::write(quota_path(&cap, &a), &bytes).unwrap();
+    fs::write(quota_path(&cap, &b), &bytes).unwrap();
+    let budget = LoadBudget::new(bytes.len() as u64);
+    let loaded = owner.load_quota_budgeted(&a, &budget).unwrap();
+    let cloned = loaded.clone();
+    let again = owner.load_quota_budgeted(&a, &budget).unwrap();
+    assert_eq!(budget.used_bytes(), bytes.len() as u64);
+    assert_eq!(amount(&loaded), 27);
+    assert!(owner.load_quota_budgeted(&b, &budget).is_err());
+    drop(loaded);
+    drop(cloned);
+    assert_eq!(budget.used_bytes(), bytes.len() as u64);
+    drop(again);
+    assert_eq!(budget.used_bytes(), 0);
+    let next = owner.load_quota_budgeted(&b, &budget).unwrap();
+    assert_eq!(amount(&next), 27);
+    drop(next);
+    assert_eq!(budget.used_bytes(), 0);
+    owner.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn missing_corrupt_and_rejected_pending_caches_do_not_consume_load_budget() {
+    let cap = TempCache::fresh().unwrap();
+    let owner = cap.open().unwrap();
+    let selection = Selection::default();
+    let budget = LoadBudget::new(16);
+    let missing = owner.load_quota_budgeted(&selection, &budget).unwrap();
+    assert_eq!(budget.used_bytes(), 0);
+    fs::write(quota_path(&cap, &selection), b"bad json").unwrap();
+    let malformed = owner.load_quota_budgeted(&selection, &budget).unwrap();
+    assert_eq!(budget.used_bytes(), 0);
+    let (entered, resume) = gate(&cap);
+    owner.save_quota(&selection, &saved_quota(&fixture(), 8)).unwrap();
+    let flush = owner.flush();
+    entered.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(owner.load_quota_budgeted(&selection, &budget).is_err());
+    assert_eq!(budget.used_bytes(), 0);
+    assert!(owner.diagnostics().iter().any(|d| d.issue.contains("rehydration failed")));
+    resume.send(()).unwrap();
+    flush.await.unwrap();
+    drop((missing, malformed));
+    owner.shutdown().await.unwrap();
+}

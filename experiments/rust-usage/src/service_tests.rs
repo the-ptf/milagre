@@ -90,7 +90,7 @@ impl Harness {
     }
 }
 async fn stop(s: &Arc<UsageService>) {
-    tokio::time::timeout(Duration::from_secs(3), s.shutdown()).await.unwrap().unwrap();
+    assert_eq!(tokio::time::timeout(Duration::from_secs(3), s.shutdown()).await.unwrap(), ShutdownReport::Complete(Ok(())));
 }
 async fn token_settled(s: &Arc<UsageService>) -> Value {
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -298,7 +298,7 @@ async fn shutdown_waits_for_scan_before_final_export_and_disk_lease_release() {
     assert!(tokio::time::timeout(Duration::from_millis(20), &mut stopping).await.is_err());
     assert!(cap.open().is_err());
     resume.send(()).unwrap();
-    stopping.await.unwrap();
+    assert_eq!(stopping.await, ShutdownReport::Complete(Ok(())));
     assert!(h.events.lock().unwrap().iter().all(|e| e[0] != "token-usage:changed"));
     let reopened = cap.open().unwrap();
     assert!(reopened.load_scan().unwrap().finished_at.is_none());
@@ -312,7 +312,7 @@ async fn failed_final_save_retains_data_for_reopen_and_retry() {
     service.handle("usage:read", &Value::Null).await.unwrap();
     let obstruction = cap.test_directory().join("token-usage.json");
     fs::create_dir(&obstruction).unwrap();
-    assert!(service.shutdown().await.is_err());
+    assert!(matches!(service.shutdown().await, ShutdownReport::Complete(Err(_))));
     assert!(service.dirty_count() > 0);
     fs::remove_dir(obstruction).unwrap();
     let reopened = UsageService::open(&cap, h.options()).await.unwrap();
@@ -449,6 +449,11 @@ async fn entered_async(rx: std::sync::mpsc::Receiver<()>) {
 #[tokio::test]
 async fn background_loads_leave_runtime_live_and_shutdown_owns_cancelled_quota_load() {
     let cap = TempCache::fresh().unwrap();
+    let seed = cap.open().unwrap();
+    let selection = Selection { claude: "work".into(), ..Selection::default() };
+    let store = crate::store::UsageStore::from_json(&json!({"claude":{"blocked":{"until":NOW+1000,"message":"fixture"}}}));
+    seed.save_quota(&selection, &store).unwrap();
+    seed.shutdown().await.unwrap();
     let h = Harness::new();
     let (entered, resume) = cap.test_block_load();
     let c = cap.clone();
@@ -466,7 +471,8 @@ async fn background_loads_leave_runtime_live_and_shutdown_owns_cancelled_quota_l
     assert!(tokio::time::timeout(Duration::from_millis(20), &mut shutdown).await.is_err());
     assert!(cap.open().is_err());
     resume.send(()).unwrap();
-    shutdown.await.unwrap();
+    assert_eq!(shutdown.await, ShutdownReport::Complete(Ok(())));
+    assert_eq!(service.loaded_cache_bytes(), 0, "abandoned loaded quota result released its charge");
     assert!(read.await.unwrap().is_err());
     let reopened = cap.open().unwrap();
     reopened.shutdown().await.unwrap();
@@ -489,8 +495,10 @@ async fn service_aggregate_load_budget_is_shared_across_account_selections() {
     assert!(service.handle("usage:cached", &Value::Null).await.is_ok());
     let charged = service.loaded_cache_bytes();
     h.model.lock().unwrap()["selection"] = json!(Selection::default());
-    assert!(service.handle("usage:cached", &Value::Null).await.is_err());
+    assert!(service.handle("usage:cached", &Value::Null).await.unwrap_err().contains("load byte limit"));
     assert_eq!(service.loaded_cache_bytes(), charged);
+    h.model.lock().unwrap()["selection"] = json!(work);
+    assert!(service.handle("usage:cached", &Value::Null).await.is_ok());
     assert!(!service.cache_diagnostics().is_empty());
     stop(&service).await;
 }
@@ -684,4 +692,112 @@ fn cooperative_scan_cancellation_keeps_only_complete_line_offsets_and_resumes() 
     assert!(scanner.scan(NOW).unwrap());
     assert!(scanner.finished());
     assert_eq!(scanner.rows()[0]["requests"], 1.0);
+}
+
+#[tokio::test]
+async fn final_export_recovers_scanner_and_pricing_poison_independently() {
+    let cap = TempCache::fresh().unwrap();
+    let h = Harness::new();
+    let service = UsageService::open(&cap, h.options()).await.unwrap();
+    service.handle("usage:read", &Value::Null).await.unwrap();
+    service.refresh_prices().await.unwrap();
+    service.scan.scanner.lock().unwrap().scan(NOW).unwrap();
+    let expected_quota = service.accounts.stores();
+    let expected_prices = service.prices.pricing.lock().unwrap().current().cloned();
+    service.flush().await.unwrap();
+    // Remove only this fresh fixture's committed files, so reopen proves final export saved every state.
+    for entry in fs::read_dir(cap.test_directory()).unwrap() {
+        fs::remove_file(entry.unwrap().path()).unwrap();
+    }
+    for poison_scan in [true, false] {
+        assert!(guarded_sync(|| {
+            if poison_scan {
+                let _guard = service.scan.scanner.lock().unwrap();
+                panic!("fixture scanner poison");
+            } else {
+                let _guard = service.prices.pricing.lock().unwrap();
+                panic!("fixture pricing poison");
+            }
+        })
+        .is_err());
+    }
+    assert_eq!(service.shutdown().await, ShutdownReport::Complete(Ok(())));
+    assert_eq!(service.cache_diagnostics().iter().filter(|d| d.issue.contains("recovered poisoned state")).count(), 2);
+    let cache = cap.open().unwrap();
+    for (selection, value) in expected_quota {
+        assert_eq!(cache.load_quota(&selection).unwrap().to_json(), value);
+    }
+    assert_eq!(cache.load_scan().unwrap().finished_at, Some(NOW));
+    assert_eq!(cache.load_pricing().unwrap().current().cloned(), expected_prices);
+    cache.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn export_panic_does_not_prevent_other_state_exports() {
+    let cap = TempCache::fresh().unwrap();
+    let cache = cap.open().unwrap();
+    let mut errors = Vec::new();
+    export_state(&cache, "accounts", &mut errors, || panic!("fixture export panic"));
+    export_state(&cache, "scanner", &mut errors, || {
+        cache.save_scan(&crate::scan::ScanCache { finished_at: Some(NOW), ..Default::default() })
+    });
+    assert_eq!(errors, ["accounts: export panicked"]);
+    cache.shutdown().await.unwrap();
+    let next = cap.open().unwrap();
+    assert_eq!(next.load_scan().unwrap().finished_at, Some(NOW));
+    assert!(next.diagnostics().iter().any(|d| d.slot == "accounts" && d.issue == "export panicked"));
+    next.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn cancelled_scan_reports_stopped_without_fault_diagnostic() {
+    let cap = TempCache::fresh().unwrap();
+    let service = UsageService::open(&cap, Harness::new().options()).await.unwrap();
+    service.scan.cancel.cancel();
+    assert_eq!(service.scan.start(NOW).unwrap().await.unwrap_err(), "Scanner stopped");
+    assert!(service.cache_diagnostics().is_empty());
+    stop(&service).await;
+    assert_eq!(service.handle("token-usage:read", &Value::Null).await.unwrap_err(), "Usage service stopped");
+}
+
+#[test]
+fn drop_without_runtime_leaves_diagnostic_for_next_owner() {
+    let cap = TempCache::fresh().unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let service = runtime.block_on(UsageService::open(&cap, Harness::new().options())).unwrap();
+    drop(runtime);
+    drop(service);
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    runtime.block_on(async {
+        let cache = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                match cap.open() {
+                    Ok(cache) => break cache,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => tokio::time::sleep(Duration::from_millis(1)).await,
+                    Err(error) => panic!("{error}"),
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert!(cache.diagnostics().iter().any(|d| d.issue.contains("dropped_without_export")));
+        cache.shutdown().await.unwrap();
+    });
+}
+
+#[tokio::test]
+async fn default_shutdown_reports_pending_and_retains_lease_until_worker_exits() {
+    let cap = TempCache::fresh().unwrap();
+    let service = UsageService::open(&cap, Harness::new().options()).await.unwrap();
+    let (tx, entered) = std::sync::mpsc::channel();
+    let (resume, rx) = std::sync::mpsc::channel();
+    *service.scan.gate.lock().unwrap() = Some((tx, rx));
+    let scanning = service.scan.start(NOW).unwrap();
+    entered_async(entered).await;
+    assert_eq!(service.shutdown().await, ShutdownReport::Pending);
+    assert_eq!(cap.open().err().unwrap().kind(), std::io::ErrorKind::AlreadyExists);
+    resume.send(()).unwrap();
+    assert_eq!(scanning.await.unwrap_err(), "Scanner stopped");
+    assert_eq!(service.shutdown().await, ShutdownReport::Complete(Ok(())));
+    cap.open().unwrap().shutdown().await.unwrap();
 }

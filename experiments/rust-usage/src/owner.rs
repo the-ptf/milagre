@@ -61,10 +61,10 @@ impl TokenUsage {
     pub async fn read(self: &Arc<Self>, request: &Value) -> Result<Value, String> {
         let this = self.clone();
         let request = request.clone();
-        self.tasks
-            .run(async move { this.read_inner(&request).await })
-            .await
-            .map_err(|_| "Token usage owner stopped or callback panicked".to_owned())?
+        self.tasks.run(async move { this.read_inner(&request).await }).await.map_err(|error| match error {
+            crate::supervisor::TaskError::Stopped => "Token usage owner stopped".to_owned(),
+            crate::supervisor::TaskError::Panicked => "Token usage callback panicked".to_owned(),
+        })?
     }
     pub async fn shutdown(&self) {
         self.tasks.shutdown().await;

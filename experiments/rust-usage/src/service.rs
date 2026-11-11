@@ -268,15 +268,9 @@ impl UsageService {
         }
     }
     /// Seals immediately. The retained shutdown task survives dropped waiters; cache closes only after callbacks
-    /// stop, the non-cancellable scanner finishes and every final state has been staged.
-    pub fn shutdown(self: &Arc<Self>) -> impl std::future::Future<Output = ResultValue<()>> + Send + 'static {
-        let report = self.shutdown_report(std::time::Duration::from_secs(2));
-        async move {
-            match report.await {
-                ShutdownReport::Complete(result) => result,
-                ShutdownReport::Pending => Err("Usage shutdown is still running; worker ownership and cache lease retained".into()),
-            }
-        }
+    /// stop, the scanner exits and every final state has been staged. Never stop Tokio while Pending.
+    pub fn shutdown(self: &Arc<Self>) -> impl std::future::Future<Output = ShutdownReport> + Send + 'static {
+        self.shutdown_report(std::time::Duration::from_secs(2))
     }
     pub fn shutdown_report(
         self: &Arc<Self>,
@@ -331,6 +325,8 @@ impl Drop for UsageService {
             runtime.spawn(async move {
                 let _ = finalize(accounts, token, prices, scan, jobs, cache).await;
             });
+        } else {
+            self.cache.record_diagnostic("service", "dropped_without_export: no Tokio runtime available for final export");
         }
     }
 }
@@ -350,15 +346,21 @@ async fn finalize(
     let disk = cache.clone();
     let mut errors = tokio::task::spawn_blocking(move || {
         let mut errors = Vec::new();
-        for result in [
-            disk.save_accounts(&accounts.stores()),
-            disk.save_scan(scan.scanner.lock().unwrap().cache()),
-            disk.save_pricing(&prices.pricing.lock().unwrap()),
-        ] {
-            if let Err(error) = result {
-                errors.push(error.to_string());
-            }
-        }
+        export_state(&disk, "accounts", &mut errors, || disk.save_accounts(&accounts.stores()));
+        export_state(&disk, "scanner", &mut errors, || {
+            let scanner = scan.scanner.lock().unwrap_or_else(|poison| {
+                disk.record_diagnostic("scanner", "recovered poisoned state during final export");
+                poison.into_inner()
+            });
+            disk.save_scan(scanner.cache())
+        });
+        export_state(&disk, "pricing", &mut errors, || {
+            let pricing = prices.pricing.lock().unwrap_or_else(|poison| {
+                disk.record_diagnostic("pricing", "recovered poisoned state during final export");
+                poison.into_inner()
+            });
+            disk.save_pricing(&pricing)
+        });
         errors
     })
     .await
@@ -370,6 +372,14 @@ async fn finalize(
         Ok(())
     } else {
         Err(errors.join("; "))
+    }
+}
+
+fn export_state(cache: &CacheOwner, slot: &str, errors: &mut Vec<String>, export: impl FnOnce() -> std::io::Result<()>) {
+    let result = guarded_sync(export).map_err(|_| "export panicked".to_owned()).and_then(|result| result.map_err(|e| e.to_string()));
+    if let Err(error) = result {
+        cache.record_diagnostic(slot, &error);
+        errors.push(format!("{slot}: {error}"));
     }
 }
 
@@ -478,7 +488,13 @@ impl ScanOwner {
                         resume.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
                     }
                     let mut scanner = scanner.lock().unwrap();
-                    let changed = scanner.scan_cancellable(now, &cancel).map_err(|e| e.to_string())?;
+                    let changed = scanner.scan_cancellable(now, &cancel).map_err(|e| {
+                        if e.kind() == std::io::ErrorKind::Interrupted {
+                            "Scanner stopped".to_owned()
+                        } else {
+                            e.to_string()
+                        }
+                    })?;
                     if changed {
                         if let Err(error) = cache.save_scan(scanner.cache()) {
                             cache.record_diagnostic("scanner", &error.to_string());

@@ -123,10 +123,17 @@ Use a Tokio runtime with timers; this crate enables the `time` feature.
   `UsageAccounts::with_async_store_loader`, so an account first selected after startup still rehydrates its own cache.
   Startup and quota disk/JSON loads run on tracked blocking workers; cancelling their callers does not release the
   cache lease while a worker is running. A per-selection async gate coalesces first loads.
-  `open_with_limits(..., ServiceLimits { cache_load_bytes })` overrides the default 64 MiB aggregate encoded-byte
-  load budget shared across scan, pricing and quota slots. Each slot is charged once, loads serialize under the
-  budget on blocking workers, and failure is diagnostic/retryable. `loaded_cache_bytes()` reports charges. This
-  bounds rehydration input, not allocator overhead, live callback output or total in-memory report state.
+  `open_with_limits(..., ServiceLimits { cache_load_bytes })` overrides the default 64 MiB aggregate input-byte
+  load budget shared across scan, pricing and quota slots. Loads serialize under the budget on blocking workers.
+  Disk loads charge actual bytes read, including whitespace, without a second serialization buffer. Pending snapshots
+  use a bounded counting writer before cloning. Missing/malformed JSON consumes no retained charge. Quota charges
+  follow loaded stores and their clones; abandoned blocking results release their charge. Concurrent loads of one
+  slot share its maximum charge until the last store drops. The two fixed scan/pricing slots stay reserved for the
+  service lifetime. Removed-account readers still own their stores and retain their charges for Node compatibility.
+  A new selection that exceeds the budget returns an error from `handle` with its remaining byte allowance and
+  records a slot diagnostic; it is never memoized as empty. Existing readers remain usable. `loaded_cache_bytes()`
+  reports charges. This bounds rehydration input, not allocator overhead, live callback output or total in-memory
+  report state. Cache eviction and production UI presentation of errors remain owner work.
   Lazy-loader errors/panics do not poison readers or memoize an empty store and can be retried.
 - Before invoking an injected provider reader, the facade rechecks the pinned ID against a fresh trusted account
   snapshot. Removed and non-ready IDs return unavailable without invoking the reader or substituting another ID.
@@ -153,16 +160,27 @@ Use a Tokio runtime with timers; this crate enables the `time` feature.
   return distinct errors.
 - **Request shutdown before releasing the service or stopping Tokio.** `shutdown()` seals commands, requests scan
   cancellation and suppresses new event delivery immediately, even if its future is never polled. It reports within
-  two seconds: success/final error when finished, or a distinct still-running error. `shutdown_report(Duration)`
-  returns typed `ShutdownReport::Complete(Result<(), String>)` or `Pending` using a caller-supplied deadline.
+  two seconds as `ShutdownReport::Complete(Result<(), String>)` or `Pending`. This changes the previous
+  `shutdown().await -> Result<(), String>` service API. `shutdown_report(Duration)` returns the same typed report
+  using a caller-supplied deadline. **Never stop the runtime while a report is `Pending`.**
   Concurrent callers share the same finalizer. A timeout cancels only the wait; it never abandons a worker, releases
   the cache lease early, or permits a second owner. Call again to observe completion and keep Tokio running.
   The finalizer stops retries, cancels/awaits command/account/token/pricing callbacks, waits for blocking loads and
   the scanner to exit, exports all final state on a blocking worker, then closes the cache. Completed quota results
-  survive cancellation of other providers. Failed final writes remain in the capability for reopen/retry.
+  survive cancellation of other providers. Each final export has its own panic/error boundary. Scanner and pricing
+  mutex poison is recovered independently with diagnostics; a failed account export cannot skip either. Failed final
+  writes remain in the capability for reopen/retry. Interrupted scans report `Scanner stopped`, without a fault
+  diagnostic. Token-owner cancellation is distinct from a callback panic.
   Drop requests the same cleanup when a Tokio runtime is available, without exposing its result; it is a fallback,
   not a replacement for explicit shutdown. Active commands hold their own service references, so dropping an
-  external Arc alone cannot revoke an outstanding command. Without a live runtime, final export is not promised.
+  external Arc alone cannot revoke an outstanding command. Without a live runtime, final export is not promised;
+  `dropped_without_export` is recorded on the retained temporary capability for the next owner's diagnostics.
+
+Review verification: the residual export-poison and string timeout findings were confirmed. Budget failures already
+propagated through command errors; the safety change adds byte context and fixes charges retained by cancelled
+loads. Removed stores intentionally remain charged while owned. Scan errors are consumed by the background token
+owner, not directly returned by token reads; explicit scan cancellation and token-owner shutdown now use stopped
+errors. No new transport, routing, account discovery or production cache adoption is enabled.
 
 Snapshot guards do not revoke an already-running read when metadata changes. Removed cache entries are retained
 for compatibility, so privacy-driven cache deletion needs a separate explicit API. Copied roots are fixed for the
@@ -257,8 +275,8 @@ Preserved Node behavior:
 
 ## Verification
 
-On macOS arm64: **64 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
-command traces**, account isolation, callback lifecycle and **14 persistence tests**, plus **19 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
+On macOS arm64: **71 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
+command traces**, account isolation, callback lifecycle and **16 persistence tests**, plus **24 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
 from Rust output. Codex is an EventEmitter fixture; Claude uses supplied synthetic credential text and a fake fetch.
 No provider process, keychain access or network transport is available to the fixture sandbox.
 

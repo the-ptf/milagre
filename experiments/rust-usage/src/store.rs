@@ -39,6 +39,7 @@ fn clean_blocked(v: &Value) -> Value {
 #[derive(Clone, Debug)]
 pub struct UsageStore {
     state: Value,
+    pub(crate) load_charge: Option<Arc<crate::persistence::LoadCharge>>,
 }
 impl Default for UsageStore {
     fn default() -> Self {
@@ -51,7 +52,7 @@ impl UsageStore {
         for p in STORE_ORDER {
             state[p] = json!({"last":clean_last(&v[p]["last"]),"blocked":clean_blocked(&v[p]["blocked"])});
         }
-        Self { state }
+        Self { state, load_charge: None }
     }
     pub fn to_json(&self) -> Value {
         self.state.clone()

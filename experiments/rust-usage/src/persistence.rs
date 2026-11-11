@@ -24,12 +24,18 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 fn validate_size(value: &Value) -> io::Result<()> {
-    struct Count(u64);
+    encoded_size(value, MAX_CACHE_BYTES).map(|_| ())
+}
+fn encoded_size(value: &Value, limit: u64) -> io::Result<u64> {
+    struct Count {
+        bytes: u64,
+        limit: u64,
+    }
     impl io::Write for Count {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            self.0 += bytes.len() as u64;
-            if self.0 > MAX_CACHE_BYTES {
-                Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds 32 MiB limit"))
+            self.bytes += bytes.len() as u64;
+            if self.bytes > self.limit {
+                Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds load byte limit (at most 32 MiB)"))
             } else {
                 Ok(bytes.len())
             }
@@ -38,20 +44,41 @@ fn validate_size(value: &Value) -> io::Result<()> {
             Ok(())
         }
     }
-    serde_json::to_writer(Count(0), value).map_err(io::Error::other)
+    let mut count = Count { bytes: 0, limit };
+    serde_json::to_writer(&mut count, value).map_err(io::Error::other)?;
+    Ok(count.bytes)
 }
-/// Aggregate encoded bytes retained by successful cache loads, charged once per structural slot.
+/// Aggregate input bytes retained by successful cache loads, charged once per structural slot.
+/// Quota stores share a charge until their last owner drops. The two fixed scan/pricing slots are
+/// reserved for this budget's lifetime; create a fresh budget for each service lifecycle.
 /// Serialize loads under this budget on a blocking worker, never on an async runtime thread.
 pub struct LoadBudget {
     limit: u64,
-    used: Mutex<BTreeMap<String, u64>>,
+    used: Arc<Mutex<BTreeMap<String, (u64, usize)>>>,
 }
 impl LoadBudget {
     pub fn new(limit: u64) -> Self {
-        Self { limit, used: Mutex::new(BTreeMap::new()) }
+        Self { limit, used: Arc::new(Mutex::new(BTreeMap::new())) }
     }
     pub fn used_bytes(&self) -> u64 {
-        lock(&self.used).values().sum()
+        lock(&self.used).values().map(|v| v.0).sum()
+    }
+}
+/// A quota charge follows the loaded store, including clones and cancelled blocking-job results.
+#[derive(Debug)]
+pub(crate) struct LoadCharge {
+    used: Arc<Mutex<BTreeMap<String, (u64, usize)>>>,
+    slot: String,
+}
+impl Drop for LoadCharge {
+    fn drop(&mut self) {
+        let mut slots = lock(&self.used);
+        if let Some((_, owners)) = slots.get_mut(&self.slot) {
+            *owners -= 1;
+            if *owners == 0 {
+                slots.remove(&self.slot);
+            }
+        }
     }
 }
 type Outcome = Result<(), String>;
@@ -276,57 +303,70 @@ impl CacheOwner {
         lock(&self.cap.diagnostics).clone()
     }
     fn load(&self, key: Key) -> io::Result<Value> {
-        self.load_with_limit(key, MAX_CACHE_BYTES)
+        self.load_with_limit(key, MAX_CACHE_BYTES).map(|v| v.0)
     }
-    fn load_budgeted(&self, key: Key, budget: &LoadBudget) -> io::Result<Value> {
+    fn load_budgeted(&self, key: Key, budget: &LoadBudget) -> io::Result<(Value, Option<Arc<LoadCharge>>)> {
         let mut slots = lock(&budget.used);
-        let previous = slots.get(key.name()).copied().unwrap_or(0);
-        let available = budget.limit.saturating_sub(slots.values().sum::<u64>().saturating_sub(previous)).min(MAX_CACHE_BYTES);
-        let value = self.load_with_limit(key.clone(), available)?;
-        let bytes = serde_json::to_vec(&value)?.len() as u64;
-        if bytes > available {
-            self.diagnostic(&key, "aggregate cache load budget exceeded");
-            return Err(io::Error::new(io::ErrorKind::OutOfMemory, "aggregate cache load budget exceeded"));
-        }
-        slots.insert(key.name().to_owned(), bytes);
-        Ok(value)
+        let (previous, owners) = slots.get(key.name()).copied().unwrap_or_default();
+        let available = budget.limit.saturating_sub(slots.values().map(|v| v.0).sum::<u64>().saturating_sub(previous)).min(MAX_CACHE_BYTES);
+        let (value, bytes) = self.load_with_limit(key.clone(), available).map_err(|error| {
+            let message = format!("cache rehydration failed (available {available} bytes): {error}");
+            self.diagnostic(&key, &message);
+            io::Error::new(error.kind(), message)
+        })?;
+        let scoped = matches!(key, Key::Quota(_));
+        slots.insert(key.name().to_owned(), (bytes.max(previous), owners + usize::from(scoped)));
+        let charge = scoped.then(|| Arc::new(LoadCharge { used: budget.used.clone(), slot: key.name().to_owned() }));
+        Ok((value, charge))
     }
-    fn load_with_limit(&self, key: Key, limit: u64) -> io::Result<Value> {
-        {
+    fn load_with_limit(&self, key: Key, limit: u64) -> io::Result<(Value, u64)> {
+        let pending = {
             let state = lock(&self.shared.state);
             if state.closing {
                 return Err(io::Error::new(io::ErrorKind::BrokenPipe, "cache owner is closing"));
             }
-            if let Some(pending) = state.pending.get(&key) {
-                return Ok((*pending.value).clone());
-            }
+            state.pending.get(&key).map(|p| p.value.clone())
+        };
+        if let Some(pending) = pending {
+            let bytes = encoded_size(&pending, limit)?;
+            return Ok(((*pending).clone(), bytes));
         }
         // No state lock across filesystem reads or JSON parsing.
         let loaded = self.cap.disk.load(key.name(), limit);
         if let Err(error) = &loaded {
             self.diagnostic(&key, &error.to_string());
         }
-        let (value, malformed) = loaded?;
+        let (value, malformed, bytes) = loaded?;
         if malformed {
             self.diagnostic(&key, "invalid JSON; empty cache used");
         }
-        let state = lock(&self.shared.state);
-        if state.closing {
-            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "cache owner is closing"));
+        let pending = {
+            let state = lock(&self.shared.state);
+            if state.closing {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "cache owner is closing"));
+            }
+            state.pending.get(&key).map(|p| p.value.clone())
+        };
+        if let Some(pending) = pending {
+            let bytes = encoded_size(&pending, limit)?;
+            Ok(((*pending).clone(), bytes))
+        } else {
+            Ok((value, bytes))
         }
-        Ok(state.pending.get(&key).map(|p| (*p.value).clone()).unwrap_or(value))
     }
     pub fn load_quota_budgeted(&self, selection: &Selection, budget: &LoadBudget) -> io::Result<UsageStore> {
         let key = Key::quota(selection)?;
-        let value = self.load_budgeted(key.clone(), budget)?;
-        Ok(self.parse_quota(&key, value))
+        let (value, charge) = self.load_budgeted(key.clone(), budget)?;
+        let mut store = self.parse_quota(&key, value);
+        store.load_charge = charge;
+        Ok(store)
     }
     pub fn load_scan_budgeted(&self, budget: &LoadBudget) -> io::Result<ScanCache> {
-        let value = self.load_budgeted(Key::Scan, budget)?;
+        let (value, _) = self.load_budgeted(Key::Scan, budget)?;
         Ok(self.parse_scan(value))
     }
     pub fn load_pricing_budgeted(&self, budget: &LoadBudget) -> io::Result<Pricing> {
-        let value = self.load_budgeted(Key::Pricing, budget)?;
+        let (value, _) = self.load_budgeted(Key::Pricing, budget)?;
         Ok(self.parse_pricing(value))
     }
     pub fn load_quota(&self, selection: &Selection) -> io::Result<UsageStore> {
@@ -515,7 +555,7 @@ mod disk {
                 Ok(unsafe { File::from_raw_fd(fd) })
             }
         }
-        pub fn load(&self, name: &str, limit: u64) -> io::Result<(Value, bool)> {
+        pub fn load(&self, name: &str, limit: u64) -> io::Result<(Value, bool, u64)> {
             #[cfg(test)]
             if let Some((entered, resume)) = lock(&self.load_gate).take() {
                 let _ = entered.send(());
@@ -523,7 +563,7 @@ mod disk {
             }
             let file = match self.open(name, libc::O_RDONLY) {
                 Ok(f) => f,
-                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Value::Null, false)),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Value::Null, false, 0)),
                 Err(e) => return Err(e),
             };
             if !file.metadata()?.is_file() {
@@ -538,8 +578,8 @@ mod disk {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "cache exceeds load byte limit (at most 32 MiB)"));
             }
             Ok(match serde_json::from_slice(&bytes) {
-                Ok(v) => (v, false),
-                Err(_) => (Value::Null, true),
+                Ok(v) => (v, false, bytes.len() as u64),
+                Err(_) => (Value::Null, true, 0),
             })
         }
         pub fn save(&self, name: &str, value: &Value) -> io::Result<()> {
@@ -588,7 +628,7 @@ mod disk {
         pub fn fresh() -> io::Result<Self> {
             Err(io::Error::new(io::ErrorKind::Unsupported, "temporary atomic caches require Unix directory handles"))
         }
-        pub fn load(&self, _: &str, _: u64) -> io::Result<(Value, bool)> {
+        pub fn load(&self, _: &str, _: u64) -> io::Result<(Value, bool, u64)> {
             unreachable!()
         }
         pub fn save(&self, _: &str, _: &Value) -> io::Result<()> {
