@@ -99,10 +99,13 @@ impl StoreError {
         }
     }
 
-    /// Node's `error.code`, when there is one.
+    /// The error's code, for every caller (a wire reply, save status, the audit): Node's `error.code` for I/O, and the
+    /// owner's answer codes (`ANSWER_DELIVERY_UNKNOWN`, `ANSWERS_AT_CAPACITY`, see chat_host.rs).
     pub fn code(&self) -> Option<&'static str> {
         match self {
             StoreError::Io { code, .. } => *code,
+            StoreError::AnswerDeliveryUnknown(_) => Some("ANSWER_DELIVERY_UNKNOWN"),
+            StoreError::AnswersAtCapacity(_) => Some("ANSWERS_AT_CAPACITY"),
             _ => None,
         }
     }

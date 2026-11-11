@@ -175,7 +175,8 @@ pub enum AnswerResult {
     Uncertain(String),
 }
 
-/// The error code a command rejects with for [`AnswerResult::Uncertain`] and for a retry it blocks.
+/// The error code a command rejects with for [`AnswerResult::Uncertain`] and for a retry it blocks
+/// ([`StoreError::code`] of `AnswerDeliveryUnknown`).
 pub const ANSWER_DELIVERY_UNKNOWN: &str = "ANSWER_DELIVERY_UNKNOWN";
 
 /// What answering returned at once: settled already (`false` when no session could take it), or waiting for its
@@ -556,7 +557,7 @@ const PERMISSION_MODES: [&str; 3] = ["ask", "auto", "full"];
 pub const MAX_ANSWER_SUMMARY: usize = 210_000;
 /// Default slots for answers on their way plus answers with an unknown delivery (`ChatHost::answer_capacity`).
 pub const ANSWER_CAPACITY: usize = 256;
-/// The error code a command rejects with when every answer slot is taken.
+/// The error code a command rejects with when every answer slot is taken ([`StoreError::code`] of `AnswersAtCapacity`).
 pub const ANSWERS_AT_CAPACITY: &str = "ANSWERS_AT_CAPACITY";
 /// How long a handed-over answer may wait for its settlement before the host fails it.
 pub const ANSWER_GRACE_MS: i64 = 30_000;

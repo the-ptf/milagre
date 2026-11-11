@@ -1235,3 +1235,26 @@ fn closed_generations_leak_no_answer_slots() {
         );
     }
 }
+
+/// Every owner caller gets the answer codes from `StoreError::code`, matching the constants the contract names.
+#[test]
+fn answer_errors_carry_their_codes() {
+    use milagre_owner_store::chat_host::{ANSWERS_AT_CAPACITY, ANSWER_DELIVERY_UNKNOWN};
+    let mut copy = Copy::plain();
+    copy.host.answer_capacity = 1;
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    ask(&mut copy, "q1");
+    ask(&mut copy, "q2");
+    copy.kiro.state.lock().unwrap().hold_answers = true;
+    let AnswerTicket::Pending(_) = answer(&mut copy, "q1", "Red") else {
+        panic!("settled at once")
+    };
+    let retry = json!({ "chatId": copy.chat(), "requestId": "q1", "answers": { "c": ["Red"] }, "summary": "Red" });
+    let blocked = copy.host.answer_question(&retry).unwrap_err();
+    assert_eq!(blocked.code(), Some(ANSWER_DELIVERY_UNKNOWN));
+    let other = json!({ "chatId": copy.chat(), "requestId": "q2", "answers": { "c": ["Blue"] }, "summary": "Blue" });
+    let full = copy.host.answer_question(&other).unwrap_err();
+    assert_eq!(full.code(), Some(ANSWERS_AT_CAPACITY));
+    assert_eq!(StoreError::Invalid("x".into()).code(), None);
+}
