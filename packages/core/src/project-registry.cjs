@@ -113,7 +113,8 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
         const projects = (await Promise.all(previous.projects.map(async (entry) => ((await present(entry)) ? { ...entry } : null)))).filter(Boolean);
         const current = { ...previous, projects, worktreePositions: structuredClone(previous.worktreePositions) };
         current.links = current.links.filter(
-          (link) => projects.some((project) => project.id === link.a?.project_id) && projects.some((project) => project.id === link.b?.project_id),
+          (link) =>
+            link.sharedChat || (projects.some((project) => project.id === link.a?.project_id) && projects.some((project) => project.id === link.b?.project_id)),
         );
         const result = await change(current);
         if (JSON.stringify(result) !== JSON.stringify(previous)) await write(result);
@@ -124,6 +125,36 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
   }
 
   return {
+    // Internal only: an adopted pair can coexist with a Named Link of those Projects.
+    createWorktreeGroup: async (linkId) => {
+      let group;
+      await update(async (data) => {
+        const link = data.links.find((item) => item.id === linkId);
+        if (!link?.a.worktree_path || !link.b.worktree_path) throw new Error("Choose a Link between two Worktrees.");
+        const projectIds = [...new Set([link.a.project_id, link.b.project_id])];
+        if (projectIds.length !== 2) throw new Error("Choose Worktrees from different Projects.");
+        group = {
+          id: require("node:crypto").randomUUID(),
+          canvasLinkId: linkId,
+          projectIds,
+          name: [link.a, link.b].map((end) => path.basename(end.worktree_path)).join(" + "),
+          createdAt: now().toISOString(),
+        };
+        data.projectGroups = [...(data.projectGroups ?? []), group];
+        // Keep the edge reachable throughout adoption recovery, even if a member temporarily disappears.
+        data.links = data.links.map((item) => (item.id === linkId ? { ...item, sharedChat: { linkId: group.id, sessionId: 1 } } : item));
+        return data;
+      });
+      return group;
+    },
+    setLinkChat: (id, sharedChat) =>
+      update(async (data) => {
+        const link = data.links.find((item) => item.id === id);
+        if (!link) throw new Error("Link does not exist.");
+        const { sharedChat: _previous, ...rest } = link;
+        data.links = data.links.map((item) => (item.id === id ? { ...rest, ...(sharedChat ? { sharedChat } : {}) } : item));
+        return data;
+      }),
     listProjectGroups: async () => {
       await queue.catch(() => {});
       return (await read()).projectGroups ?? [];
@@ -196,7 +227,7 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
             ...data.projects.filter((entry, index) => !missing[index] && entry.id !== identity.id && entry.path !== identity.path),
           ];
           const kept = (id) => projects.some((project) => project.id === id);
-          await write({ ...data, projects, links: data.links.filter((link) => kept(link.a?.project_id) && kept(link.b?.project_id)) });
+          await write({ ...data, projects, links: data.links.filter((link) => link.sharedChat || (kept(link.a?.project_id) && kept(link.b?.project_id))) });
           return projects;
         });
       queue = next;

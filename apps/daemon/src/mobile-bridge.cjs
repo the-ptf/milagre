@@ -162,6 +162,7 @@ const METHODS = new Set([
   "canvas:links",
   "canvas:link-add",
   "canvas:link-remove",
+  "canvas:chat-mode",
   "linked:grant",
   "link:list",
   "link:create",

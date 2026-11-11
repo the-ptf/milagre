@@ -2313,6 +2313,7 @@ function ChatPane({
     (!draft.trim() && !quotes.length && !attachments.length) ||
     !!chat?.archived ||
     !!chat?.formerWorktree ||
+    !!chat?.readOnlyReason ||
     (!offline && unavailable);
   // On an iPad the routed Chat's Terminals dock below it instead of opening full screen.
   const terminalDocks = !secondary && split.widthClass !== "compact";
@@ -2423,7 +2424,11 @@ function ChatPane({
                     <Text style={styles.caption}>Demo agent. Send tools, approval, question, or slow to try the controls.</Text>
                   )}
                   {session.providerError ? <Text style={styles.caption}>{session.providerError}</Text> : null}
-                  {chat?.formerWorktree ? (
+                  {chat?.readOnlyReason ? (
+                    <View style={styles.card}>
+                      <Text style={styles.muted}>{chat.readOnlyReason}</Text>
+                    </View>
+                  ) : chat?.formerWorktree ? (
                     <View style={styles.card}>
                       <Text style={styles.muted}>{RUN_WORKTREE_REMOVED_NOTE}</Text>
                     </View>

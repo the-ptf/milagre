@@ -40,6 +40,7 @@ function registerLinkRuntime({
     const link = await definition(id);
     if (deleting.has(id)) throw new Error("This Link is being deleted.");
     if ((store.cached(id) ?? (await store.get(id))).deletedAt) throw new Error("This Link was partly deleted. Delete it again to finish.");
+    if ((store.cached(id) ?? (await store.get(id))).adoptionPending) throw new Error("Finish changing this Link's Chat mode from the canvas.");
     return link;
   }
   async function open(id) {
@@ -55,7 +56,7 @@ function registerLinkRuntime({
       (latest) => {
         const sessions = { ...latest.sessions };
         let changed = false;
-        for (const prep of Object.values(latest.preparations))
+        for (const prep of link.canvasLinkId ? [] : Object.values(latest.preparations))
           if (prep.status === "ready" && !sessions[prep.chatId]) {
             sessions[prep.chatId] = {
               id: prep.chatId,
@@ -150,6 +151,7 @@ function registerLinkRuntime({
       .catch(() => {})
       .then(async () => {
         const link = await definition(id);
+        if (link.canvasLinkId) throw new Error("Manage this Link's Chat mode on the canvas. Its histories and existing Worktrees are kept.");
         deleting.add(id);
         try {
           const { sessions, running } = await deletion(link);
@@ -200,6 +202,18 @@ function registerLinkRuntime({
         const started =
           linearIssue !== undefined && issues ? await issues.message(rest, linearIssue) : { message: { ...rest, context: undefined }, issue: null };
         let sessionId = request.sessionId;
+        if (link.canvasLinkId) {
+          if (state.releasedAt) throw new Error("This shared Chat is read-only. Continue in a new Chat in either Worktree.");
+          sessionId ??= 1;
+          if (!state.sessions[sessionId]) throw new Error("Open the existing shared Chat from the canvas.");
+          // Adoption starts in Ask, regardless of the client's last-used mode in another Chat.
+          if (
+            !state.sessions[sessionId].native_session_id &&
+            !(state.sessions[sessionId].summary?.count > 0) &&
+            !state.messages.some((message) => message.role === "user" && message.session_id === sessionId)
+          )
+            started.message.permissionMode = state.sessions[sessionId].permissionMode ?? "ask";
+        }
         if (sessionId == null) {
           sessionId = Object.values(state.preparations).find((prep) => prep.operationId === operationId)?.chatId ?? state.next_id;
           const prepared = await workspaces.prepareLinkChat({

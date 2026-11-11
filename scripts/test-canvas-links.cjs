@@ -33,6 +33,14 @@ window.milagre = {
   getCanvas: async () => ({ projects, links: readLinks(), worktreePositions: {}, states: [{ path: "/a", state: frontend }, { path: "/b", state: backend }, { path: "/c", state: empty }] }),
   addLink: async (a, b) => { const links = [...readLinks(), { id: "link-1", a, b, created_at: new Date().toISOString() }]; localStorage.setItem("canvas-test-links", JSON.stringify(links)); return links; },
   removeLink: async id => { const links = readLinks().filter(link => link.id !== id); localStorage.setItem("canvas-test-links", JSON.stringify(links)); return links; },
+  setLinkChatMode: async (id, mode) => {
+    window.__modeCall = { id, mode };
+    const sharedChat = mode === "shared" ? { linkId: "shared-link", sessionId: 1 } : undefined;
+    frontend.worktrees[8].sharedChat = sharedChat;
+    backend.worktrees[1].sharedChat = sharedChat;
+    const links = readLinks().map(link => link.id === id ? { ...link, sharedChat } : link);
+    localStorage.setItem("canvas-test-links", JSON.stringify(links)); return links;
+  },
   setProjectPosition: async () => [],
   setWorktreePosition: async () => null,
   getProjectImage: async () => null,
@@ -152,6 +160,28 @@ async function browserChecks() {
     await waitFor('document.querySelectorAll(".react-flow__edge").length === 1');
     await delay(300);
     await screenshot("dark");
+    await evaluate(`{
+      const links = [{ id: "worktree-link", a: { project_id: "a", worktree_path: "/a-filters" }, b: { project_id: "b", worktree_path: "/b" }, created_at: "" }];
+      localStorage.setItem("canvas-test-links", JSON.stringify(links)); window.__linksChanged(links);
+    }`);
+    await waitFor('Boolean(document.querySelector(".react-flow__edge[data-id=worktree-link]"))');
+    await evaluate('document.querySelector(".react-flow__edge[data-id=worktree-link]").dispatchEvent(new MouseEvent("click", { bubbles: true }))');
+    await waitFor('[...document.querySelectorAll("button")].some(button => button.textContent === "Chat mode…")');
+    await evaluate('[...document.querySelectorAll("button")].find(button => button.textContent === "Chat mode…").click()');
+    await waitFor('Boolean(document.querySelector("dialog[open]"))');
+    assert.match(await evaluate('document.querySelector("dialog").textContent'), /one permission setting starting in Ask/);
+    assert.match(await evaluate('document.querySelector("dialog").textContent'), /Existing Chats become read-only/);
+    await evaluate('[...document.querySelectorAll("dialog button")].find(button => button.textContent === "Use shared Chat").click()');
+    await waitFor('window.__modeCall?.mode === "shared" && !document.querySelector("dialog")');
+    assert.equal(
+      await evaluate('[...document.querySelectorAll("[data-canvas-chat]")].filter(button => button.textContent.includes("Shared Link Chat")).length'),
+      2,
+    );
+    await evaluate('[...document.querySelectorAll("button")].find(button => button.textContent === "Chat mode…").click()');
+    await waitFor('Boolean(document.querySelector("dialog[open]"))');
+    assert.match(await evaluate('document.querySelector("dialog").textContent'), /shared conversation read-only/);
+    await evaluate('[...document.querySelectorAll("dialog button")].find(button => button.textContent === "Use separate Chats").click()');
+    await waitFor('window.__modeCall?.mode === "separate" && !document.querySelector("dialog")');
     console.log("PASS: canvas shows only listed chats, live states, filter, new chat, own zoom, Link drag, removal, persistence after reload");
     app.exit(0);
   } catch (error) {

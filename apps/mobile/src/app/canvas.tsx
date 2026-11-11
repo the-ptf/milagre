@@ -4,7 +4,8 @@ import { Pressable, RefreshControl, Text, View } from "react-native";
 import { lineHeight, radius, type } from "../design-tokens";
 import { Redirect, Stack, router, type Href } from "expo-router";
 import { ArrowRight01Icon, GitBranchIcon, Link04Icon } from "@hugeicons/core-free-icons";
-import { linkedEndLabel, type CanvasLink, type LinkEnd } from "@milagre/shared/chat-links";
+import { CHAT_MODE_COPY, linkedEndLabel, type CanvasLink, type LinkEnd } from "@milagre/shared/chat-links";
+import { confirmSheet } from "../confirm-store";
 import {
   canvasAttention,
   canvasFilterCounts,
@@ -25,7 +26,7 @@ import { ChatMarkIcon } from "../status-indicators";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { Icon, ProviderLogo } from "../icons";
 import { ProjectIcon } from "../project-icon";
-import { Chip, EmptyState, ErrorNotice, PageScroll, Tag, pressStyle, useStyles } from "../ui";
+import { Chip, EmptyState, ErrorNotice, PageScroll, PillButton, Tag, pressStyle, useStyles } from "../ui";
 import { useTheme, type Palette } from "../theme";
 
 const FILTERS: Array<{ id: CanvasFilter; label: string; dot?: "orange" | "accent" }> = [
@@ -63,6 +64,7 @@ export default function CanvasScreen() {
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [changingMode, setChangingMode] = useState(false);
   const now = useDisplayNow(60_000);
   const alive = useRef(true);
   useEffect(() => {
@@ -151,6 +153,28 @@ export default function CanvasScreen() {
     if (router.canDismiss()) router.dismissAll();
     router.replace(href);
   };
+  const changeMode = (link: CanvasLink) => {
+    const client = session.client;
+    if (!client) return;
+    const choose = (mode: "shared" | "separate") => {
+      setChangingMode(true);
+      setError("");
+      void client
+        .call("canvas:chat-mode", [link.id, mode])
+        .then(() => refresh())
+        .catch((cause: Error) => setError(cause.message))
+        .finally(() => setChangingMode(false));
+    };
+    confirmSheet(
+      "Chat mode",
+      `${CHAT_MODE_COPY.shareDetail}\n\n${link.sharedChat ? CHAT_MODE_COPY.separateDetail + "\n\n" : ""}${link.a.worktree_path}\n${link.b.worktree_path}`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Use separate Chats", onPress: () => choose("separate") },
+        { text: "Use shared Chat", onPress: () => choose("shared") },
+      ],
+    );
+  };
 
   if (!session.client) return <Redirect href="/" />;
   const total = counts.all;
@@ -173,6 +197,15 @@ export default function CanvasScreen() {
           })}
         </View>
         {error ? <ErrorNotice message={error} retry={() => void refresh()} retryTitle="Reload" /> : null}
+        {links.links
+          .filter((link) => link.a.worktree_path && link.b.worktree_path)
+          .map((link) => (
+            <View key={link.id} style={[styles.card, { gap: 8 }]}>
+              <Text style={styles.muted}>{[link.a, link.b].map((end) => end.worktree_path!.split("/").at(-1)).join(" + ")}</Text>
+              <Text style={styles.footnote}>{link.sharedChat ? CHAT_MODE_COPY.shared : CHAT_MODE_COPY.separate}</Text>
+              <PillButton title="Chat mode…" disabled={changingMode} onPress={() => changeMode(link)} />
+            </View>
+          ))}
         {loading ? (
           <Text style={styles.muted}>Loading Projects…</Text>
         ) : !total && !sections.length ? (

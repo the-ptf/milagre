@@ -16881,6 +16881,8 @@ function canvasHost() {
   const react = hookHost();
   react.useSyncExternalStore = (_subscribe, read) => read();
   const routes = [];
+  const calls = [];
+  const confirmations = [];
   const now = Date.now();
   const chat = (id, worktree_id, title, extra = {}) => ({
     id,
@@ -16918,7 +16920,13 @@ function canvasHost() {
     "/old": copy("/old", [tree(1, "/old", "main")], [chat(2, 1, "Old work", { archived: true })]),
   };
   const session = {
-    client: { url: "ws://mac" },
+    client: {
+      url: "ws://mac",
+      call: async (...args) => {
+        calls.push(args);
+        return [];
+      },
+    },
     snapshot: null,
     recent: [
       { path: "/a", name: "Frontend" },
@@ -16962,19 +16970,39 @@ function canvasHost() {
     "@milagre/shared/canvas": require("../packages/shared/src/canvas.ts"),
     "../session": { useSession: () => session },
     "../use-links": { useLinks: () => links },
+    "../confirm-store": { confirmSheet: (...args) => confirmations.push(args) },
     "../attention": { useAttention: () => [] },
     "../chat-links": chatLinks(),
     "../status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
     "../icons": { Icon: "Icon", ProviderLogo: "ProviderLogo" },
     "../project-icon": { ProjectIcon: "ProjectIcon" },
-    "../ui": { ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "../ui": { ErrorNotice: "ErrorNotice", PageScroll: "PageScroll", PillButton: "PillButton" },
   });
   const render = () => {
     react.begin();
     return CanvasScreen();
   };
-  return { render, routes };
+  return { render, routes, calls, confirmations, links };
 }
+
+test("phone canvas changes Chat mode only after explaining ownership and permissions", async () => {
+  const host = canvasHost();
+  find(host.render(), (node) => node.type === "PillButton" && node.props.title === "Chat mode…").props.onPress();
+  const [title, message, buttons] = host.confirmations[0];
+  assert.equal(title, "Chat mode");
+  assert.match(message, /one permission setting starting in Ask/);
+  assert.match(message, /Existing Chats become read-only/);
+  assert.deepEqual(host.calls, []);
+  buttons.find((button) => button.text === "Use shared Chat").onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(JSON.parse(JSON.stringify(host.calls)), [["canvas:chat-mode", ["l1", "shared"]]]);
+  host.links.links[0].sharedChat = { linkId: "shared", sessionId: 1 };
+  find(host.render(), (node) => node.type === "PillButton" && node.props.title === "Chat mode…").props.onPress();
+  assert.match(host.confirmations[1][1], /shared conversation read-only/);
+  host.confirmations[1][2].find((button) => button.text === "Use separate Chats").onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(JSON.parse(JSON.stringify(host.calls.at(-1))), ["canvas:chat-mode", ["l1", "separate"]]);
+});
 const allNodes = (node, keep, found = []) => {
   if (!node || typeof node !== "object") return found;
   if (keep(node)) found.push(node);

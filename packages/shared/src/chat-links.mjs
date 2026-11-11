@@ -2,6 +2,15 @@
 // already linked, the endpoints a new Link between two Chats gets, and the message "Link and ask" sends. Shared by
 // the desktop sidebar and the phone. Types: chat-links.d.mts.
 
+export const CHAT_MODE_COPY = {
+  shared: "Shared Chat",
+  separate: "Separate Chats",
+  shareDetail:
+    "One agent will edit both existing Worktrees, with one permission setting starting in Ask. Their branches and files stay in place. Existing Chats become read-only. All Chats must be idle.",
+  separateDetail:
+    "Keep the shared conversation read-only and start new separate Chats in the same Worktrees. Each Chat has its own permissions. Files and branches stay in place.",
+};
+
 /** Whether one end of a Link stands for this Worktree: the Worktree itself, or its whole Project. */
 export function endpointCovers(endpoint, worktree) {
   if (!endpoint || !worktree || endpoint.project_id !== worktree.project_id) return false;

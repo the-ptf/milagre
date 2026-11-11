@@ -129,6 +129,7 @@ const PATHS = Object.freeze({
   "canvas:links": denied,
   "canvas:link-add": denied,
   "canvas:link-remove": denied,
+  "canvas:chat-mode": denied,
   "linked:grant": denied,
   "link:list": denied,
   "link:create": denied,

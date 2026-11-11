@@ -124,6 +124,140 @@ test("shared Chat keeps one canonical transcript and exact Worktrees across retr
     );
   }
 });
+
+async function existingLink(fixture) {
+  const { runtime, projects, dir } = fixture;
+  const sides = [];
+  for (const [index, project] of projects.entries()) {
+    const folder = path.join(dir, `existing-${index}`);
+    execFileSync("git", ["-C", project.path, "worktree", "add", "-qb", `existing-${index}`, folder]);
+    await fs.writeFile(path.join(folder, "keep.txt"), `unsaved ${index}`);
+    const opened = await runtime.openProject(project.path);
+    const worktree = Object.values(opened.state.worktrees).find((item) => item.path === folder);
+    const session = Object.values(opened.state.sessions).find((item) => item.worktree_id === worktree.id);
+    sides.push({ project, worktree, session });
+  }
+  const links = await runtime.invoke(
+    "canvas:link-add",
+    sides.map(({ project, worktree }) => ({ project_id: project.id, worktree_path: worktree.path })),
+  );
+  return { sides, link: links.at(-1) };
+}
+
+test("canvas Chat modes adopt exact Worktrees, preserve old histories, and release without deleting work", async (t) => {
+  const f = await fixture(t);
+  f.edits.length = 0;
+  const { sides, link } = await existingLink(f);
+  for (const [index, side] of sides.entries()) {
+    await f.runtime.invoke("chat:send", [
+      { projectPath: side.project.path, sessionId: side.session.id, body: `Original ${index}`, provider: "codex", model: "test", permissionMode: "full" },
+    ]);
+    await f.settle(index + 1);
+  }
+  const result = await f.runtime.invoke("canvas:chat-mode", [link.id, "shared"]);
+  const owner = result.find((item) => item.id === link.id).sharedChat;
+  assert.ok(owner);
+  const opened = await f.runtime.invoke("link:open", [owner.linkId]);
+  assert.equal(opened.state.sessions[1].permissionMode, "ask");
+  assert.deepEqual(
+    opened.state.sessions[1].worktrees.map((item) => item.worktreePath),
+    sides.map((side) => side.worktree.path),
+  );
+  for (const [index, side] of sides.entries()) {
+    const view = await f.runtime.openProject(side.project.path);
+    assert.ok(view.state.sessions[side.session.id].readOnlyReason);
+    assert.ok(view.state.messages.some((message) => message.body === `Original ${index}`));
+    await assert.rejects(
+      f.runtime.invoke("chat:send", [{ projectPath: side.project.path, sessionId: side.session.id, body: "Must not run", provider: "codex", model: "test" }]),
+      /read-only/,
+    );
+    assert.equal(await fs.readFile(path.join(side.worktree.path, "keep.txt"), "utf8"), `unsaved ${index}`);
+  }
+  await assert.rejects(f.runtime.invoke("canvas:link-remove", [link.id]), /separate Chats/);
+  await assert.rejects(f.runtime.invoke("link:delete", [owner.linkId]), /canvas/);
+  const request = {
+    linkId: owner.linkId,
+    sessionId: 1,
+    operationId: randomUUID(),
+    body: "Shared work",
+    provider: "codex",
+    model: "test",
+    permissionMode: "full",
+  };
+  await f.runtime.invoke("link:send", [request]);
+  await f.settle(3);
+  assert.equal((await f.runtime.invoke("link:snapshot", [owner.linkId])).state.sessions[1].permissionMode, "ask");
+  assert.deepEqual(new Set(f.created.at(-1).access.roots), new Set(sides.map((side) => side.worktree.path)));
+  const again = await f.runtime.invoke("canvas:chat-mode", [link.id, "shared"]);
+  assert.deepEqual(again.find((item) => item.id === link.id).sharedChat, owner);
+  await f.runtime.close();
+  const next = f.make();
+  await next.invoke("link:open", [owner.linkId]);
+  await next.invoke("canvas:chat-mode", [link.id, "separate"]);
+  const history = (await next.invoke("link:open", [owner.linkId])).state;
+  assert.ok(history.sessions[1].readOnlyReason);
+  assert.ok(history.messages.some((message) => message.body === "Shared work"));
+  await assert.rejects(next.invoke("link:send", [{ ...request, operationId: randomUUID() }]), /read-only/);
+  for (const side of sides) {
+    const view = await next.openProject(side.project.path);
+    assert.equal(view.state.worktrees[side.worktree.id].sharedChat, undefined);
+    assert.ok(view.state.sessions[side.session.id].readOnlyReason);
+    assert.ok(Object.values(view.state.sessions).some((session) => session.worktree_id === side.worktree.id && !session.readOnlyReason));
+    assert.ok((await fs.stat(side.worktree.path)).isDirectory());
+  }
+  await next.invoke("canvas:link-remove", [link.id]);
+});
+
+test("canvas sharing refuses a running Chat before changing ownership", async (t) => {
+  let finish;
+  const held = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const f = await fixture(t, { hold: () => held });
+  t.after(() => finish());
+  const { sides, link } = await existingLink(f);
+  const side = sides[0];
+  await f.runtime.invoke("chat:send", [{ projectPath: side.project.path, sessionId: side.session.id, body: "Keep working", provider: "codex", model: "test" }]);
+  await assert.rejects(f.runtime.invoke("canvas:chat-mode", [link.id, "shared"]), /work pending/);
+  assert.equal((await f.runtime.openProject(side.project.path)).state.sessions[side.session.id].readOnlyReason, undefined);
+  finish();
+  await f.settle(1);
+});
+
+test("interrupted canvas adoption and release keep ownership guarded and finish on retry", async (t) => {
+  const f = await fixture(t);
+  const { sides, link } = await existingLink(f);
+  const links = await f.runtime.invoke("canvas:chat-mode", [link.id, "shared"]);
+  const { linkId } = links.find((item) => item.id === link.id).sharedChat;
+  await f.runtime.close();
+  const { createLinkStore } = require("./link-store.cjs");
+  // Simulate shutdown after the ownership journal reached disk but before adoption was marked complete.
+  let store = createLinkStore({ dataDir: path.join(f.dir, "profile") });
+  await store.update(linkId, (state) => ({ ...state, adoptionPending: true }), { chats: [] });
+  await store.close();
+  const recovered = f.make();
+  await assert.rejects(recovered.invoke("link:open", [linkId]), /Finish changing/);
+  for (const side of sides) {
+    const opened = await recovered.openProject(side.project.path);
+    assert.ok(opened.state.sessions[side.session.id].readOnlyReason);
+    await assert.rejects(
+      recovered.invoke("chat:send", [{ projectPath: side.project.path, sessionId: side.session.id, body: "Blocked", provider: "codex", model: "test" }]),
+      /read-only/,
+    );
+  }
+  await recovered.invoke("canvas:chat-mode", [link.id, "shared"]);
+  assert.equal((await recovered.invoke("link:open", [linkId])).state.adoptionPending, false);
+  await recovered.close();
+  store = createLinkStore({ dataDir: path.join(f.dir, "profile") });
+  await store.update(linkId, (state) => ({ ...state, adoptionPending: true, separating: true }), { chats: [] });
+  await store.close();
+  const release = f.make();
+  await assert.rejects(release.invoke("canvas:chat-mode", [link.id, "shared"]), /Finish switching/);
+  await release.invoke("canvas:chat-mode", [link.id, "separate"]);
+  assert.ok((await release.invoke("link:open", [linkId])).state.sessions[1].readOnlyReason);
+  const again = await release.invoke("canvas:chat-mode", [link.id, "shared"]);
+  assert.notEqual(again.find((item) => item.id === link.id).sharedChat.linkId, linkId);
+});
 test("a client's Link send remembers explicit turn defaults and an omitted choice inherits them", async (t) => {
   const { dir, runtime, projects, edits, created, settle } = await fixture(t);
   edits.length = 0;

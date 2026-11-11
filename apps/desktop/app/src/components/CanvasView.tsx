@@ -1,4 +1,5 @@
 import { scopeKey } from "@milagre/shared/chat-scopes";
+import { CHAT_MODE_COPY } from "@milagre/shared/chat-links";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ReactFlow,
@@ -53,6 +54,7 @@ import { EmptyState } from "./primitives/EmptyState";
 import { Segmented } from "./primitives/Segmented";
 import { DURATION } from "@/lib/ease";
 import { ProjectAvatar } from "./primitives/ProjectAvatar";
+import { Dialog } from "./primitives/Dialog";
 
 /* ─────────────────────────────────────────────────────────
  * LAYOUT
@@ -520,6 +522,9 @@ export function CanvasView({
   const [snapshot, setSnapshot] = useState<CanvasSnapshot | null>(null);
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
   const [selectedLink, setSelectedLink] = useState<string | null>(null);
+  const [modeLink, setModeLink] = useState<string | null>(null);
+  const [changingMode, setChangingMode] = useState(false);
+  const [modeError, setModeError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<CanvasFilter>("all");
   const [now, setNow] = useState(() => Date.now());
@@ -618,22 +623,24 @@ export function CanvasView({
       ];
     });
     const groups = focusLink ? [focusLink] : (visible?.projectGroups ?? []);
-    const memberships = groups.flatMap((group) => {
-      const members = group.projectIds.map(projectNodeId).filter((id) => nodeById.has(id));
-      const [source, ...targets] = members;
-      if (!source) return [];
-      return targets.map((target) => ({
-        id: `membership:${group.id}:${target}`,
-        source,
-        target,
-        type: "membership",
-        ...sides(source, target),
-        selectable: false,
-        deletable: false,
-        data: { name: group.name, linkId: group.id },
-        style: { stroke: "var(--color-accent)", strokeWidth: 1.5, strokeDasharray: "5 4" },
-      }));
-    });
+    const memberships = groups
+      .filter((group) => !group.canvasLinkId)
+      .flatMap((group) => {
+        const members = group.projectIds.map(projectNodeId).filter((id) => nodeById.has(id));
+        const [source, ...targets] = members;
+        if (!source) return [];
+        return targets.map((target) => ({
+          id: `membership:${group.id}:${target}`,
+          source,
+          target,
+          type: "membership",
+          ...sides(source, target),
+          selectable: false,
+          deletable: false,
+          data: { name: group.name, linkId: group.id },
+          style: { stroke: "var(--color-accent)", strokeWidth: 1.5, strokeDasharray: "5 4" },
+        }));
+      });
     return [...canvasEdges, ...memberships];
   }, [visible?.links, visible?.projectGroups, focusLink, selectedLink, linkedWork, stopNegotiation, nodeById]);
   const connect = useCallback(
@@ -644,6 +651,22 @@ export function CanvasView({
       try {
         const links = await window.milagre.addLink(a, b);
         setSnapshot((current) => current && { ...current, links });
+        const made = links.find(
+          (link) =>
+            (link.a.project_id === a.project_id &&
+              link.a.worktree_path === a.worktree_path &&
+              link.b.project_id === b.project_id &&
+              link.b.worktree_path === b.worktree_path) ||
+            (link.b.project_id === a.project_id &&
+              link.b.worktree_path === a.worktree_path &&
+              link.a.project_id === b.project_id &&
+              link.a.worktree_path === b.worktree_path),
+        );
+        if (made?.a.worktree_path && made.b.worktree_path) {
+          setSelectedLink(made.id);
+          setModeLink(made.id);
+          setModeError(null);
+        }
         setError(null);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -662,6 +685,22 @@ export function CanvasView({
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   };
+  const selectedEdge = snapshot?.links.find((link) => link.id === selectedLink);
+  const modeEdge = snapshot?.links.find((link) => link.id === modeLink);
+  const changeMode = async (mode: "shared" | "separate") => {
+    if (!modeEdge || changingMode) return;
+    setChangingMode(true);
+    setModeError(null);
+    try {
+      await window.milagre.setLinkChatMode(modeEdge.id, mode);
+      setSnapshot(await window.milagre.getCanvas());
+      setModeLink(null);
+    } catch (cause) {
+      setModeError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setChangingMode(false);
+    }
+  };
   const savePosition = async (_event: unknown, node: CanvasNode) => {
     try {
       if (node.data.kind === "project") await window.milagre.setProjectPosition(node.data.endpoint.project_id, node.position);
@@ -673,11 +712,51 @@ export function CanvasView({
   };
   return (
     <section data-canvas className="milagre-canvas relative flex min-h-0 flex-1 flex-col">
+      {modeEdge && (
+        <Dialog
+          title="Chat mode"
+          onClose={changingMode ? undefined : () => setModeLink(null)}
+          actions={
+            <>
+              <Button variant="ghost" disabled={changingMode} onClick={() => setModeLink(null)}>
+                Cancel
+              </Button>
+              <Button variant="secondary" disabled={changingMode} onClick={() => void changeMode("separate")}>
+                Use separate Chats
+              </Button>
+              <Button disabled={changingMode} onClick={() => void changeMode("shared")}>
+                {changingMode ? "Changing…" : "Use shared Chat"}
+              </Button>
+            </>
+          }
+        >
+          <p className="mt-3 text-13 text-ink-2">Current mode: {modeEdge.sharedChat ? CHAT_MODE_COPY.shared : CHAT_MODE_COPY.separate}</p>
+          <p className="mt-3 text-13">{CHAT_MODE_COPY.shareDetail}</p>
+          {modeEdge.sharedChat && <p className="mt-3 text-13">{CHAT_MODE_COPY.separateDetail}</p>}
+          <p className="mt-3 break-all text-12 text-ink-2">
+            {modeEdge.a.worktree_path}
+            <br />
+            {modeEdge.b.worktree_path}
+          </p>
+          <InlineError>{modeError}</InlineError>
+        </Dialog>
+      )}
       <DiffBar
         open
         onBack={onBack}
         trailing={
           <div className="no-drag flex items-center gap-2">
+            {selectedEdge?.a.worktree_path && selectedEdge.b.worktree_path && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setModeError(null);
+                  setModeLink(selectedEdge.id);
+                }}
+              >
+                Chat mode…
+              </Button>
+            )}
             {selectedLink && (
               <Button variant="danger-ghost" data-canvas-remove-link onClick={() => void remove()}>
                 Remove Link

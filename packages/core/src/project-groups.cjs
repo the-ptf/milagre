@@ -39,6 +39,7 @@ function createProjectGroup(groups, projects, request, now = () => new Date()) {
 function updateProjectGroup(groups, projects, request) {
   const previous = groups.find((group) => group.id === request?.id);
   if (!previous) throw new Error("Link no longer exists");
+  if (previous.canvasLinkId) throw new Error("Manage this Link's Chat mode on the canvas.");
   const member = membership(groups, projects, request, previous);
   const updated = { ...previous, ...member };
   if (!member.hidden) delete updated.hidden;

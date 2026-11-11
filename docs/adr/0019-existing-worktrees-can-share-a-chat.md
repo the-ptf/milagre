@@ -1,0 +1,13 @@
+# Existing linked Worktrees can transfer editing ownership to one shared Chat
+
+This extends ADR-0002 and ADR-0005 for an explicit user action on a Worktree-to-Worktree canvas Link. Separate Chats remain the default. A user on desktop or phone can choose Shared Chat afterwards, or when desktop creates the Link.
+
+The shared Chat adopts the two existing isolated Worktrees, one per Project. It reuses Link scope, the Link store, workspace aliases, provider access roots, and canonical canvas references. It does not create branches, move files, rerun setup, or merge transcripts. Whole-Project Links, main checkouts, and two Worktrees of the same Project remain separate: the existing shared-Chat machinery owns one isolated Worktree per Project.
+
+Every previous Chat in either Worktree remains readable under its original identity and becomes permanently read-only. The new shared conversation has a new provider session and task list. Both canvas cards open the same shared Chat; the original conversations remain available beside it. The agent's cwd is the existing shared workspace folder, with aliases and absolute paths for the two owned Worktrees.
+
+The user chose one permission setting across both Worktrees, initially Ask. Changing it applies to the entire shared Chat. Other canvas Links keep their read-only context and Delegation boundary; a shared Chat cannot acquire additional Worktrees through this mode. The daemon must own both Projects. Active turns, background tasks, queued messages and pending resumptions block transfer; it never stops that work implicitly.
+
+Adoption records ownership durably before reconciling Project Chats. A synchronous guard rejects concurrent sends during the transfer. An interrupted adoption keeps its ownership claim, blocks provider startup, and is finished by retrying Shared Chat on the canvas. Existing histories survive reconciliation even during recovery.
+
+Switching back keeps the shared conversation permanently read-only, releases ownership, and makes new separate Chats in the same Worktrees. It never reactivates old provider sessions. Release is persisted before Project reconciliation, so retrying completes an interrupted refresh. A Link must return to separate Chats before removal. Adopted Link groups cannot use Named Link deletion: their existing Worktrees and history are not disposable, including when clean. Named Links that create their own Worktrees keep their existing lifecycle.

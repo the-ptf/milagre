@@ -1570,6 +1570,7 @@ function createRuntime(options) {
   }
 
   const chats = new ChatHost({
+    assertWritable: (...args) => canvasChatModes.assertWritable(...args),
     interrupt: (chatId) => stopChat(chatId),
     ...(options.limitResume?.now ? { now: options.limitResume.now } : {}),
     contextSettings: () => contextSettings.read(),
@@ -2427,6 +2428,12 @@ function createRuntime(options) {
     if (!Number.isSafeInteger(sessionId) || sessionId < 1) throw new Error("Choose an existing Chat to delete.");
     const chatId = `${projectPath}#${sessionId}`;
     await existingChat("deleting it")(chatId);
+    if (isLinkScopeKey(projectPath)) {
+      const { linkId } = scopeFromKey(projectPath);
+      const link = await linkRuntime.definition(linkId);
+      if (link.canvasLinkId && !(await linkStore.get(linkId)).releasedAt)
+        throw new Error("Switch this Link to separate Chats before deleting its shared conversation.");
+    }
     await stopChatWork(chatId);
     await worktreeSetups.cancel(chatId);
     await agents.closeChat(chatId);
@@ -2540,9 +2547,10 @@ function createRuntime(options) {
   // on the same session, which reads its MCP servers, skills and sign-in again.
   commands.handle("chat:reload", async (_event, chatId) => {
     await existingChat("reloading it")(chatId);
-    await chats.cancelLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId));
     const state = await scopeStates.get(projectOfKey(chatId));
     const sessionId = sessionIdFromKey(chatId);
+    if (state.sessions[sessionId]?.readOnlyReason) throw new Error(state.sessions[sessionId].readOnlyReason);
+    await chats.cancelLimitResume(projectOfKey(chatId), sessionId);
     // Background work runs in the agent process Reload ends: the Chat reloads once it finishes (T3 #16000).
     const background = Math.max(agents.backgroundWork(chatId), processWork(state.sessions[sessionId]).length);
     if (background) throw new Error(backgroundBusyMessage("reload", background));
@@ -3428,12 +3436,27 @@ function createRuntime(options) {
     return links;
   }
   async function removeLink(id) {
-    await projectRegistry().removeLink(id);
-    await linked.linkRemoved(id);
-    return linksChanged();
+    return canvasChatModes.remove(id, async () => {
+      await projectRegistry().removeLink(id);
+      await linked.linkRemoved(id);
+      return linksChanged();
+    });
   }
   commands.handle("canvas:link-add", (_event, a, b) => addLink(a, b));
   commands.handle("canvas:link-remove", (_event, id) => removeLink(id));
+  const canvasChatModes = require("./canvas-chat-mode.cjs").createCanvasChatModes({
+    registry: projectRegistry(),
+    store: linkStore,
+    states,
+    readProject,
+    ownProject,
+    chats,
+    agents,
+    broadcast: broadcastProjectState,
+    changed: linksChanged,
+    git,
+  });
+  commands.handle("canvas:chat-mode", (_event, id, mode) => canvasChatModes.change(id, mode));
   commands.handle("canvas:link-restore", async (_event, link) => {
     await projectRegistry().restoreLink(link, await canvasActiveWorktrees());
     return linksChanged();
