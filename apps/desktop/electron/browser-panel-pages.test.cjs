@@ -105,11 +105,14 @@ test("closePage targets one exact page only when its Chat matches", async (t) =>
   ]);
   await f.settle();
   const [first, second] = f.published.at(-1).pages;
-  assert.equal(f.pages.closePage("/p#2", first.id), false);
+  const targetId = `panel-${"a".repeat(24)}:${first.id}`;
+  const otherTargetId = `panel-${"b".repeat(24)}:${second.id}`;
+  assert.equal(f.pages.closePage("/p#2", targetId), false);
   assert.equal(f.sent.length, 0);
-  assert.equal(f.pages.closePage("/p#1", first.id), true);
+  assert.equal(f.pages.closePage("/p#1", "malformed-id"), false);
+  assert.equal(f.pages.closePage("/p#1", targetId), true);
   assert.deepEqual(f.sent, [["browser-panel:close-page", { contentsId: 7, chatKey: "/p#1" }]]);
-  assert.equal(f.pages.closePage("/p#1", second.id), false);
+  assert.equal(f.pages.closePage("/p#1", otherTargetId), false);
   assert.equal(f.sent.length, 1);
 });
 

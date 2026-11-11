@@ -32,6 +32,7 @@ const { forwardAppShortcuts, setForwardedRules } = require("./app-shortcuts.cjs"
 const { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests, hardenBrowserSession } = require("./browser-guests.cjs");
 const { clearSignIns, computerPartition, createRemoteBrowserSessions, removeChatPartitions } = require("./browser-remote-sessions.cjs");
 const { createBrowserPanelPages } = require("./browser-panel-pages.cjs");
+const { routeBrowserPanelClose } = require("./browser-panel-close.cjs");
 const { windowChrome } = require("./window-chrome.cjs");
 const { AttentionNotifier } = require("./notifications.cjs");
 const { createDeviceNotices } = require("./device-notices.cjs");
@@ -514,6 +515,11 @@ async function startDesktop() {
           if (payload.channel === "agent:event") notifier.observe(payload.payload.chatId, payload.payload.event);
           if (payload.channel === "notification:waiting" && notifyWhenWaiting && notificationsSupported()) notifier.notify(payload.payload);
         }
+        routeBrowserPanelClose(channel, payload, {
+          closePage: (chatKey, targetId) => panelPages.closePage(chatKey, targetId),
+          closeAll: (chatKey) => mainWindow?.webContents.send("browser-panel:close-chat-pages", { chatKey }),
+          qualifyKey,
+        });
         if (channel === "computers:forgotten") notifier.forgetComputer(payload.computerId);
         if (channel === "agent:event") notifier.observe(payload.chatId, payload.event);
         if (channel === "notification:waiting" && notifyWhenWaiting && notificationsSupported()) notifier.notify(payload);
@@ -529,8 +535,6 @@ async function startDesktop() {
         }
         if (channel === "browser-panel:open" && typeof payload?.chatId === "string" && typeof payload?.url === "string" && /^https?:\/\//i.test(payload.url))
           mainWindow?.webContents.send("browser-panel:open-url", { chatKey: payload.chatId, url: payload.url });
-        if (channel === "browser-panel:close-page" && typeof payload?.chatId === "string" && typeof payload?.pageId === "string")
-          panelPages.closePage(payload.chatId, payload.pageId);
         if (channel === "devices:pending" && notificationsSupported()) notifier.notifyComputerWaiting(payload?.requests);
         if (channel === "runtime:connection") {
           connectionState = payload;

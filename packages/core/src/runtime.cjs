@@ -2888,6 +2888,7 @@ function createRuntime(options) {
         {
           openInPanel: (target, url) => emit("browser-panel:open", { chatId: target, url }),
           closePage: async (target, id) => emit("browser-panel:close-page", { chatId: target, pageId: id }),
+          closeAll: async (target) => emit("browser-panel:close-chat-pages", { chatId: target }),
         },
         // browser_upload sends files from the Chat's Worktrees and the user's Downloads only.
         {

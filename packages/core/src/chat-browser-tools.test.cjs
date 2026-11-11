@@ -6,7 +6,7 @@ const path = require("node:path");
 const { browserPageToolDefinitions } = require("./chat-browser-tools.cjs");
 const { runTool } = require("./linked-tools.cjs");
 
-const TARGET = { id: `panel-abc123abc123:${"A".repeat(32)}`, title: "Checkout", url: "http://localhost:5173/", source: "panel" };
+const TARGET = { id: `panel-${"a".repeat(24)}:${"A".repeat(32)}`, title: "Checkout", url: "http://localhost:5173/", source: "panel" };
 
 function fakeSession() {
   const sent = [];
@@ -46,19 +46,26 @@ function fakeSession() {
   };
 }
 
-function fixture({ roots = [], files } = {}) {
+function fixture({ roots = [], files, listError, listErrorOnCall } = {}) {
   const session = fakeSession();
   const state = {};
   const opened = [];
   const closed = [];
+  const closedAll = [];
+  const suspendedTabs = [];
   const targets = [];
+  let listCalls = 0;
   const browsers = {
     devtools: async ({ chatId, page }) => {
       assert.equal(chatId, "/p#1", "tools act for their own Chat only");
       if (page && page !== TARGET.id) throw new Error("That page is not in this Chat.");
       return { target: TARGET, session, state, ...(files ? { files } : {}) };
     },
-    list: async () => ({ targets }),
+    list: async () => {
+      listCalls++;
+      if (listError || listCalls === listErrorOnCall) return { targets: [], error: listError ?? "Could not list browsers on this computer." };
+      return { targets };
+    },
   };
   const tools = Object.fromEntries(
     browserPageToolDefinitions(
@@ -71,18 +78,23 @@ function fixture({ roots = [], files } = {}) {
           const index = targets.findIndex((target) => target.id === id);
           if (index >= 0) targets.splice(index, 1);
         },
+        closeAll: async (chatId) => {
+          closedAll.push(chatId);
+          for (let index = targets.length - 1; index >= 0; index--) if (targets[index].source === "panel") targets.splice(index, 1);
+          suspendedTabs.splice(0);
+        },
       },
       { roots: async () => roots, chooserWaitMs: 100 },
     ).map((tool) => [tool.name, tool]),
   );
-  return { session, state, tools, opened, closed, targets, run: (name, input = {}) => runTool(tools[name], input) };
+  return { session, state, tools, opened, closed, closedAll, suspendedTabs, targets, run: (name, input = {}) => runTool(tools[name], input) };
 }
 
-test("browser_close closes only exact pages owned by this Chat and closes all its panel pages", async () => {
+test("browser_close resolves the full target id and closes only pages owned by this Chat", async () => {
   const f = fixture();
   f.targets.push({ ...TARGET });
-  const second = { ...TARGET, id: `panel-abc123abc123:${"B".repeat(32)}` };
-  f.targets.push(second, { ...TARGET, id: `panel-other:${"C".repeat(32)}`, source: "attached" });
+  const second = { ...TARGET, id: `panel-${"b".repeat(24)}:${"B".repeat(32)}` };
+  f.targets.push(second, { ...TARGET, id: `panel-${"c".repeat(24)}:${"C".repeat(32)}`, source: "attached" });
   assert.match((await f.run("browser_close", { page: TARGET.id })).text, /"closed":true/);
   assert.deepEqual(f.closed, [["/p#1", TARGET.id]]);
   assert.equal(
@@ -90,12 +102,42 @@ test("browser_close closes only exact pages owned by this Chat and closes all it
     false,
   );
   assert.deepEqual(JSON.parse((await f.run("browser_close", { page: TARGET.id })).text), { closed: false, page: TARGET.id });
-  await f.run("browser_close", { all: true });
-  assert.deepEqual(f.closed.at(-1), ["/p#1", second.id]);
-  assert.equal(
-    f.targets.some((target) => target.source === "attached"),
-    true,
+});
+
+test("browser_close all clears suspended renderer tabs and leaves non-panel targets alone", async () => {
+  const f = fixture();
+  f.targets.push({ ...TARGET }, { ...TARGET, id: `panel-${"b".repeat(24)}:${"B".repeat(32)}` });
+  f.targets.push({ ...TARGET, id: `panel-${"c".repeat(24)}:${"C".repeat(32)}`, source: "attached" });
+  f.suspendedTabs.push("old-renderer-tab");
+  assert.deepEqual(JSON.parse((await f.run("browser_close", { all: true })).text), { closed: true });
+  assert.deepEqual(f.closedAll, ["/p#1"]);
+  assert.deepEqual(f.suspendedTabs, []);
+  assert.deepEqual(
+    f.targets.map((target) => target.source),
+    ["attached"],
   );
+});
+
+test("browser_close propagates listing errors before and after dispatch", async () => {
+  const initial = fixture({ listError: "discovery failed" });
+  initial.targets.push({ ...TARGET });
+  const first = await initial.run("browser_close", { page: TARGET.id });
+  assert.equal(first.isError, true);
+  assert.match(first.text, /discovery failed/);
+  assert.deepEqual(initial.closed, []);
+
+  const single = fixture({ listErrorOnCall: 2 });
+  single.targets.push({ ...TARGET });
+  const afterDispatch = await single.run("browser_close", { page: TARGET.id });
+  assert.equal(afterDispatch.isError, true);
+  assert.match(afterDispatch.text, /Could not list browsers/);
+  assert.deepEqual(single.closed, [["/p#1", TARGET.id]]);
+
+  const all = fixture({ listErrorOnCall: 2 });
+  all.targets.push({ ...TARGET });
+  const afterCloseAll = await all.run("browser_close", { all: true });
+  assert.equal(afterCloseAll.isError, true);
+  assert.deepEqual(all.closedAll, ["/p#1"]);
 });
 
 test("a snapshot names the elements a person sees, with refs the other tools take", async () => {

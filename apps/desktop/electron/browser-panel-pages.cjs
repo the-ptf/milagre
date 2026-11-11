@@ -166,8 +166,11 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
       }
       schedule();
     },
-    closePage(chatKey, pageId) {
-      const page = live().find((item) => item.pageId === pageId && item.chatKey === chatKey);
+    closePage(chatKey, targetId) {
+      if (typeof targetId !== "string") return false;
+      const match = /^panel-[a-f0-9]{24}:([A-F0-9]{32})$/.exec(targetId);
+      if (!match) return false;
+      const page = live().find((item) => item.pageId === match[1] && item.chatKey === chatKey);
       if (!page || page.host.isDestroyed()) return false;
       page.host.send("browser-panel:close-page", { contentsId: page.contentsId, chatKey });
       return true;
