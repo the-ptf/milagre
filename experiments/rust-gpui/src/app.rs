@@ -29,6 +29,11 @@ pub fn run() {
     let snapshot = std::env::var_os("MILAGRE_GPUI_SNAPSHOT").map(PathBuf::from);
     gpui_platform::application().with_assets(crate::assets::Assets).run(move |cx: &mut App| {
         init(cx);
+        // WP-01 fit-check gallery (`--features fitcheck`, `MILAGRE_GPUI_FITCHECK=<page>`) instead of the app.
+        #[cfg(feature = "fitcheck")]
+        if crate::fitcheck::gallery::run(snapshot.clone(), cx) {
+            return;
+        }
         match snapshot {
             None => {
                 open_main_window(cx);
