@@ -13,10 +13,12 @@
 //! - **Bounded.** 3 seconds per run and 6 for all members of a handoff (the deadline covers the config read too),
 //!   1 MiB of Git output and 2 MiB of listed files for all members together (counted before each name is built),
 //!   aliases of at most 256 bytes, at most [`MAX_MEMBERS`] members.
-//! - **Pipes read without threads.** Nonblocking reads on the running thread until both pipes close; past the deadline
-//!   the process group is killed (before Git is reaped); after Git exits the pipes may stay open half a second (a
-//!   descendant), then they are closed and the run gives no list. A read or wait that fails (other than an interrupted
-//!   read, retried) is no list too, never the output read so far.
+//! - **Pipes read without threads.** Nonblocking reads on the running thread until both pipes close. Git is owned
+//!   from right after spawn (`Owned`): its exit is observed without reaping it (`waitid` with `WNOWAIT`), and on every
+//!   path its whole process group is killed before it is reaped, exactly once (never a signal after the reap). After
+//!   it exits the pipes may stay open half a second (a descendant); then the group goes and the run gives no list.
+//!   A read or wait that fails (other than an interrupted read, retried) is no list too, never the output read so far.
+//!   A descendant that left the group (`setsid`) isn't owned or signalled; it holds nothing of ours after the run.
 //! - **Off the actor.** It runs inside the transcript job (`TranscriptJob::run`), on the runtime's blocking worker.
 //!
 //! Node's answer for anything that fails (a member not admitted, Git failing, a timeout) is no list at all
@@ -735,10 +737,66 @@ fn read_pipe(pipe: &mut impl Read, buffer: &mut [u8]) -> std::io::Result<usize> 
     pipe.read(buffer)
 }
 
+/// A child owned exclusively from right after it is spawned, with its own process group (its pid). It is observed
+/// with `waitid(WNOWAIT)`, which never reaps, so its pid, and with it its group id, can't be reused while it is held.
+/// On every path (success, failure, timeout, a setup error, a panic) its whole group is killed and only then is it
+/// reaped, exactly once; nothing is signalled after the reap. A descendant that left the group (`setsid`, `setpgid`)
+/// isn't owned: it isn't signalled, and it holds none of ours once the pipes close.
+struct Owned {
+    child: std::process::Child,
+    group: Option<rustix::process::Pid>,
+    reaped: bool,
+}
+
+impl Owned {
+    fn new(child: std::process::Child) -> Owned {
+        let group = rustix::process::Pid::from_raw(child.id() as i32);
+        Owned {
+            child,
+            group,
+            reaped: false,
+        }
+    }
+
+    /// Whether it exited, without reaping it (`Err`: the wait failed).
+    fn exited(&self) -> std::io::Result<bool> {
+        let Some(pid) = self.group else {
+            return Err(std::io::Error::other("no pid"));
+        };
+        let options = rustix::process::WaitIdOptions::EXITED
+            | rustix::process::WaitIdOptions::NOHANG
+            | rustix::process::WaitIdOptions::NOWAIT;
+        Ok(rustix::process::waitid(rustix::process::WaitId::Pid(pid), options)?.is_some())
+    }
+
+    /// Kills its whole group (it is still unreaped, so the group id is its own), then reaps it: its exit status.
+    fn finish(&mut self) -> Option<std::process::ExitStatus> {
+        if self.reaped {
+            return None;
+        }
+        if let Some(group) = self.group {
+            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+        }
+        // The pid is still ours (unreaped): signalling it is safe even if it already exited.
+        let _ = self.child.kill();
+        let status = self.child.wait();
+        self.reaped = true;
+        #[cfg(feature = "test-fixtures")]
+        test_hooks::reaped(self.child.id());
+        status.ok()
+    }
+}
+
+impl Drop for Owned {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
 /// Runs `command` in its own process group, reading its pipes without threads (nonblocking, on this thread): `None`
-/// past `deadline` (the whole group killed before it is reaped), past `limit` bytes of output, when it fails (unless
-/// `exit_one_ok` and it exits 1), or when its pipes are still open DRAIN after it exits. The pipes are closed when this
-/// returns, so a descendant left holding one holds nothing of ours: no thread, no descriptor.
+/// past `deadline`, past `limit` bytes of output, when it fails (unless `exit_one_ok` and it exits 1), when a read or
+/// wait fails, or when its pipes are still open DRAIN after it exits (a descendant holding them). Whatever happens,
+/// its whole group is killed before it is reaped (see [`Owned`]), and the pipes are closed when this returns.
 fn run_bounded(
     mut command: Command,
     deadline: Instant,
@@ -746,17 +804,22 @@ fn run_bounded(
     exit_one_ok: bool,
 ) -> Option<String> {
     use std::os::unix::process::CommandExt;
-    let mut child = command
+    let child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        // Its own process group: a timeout kills Git and anything it started.
+        // Its own process group: everything it starts is killed with it.
         .process_group(0)
         .spawn()
         .ok()?;
-    let group = rustix::process::Pid::from_raw(child.id() as i32)?;
-    let mut stdout = child.stdout.take()?;
-    let mut stderr = child.stderr.take()?;
+    // Owned from here: any early return below kills its group and reaps it.
+    let mut owned = Owned::new(child);
+    #[cfg(feature = "test-fixtures")]
+    if test_hooks::run_before_setup(owned.child.id()) {
+        return None;
+    }
+    let mut stdout = owned.child.stdout.take()?;
+    let mut stderr = owned.child.stderr.take()?;
     for pipe in [
         std::os::fd::AsFd::as_fd(&stdout),
         std::os::fd::AsFd::as_fd(&stderr),
@@ -765,13 +828,10 @@ fn run_bounded(
         rustix::fs::fcntl_setfl(pipe, flags | rustix::fs::OFlags::NONBLOCK).ok()?;
     }
     let mut out = Vec::new();
-    let mut ignored = 0usize;
     let (mut out_open, mut err_open) = (true, true);
-    let mut status = None;
     let mut drained_by: Option<Instant> = None;
     let mut buffer = [0u8; 8192];
-    // `true`: a timeout or a failed read or wait; no list.
-    let failed = loop {
+    loop {
         let mut progress = false;
         if out_open {
             match read_pipe(&mut stdout, &mut buffer) {
@@ -785,58 +845,38 @@ fn run_bounded(
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => progress = true,
                 // A read that fails isn't the end of the output: no list, never what was read so far.
-                Err(_) => break true,
+                Err(_) => return None,
             }
         }
         if err_open {
             match read_pipe(&mut stderr, &mut buffer) {
                 Ok(0) => err_open = false,
-                Ok(read) => {
-                    progress = true;
-                    ignored += read;
-                }
+                Ok(_) => progress = true,
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => progress = true,
-                Err(_) => break true,
+                Err(_) => return None,
             }
         }
-        if status.is_none() {
-            match child.try_wait() {
-                Ok(Some(exited)) => {
-                    status = Some(exited);
-                    drained_by = Some(Instant::now() + DRAIN);
-                }
-                Ok(None) => {}
-                Err(_) => break true,
-            }
+        if drained_by.is_none() && owned.exited().ok()? {
+            drained_by = Some(Instant::now() + DRAIN);
         }
-        if status.is_some() && !out_open && !err_open {
-            break false;
+        if drained_by.is_some() && !out_open && !err_open {
+            break;
         }
         let now = Instant::now();
-        if status.is_none() && now >= deadline {
-            break true;
+        if drained_by.is_none() && now >= deadline {
+            return None;
         }
         if drained_by.is_some_and(|by| now >= by) {
-            // Exited, but something it started still holds a pipe: no output, and the pipes close below.
+            // Exited, but something it started still holds a pipe: no output (its group goes on the way out).
             return None;
         }
         if !progress {
             std::thread::sleep(Duration::from_millis(2));
         }
-    };
-    let _ = ignored;
-    if failed {
-        // Not reaped yet, its group id is still its own: the whole group goes, then Git is reaped. Once reaped (a
-        // read failing after Git exited) the id may be reused, so nothing is signalled; the pipes close below.
-        if status.is_none() {
-            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        return None;
     }
-    let status = status?;
+    // Exited and both pipes closed: anything it left in its group goes, then it is reaped.
+    let status = owned.finish()?;
     let ok = status.success() || (exit_one_ok && status.code() == Some(1));
     if !ok || out.len() > limit {
         return None;
@@ -850,10 +890,35 @@ pub mod test_hooks {
     use std::cell::RefCell;
     use std::time::Duration;
 
+    type SetupHook = Box<dyn FnOnce(u32) -> bool>;
+
     thread_local! {
+        static BEFORE_SETUP: RefCell<Option<SetupHook>> = const { RefCell::new(None) };
+        static REAPS: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
         static AFTER_GIT: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
         static BEFORE_STATUS: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
         static READ_FAILURE: std::cell::Cell<Option<std::io::ErrorKind>> = const { std::cell::Cell::new(None) };
+    }
+
+    /// Runs `hook` with the child's pid right after the next bounded run (on this thread) spawns it, before its pipes
+    /// are set up; `true` fails that setup (as a failed `fcntl` would).
+    pub fn before_setup(hook: impl FnOnce(u32) -> bool + 'static) {
+        BEFORE_SETUP.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+    }
+
+    pub(super) fn run_before_setup(pid: u32) -> bool {
+        BEFORE_SETUP
+            .with(|slot| slot.borrow_mut().take())
+            .is_some_and(|hook| hook(pid))
+    }
+
+    pub(super) fn reaped(pid: u32) {
+        REAPS.with(|reaps| reaps.borrow_mut().push(pid));
+    }
+
+    /// The pids bounded runs reaped on this thread, each time it happened (taken).
+    pub fn take_reaps() -> Vec<u32> {
+        REAPS.with(|reaps| std::mem::take(&mut *reaps.borrow_mut()))
     }
 
     /// The next pipe read of a bounded run (on this thread) fails with `kind` before reading anything.
