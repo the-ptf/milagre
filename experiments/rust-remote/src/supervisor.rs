@@ -313,6 +313,7 @@ pub enum Reply {
     Attached(Handle),
 }
 /// Drop does not cancel an accepted mutation. Retain this receipt to observe its result.
+/// An observed result releases this command's ingress lease, not other queued/event/output leases.
 pub struct Receipt(mpsc::Receiver<Result<Reply>>);
 impl Receipt {
     pub fn wait(&self, timeout: Duration) -> Result<Reply> {
@@ -338,11 +339,20 @@ struct Envelope {
     _lease: Option<Reservation>,
 }
 impl Envelope {
+    fn publish(
+        reply: mpsc::SyncSender<Result<Reply>>,
+        lease: Option<Reservation>,
+        result: Result<Reply>,
+    ) {
+        drop(lease);
+        let _ = reply.try_send(result);
+    }
     fn reject(self) {
         if let Command::Attach { carrier, .. } = &self.command {
             carrier.close();
         }
-        let _ = self.reply.try_send(Err(Error::NotExecuted));
+        drop(self.command);
+        Self::publish(self.reply, self._lease, Err(Error::NotExecuted));
     }
 }
 struct Notification {
@@ -676,6 +686,8 @@ impl Supervisor {
                     carriers: BTreeMap::new(),
                     pending: BTreeMap::new(),
                     serial: 0,
+                    #[cfg(test)]
+                    after_reply: None,
                 };
                 actor.run();
                 drop(actor);
@@ -747,6 +759,8 @@ struct Actor {
     carriers: BTreeMap<u64, Carrier>,
     pending: BTreeMap<u64, Pending>,
     serial: u64,
+    #[cfg(test)]
+    after_reply: Option<Box<dyn FnOnce() + Send>>,
 }
 impl Actor {
     fn work_available(&self, started: Vec<WorkToken>) {
@@ -1129,7 +1143,11 @@ impl Actor {
                     break;
                 }
                 let result = self.execute(envelope.command);
-                let _ = envelope.reply.try_send(result);
+                Envelope::publish(envelope.reply, envelope._lease, result);
+                #[cfg(test)]
+                if let Some(after_reply) = self.after_reply.take() {
+                    after_reply();
+                }
             }
         }
     }
@@ -1211,6 +1229,7 @@ mod tests {
             carriers: BTreeMap::new(),
             pending: BTreeMap::new(),
             serial: 0,
+            after_reply: None,
         };
         (actor, client, clock, initial_directory)
     }
@@ -1232,6 +1251,63 @@ mod tests {
             initial_directory,
         };
         (supervisor, client, clock, release)
+    }
+    #[test]
+    fn observed_receipt_releases_ingress_before_worker_continues_for_success_and_error() {
+        for success in [true, false] {
+            let (mut actor, client, _, initial_directory) = fixture(Limits {
+                command_bytes: 1028,
+                events: 1, // Advisory closures cannot add an unrelated event lease.
+                ..Default::default()
+            });
+            let command = if success {
+                Command::OpenPairing
+            } else {
+                let (h, _) = attach_direct(&mut actor, 1);
+                actor.registry.close(&h, CloseReason::Disconnected);
+                Command::Send {
+                    handle: h,
+                    encoded: b"null".to_vec(),
+                }
+            };
+            let (published, observed) = mpsc::sync_channel(1);
+            let (resume, paused) = mpsc::sync_channel(1);
+            actor.after_reply = Some(Box::new(move || {
+                published.try_send(()).unwrap();
+                let _ = paused.recv_timeout(Duration::from_secs(3));
+            }));
+            let first = client.submit(command).unwrap();
+            // Observe admitted bytes before the worker can pop this envelope.
+            assert_eq!(client.0.ingress.used(), if success { 1024 } else { 1028 });
+            let done_shared = actor.shared.clone();
+            let worker = thread::spawn(move || {
+                let _completion = Completion(done_shared);
+                actor.run();
+            });
+            let service = Supervisor {
+                client: client.clone(),
+                worker: Some(worker),
+                initial_directory,
+            };
+            let outcome = first.wait(Duration::from_secs(3));
+            observed.recv_timeout(Duration::from_secs(3)).unwrap();
+            // Worker is parked after publishing, before envelope scope exit.
+            let ingress = client.0.ingress.used();
+            let retained = client.retained_bytes();
+            let second = client.submit(Command::OpenPairing);
+            client.0.stop(StopReason::Requested);
+            resume.try_send(()).unwrap();
+            service.shutdown(); // Always join before assertions, even on regression.
+            assert_eq!(outcome.is_ok(), success);
+            assert_eq!(ingress, 0);
+            assert_eq!(retained, CONTROL_RESERVE_BYTES);
+            let second = second.expect("completed ingress must be reusable at receipt observation");
+            assert!(matches!(
+                second.wait(Duration::from_secs(3)),
+                Err(Error::NotExecuted)
+            ));
+            assert_eq!(client.retained_bytes(), 0);
+        }
     }
     #[test]
     fn full_command_queue_does_not_block_shutdown_or_orphan_receipts() {
