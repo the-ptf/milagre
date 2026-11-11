@@ -14,6 +14,7 @@
 //! - [`search`]: message-search.mjs and chatSearch.
 //! - [`agent_runs`]: agent-runs.mjs: runs and the agent events folded into the state (unported ones refused).
 //! - [`tool_activity`]: summarizeStep and capOutput, the facts a finished tool step keeps.
+//! - [`handover`]: handover.cjs's pure parts: the transcript, its cut and path, the framed brief and the brief text.
 //! - [`chat_host`]: chat-host.cjs sends, receipts, queue and turns, with agents behind the `Provider` trait.
 //! - [`audit`]: the read-only audit behind the `milagre-owner-store audit` command.
 //! - [`jsjson`]: `JSON.parse`/`JSON.stringify`-exact JSON, unpaired surrogates and `undefined`-valued keys included.
@@ -24,6 +25,7 @@ pub mod chat_db;
 pub mod chat_host;
 pub mod commands;
 pub mod error;
+pub mod handover;
 pub mod isolation;
 pub mod jsjson;
 pub mod message_store;

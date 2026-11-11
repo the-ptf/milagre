@@ -1,0 +1,3307 @@
+[
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "Make the tests pass",
+          "id": 1
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": "Done: the tests pass.",
+          "id": 2,
+          "model": "claude-opus-5-5",
+          "steps": [
+            {
+              "kind": "thinking",
+              "title": "Thinking"
+            },
+            {
+              "kind": "shell",
+              "title": "Run npm test",
+              "status": "failed",
+              "note": "exit 1"
+            },
+            {
+              "kind": "edit",
+              "title": "Edit",
+              "file": "src/a.ts",
+              "status": "done"
+            },
+            {
+              "kind": "read",
+              "title": "Read",
+              "note": "",
+              "file": null,
+              "status": "running"
+            },
+            {
+              "kind": "shell",
+              "title": 42,
+              "note": 0,
+              "file": ["a", "b"]
+            },
+            {
+              "kind": "shell"
+            }
+          ]
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": "",
+          "id": 3
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": null,
+          "id": 4,
+          "steps": [
+            {
+              "kind": "thinking",
+              "title": "only thinking"
+            }
+          ]
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": 5,
+          "id": 5,
+          "model": ""
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "a": 1
+          },
+          "id": 6,
+          "model": 0,
+          "steps": null
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": ["x", null, ["y", "z"]],
+          "id": 7,
+          "model": ["m", 1]
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "  ",
+          "generatedTitle": " Generated title \u3000"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "Hello"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null,
+          "generatedTitle": null,
+          "summary": {
+            "titleLine": "[Image #1] [Image #2]",
+            "titleImages": 1
+          }
+        }
+      },
+      "messages": [],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null,
+          "summary": {
+            "titleLine": "[Image #1]   [Image #2]\t",
+            "titleImages": null
+          }
+        }
+      },
+      "messages": [],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null,
+          "summary": {
+            "titleLine": "[Image #1][Image #2][Image #1]"
+          }
+        }
+      },
+      "messages": [],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null,
+          "summary": {
+            "titleLine": "[Image #0] [Image #01] [Image #3] see"
+          }
+        }
+      },
+      "messages": [],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null,
+          "summary": {
+            "titleLine": null
+          },
+          "agent_name": "Agent Smith"
+        }
+      },
+      "messages": [],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null,
+          "summary": true,
+          "agent_name": 7
+        }
+      },
+      "messages": [],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": "first reply"
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "  \n  "
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "   second line\nmore",
+          "images": ["a", "b"]
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "[Image #1] [Image #2]",
+          "images": ["a"]
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "[Image #1] [Image #2]",
+          "images": "ab"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "[Image #1] [Image #2]",
+          "images": {
+            "length": 1
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "[Image #1] [Image #2]",
+          "images": {
+            "length": "1"
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "[Image #1]",
+          "images": 3
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "[Image #99999999999999999999999] [Image #99999999999999999999998]"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null,
+          "agent_name": null
+        }
+      },
+      "messages": [],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null
+        }
+      },
+      "messages": [],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "messages": [],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\ud83d\ude00tail"
+        }
+      },
+      "messages": [],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\ud83d\ude00"
+        }
+      },
+      "messages": [],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "a\u00a0\u2028b\u0085c\ufeff"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "\t\n\u000b\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff",
+          "generatedTitle": "\t\n\u000b\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeffg\t\n\u000b\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+        }
+      },
+      "messages": [],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "\t\n\u000b\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x\t\n\u000b\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeffy\u0085\u180e\u200bz\t\n\u000b\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 0",
+          "context": {
+            "kind": "delegation",
+            "fromLabel": "milagre / main / Fix it"
+          },
+          "id": 0
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 1",
+          "context": {
+            "kind": "delegation"
+          },
+          "id": 1
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 2",
+          "context": {
+            "kind": "delegation-report",
+            "fromLabel": "Other \ud83d\ude00"
+          },
+          "id": 2
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 3",
+          "context": {
+            "kind": "negotiation-agreement",
+            "with": "api / Contract"
+          },
+          "id": 3
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 4",
+          "context": {
+            "kind": "advisor-result",
+            "title": "Review",
+            "provider": "codex",
+            "outcome": "done"
+          },
+          "id": 4
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 5",
+          "context": {
+            "kind": "advisor-result",
+            "title": "Review",
+            "provider": "gpt",
+            "outcome": null
+          },
+          "id": 5
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 6",
+          "context": {
+            "kind": "advisor-result"
+          },
+          "id": 6
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 7",
+          "context": {
+            "kind": "pr-action",
+            "action": "Merge",
+            "pr": 128
+          },
+          "id": 7
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 8",
+          "context": {
+            "kind": "pr-action",
+            "action": ["Merge", "now"],
+            "pr": {
+              "n": 1
+            }
+          },
+          "id": 8
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 9",
+          "context": {
+            "kind": "linear-issue",
+            "key": "ENG-12"
+          },
+          "id": 9
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 10",
+          "context": {
+            "kind": "linear-issue",
+            "key": "ENG-12",
+            "routine": {
+              "name": "Triage"
+            }
+          },
+          "id": 10
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 11",
+          "context": {
+            "kind": "linear-issue",
+            "key": "ENG-12",
+            "routine": []
+          },
+          "id": 11
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 12",
+          "context": {
+            "kind": "linear-issue",
+            "key": "ENG-12",
+            "routine": "Triage"
+          },
+          "id": 12
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 13",
+          "context": {
+            "kind": "linear-issue",
+            "key": "ENG-12",
+            "routine": null
+          },
+          "id": 13
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 14",
+          "context": {
+            "kind": "mystery-kind",
+            "fromLabel": "nobody"
+          },
+          "id": 14
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 15",
+          "context": {
+            "kind": 5
+          },
+          "id": 15
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 16",
+          "context": {
+            "kind": null
+          },
+          "id": 16
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 17",
+          "context": {},
+          "id": 17
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 18",
+          "context": ["delegation"],
+          "id": 18
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 19",
+          "context": "delegation",
+          "id": 19
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 20",
+          "context": null,
+          "id": 20
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "message 21",
+          "context": 0,
+          "id": 21
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": "an assistant with a delegation context",
+          "context": {
+            "kind": "delegation",
+            "fromLabel": "X"
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "ignored",
+          "context": {
+            "kind": "handoff",
+            "status": "done",
+            "from": {
+              "provider": "claude"
+            },
+            "to": {
+              "provider": "codex"
+            }
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "",
+          "context": {
+            "kind": "handoff",
+            "status": "failed",
+            "from": {
+              "provider": "kiro"
+            },
+            "to": {
+              "provider": "antigravity"
+            }
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "",
+          "context": {
+            "kind": "handoff",
+            "from": {
+              "provider": "gpt"
+            },
+            "to": {}
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "",
+          "context": {
+            "kind": "handoff",
+            "from": {
+              "provider": "__proto__"
+            },
+            "to": {
+              "provider": "constructor"
+            }
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "",
+          "context": {
+            "kind": "handoff",
+            "from": {
+              "provider": "toString"
+            },
+            "to": {
+              "provider": "hasOwnProperty"
+            }
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "",
+          "context": {
+            "kind": "handoff",
+            "from": "codex",
+            "to": 5
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "Linked to api / main",
+          "context": {
+            "kind": "worktree-linked"
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "Switched to work@example.com",
+          "context": {
+            "kind": "account-switch"
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "Limit reset",
+          "context": {
+            "kind": "limit-reset"
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": "Reloaded",
+          "context": {
+            "kind": "reload"
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": null,
+          "context": {
+            "kind": "checkpoint-restore"
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": 12,
+          "context": {
+            "kind": "babysit-stopped"
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "Check CI",
+          "context": {
+            "kind": "routine-run",
+            "at": 1700000000000
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "  ",
+          "context": {
+            "kind": "routine-run",
+            "at": 1700000000000,
+            "label": "Routine \u00b7 Triage"
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": null,
+          "context": {
+            "kind": "routine-run",
+            "at": 0,
+            "label": null
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "",
+          "context": {
+            "kind": "routine-run",
+            "at": 59999,
+            "label": 0
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": -1,
+            "quiet": true,
+            "summary": "CI green"
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": 1700000000000,
+            "quiet": 1,
+            "summary": ""
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": null,
+            "quiet": "yes"
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": "3600000"
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": " 0x10 "
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": [7260000]
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": true
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": "1e5"
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": "  "
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": 8640000000000000.0
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "/compact",
+          "context": {
+            "kind": "compaction",
+            "status": "preparing",
+            "before": 120000
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "/compact",
+          "context": {
+            "kind": "compaction",
+            "status": "failed",
+            "before": 999
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "/compact",
+          "context": {
+            "kind": "compaction",
+            "status": "done",
+            "before": 1499,
+            "after": 1500
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "/compact",
+          "context": {
+            "kind": "compaction",
+            "status": "done",
+            "before": 999499,
+            "after": 999500
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "/compact",
+          "context": {
+            "kind": "compaction",
+            "status": "done",
+            "before": 1550000,
+            "after": 400
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "/compact",
+          "context": {
+            "kind": "compaction",
+            "status": "done",
+            "before": -2500,
+            "after": 0.4
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "/compact",
+          "context": {
+            "kind": "compaction",
+            "status": "preparing",
+            "before": "120000",
+            "after": 5
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "/compact",
+          "context": {
+            "kind": "compaction"
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": "abc"
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": {
+              "a": 1
+            }
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": 1e16
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "routine-run",
+            "at": [1, 2]
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m1",
+          "id": 1
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m2",
+          "id": 2
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m3",
+          "id": 3
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m10",
+          "id": 10
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1,
+    "after": 2
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m1",
+          "id": 1
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m2",
+          "id": 2
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m3",
+          "id": 3
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m10",
+          "id": 10
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1,
+    "after": null
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m1",
+          "id": 1
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m2",
+          "id": 2
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m3",
+          "id": 3
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m10",
+          "id": 10
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1,
+    "after": "2"
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m1",
+          "id": 1
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m2",
+          "id": 2
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m3",
+          "id": 3
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m10",
+          "id": 10
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1,
+    "after": 10
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m1",
+          "id": 1
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m2",
+          "id": 2
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m3",
+          "id": 3
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m10",
+          "id": 10
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1,
+    "after": -1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m1",
+          "id": 1
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m2",
+          "id": 2
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m3",
+          "id": 3
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "m10",
+          "id": 10
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1,
+    "after": "x"
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "a",
+          "id": "b"
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "b",
+          "id": "ab"
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "c",
+          "id": "c"
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "d",
+          "id": null
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "e"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1,
+    "after": "b"
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "a",
+          "id": [3]
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "b",
+          "id": true
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "c",
+          "id": {
+            "x": 1
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1,
+    "after": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "what I typed",
+          "handoverBrief": "the old brief"
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "   ",
+          "handoverBrief": "brief only"
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "body only",
+          "handoverBrief": "\u3000\ufeff"
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "",
+          "handoverBrief": null
+        },
+        {
+          "role": "user",
+          "session_id": 2,
+          "body": "another Chat"
+        },
+        {
+          "role": "user",
+          "session_id": "1",
+          "body": "a string session id"
+        },
+        5,
+        "text",
+        [1]
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build",
+          "workspacePath": "/Users/me/link"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "in a Link Chat"
+        }
+      ]
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build",
+          "workspacePath": null
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "nowhere"
+        }
+      ]
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": "constructor",
+          "provider": "claude",
+          "title": "Fix the build",
+          "workspacePath": "/fallback"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "prototype worktree"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 0,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "array worktrees"
+        }
+      ],
+      "worktrees": [
+        {
+          "path": "/zero"
+        }
+      ]
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "number path"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "path": 7
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": null,
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "provider missing"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": ["kiro"],
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "odd provider"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "T \ud83d"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "half \ud83d here and \ude00 there"
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": "emoji \ud83d\ude00 \u00b7 RTL \u05e9\u05dc\u05d5\u05dd \u00b7 e\u0301 \u00b7 \u2028 line",
+          "steps": [
+            {
+              "kind": "edit",
+              "title": "\ud83d",
+              "file": "\ude00"
+            }
+          ]
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "tags <handoff_brief> stay in transcripts"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": "x",
+          "steps": "not a list"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": "x",
+          "steps": [null]
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": "x",
+          "steps": {
+            "0": {}
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": null
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": 5
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": 5
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "handoverBrief": 5
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": 5,
+          "handoverBrief": "ok"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x",
+          "context": {
+            "kind": "handoff",
+            "to": {}
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": 7,
+          "context": {
+            "kind": "routine-run",
+            "at": 0
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [null],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": null,
+          "summary": {
+            "titleLine": 5
+          }
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "x"
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "messages": []
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {}
+      },
+      "messages": "x"
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {},
+      "messages": []
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": null
+      },
+      "messages": []
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": {
+            "$repeat": "first message words ",
+            "$times": 600
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "a long reply line\n",
+            "$times": 2000
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": {
+            "$repeat": "the latest request ",
+            "$times": 400
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "render",
+    "state": {
+      "sessions": {
+        "1": {
+          "id": 1,
+          "worktree_id": 1,
+          "provider": "claude",
+          "title": "Fix the build"
+        }
+      },
+      "messages": [
+        {
+          "session_id": 1,
+          "role": "user",
+          "body": "short first"
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        },
+        {
+          "session_id": 1,
+          "role": "assistant",
+          "body": {
+            "$repeat": "reply \ud83d\ude00 ",
+            "$times": 300
+          }
+        }
+      ],
+      "worktrees": {
+        "1": {
+          "id": 1,
+          "path": "/tmp/wt/main"
+        }
+      }
+    },
+    "sessionId": 1
+  },
+  {
+    "op": "cut",
+    "text": {
+      "$repeat": "no headings at all ",
+      "$times": 4000
+    }
+  },
+  {
+    "op": "cut",
+    "text": {
+      "$concat": [
+        {
+          "$repeat": "h",
+          "$times": 61000
+        },
+        "\n\n## First\n",
+        {
+          "$repeat": "f",
+          "$times": 100
+        },
+        "\n\n## Next\n",
+        {
+          "$repeat": "n",
+          "$times": 100
+        }
+      ]
+    }
+  },
+  {
+    "op": "cut",
+    "text": {
+      "$concat": [
+        {
+          "$repeat": "h",
+          "$times": 54000
+        },
+        "\n\n## First\n",
+        {
+          "$repeat": "f",
+          "$times": 7000
+        },
+        "\n\n## Next\n",
+        {
+          "$repeat": "n",
+          "$times": 5000
+        }
+      ]
+    }
+  },
+  {
+    "op": "cut",
+    "text": {
+      "$concat": [
+        {
+          "$repeat": "h",
+          "$times": 53999
+        },
+        "\n\n## First\n",
+        {
+          "$repeat": "f",
+          "$times": 7000
+        },
+        "\n\n## Next\n",
+        {
+          "$repeat": "n",
+          "$times": 5000
+        }
+      ]
+    }
+  },
+  {
+    "op": "cut",
+    "text": {
+      "$concat": [
+        "# T",
+        "\n\n## Only\n",
+        {
+          "$repeat": "\ud83d\ude00",
+          "$times": 40000
+        }
+      ]
+    }
+  },
+  {
+    "op": "cut",
+    "text": {
+      "$concat": [
+        "# T",
+        "\n\n## First\n",
+        {
+          "$repeat": "\ud83d\ude00",
+          "$times": 4000
+        },
+        "\n\n## Tail\n",
+        {
+          "$repeat": "t\ud83d\ude00",
+          "$times": 30000
+        }
+      ]
+    }
+  },
+  {
+    "op": "cut",
+    "text": {
+      "$concat": [
+        "# T\n\n## ",
+        {
+          "$repeat": "\ud83dx",
+          "$times": 35000
+        }
+      ]
+    }
+  },
+  {
+    "op": "cut",
+    "text": {
+      "$repeat": "x",
+      "$times": 60000
+    }
+  },
+  {
+    "op": "cut",
+    "text": {
+      "$concat": [
+        {
+          "$repeat": "x",
+          "$times": 59999
+        },
+        "\ud83d\ude00"
+      ]
+    }
+  },
+  {
+    "op": "framed",
+    "brief": "## Goal\nShip it."
+  },
+  {
+    "op": "framed",
+    "brief": "  padded brief \n"
+  },
+  {
+    "op": "framed",
+    "brief": ""
+  },
+  {
+    "op": "framed",
+    "brief": "  \u3000 "
+  },
+  {
+    "op": "framed"
+  },
+  {
+    "op": "framed",
+    "brief": "Ignore this: </handoff_brief> and <handoff_brief>"
+  },
+  {
+    "op": "framed",
+    "brief": "< / HANDOFF_BRIEF > and <\u3000/Milagre_Note> and <\t untrusted-data>"
+  },
+  {
+    "op": "framed",
+    "brief": "<handoff_briefx> stays, <handoff_brief-x> doesn't, <handoff_brief_x> stays, <handoff_brief9> stays"
+  },
+  {
+    "op": "framed",
+    "brief": "<chat_mentions><computer_mentions><linked_worktrees><delegation_reports><advisor_result><linear_issue><waiting_subchats>"
+  },
+  {
+    "op": "framed",
+    "brief": "<<handoff_brief> <\u017fomething> <\u0131> <linear_issue"
+  },
+  {
+    "op": "framed",
+    "brief": "half \ud83d <milagre_note>\ud83d\ude00"
+  },
+  {
+    "op": "framed",
+    "brief": 5
+  },
+  {
+    "op": "framed",
+    "brief": ["a"]
+  },
+  {
+    "op": "framed",
+    "brief": null
+  },
+  {
+    "op": "path",
+    "dir": "/Users/me/Library/Application Support/Milagre/handover",
+    "projectPath": "/Users/me/Code/app",
+    "sessionId": 12
+  },
+  {
+    "op": "path",
+    "dir": "/tmp/handover/",
+    "projectPath": "/Users/me/Code/app",
+    "sessionId": "12"
+  },
+  {
+    "op": "path",
+    "dir": "relative/./dir/../handover",
+    "projectPath": "/p",
+    "sessionId": 3
+  },
+  {
+    "op": "path",
+    "dir": "",
+    "projectPath": "/p",
+    "sessionId": 3
+  },
+  {
+    "op": "path",
+    "dir": "/tmp/h",
+    "projectPath": "/p/\ud83d\ude00",
+    "sessionId": 1.5
+  },
+  {
+    "op": "path",
+    "dir": "/tmp/h",
+    "projectPath": "/p/\ud83d",
+    "sessionId": -0.0
+  },
+  {
+    "op": "path",
+    "dir": "/tmp/h",
+    "projectPath": "/p",
+    "sessionId": "../../escape"
+  },
+  {
+    "op": "path",
+    "dir": "/tmp/h",
+    "projectPath": "/p",
+    "sessionId": "a/b"
+  },
+  {
+    "op": "path",
+    "dir": "/",
+    "projectPath": "",
+    "sessionId": null
+  },
+  {
+    "op": "path",
+    "dir": "/tmp//h/",
+    "projectPath": "/p",
+    "sessionId": "x/"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"## Goal\\nFix the build.\"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "Here you go:\n```json\n{\"brief\": \"  fenced brief  \"}\n```\nthanks"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "```JSON   {\"brief\": \"upper fence\"}```"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "```\n{\"brief\": \"plain fence\"}\n```"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "```json\nnot json\n``` but {\"brief\": \"from braces\"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "prose {\"brief\": \"braces in prose\"} more prose"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"a\"} and {\"brief\": \"b\"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"   \"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": 5}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"other\": \"x\"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "[\"brief\"]"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "not json at all"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": ""
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"half \\ud83d kept\"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"big\", \"n\": 1e400}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"dup\", \"brief\": \"last wins\"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "````json\n{\"brief\": \"four ticks\"}\n````"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "```json {\"brief\": \"unclosed fence\"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "\ufeff{\"brief\": \"bom\"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"a\\\ud83d\"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"a\\\\\ud83d\"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"raw \ud83d half\"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"x\"}\ud83d"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"ok\"}",
+    "rejects": true
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "codex",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"catch up\"}",
+    "catchUp": true
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build"
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "kiro",
+    "lastUserMessage": "Fix the build",
+    "catchUp": true,
+    "changedFiles": ["src/a.ts", "README.md"]
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "gpt",
+    "lastUserMessage": "",
+    "changedFiles": []
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "antigravity",
+    "lastUserMessage": null,
+    "changedFilesFail": true
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": 0,
+    "changedFiles": [5, null, ["x"]]
+  },
+  {
+    "op": "brief",
+    "transcript": "# Chat transcript: Fix\n\nProvider: Claude \u00b7 Worktree: /tmp/wt\n\n## User\n\nFix the build\n",
+    "file": null,
+    "provider": "claude",
+    "lastUserMessage": "Fix the build"
+  },
+  {
+    "op": "brief",
+    "transcript": {
+      "$concat": [
+        "# T\n\n## User\n\n",
+        {
+          "$repeat": "w ",
+          "$times": 40000
+        }
+      ]
+    },
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"long\"}"
+  },
+  {
+    "op": "brief",
+    "transcript": "# T\n\n## User\n\n\ud83d",
+    "file": "/tmp/handover/abc/1.md",
+    "provider": "claude",
+    "lastUserMessage": "Fix the build",
+    "reply": "{\"brief\": \"unicode \ud83d\ude00\"}"
+  }
+]
