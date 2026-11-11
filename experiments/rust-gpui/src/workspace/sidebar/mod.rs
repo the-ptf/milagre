@@ -30,7 +30,7 @@ use crate::data::fixture::chat_fixtures;
 pub use crate::data::fixture::{ChatRow, ChatStatus};
 use crate::theme::{ActiveTheme, CONTROL_MD, CONTROL_XS, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_12, TEXT_13, TextStepExt, Theme};
 use crate::ui::{Icon, IconName};
-use crate::workspace::chrome;
+use crate::workspace::chrome::{self, NoDrag};
 use row::{ChatRowView, ROW_INSET, RowEvent, dot_mark};
 
 pub const SIDEBAR_WIDTH: f32 = 304.0;
@@ -217,6 +217,7 @@ fn header(theme: &Theme) -> impl IntoElement + use<> {
             .rounded(RADIUS_CONTROL)
             .cursor_pointer()
             .hover(move |style| style.bg(hover))
+            .no_drag()
             .child(Icon::new(icon).color(theme.ink3))
     };
     chrome::header("sidebar-header")

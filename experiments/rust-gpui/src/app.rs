@@ -65,6 +65,9 @@ pub fn open_main_window(cx: &mut App) -> WindowHandle<Workspace> {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(MIN_WIDTH), px(MIN_HEIGHT))),
             is_resizable: true,
+            // Our 44px headers move the window themselves (`workspace/chrome.rs`); AppKit does not drag
+            // from its title-bar strip or delay clicks there.
+            app_owns_titlebar_drag: true,
             titlebar: Some(TitlebarOptions {
                 title: Some("Milagre GPUI spike".into()),
                 appears_transparent: true,

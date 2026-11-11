@@ -7,7 +7,7 @@ use gpui::{ClickEvent, Context, FontWeight, ScrollHandle, Window, div, prelude::
 
 use crate::theme::{ActiveTheme, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, TEXT_12, TextStepExt};
 use crate::ui::{Icon, IconName, IconSize};
-use crate::workspace::chrome;
+use crate::workspace::chrome::{self, NoDrag};
 
 pub const PANEL_WIDTH: f32 = 518.0;
 
@@ -99,6 +99,7 @@ impl Render for Panel {
                 .cursor_pointer()
                 .when(active, |el| el.bg(theme.hover2).text_color(theme.ink))
                 .when(!active, |el| el.text_color(theme.ink3).hover(move |style| style.bg(hover)))
+                .no_drag()
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                     // Keep a double-click on a tab from reaching the header's zoom handler.
                     cx.stop_propagation();
@@ -130,6 +131,7 @@ impl Render for Panel {
                 .rounded(RADIUS_CONTROL)
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover))
+                .no_drag()
                 .on_click(|_, _, cx| cx.stop_propagation())
                 .child(Icon::new(icon).color(theme.ink3))
         };
