@@ -9,9 +9,11 @@
 
 pub mod composer;
 pub mod fixture;
+pub mod pills;
 pub mod running;
 pub mod transcript;
 pub mod transcript_selection;
+pub mod undo_panel;
 
 #[cfg(test)]
 mod activity_tests;
@@ -23,24 +25,45 @@ mod switch_tests;
 mod tests;
 #[cfg(test)]
 mod transcript_tests;
+#[cfg(test)]
+mod undo_tests;
 
 use std::collections::HashMap;
 
 use gpui::{
-    AnyView, Context, Entity, FocusHandle, Focusable, FontWeight, ListState, Pixels, SharedString, StyleRefinement, Subscription, Window,
+    AnyView, Context, Entity, EventEmitter, FocusHandle, Focusable, ListState, Pixels, SharedString, StyleRefinement, Subscription, Window,
     div, prelude::*, px,
 };
 
 use crate::logic::marks::chat_mark::ChatMark;
-use crate::theme::{ActiveTheme, CONTROL_SM, CONTROL_XS, TEXT_12, TEXT_13, TextStepExt, Theme};
+use crate::theme::{ActiveTheme, CONTROL_XS};
 use crate::workspace::chat::composer::{Composer, ComposerEvent};
+use crate::workspace::chat::pills::bookmark::{self, Bookmark, FamilyChat, FamilyMenu};
+use crate::workspace::chat::pills::{PillEvent, PillRow};
 use crate::workspace::chat::running::RunningRow;
 use crate::workspace::chat::transcript::{BOTTOM_CLEARANCE, COLUMN_WIDTH, LIST_TOP_PAD, RUNNING_GAP, Transcript};
+use crate::workspace::chat::undo_panel::{Intent, UndoEvent, UndoPanel};
 use crate::workspace::chrome;
 use crate::workspace::sidebar::ChatRow;
 
 const COMPOSER_BOTTOM: f32 = 24.0;
-const PILLS_BOTTOM: f32 = 8.0;
+
+/// What the Chat column asks the window to do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChatEvent {
+    /// Open this Chat (a Subchat row, the bookmark's parent, a family menu row).
+    OpenChat(String),
+    /// "Open beside parent" (the split view is a later package: nothing handles it yet).
+    Beside(String),
+    /// "Show all N side by side" (same).
+    ShowAll,
+    /// A Subchat's question answered from its row.
+    Answer { chat: String, request: String, label: String },
+    /// A Subchat's approval allowed or denied from its row.
+    Respond { chat: String, request: String, allow: bool },
+}
+
+impl EventEmitter<ChatEvent> for ChatView {}
 
 pub struct ChatView {
     title: SharedString,
@@ -50,6 +73,18 @@ pub struct ChatView {
     /// The running turn's row, while a turn runs.
     pub running: Option<Entity<RunningRow>>,
     composer_focused_once: bool,
+    /// The pill row over the composer: Subchats, Ports, Tasks, Subagents, Go to bottom.
+    pub pills: Entity<PillRow>,
+    /// The Undo panel, while it replaces the composer.
+    pub undo: Option<Entity<UndoPanel>>,
+    _undo: Option<Subscription>,
+    want_undo: Option<Intent>,
+    refocus_composer: bool,
+    _pill_events: Subscription,
+    /// The open Chat's place in its family, read from the sidebar's Chats: the bookmark and the family menu.
+    bookmark: Option<Bookmark>,
+    family: Option<FamilyMenu>,
+    family_open: bool,
     /// The Chat on screen (`None` until the sidebar has named one: the fixture shows meanwhile).
     key: Option<SharedString>,
     /// Unsent drafts of the Chats left behind, by Chat key.
@@ -66,6 +101,11 @@ impl ChatView {
         transcript.update(cx, |transcript, cx| transcript.set_running_row(running.is_some(), cx));
         composer.update(cx, |composer, cx| composer.set_running(running.is_some(), cx));
         let send = cx.subscribe(&composer, |this, composer, event: &ComposerEvent, cx| match event {
+            // `/undo` opens the Undo panel in the composer's place (it needs the window: the next render does it).
+            ComposerEvent::Send(text) if text.trim() == "/undo" => {
+                this.want_undo = Some(Intent::Undo);
+                cx.notify();
+            }
             ComposerEvent::Send(text) if !text.is_empty() => {
                 this.transcript.update(cx, |transcript, cx| transcript.push_user(text.clone(), cx))
             }
@@ -78,6 +118,18 @@ impl ChatView {
                 cx.notify();
             }
         });
+        let pills = cx.new(|cx| PillRow::new("", fixture::DEFAULT_TITLE, cx));
+        let pill_events = cx.subscribe(&pills, |this, _, event: &PillEvent, cx| match event {
+            PillEvent::OpenChat(key) => cx.emit(ChatEvent::OpenChat(key.clone())),
+            PillEvent::Answer { chat, request, label } => {
+                cx.emit(ChatEvent::Answer { chat: chat.clone(), request: request.clone(), label: label.clone() })
+            }
+            PillEvent::Respond { chat, request, allow } => {
+                cx.emit(ChatEvent::Respond { chat: chat.clone(), request: request.clone(), allow: *allow })
+            }
+            PillEvent::JumpToBottom => this.transcript.update(cx, |transcript, cx| transcript.scroll_to_bottom(cx)),
+            PillEvent::Closed => {}
+        });
         Self {
             title: fixture::DEFAULT_TITLE.into(),
             project: "milagre-ade".into(),
@@ -85,6 +137,20 @@ impl ChatView {
             composer,
             running,
             composer_focused_once: false,
+            pills,
+            undo: None,
+            _undo: None,
+            // Snapshot seed (never in tests): `MILAGRE_GPUI_UNDO=list|preview|redo` opens the Undo panel.
+            want_undo: match std::env::var("MILAGRE_GPUI_UNDO").ok().as_deref() {
+                Some("list" | "preview") => Some(Intent::Undo),
+                Some("redo") => Some(Intent::Redo),
+                _ => None,
+            },
+            refocus_composer: false,
+            bookmark: None,
+            family: None,
+            family_open: false,
+            _pill_events: pill_events,
             key: None,
             drafts: HashMap::new(),
             _send: send,
@@ -131,12 +197,77 @@ impl ChatView {
             let draft = self.drafts.get(&row.key).cloned().unwrap_or_default();
             self.composer.update(cx, |composer, cx| composer.set_text(&draft, window, cx));
         }
+        let (key, title) = (row.key.clone(), row.title.clone());
+        self.pills.update(cx, |pills, cx| pills.set_chat(&key, &title, cx));
+        self.close_undo(cx);
+        self.family_open = false;
         if running != self.running.is_some() {
             self.running = running.then(|| cx.new(|_| RunningRow::new("2m 18s")));
             self.transcript.update(cx, |transcript, cx| transcript.set_running_row(running, cx));
             self.composer.update(cx, |composer, cx| composer.set_running(running, cx));
         }
         cx.notify();
+    }
+
+    /// The Chats of the open Chat's Project as the bookmark and the family menu read them (the sidebar's data).
+    pub fn set_family(&mut self, chats: &[FamilyChat], cx: &mut Context<Self>) {
+        let Some(key) = self.key.clone() else { return };
+        let (bookmark, family) = (bookmark::bookmark(chats, &key), bookmark::family_menu(chats, &key));
+        // Snapshot seed (never in tests): `MILAGRE_GPUI_FAMILY_MENU=1` opens the family menu.
+        if std::env::var_os("MILAGRE_GPUI_FAMILY_MENU").is_some() && family.is_some() {
+            self.family_open = true;
+        }
+        if self.bookmark != bookmark || self.family != family {
+            self.bookmark = bookmark;
+            self.family = family;
+            cx.notify();
+        }
+    }
+
+    pub fn bookmark(&self) -> Option<&Bookmark> {
+        self.bookmark.as_ref()
+    }
+
+    pub fn family_menu_open(&self) -> bool {
+        self.family_open
+    }
+
+    pub fn toggle_family_menu(&mut self, cx: &mut Context<Self>) {
+        self.family_open = !self.family_open && self.family.is_some();
+        cx.notify();
+    }
+
+    pub fn close_family_menu(&mut self, cx: &mut Context<Self>) {
+        if self.family_open {
+            self.family_open = false;
+            cx.notify();
+        }
+    }
+
+    /// Opens the Undo panel in the composer's place (`/undo`, Esc Esc on the desktop).
+    pub fn open_undo(&mut self, intent: Intent, window: &mut Window, cx: &mut Context<Self>) {
+        let items = undo_panel::fixture();
+        let panel = cx.new(|cx| UndoPanel::new(intent, items, cx));
+        if std::env::var("MILAGRE_GPUI_UNDO").as_deref() == Ok("preview") {
+            panel.update(cx, |panel, cx| panel.inspect("c4", cx));
+        }
+        let sub = cx.subscribe(&panel, |this, _, event: &UndoEvent, cx| {
+            if matches!(event, UndoEvent::Closed) {
+                this.close_undo(cx);
+                this.refocus_composer = true;
+            }
+        });
+        window.focus(&panel.focus_handle(cx), cx);
+        self.undo = Some(panel);
+        self._undo = Some(sub);
+        cx.notify();
+    }
+
+    pub fn close_undo(&mut self, cx: &mut Context<Self>) {
+        if self.undo.take().is_some() {
+            self._undo = None;
+            cx.notify();
+        }
     }
 
     pub fn composer_focus_handle(&self, cx: &gpui::App) -> FocusHandle {
@@ -157,28 +288,41 @@ impl Render for ChatView {
             });
         }
         let theme = *cx.theme();
+        if let Some(intent) = self.want_undo.take() {
+            self.open_undo(intent, window, cx);
+        }
+        if std::mem::take(&mut self.refocus_composer) {
+            let composer = self.composer.clone();
+            window.defer(cx, move |window, cx| {
+                let handle = composer.focus_handle(cx);
+                window.focus(&handle, cx);
+            });
+        }
         let running_offset = running_offset(self.transcript.read(cx).list_state());
+        // "Go to bottom" shows once the reader has scrolled more than a few lines from the end.
+        let away = running_offset.is_none_or(|distance| distance > px(JUMP_THRESHOLD));
+        let composer_focus = self.composer.focus_handle(cx);
+        self.pills.update(cx, |pills, cx| {
+            pills.set_jump(away, cx);
+            pills.set_return_focus(composer_focus);
+        });
+        let header = chrome::header("chat-header").px_4().gap_2().relative().child(match &self.bookmark {
+            Some(bookmark) => bookmark::bookmark_view(bookmark, self.family_open, &theme, cx),
+            None => bookmark::identity(self.title.clone(), self.project.clone(), &theme),
+        });
+        let menu = match (&self.family, self.family_open, self.key.as_deref()) {
+            (Some(menu), true, Some(key)) => Some(bookmark::family_menu_view(menu, key, self.bookmark.is_some(), &theme, cx)),
+            _ => None,
+        };
         div()
+            .relative()
             .flex()
             .flex_col()
             .flex_1()
             .min_w_0()
             .h_full()
             .bg(theme.page)
-            .child(
-                chrome::header("chat-header")
-                    .px_4()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_step(TEXT_13)
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme.ink)
-                            .truncate()
-                            .child(self.title.clone()),
-                    )
-                    .child(div().flex_none().text_step(TEXT_12).text_color(theme.ink3).child(self.project.clone())),
-            )
+            .child(header)
             .child(
                 div()
                     .id("transcript")
@@ -188,11 +332,19 @@ impl Render for ChatView {
                     .min_h_0()
                     .child(AnyView::from(self.transcript.clone()).cached(StyleRefinement::default().size_full()))
                     .when_some(self.running.clone().zip(running_offset), |el, (running, offset)| el.child(running_row(running, offset)))
-                    .child(pills(&theme)),
+                    .child(self.pills.clone()),
             )
-            .child(div().flex_none().flex().justify_center().px_4().pb(px(COMPOSER_BOTTOM)).child(self.composer.clone()))
+            .child(div().flex_none().flex().justify_center().px_4().pb(px(COMPOSER_BOTTOM)).child(match &self.undo {
+                // The panel takes the composer's place, as wide as it.
+                Some(undo) => div().w_full().max_w(px(COLUMN_WIDTH)).child(undo.clone()).into_any_element(),
+                None => self.composer.clone().into_any_element(),
+            }))
+            .children(menu)
     }
 }
+
+/// How far from the end (px) the transcript must be scrolled before "Go to bottom" shows.
+const JUMP_THRESHOLD: f32 = 48.0;
 
 /// How far the reader has scrolled up from the end of the list, which is how far the running row sits below its
 /// pinned spot: it follows the last item, so it moves with the content (the transcript's box clips it once it is
@@ -228,35 +380,4 @@ fn running_row(running: Entity<RunningRow>, offset: Pixels) -> impl IntoElement 
         .justify_center()
         .px_4()
         .child(div().w_full().max_w(px(COLUMN_WIDTH)).h_full().child(AnyView::from(running).cached(StyleRefinement::default().size_full())))
-}
-
-/// "2 subagents" and "3/7", floating over the transcript's bottom edge, aligned to the column.
-fn pills(theme: &Theme) -> impl IntoElement + use<> {
-    div().absolute().left_0().right_0().bottom(px(PILLS_BOTTOM)).flex().justify_center().px_4().child(
-        div().w_full().max_w(px(COLUMN_WIDTH)).flex().justify_between().child(pill("pill-subagents", "2 subagents", theme)).child(pill(
-            "pill-progress",
-            "3/7",
-            theme,
-        )),
-    )
-}
-
-fn pill(id: &'static str, label: &'static str, theme: &Theme) -> impl IntoElement + use<> {
-    div()
-        .id(id)
-        .debug_selector(move || id.into())
-        .flex()
-        .flex_none()
-        .items_center()
-        .h(CONTROL_SM)
-        .px(px(12.0))
-        .rounded_full()
-        .bg(theme.surface)
-        .border_1()
-        .border_color(theme.line)
-        .text_step(TEXT_12)
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(theme.ink2)
-        .cursor_pointer()
-        .child(label)
 }

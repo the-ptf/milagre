@@ -315,6 +315,12 @@ impl Transcript {
         cx.notify();
     }
 
+    /// "Go to bottom": the list follows its end again.
+    pub fn scroll_to_bottom(&mut self, cx: &mut Context<Self>) {
+        self.list.scroll_to(ListOffset { item_ix: self.items.len(), offset_in_item: px(0.0) });
+        cx.notify();
+    }
+
     /// Appends a message the user sent and scrolls to it, even if the reader had scrolled up.
     pub fn push_user(&mut self, text: SharedString, cx: &mut Context<Self>) {
         self.push(Item::User(text), cx);

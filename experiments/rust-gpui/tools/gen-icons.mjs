@@ -142,6 +142,30 @@ const ICONS = [
   // CheckmarkCircle02, Delete02, Refresh and UserMultiple are in other blocks.
   "Briefcase01",
   "User",
+  // WP-27 pill row, Subchats, tasks and undo (PillMorph, TaskTrack, PhaseGraph, PortTrack, SubchatTrack, SubchatBookmark, UndoPanel)
+  "ListTodo",
+  "ArrowShrink02",
+  "EthernetPort",
+  "LinkSquare02",
+  "StopCircle",
+  "HelpCircle",
+  "CancelCircle",
+  "Favourite",
+  "Flag01",
+  "Target02",
+  "TestTube01",
+  "Eye",
+  "GitMerge",
+  "Rocket01",
+  "ArrowLeft01",
+  "GridView",
+  "LayoutTwoColumn",
+  "FileEdit",
+  "FileAdd",
+  "FileRemove",
+  "AlertCircle",
+  "Archive02",
+  "Scroll",
 ];
 
 /** The stroke written into every icon file; `src/assets` replaces it for the 12px (1.6) and 18px (2) sizes. */

@@ -42,11 +42,11 @@ fn items_sit_in_the_536px_column_with_the_composer(cx: &mut TestAppContext) {
     assert!(composer.size.height >= px(crate::workspace::chat::composer::COMPOSER_MIN_HEIGHT));
     let running = cx.debug_bounds("running-row").expect("running row drawn");
     assert_eq!(running.origin.x, composer.origin.x, "transcript column and composer share a left edge");
-    let progress = cx.debug_bounds("pill-progress").expect("3/7 pill drawn");
-    assert_eq!(progress.right(), composer.right(), "the 3/7 pill ends at the column's right edge");
-    let subagents = cx.debug_bounds("pill-subagents").expect("subagents pill drawn");
-    assert_eq!(subagents.origin.x, composer.origin.x);
-    assert_eq!(progress.size.height, crate::theme::CONTROL_SM);
+    let subagents = cx.debug_bounds("slot-pill-subagents").expect("subagents pill drawn");
+    assert_eq!(subagents.right(), composer.right(), "the last right-hand pill ends at the column's right edge");
+    let subchats = cx.debug_bounds("slot-pill-subchats").expect("Subchats pill drawn");
+    assert_eq!(subchats.origin.x, composer.origin.x);
+    assert_eq!(subagents.size.height, crate::theme::CONTROL_SM);
 }
 
 #[gpui::test]

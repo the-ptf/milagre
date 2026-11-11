@@ -678,3 +678,35 @@ WP-26 (`src/workspace/chat/composer/{models,model_picker,permission,context,new_
 - `RangeSlider` measures its track in a canvas, so the first frame uses a 176px guess; no spring, the handle lands at once.
 - The new-Chat tray folds the Project picker (React's "Start building in" heading) in as its first chip. Start it with `Composer::start_new_chat`; the sidebar's New Chat button needs `chat.composer.update(cx, |c, cx| c.start_new_chat(cx))`.
 - Not built: model search, account select, CLI notice, row tooltips, the picker's footer permission select, Ultracode's breathing glow, context card on hover/focus and Settings thresholds, branch search, Linear issue chip.
+
+## Pills, Subchats, tasks and undo notes
+
+WP-27 (2026-11-11): `workspace/chat/pills/`, `workspace/chat/undo_panel.rs`, `logic/plan/`.
+
+- **The row** (`pills/mod.rs`) is one plain view over the composer: Subchats at the left; Ports, Tasks, Subagents and Go to
+  bottom at the right. It is not cached (an open panel is taller than the row) and re-renders with the Chat column, which is
+  cheap. Spinners in pills and panels are the static arc: an animation notifies its view, and so the column, every frame.
+- **The morph** (`morph.rs`) is one surface hung from the pill's bottom corner (right for Ports, Tasks and Subagents; left for
+  Subchats) that grows from the pill's size to the panel's over 300ms (ease-out), corners going from round to `radius-card`,
+  while the faces crossfade (panel in after 60ms over 180ms, pill out over 100ms). Timing and geometry are plain functions,
+  tested at fixed times; the view asks for frames only while a morph runs, and with motion off it is over at once. The pill's
+  ring is a border: a shadow would show through the translucent glass. Left: no backdrop blur (DESIGN.md exception N-14),
+  the glass is `surface` at 76%; the rolling digits and rising letters; the slot's grow-in; the panel's shift for a narrow
+  window is computed (`right_shift`, `left_shift`) but not applied; panel heights are estimated from row counts, not measured.
+- **Tasks**: the tree (fold, numbers, markers, the in-progress row's active form) and the phase graph. Geometry is
+  `logic::plan`, a port of `phase-graph.mjs` and the `chat-plan` counters, with `phase-graph.test.ts` ported and the path pinned
+  to the `.mjs` output; the plot is a `canvas` (S-curve with `PathBuilder`, dashed Now line, dots) with the gap chips and time
+  labels as text over it. Times are UTC (the fixture's clock).
+- **Ports** (stop with a spinner, Stop all, a row closes the panel and records the port; the Browser panel is another
+  package), **Subchats** (the pill words, the one-asking pill that opens its Chat, rows with one-tap answers, Allow and Deny,
+  Reply), **Subagents** (list, Archive finished, Archived, and a detail with plan or Now and steps, Result, Task and Full log).
+  Not built: QA persona avatars, advisor Stop and Retry, markdown in Result and the log, keyboard walk through subagent rows.
+- **C-06** (`pills/bookmark.rs`): the identity in the top strip, the Subchat bookmark (`... / ‹ ● Parent / Subchat ⇅`, the
+  parent tinted with Needs you) and the family menu, over `chat_bookmark` and `chat_family`. Not built: the Routine chip and
+  the bookmark reserve, ⌘[, and the two split entries do nothing yet (`ChatEvent::Beside` and `ShowAll`).
+- **Undo** (`undo_panel.rs`) replaces the composer: list (arrows, Enter, Escape), preview with conflicts (Keep current or
+  Undo) and a button that stays off until every conflict is answered. `/undo` opens it. Fixture checkpoints; `checkpoints.ts`
+  helpers ported and tested. Not built: Esc Esc, the task's message outline in the transcript, the Changes panel on a file.
+- Seeds for snapshots (never in tests): `MILAGRE_GPUI_PILLS_OPEN=tasks|ports|subchats|subagents`, `_PILLS_AGENT=<id>`,
+  `_UNDO=list|preview|redo`, `_FAMILY_MENU=1`, `_SELECT_ROW=<n>`.
+- `ChatView` emits `ChatEvent` (open a Chat, answer, respond, the split entries); `Workspace` follows `OpenChat` into the sidebar.

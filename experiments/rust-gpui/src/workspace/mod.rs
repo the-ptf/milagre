@@ -24,7 +24,7 @@ use gpui::{Context, Entity, Subscription, Window, div, prelude::*, px};
 use crate::routines::RoutinesView;
 use crate::settings::{self, SettingsModal, ToggleSettings};
 use crate::theme::{ActiveTheme, Theme};
-use crate::workspace::chat::ChatView;
+use crate::workspace::chat::{ChatEvent, ChatView};
 use crate::workspace::panel::dock;
 use crate::workspace::panel::{Panel, PanelEvent};
 use crate::workspace::sidebar::{Sidebar, SidebarEvent};
@@ -57,6 +57,11 @@ impl Workspace {
             }
             SidebarEvent::Routines => this.open_routines(cx),
         });
+        let open_chat = cx.subscribe(&chat, |this, _, event: &ChatEvent, cx| {
+            if let ChatEvent::OpenChat(key) = event {
+                this.sidebar.update(cx, |sidebar, cx| sidebar.select_key(key, cx));
+            }
+        });
         let follow = cx.observe(&sidebar, |this, _, cx| this.follow_sidebar(None, cx));
         // A web page draws over GPUI: it hides while Settings is open (src/platform/webview.rs).
         let web = cx
@@ -64,7 +69,16 @@ impl Workspace {
         let routines = cx.new(|cx| RoutinesView::new(window, cx));
         let routines_open = crate::routines::start_from_env().is_some();
         let routines_at = sidebar.read(cx).selected();
-        Self { sidebar, chat, panel, settings, routines, routines_open, routines_at, _subscriptions: vec![layout, follow, web, new_chat] }
+        Self {
+            sidebar,
+            chat,
+            panel,
+            settings,
+            routines,
+            routines_open,
+            routines_at,
+            _subscriptions: vec![layout, follow, web, new_chat, open_chat],
+        }
     }
 
     /// The sidebar's Routines button: the Routines page takes the Chat column's place until another Chat is picked.
@@ -90,6 +104,8 @@ impl Workspace {
             && self.chat.read(cx).key() != Some(row.key.as_ref())
         {
             self.chat.update(cx, |chat, cx| chat.set_chat(&row, window, cx));
+            let chats = self.sidebar.read(cx).family_chats();
+            self.chat.update(cx, |chat, cx| chat.set_family(&chats, cx));
         }
     }
 }

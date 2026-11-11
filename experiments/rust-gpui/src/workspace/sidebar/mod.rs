@@ -33,6 +33,7 @@ use crate::data::{Data, Polled, poll_once};
 use crate::logic::lists::order::ChatOrder;
 use crate::theme::{ActiveTheme, CONTROL_MD, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_13, TextStepExt, Theme};
 use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, SectionLabel};
+use crate::workspace::chat::pills::bookmark::FamilyChat;
 use crate::workspace::chrome::{self, NoDrag};
 pub use list::{ChatLists, SidebarData, SidebarSeed};
 pub use row::ChatRow;
@@ -148,6 +149,50 @@ impl Sidebar {
     /// The row the sidebar shows at `ix` (pinned rows first).
     pub fn row(&self, ix: usize) -> Option<&ChatRow> {
         self.rows.get(ix)
+    }
+
+    /// Every Chat of every visible scope as the bookmark and the family menu read it. A Chat with a row borrows the
+    /// row's mark; one without is running when it has a run and idle otherwise.
+    pub fn family_chats(&self) -> Vec<FamilyChat> {
+        use crate::logic::activity::subchat_states::SubchatKind;
+        use crate::logic::marks::chat_mark::ChatMark;
+        let mut out = Vec::new();
+        for scope in &self.data.scopes {
+            let key_scope = scope.project.scope();
+            for (id, chat) in &scope.state.sessions {
+                let key = key_scope.chat_key(*id);
+                let row = self.rows.iter().find(|row| row.key.as_ref() == key);
+                let mark = row
+                    .map(|row| row.mark)
+                    .unwrap_or_else(|| if self.data.runs.get(&key).is_some() { ChatMark::Running } else { ChatMark::Idle });
+                let kind = match mark {
+                    ChatMark::Question | ChatMark::Waiting => SubchatKind::NeedsYou,
+                    ChatMark::Failed => SubchatKind::Failed,
+                    ChatMark::Running | ChatMark::Background | ChatMark::Delegated => SubchatKind::Working,
+                    _ => SubchatKind::Done,
+                };
+                out.push(FamilyChat {
+                    parent: chat.parent.map(|parent| key_scope.chat_key(parent)),
+                    title: chat.display_title(&[]).to_string(),
+                    archived: chat.archived,
+                    done: chat.done_at.is_some(),
+                    background: row.map_or(0, |row| row.background),
+                    key,
+                    kind,
+                    mark,
+                });
+            }
+        }
+        out
+    }
+
+    /// Selects the Chat with this key when it has a row.
+    pub fn select_key(&mut self, key: &str, cx: &mut Context<Self>) {
+        if let Some(ix) = self.rows.iter().position(|row| row.key.as_ref() == key) {
+            self.select(ix, cx);
+            self.scroll.scroll_to_item(ix.saturating_sub(self.pinned), gpui::ScrollStrategy::Nearest);
+            cx.notify();
+        }
     }
 
     pub fn pinned_count(&self) -> usize {

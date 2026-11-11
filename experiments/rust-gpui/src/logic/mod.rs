@@ -6,6 +6,7 @@ pub mod identity;
 pub mod keybindings;
 pub mod lists;
 pub mod marks;
+pub mod plan;
 pub mod prompts;
 pub mod prs;
 pub mod usage;
