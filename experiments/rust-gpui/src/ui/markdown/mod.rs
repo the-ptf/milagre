@@ -287,8 +287,24 @@ fn parse_html_block(node: &mdast::Node, _cx: &MarkdownParseContext<'_>) -> Optio
 /// Bumped when a parser rule here changes, so text views parse again; equal across frames otherwise.
 const PARSER_REVISION: u64 = 1;
 
+/// What the fenced blocks that are more than text need from where they are drawn: whether this is the block of a
+/// reply still being written (`MarkdownStreamingContext`), and who takes the message a generative UI button sends
+/// (`GenerativeUIProvider`'s `onSend`).
+#[derive(Clone, Default)]
+pub struct FenceHooks {
+    /// The live block of a streaming reply: a diagram stays code, a generative UI draws what parses with its buttons off.
+    pub streaming: bool,
+    pub send: Option<crate::genui::SendHandler>,
+}
+
 /// Milagre's markdown rules as gpui-base extensions, with `on_link` for chips and image links.
 pub fn extensions(on_link: LinkHandler) -> MarkdownExtensions {
+    extensions_with(on_link, FenceHooks::default())
+}
+
+/// [`extensions`] for a view that knows where it is: see [`FenceHooks`].
+pub fn extensions_with(on_link: LinkHandler, hooks: FenceHooks) -> MarkdownExtensions {
+    let (streaming, send) = (hooks.streaming, hooks.send);
     MarkdownExtensions::default()
         .parser_revision(PARSER_REVISION)
         .plugin(FileChipPlugin { on_link: on_link.clone() })
@@ -299,9 +315,13 @@ pub fn extensions(on_link: LinkHandler) -> MarkdownExtensions {
         .block_renderer(fences::NESTED_MARKDOWN, |node, _window, cx| {
             fences::render_nested(node, Arc::new(text_view_style(cx.theme(), CHAT_TEXT.size)))
         })
-        .block_renderer(fences::MERMAID, |node, _window, cx| fences::render_placeholder(node, fences::MERMAID, "pele", cx))
-        .block_renderer(fences::GENERATIVE_UI, |node, _window, cx| {
-            fences::render_placeholder(node, fences::GENERATIVE_UI, "@openuidev/lang-core", cx)
+        .block_renderer(fences::MERMAID, move |node, window, cx| {
+            let code = node.data::<fences::FencedSource>().map(|source| source.code.clone()).unwrap_or_default();
+            crate::diagram::render_block(code, streaming, window, cx)
+        })
+        .block_renderer(fences::GENERATIVE_UI, move |node, window, cx| {
+            let code = node.data::<fences::FencedSource>().map(|source| source.code.clone()).unwrap_or_default();
+            crate::genui::render_block(code, streaming, send.clone(), window, cx)
         })
         .block_renderer(RAW_HTML, |node, _window, _cx| div().w_full().whitespace_normal().child(node.as_text().to_string()))
 }

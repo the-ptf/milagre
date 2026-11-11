@@ -2,17 +2,17 @@
 //! first info word is `markdown`/`md` renders as markdown, `mermaid` as a diagram, `openui` as generative UI;
 //! everything else is a code block, highlighted when [`resolve_code_language`] knows the fence name
 //! (`lib/code-languages.ts`). The diagram and generative UI renderers are other packages in the desktop (`pele`,
-//! `@openuidev/lang-core`): here they route to a placeholder block that names the kind and keeps the source.
+//! `@openuidev/lang-core`); here they are `crate::diagram` and `crate::genui`, which the extensions in `mod.rs` call.
 
 use std::sync::Arc;
 
 use gpui::{
-    App, ElementId, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Styled as _, Window, div, px,
+    App, ElementId, InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Styled as _, Window, div, px,
 };
 use gpui_base::{MarkdownNode, MarkdownParseContext, TextView, TextViewStyle, markdown_ast as mdast};
 
 use super::stream::is_markdown_fence;
-use crate::theme::{ActiveTheme, CODE_TEXT, RADIUS_CONTROL, TEXT_11, TEXT_12, TextStepExt, mono};
+use crate::theme::{ActiveTheme, TEXT_11, TEXT_12, TextStepExt, mono};
 
 /// What a fenced block renders as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,49 +137,6 @@ pub fn render_nested(node: &MarkdownNode, style: Arc<TextViewStyle>) -> impl Int
         .w_full()
         .min_w_0()
         .child(TextView::markdown(id, code).style((*style).clone()).markdown_extensions(super::base_extensions()))
-}
-
-/// A placeholder for a block whose renderer is another package: the kind named over its source, so nothing is lost.
-pub fn render_placeholder(node: &MarkdownNode, kind: &'static str, renderer: &'static str, cx: &App) -> impl IntoElement + use<> {
-    let theme = *cx.theme();
-    let code = node.data::<FencedSource>().map(|source| source.code.clone()).unwrap_or_default();
-    let selector: &'static str = match kind {
-        MERMAID => "mermaid-block",
-        _ => "generative-ui-block",
-    };
-    div()
-        .debug_selector(move || selector.into())
-        .w_full()
-        .min_w_0()
-        .rounded(RADIUS_CONTROL)
-        .border_1()
-        .border_color(theme.line)
-        .bg(theme.inset)
-        .overflow_hidden()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .px(px(12.0))
-                .h(px(28.0))
-                .border_b_1()
-                .border_color(theme.line)
-                .text_step(TEXT_11)
-                .text_color(theme.ink3)
-                .child(div().font_family(mono()).child(kind))
-                .child(div().font_weight(FontWeight::MEDIUM).child(format!("Rendered by {renderer} in the desktop; not ported"))),
-        )
-        .child(
-            div()
-                .px(px(12.0))
-                .py(px(8.0))
-                .font_family(mono())
-                .text_size(px(CODE_TEXT.size))
-                .line_height(px(CODE_TEXT.size * 1.6))
-                .text_color(theme.ink2)
-                .child(code),
-        )
 }
 
 /// The code block's corner: the fence's language and a Copy button (`CodeBlock.tsx` puts both in its header).

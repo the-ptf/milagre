@@ -5,9 +5,11 @@
 pub mod app;
 pub mod assets;
 pub mod data;
+pub mod diagram;
 // WP-01's gpui-component fit check: probe views and tests, never in the app (COMPONENT-FIT.md).
 #[cfg(any(test, feature = "fitcheck"))]
 pub mod fitcheck;
+pub mod genui;
 pub mod logic;
 pub mod notices;
 pub mod onboarding;

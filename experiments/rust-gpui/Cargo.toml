@@ -60,6 +60,9 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # Composer caret movement and backspace by grapheme cluster, as GPUI's own `input` example does.
 # Already in GPUI's dependency tree (Cargo.lock), so it adds no new crate.
 unicode-segmentation = "1.10"
+# Mermaid diagrams in the transcript (src/diagram/, WP-38): parse, layout and SVG in pure Rust (MIT). No CLI, no PNG
+# writer: GPUI's own SVG rasteriser draws the picture. Its tree is regex, json5, fontdb and a few small crates.
+mermaid-rs-renderer = { version = "=0.3.1", default-features = false }
 # The Terminal panel (src/workspace/panel/terminal/): VT parser, grid, scrollback and a local PTY (Apache-2.0).
 alacritty_terminal = { version = "=0.26.0", default-features = false }
 # Wakes the Terminal view from alacritty's PTY thread. Already in GPUI's tree (Cargo.lock), so no new crate.

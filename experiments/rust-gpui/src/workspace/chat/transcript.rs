@@ -14,6 +14,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gpui::{
@@ -31,7 +32,7 @@ use crate::theme::{
     ActiveTheme, Appearance, CHAT_TEXT, CODE_TEXT, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_WINDOW, TEXT_12, TextStepExt, Theme, mono,
 };
 use crate::ui::markdown::stream::{close_open_markdown, split_streaming_blocks};
-use crate::ui::markdown::{LinkHandler, Markdown, extensions, open_with_system, plain_text_source, text_view_style};
+use crate::ui::markdown::{FenceHooks, LinkHandler, Markdown, extensions_with, open_with_system, plain_text_source, text_view_style};
 use crate::ui::selection::{Flavor, Plain, join, plain_text};
 use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconName, IconSize};
 use crate::workspace::chat::transcript::step_row::StepRow;
@@ -170,6 +171,8 @@ pub struct Transcript {
     style: TextViewStyle,
     style_for: Appearance,
     extensions: MarkdownExtensions,
+    /// The same rules for the block being written: a diagram stays code and a generative UI's buttons are off.
+    live_extensions: MarkdownExtensions,
     on_link: LinkHandler,
     tracker: SharedTracker,
     painted: SharedPainted,
@@ -205,7 +208,10 @@ impl Transcript {
         let started = Instant::now();
         let demo = std::env::var_os("MILAGRE_GPUI_TRANSCRIPT_ACTIVITY").is_some();
         let cards = std::env::var_os("MILAGRE_GPUI_TRANSCRIPT_CARDS").is_some();
-        let items = if cards {
+        let items = if let Some(kind) = std::env::var("MILAGRE_GPUI_TRANSCRIPT_BLOCKS").ok().filter(|kind| !kind.is_empty()) {
+            // Snapshot seed: a reply with diagrams (`diagrams`) or generative UI (`genui`).
+            crate::genui::fixture::blocks_demo(&kind)
+        } else if cards {
             crate::workspace::chat::fixture::cards_demo()
         } else if demo {
             crate::workspace::chat::fixture::activity_demo()
@@ -242,6 +248,13 @@ impl Transcript {
         let list = ListState::new(items.len(), ListAlignment::Bottom, px(OVERDRAW));
         let theme = *cx.theme();
         let on_link = open_with_system();
+        // A generative UI button sends its message as the user's next one, as a Composer send does.
+        let transcript = cx.weak_entity();
+        let send: crate::genui::SendHandler = Arc::new(move |text, _, cx| {
+            let text = SharedString::from(text.to_string());
+            transcript.update(cx, |transcript, cx| transcript.push_user(text, cx)).ok();
+        });
+        let hooks = FenceHooks { streaming: false, send: Some(send) };
         Self {
             items,
             list,
@@ -253,7 +266,8 @@ impl Transcript {
             streams: HashMap::new(),
             style: text_view_style(&theme, CHAT_TEXT.size),
             style_for: theme.appearance,
-            extensions: extensions(on_link.clone()),
+            extensions: extensions_with(on_link.clone(), hooks.clone()),
+            live_extensions: extensions_with(on_link.clone(), FenceHooks { streaming: true, ..hooks }),
             on_link,
             tracker: SharedTracker::default(),
             painted: SharedPainted::default(),
@@ -666,8 +680,9 @@ impl Transcript {
     /// A selectable item's text: its markdown views, with a probe recording where they were drawn.
     fn text_block(&self, ix: usize) -> AnyElement {
         let views = &self.views[&ix];
-        let markdown =
-            |state: &Entity<TextViewState>| Markdown::new(state, self.style.clone(), self.extensions.clone(), self.on_link.clone());
+        let markdown = |state: &Entity<TextViewState>, extensions: &MarkdownExtensions| {
+            Markdown::new(state, self.style.clone(), extensions.clone(), self.on_link.clone())
+        };
         let main_empty = self.streams.get(&ix).is_some_and(|stream| stream.shown.is_empty());
         let painted = self.painted.clone();
         div()
@@ -677,8 +692,8 @@ impl Transcript {
             .flex()
             .flex_col()
             .gap(px(CHAT_TEXT.size * 0.5))
-            .when(!main_empty, |el| el.child(markdown(&views.main)))
-            .children(views.live.as_ref().map(markdown))
+            .when(!main_empty, |el| el.child(markdown(&views.main, &self.extensions)))
+            .children(views.live.as_ref().map(|live| markdown(live, &self.live_extensions)))
             .child(
                 canvas(move |bounds, _, _| _ = painted.borrow_mut().texts.insert(ix, bounds), |_, _, _, _| {})
                     .absolute()
