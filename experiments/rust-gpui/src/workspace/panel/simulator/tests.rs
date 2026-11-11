@@ -564,7 +564,7 @@ fn workspace_with_simulator(cx: &mut TestAppContext) -> (Entity<crate::workspace
 fn the_panel_shows_the_tab_only_while_a_simulator_is_attached(cx: &mut TestAppContext) {
     use crate::workspace::panel::PanelTab;
     let (panel, cx) = workspace_with_simulator(cx);
-    assert_eq!(panel.read_with(cx, |p, _| p.width()), 400.0, "the simulator's own width");
+    assert_eq!(panel.read_with(cx, |p, _| p.width()), 320.0, "the shared width");
     assert!(cx.debug_bounds("panel-body-Simulator").is_some());
     assert!(cx.debug_bounds("simulator-picture").is_some());
     assert!(cx.debug_bounds("toggle-simulator").is_some(), "the corner offers it too");

@@ -4,7 +4,7 @@
 //! - State is per Chat: which tab is open, whether the panel is shown, whether it is expanded. Switching Chats in
 //!   the sidebar ([`Panel::set_chat`], driven by the Workspace) brings back that Chat's, and shows only the tabs the
 //!   Chat has content for (`fixture::ChatContent::has`).
-//! - Widths are per panel kind and last the session (`dock.rs`, the desktop's `panel-width.ts`).
+//! - One width serves every tab and Chat, and lasts the session (`dock.rs`).
 //! - Every body is its own view mounted cached with a fixed size ([`ChangesView`], the PR, Designs, Artifact and
 //!   Simulator views). The panel itself holds no state a body changes, so typing in the composer or a
 //!   transcript animation re-renders none of them.
@@ -123,8 +123,8 @@ pub struct Panel {
     seeded: Option<SharedString>,
     content: ChatContent,
     states: HashMap<SharedString, ChatPanel>,
-    /// Widths dragged this session, by panel kind (`PanelTab::width_key`).
-    widths: HashMap<PanelTab, f32>,
+    /// The panel's width, the same for every tab and Chat; a drag sets it (`dock::WIDTH_RULE`).
+    width: f32,
     /// The dock's split state. A new one whenever the layout changes, so the panel opens at its width.
     resizable: Entity<ResizableState>,
     /// Horizontal scroll of the tab list; also used to bring a clicked tab fully into view.
@@ -173,7 +173,7 @@ impl Panel {
             seeded,
             content,
             states: HashMap::new(),
-            widths: HashMap::new(),
+            width: dock::WIDTH_RULE.default,
             resizable: cx.new(|_| ResizableState::default()),
             tabs_scroll: ScrollHandle::new(),
             changes,
@@ -284,10 +284,9 @@ impl Panel {
         PanelTab::SHOWN.into_iter().filter(|tab| self.content.has(*tab)).collect()
     }
 
-    /// The open tab's width: dragged this session, else its default.
+    /// The panel's width: dragged this session, else the default. No tab has one of its own.
     pub fn width(&self) -> f32 {
-        let tab = self.active();
-        self.widths.get(&tab.width_key()).copied().unwrap_or(tab.width_rule().default)
+        self.width
     }
 
     pub fn resizable(&self) -> &Entity<ResizableState> {
@@ -349,13 +348,12 @@ impl Panel {
 
     /// Records the width a drag ended on. It does not move anything: the split already shows it.
     pub fn set_width(&mut self, width: f32) {
-        let tab = self.active();
-        self.widths.insert(tab.width_key(), tab.width_rule().clamp(width));
+        self.width = dock::WIDTH_RULE.clamp(width);
     }
 
     /// Back to the tab's default width (the double-click on the edge).
     pub fn reset_width(&mut self, cx: &mut Context<Self>) {
-        self.widths.remove(&self.active().width_key());
+        self.width = dock::WIDTH_RULE.default;
         self.relayout(cx);
     }
 
@@ -395,10 +393,11 @@ impl Panel {
         // Applied while the list paints next frame: scrolls the least needed to show the tab fully.
         self.tabs_scroll.scroll_to_item(ix);
         let state = self.state_mut();
-        let changed_width = state.tab.width_key() != tab.width_key() || !state.open;
+        // Only opening the panel lays it out again: switching tabs keeps the width.
+        let opening = !state.open;
         state.tab = tab;
         state.open = true;
-        if changed_width {
+        if opening {
             self.relayout(cx);
         } else {
             cx.notify();

@@ -310,7 +310,7 @@ fn the_page_fills_the_body_under_the_page_bar(cx: &mut TestAppContext) {
     let placed = host.read_with(cx, |host, _| host.placement()).expect("the page is placed");
     assert_eq!(placed.visible, body, "the page covers exactly the page body");
     assert_eq!(placed.inner.origin, gpui::point(px(0.0), px(0.0)));
-    assert_eq!(panel.read_with(cx, |panel, _| panel.width()), 560.0, "the Artifact panel's own default width");
+    assert_eq!(panel.read_with(cx, |panel, _| panel.width()), 320.0, "the shared default width");
     let bar = testing::bounds(cx, "artifact-zoom");
     assert!(bar.bottom() <= body.top(), "the zoom sits above the page, never over it");
 }

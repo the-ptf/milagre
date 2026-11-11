@@ -36,25 +36,10 @@ impl WidthRule {
     }
 }
 
-impl PanelTab {
-    /// The panel's width rule. The PR tab (a tab inside Changes on the desktop) takes the Changes rule: it sits
-    /// in the same column here.
-    pub fn width_rule(self) -> WidthRule {
-        match self {
-            PanelTab::Changes | PanelTab::Pr | PanelTab::Details => WidthRule { min: 280.0, default: 320.0, max: 640.0 },
-            PanelTab::Designs | PanelTab::Artifact => WidthRule { min: 440.0, default: 560.0, max: 1400.0 },
-            PanelTab::Simulator => WidthRule { min: 320.0, default: 400.0, max: 800.0 },
-        }
-    }
-
-    /// Tabs that share one remembered width: the desktop saves one per panel kind, not per Chat.
-    pub fn width_key(self) -> PanelTab {
-        match self {
-            PanelTab::Pr => PanelTab::Changes,
-            other => other,
-        }
-    }
-}
+/// The one width every tab shares: switching tabs never changes it, and a drag changes it for all of them. The
+/// default is the Changes panel's (`PANEL_WIDTHS.changes.default`); the bounds are the loosest any tab had (Designs
+/// and Artifact went to 1400), and `MIN_CHAT_WIDTH` still keeps the Chat readable.
+pub const WIDTH_RULE: WidthRule = WidthRule { min: 280.0, default: 320.0, max: 1400.0 };
 
 actions!(milagre_gpui_panel, [ToggleChanges, ToggleTerminal, ToggleDesigns, ToggleArtifacts, ToggleSimulator]);
 
@@ -118,9 +103,9 @@ pub fn on_actions<E: InteractiveElement>(element: E, panel: &Entity<Panel>) -> E
 /// The columns right of the sidebar: the Chat, and the panel beside it when open. Open, they are one
 /// `h_resizable` group (the panel's left edge drags); expanded, the panel takes the whole width; closed, the Chat.
 pub fn layout(panel: &Entity<Panel>, chat: impl IntoElement + 'static, cx: &mut App) -> AnyElement {
-    let (open, expanded, tab, width, state) = {
+    let (open, expanded, width, state) = {
         let p = panel.read(cx);
-        (p.is_open(), p.is_expanded(), p.active(), p.width(), p.resizable().clone())
+        (p.is_open(), p.is_expanded(), p.width(), p.resizable().clone())
     };
     // A closing panel stays laid out under its cover until the slide is done (`slide.rs`).
     let chat_key = panel.read(cx).chat().to_string();
@@ -133,7 +118,7 @@ pub fn layout(panel: &Entity<Panel>, chat: impl IntoElement + 'static, cx: &mut 
     if expanded {
         return div().flex().flex_1().min_w_0().h_full().child(body(panel)).into_any_element();
     }
-    let rule = tab.width_rule();
+    let rule = WIDTH_RULE;
     let on_resize = {
         let panel = panel.clone();
         move |state: &Entity<ResizableState>, _: &mut Window, cx: &mut App| {

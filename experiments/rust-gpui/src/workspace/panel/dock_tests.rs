@@ -35,14 +35,12 @@ fn drag_edge(cx: &mut gpui::VisualTestContext, to_x: gpui::Pixels) {
 }
 
 #[test]
-fn width_rules_are_the_desktops() {
-    let changes = PanelTab::Changes.width_rule();
-    assert_eq!((changes.min, changes.default, changes.max), (280.0, 320.0, 640.0));
-    let designs = PanelTab::Designs.width_rule();
-    assert_eq!((designs.min, designs.default, designs.max), (440.0, 560.0, 1400.0));
-    assert_eq!(PanelTab::Artifact.width_rule(), designs);
-    assert_eq!(changes.clamp(100.0), 280.0);
-    assert_eq!(changes.clamp(900.0), 640.0);
+fn one_width_rule_serves_every_tab() {
+    let rule = super::dock::WIDTH_RULE;
+    assert_eq!((rule.min, rule.default, rule.max), (280.0, 320.0, 1400.0));
+    assert_eq!(rule.default, super::PANEL_WIDTH, "the Changes default");
+    assert_eq!(rule.clamp(100.0), 280.0);
+    assert_eq!(rule.clamp(2000.0), 1400.0);
     assert_eq!(MIN_CHAT_WIDTH, 420.0);
 }
 
@@ -62,8 +60,8 @@ fn dragging_the_left_edge_resizes_and_stops_at_the_maximum(cx: &mut TestAppConte
     let panel = workspace.read_with(cx, |w, _| w.panel.clone());
     assert_eq!(panel.read_with(cx, |p, _| p.width()), 420.0, "the drag's end is remembered");
     drag_edge(cx, px(300.0));
-    assert_eq!(panel_left(cx), width - px(640.0), "stops at the Changes maximum");
-    assert_eq!(panel.read_with(cx, |p, _| p.width()), 640.0);
+    let widest = panel.read_with(cx, |p, _| p.width());
+    assert!(widest > 420.0 && widest <= 1400.0, "stops at the window's limit: {widest}");
 }
 
 #[gpui::test]
@@ -133,7 +131,7 @@ fn the_desktops_shortcuts_show_and_hide_the_panel(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("shift-cmd-e");
     settle(cx);
     assert_eq!(state(cx), (true, PanelTab::Designs), "designs.toggle switches to Designs");
-    assert_eq!(panel_left(cx), window_width(cx) - px(560.0), "at Designs' own default width");
+    assert_eq!(panel_left(cx), window_width(cx) - px(320.0), "Designs opens at the shared width");
     cx.simulate_keystrokes("shift-cmd-e");
     settle(cx);
     assert!(!state(cx).0);
@@ -217,4 +215,19 @@ fn typing_in_the_composer_renders_no_panel_view(cx: &mut TestAppContext) {
     cx.simulate_input("yz");
     cx.run_until_parked();
     assert_eq!(counts(cx), after_click, "nor does typing with another tab open");
+}
+
+/// One width for every tab: a drag sets it for all, and switching tabs never moves the edge.
+#[gpui::test]
+fn switching_tabs_never_changes_the_width(cx: &mut TestAppContext) {
+    let (workspace, cx) = mount(cx);
+    let width = window_width(cx);
+    drag_edge(cx, width - px(450.0));
+    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
+    for tab in [PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr, PanelTab::Details, PanelTab::Changes] {
+        panel.update(cx, |p, cx| p.activate(tab, cx));
+        settle(cx);
+        assert_eq!(panel.read_with(cx, |p, _| p.width()), 450.0, "{tab:?} keeps the dragged width");
+        assert_eq!(panel_left(cx), width - px(450.0), "{tab:?} keeps the edge in place");
+    }
 }
