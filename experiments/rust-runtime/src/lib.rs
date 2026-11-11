@@ -1,6 +1,7 @@
 //! Isolated read adapter. No live profile, owner lock, provider, mutation, or arbitrary folder access.
 mod copies;
 mod inbox;
+mod terminals;
 
 pub use copies::SavedCopies;
 use milagre_owner_store::jsjson;
@@ -30,6 +31,7 @@ pub struct ReadHandler {
     backend: Arc<dyn ReadBackend>,
     opened: Mutex<Vec<String>>,
     epoch: String,
+    terminals: Option<terminals::TerminalService>,
 }
 impl ReadHandler {
     pub fn new(backend: Arc<dyn ReadBackend>, epoch: String) -> Self {
@@ -37,6 +39,7 @@ impl ReadHandler {
             backend,
             opened: Mutex::new(Vec::new()),
             epoch,
+            terminals: None,
         }
     }
     fn info(&self, path: &str) -> Result<ProjectInfo, RpcError> {
@@ -123,6 +126,7 @@ impl Handler for ReadHandler {
         READ_METHODS
             .iter()
             .chain(UNSUPPORTED_MUTATIONS)
+            .chain(milagre_terminals::wire::COMMANDS.iter())
             .map(|name| (*name).into())
             .collect()
     }
@@ -130,6 +134,18 @@ impl Handler for ReadHandler {
         Ok(jsjson::to_string(result))
     }
     fn invoke(&self, method: &str, args: &[Value], context: &ClientContext) -> RpcResult {
+        if milagre_terminals::wire::COMMANDS.contains(&method) {
+            return self
+                .terminals
+                .as_ref()
+                .ok_or_else(|| {
+                    RpcError::new(
+                        "UNSUPPORTED_SERVICE",
+                        "Terminals are not installed in this handler",
+                    )
+                })?
+                .invoke(method, args, context.client_id());
+        }
         if UNSUPPORTED_MUTATIONS.contains(&method) {
             return Err(RpcError::new(
                 "UNSUPPORTED_MUTATION",
@@ -214,6 +230,12 @@ impl Handler for ReadHandler {
             )),
         }
     }
+    fn shutdown(&self) -> RpcResult {
+        if let Some(terminals) = &self.terminals {
+            terminals.shutdown();
+        }
+        Ok(Value::Null)
+    }
     fn snapshot(&self, _: &ClientContext) -> RpcResult {
         Ok(json!({"projects":self.scopes()?,"links":[],"runs":{"runs":{},"seq":0},"ports":{}}))
     }
@@ -225,13 +247,19 @@ pub fn start() -> Result<Server, RpcError> {
     let profile = IsolatedProfile::create()?;
     let backend = Arc::new(SavedCopies::create(&profile)?);
     let epoch = format!("isolated-read:{}", profile.path().display());
-    Server::bind(
+    let events = Arc::new(Mutex::new(None));
+    let terminal_service = terminals::TerminalService::new(backend.clone(), events.clone())?;
+    let mut handler = ReadHandler::new(backend, epoch);
+    handler.terminals = Some(terminal_service);
+    let server = Server::bind(
         profile,
-        Arc::new(ReadHandler::new(backend, epoch)),
+        Arc::new(handler),
         Config {
             // Intentionally small to exercise the real client's paging on ordinary saved state.
             max_frame_bytes: 4096,
             ..Config::default()
         },
-    )
+    )?;
+    *events.lock().unwrap() = Some(server.events());
+    Ok(server)
 }

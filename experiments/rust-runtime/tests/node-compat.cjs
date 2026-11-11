@@ -33,6 +33,7 @@ const lines = readline.createInterface({ input: child.stdout });
 const clients = [];
 let runtime;
 let metadata;
+const terminalPids = new Set();
 function digestTree(root) {
   const hash = createHash("sha256");
   function walk(folder) {
@@ -55,7 +56,8 @@ async function run() {
   const [line] = await once(lines, "line");
   metadata = JSON.parse(line);
   assert.equal(metadata.fixture, true);
-  assert.equal(metadata.readOnly, true);
+  assert.equal(metadata.projectReadsOnly, true);
+  assert.equal(metadata.terminals, true);
   assert.equal(path.dirname(metadata.profile), temporaryRoot);
   assert.equal(metadata.socket, socketPath(metadata.profile));
   const projectRoot = path.join(metadata.profile, ".projects");
@@ -175,6 +177,106 @@ async function run() {
   assert.equal(await client.call("chat:send-status", [alpha, "never-sent"]), null);
   assert.ok(!fs.existsSync(path.join(alpha, ".milagre/owner.lock")), "no writer ownership is taken");
 
+  stage = "real terminal commands through the production runtime client";
+  const terminalEvents = [];
+  client.on("event", (event) => {
+    if (event.channel.startsWith("terminal:")) terminalEvents.push(event);
+  });
+  const chatId = `${alpha}#1`;
+  const profiles = await runtime.invoke("terminal:profiles", [{}]);
+  assert.equal(profiles.defaultShell, "/bin/sh");
+  assert.equal(profiles.selectedShell, null);
+  await assert.rejects(runtime.invoke("terminal:setShell", [{ shell: "/not-an-installed-shell" }]), {
+    code: "COMMAND_FAILED",
+    message: "Choose an installed shell.",
+  });
+  assert.equal((await runtime.invoke("terminal:setShell", [{ shell: "/bin/sh" }])).selectedShell, "/bin/sh");
+  await assert.rejects(runtime.invoke("terminal:open", [{ chatId: `${oracleRoot}#1` }]), {
+    code: "COMMAND_FAILED",
+    message: "Only copied fixture Chats can open a Terminal.",
+  });
+  await assert.rejects(runtime.invoke("terminal:open", [{ chatId, cwd: "/tmp" }]), {
+    code: "COMMAND_FAILED",
+    message: "Choose one of this Chat's Worktrees.",
+  });
+  await assert.rejects(runtime.invoke("terminal:open", [{ chatId: `${alpha}#3` }]), {
+    code: "COMMAND_FAILED",
+    message: "That Chat is archived.",
+  });
+  const terminal = await runtime.invoke("terminal:open", [{ chatId, cols: 91, rows: 27 }]);
+  assert.equal(terminal.cwd, alpha);
+  assert.equal(terminal.chatId, chatId);
+  assert.equal(terminal.cols, 91);
+  assert.equal(terminal.rows, 27);
+  const viewer = { offset: 0, output: "" };
+  async function readUntil(id, state, done) {
+    const expires = Date.now() + 10000;
+    while (!done(state.output)) {
+      assert.ok(Date.now() < expires, "Terminal output deadline");
+      const read = await runtime.invoke("terminal:read", [{ terminalId: id, after: state.offset, limit: 4096 }]);
+      if (read.reset) state.output = read.data;
+      else {
+        assert.equal(read.offset, state.offset + read.data.length, "wire offsets count UTF-16 units");
+        state.output += read.data;
+      }
+      state.offset = read.offset;
+      assert.equal(read.ended, false);
+    }
+  }
+  await runtime.invoke("terminal:input", [{ terminalId: terminal.id, data: "stty -echo\nprintf 'READY_%s\\n' 'FOR_PROBE'\n" }]);
+  await readUntil(terminal.id, viewer, (text) => text.includes("READY_FOR_PROBE\r\n"));
+  assert.deepEqual(
+    await runtime.invoke("terminal:input", [
+      {
+        terminalId: terminal.id,
+        data: "printf '\\nDIR='; pwd; printf 'PID=%s\\n' \"$$\"; stty size; printf 'UNICODE=🦀\\n'; printf 'MARKERS=\u{10fffe}\u{f0000}\\n'; printf 'RUST_TERMINAL_END\\n'\n",
+      },
+    ]),
+    { accepted: true },
+  );
+  await readUntil(terminal.id, viewer, (text) => text.includes("RUST_TERMINAL_END\r\n"));
+  assert.ok(viewer.output.includes(`DIR=${alpha}\r\n`));
+  assert.ok(viewer.output.includes("27 91\r\n"));
+  assert.ok(viewer.output.includes("UNICODE=🦀\r\n"));
+  assert.ok(viewer.output.includes("MARKERS=\u{10fffe}\u{f0000}\r\n"), "ordinary terminal Unicode is not decoded as storage surrogate markers");
+  const pid = Number(/\r\nPID=(\d+)\r\n/.exec(viewer.output)[1]);
+  terminalPids.add(pid);
+  process.kill(pid, 0);
+  await runtime.invoke("terminal:resize", [{ terminalId: terminal.id, cols: 113, rows: 41 }]);
+  await runtime.invoke("terminal:input", [{ terminalId: terminal.id, data: "stty size\n" }]);
+  await readUntil(terminal.id, viewer, (text) => text.includes("41 113\r\n"));
+  await assert.rejects(runtime.invoke("terminal:resize", [{ terminalId: terminal.id, cols: 0, rows: 0 }]), {
+    code: "COMMAND_FAILED",
+    message: "Invalid Terminal size.",
+  });
+  stage = "terminal survives viewer disconnect and replays output";
+  await runtime.close();
+  runtime = null;
+  assert.equal((await second.call("terminal:list", [{ chatId }])).terminals[0].id, terminal.id);
+  process.kill(pid, 0);
+  runtime = await connectDesktopRuntime({ connect: () => connect({ dataDir: metadata.profile, timeoutMs: 5000 }) });
+  const replay = { offset: 0, output: "" };
+  await readUntil(terminal.id, replay, (text) => text.includes("UNICODE=🦀\r\n"));
+  await runtime.invoke("terminal:input", [{ terminalId: terminal.id, data: "printf '\\nAFTER_VIEWER_DISCONNECT=%s\\n' \"$$\"\n" }]);
+  await readUntil(terminal.id, replay, (text) => text.includes(`AFTER_VIEWER_DISCONNECT=${pid}\r\n`));
+  await runtime.invoke("terminal:close", [{ terminalId: terminal.id }]);
+  assert.deepEqual(await runtime.invoke("terminal:list", [{ chatId }]), { terminals: [] });
+  await assert.rejects(runtime.invoke("terminal:input", [{ terminalId: terminal.id, data: "never executes\n" }]), {
+    code: "COMMAND_FAILED",
+    message: "This Terminal has ended.",
+  });
+  assert.ok(terminalEvents.some((event) => event.channel === "terminal:changed" && event.payload.chatId === chatId));
+  assert.ok(terminalEvents.some((event) => event.channel === "terminal:preferences-changed"));
+  assert.ok(terminalEvents.every((event, index) => index === 0 || event.seq > terminalEvents[index - 1].seq));
+  await runtime.invoke("terminal:setShell", [{ shell: null }]);
+  // Leave one shell to prove daemon shutdown disposes host-owned PTYs before the temporary profile disappears.
+  const survivor = await runtime.invoke("terminal:open", [{ chatId }]);
+  const survivingViewer = { offset: 0, output: "" };
+  await runtime.invoke("terminal:input", [{ terminalId: survivor.id, data: "printf '\\nSHUTDOWN_PID=%s\\n' \"$$\"\n" }]);
+  await readUntil(survivor.id, survivingViewer, (text) => /\r\nSHUTDOWN_PID=\d+\r\n/.test(text));
+  terminalPids.add(Number(/\r\nSHUTDOWN_PID=(\d+)\r\n/.exec(survivingViewer.output)[1]));
+  assert.equal(digestTree(projectRoot), before, "terminal commands did not write copied Project bytes");
+
   stage = "tamper refusal";
   // Deliberately change only an isolated fixture after byte-preservation assertions.
   fs.appendFileSync(path.join(legacy, ".milagre/coordination.json"), "\n");
@@ -183,7 +285,9 @@ async function run() {
   fs.symlinkSync(oracleRoot, extra);
   await assert.rejects(client.call("state:read", [alpha]), { code: "UNSAFE_FIXTURE" });
   fs.unlinkSync(extra);
-  console.log("Rust runtime Node conformance passed: 4 copied Projects, saved reads, UTF-16, inbox, paged state, isolation, explicit mutation errors");
+  console.log(
+    "Rust runtime Node conformance passed: 4 copied Projects, saved reads, UTF-16, inbox, paged state, isolation, explicit mutation errors, real PTY commands/disconnect/shutdown",
+  );
 }
 run()
   .catch((error) => {

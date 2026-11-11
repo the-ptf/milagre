@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = Arc::new(milagre_rust_runtime::start()?);
     println!(
         "{}",
-        json!({"profile":server.profile_path(),"socket":server.socket_path(),"fixture":true,"readOnly":true})
+        json!({"profile":server.profile_path(),"socket":server.socket_path(),"fixture":true,"projectReadsOnly":true,"terminals":true})
     );
     io::stdout().flush()?;
     let stopping = Arc::downgrade(&server);
