@@ -125,7 +125,12 @@ fn removal_blocks_current_window_and_invalidates_known_tickets() {
     let key = a.complete(t, || 1).unwrap().device().key.clone();
     a.open_pairing(2).unwrap();
     let pending = a.begin(Source::Direct(1), &bytes, 2, &mut OsRng).unwrap();
-    a.remove(&key, 2).unwrap();
+    a.remove(
+        &mut milagre_remote::registry::Registry::new(Default::default(), &mut OsRng).unwrap(),
+        &key,
+        2,
+    )
+    .unwrap();
     assert!(matches!(
         a.complete(pending, || 2),
         Err(PolicyError::Denied)

@@ -15,7 +15,7 @@ use rand_core::{CryptoRng, RngCore};
 use serde::Serialize;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc,
+    Arc, RwLock,
 };
 use std::{
     collections::BTreeMap,
@@ -168,6 +168,26 @@ const GLOBAL_BYTES: usize = 256 * 1024 * 1024;
 const DEVICE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SESSIONS: usize = 16;
 const MAX_DEVICE_SESSIONS: usize = 4;
+#[derive(Default)]
+struct Revocations {
+    retired: bool,
+    epochs: BTreeMap<String, u64>,
+}
+#[derive(Clone)]
+struct Access {
+    state: Arc<RwLock<Revocations>>,
+    key: String,
+    epoch: u64,
+}
+impl Access {
+    fn with<T>(&self, action: impl FnOnce() -> crate::Result<T>) -> crate::Result<T> {
+        let state = self.state.read().map_err(|_| crate::Error::Unauthorized)?;
+        if state.retired || state.epochs.get(&self.key).copied().unwrap_or(0) != self.epoch {
+            return Err(crate::Error::Unauthorized);
+        }
+        action()
+    }
+}
 struct DeviceSlot {
     budget: DeviceBudget,
     active: Arc<AtomicUsize>,
@@ -205,6 +225,7 @@ impl Drop for SessionPermit {
 /// All readers/writers made here share one connection budget; reconnects of the same
 /// device share its device budget. Reserve carrier/decrypt/phone buffers separately.
 pub struct Session {
+    access: Access,
     device: channel::Device,
     reply: Vec<u8>,
     channel: Option<channel::Channel>,
@@ -213,14 +234,13 @@ pub struct Session {
 }
 impl Session {
     pub fn reply(&self) -> crate::Result<&[u8]> {
-        self.channel.as_ref().ok_or(crate::Error::Unauthorized)?;
-        Ok(&self.reply)
+        self.with_access(|| Ok(self.reply.as_slice()))
     }
     pub fn device(&self) -> &channel::Device {
         &self.device
     }
     pub fn is_revoked(&self) -> bool {
-        self.channel.is_none()
+        self.channel.is_none() || self.access.with(|| Ok(())).is_err()
     }
     pub fn revoke(&mut self) {
         self.channel = None;
@@ -228,22 +248,35 @@ impl Session {
         self.permit = None;
     }
     pub fn seal_encoded(&mut self, bytes: &[u8]) -> crate::Result<Vec<u8>> {
-        self.channel
-            .as_mut()
-            .ok_or(crate::Error::Unauthorized)?
-            .seal_encoded(bytes)
+        self.access.clone().with(|| {
+            self.channel
+                .as_mut()
+                .ok_or(crate::Error::Unauthorized)?
+                .seal_encoded(bytes)
+        })
+    }
+    pub(crate) fn with_access<T>(
+        &self,
+        action: impl FnOnce() -> crate::Result<T>,
+    ) -> crate::Result<T> {
+        if self.channel.is_none() {
+            return Err(crate::Error::Unauthorized);
+        }
+        self.access.with(action)
     }
     pub fn open_encoded(&mut self, bytes: &[u8]) -> crate::Result<Vec<u8>> {
-        self.channel
-            .as_mut()
-            .ok_or(crate::Error::Unauthorized)?
-            .open_encoded(bytes)
+        self.access.clone().with(|| {
+            self.channel
+                .as_mut()
+                .ok_or(crate::Error::Unauthorized)?
+                .open_encoded(bytes)
+        })
     }
     pub fn budget(&self) -> ConnectionBudget {
         self.budget.clone()
     }
     pub fn reader(&self, direction: Direction) -> crate::Result<FrameReader> {
-        self.channel.as_ref().ok_or(crate::Error::Unauthorized)?;
+        self.with_access(|| Ok(()))?;
         FrameReader::with_budget(
             direction,
             MAX_FRAME_BYTES,
@@ -252,7 +285,7 @@ impl Session {
         )
     }
     pub fn writer(&self, direction: Direction) -> crate::Result<FrameWriter> {
-        self.channel.as_ref().ok_or(crate::Error::Unauthorized)?;
+        self.with_access(|| Ok(()))?;
         Ok(FrameWriter::with_budget(direction, self.budget.clone()))
     }
 }
@@ -261,6 +294,7 @@ impl Session {
 /// All methods require exclusive access. Approval methods are trusted owner events,
 /// not network messages. A future service must authenticate their caller separately.
 pub struct TemporaryAuthority {
+    revocations: Arc<RwLock<Revocations>>,
     instance: [u8; 16],
     global: GlobalBudget,
     active: Arc<AtomicUsize>,
@@ -305,6 +339,7 @@ impl TemporaryAuthority {
         let records = BTreeMap::new();
         storage.commit(&records)?;
         Ok(Self {
+            revocations: Arc::new(RwLock::new(Revocations::default())),
             instance,
             global: GlobalBudget::new(GLOBAL_BYTES)?,
             active: Arc::new(AtomicUsize::new(0)),
@@ -515,13 +550,38 @@ impl TemporaryAuthority {
     }
     pub fn retire(&mut self) {
         self.retired = true;
+        self.revocations
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .retired = true;
         self.pending.clear();
     }
-    pub fn remove(&mut self, key: &str, now: u64) -> Result<()> {
+    pub fn remove(
+        &mut self,
+        registry: &mut crate::registry::Registry,
+        key: &str,
+        now: u64,
+    ) -> Result<()> {
         self.clock(now)?;
         if !matches!(self.records.get(key), Some(Record::Active { .. })) {
             return Err(PolicyError::Denied);
         }
+        // Shared epochs revoke even completed Sessions held outside this registry.
+        // The write lock waits for any in-progress guarded crypto/delivery to finish.
+        {
+            let mut state = self.revocations.write().unwrap_or_else(|e| e.into_inner());
+            let epoch = state.epochs.entry(key.to_owned()).or_default();
+            if let Some(next) = epoch.checked_add(1) {
+                *epoch = next;
+            } else {
+                state.retired = true;
+                drop(state);
+                self.retire();
+                registry.retire();
+                return Err(PolicyError::Limited);
+            }
+        }
+        registry.close_device(key);
         // Invalidate in-memory access first, fail closed if disk cannot be updated.
         self.pending.retain(|_, p| p.accepted.device().key != key);
         self.records
@@ -613,12 +673,31 @@ impl TemporaryAuthority {
                 && self.records.get(&key) == Some(&Record::Active { kind })
                 && (!new || (p.grant == self.grant.generation && final_now < self.grant.until))
         })?;
+        let epoch = self
+            .revocations
+            .read()
+            .map_err(|_| PolicyError::Denied)?
+            .epochs
+            .get(&authorized.device.key)
+            .copied()
+            .unwrap_or(0);
         Ok(Session {
+            access: Access {
+                state: self.revocations.clone(),
+                key: authorized.device.key.clone(),
+                epoch,
+            },
             device: authorized.device,
             reply: authorized.reply,
             channel: Some(authorized.channel),
             budget,
             permit: Some(permit),
         })
+    }
+}
+
+impl Drop for TemporaryAuthority {
+    fn drop(&mut self) {
+        self.retire();
     }
 }

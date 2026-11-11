@@ -164,7 +164,7 @@ fn removal_revokes_all_matching_sessions_and_retirement_blocks_late_installs() {
     let (other, _, b3, _) = install(&mut r, &mut a, 3, 3, DeviceKind::Phone, 0);
     let (late, _) = session(&mut a, 2, DeviceKind::Phone, 0);
     let pending = r.open_carrier(4, 0).unwrap();
-    assert_eq!(r.remove_device(&key).unwrap(), 2);
+    a.remove(&mut r, &key, 0).unwrap();
     assert_eq!(h1.status(), CarrierStatus::Closed(CloseReason::Removed));
     assert_eq!(h2.status(), CarrierStatus::Closed(CloseReason::Removed));
     assert_eq!(b1.used(), 0);
@@ -329,7 +329,6 @@ fn limits_foreign_handles_and_revoked_session_operations_fail_closed() {
     let mut a = authority();
     let mut r = registry(registry::Limits {
         carriers: 1,
-        removed_devices: 1,
         ..Default::default()
     });
     let h = r.open_carrier(1, 0).unwrap();
@@ -338,8 +337,7 @@ fn limits_foreign_handles_and_revoked_session_operations_fail_closed() {
     let mut foreign = registry(Default::default());
     assert!(!foreign.close(&h, CloseReason::Disconnected));
     assert!(foreign.send_encoded(&h, b"null", 0).is_err());
-    r.remove_device("first").unwrap();
-    assert!(r.remove_device("second").is_err());
+    r.retire();
     assert_eq!(r.carriers(), 0);
     assert!(r.open_carrier(1, 0).is_err());
     let (mut s, _) = session(&mut a, 2, DeviceKind::Phone, 0);
@@ -445,4 +443,120 @@ fn complete_peer_frames_roundtrip_losslessly_in_both_directions() {
     assert_eq!(response.unwrap().as_bytes(), text.as_bytes());
     r.close(&h, CloseReason::Disconnected);
     assert_eq!(budget.global_used(), 0);
+}
+
+#[test]
+fn removal_epoch_allows_fresh_pairing_but_never_old_sessions_or_tickets() {
+    let mut a = authority();
+    let mut r = registry(Default::default());
+    let (h, _, budget, key) = install(&mut r, &mut a, 1, 2, DeviceKind::Phone, 1);
+    let (mut completed_before, _) = session(&mut a, 2, DeviceKind::Phone, 1);
+    let (bytes, _) = channel::phone_hello(
+        &SecretKey::from([2; 32]),
+        &SecretKey::from([1; 32]).public_key(),
+        TOKEN,
+        HelloOptions::default(),
+        &mut OsRng,
+    )
+    .unwrap();
+    let ticket_before = a.begin(Source::Relay, &bytes, 1, &mut OsRng).unwrap();
+    a.remove(&mut r, &key, 1).unwrap();
+    assert_eq!(h.status(), CarrierStatus::Closed(CloseReason::Removed));
+    assert_eq!(budget.used(), 0);
+    assert!(completed_before.is_revoked());
+    assert!(completed_before.reply().is_err());
+    assert_eq!(
+        completed_before.seal_encoded(b"null"),
+        Err(Error::Unauthorized)
+    );
+    a.open_pairing(2).unwrap();
+    assert!(a.complete(ticket_before, || 2).is_err());
+    let (fresh, _, _, _) = install(&mut r, &mut a, 2, 2, DeviceKind::Phone, 2);
+    assert_eq!(fresh.status(), CarrierStatus::Active);
+    let pending = r.open_carrier(3, 2).unwrap();
+    assert!(r.establish(&pending, completed_before, 2).is_err());
+    r.send_encoded(&fresh, b"null", 2).unwrap();
+}
+#[test]
+fn more_than_64_distinct_removals_do_not_retire_registry() {
+    let mut a = TemporaryAuthority::create_synthetic(
+        SecretKey::from([1; 32]),
+        TOKEN.into(),
+        DesktopAccess::Enabled,
+        policy::Limits {
+            records: 128,
+            admission: AdmissionLimits {
+                enrollment_crypto_units: 128,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        &mut OsRng,
+    )
+    .unwrap();
+    let mut r = registry(Default::default());
+    let (unrelated, _, _, _) = install(&mut r, &mut a, 1, 200, DeviceKind::Phone, 1);
+    for seed in 2..72 {
+        let (_, _, _, key) = install(&mut r, &mut a, 2, seed, DeviceKind::Phone, u64::from(seed));
+        a.remove(&mut r, &key, u64::from(seed)).unwrap();
+        assert_eq!(unrelated.status(), CarrierStatus::Active);
+    }
+    let (fresh, _, _, _) = install(&mut r, &mut a, 3, 2, DeviceKind::Phone, 73);
+    assert_eq!(fresh.status(), CarrierStatus::Active);
+    assert_eq!(r.carriers(), 2);
+}
+#[test]
+fn shared_epoch_covers_other_registries_and_authority_disposal() {
+    let mut a = authority();
+    let mut r = registry(Default::default());
+    let mut other = registry(Default::default());
+    let (h, _, budget, key) = install(&mut r, &mut a, 1, 2, DeviceKind::Phone, 1);
+    a.remove(&mut other, &key, 1).unwrap(); // wrong registry still cannot leave usable access behind
+    let mut delivered = false;
+    assert!(r
+        .take_output(&h, 1, |_| {
+            delivered = true;
+            Ok(())
+        })
+        .is_err());
+    assert!(!delivered);
+    assert_eq!(budget.used(), 0);
+    let (h, _, budget, _) = install(&mut r, &mut a, 2, 3, DeviceKind::Phone, 2);
+    drop(a);
+    r.tick(2).unwrap();
+    assert!(matches!(h.status(), CarrierStatus::Closed(_)));
+    assert_eq!(budget.used(), 0);
+}
+#[test]
+fn removal_waits_for_started_delivery_then_forbids_any_later_delivery() {
+    use std::{sync::mpsc, time::Duration};
+    let mut a = authority();
+    let mut r = registry(Default::default());
+    let mut other = registry(Default::default());
+    let (h, _, _, key) = install(&mut r, &mut a, 1, 2, DeviceKind::Phone, 1);
+    r.send_encoded(&h, b"null", 1).unwrap();
+    let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+    let (release_tx, release_rx) = mpsc::sync_channel(1);
+    let (done_tx, done_rx) = mpsc::sync_channel(1);
+    std::thread::scope(|scope| {
+        let registry_ref = &mut r;
+        let handle_ref = &h;
+        let delivery = scope.spawn(move || {
+            registry_ref.take_output(handle_ref, 1, |_| {
+                entered_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+                Ok(())
+            })
+        });
+        entered_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        let removal = scope.spawn(|| {
+            a.remove(&mut other, &key, 1).unwrap();
+            done_tx.send(()).unwrap();
+        });
+        assert!(done_rx.recv_timeout(Duration::from_millis(20)).is_err());
+        release_tx.send(()).unwrap();
+        delivery.join().unwrap().unwrap();
+        removal.join().unwrap();
+    });
+    assert!(r.send_encoded(&h, b"null", 1).is_err());
 }

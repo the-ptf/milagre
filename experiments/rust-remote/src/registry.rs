@@ -12,7 +12,7 @@ use crate::{
 use rand_core::{CryptoRng, RngCore};
 use serde::Deserialize;
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, VecDeque},
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
@@ -110,7 +110,6 @@ impl WorkToken {
 #[derive(Clone, Copy)]
 pub struct Limits {
     pub carriers: usize,
-    pub removed_devices: usize,
     pub hello_ms: u64,
     pub idle_ms: u64,
     pub inflight: usize,
@@ -125,7 +124,6 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             carriers: 16,
-            removed_devices: 64,
             hello_ms: 15_000,
             idle_ms: 45_000,
             inflight: 16,
@@ -280,15 +278,12 @@ pub struct Registry {
     next: u64,
     now: u64,
     retired: bool,
-    removed: BTreeSet<String>,
     entries: BTreeMap<u64, Entry>,
 }
 impl Registry {
     pub fn new(limits: Limits, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self> {
         if limits.carriers == 0
             || limits.carriers > 16
-            || limits.removed_devices == 0
-            || limits.removed_devices > 4096
             || limits.hello_ms == 0
             || limits.idle_ms == 0
             || limits.inflight == 0
@@ -313,7 +308,6 @@ impl Registry {
             next: 0,
             now: 0,
             retired: false,
-            removed: BTreeSet::new(),
             entries: BTreeMap::new(),
         })
     }
@@ -395,7 +389,7 @@ impl Registry {
             self.close(h, CloseReason::HelloTimeout);
             return Err(RegistryError::Revoked);
         }
-        if self.retired || self.removed.contains(&session.device().key) || session.is_revoked() {
+        if self.retired || session.is_revoked() {
             self.close(h, CloseReason::Removed);
             return Err(RegistryError::Revoked);
         }
@@ -454,15 +448,8 @@ impl Registry {
         drop(entry);
         true
     }
-    pub fn remove_device(&mut self, key: &str) -> Result<usize> {
-        if key.len() > 128 {
-            return Err(Error::TooLarge.into());
-        }
-        if !self.removed.contains(key) && self.removed.len() >= self.limits.removed_devices {
-            self.retire();
-            return Err(Error::TooLarge.into());
-        }
-        self.removed.insert(key.to_owned());
+    /// Only the authority's composed remove operation calls this; revocation is in Session epochs.
+    pub(crate) fn close_device(&mut self, key: &str) -> usize {
         let handles: Vec<_> = self
             .entries
             .values()
@@ -472,7 +459,7 @@ impl Registry {
         for h in &handles {
             self.close(h, CloseReason::Removed);
         }
-        Ok(handles.len())
+        handles.len()
     }
     pub fn retire(&mut self) {
         self.retired = true;
@@ -488,6 +475,7 @@ impl Registry {
         }
         let reason = match &self.entries[&h.carrier].state {
             State::Pending { .. } => return Err(RegistryError::Revoked),
+            State::Active(a) if a.session.is_revoked() => Some(CloseReason::Removed),
             State::Active(a) if now >= a.idle_deadline => Some(CloseReason::IdleTimeout),
             State::Active(a) if a.reader.deadline_ms().is_some_and(|d| now >= d) => {
                 Some(CloseReason::FragmentTimeout)
@@ -566,7 +554,7 @@ impl Registry {
             return Ok(false);
         };
         a.outbound_bytes -= buffer.bytes.len();
-        let result = consume(&buffer.bytes);
+        let result = a.session.with_access(|| consume(&buffer.bytes));
         drop(buffer);
         match result {
             Ok(()) => Ok(true),
@@ -593,7 +581,10 @@ impl Registry {
             let frame = a.reader.read(&plain.bytes, now)?;
             a.idle_deadline = now.checked_add(idle).ok_or(Error::Exhausted)?;
             if let Some(frame) = frame {
-                consume(frame.as_bytes());
+                a.session.with_access(|| {
+                    consume(frame.as_bytes());
+                    Ok(())
+                })?;
                 Ok(true)
             } else {
                 Ok(false)
@@ -700,7 +691,8 @@ impl Registry {
         read: impl FnOnce(&Request) -> T,
     ) -> Result<T> {
         let a = self.work(t, now)?;
-        Ok(read(a.jobs[&t.id].request.request()))
+        Ok(a.session
+            .with_access(|| Ok(read(a.jobs[&t.id].request.request())))?)
     }
     /// Trusted serialized response from a fake bridge. Domain HTTP forwarding/schema
     /// mapping is separate. Late callbacks are rejected before parsing or sealing bytes.
@@ -732,6 +724,7 @@ impl Registry {
         for h in handles {
             let reason = match &self.entries[&h.carrier].state {
                 State::Pending { deadline } if now >= *deadline => Some(CloseReason::HelloTimeout),
+                State::Active(a) if a.session.is_revoked() => Some(CloseReason::Removed),
                 State::Active(a) if now >= a.idle_deadline => Some(CloseReason::IdleTimeout),
                 State::Active(a) if a.reader.deadline_ms().is_some_and(|d| now >= d) => {
                     Some(CloseReason::FragmentTimeout)
