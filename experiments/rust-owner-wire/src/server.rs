@@ -1,8 +1,10 @@
 use crate::{
+    diagnostics::{increment, Counters},
     pages::Pages,
     profile::assert_same_user,
     protocol::{read_frame_with, safe_integer, valid_id_with},
-    IsolatedProfile, RpcError, RpcResult, MAX_FRAME_BYTES, MAX_PENDING, VERSION,
+    DisconnectDiagnostics, DisconnectReason, IsolatedProfile, RpcError, RpcResult, MAX_FRAME_BYTES,
+    MAX_PENDING, VERSION,
 };
 use hmac::{Hmac, Mac};
 use rand::{rngs::OsRng, RngCore};
@@ -19,7 +21,7 @@ use std::{
     },
     path::Path,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering},
         mpsc::{self, SyncSender},
         Arc, Condvar, Mutex, Weak,
     },
@@ -85,7 +87,7 @@ impl ClientContext {
         !self.client.closed.load(Ordering::Acquire)
     }
     pub fn disconnect(&self) {
-        self.client.disconnect();
+        self.client.disconnect(DisconnectReason::HandlerRequested);
     }
 }
 
@@ -277,6 +279,7 @@ impl Server {
             active: Mutex::new(0),
             drained: Condvar::new(),
             shutdown_lock: Mutex::new(()),
+            diagnostics: Counters::default(),
         });
         let accepting = inner.clone();
         let acceptor = thread::spawn(move || {
@@ -306,16 +309,27 @@ impl Server {
                                     .count()
                                     >= 32);
                         drop(clients);
-                        if full || assert_same_user(&socket).is_err() {
+                        if full {
+                            increment(&accepting.diagnostics.admission_capacity);
                             let _ = socket.shutdown(Shutdown::Both);
                             continue;
                         }
-                        let _ = Client::start(socket, &accepting);
+                        if assert_same_user(&socket).is_err() {
+                            increment(&accepting.diagnostics.admission_peer_credentials);
+                            let _ = socket.shutdown(Shutdown::Both);
+                            continue;
+                        }
+                        if Client::start(socket, &accepting).is_err() {
+                            increment(&accepting.diagnostics.admission_setup_io);
+                        }
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(5))
                     }
-                    Err(_) => break,
+                    Err(_) => {
+                        increment(&accepting.diagnostics.listener_accept_io);
+                        break;
+                    }
                 }
             }
         });
@@ -323,6 +337,10 @@ impl Server {
             inner,
             acceptor: Some(acceptor),
         })
+    }
+    /// Fixed counters for the first locally observed close cause. No client identity or payload is retained.
+    pub fn disconnect_diagnostics(&self) -> DisconnectDiagnostics {
+        self.inner.diagnostics.snapshot()
     }
     pub fn profile_path(&self) -> &Path {
         self.inner.profile.path()
@@ -392,7 +410,7 @@ impl Drop for Server {
                 .cloned()
                 .collect();
             for client in clients {
-                client.disconnect();
+                client.disconnect(DisconnectReason::ForcedServerDrop);
             }
         }
         if let Some(acceptor) = self.acceptor.take() {
@@ -416,6 +434,7 @@ struct Inner {
     active: Mutex<usize>,
     drained: Condvar,
     shutdown_lock: Mutex<()>,
+    diagnostics: Counters,
 }
 impl Inner {
     fn shutdown(
@@ -460,7 +479,7 @@ impl Inner {
         .emit("daemon:stopping", json!({}));
         let clients: Vec<_> = self.clients.lock().unwrap().values().cloned().collect();
         for client in clients {
-            client.end();
+            client.end(DisconnectReason::GracefulShutdown);
         }
         let flush_deadline = Instant::now() + Duration::from_secs(2);
         while !self.clients.lock().unwrap().is_empty() && Instant::now() < flush_deadline {
@@ -480,6 +499,22 @@ impl Drop for Inner {
     }
 }
 
+fn write_reason(kind: std::io::ErrorKind) -> DisconnectReason {
+    match kind {
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => {
+            DisconnectReason::WriteTimeout
+        }
+        _ => DisconnectReason::WriteIo,
+    }
+}
+fn read_reason(error: &RpcError) -> DisconnectReason {
+    if error.code == "IO_ERROR" {
+        DisconnectReason::ReadIo
+    } else {
+        DisconnectReason::InvalidFrame
+    }
+}
+
 enum Outbound {
     Frame(Vec<u8>, Option<(String, u64)>),
     End,
@@ -491,6 +526,8 @@ struct Client {
     outgoing: SyncSender<Outbound>,
     queued_bytes: AtomicUsize,
     closed: AtomicBool,
+    close_reason: AtomicU8,
+    error_reply_failed: AtomicBool,
     authenticated: AtomicBool,
     view: Mutex<ClientView>,
     inflight: Mutex<HashMap<String, u64>>,
@@ -512,6 +549,8 @@ impl Client {
             outgoing,
             queued_bytes: AtomicUsize::new(0),
             closed: AtomicBool::new(false),
+            close_reason: AtomicU8::new(0),
+            error_reply_failed: AtomicBool::new(false),
             authenticated: AtomicBool::new(!inner.config.require_authentication),
             view: Mutex::new(ClientView::default()),
             inflight: Mutex::new(HashMap::new()),
@@ -540,14 +579,15 @@ impl Client {
                         writing
                             .queued_bytes
                             .fetch_sub(bytes.len(), Ordering::AcqRel);
-                        if sent.is_err() {
+                        if let Err(error) = sent {
+                            writing.latch_reason(write_reason(error.kind()));
                             break;
                         }
                     }
                     Outbound::End => break,
                 }
             }
-            writing.disconnect();
+            writing.disconnect(DisconnectReason::WriterQueueClosed);
         });
         if inner.config.require_authentication {
             let waiting = Arc::downgrade(&client);
@@ -556,7 +596,7 @@ impl Client {
                 thread::sleep(timeout);
                 if let Some(client) = waiting.upgrade() {
                     if !client.authenticated.load(Ordering::Acquire) {
-                        client.disconnect();
+                        client.disconnect(DisconnectReason::AuthenticationTimeout);
                     }
                 }
             });
@@ -575,12 +615,14 @@ impl Client {
                         }
                     }
                     Ok(None) => {
-                        reading.disconnect();
+                        reading.disconnect(DisconnectReason::PeerEof);
                         break;
                     }
                     Err(error) => {
+                        let reason = read_reason(&error);
+                        reading.latch_reason(reason);
                         reading.fail(&Value::Null, error);
-                        reading.end();
+                        reading.end(reason);
                         break;
                     }
                 }
@@ -596,7 +638,16 @@ impl Client {
             },
         }
     }
-    fn disconnect(&self) {
+    fn latch_reason(&self, reason: DisconnectReason) {
+        let _ = self.close_reason.compare_exchange(
+            0,
+            reason as u8,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+    fn disconnect(&self, reason: DisconnectReason) {
+        self.latch_reason(reason);
         if self.closed.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -604,13 +655,17 @@ impl Client {
         // Wake an idle writer too; its sender otherwise lives in this same client.
         let _ = self.outgoing.try_send(Outbound::End);
         if let Some(inner) = self.inner.upgrade() {
+            inner.diagnostics.record(DisconnectReason::from_tag(
+                self.close_reason.load(Ordering::Acquire),
+            ));
             inner.clients.lock().unwrap().remove(&self.id);
             inner.handler.disconnected(self.id);
         }
     }
-    fn end(&self) {
+    fn end(&self, reason: DisconnectReason) {
+        self.latch_reason(reason);
         if self.outgoing.try_send(Outbound::End).is_err() {
-            self.disconnect();
+            self.disconnect(reason);
         }
     }
     fn enqueue(&self, bytes: Vec<u8>) -> Result<(), RpcError> {
@@ -640,16 +695,16 @@ impl Client {
             })
             .is_err()
         {
-            self.disconnect();
+            self.disconnect(DisconnectReason::OutgoingBytes);
             return Err(RpcError::new("SLOW_CLIENT", "Client write budget exceeded"));
         }
-        if self
-            .outgoing
-            .try_send(Outbound::Frame(bytes, release))
-            .is_err()
-        {
+        if let Err(error) = self.outgoing.try_send(Outbound::Frame(bytes, release)) {
             self.queued_bytes.fetch_sub(size, Ordering::AcqRel);
-            self.disconnect();
+            let reason = match error {
+                mpsc::TrySendError::Full(_) => DisconnectReason::OutgoingFrames,
+                mpsc::TrySendError::Disconnected(_) => DisconnectReason::WriterQueueClosed,
+            };
+            self.disconnect(reason);
             return Err(RpcError::new("SLOW_CLIENT", "Client write queue is full"));
         }
         Ok(())
@@ -715,7 +770,12 @@ impl Client {
                 && self.send(&json!({"v":VERSION,"id":id,"error":{"code":"FRAME_TOO_LARGE","message":"The command error exceeds the frame limit"}})).is_ok() {
                 return;
             }
-            self.disconnect();
+            if !self.error_reply_failed.swap(true, Ordering::AcqRel) {
+                if let Some(inner) = self.inner.upgrade() {
+                    increment(&inner.diagnostics.error_reply_failures);
+                }
+            }
+            self.disconnect(DisconnectReason::ErrorReplyFailure);
         }
     }
     fn receive(self: &Arc<Self>, request: Value, challenge: &mut Option<(String, String)>) -> bool {
@@ -763,11 +823,12 @@ impl Client {
                 let _ = self.send(&json!({"v":VERSION,"id":id,"result":{"authenticated":true}}));
                 return true;
             }
+            self.latch_reason(DisconnectReason::AuthenticationRejected);
             self.fail(
                 &id,
                 RpcError::new("UNAUTHORIZED", "Local daemon authentication is required"),
             );
-            self.end();
+            self.end(DisconnectReason::AuthenticationRejected);
             return false;
         }
         if safe_integer(&request["v"]) != Some(VERSION) {
@@ -812,6 +873,12 @@ impl Client {
         let mut inflight = self.inflight.lock().unwrap();
         let identity = request_identity(&id);
         if inflight.len() >= MAX_PENDING || inflight.contains_key(&identity) {
+            let reason = if inflight.contains_key(&identity) {
+                DisconnectReason::DuplicateId
+            } else {
+                DisconnectReason::InflightLimit
+            };
+            self.latch_reason(reason);
             drop(inflight);
             drop(active);
             self.fail(
@@ -821,7 +888,7 @@ impl Client {
                     "Request ID is in use or too many requests are pending",
                 ),
             );
-            self.end();
+            self.end(reason);
             return false;
         }
         let ticket = self.next_request.fetch_add(1, Ordering::Relaxed) + 1;
@@ -885,7 +952,8 @@ impl Client {
                 methods.dedup();
                 json!({"pid":std::process::id(),"version":"rust-owner-wire-isolated-0.1.0","protocolVersion":VERSION,
                     "dataDir":inner.profile.path(),"socketPath":inner.profile.socket_path(),"closing":inner.closing.load(Ordering::Acquire),
-                    "capabilities":["snapshot-pages-v1","result-pages-v1"],"methods":methods})
+                    "capabilities":["snapshot-pages-v1","result-pages-v1"],"methods":methods,
+                    "diagnostics":{"wire":inner.diagnostics.snapshot().value()}})
             }
             "daemon:snapshot" => {
                 let _publication = inner.publication.lock().unwrap();
@@ -1189,7 +1257,7 @@ mod tests {
                 server.shutdown()
             } else {
                 // Guaranteed failed acknowledgement; no OS scheduling race.
-                client.disconnect();
+                client.disconnect(DisconnectReason::HandlerRequested);
                 server.inner.shutdown(Some((&client, &json!(1))))
             };
             assert!(result.is_err());
@@ -1365,6 +1433,8 @@ mod tests {
                 outgoing,
                 queued_bytes: AtomicUsize::new(0),
                 closed: AtomicBool::new(false),
+                close_reason: AtomicU8::new(0),
+                error_reply_failed: AtomicBool::new(false),
                 authenticated: AtomicBool::new(true),
                 view: Mutex::new(ClientView::default()),
                 inflight: Mutex::new(HashMap::new()),
@@ -1417,6 +1487,12 @@ mod tests {
                 budget / 4096
             );
             assert!(client.closed.load(Ordering::Acquire));
+            assert_eq!(
+                server
+                    .disconnect_diagnostics()
+                    .count(DisconnectReason::OutgoingBytes),
+                1
+            );
             server.shutdown().unwrap();
         }
     }
@@ -1440,7 +1516,305 @@ mod tests {
         assert_eq!(client.enqueue(vec![0]).unwrap_err().code, "SLOW_CLIENT");
         assert_eq!(client.queued_bytes.load(Ordering::Acquire), 64);
         assert_eq!(receiver.try_iter().count(), 64);
+        assert_eq!(
+            server
+                .disconnect_diagnostics()
+                .count(DisconnectReason::OutgoingFrames),
+            1
+        );
         server.shutdown().unwrap();
+    }
+
+    fn diagnostic_server(config: Config) -> Server {
+        Server::bind(IsolatedProfile::create().unwrap(), Arc::new(Empty), config).unwrap()
+    }
+    fn await_client(server: &Server) -> Arc<Client> {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Some(client) = server
+                .inner
+                .clients
+                .lock()
+                .unwrap()
+                .values()
+                .next()
+                .cloned()
+            {
+                return client;
+            }
+            assert!(Instant::now() < deadline, "connection was not admitted");
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    fn await_reason(server: &Server, reason: DisconnectReason) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while server.disconnect_diagnostics().count(reason) != 1 {
+            assert!(
+                Instant::now() < deadline,
+                "missing {reason:?}: {:?}",
+                server.disconnect_diagnostics()
+            );
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    #[test]
+    fn first_close_cause_survives_concurrent_teardown_and_is_counted_once() {
+        let server = diagnostic_server(Config::default());
+        for reason in DisconnectReason::ALL {
+            let (client, _receiver, _peer) = unwritten_client(&server);
+            let client = Arc::new(client);
+            client.latch_reason(reason);
+            thread::scope(|scope| {
+                for fallback in [
+                    DisconnectReason::PeerEof,
+                    DisconnectReason::WriteIo,
+                    DisconnectReason::ForcedServerDrop,
+                ] {
+                    let client = client.clone();
+                    scope.spawn(move || client.disconnect(fallback));
+                }
+            });
+            assert_eq!(client.close_reason.load(Ordering::Acquire), reason as u8);
+            assert_eq!(server.disconnect_diagnostics().count(reason), 1);
+        }
+        let snapshot = server.disconnect_diagnostics();
+        assert_eq!(
+            DisconnectReason::ALL
+                .iter()
+                .map(|r| snapshot.count(*r))
+                .sum::<u64>(),
+            16
+        );
+    }
+    #[test]
+    fn failed_error_reply_is_secondary_and_does_not_replace_policy_cause() {
+        let server = diagnostic_server(Config::default());
+        let (client, _receiver, _peer) = unwritten_client(&server);
+        for _ in 0..64 {
+            client.enqueue(vec![0]).unwrap();
+        }
+        client.latch_reason(DisconnectReason::InvalidFrame);
+        client.fail(
+            &Value::Null,
+            RpcError::new("INVALID_REQUEST", "Fixed invalid frame"),
+        );
+        client.fail(
+            &Value::Null,
+            RpcError::new("INVALID_REQUEST", "Fixed duplicate error"),
+        );
+        let snapshot = server.disconnect_diagnostics();
+        assert_eq!(snapshot.count(DisconnectReason::InvalidFrame), 1);
+        assert_eq!(snapshot.count(DisconnectReason::OutgoingFrames), 0);
+        assert_eq!(snapshot.count(DisconnectReason::ErrorReplyFailure), 0);
+        assert_eq!(snapshot.error_reply_failures, 1);
+        let (client, receiver, _peer) = unwritten_client(&server);
+        drop(receiver);
+        assert!(client.enqueue(vec![0]).is_err());
+        assert_eq!(
+            server
+                .disconnect_diagnostics()
+                .count(DisconnectReason::WriterQueueClosed),
+            1
+        );
+    }
+    #[test]
+    fn inflight_and_auth_policy_close_causes_are_latched_before_error_flush() {
+        let server = diagnostic_server(Config::default());
+        for reason in [
+            DisconnectReason::InflightLimit,
+            DisconnectReason::DuplicateId,
+            DisconnectReason::AuthenticationRejected,
+        ] {
+            let (client, receiver, _peer) = unwritten_client(&server);
+            let client = Arc::new(client);
+            match reason {
+                DisconnectReason::InflightLimit => {
+                    for n in 1..=MAX_PENDING {
+                        client
+                            .inflight
+                            .lock()
+                            .unwrap()
+                            .insert(request_identity(&json!(n)), n as u64);
+                    }
+                }
+                DisconnectReason::DuplicateId => {
+                    client
+                        .inflight
+                        .lock()
+                        .unwrap()
+                        .insert(request_identity(&json!(99)), 1);
+                }
+                _ => client.authenticated.store(false, Ordering::Release),
+            }
+            assert!(!client.receive(
+                json!({"v":1,"id":99,"method":"daemon:status","args":[]}),
+                &mut None
+            ));
+            assert!(matches!(receiver.recv().unwrap(), Outbound::Frame(..)));
+            assert!(matches!(receiver.recv().unwrap(), Outbound::End));
+            client.disconnect(DisconnectReason::PeerEof);
+            assert_eq!(server.disconnect_diagnostics().count(reason), 1);
+        }
+    }
+    #[test]
+    fn actual_reader_eof_bad_frames_and_auth_timeout_report_distinct_causes() {
+        let server = diagnostic_server(Config::default());
+        let peer = UnixStream::connect(server.socket_path()).unwrap();
+        let _client = await_client(&server);
+        drop(peer);
+        await_reason(&server, DisconnectReason::PeerEof);
+        let mut peer = UnixStream::connect(server.socket_path()).unwrap();
+        let _client = await_client(&server);
+        peer.write_all(b"invalid-json\n").unwrap();
+        await_reason(&server, DisconnectReason::InvalidFrame);
+        drop(peer);
+        assert_eq!(
+            read_reason(&RpcError::from(std::io::Error::from(
+                std::io::ErrorKind::ConnectionReset
+            ))),
+            DisconnectReason::ReadIo
+        );
+        assert_eq!(
+            write_reason(std::io::ErrorKind::BrokenPipe),
+            DisconnectReason::WriteIo
+        );
+        for kind in [std::io::ErrorKind::WouldBlock, std::io::ErrorKind::TimedOut] {
+            assert_eq!(write_reason(kind), DisconnectReason::WriteTimeout);
+        }
+        let auth = diagnostic_server(Config {
+            require_authentication: true,
+            authentication_timeout: Duration::from_millis(20),
+            ..Config::default()
+        });
+        let _peer = UnixStream::connect(auth.socket_path()).unwrap();
+        await_reason(&auth, DisconnectReason::AuthenticationTimeout);
+    }
+    #[test]
+    fn actual_stalled_writer_reports_timeout_without_changing_write_policy() {
+        let server = diagnostic_server(Config::default());
+        let _peer = UnixStream::connect(server.socket_path()).unwrap();
+        let client = await_client(&server);
+        // One frame fits both existing limits, but cannot fit the socket while the peer reads nothing.
+        client.enqueue(vec![0; 8 * 1024 * 1024]).unwrap();
+        await_reason(&server, DisconnectReason::WriteTimeout);
+        assert_eq!(
+            server
+                .disconnect_diagnostics()
+                .count(DisconnectReason::OutgoingBytes),
+            0
+        );
+        assert_eq!(
+            server
+                .disconnect_diagnostics()
+                .count(DisconnectReason::OutgoingFrames),
+            0
+        );
+    }
+    #[test]
+    fn actual_write_io_and_pre_admission_capacity_have_bounded_counters() {
+        let server = diagnostic_server(Config {
+            max_clients: 1,
+            ..Config::default()
+        });
+        let _peer = UnixStream::connect(server.socket_path()).unwrap();
+        let client = await_client(&server);
+        let _rejected = UnixStream::connect(server.socket_path()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while server.disconnect_diagnostics().admission_capacity == 0 {
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(server.disconnect_diagnostics().admission_capacity, 1);
+        // Close only the local write direction. The reader remains connected,
+        // so EOF cannot win the race against the real failing write syscall.
+        client.socket.shutdown(Shutdown::Write).unwrap();
+        client.enqueue(vec![0; 16]).unwrap();
+        await_reason(&server, DisconnectReason::WriteIo);
+        assert_eq!(
+            server
+                .disconnect_diagnostics()
+                .count(DisconnectReason::PeerEof),
+            0
+        );
+    }
+    #[test]
+    fn forced_drop_records_force_and_encoding_failure_records_secondary_once() {
+        struct Refusing;
+        impl Handler for Refusing {
+            fn methods(&self) -> Vec<String> {
+                vec![]
+            }
+            fn invoke(&self, _: &str, _: &[Value], _: &ClientContext) -> RpcResult {
+                Ok(Value::Null)
+            }
+            fn snapshot(&self, _: &ClientContext) -> RpcResult {
+                Ok(json!({}))
+            }
+            fn shutdown(&self) -> RpcResult {
+                Err(RpcError::new("QUIT_PENDING", "Fixed pending owner"))
+            }
+            fn encode_request_id(&self, _: &Value) -> Result<String, RpcError> {
+                Err(RpcError::new("INVALID_RESPONSE", "Fixed encode failure"))
+            }
+        }
+        let server = Server::bind(
+            IsolatedProfile::create().unwrap(),
+            Arc::new(Refusing),
+            Config::default(),
+        )
+        .unwrap();
+        let (client, _receiver, _peer) = unwritten_client(&server);
+        client.fail(
+            &Value::Null,
+            RpcError::new("COMMAND_FAILED", "Fixed handler failure"),
+        );
+        client.fail(
+            &Value::Null,
+            RpcError::new("COMMAND_FAILED", "Fixed duplicate failure"),
+        );
+        assert_eq!(
+            server
+                .disconnect_diagnostics()
+                .count(DisconnectReason::ErrorReplyFailure),
+            1
+        );
+        assert_eq!(server.disconnect_diagnostics().error_reply_failures, 1);
+        let _peer = UnixStream::connect(server.socket_path()).unwrap();
+        let _client = await_client(&server);
+        let retained = server.inner.clone();
+        drop(server);
+        assert_eq!(
+            retained
+                .diagnostics
+                .snapshot()
+                .count(DisconnectReason::ForcedServerDrop),
+            1
+        );
+        assert_eq!(
+            retained
+                .diagnostics
+                .snapshot()
+                .count(DisconnectReason::GracefulShutdown),
+            0
+        );
+    }
+    #[test]
+    fn graceful_shutdown_and_handler_disconnect_have_separate_counts() {
+        let server = diagnostic_server(Config::default());
+        let _peer = UnixStream::connect(server.socket_path()).unwrap();
+        let client = await_client(&server);
+        client.context().disconnect();
+        await_reason(&server, DisconnectReason::HandlerRequested);
+        let _peer2 = UnixStream::connect(server.socket_path()).unwrap();
+        let _client2 = await_client(&server);
+        server.shutdown().unwrap();
+        await_reason(&server, DisconnectReason::GracefulShutdown);
+        assert_eq!(
+            server
+                .disconnect_diagnostics()
+                .count(DisconnectReason::ForcedServerDrop),
+            0
+        );
     }
 
     #[test]
