@@ -1,0 +1,33 @@
+[package]
+name = "milagre-ports"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Rust port watcher for Milagre (port of packages/core/src/agents/ports.cjs): which TCP listeners each Chat's commands and Terminals own."
+license = "MIT"
+
+# Standalone: not a member of any other Rust workspace in the repo.
+[workspace]
+
+[lib]
+name = "milagre_ports"
+path = "src/lib.rs"
+
+# A loopback-only TCP listener the real-process tests start and stop themselves.
+[[bin]]
+name = "milagre-ports-test-listener"
+path = "src/bin/test_listener.rs"
+test = false
+doc = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.47", features = ["process", "io-util", "sync", "time", "rt", "macros"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1.47", features = ["process", "io-util", "sync", "time", "rt", "rt-multi-thread", "macros", "test-util"] }
+tempfile = "3"
