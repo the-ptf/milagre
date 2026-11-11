@@ -178,5 +178,14 @@ agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the n
   job reported, every temporary file is gone and the states closed. A forced `forget` with jobs out cancels them,
   keeps the Project open, locked and closing (no send taken) and returns `QUIT_PENDING`; `forget` again finishes once
   they report back. A plain quit or forget is refused while a handoff is being prepared, as with a running turn.
+- **Brief model** (`src/brief.rs`, not `Provider`). `ChatHost::register_brief_model`. Once a transcript is committed
+  the host asks `BriefModel::ask(BriefRequest)` (enqueue only) with `safe_brief_request`: Chat and provider strict
+  (an unpaired surrogate refused, the provider one Milagre knows), system and prompt decoded once, lossy. `NoModel`,
+  `AtCapacity`, more than `MAX_BRIEFS` (8) out, or a request that can't go out exactly: the minimal brief at once.
+  `Replied` is encoded once on entry; over `MAX_BRIEF_REPLY_BYTES` (64 KiB, a deliberate deviation) counts as
+  failed. A brief past `brief_grace_ms` (30 s) is cancelled (advisory) and counts as failed; a cancelled, settled or
+  unknown id's later answer is dropped. The changed files of the minimal brief need a hardened Git job (cleared
+  environment, `GIT_OPTIONAL_LOCKS=0`, no hooks or fsmonitor, timeout, output cap, admitted Worktrees only): not
+  ported, so the minimal brief says `(none)` until it is; a gate condition.
 - **Transcripts** go to `<copy>/.owner/handovers/<sha1(project)[..12]>/<session>.md` through `transcripts::TranscriptJob`
   (bounded, owned, one outcome per job, pinned folder descriptors; see the module docs).

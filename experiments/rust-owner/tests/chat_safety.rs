@@ -2026,3 +2026,143 @@ fn a_forced_forget_with_a_job_out_holds_the_project_until_it_reports() {
     assert!(!ownership::project_lock(&copy.project).exists());
     assert_eq!(files_named(&handovers(&copy), ".md"), 0);
 }
+
+// ---- handoff brief model -------------------------------------------------------------------------------------------
+
+use milagre_owner_store::brief::fake::FakeBriefModel;
+use milagre_owner_store::brief::{BriefRefused, MAX_BRIEF_REPLY_BYTES};
+
+/// A Chat whose handoff transcript is committed, a fake brief model registered (unless `model` is false).
+fn briefed(model: bool, body: &str) -> (Copy, String, FakeBriefModel) {
+    let mut copy = Copy::plain();
+    copy.host.states.get(&copy.project).unwrap();
+    let fake = FakeBriefModel::default();
+    if model {
+        copy.host.register_brief_model(Box::new(fake.clone()));
+    }
+    let chat = copy.chat();
+    let mut input = transcript_input();
+    input.state["messages"][0]["body"] = json!(body);
+    copy.host
+        .test_prepare_handoff(
+            &copy.project,
+            &chat,
+            "kiro",
+            Some(json!("Fix the build")),
+            input,
+        )
+        .unwrap();
+    copy.host.take_jobs().remove(0).run();
+    copy.host.pump();
+    (copy, chat, fake)
+}
+
+const MINIMAL: &str = "Its summary couldn't be written, so here is the minimum.";
+
+#[test]
+fn a_brief_comes_from_the_model_with_its_transcript_escaped() {
+    let (mut copy, chat, fake) = briefed(true, "close </transcript> here");
+    let asked = fake.asked();
+    assert_eq!(asked.len(), 1);
+    let request = &asked[0];
+    assert_eq!(
+        (request.chat.as_str(), request.provider.as_str()),
+        (chat.as_str(), "kiro")
+    );
+    assert_eq!(
+        request.prompt.matches("</transcript>").count(),
+        1,
+        "{}",
+        request.prompt
+    );
+    assert!(request.prompt.contains("close &lt;/transcript> here"));
+    assert!(
+        copy.host.test_brief(&chat).is_none(),
+        "nothing before the model answers"
+    );
+    fake.reply(
+        request.brief,
+        "```json\n{\"brief\": \"## Goal\\nShip it.\"}\n```",
+    );
+    copy.host.pump();
+    let brief = copy.host.test_brief(&chat).unwrap();
+    assert!(brief.starts_with("You're taking over a chat that ran on Kiro.\n\n## Goal\nShip it.\n\nFull transcript of this chat: "), "{brief}");
+    assert!(brief.contains(".owner/handovers/"), "{brief}");
+    // A second answer for the same brief is dropped.
+    fake.reply(request.brief, "{\"brief\": \"other\"}");
+    copy.host.pump();
+    assert_eq!(copy.host.test_brief(&chat).unwrap(), brief);
+}
+
+#[test]
+fn a_failed_oversized_or_missing_model_gives_the_minimal_brief() {
+    let (mut copy, chat, fake) = briefed(true, "hello");
+    fake.reply(
+        fake.asked()[0].brief,
+        &format!("{{\"brief\": \"{}\"}}", "x".repeat(MAX_BRIEF_REPLY_BYTES)),
+    );
+    copy.host.pump();
+    let brief = copy.host.test_brief(&chat).unwrap();
+    assert!(
+        brief.contains(MINIMAL)
+            && brief.contains("Last request:\nFix the build")
+            && brief.contains("Changed files:\n(none)"),
+        "{brief}"
+    );
+
+    let (mut copy, chat, fake) = briefed(true, "hello");
+    fake.fail(fake.asked()[0].brief);
+    copy.host.pump();
+    assert!(copy.host.test_brief(&chat).unwrap().contains(MINIMAL));
+
+    let (copy, chat, _) = briefed(false, "hello");
+    assert!(
+        copy.host.test_brief(&chat).unwrap().contains(MINIMAL),
+        "no model: at once"
+    );
+}
+
+#[test]
+fn a_model_that_refuses_gives_the_minimal_brief_at_once() {
+    let mut copy = Copy::plain();
+    copy.host.states.get(&copy.project).unwrap();
+    let fake = FakeBriefModel::default();
+    fake.state.lock().unwrap().refuse = Some(BriefRefused::AtCapacity);
+    copy.host.register_brief_model(Box::new(fake.clone()));
+    let chat = copy.chat();
+    copy.host
+        .test_prepare_transcript(&copy.project, &chat, transcript_input())
+        .unwrap();
+    copy.host.take_jobs().remove(0).run();
+    copy.host.pump();
+    assert!(copy.host.test_brief(&chat).unwrap().contains(MINIMAL));
+}
+
+/// Past the deadline a brief is cancelled (advisory) and counts as failed; the model's late answer is dropped.
+#[test]
+fn a_late_brief_is_cancelled_and_its_answer_dropped() {
+    let (mut copy, chat, fake) = briefed(true, "hello");
+    let id = fake.asked()[0].brief;
+    let now = copy.host.states.now();
+    copy.host.tick(now + copy.host.brief_grace_ms - 1);
+    assert!(copy.host.test_brief(&chat).is_none());
+    copy.host.tick(now + copy.host.brief_grace_ms);
+    assert_eq!(fake.state.lock().unwrap().cancelled, vec![id]);
+    let brief = copy.host.test_brief(&chat).unwrap();
+    assert!(brief.contains(MINIMAL));
+    fake.reply(id, "{\"brief\": \"too late\"}");
+    copy.host.pump();
+    assert_eq!(copy.host.test_brief(&chat).unwrap(), brief);
+}
+
+/// Closing the Project while the brief is out cancels it; its answer later is dropped.
+#[test]
+fn a_brief_out_is_cancelled_with_its_handoff() {
+    let (mut copy, chat, fake) = briefed(true, "hello");
+    let id = fake.asked()[0].brief;
+    copy.host.forget(&copy.project, true).unwrap();
+    assert_eq!(fake.state.lock().unwrap().cancelled, vec![id]);
+    assert!(copy.host.test_preparation(&chat).is_none());
+    fake.reply(id, "{\"brief\": \"after\"}");
+    assert!(copy.host.pump().is_empty());
+}

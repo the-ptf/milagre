@@ -40,8 +40,10 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Map, Value};
 
 use crate::agent_runs::{self, chat_key, is_turn_end, session_of_key, Runs};
+use crate::brief::{inbound_reply, BriefEvent, BriefId, BriefModel, BriefRequest, MAX_BRIEFS};
 use crate::chat_db::LookupField;
 use crate::error::{Result, StoreError};
+use crate::handover;
 use crate::jsjson::{self, RawJson};
 use crate::message_store::{Msg, MsgRef, ProjectState};
 use crate::states::ProjectStates;
@@ -114,6 +116,14 @@ struct Preparing {
     /// The transcript once committed, and what the brief's model is to read.
     transcript: Option<PathBuf>,
     brief_transcript: Option<String>,
+    /// The provider handed over from (encoded), whether the brief catches up, and the last request (for the minimal
+    /// brief).
+    provider: String,
+    catch_up: bool,
+    last_user_message: Option<Value>,
+    /// The brief asked, and the brief once written (the model's, or the minimal one).
+    brief_id: Option<BriefId>,
+    brief: Option<String>,
 }
 
 /// A transcript job out: whose it is, whether its handoff was cancelled (its result is then only cleaned up), and a
@@ -744,6 +754,12 @@ pub struct ChatHost {
     ready_jobs: std::collections::VecDeque<TranscriptJob>,
     /// Every job out, from its reservation until its outcome is handled and anything it left is gone.
     job_slots: BTreeMap<JobId, JobSlot>,
+    /// The brief's model (none: every brief is the minimal one), and the briefs out: Chat, turn, deadline.
+    brief_model: Option<Box<dyn BriefModel>>,
+    briefs: BTreeMap<BriefId, (String, TurnId, i64)>,
+    next_brief: u64,
+    /// How long a brief may take before it counts as failed (ms of the states clock).
+    pub brief_grace_ms: i64,
     /// Notices dropped because nobody took them (the oldest go first past `MAX_NOTICES`).
     dropped_notices: u64,
     next_answer: u64,
@@ -801,6 +817,10 @@ impl ChatHost {
             transcripts: None,
             ready_jobs: std::collections::VecDeque::new(),
             job_slots: BTreeMap::new(),
+            brief_model: None,
+            briefs: BTreeMap::new(),
+            next_brief: 0,
+            brief_grace_ms: handover::BRIEF_TIMEOUT_MS as i64,
             dropped_notices: 0,
             next_answer: 0,
             pending_answers: BTreeMap::new(),
@@ -1755,6 +1775,7 @@ impl ChatHost {
     /// failed; each is also left as it was (a refused event folds nothing).
     pub fn pump(&mut self) -> Vec<StoreError> {
         self.drive_jobs(false);
+        self.drive_briefs(None);
         let mut errors = self.retry_stuck();
         for round in 0.. {
             // What a bounded pump left comes first, whether or not a provider sent more since.
@@ -1792,6 +1813,7 @@ impl ChatHost {
         let mut errors = self.pump();
         // Job outcomes and temporary files still to remove: handled while a quit or a forget waits on them too.
         self.drive_jobs(true);
+        self.drive_briefs(Some(now));
         let overdue: Vec<(String, TurnId)> = self
             .deadlines
             .iter()
@@ -2890,13 +2912,125 @@ impl ChatHost {
         if let Some(preparing) = self.preparing.get_mut(chat).filter(|p| p.turn == turn) {
             preparing.transcript = Some(path);
             preparing.brief_transcript = Some(brief_transcript);
+            self.ask_brief(chat, turn);
+        }
+    }
+
+    /// Lets the host ask a model for handoff briefs (none registered: every brief is the minimal one).
+    pub fn register_brief_model(&mut self, model: Box<dyn BriefModel>) {
+        self.brief_model = Some(model);
+    }
+
+    /// Asks the brief of the handoff `turn` prepares in `chat`, with the escaped transcript (`safe_brief_request`).
+    /// No model, a model that refuses, a full brief table or a request that can't go out exactly: the minimal brief
+    /// at once.
+    fn ask_brief(&mut self, chat: &str, turn: TurnId) {
+        let Some(preparing) = self.preparing.get(chat).filter(|p| p.turn == turn) else {
+            return;
+        };
+        let prompt = handover::safe_brief_request(
+            preparing.brief_transcript.as_deref().unwrap_or_default(),
+            preparing.catch_up,
+        );
+        self.next_brief += 1;
+        let id = BriefId(self.next_brief);
+        let request = BriefRequest::outbound(
+            id,
+            chat,
+            turn,
+            &preparing.provider,
+            preparing.catch_up,
+            &prompt,
+        );
+        let asked = match (request, &mut self.brief_model) {
+            (Ok(request), Some(model)) if self.briefs.len() < MAX_BRIEFS => {
+                model.ask(request).is_ok()
+            }
+            _ => false,
+        };
+        if !asked {
+            self.brief_settled(chat, turn, None);
+            return;
+        }
+        let due = self.states.now() + self.brief_grace_ms;
+        self.briefs.insert(id, (chat.to_string(), turn, due));
+        if let Some(preparing) = self.preparing.get_mut(chat) {
+            preparing.brief_id = Some(id);
+        }
+    }
+
+    /// Settles briefs: replies and failures from the model, and (with `now`) the ones past their deadline, which are
+    /// cancelled (advisory) and count as failed. Anything later for a settled, cancelled or unknown id is dropped.
+    fn drive_briefs(&mut self, now: Option<i64>) {
+        let events = match &mut self.brief_model {
+            Some(model) => model.take_events(),
+            None => Vec::new(),
+        };
+        for event in events {
+            let (id, reply) = match event {
+                BriefEvent::Replied { brief, reply } => (brief, inbound_reply(&reply)),
+                BriefEvent::Failed { brief } => (brief, None),
+            };
+            if let Some((chat, turn, _)) = self.briefs.remove(&id) {
+                self.brief_settled(&chat, turn, reply);
+            }
+        }
+        if let Some(now) = now {
+            let overdue: Vec<BriefId> = self
+                .briefs
+                .iter()
+                .filter(|(_, (_, _, due))| *due <= now)
+                .map(|(id, _)| *id)
+                .collect();
+            for id in overdue {
+                if let Some((chat, turn, _)) = self.briefs.remove(&id) {
+                    if let Some(model) = &mut self.brief_model {
+                        model.cancel(id);
+                    }
+                    self.brief_settled(&chat, turn, None);
+                }
+            }
+        }
+    }
+
+    /// The brief of the handoff `turn` prepares: the model's reply read as Node reads it, else the minimal brief.
+    fn brief_settled(&mut self, chat: &str, turn: TurnId, reply: Option<String>) {
+        let Some(preparing) = self.preparing.get_mut(chat).filter(|p| p.turn == turn) else {
+            return;
+        };
+        preparing.brief_id = None;
+        let file = preparing
+            .transcript
+            .as_ref()
+            .map(|path| Value::String(jsjson::js_string(&path.to_string_lossy())));
+        let provider = Value::String(preparing.provider.clone());
+        // The changed files come from a hardened Git job not ported yet: until then the minimal brief says none.
+        preparing.brief = Some(handover::brief_text(
+            file.as_ref(),
+            Some(&provider),
+            preparing.catch_up,
+            reply.as_deref(),
+            preparing.last_user_message.as_ref(),
+            &[],
+        ));
+    }
+
+    /// Cancels a brief still out (advisory): its result, whenever it comes, is dropped.
+    fn drop_brief(&mut self, id: Option<BriefId>) {
+        if let Some(id) = id {
+            if self.briefs.remove(&id).is_some() {
+                if let Some(model) = &mut self.brief_model {
+                    model.cancel(id);
+                }
+            }
         }
     }
 
     /// A handoff of `turn` that won't start: forgotten, and told. Nothing of it is retried.
     fn abandon_preparation(&mut self, chat: &str, turn: TurnId, why: &str) {
         if self.preparing.get(chat).is_some_and(|p| p.turn == turn) {
-            self.preparing.remove(chat);
+            let brief = self.preparing.remove(chat).and_then(|p| p.brief_id);
+            self.drop_brief(brief);
             self.sync_busy();
             self.notice(Notice::Failed {
                 chat: chat.to_string(),
@@ -2922,6 +3056,15 @@ impl ChatHost {
             .map(|(id, _)| *id)
             .collect();
         self.ready_jobs.retain(|job| !cancelled.contains(&job.id()));
+        let briefs: Vec<Option<BriefId>> = self
+            .preparing
+            .values()
+            .filter(|preparing| in_scope(&preparing.project))
+            .map(|preparing| preparing.brief_id)
+            .collect();
+        for brief in briefs {
+            self.drop_brief(brief);
+        }
         self.preparing
             .retain(|_, preparing| !in_scope(&preparing.project));
         self.sync_busy();
@@ -2955,6 +3098,21 @@ impl ChatHost {
         chat: &str,
         input: TranscriptInput,
     ) -> Result<(TurnId, JobId)> {
+        self.test_prepare_handoff(project, chat, "kiro", None, input)
+    }
+
+    /// Tests only: [`ChatHost::test_prepare_transcript`] handing over from `provider`, `last_user_message` the last
+    /// request.
+    #[cfg(feature = "test-fixtures")]
+    pub fn test_prepare_handoff(
+        &mut self,
+        project: &Path,
+        chat: &str,
+        provider: &str,
+        last_user_message: Option<Value>,
+        input: TranscriptInput,
+    ) -> Result<(TurnId, JobId)> {
+        let catch_up = input.catch_up_after.is_some();
         self.next_turn += 1;
         let turn = TurnId(self.next_turn);
         self.preparing.insert(
@@ -2964,6 +3122,11 @@ impl ChatHost {
                 project: project.to_path_buf(),
                 transcript: None,
                 brief_transcript: None,
+                provider: provider.to_string(),
+                catch_up,
+                last_user_message,
+                brief_id: None,
+                brief: None,
             },
         );
         let job = self.reserve_transcript(project, chat, turn, input)?;
@@ -2979,6 +3142,12 @@ impl ChatHost {
         self.preparing
             .get(chat)
             .map(|p| (p.turn, p.transcript.clone(), p.brief_transcript.clone()))
+    }
+
+    /// Tests only: the brief written for the handoff being prepared in `chat`, once settled.
+    #[cfg(feature = "test-fixtures")]
+    pub fn test_brief(&self, chat: &str) -> Option<String> {
+        self.preparing.get(chat).and_then(|p| p.brief.clone())
     }
 
     /// Senders still waiting on a queued message's start (or a start in flight) hear `null` (Node's "Milagre
