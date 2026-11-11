@@ -73,8 +73,12 @@ impl Render for ChatView {
         // A Chat opens with the composer focused, as in the Electron app.
         if !self.composer_focused_once {
             self.composer_focused_once = true;
-            let handle = self.composer.focus_handle(cx);
-            window.defer(cx, move |window, cx| window.focus(&handle, cx));
+            // Read once the composer has drawn: its text area (and so its focus handle) is made on its first frame.
+            let composer = self.composer.clone();
+            window.defer(cx, move |window, cx| {
+                let handle = composer.focus_handle(cx);
+                window.focus(&handle, cx);
+            });
         }
         let theme = *cx.theme();
         div()
