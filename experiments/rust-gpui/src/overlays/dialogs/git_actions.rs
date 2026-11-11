@@ -9,8 +9,10 @@
 //! - After the steps the dialog says what happened (the note [`GitDialogConfig::on_ran`] is given for the Chat),
 //!   and the folder is read again so the list and the buttons follow it.
 //!
-//! Opens through [`crate::ui::Dialog`] (`open`). The composer's pill row owns the button that opens it (WP-27); until
-//! that is wired, `MILAGRE_GPUI_GIT_DIALOG=<scenario>[,run][,writing]` opens it in snapshot runs ([`open_from_env`]).
+//! Opens through [`crate::ui::Dialog`] (`open`). The window opens it (`Workspace::open_git_actions`) from the palette's
+//! "Commit and open PR…" and the `OpenGitActions` action, which the sidebar row menu takes too. The desktop's
+//! composer pill row has no button for it: its PR pill sends a prompt to the agent instead. In snapshot runs
+//! `MILAGRE_GPUI_GIT_DIALOG=<scenario>[,run][,writing]` opens it on a fixture folder ([`open_from_env`]).
 //!
 //! Not built: Escape and the scrim stay live while steps run (`ui::Dialog` cannot change that after opening), the
 //! 28px close button, the footer bar's own hairline, and the generator taking the Chat's messages (the fixture writes).

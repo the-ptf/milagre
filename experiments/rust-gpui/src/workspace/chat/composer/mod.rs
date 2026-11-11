@@ -30,6 +30,7 @@ mod bar_tests;
 mod chips;
 mod context;
 mod editor;
+mod external;
 mod history;
 mod mentions;
 mod menu;

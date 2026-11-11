@@ -13,6 +13,7 @@
 
 pub mod chat;
 pub mod chrome;
+mod overlays;
 pub mod panel;
 pub mod sidebar;
 
@@ -21,6 +22,7 @@ mod tests;
 
 use gpui::{Context, Entity, Subscription, Window, div, prelude::*, px};
 
+use crate::overlays::OpenGitActions;
 use crate::routines::RoutinesView;
 use crate::settings::{self, SettingsModal, ToggleSettings};
 use crate::theme::{ActiveTheme, Theme};
@@ -52,7 +54,10 @@ impl Workspace {
         let (sidebar, chat, panel, settings) =
             (cx.new(Sidebar::new), cx.new(ChatView::new), cx.new(Panel::new), cx.new(SettingsModal::new));
         // The panel's place in the window changed: lay the columns out again.
-        let layout = cx.subscribe(&panel, |_, _, _: &PanelEvent, cx| cx.notify());
+        let layout = cx.subscribe_in(&panel, window, |this, _, event: &PanelEvent, window, cx| match event {
+            PanelEvent::Layout => cx.notify(),
+            PanelEvent::FixInChat(text) => this.fix_in_chat(text, window, cx),
+        });
         let new_chat = cx.subscribe(&sidebar, |this, _, event: &SidebarEvent, cx| match event {
             SidebarEvent::NewChat => {
                 this.routines_open = false;
@@ -138,6 +143,7 @@ impl Render for Workspace {
             .on_action(move |_: &ToggleSettings, window, cx| {
                 settings.update(cx, |modal, cx| modal.toggle(window, cx));
             })
+            .on_action(cx.listener(|this, _: &OpenGitActions, window, cx| this.open_git_actions(window, cx)))
             .relative()
             .flex()
             .flex_row()

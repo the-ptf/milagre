@@ -2,3 +2,7 @@
 //! and opens through [`crate::ui::Dialog`] or [`crate::ui::Popover`].
 
 pub mod dialogs;
+
+use gpui::actions;
+
+actions!(milagre_overlays, [OpenGitActions]);

@@ -83,6 +83,8 @@ impl PanelTab {
 /// Tells the Workspace the panel's place in the window changed (shown, hidden, expanded, another width).
 pub enum PanelEvent {
     Layout,
+    /// "Fix in Chat" on a PR thread: the window sends this to the open Chat.
+    FixInChat(String),
 }
 
 impl EventEmitter<PanelEvent> for Panel {}
@@ -131,10 +133,9 @@ impl Panel {
         changes.update(cx, |changes, cx| changes.set_chat(chat.clone(), content.changes.clone(), cx));
         let pr = cx.new(PrView::new);
         pr.update(cx, |pr, cx| pr.set_chat(chat.clone(), content.pr, pr::local_files(&content.changes), cx));
-        cx.subscribe(&pr, |panel, _, event: &PrEvent, cx| {
-            if let PrEvent::OpenChanges = event {
-                panel.activate(PanelTab::Changes, cx);
-            }
+        cx.subscribe(&pr, |panel, _, event: &PrEvent, cx| match event {
+            PrEvent::OpenChanges => panel.activate(PanelTab::Changes, cx),
+            PrEvent::FixInChat(text) => cx.emit(PanelEvent::FixInChat(text.clone())),
         })
         .detach();
         let placeholders = PanelTab::ALL
