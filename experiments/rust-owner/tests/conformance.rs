@@ -56,7 +56,7 @@ struct Context {
 
 impl Context {
     fn new(project: &str) -> Self {
-        let dir = fixtures().join("projects").join(project);
+        let dir = fixtures().join(".projects").join(project);
         let store = ProjectStore::new(&dir);
         // The chat sets generate.cjs used: sessions in JS order, then Chats with rows in Project order.
         let sessions: Vec<ChatId> = store
@@ -257,7 +257,7 @@ fn hash_tree(root: &Path) -> BTreeMap<PathBuf, String> {
 
 #[test]
 fn rust_reads_match_node_for_every_recorded_case() {
-    let before = hash_tree(&fixtures().join("projects"));
+    let before = hash_tree(&fixtures().join(".projects"));
     let mut compared = 0;
     let mut failures = Vec::new();
     for project in PROJECTS {
@@ -279,7 +279,7 @@ fn rust_reads_match_node_for_every_recorded_case() {
             }
         }
     }
-    let after = hash_tree(&fixtures().join("projects"));
+    let after = hash_tree(&fixtures().join(".projects"));
     assert_eq!(before, after, "reading the fixtures changed them");
     assert!(compared > 300, "only {compared} cases compared");
     assert!(
@@ -293,7 +293,7 @@ fn rust_reads_match_node_for_every_recorded_case() {
 
 #[test]
 fn compaction_pending_is_reported_not_written() {
-    let store = ProjectStore::new(fixtures().join("projects/legacy-compact"));
+    let store = ProjectStore::new(fixtures().join(".projects/legacy-compact"));
     let read = store.read_project_state().unwrap();
     assert_eq!(read.pending_detail_compaction, vec![json!(2)]);
     // The sidecar Node wrote on its read of a copy: same name, and its bytes hash to it.
@@ -306,7 +306,7 @@ fn compaction_pending_is_reported_not_written() {
     );
     assert!(
         !fixtures()
-            .join("projects/legacy-compact/.milagre/details")
+            .join(".projects/legacy-compact/.milagre/details")
             .exists(),
         "a read must not create sidecars"
     );

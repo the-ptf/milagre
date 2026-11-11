@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Builds the conformance fixtures for the Rust read-only store with the current Node implementation.
 //
-//   node experiments/rust-owner/fixtures/generate.cjs            # (re)writes fixtures/projects + fixtures/expected
+//   node experiments/rust-owner/fixtures/generate.cjs            # (re)writes fixtures/.projects + fixtures/expected
 //   node experiments/rust-owner/fixtures/generate.cjs --check    # regenerates into a temp dir, compares expected/*
 //
 // Every Project is written by the real writers (project-store.cjs saveProjectState -> chat-db.cjs writeMessages,
@@ -400,7 +400,7 @@ async function expectedFor(source) {
 }
 
 async function generate(outDir) {
-  const projects = path.join(outDir, "projects");
+  const projects = path.join(outDir, ".projects");
   const expected = path.join(outDir, "expected");
   fs.rmSync(projects, { recursive: true, force: true });
   fs.rmSync(expected, { recursive: true, force: true });
