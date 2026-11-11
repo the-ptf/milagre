@@ -73,7 +73,8 @@ fn the_corner_toggles_show_and_hide_panels(cx: &mut TestAppContext) {
     cx.simulate_click(terminal.center(), Modifiers::none());
     assert!(terminals.read_with(cx, |t, _| t.is_open()), "the Terminals toggle opens the drawer");
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
-    let count = workspace.read_with(cx, |w, cx| w.corner_items(cx).len());
+    // The grid's own buttons (the layout toggle, and Subchats on a family) sit left of the panel toggles (WP-48).
+    let count = workspace.read_with(cx, |w, cx| w.corner_items(cx).len() + crate::workspace::grid::corner_count(w.grid.read(cx)));
     assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(count));
 }
 

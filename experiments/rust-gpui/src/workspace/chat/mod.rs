@@ -51,6 +51,8 @@ use crate::workspace::chrome;
 use crate::workspace::sidebar::ChatRow;
 
 const COMPOSER_BOTTOM: f32 = 24.0;
+/// In a tile, whose frame already insets it from the window's edge.
+const COMPOSER_BOTTOM_TILED: f32 = 12.0;
 
 /// What the Chat column asks the window to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,6 +101,8 @@ pub struct ChatView {
     /// Find in chat and the Quote button (`find_bar.rs`).
     find: find_bar::ChatFind,
     _transcript_events: Subscription,
+    /// Drawn as the focused tile of the grid or the split (`workspace::grid`): the tile has the header.
+    tiled: bool,
 }
 
 impl ChatView {
@@ -168,6 +172,7 @@ impl ChatView {
             header_insets: (px(16.0), px(16.0)),
             find: find_bar::ChatFind::from_env(),
             _transcript_events: transcript_events,
+            tiled: false,
         }
     }
 
@@ -179,6 +184,18 @@ impl ChatView {
 
     pub fn header_insets(&self) -> (Pixels, Pixels) {
         self.header_insets
+    }
+
+    /// The grid or the split shows this column as its focused tile, under the tile's own header.
+    pub fn set_tiled(&mut self, tiled: bool, cx: &mut Context<Self>) {
+        if self.tiled != tiled {
+            self.tiled = tiled;
+            cx.notify();
+        }
+    }
+
+    pub fn tiled(&self) -> bool {
+        self.tiled
     }
 
     /// The Chat on screen.
@@ -343,6 +360,7 @@ impl Render for ChatView {
             _ => None,
         };
         let find_overlays = self.find_overlays(window, cx);
+        let composer_bottom = if self.tiled { COMPOSER_BOTTOM_TILED } else { COMPOSER_BOTTOM };
         self.find_actions(div(), cx)
             .relative()
             .flex()
@@ -351,7 +369,7 @@ impl Render for ChatView {
             .min_w_0()
             .h_full()
             .bg(theme.page)
-            .child(header)
+            .when(!self.tiled, |el| el.child(header))
             .child(
                 div()
                     .id("transcript")
@@ -365,7 +383,7 @@ impl Render for ChatView {
                     .child(self.pills.clone())
                     .children(find_overlays),
             )
-            .child(div().flex_none().flex().justify_center().px_4().pb(px(COMPOSER_BOTTOM)).child(match &self.undo {
+            .child(div().flex_none().flex().justify_center().px_4().pb(px(composer_bottom)).child(match &self.undo {
                 // The panel takes the composer's place, as wide as it.
                 Some(undo) => div().w_full().max_w(px(COLUMN_WIDTH)).child(undo.clone()).into_any_element(),
                 None => self.composer.clone().into_any_element(),
