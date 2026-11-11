@@ -1,0 +1,2842 @@
+{
+  "parsing": {
+    "design_show": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "group": {
+          "description": "The part of the app this screen belongs to, such as Onboarding or Settings. The canvas lays out one row per group. A revision keeps its group unless you pass one; an empty string removes it.",
+          "type": "string",
+          "maxLength": 60
+        },
+        "document": {
+          "description": "The whole design. Leave it out when you send from.",
+          "type": "object",
+          "properties": {
+            "schemaVersion": { "type": "number", "const": 1 },
+            "width": { "type": "integer", "minimum": 240, "maximum": 3840 },
+            "height": { "type": "integer", "minimum": 240, "maximum": 3840 },
+            "background": { "type": "string", "maxLength": 100 },
+            "consistency": {
+              "description": "Strict mode blocks saves with kit drift. Exceptions require nodeId, field, exact diagnostic actual value and a reason. Never disable strict mode or add exceptions unless the user intends that change.",
+              "type": "object",
+              "properties": {
+                "mode": { "type": "string", "enum": ["advisory", "strict"] },
+                "exceptions": {
+                  "maxItems": 100,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "nodeId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                      "field": { "type": "string", "minLength": 1, "maxLength": 110 },
+                      "value": {
+                        "anyOf": [
+                          { "type": "string", "maxLength": 1000 },
+                          { "type": "number" },
+                          {
+                            "type": "object",
+                            "propertyNames": { "type": "string" },
+                            "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 1000 }, { "type": "number" }] }
+                          }
+                        ]
+                      },
+                      "reason": { "type": "string", "minLength": 8, "maxLength": 500 }
+                    },
+                    "required": ["nodeId", "field", "value", "reason"],
+                    "additionalProperties": false,
+                    "x-object-mode": "strict"
+                  }
+                }
+              },
+              "required": ["mode"],
+              "additionalProperties": false,
+              "x-object-mode": "strict"
+            },
+            "kit": {
+              "description": "Pinned project kit snapshot returned by design_kit_read. Read the project kit before creating screens.",
+              "type": "object",
+              "properties": {
+                "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                "colors": {
+                  "type": "object",
+                  "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "additionalProperties": { "type": "string", "maxLength": 100 }
+                },
+                "textStyles": {
+                  "type": "object",
+                  "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "fontFamily": { "type": "string", "maxLength": 160 },
+                      "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                      "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                      "lineHeight": { "type": "number", "minimum": 0.5, "maximum": 5 }
+                    },
+                    "required": ["fontSize"],
+                    "additionalProperties": false,
+                    "x-object-mode": "strict"
+                  }
+                },
+                "spacing": {
+                  "type": "object",
+                  "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                },
+                "radii": {
+                  "type": "object",
+                  "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                },
+                "components": {
+                  "type": "object",
+                  "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "additionalProperties": {
+                    "minItems": 1,
+                    "maxItems": 200,
+                    "type": "array",
+                    "items": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                  }
+                },
+                "references": {
+                  "maxItems": 20,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                      "source": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                    },
+                    "required": ["title", "source"],
+                    "additionalProperties": false,
+                    "x-object-mode": "strict"
+                  }
+                },
+                "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+              },
+              "required": ["title", "colors", "textStyles", "spacing", "radii", "id", "version"],
+              "additionalProperties": false,
+              "x-object-mode": "strict"
+            },
+            "tokens": {
+              "description": "Color tokens by name. A color field takes a CSS color or a $name token reference.",
+              "type": "object",
+              "propertyNames": { "type": "string" },
+              "additionalProperties": { "type": "string" }
+            },
+            "nodes": {
+              "maxItems": 1000,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "name": { "type": "string", "maxLength": 160 },
+                  "type": { "type": "string", "enum": ["frame", "text", "rectangle", "ellipse", "image", "icon"] },
+                  "parentId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "x": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                  "y": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                  "width": { "type": "number", "minimum": 1, "maximum": 16000 },
+                  "height": { "type": "number", "minimum": 1, "maximum": 16000 },
+                  "widthMode": {
+                    "description": "Fixed uses width in pixels; hug fits content; fill uses available parent space. Defaults to fixed.",
+                    "type": "string",
+                    "enum": ["fixed", "hug", "fill"]
+                  },
+                  "heightMode": {
+                    "description": "Fixed uses height in pixels; hug fits content; fill uses available parent space. Defaults to fixed.",
+                    "type": "string",
+                    "enum": ["fixed", "hug", "fill"]
+                  },
+                  "minWidth": { "type": "number", "minimum": 0, "maximum": 16000 },
+                  "minHeight": { "type": "number", "minimum": 0, "maximum": 16000 },
+                  "fill": { "type": "string", "maxLength": 100 },
+                  "stroke": { "type": "string", "maxLength": 100 },
+                  "strokeWidth": { "type": "number", "minimum": 0, "maximum": 2000 },
+                  "radius": { "type": "number", "minimum": 0, "maximum": 2000 },
+                  "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+                  "text": { "type": "string", "maxLength": 20000 },
+                  "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                  "fontFamily": { "type": "string", "maxLength": 160 },
+                  "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                  "lineHeight": {
+                    "description": "Unitless line-height multiplier, such as 1.35 or 1.5, never pixels. Default 1.35.",
+                    "type": "number",
+                    "minimum": 0.5,
+                    "maximum": 5
+                  },
+                  "textAlign": { "type": "string", "enum": ["left", "center", "right"] },
+                  "src": { "type": "string", "maxLength": 500000 },
+                  "icon": {
+                    "description": "Lucide icon name for an icon layer, such as x, check, chevron-left or battery-full. fill is its line color, strokeWidth its line weight (default 2).",
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "layout": { "type": "string", "enum": ["free", "horizontal", "vertical"] },
+                  "gap": { "type": "number", "minimum": 0, "maximum": 2000 },
+                  "padding": { "type": "number", "minimum": 0, "maximum": 2000 },
+                  "align": { "type": "string", "enum": ["start", "center", "end"] },
+                  "justify": { "type": "string", "enum": ["start", "center", "end", "space-between"] },
+                  "hidden": { "type": "boolean" },
+                  "locked": { "type": "boolean" },
+                  "component": { "description": "Mark a frame as a reusable main component. Nested components are not supported.", "type": "boolean" },
+                  "componentId": {
+                    "description": "Link an instance frame to a main component id. Its children are generated and follow the main component.",
+                    "type": "string",
+                    "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$"
+                  },
+                  "textStyle": { "description": "Text style name in the pinned design kit.", "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "bindings": {
+                    "description": "Bind spacing fields and radius to named tokens in the pinned kit.",
+                    "type": "object",
+                    "properties": {
+                      "padding": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                      "gap": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                      "minWidth": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                      "minHeight": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                      "radius": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" }
+                    },
+                    "additionalProperties": false,
+                    "x-object-mode": "strict"
+                  },
+                  "componentProperties": {
+                    "description": "On a main component, expose named properties bound to a source layer field. options restricts allowed states.",
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "nodeId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "field": { "type": "string", "enum": ["text", "icon", "hidden", "fill", "opacity"] },
+                        "options": {
+                          "minItems": 1,
+                          "maxItems": 20,
+                          "type": "array",
+                          "items": { "anyOf": [{ "type": "string", "maxLength": 20000 }, { "type": "boolean" }, { "type": "number" }] }
+                        }
+                      },
+                      "required": ["nodeId", "field"],
+                      "additionalProperties": false,
+                      "x-object-mode": "strict"
+                    }
+                  },
+                  "componentValues": {
+                    "description": "On an instance, values for properties exposed by its main component, such as label or icon.",
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 20000 }, { "type": "boolean" }, { "type": "number" }] }
+                  }
+                },
+                "required": ["id", "type", "width", "height"],
+                "additionalProperties": {},
+                "x-object-mode": "passthrough"
+              }
+            }
+          },
+          "required": ["schemaVersion", "width", "height", "nodes"],
+          "additionalProperties": false,
+          "x-object-mode": "strict"
+        },
+        "from": {
+          "description": "A saved design to copy (its latest version unless you name one), for a variant. Send this OR document.",
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+            "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+          },
+          "required": ["id"],
+          "additionalProperties": false,
+          "x-object-mode": "strip"
+        },
+        "operations": {
+          "description": "With from: the design_apply operations that turn the copy into the variant.",
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "document" },
+                  "patch": {
+                    "type": "object",
+                    "properties": {
+                      "width": { "type": "integer", "minimum": 240, "maximum": 3840 },
+                      "height": { "type": "integer", "minimum": 240, "maximum": 3840 },
+                      "background": {
+                        "anyOf": [
+                          { "type": "string", "maxLength": 100 },
+                          { "type": "string", "pattern": "^\\$[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" }
+                        ]
+                      },
+                      "kit": {
+                        "type": "object",
+                        "properties": {
+                          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                          "colors": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": { "type": "string", "maxLength": 100 }
+                          },
+                          "textStyles": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": {
+                              "type": "object",
+                              "properties": {
+                                "fontFamily": { "type": "string", "maxLength": 160 },
+                                "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                                "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                                "lineHeight": { "type": "number", "minimum": 0.5, "maximum": 5 }
+                              },
+                              "required": ["fontSize"],
+                              "additionalProperties": false,
+                              "x-object-mode": "strict"
+                            }
+                          },
+                          "spacing": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                          },
+                          "radii": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                          },
+                          "components": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": {
+                              "minItems": 1,
+                              "maxItems": 200,
+                              "type": "array",
+                              "items": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                            }
+                          },
+                          "references": {
+                            "maxItems": 20,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                "source": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                              },
+                              "required": ["title", "source"],
+                              "additionalProperties": false,
+                              "x-object-mode": "strict"
+                            }
+                          },
+                          "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                          "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+                        },
+                        "required": ["title", "colors", "textStyles", "spacing", "radii", "id", "version"],
+                        "additionalProperties": false,
+                        "x-object-mode": "strict"
+                      },
+                      "consistency": {
+                        "type": "object",
+                        "properties": {
+                          "mode": { "type": "string", "enum": ["advisory", "strict"] },
+                          "exceptions": {
+                            "maxItems": 100,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "nodeId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                                "field": { "type": "string", "minLength": 1, "maxLength": 110 },
+                                "value": {
+                                  "anyOf": [
+                                    { "type": "string", "maxLength": 1000 },
+                                    { "type": "number" },
+                                    {
+                                      "type": "object",
+                                      "propertyNames": { "type": "string" },
+                                      "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 1000 }, { "type": "number" }] }
+                                    }
+                                  ]
+                                },
+                                "reason": { "type": "string", "minLength": 8, "maxLength": 500 }
+                              },
+                              "required": ["nodeId", "field", "value", "reason"],
+                              "additionalProperties": false,
+                              "x-object-mode": "strict"
+                            }
+                          }
+                        },
+                        "required": ["mode"],
+                        "additionalProperties": false,
+                        "x-object-mode": "strict"
+                      },
+                      "tokens": {
+                        "type": "object",
+                        "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "additionalProperties": { "type": "string", "maxLength": 100 }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "x-object-mode": "strict"
+                  }
+                },
+                "required": ["op", "patch"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": { "op": { "type": "string", "const": "detach" }, "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+                "required": ["op", "id"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "duplicate" },
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "newId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "x": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                  "y": { "type": "number", "minimum": -32000, "maximum": 32000 }
+                },
+                "required": ["op", "id", "newId"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "unset" },
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "fields": {
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "type": "array",
+                    "items": { "type": "string", "enum": ["parentId", "textStyle", "bindings", "componentValues"] }
+                  }
+                },
+                "required": ["op", "id", "fields"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "update" },
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "patch": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": {},
+                    "description": "The layer fields to change: any design_show node field except id.",
+                    "x-object-mode": "passthrough"
+                  }
+                },
+                "required": ["op", "id", "patch"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "insert" },
+                  "node": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": {},
+                    "description": "The new layer, with the fields of a design_show node.",
+                    "x-object-mode": "passthrough"
+                  },
+                  "index": { "type": "integer", "minimum": 0, "maximum": 1000 }
+                },
+                "required": ["op", "node"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": { "op": { "type": "string", "const": "delete" }, "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+                "required": ["op", "id"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              }
+            ]
+          }
+        },
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+        "expectedVersion": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "required": ["title"],
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "design_read": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+        "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+      },
+      "required": ["id"],
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "design_inspect": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+        "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+        "nodeId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" }
+      },
+      "required": ["id"],
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "design_validate": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "document": {
+          "type": "object",
+          "properties": {
+            "schemaVersion": { "type": "number", "const": 1 },
+            "width": { "type": "integer", "minimum": 240, "maximum": 3840 },
+            "height": { "type": "integer", "minimum": 240, "maximum": 3840 },
+            "background": { "type": "string", "maxLength": 100 },
+            "consistency": {
+              "description": "Strict mode blocks saves with kit drift. Exceptions require nodeId, field, exact diagnostic actual value and a reason. Never disable strict mode or add exceptions unless the user intends that change.",
+              "type": "object",
+              "properties": {
+                "mode": { "type": "string", "enum": ["advisory", "strict"] },
+                "exceptions": {
+                  "maxItems": 100,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "nodeId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                      "field": { "type": "string", "minLength": 1, "maxLength": 110 },
+                      "value": {
+                        "anyOf": [
+                          { "type": "string", "maxLength": 1000 },
+                          { "type": "number" },
+                          {
+                            "type": "object",
+                            "propertyNames": { "type": "string" },
+                            "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 1000 }, { "type": "number" }] }
+                          }
+                        ]
+                      },
+                      "reason": { "type": "string", "minLength": 8, "maxLength": 500 }
+                    },
+                    "required": ["nodeId", "field", "value", "reason"],
+                    "additionalProperties": false,
+                    "x-object-mode": "strict"
+                  }
+                }
+              },
+              "required": ["mode"],
+              "additionalProperties": false,
+              "x-object-mode": "strict"
+            },
+            "kit": {
+              "description": "Pinned project kit snapshot returned by design_kit_read. Read the project kit before creating screens.",
+              "type": "object",
+              "properties": {
+                "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                "colors": {
+                  "type": "object",
+                  "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "additionalProperties": { "type": "string", "maxLength": 100 }
+                },
+                "textStyles": {
+                  "type": "object",
+                  "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "fontFamily": { "type": "string", "maxLength": 160 },
+                      "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                      "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                      "lineHeight": { "type": "number", "minimum": 0.5, "maximum": 5 }
+                    },
+                    "required": ["fontSize"],
+                    "additionalProperties": false,
+                    "x-object-mode": "strict"
+                  }
+                },
+                "spacing": {
+                  "type": "object",
+                  "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                },
+                "radii": {
+                  "type": "object",
+                  "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                },
+                "components": {
+                  "type": "object",
+                  "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "additionalProperties": {
+                    "minItems": 1,
+                    "maxItems": 200,
+                    "type": "array",
+                    "items": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                  }
+                },
+                "references": {
+                  "maxItems": 20,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                      "source": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                    },
+                    "required": ["title", "source"],
+                    "additionalProperties": false,
+                    "x-object-mode": "strict"
+                  }
+                },
+                "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+              },
+              "required": ["title", "colors", "textStyles", "spacing", "radii", "id", "version"],
+              "additionalProperties": false,
+              "x-object-mode": "strict"
+            },
+            "tokens": {
+              "description": "Color tokens by name. A color field takes a CSS color or a $name token reference.",
+              "type": "object",
+              "propertyNames": { "type": "string" },
+              "additionalProperties": { "type": "string" }
+            },
+            "nodes": {
+              "maxItems": 1000,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "name": { "type": "string", "maxLength": 160 },
+                  "type": { "type": "string", "enum": ["frame", "text", "rectangle", "ellipse", "image", "icon"] },
+                  "parentId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "x": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                  "y": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                  "width": { "type": "number", "minimum": 1, "maximum": 16000 },
+                  "height": { "type": "number", "minimum": 1, "maximum": 16000 },
+                  "widthMode": {
+                    "description": "Fixed uses width in pixels; hug fits content; fill uses available parent space. Defaults to fixed.",
+                    "type": "string",
+                    "enum": ["fixed", "hug", "fill"]
+                  },
+                  "heightMode": {
+                    "description": "Fixed uses height in pixels; hug fits content; fill uses available parent space. Defaults to fixed.",
+                    "type": "string",
+                    "enum": ["fixed", "hug", "fill"]
+                  },
+                  "minWidth": { "type": "number", "minimum": 0, "maximum": 16000 },
+                  "minHeight": { "type": "number", "minimum": 0, "maximum": 16000 },
+                  "fill": { "type": "string", "maxLength": 100 },
+                  "stroke": { "type": "string", "maxLength": 100 },
+                  "strokeWidth": { "type": "number", "minimum": 0, "maximum": 2000 },
+                  "radius": { "type": "number", "minimum": 0, "maximum": 2000 },
+                  "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+                  "text": { "type": "string", "maxLength": 20000 },
+                  "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                  "fontFamily": { "type": "string", "maxLength": 160 },
+                  "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                  "lineHeight": {
+                    "description": "Unitless line-height multiplier, such as 1.35 or 1.5, never pixels. Default 1.35.",
+                    "type": "number",
+                    "minimum": 0.5,
+                    "maximum": 5
+                  },
+                  "textAlign": { "type": "string", "enum": ["left", "center", "right"] },
+                  "src": { "type": "string", "maxLength": 500000 },
+                  "icon": {
+                    "description": "Lucide icon name for an icon layer, such as x, check, chevron-left or battery-full. fill is its line color, strokeWidth its line weight (default 2).",
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "layout": { "type": "string", "enum": ["free", "horizontal", "vertical"] },
+                  "gap": { "type": "number", "minimum": 0, "maximum": 2000 },
+                  "padding": { "type": "number", "minimum": 0, "maximum": 2000 },
+                  "align": { "type": "string", "enum": ["start", "center", "end"] },
+                  "justify": { "type": "string", "enum": ["start", "center", "end", "space-between"] },
+                  "hidden": { "type": "boolean" },
+                  "locked": { "type": "boolean" },
+                  "component": { "description": "Mark a frame as a reusable main component. Nested components are not supported.", "type": "boolean" },
+                  "componentId": {
+                    "description": "Link an instance frame to a main component id. Its children are generated and follow the main component.",
+                    "type": "string",
+                    "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$"
+                  },
+                  "textStyle": { "description": "Text style name in the pinned design kit.", "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "bindings": {
+                    "description": "Bind spacing fields and radius to named tokens in the pinned kit.",
+                    "type": "object",
+                    "properties": {
+                      "padding": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                      "gap": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                      "minWidth": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                      "minHeight": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                      "radius": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" }
+                    },
+                    "additionalProperties": false,
+                    "x-object-mode": "strict"
+                  },
+                  "componentProperties": {
+                    "description": "On a main component, expose named properties bound to a source layer field. options restricts allowed states.",
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "nodeId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "field": { "type": "string", "enum": ["text", "icon", "hidden", "fill", "opacity"] },
+                        "options": {
+                          "minItems": 1,
+                          "maxItems": 20,
+                          "type": "array",
+                          "items": { "anyOf": [{ "type": "string", "maxLength": 20000 }, { "type": "boolean" }, { "type": "number" }] }
+                        }
+                      },
+                      "required": ["nodeId", "field"],
+                      "additionalProperties": false,
+                      "x-object-mode": "strict"
+                    }
+                  },
+                  "componentValues": {
+                    "description": "On an instance, values for properties exposed by its main component, such as label or icon.",
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 20000 }, { "type": "boolean" }, { "type": "number" }] }
+                  }
+                },
+                "required": ["id", "type", "width", "height"],
+                "additionalProperties": {},
+                "x-object-mode": "passthrough"
+              }
+            }
+          },
+          "required": ["schemaVersion", "width", "height", "nodes"],
+          "additionalProperties": false,
+          "x-object-mode": "strict"
+        },
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+        "expectedVersion": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+        "operations": {
+          "minItems": 1,
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "document" },
+                  "patch": {
+                    "type": "object",
+                    "properties": {
+                      "width": { "type": "integer", "minimum": 240, "maximum": 3840 },
+                      "height": { "type": "integer", "minimum": 240, "maximum": 3840 },
+                      "background": {
+                        "anyOf": [
+                          { "type": "string", "maxLength": 100 },
+                          { "type": "string", "pattern": "^\\$[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" }
+                        ]
+                      },
+                      "kit": {
+                        "type": "object",
+                        "properties": {
+                          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                          "colors": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": { "type": "string", "maxLength": 100 }
+                          },
+                          "textStyles": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": {
+                              "type": "object",
+                              "properties": {
+                                "fontFamily": { "type": "string", "maxLength": 160 },
+                                "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                                "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                                "lineHeight": { "type": "number", "minimum": 0.5, "maximum": 5 }
+                              },
+                              "required": ["fontSize"],
+                              "additionalProperties": false,
+                              "x-object-mode": "strict"
+                            }
+                          },
+                          "spacing": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                          },
+                          "radii": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                          },
+                          "components": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": {
+                              "minItems": 1,
+                              "maxItems": 200,
+                              "type": "array",
+                              "items": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                            }
+                          },
+                          "references": {
+                            "maxItems": 20,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                "source": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                              },
+                              "required": ["title", "source"],
+                              "additionalProperties": false,
+                              "x-object-mode": "strict"
+                            }
+                          },
+                          "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                          "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+                        },
+                        "required": ["title", "colors", "textStyles", "spacing", "radii", "id", "version"],
+                        "additionalProperties": false,
+                        "x-object-mode": "strict"
+                      },
+                      "consistency": {
+                        "type": "object",
+                        "properties": {
+                          "mode": { "type": "string", "enum": ["advisory", "strict"] },
+                          "exceptions": {
+                            "maxItems": 100,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "nodeId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                                "field": { "type": "string", "minLength": 1, "maxLength": 110 },
+                                "value": {
+                                  "anyOf": [
+                                    { "type": "string", "maxLength": 1000 },
+                                    { "type": "number" },
+                                    {
+                                      "type": "object",
+                                      "propertyNames": { "type": "string" },
+                                      "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 1000 }, { "type": "number" }] }
+                                    }
+                                  ]
+                                },
+                                "reason": { "type": "string", "minLength": 8, "maxLength": 500 }
+                              },
+                              "required": ["nodeId", "field", "value", "reason"],
+                              "additionalProperties": false,
+                              "x-object-mode": "strict"
+                            }
+                          }
+                        },
+                        "required": ["mode"],
+                        "additionalProperties": false,
+                        "x-object-mode": "strict"
+                      },
+                      "tokens": {
+                        "type": "object",
+                        "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "additionalProperties": { "type": "string", "maxLength": 100 }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "x-object-mode": "strict"
+                  }
+                },
+                "required": ["op", "patch"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": { "op": { "type": "string", "const": "detach" }, "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+                "required": ["op", "id"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "duplicate" },
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "newId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "x": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                  "y": { "type": "number", "minimum": -32000, "maximum": 32000 }
+                },
+                "required": ["op", "id", "newId"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "unset" },
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "fields": {
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "type": "array",
+                    "items": { "type": "string", "enum": ["parentId", "textStyle", "bindings", "componentValues"] }
+                  }
+                },
+                "required": ["op", "id", "fields"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "update" },
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "patch": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": {},
+                    "description": "The layer fields to change: any design_show node field except id.",
+                    "x-object-mode": "passthrough"
+                  }
+                },
+                "required": ["op", "id", "patch"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "insert" },
+                  "node": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": {},
+                    "description": "The new layer, with the fields of a design_show node.",
+                    "x-object-mode": "passthrough"
+                  },
+                  "index": { "type": "integer", "minimum": 0, "maximum": 1000 }
+                },
+                "required": ["op", "node"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": { "op": { "type": "string", "const": "delete" }, "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+                "required": ["op", "id"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              }
+            ]
+          }
+        },
+        "intent": {
+          "type": "object",
+          "properties": {
+            "mode": { "type": "string", "enum": ["text-only", "fit-text"] },
+            "textIds": { "minItems": 1, "maxItems": 100, "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+            "layoutIds": { "maxItems": 100, "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } }
+          },
+          "required": ["mode", "textIds"],
+          "additionalProperties": false,
+          "description": "text-only preserves all fields except text and all computed bounds. fit-text permits geometry within textIds and layoutIds subtrees, preserving styles and other copy. Layout must fit before saving. No automatic repair.",
+          "x-object-mode": "strict"
+        }
+      },
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "design_apply": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+        "expectedVersion": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+        "operations": {
+          "minItems": 1,
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "document" },
+                  "patch": {
+                    "type": "object",
+                    "properties": {
+                      "width": { "type": "integer", "minimum": 240, "maximum": 3840 },
+                      "height": { "type": "integer", "minimum": 240, "maximum": 3840 },
+                      "background": {
+                        "anyOf": [
+                          { "type": "string", "maxLength": 100 },
+                          { "type": "string", "pattern": "^\\$[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" }
+                        ]
+                      },
+                      "kit": {
+                        "type": "object",
+                        "properties": {
+                          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                          "colors": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": { "type": "string", "maxLength": 100 }
+                          },
+                          "textStyles": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": {
+                              "type": "object",
+                              "properties": {
+                                "fontFamily": { "type": "string", "maxLength": 160 },
+                                "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                                "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                                "lineHeight": { "type": "number", "minimum": 0.5, "maximum": 5 }
+                              },
+                              "required": ["fontSize"],
+                              "additionalProperties": false,
+                              "x-object-mode": "strict"
+                            }
+                          },
+                          "spacing": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                          },
+                          "radii": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                          },
+                          "components": {
+                            "type": "object",
+                            "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "additionalProperties": {
+                              "minItems": 1,
+                              "maxItems": 200,
+                              "type": "array",
+                              "items": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                            }
+                          },
+                          "references": {
+                            "maxItems": 20,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                "source": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                              },
+                              "required": ["title", "source"],
+                              "additionalProperties": false,
+                              "x-object-mode": "strict"
+                            }
+                          },
+                          "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                          "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+                        },
+                        "required": ["title", "colors", "textStyles", "spacing", "radii", "id", "version"],
+                        "additionalProperties": false,
+                        "x-object-mode": "strict"
+                      },
+                      "consistency": {
+                        "type": "object",
+                        "properties": {
+                          "mode": { "type": "string", "enum": ["advisory", "strict"] },
+                          "exceptions": {
+                            "maxItems": 100,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "nodeId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                                "field": { "type": "string", "minLength": 1, "maxLength": 110 },
+                                "value": {
+                                  "anyOf": [
+                                    { "type": "string", "maxLength": 1000 },
+                                    { "type": "number" },
+                                    {
+                                      "type": "object",
+                                      "propertyNames": { "type": "string" },
+                                      "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 1000 }, { "type": "number" }] }
+                                    }
+                                  ]
+                                },
+                                "reason": { "type": "string", "minLength": 8, "maxLength": 500 }
+                              },
+                              "required": ["nodeId", "field", "value", "reason"],
+                              "additionalProperties": false,
+                              "x-object-mode": "strict"
+                            }
+                          }
+                        },
+                        "required": ["mode"],
+                        "additionalProperties": false,
+                        "x-object-mode": "strict"
+                      },
+                      "tokens": {
+                        "type": "object",
+                        "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "additionalProperties": { "type": "string", "maxLength": 100 }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "x-object-mode": "strict"
+                  }
+                },
+                "required": ["op", "patch"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": { "op": { "type": "string", "const": "detach" }, "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+                "required": ["op", "id"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "duplicate" },
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "newId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "x": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                  "y": { "type": "number", "minimum": -32000, "maximum": 32000 }
+                },
+                "required": ["op", "id", "newId"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "unset" },
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "fields": {
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "type": "array",
+                    "items": { "type": "string", "enum": ["parentId", "textStyle", "bindings", "componentValues"] }
+                  }
+                },
+                "required": ["op", "id", "fields"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "update" },
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "patch": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": {},
+                    "description": "The layer fields to change: any design_show node field except id.",
+                    "x-object-mode": "passthrough"
+                  }
+                },
+                "required": ["op", "id", "patch"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "type": "string", "const": "insert" },
+                  "node": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": {},
+                    "description": "The new layer, with the fields of a design_show node.",
+                    "x-object-mode": "passthrough"
+                  },
+                  "index": { "type": "integer", "minimum": 0, "maximum": 1000 }
+                },
+                "required": ["op", "node"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              },
+              {
+                "type": "object",
+                "properties": { "op": { "type": "string", "const": "delete" }, "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+                "required": ["op", "id"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              }
+            ]
+          }
+        },
+        "intent": {
+          "type": "object",
+          "properties": {
+            "mode": { "type": "string", "enum": ["text-only", "fit-text"] },
+            "textIds": { "minItems": 1, "maxItems": 100, "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+            "layoutIds": { "maxItems": 100, "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } }
+          },
+          "required": ["mode", "textIds"],
+          "additionalProperties": false,
+          "description": "text-only preserves all fields except text and all computed bounds. fit-text permits geometry within textIds and layoutIds subtrees, preserving styles and other copy. Layout must fit before saving. No automatic repair.",
+          "x-object-mode": "strict"
+        }
+      },
+      "required": ["id", "expectedVersion", "operations"],
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "design_export": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+        "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+        "format": { "type": "string", "enum": ["json", "svg"] }
+      },
+      "required": ["id", "format"],
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "design_delete": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" } },
+      "required": ["id"],
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "artifact_comments": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "all": { "type": "boolean" } },
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "artifact_resolve_comment": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "id": { "type": "string", "pattern": "^[a-f0-9]{8}$" }, "note": { "type": "string", "minLength": 1, "maxLength": 2000 } },
+      "required": ["id", "note"],
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "artifact_show": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "html": {
+          "description": "The page, one self-contained HTML document. Leave it out when you send tabs.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000000
+        },
+        "tabs": {
+          "description": "The page's tabs, in order, each its own self-contained HTML document. Leave it out for a page without tabs.",
+          "minItems": 1,
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+              "title": { "type": "string", "minLength": 1, "maxLength": 60 },
+              "html": {
+                "description": "This tab's self-contained HTML document. Leave it out to keep the tab's current HTML.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000000
+              }
+            },
+            "required": ["id", "title"],
+            "additionalProperties": false,
+            "x-object-mode": "strip"
+          }
+        },
+        "assets": {
+          "description": "Photos, videos or any files the page shows, up to 95 MB each. Attach a file once: the page keeps the ones its HTML still mentions as assets/<name>.",
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$",
+                "description": "The file's name on the page, such as demo.mp4; the HTML uses it as assets/demo.mp4."
+              },
+              "path": { "type": "string", "minLength": 1, "maxLength": 4096, "description": "The file's absolute path, inside this Chat's Worktree." }
+            },
+            "required": ["name", "path"],
+            "additionalProperties": false,
+            "x-object-mode": "strip"
+          }
+        },
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+        "width": { "type": "integer", "minimum": 240, "maximum": 3840 },
+        "height": { "type": "integer", "minimum": 240, "maximum": 3840 },
+        "expectedVersion": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "required": ["title"],
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "artifact_read": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+        "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+        "tab": {
+          "description": "On a page with tabs, the id of the one tab to read; the others come back as their ids and titles.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+        }
+      },
+      "required": ["id"],
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "artifact_list": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "design_kit_read": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+        "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+      },
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "design_kit_save": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+        "expectedVersion": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "kit": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+            "colors": {
+              "type": "object",
+              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+              "additionalProperties": { "type": "string", "maxLength": 100 }
+            },
+            "textStyles": {
+              "type": "object",
+              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "fontFamily": { "type": "string", "maxLength": 160 },
+                  "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                  "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                  "lineHeight": { "type": "number", "minimum": 0.5, "maximum": 5 }
+                },
+                "required": ["fontSize"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              }
+            },
+            "spacing": {
+              "type": "object",
+              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+              "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+            },
+            "radii": {
+              "type": "object",
+              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+              "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+            },
+            "components": {
+              "type": "object",
+              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+              "additionalProperties": {
+                "minItems": 1,
+                "maxItems": 200,
+                "type": "array",
+                "items": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+              }
+            },
+            "references": {
+              "maxItems": 20,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                  "source": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                },
+                "required": ["title", "source"],
+                "additionalProperties": false,
+                "x-object-mode": "strict"
+              }
+            }
+          },
+          "required": ["title", "colors", "textStyles", "spacing", "radii"],
+          "additionalProperties": false,
+          "x-object-mode": "strict"
+        }
+      },
+      "required": ["expectedVersion", "kit"],
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    },
+    "design_list": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false,
+      "x-object-mode": "strict"
+    }
+  },
+  "tools": [
+    {
+      "name": "design_show",
+      "description": "For any UI, screen, mockup or visual design in this Chat, subagents included: use this, not HTML or image files, so it lands on the Chat's Designs canvas, where the user watches, reviews and chooses. Create an editable design from a document of named layers, with frames, text, shapes, icons, images, layout and color tokens. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. The document sets the screen size (390 by 844 for a phone). Read the bundled design skill ($BUNDLED_SKILLS/design/SKILL.md) for the document format. A new id creates a design; revising an existing id requires expectedVersion from design_read, so the user's changes are preserved. Prefer design_apply for small revisions. Use a different id for each variant, in the same group; to revise a design, keep its id. For a variant of a saved design, send from (its id and version) and only the operations that differ, instead of a whole document: Milagre copies it and applies them. When the user names another design tool, use that tool instead. The result includes the rendered design as an image and layout warnings; check both before replying.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "group": {
+            "description": "The part of the app this screen belongs to, such as Onboarding or Settings. The canvas lays out one row per group. A revision keeps its group unless you pass one; an empty string removes it.",
+            "type": "string",
+            "maxLength": 60
+          },
+          "document": {
+            "description": "The whole design. Leave it out when you send from.",
+            "type": "object",
+            "properties": {
+              "schemaVersion": { "type": "number", "const": 1 },
+              "width": { "type": "integer", "minimum": 240, "maximum": 3840 },
+              "height": { "type": "integer", "minimum": 240, "maximum": 3840 },
+              "background": { "type": "string", "maxLength": 100 },
+              "consistency": {
+                "description": "Strict mode blocks saves with kit drift. Exceptions require nodeId, field, exact diagnostic actual value and a reason. Never disable strict mode or add exceptions unless the user intends that change.",
+                "type": "object",
+                "properties": {
+                  "mode": { "type": "string", "enum": ["advisory", "strict"] },
+                  "exceptions": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "nodeId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                        "field": { "type": "string", "minLength": 1, "maxLength": 110 },
+                        "value": {
+                          "anyOf": [
+                            { "type": "string", "maxLength": 1000 },
+                            { "type": "number" },
+                            {
+                              "type": "object",
+                              "propertyNames": { "type": "string" },
+                              "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 1000 }, { "type": "number" }] }
+                            }
+                          ]
+                        },
+                        "reason": { "type": "string", "minLength": 8, "maxLength": 500 }
+                      },
+                      "required": ["nodeId", "field", "value", "reason"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["mode"],
+                "additionalProperties": false
+              },
+              "kit": {
+                "description": "Pinned project kit snapshot returned by design_kit_read. Read the project kit before creating screens.",
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                  "colors": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": { "type": "string", "maxLength": 100 }
+                  },
+                  "textStyles": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "fontFamily": { "type": "string", "maxLength": 160 },
+                        "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                        "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                        "lineHeight": { "type": "number", "minimum": 0.5, "maximum": 5 }
+                      },
+                      "required": ["fontSize"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "spacing": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                  },
+                  "radii": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                  },
+                  "components": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": {
+                      "minItems": 1,
+                      "maxItems": 200,
+                      "type": "array",
+                      "items": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                    }
+                  },
+                  "references": {
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                        "source": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                      },
+                      "required": ["title", "source"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+                },
+                "required": ["title", "colors", "textStyles", "spacing", "radii", "id", "version"],
+                "additionalProperties": false
+              },
+              "tokens": {
+                "description": "Color tokens by name. A color field takes a CSS color or a $name token reference.",
+                "type": "object",
+                "propertyNames": { "type": "string" },
+                "additionalProperties": { "type": "string" }
+              },
+              "nodes": {
+                "maxItems": 1000,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "name": { "type": "string", "maxLength": 160 },
+                    "type": { "type": "string", "enum": ["frame", "text", "rectangle", "ellipse", "image", "icon"] },
+                    "parentId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "x": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                    "y": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                    "width": { "type": "number", "minimum": 1, "maximum": 16000 },
+                    "height": { "type": "number", "minimum": 1, "maximum": 16000 },
+                    "widthMode": {
+                      "description": "Fixed uses width in pixels; hug fits content; fill uses available parent space. Defaults to fixed.",
+                      "type": "string",
+                      "enum": ["fixed", "hug", "fill"]
+                    },
+                    "heightMode": {
+                      "description": "Fixed uses height in pixels; hug fits content; fill uses available parent space. Defaults to fixed.",
+                      "type": "string",
+                      "enum": ["fixed", "hug", "fill"]
+                    },
+                    "minWidth": { "type": "number", "minimum": 0, "maximum": 16000 },
+                    "minHeight": { "type": "number", "minimum": 0, "maximum": 16000 },
+                    "fill": { "type": "string", "maxLength": 100 },
+                    "stroke": { "type": "string", "maxLength": 100 },
+                    "strokeWidth": { "type": "number", "minimum": 0, "maximum": 2000 },
+                    "radius": { "type": "number", "minimum": 0, "maximum": 2000 },
+                    "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "text": { "type": "string", "maxLength": 20000 },
+                    "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                    "fontFamily": { "type": "string", "maxLength": 160 },
+                    "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                    "lineHeight": {
+                      "description": "Unitless line-height multiplier, such as 1.35 or 1.5, never pixels. Default 1.35.",
+                      "type": "number",
+                      "minimum": 0.5,
+                      "maximum": 5
+                    },
+                    "textAlign": { "type": "string", "enum": ["left", "center", "right"] },
+                    "src": { "type": "string", "maxLength": 500000 },
+                    "icon": {
+                      "description": "Lucide icon name for an icon layer, such as x, check, chevron-left or battery-full. fill is its line color, strokeWidth its line weight (default 2).",
+                      "type": "string",
+                      "maxLength": 64
+                    },
+                    "layout": { "type": "string", "enum": ["free", "horizontal", "vertical"] },
+                    "gap": { "type": "number", "minimum": 0, "maximum": 2000 },
+                    "padding": { "type": "number", "minimum": 0, "maximum": 2000 },
+                    "align": { "type": "string", "enum": ["start", "center", "end"] },
+                    "justify": { "type": "string", "enum": ["start", "center", "end", "space-between"] },
+                    "hidden": { "type": "boolean" },
+                    "locked": { "type": "boolean" },
+                    "component": { "description": "Mark a frame as a reusable main component. Nested components are not supported.", "type": "boolean" },
+                    "componentId": {
+                      "description": "Link an instance frame to a main component id. Its children are generated and follow the main component.",
+                      "type": "string",
+                      "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$"
+                    },
+                    "textStyle": { "description": "Text style name in the pinned design kit.", "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "bindings": {
+                      "description": "Bind spacing fields and radius to named tokens in the pinned kit.",
+                      "type": "object",
+                      "properties": {
+                        "padding": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "gap": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "minWidth": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "minHeight": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "radius": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" }
+                      },
+                      "additionalProperties": false
+                    },
+                    "componentProperties": {
+                      "description": "On a main component, expose named properties bound to a source layer field. options restricts allowed states.",
+                      "type": "object",
+                      "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "nodeId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                          "field": { "type": "string", "enum": ["text", "icon", "hidden", "fill", "opacity"] },
+                          "options": {
+                            "minItems": 1,
+                            "maxItems": 20,
+                            "type": "array",
+                            "items": { "anyOf": [{ "type": "string", "maxLength": 20000 }, { "type": "boolean" }, { "type": "number" }] }
+                          }
+                        },
+                        "required": ["nodeId", "field"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "componentValues": {
+                      "description": "On an instance, values for properties exposed by its main component, such as label or icon.",
+                      "type": "object",
+                      "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                      "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 20000 }, { "type": "boolean" }, { "type": "number" }] }
+                    }
+                  },
+                  "required": ["id", "type", "width", "height"],
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "required": ["schemaVersion", "width", "height", "nodes"],
+            "additionalProperties": false
+          },
+          "from": {
+            "description": "A saved design to copy (its latest version unless you name one), for a variant. Send this OR document.",
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+              "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+            },
+            "required": ["id"],
+            "additionalProperties": false
+          },
+          "operations": {
+            "description": "With from: the design_apply operations that turn the copy into the variant.",
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "document" },
+                    "patch": {
+                      "type": "object",
+                      "properties": {
+                        "width": { "type": "integer", "minimum": 240, "maximum": 3840 },
+                        "height": { "type": "integer", "minimum": 240, "maximum": 3840 },
+                        "background": {
+                          "anyOf": [
+                            { "type": "string", "maxLength": 100 },
+                            { "type": "string", "pattern": "^\\$[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" }
+                          ]
+                        },
+                        "kit": {
+                          "type": "object",
+                          "properties": {
+                            "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                            "colors": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": { "type": "string", "maxLength": 100 }
+                            },
+                            "textStyles": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": {
+                                "type": "object",
+                                "properties": {
+                                  "fontFamily": { "type": "string", "maxLength": 160 },
+                                  "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                                  "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                                  "lineHeight": { "type": "number", "minimum": 0.5, "maximum": 5 }
+                                },
+                                "required": ["fontSize"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "spacing": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                            },
+                            "radii": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                            },
+                            "components": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": {
+                                "minItems": 1,
+                                "maxItems": 200,
+                                "type": "array",
+                                "items": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                              }
+                            },
+                            "references": {
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                  "source": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                                },
+                                "required": ["title", "source"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+                          },
+                          "required": ["title", "colors", "textStyles", "spacing", "radii", "id", "version"],
+                          "additionalProperties": false
+                        },
+                        "consistency": {
+                          "type": "object",
+                          "properties": {
+                            "mode": { "type": "string", "enum": ["advisory", "strict"] },
+                            "exceptions": {
+                              "maxItems": 100,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "nodeId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                                  "field": { "type": "string", "minLength": 1, "maxLength": 110 },
+                                  "value": {
+                                    "anyOf": [
+                                      { "type": "string", "maxLength": 1000 },
+                                      { "type": "number" },
+                                      {
+                                        "type": "object",
+                                        "propertyNames": { "type": "string" },
+                                        "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 1000 }, { "type": "number" }] }
+                                      }
+                                    ]
+                                  },
+                                  "reason": { "type": "string", "minLength": 8, "maxLength": 500 }
+                                },
+                                "required": ["nodeId", "field", "value", "reason"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["mode"],
+                          "additionalProperties": false
+                        },
+                        "tokens": {
+                          "type": "object",
+                          "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                          "additionalProperties": { "type": "string", "maxLength": 100 }
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["op", "patch"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": { "op": { "type": "string", "const": "detach" }, "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+                  "required": ["op", "id"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "duplicate" },
+                    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "newId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "x": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                    "y": { "type": "number", "minimum": -32000, "maximum": 32000 }
+                  },
+                  "required": ["op", "id", "newId"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "unset" },
+                    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "fields": {
+                      "minItems": 1,
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": { "type": "string", "enum": ["parentId", "textStyle", "bindings", "componentValues"] }
+                    }
+                  },
+                  "required": ["op", "id", "fields"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "update" },
+                    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "patch": {
+                      "type": "object",
+                      "properties": {},
+                      "additionalProperties": {},
+                      "description": "The layer fields to change: any design_show node field except id."
+                    }
+                  },
+                  "required": ["op", "id", "patch"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "insert" },
+                    "node": {
+                      "type": "object",
+                      "properties": {},
+                      "additionalProperties": {},
+                      "description": "The new layer, with the fields of a design_show node."
+                    },
+                    "index": { "type": "integer", "minimum": 0, "maximum": 1000 }
+                  },
+                  "required": ["op", "node"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": { "op": { "type": "string", "const": "delete" }, "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+                  "required": ["op", "id"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+          "expectedVersion": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+        },
+        "required": ["title"],
+        "additionalProperties": false
+      },
+      "annotations": { "readOnlyHint": false }
+    },
+    {
+      "name": "design_read",
+      "description": "Read a structured design document and its layer ids, with the latest version unless you name one. Read before editing and send its version as expectedVersion to design_apply or design_show. User edits also create versions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+          "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "annotations": { "readOnlyHint": true }
+    },
+    {
+      "name": "design_inspect",
+      "description": "Inspect a saved design without creating a version. Returns its image, computed layer bounds, contrast coverage and preview limitations. Use this when taking over from another model or reviewing user edits. nodeId crops the image to a visible layer; diagnostics still cover the whole screen.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+          "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+          "nodeId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "annotations": { "readOnlyHint": true }
+    },
+    {
+      "name": "design_validate",
+      "description": "Preflight a proposed document, or a batch against a saved design and expectedVersion, without saving. Optional intent is enforced exactly as on design_apply. Returns validation errors with field paths, measured layout shortages, candidate repair operations (validate before applying) and the resulting document. Use before a complex edit. Send document OR id, expectedVersion and operations.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "object",
+            "properties": {
+              "schemaVersion": { "type": "number", "const": 1 },
+              "width": { "type": "integer", "minimum": 240, "maximum": 3840 },
+              "height": { "type": "integer", "minimum": 240, "maximum": 3840 },
+              "background": { "type": "string", "maxLength": 100 },
+              "consistency": {
+                "description": "Strict mode blocks saves with kit drift. Exceptions require nodeId, field, exact diagnostic actual value and a reason. Never disable strict mode or add exceptions unless the user intends that change.",
+                "type": "object",
+                "properties": {
+                  "mode": { "type": "string", "enum": ["advisory", "strict"] },
+                  "exceptions": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "nodeId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                        "field": { "type": "string", "minLength": 1, "maxLength": 110 },
+                        "value": {
+                          "anyOf": [
+                            { "type": "string", "maxLength": 1000 },
+                            { "type": "number" },
+                            {
+                              "type": "object",
+                              "propertyNames": { "type": "string" },
+                              "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 1000 }, { "type": "number" }] }
+                            }
+                          ]
+                        },
+                        "reason": { "type": "string", "minLength": 8, "maxLength": 500 }
+                      },
+                      "required": ["nodeId", "field", "value", "reason"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["mode"],
+                "additionalProperties": false
+              },
+              "kit": {
+                "description": "Pinned project kit snapshot returned by design_kit_read. Read the project kit before creating screens.",
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                  "colors": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": { "type": "string", "maxLength": 100 }
+                  },
+                  "textStyles": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "fontFamily": { "type": "string", "maxLength": 160 },
+                        "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                        "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                        "lineHeight": { "type": "number", "minimum": 0.5, "maximum": 5 }
+                      },
+                      "required": ["fontSize"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "spacing": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                  },
+                  "radii": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                  },
+                  "components": {
+                    "type": "object",
+                    "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "additionalProperties": {
+                      "minItems": 1,
+                      "maxItems": 200,
+                      "type": "array",
+                      "items": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                    }
+                  },
+                  "references": {
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                        "source": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                      },
+                      "required": ["title", "source"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                  "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+                },
+                "required": ["title", "colors", "textStyles", "spacing", "radii", "id", "version"],
+                "additionalProperties": false
+              },
+              "tokens": {
+                "description": "Color tokens by name. A color field takes a CSS color or a $name token reference.",
+                "type": "object",
+                "propertyNames": { "type": "string" },
+                "additionalProperties": { "type": "string" }
+              },
+              "nodes": {
+                "maxItems": 1000,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "name": { "type": "string", "maxLength": 160 },
+                    "type": { "type": "string", "enum": ["frame", "text", "rectangle", "ellipse", "image", "icon"] },
+                    "parentId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "x": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                    "y": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                    "width": { "type": "number", "minimum": 1, "maximum": 16000 },
+                    "height": { "type": "number", "minimum": 1, "maximum": 16000 },
+                    "widthMode": {
+                      "description": "Fixed uses width in pixels; hug fits content; fill uses available parent space. Defaults to fixed.",
+                      "type": "string",
+                      "enum": ["fixed", "hug", "fill"]
+                    },
+                    "heightMode": {
+                      "description": "Fixed uses height in pixels; hug fits content; fill uses available parent space. Defaults to fixed.",
+                      "type": "string",
+                      "enum": ["fixed", "hug", "fill"]
+                    },
+                    "minWidth": { "type": "number", "minimum": 0, "maximum": 16000 },
+                    "minHeight": { "type": "number", "minimum": 0, "maximum": 16000 },
+                    "fill": { "type": "string", "maxLength": 100 },
+                    "stroke": { "type": "string", "maxLength": 100 },
+                    "strokeWidth": { "type": "number", "minimum": 0, "maximum": 2000 },
+                    "radius": { "type": "number", "minimum": 0, "maximum": 2000 },
+                    "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "text": { "type": "string", "maxLength": 20000 },
+                    "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                    "fontFamily": { "type": "string", "maxLength": 160 },
+                    "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                    "lineHeight": {
+                      "description": "Unitless line-height multiplier, such as 1.35 or 1.5, never pixels. Default 1.35.",
+                      "type": "number",
+                      "minimum": 0.5,
+                      "maximum": 5
+                    },
+                    "textAlign": { "type": "string", "enum": ["left", "center", "right"] },
+                    "src": { "type": "string", "maxLength": 500000 },
+                    "icon": {
+                      "description": "Lucide icon name for an icon layer, such as x, check, chevron-left or battery-full. fill is its line color, strokeWidth its line weight (default 2).",
+                      "type": "string",
+                      "maxLength": 64
+                    },
+                    "layout": { "type": "string", "enum": ["free", "horizontal", "vertical"] },
+                    "gap": { "type": "number", "minimum": 0, "maximum": 2000 },
+                    "padding": { "type": "number", "minimum": 0, "maximum": 2000 },
+                    "align": { "type": "string", "enum": ["start", "center", "end"] },
+                    "justify": { "type": "string", "enum": ["start", "center", "end", "space-between"] },
+                    "hidden": { "type": "boolean" },
+                    "locked": { "type": "boolean" },
+                    "component": { "description": "Mark a frame as a reusable main component. Nested components are not supported.", "type": "boolean" },
+                    "componentId": {
+                      "description": "Link an instance frame to a main component id. Its children are generated and follow the main component.",
+                      "type": "string",
+                      "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$"
+                    },
+                    "textStyle": { "description": "Text style name in the pinned design kit.", "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "bindings": {
+                      "description": "Bind spacing fields and radius to named tokens in the pinned kit.",
+                      "type": "object",
+                      "properties": {
+                        "padding": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "gap": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "minWidth": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "minHeight": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                        "radius": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" }
+                      },
+                      "additionalProperties": false
+                    },
+                    "componentProperties": {
+                      "description": "On a main component, expose named properties bound to a source layer field. options restricts allowed states.",
+                      "type": "object",
+                      "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "nodeId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                          "field": { "type": "string", "enum": ["text", "icon", "hidden", "fill", "opacity"] },
+                          "options": {
+                            "minItems": 1,
+                            "maxItems": 20,
+                            "type": "array",
+                            "items": { "anyOf": [{ "type": "string", "maxLength": 20000 }, { "type": "boolean" }, { "type": "number" }] }
+                          }
+                        },
+                        "required": ["nodeId", "field"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "componentValues": {
+                      "description": "On an instance, values for properties exposed by its main component, such as label or icon.",
+                      "type": "object",
+                      "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                      "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 20000 }, { "type": "boolean" }, { "type": "number" }] }
+                    }
+                  },
+                  "required": ["id", "type", "width", "height"],
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "required": ["schemaVersion", "width", "height", "nodes"],
+            "additionalProperties": false
+          },
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+          "expectedVersion": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+          "operations": {
+            "minItems": 1,
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "document" },
+                    "patch": {
+                      "type": "object",
+                      "properties": {
+                        "width": { "type": "integer", "minimum": 240, "maximum": 3840 },
+                        "height": { "type": "integer", "minimum": 240, "maximum": 3840 },
+                        "background": {
+                          "anyOf": [
+                            { "type": "string", "maxLength": 100 },
+                            { "type": "string", "pattern": "^\\$[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" }
+                          ]
+                        },
+                        "kit": {
+                          "type": "object",
+                          "properties": {
+                            "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                            "colors": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": { "type": "string", "maxLength": 100 }
+                            },
+                            "textStyles": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": {
+                                "type": "object",
+                                "properties": {
+                                  "fontFamily": { "type": "string", "maxLength": 160 },
+                                  "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                                  "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                                  "lineHeight": { "type": "number", "minimum": 0.5, "maximum": 5 }
+                                },
+                                "required": ["fontSize"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "spacing": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                            },
+                            "radii": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                            },
+                            "components": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": {
+                                "minItems": 1,
+                                "maxItems": 200,
+                                "type": "array",
+                                "items": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                              }
+                            },
+                            "references": {
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                  "source": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                                },
+                                "required": ["title", "source"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+                          },
+                          "required": ["title", "colors", "textStyles", "spacing", "radii", "id", "version"],
+                          "additionalProperties": false
+                        },
+                        "consistency": {
+                          "type": "object",
+                          "properties": {
+                            "mode": { "type": "string", "enum": ["advisory", "strict"] },
+                            "exceptions": {
+                              "maxItems": 100,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "nodeId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                                  "field": { "type": "string", "minLength": 1, "maxLength": 110 },
+                                  "value": {
+                                    "anyOf": [
+                                      { "type": "string", "maxLength": 1000 },
+                                      { "type": "number" },
+                                      {
+                                        "type": "object",
+                                        "propertyNames": { "type": "string" },
+                                        "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 1000 }, { "type": "number" }] }
+                                      }
+                                    ]
+                                  },
+                                  "reason": { "type": "string", "minLength": 8, "maxLength": 500 }
+                                },
+                                "required": ["nodeId", "field", "value", "reason"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["mode"],
+                          "additionalProperties": false
+                        },
+                        "tokens": {
+                          "type": "object",
+                          "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                          "additionalProperties": { "type": "string", "maxLength": 100 }
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["op", "patch"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": { "op": { "type": "string", "const": "detach" }, "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+                  "required": ["op", "id"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "duplicate" },
+                    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "newId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "x": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                    "y": { "type": "number", "minimum": -32000, "maximum": 32000 }
+                  },
+                  "required": ["op", "id", "newId"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "unset" },
+                    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "fields": {
+                      "minItems": 1,
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": { "type": "string", "enum": ["parentId", "textStyle", "bindings", "componentValues"] }
+                    }
+                  },
+                  "required": ["op", "id", "fields"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "update" },
+                    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "patch": {
+                      "type": "object",
+                      "properties": {},
+                      "additionalProperties": {},
+                      "description": "The layer fields to change: any design_show node field except id."
+                    }
+                  },
+                  "required": ["op", "id", "patch"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "insert" },
+                    "node": {
+                      "type": "object",
+                      "properties": {},
+                      "additionalProperties": {},
+                      "description": "The new layer, with the fields of a design_show node."
+                    },
+                    "index": { "type": "integer", "minimum": 0, "maximum": 1000 }
+                  },
+                  "required": ["op", "node"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": { "op": { "type": "string", "const": "delete" }, "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+                  "required": ["op", "id"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "intent": {
+            "type": "object",
+            "properties": {
+              "mode": { "type": "string", "enum": ["text-only", "fit-text"] },
+              "textIds": { "minItems": 1, "maxItems": 100, "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+              "layoutIds": { "maxItems": 100, "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } }
+            },
+            "required": ["mode", "textIds"],
+            "additionalProperties": false,
+            "description": "text-only preserves all fields except text and all computed bounds. fit-text permits geometry within textIds and layoutIds subtrees, preserving styles and other copy. Layout must fit before saving. No automatic repair."
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": { "readOnlyHint": true }
+    },
+    {
+      "name": "design_apply",
+      "description": "Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent changing a design uses this (or design_show with expectedVersion), never a separate file. Edit it with one atomic batch of layer operations: update properties, insert a layer, or delete a layer and its descendants. To replace the whole document, use design_show with its id and expectedVersion. Use stable layer ids. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. Optional intent enforces text-only preservation or fit-text within declared textIds/layoutIds. Rejected intent saves nothing. One successful batch creates one immutable version and shows its design card.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+          "expectedVersion": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+          "operations": {
+            "minItems": 1,
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "document" },
+                    "patch": {
+                      "type": "object",
+                      "properties": {
+                        "width": { "type": "integer", "minimum": 240, "maximum": 3840 },
+                        "height": { "type": "integer", "minimum": 240, "maximum": 3840 },
+                        "background": {
+                          "anyOf": [
+                            { "type": "string", "maxLength": 100 },
+                            { "type": "string", "pattern": "^\\$[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" }
+                          ]
+                        },
+                        "kit": {
+                          "type": "object",
+                          "properties": {
+                            "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                            "colors": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": { "type": "string", "maxLength": 100 }
+                            },
+                            "textStyles": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": {
+                                "type": "object",
+                                "properties": {
+                                  "fontFamily": { "type": "string", "maxLength": 160 },
+                                  "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                                  "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                                  "lineHeight": { "type": "number", "minimum": 0.5, "maximum": 5 }
+                                },
+                                "required": ["fontSize"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "spacing": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                            },
+                            "radii": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+                            },
+                            "components": {
+                              "type": "object",
+                              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                              "additionalProperties": {
+                                "minItems": 1,
+                                "maxItems": 200,
+                                "type": "array",
+                                "items": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                              }
+                            },
+                            "references": {
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                                  "source": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                                },
+                                "required": ["title", "source"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                            "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+                          },
+                          "required": ["title", "colors", "textStyles", "spacing", "radii", "id", "version"],
+                          "additionalProperties": false
+                        },
+                        "consistency": {
+                          "type": "object",
+                          "properties": {
+                            "mode": { "type": "string", "enum": ["advisory", "strict"] },
+                            "exceptions": {
+                              "maxItems": 100,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "nodeId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                                  "field": { "type": "string", "minLength": 1, "maxLength": 110 },
+                                  "value": {
+                                    "anyOf": [
+                                      { "type": "string", "maxLength": 1000 },
+                                      { "type": "number" },
+                                      {
+                                        "type": "object",
+                                        "propertyNames": { "type": "string" },
+                                        "additionalProperties": { "anyOf": [{ "type": "string", "maxLength": 1000 }, { "type": "number" }] }
+                                      }
+                                    ]
+                                  },
+                                  "reason": { "type": "string", "minLength": 8, "maxLength": 500 }
+                                },
+                                "required": ["nodeId", "field", "value", "reason"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["mode"],
+                          "additionalProperties": false
+                        },
+                        "tokens": {
+                          "type": "object",
+                          "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                          "additionalProperties": { "type": "string", "maxLength": 100 }
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["op", "patch"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": { "op": { "type": "string", "const": "detach" }, "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+                  "required": ["op", "id"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "duplicate" },
+                    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "newId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "x": { "type": "number", "minimum": -32000, "maximum": 32000 },
+                    "y": { "type": "number", "minimum": -32000, "maximum": 32000 }
+                  },
+                  "required": ["op", "id", "newId"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "unset" },
+                    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "fields": {
+                      "minItems": 1,
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": { "type": "string", "enum": ["parentId", "textStyle", "bindings", "componentValues"] }
+                    }
+                  },
+                  "required": ["op", "id", "fields"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "update" },
+                    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                    "patch": {
+                      "type": "object",
+                      "properties": {},
+                      "additionalProperties": {},
+                      "description": "The layer fields to change: any design_show node field except id."
+                    }
+                  },
+                  "required": ["op", "id", "patch"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": { "type": "string", "const": "insert" },
+                    "node": {
+                      "type": "object",
+                      "properties": {},
+                      "additionalProperties": {},
+                      "description": "The new layer, with the fields of a design_show node."
+                    },
+                    "index": { "type": "integer", "minimum": 0, "maximum": 1000 }
+                  },
+                  "required": ["op", "node"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": { "op": { "type": "string", "const": "delete" }, "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+                  "required": ["op", "id"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "intent": {
+            "type": "object",
+            "properties": {
+              "mode": { "type": "string", "enum": ["text-only", "fit-text"] },
+              "textIds": { "minItems": 1, "maxItems": 100, "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } },
+              "layoutIds": { "maxItems": 100, "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" } }
+            },
+            "required": ["mode", "textIds"],
+            "additionalProperties": false,
+            "description": "text-only preserves all fields except text and all computed bounds. fit-text permits geometry within textIds and layoutIds subtrees, preserving styles and other copy. Layout must fit before saving. No automatic repair."
+          }
+        },
+        "required": ["id", "expectedVersion", "operations"],
+        "additionalProperties": false
+      },
+      "annotations": { "readOnlyHint": false }
+    },
+    {
+      "name": "design_export",
+      "description": "Export an editable design version as its source JSON document or a standalone SVG. The SVG names its fonts without embedding them. Returns the filename, MIME type and file content. Save the content to a file when the user requests a downloadable export.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+          "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+          "format": { "type": "string", "enum": ["json", "svg"] }
+        },
+        "required": ["id", "format"],
+        "additionalProperties": false
+      },
+      "annotations": { "readOnlyHint": true }
+    },
+    {
+      "name": "design_delete",
+      "description": "Delete a design and every version of it from this Chat, with the comments on it. Only when the user asks to delete it, for example the variants they did not choose. Its cards in the Chat stay but no longer open it, and its id can't be used again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" } },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "annotations": { "readOnlyHint": false }
+    },
+    {
+      "name": "artifact_comments",
+      "description": "List the comments the user left on this Chat's designs and HTML artifacts, the open ones unless you ask for all. Each has an id, its original design version, optional nodeId identifying its layer, where on it the user pinned it (x and y as fractions of the design's screen) and its text. Comments remain available after their old preview is pruned. Read the latest design before editing the named layer; the pin coordinates describe the original version, not the current layout.",
+      "inputSchema": { "type": "object", "properties": { "all": { "type": "boolean" } }, "additionalProperties": false },
+      "annotations": { "readOnlyHint": true }
+    },
+    {
+      "name": "artifact_resolve_comment",
+      "description": "Mark one of the user's comments on a design or HTML artifact resolved once you have addressed it (usually after showing a revised version), with a short note on what you changed. The pin disappears from the canvas; the comment and your note remain in Chat history. The comment's id is in the user's message, or from artifact_comments.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "id": { "type": "string", "pattern": "^[a-f0-9]{8}$" }, "note": { "type": "string", "minLength": 1, "maxLength": 2000 } },
+        "required": ["id", "note"],
+        "additionalProperties": false
+      },
+      "annotations": { "readOnlyHint": false }
+    },
+    {
+      "name": "artifact_show",
+      "description": "Create or replace this Chat's one live HTML artifact page explaining a topic, report or interactive page. Edits update that same page in place; there are no variants or browsable versions. Use design_show for UI screens, mockups and visual design work. HTML artifacts stay available when Designs is off. For a diagram, put Mermaid text in <pre class=\"mermaid\">: Milagre draws it, no script needed. Send html for one page, or tabs to split it into tabs Milagre draws above it; a tab sent without html keeps the HTML it has, so you can change one tab and resend only that one. For photos, videos or any other file, save it in the Chat's Worktree, attach it in assets by name and absolute path, and use it in the HTML as assets/<name>; Milagre copies it, and the page keeps it while its HTML mentions it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "html": {
+            "description": "The page, one self-contained HTML document. Leave it out when you send tabs.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000000
+          },
+          "tabs": {
+            "description": "The page's tabs, in order, each its own self-contained HTML document. Leave it out for a page without tabs.",
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+                "title": { "type": "string", "minLength": 1, "maxLength": 60 },
+                "html": {
+                  "description": "This tab's self-contained HTML document. Leave it out to keep the tab's current HTML.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1000000
+                }
+              },
+              "required": ["id", "title"],
+              "additionalProperties": false
+            }
+          },
+          "assets": {
+            "description": "Photos, videos or any files the page shows, up to 95 MB each. Attach a file once: the page keeps the ones its HTML still mentions as assets/<name>.",
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$",
+                  "description": "The file's name on the page, such as demo.mp4; the HTML uses it as assets/demo.mp4."
+                },
+                "path": { "type": "string", "minLength": 1, "maxLength": 4096, "description": "The file's absolute path, inside this Chat's Worktree." }
+              },
+              "required": ["name", "path"],
+              "additionalProperties": false
+            }
+          },
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+          "width": { "type": "integer", "minimum": 240, "maximum": 3840 },
+          "height": { "type": "integer", "minimum": 240, "maximum": 3840 },
+          "expectedVersion": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+        },
+        "required": ["title"],
+        "additionalProperties": false
+      },
+      "annotations": { "readOnlyHint": false }
+    },
+    {
+      "name": "artifact_read",
+      "description": "Read this Chat's current HTML artifact page, or one of its tabs. Old artifact references open the current page. Use design_read for a structured design.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+          "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+          "tab": {
+            "description": "On a page with tabs, the id of the one tab to read; the others come back as their ids and titles.",
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "annotations": { "readOnlyHint": true }
+    },
+    {
+      "name": "artifact_list",
+      "description": "Read the summary of this Chat's one live explanatory HTML artifact page. Structured designs use design_list.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "annotations": { "readOnlyHint": true }
+    },
+    {
+      "name": "design_kit_read",
+      "description": "Read this Project's shared visual kit (default id project), latest or a pinned version. Read before designing or taking over another model. Returns colors, text styles, spacing, radii, component templates and references. null means no kit has been established. Pass the returned snapshot as document.kit; existing screens keep their pinned version.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+          "version": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+        },
+        "additionalProperties": false
+      },
+      "annotations": { "readOnlyHint": true }
+    },
+    {
+      "name": "design_kit_save",
+      "description": "Create or revise this Project's shared visual kit. Use the app's existing identity and confirmed decisions. expectedVersion is 0 for a new kit, otherwise read the latest first. Saves an immutable version without changing existing designs. To adopt it on a screen, explicitly apply a document patch with the returned kit snapshot and inspect the result. Components are ordinary layer arrays, each with one main frame whose id matches its map key.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+          "expectedVersion": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "kit": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "colors": {
+                "type": "object",
+                "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                "additionalProperties": { "type": "string", "maxLength": 100 }
+              },
+              "textStyles": {
+                "type": "object",
+                "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "fontFamily": { "type": "string", "maxLength": 160 },
+                    "fontSize": { "type": "number", "minimum": 1, "maximum": 1000 },
+                    "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+                    "lineHeight": { "type": "number", "minimum": 0.5, "maximum": 5 }
+                  },
+                  "required": ["fontSize"],
+                  "additionalProperties": false
+                }
+              },
+              "spacing": {
+                "type": "object",
+                "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+              },
+              "radii": {
+                "type": "object",
+                "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                "additionalProperties": { "type": "number", "minimum": 0, "maximum": 2000 }
+              },
+              "components": {
+                "type": "object",
+                "propertyNames": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$" },
+                "additionalProperties": {
+                  "minItems": 1,
+                  "maxItems": 200,
+                  "type": "array",
+                  "items": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                }
+              },
+              "references": {
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                    "source": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                  },
+                  "required": ["title", "source"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["title", "colors", "textStyles", "spacing", "radii"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["expectedVersion", "kit"],
+        "additionalProperties": false
+      },
+      "annotations": { "readOnlyHint": false }
+    },
+    {
+      "name": "design_list",
+      "description": "List the structured designs in the Chat granted to this local connection.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "annotations": { "readOnlyHint": true }
+    }
+  ],
+  "sources": {
+    "command-dispatcher.cjs": "7d03bc6c3e4c482510138f3e7e06b086d94e15668b157fee6b3bfdd0da9aa07a",
+    "chat-artifacts.cjs": "8f34b3de61d82cc26680e5b4619913ff10a6df442a7fe98d58da2b3eaf2d2bf0",
+    "design-kits.cjs": "32ac005846e8ab533003d9e0a821dac00eddc99af87653dcc93fc550bc289668",
+    "design-mcp-tools.cjs": "7cea97f20063cb0b449be6311bc7710c067a38182becfa1d01661e15c9844323",
+    "local-mcp-server.cjs": "892c044a65a286b952092d45de8831161e1cf2b65e283af3da651090ce2e14b5"
+  },
+  "families": [
+    "Albert Sans",
+    "Anton",
+    "Archivo",
+    "Barlow",
+    "Barlow Condensed",
+    "Bebas Neue",
+    "Besley",
+    "Big Shoulders",
+    "Bodoni Moda",
+    "Bricolage Grotesque",
+    "Chivo",
+    "EB Garamond",
+    "Epilogue",
+    "Figtree",
+    "Hanken Grotesk",
+    "Imbue",
+    "Jost",
+    "League Spartan",
+    "Libre Franklin",
+    "Literata",
+    "Newsreader",
+    "Onest",
+    "Public Sans",
+    "Red Hat Display",
+    "Red Hat Text",
+    "Rokkitt",
+    "Schibsted Grotesk",
+    "Source Serif 4",
+    "Stack Sans Headline",
+    "Stack Sans Text",
+    "STIX Two Text",
+    "TikTok Sans",
+    "Unbounded",
+    "Work Sans",
+    "Young Serif",
+    "Zilla Slab"
+  ],
+  "glyphs": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ ¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ‘’“”–—…•·→←↑↓€™\n\r\t"
+}
