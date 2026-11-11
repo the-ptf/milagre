@@ -108,7 +108,7 @@ impl ChatView {
         let transcript_events = cx.subscribe(&transcript, |this, _, event, cx| this.on_transcript_event(event, cx));
         let composer = cx.new(Composer::new);
         // The fixture Chat is mid-turn: 2m 18s in.
-        let running = Some(cx.new(|_| RunningRow::new("2m 18s")));
+        let running = Some(cx.new(|_| RunningRow::new(std::time::Duration::from_secs(138))));
         transcript.update(cx, |transcript, cx| transcript.set_running_row(running.is_some(), cx));
         composer.update(cx, |composer, cx| composer.set_running(running.is_some(), cx));
         let send = cx.subscribe(&composer, |this, composer, event: &ComposerEvent, cx| match event {
@@ -234,7 +234,7 @@ impl ChatView {
         self.close_undo(cx);
         self.family_open = false;
         if running != self.running.is_some() {
-            self.running = running.then(|| cx.new(|_| RunningRow::new("2m 18s")));
+            self.running = running.then(|| cx.new(|_| RunningRow::new(std::time::Duration::from_secs(138))));
             self.transcript.update(cx, |transcript, cx| transcript.set_running_row(running, cx));
             self.composer.update(cx, |composer, cx| composer.set_running(running, cx));
         }

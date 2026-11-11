@@ -185,6 +185,9 @@ pub(super) const FILES: &[(&str, &[u8])] = &[
     ("logos/codex.svg", include_bytes!("../../assets/logos/codex.svg")),
     ("logos/kiro-mono.svg", include_bytes!("../../assets/logos/kiro-mono.svg")),
     ("logos/kiro.svg", include_bytes!("../../assets/logos/kiro.svg")),
+    ("ui/running-leg-left.svg", include_bytes!("../../assets/ui/running-leg-left.svg")),
+    ("ui/running-leg-right.svg", include_bytes!("../../assets/ui/running-leg-right.svg")),
+    ("ui/running-star.svg", include_bytes!("../../assets/ui/running-star.svg")),
     ("ui/spinner-arc.svg", include_bytes!("../../assets/ui/spinner-arc.svg")),
     ("ui/spinner-track.svg", include_bytes!("../../assets/ui/spinner-track.svg")),
 ];
