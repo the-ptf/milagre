@@ -9,9 +9,10 @@
 //! - `picker.rs`: our own colour picker; `preview.rs`: the window miniature.
 //! - This file: the page. Local store only (`SettingsStore`), no daemon calls, no persistence.
 //!
-//! Not live yet: the interface and monospace fonts, the chat and code sizes, the chat width, the sidebar size,
-//! provider icons and Panel animations are stored and shown in the preview, but the real views still read
-//! `SANS`, `CHAT_TEXT` and `CODE_TEXT` constants (a later package wires them through the theme module).
+//! The choices are live: [`model::apply`] turns the stored options into `theme::live::LiveStyle` (the interface and
+//! monospace fonts, the Chat and code sizes, the Chat width, the sidebar size, the provider icon style and the sidebar
+//! usage layout) and refreshes the windows once; the views read them in `render` (`theme/live.rs`). Not live: Panel
+//! animations (the motion scale is stored and shown in the preview) and the Dawn intro.
 
 pub mod color;
 pub mod custom;
@@ -59,6 +60,30 @@ const BAD_PASTE: &str = "That isn't a Milagre theme. It needs light and dark, ea
 /// Seeds the theme engine: marks the default state as applied (the window already wears it) and re-themes the
 /// window whenever the Appearance state of the store changes.
 pub fn init(cx: &mut App) {
+    // Snapshot aid (never in tests): `MILAGRE_GPUI_OPTIONS=chat_size=larger,chat_width=wide,...` starts with those
+    // Appearance options (`ui_font`, `mono_font`, `sidebar_size`, `chat_size`, `code_size`, `chat_width`,
+    // `sidebar_usage`, `provider_icons`), so a snapshot shows the real views at them.
+    if !cfg!(test)
+        && let Ok(list) = std::env::var("MILAGRE_GPUI_OPTIONS")
+    {
+        cx.update_global::<SettingsStore, _>(|store, _| {
+            let options = &mut store.appearance.options;
+            for (key, value) in list.split(',').filter_map(|pair| pair.split_once('=')) {
+                let value = value.to_string();
+                match key {
+                    "ui_font" => options.ui_font = value,
+                    "mono_font" => options.mono_font = value,
+                    "sidebar_size" => options.sidebar_size = value,
+                    "chat_size" => options.chat_size = value,
+                    "code_size" => options.code_size = value,
+                    "chat_width" => options.chat_width = value,
+                    "sidebar_usage" => options.sidebar_usage = value,
+                    "provider_icons" => options.provider_icons = value,
+                    _ => {}
+                }
+            }
+        });
+    }
     let state = cx.global::<SettingsStore>().appearance.clone();
     model::mark_applied(&state, cx);
     cx.observe_global::<SettingsStore>(|cx| {

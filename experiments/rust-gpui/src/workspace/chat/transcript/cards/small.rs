@@ -388,8 +388,8 @@ impl Transcript {
                         .border_color(theme.line)
                         .px_3()
                         .py_2()
-                        .text_size(px(crate::theme::CHAT_TEXT.size))
-                        .line_height(px(crate::theme::CHAT_TEXT.line_height))
+                        .text_size(px(crate::theme::chat_text().size))
+                        .line_height(px(crate::theme::chat_text().line_height))
                         .text_color(theme.ink)
                         .child(card.body.clone()),
                 )

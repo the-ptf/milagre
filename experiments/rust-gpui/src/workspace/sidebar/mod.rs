@@ -57,7 +57,7 @@ use gpui::{
 use crate::data::{Data, Polled, poll_once};
 use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::lists::order::ChatOrder;
-use crate::theme::{ActiveTheme, CONTROL_MD, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_13, TextStepExt, Theme};
+use crate::theme::{ActiveTheme, CONTROL_MD, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_13, TextStepExt, Theme, sidebar_step};
 use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, SectionLabel};
 use crate::workspace::chat::pills::bookmark::FamilyChat;
 use crate::workspace::chrome::{self, NoDrag};
@@ -632,7 +632,7 @@ fn destination(id: &'static str, label: &'static str, icon: IconName, dot: bool,
             .cursor_pointer()
             .hover(move |style| style.bg(hover))
             .child(Icon::new(icon).color(theme.ink3))
-            .child(div().flex_1().text_step(TEXT_13).font_weight(FontWeight::MEDIUM).text_color(theme.ink2).child(label))
+            .child(div().flex_1().text_step(sidebar_step(TEXT_13)).font_weight(FontWeight::MEDIUM).text_color(theme.ink2).child(label))
             .when(dot, |el| el.child(dot_mark(theme.accent))),
     )
 }

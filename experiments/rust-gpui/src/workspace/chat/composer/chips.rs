@@ -9,7 +9,7 @@ use gpui::{
 use gpui_component::input::{InlineToken, InlineTokenContext};
 
 use super::mentions::MentionSource;
-use super::{PROMPT_LINE_HEIGHT, PROMPT_TEXT_SIZE};
+use super::{PROMPT_LINE_HEIGHT, prompt_text_size};
 use crate::logic::files::file_kinds::{IMAGE_COLOR, file_kind};
 use crate::logic::prompts::parts::{PromptPart, image_label, skill_label};
 use crate::theme::{ActiveTheme, RADIUS_CHIP, RADIUS_INLINE, Theme};
@@ -142,7 +142,7 @@ pub fn render_chip(context: &InlineTokenContext, _window: &mut Window, cx: &mut 
     let theme: Theme = *cx.theme();
     let token = context.token();
     let kind = ChipKind::from_token_id(token.id()).unwrap_or(ChipKind::File(token.text().to_string()));
-    let text_size = px(PROMPT_TEXT_SIZE * CHIP_EM);
+    let text_size = px(prompt_text_size() * CHIP_EM);
     let (border, fill, ink) = match &kind {
         ChipKind::Skill(_) => (with_alpha(theme.accent, SKILL_BORDER_ALPHA), theme.accent_tint, theme.accent_ink),
         ChipKind::Computer { online: false, .. } => (theme.line_strong, theme.hover, theme.ink3),

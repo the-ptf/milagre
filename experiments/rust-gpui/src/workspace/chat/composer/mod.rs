@@ -76,13 +76,14 @@ use crate::logic::prompts::parts::{
     ComposerQuote, composer_quote, format_chat_mention, format_computer_mention, format_file_mention, quoted_message,
 };
 use crate::theme::{
-    ActiveTheme, CHAT_TEXT, CONTROL_MD, CONTROL_XS, RADIUS_CONTROL, RADIUS_INLINE, RADIUS_WINDOW, TEXT_11, TEXT_12, TextStepExt, Theme,
+    ActiveTheme, CONTROL_MD, CONTROL_XS, RADIUS_CONTROL, RADIUS_INLINE, RADIUS_WINDOW, TEXT_11, TEXT_12, TextStepExt, Theme,
 };
 use crate::ui::{Icon, IconName, IconSize};
-use crate::workspace::chat::transcript::COLUMN_WIDTH;
 
 /// The prompt's text: the Chat size plus one on a 20px line (`text-[calc(var(--chat-size)+1px)] leading-5`).
-pub const PROMPT_TEXT_SIZE: f32 = CHAT_TEXT.size + 1.0;
+pub fn prompt_text_size() -> f32 {
+    crate::theme::prompt_text_size()
+}
 pub const PROMPT_LINE_HEIGHT: f32 = 20.0;
 /// The prompt box: 68 at rest (`min-h-[68px]`), growing with its lines to 100 (`maxHeight={100}`), then scrolling.
 const EDITOR_MIN_HEIGHT: f32 = 68.0;
@@ -826,7 +827,7 @@ impl Composer {
             .flex()
             .items_center()
             .gap_2()
-            .text_size(px(PROMPT_TEXT_SIZE))
+            .text_size(px(prompt_text_size()))
             .line_height(px(PROMPT_LINE_HEIGHT))
             .text_color(theme.ink3)
             .child(
@@ -881,7 +882,7 @@ impl Render for Composer {
         let textarea = Textarea::new(&state)
             .appearance(false)
             .h(height)
-            .text_size(px(PROMPT_TEXT_SIZE))
+            .text_size(px(prompt_text_size()))
             .line_height(px(PROMPT_LINE_HEIGHT))
             .text_color(theme.ink)
             .token(chips::render_chip)
@@ -965,7 +966,7 @@ impl Render for Composer {
             .flex_col()
             .gap(px(QUEUE_GAP))
             .w_full()
-            .max_w(px(COLUMN_WIDTH))
+            .max_w(px(crate::theme::column_width()))
             .when_some(queue, |el, queue| el.child(queue))
             .when(starters_shown, |el| el.child(self.render_starters(cx)))
             .child(bar)

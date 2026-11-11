@@ -456,7 +456,7 @@ impl Render for PillRow {
         let right: f32 = right_kinds.iter().map(|kind| self.pill_width(*kind)).sum::<f32>()
             + 8.0 * (right_kinds.len() + usize::from(self.jump)) as f32
             + if self.jump { f32::from(crate::theme::CONTROL_SM) } else { 0.0 };
-        self.subchats_budget = (crate::workspace::chat::transcript::COLUMN_WIDTH - right - 8.0).max(0.0);
+        self.subchats_budget = (crate::theme::column_width() - right - 8.0).max(0.0);
         let mut left = div().flex().items_end().gap_2();
         let mut right = div().flex().items_end().justify_end().gap_2();
         if self.is_shown(Kind::Subchats) {
@@ -480,16 +480,7 @@ impl Render for PillRow {
             .flex()
             .justify_center()
             .px_4()
-            .child(
-                div()
-                    .w_full()
-                    .max_w(px(crate::workspace::chat::transcript::COLUMN_WIDTH))
-                    .flex()
-                    .justify_between()
-                    .items_end()
-                    .child(left)
-                    .child(right),
-            )
+            .child(div().w_full().max_w(px(crate::theme::column_width())).flex().justify_between().items_end().child(left).child(right))
     }
 }
 

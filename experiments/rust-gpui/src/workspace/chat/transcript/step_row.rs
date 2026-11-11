@@ -24,7 +24,7 @@ use gpui::{
 
 use super::summary::{self, Source};
 use crate::data::{ChatStep, Millis, StepKind, StepStatus};
-use crate::theme::{CODE_TEXT, CONTROL_XS, RADIUS_CONTROL, RADIUS_INLINE, TEXT_11, TEXT_12, TextStepExt, Theme, mono};
+use crate::theme::{CONTROL_XS, RADIUS_CONTROL, RADIUS_INLINE, TEXT_11, TEXT_12, TextStepExt, Theme, mono};
 use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconName, IconSize, motion};
 
 /// A click handler the transcript made for a row.
@@ -110,7 +110,7 @@ pub fn title(text: &str, key: (usize, usize), color: Rgba, running: bool, theme:
         let id = ElementId::from((SharedString::from(format!("shimmer-{}-{}-{n}", key.0, key.1)), 0usize));
         let piece = div().flex_none().whitespace_nowrap().child(text);
         if code {
-            let chip = piece.px(px(4.0)).rounded(RADIUS_INLINE).bg(theme.field).font_family(mono()).text_step(CODE_TEXT);
+            let chip = piece.px(px(4.0)).rounded(RADIUS_INLINE).bg(theme.field).font_family(mono()).text_step(crate::theme::code_text());
             tinted(chip, id, theme.ink, running, theme)
         } else {
             tinted(piece, id, color, running, theme)
@@ -320,7 +320,7 @@ fn code_block(label: &str, text: &str, theme: &Theme) -> AnyElement {
                 .pb(px(8.0))
                 .pt(px(2.0))
                 .font_family(mono())
-                .text_step(CODE_TEXT)
+                .text_step(crate::theme::code_text())
                 .text_color(theme.ink)
                 .child(text.trim_end_matches('\n').to_string()),
         )
@@ -367,6 +367,6 @@ fn diff_placeholder(step: &ChatStep, diff: &str, theme: &Theme) -> AnyElement {
                 .child(div().text_color(theme.red_ink).child(format!("-{removed}")))
                 .child("Diff view comes with the Changes package"),
         )
-        .child(div().pb(px(6.0)).font_family(mono()).text_step(CODE_TEXT).text_color(theme.ink).children(lines))
+        .child(div().pb(px(6.0)).font_family(mono()).text_step(crate::theme::code_text()).text_color(theme.ink).children(lines))
         .into_any_element()
 }

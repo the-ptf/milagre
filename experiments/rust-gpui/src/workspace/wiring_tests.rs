@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use gpui::{Modifiers, TestAppContext, point, px};
+use gpui::{BorrowAppContext as _, Modifiers, TestAppContext, point, px};
 
 use crate::data::{Data, FixtureSource};
 use crate::notices::model::UpdateStatus;
@@ -158,4 +158,68 @@ fn the_diff_bars_refresh_reads_the_worktree_again(cx: &mut TestAppContext) {
     settle(cx);
     assert_ne!(pointer(cx), before, "Refresh hands the diff a fresh read");
     assert!(cx.debug_bounds("diff-refresh").is_some(), "and the diff stays open on the same file");
+}
+
+fn set_options(cx: &mut gpui::VisualTestContext, change: impl FnOnce(&mut crate::settings::appearance::AppearanceOptions)) {
+    cx.update(|_, cx| {
+        cx.update_global::<crate::settings::SettingsStore, _>(|store, _| change(&mut store.appearance.options));
+    });
+    settle(cx);
+}
+
+#[test]
+fn the_live_style_follows_the_options_and_falls_back_to_the_system_font() {
+    use crate::settings::appearance::AppearanceOptions;
+    use crate::theme::SANS;
+    let defaults = AppearanceOptions::default().live_style(&|_| true);
+    assert_eq!(defaults, crate::theme::live::LiveStyle::default(), "the defaults are today's look");
+    let options = AppearanceOptions {
+        ui_font: "inter".into(),
+        mono_font: "jetbrains-mono".into(),
+        chat_size: "larger".into(),
+        code_size: "large".into(),
+        sidebar_size: "larger".into(),
+        chat_width: "custom".into(),
+        chat_width_px: 5000,
+        provider_icons: "simplified".into(),
+        sidebar_usage: "compact".into(),
+        ..AppearanceOptions::default()
+    };
+    let live = options.live_style(&|family| family == "Inter" || family == "JetBrains Mono");
+    assert_eq!((live.ui_font, live.mono_font), ("Inter", Some("JetBrains Mono")));
+    assert_eq!((live.chat_size, live.code_size, live.sidebar_delta, live.chat_width), (17.0, 14.0, 2.0, Some(2400.0)));
+    assert!(live.simplified_icons && live.compact_usage);
+    let missing = options.live_style(&|_| false);
+    assert_eq!((missing.ui_font, missing.mono_font), (SANS, None), "a font that is not installed is the system font");
+}
+
+#[gpui::test]
+fn the_appearance_choices_reach_the_real_views_and_rebuild_them_once(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    let transcript = workspace.read_with(cx, |w, cx| w.chat.read(cx).transcript.clone());
+    let composer_width = |cx: &mut gpui::VisualTestContext| testing::bounds(cx, "composer").size.width;
+    let narrow = composer_width(cx);
+    assert_eq!(narrow, px(crate::theme::live::DEFAULT_COLUMN));
+    let usage_row = |cx: &mut gpui::VisualTestContext| cx.debug_bounds("usage-row-Claude");
+    assert!(usage_row(cx).is_some(), "expanded usage rows at the start");
+
+    let before = transcript.read_with(cx, |t, _| t.item_renders());
+    set_options(cx, |options| {
+        options.chat_size = "larger".into();
+        options.chat_width = "wide".into();
+        options.sidebar_usage = "compact".into();
+        options.sidebar_size = "large".into();
+    });
+    assert_eq!(crate::theme::chat_text().size, 17.0);
+    assert_eq!(crate::theme::prompt_text_size(), 18.0);
+    assert!(composer_width(cx) > narrow, "a wider Chat column widens the composer");
+    assert!(usage_row(cx).is_none() && cx.debug_bounds("usage-mark-Claude").is_some(), "compact usage draws marks");
+    assert!(transcript.read_with(cx, |t, _| t.item_renders()) > before, "the change rebuilt the transcript");
+    // The list re-measures its items over a frame or two; after that nothing rebuilds it per frame.
+    cx.run_until_parked();
+    let after = transcript.read_with(cx, |t, _| t.item_renders());
+    for _ in 0..3 {
+        cx.run_until_parked();
+    }
+    assert_eq!(transcript.read_with(cx, |t, _| t.item_renders()), after, "once, not per frame");
 }

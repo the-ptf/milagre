@@ -28,9 +28,7 @@ use gpui_component::input::InputState;
 
 use crate::data::ChatStep;
 use crate::logic::lists::chat_display::ToolCallDisplay;
-use crate::theme::{
-    ActiveTheme, Appearance, CHAT_TEXT, CODE_TEXT, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_WINDOW, TEXT_12, TextStepExt, Theme, mono,
-};
+use crate::theme::{ActiveTheme, Appearance, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_WINDOW, TEXT_12, TextStepExt, Theme, mono};
 use crate::ui::markdown::stream::{close_open_markdown, split_streaming_blocks};
 use crate::ui::markdown::{FenceHooks, LinkHandler, Markdown, extensions_with, open_with_system, plain_text_source, text_view_style};
 use crate::ui::selection::{Flavor, Plain, join, plain_text};
@@ -50,7 +48,15 @@ pub use cards::Card;
 pub use quote::{Passage, TranscriptEvent};
 pub use summary::Entry;
 
-/// The Chat content column, centred in the Chat column.
+/// What the cached markdown style was built from: the theme's scheme and the Appearance choices it bakes in (the Chat
+/// and code sizes, the monospace family).
+type StyleKey = (Appearance, u32, u32, &'static str);
+
+fn style_key(theme: &Theme) -> StyleKey {
+    (theme.appearance, crate::theme::chat_text().size.to_bits(), crate::theme::code_text().size.to_bits(), mono())
+}
+
+/// The Chat content column at the default width, centred in the Chat column. The chosen width is [`column_width`].
 pub const COLUMN_WIDTH: f32 = 536.0;
 /// Room left under the last item for the floating pills.
 pub const BOTTOM_CLEARANCE: f32 = 48.0;
@@ -169,7 +175,7 @@ pub struct Transcript {
     views: HashMap<usize, Views>,
     streams: HashMap<usize, Stream>,
     style: TextViewStyle,
-    style_for: Appearance,
+    style_for: StyleKey,
     extensions: MarkdownExtensions,
     /// The same rules for the block being written: a diagram stays code and a generative UI's buttons are off.
     live_extensions: MarkdownExtensions,
@@ -264,8 +270,8 @@ impl Transcript {
             probe: None,
             views: HashMap::new(),
             streams: HashMap::new(),
-            style: text_view_style(&theme, CHAT_TEXT.size),
-            style_for: theme.appearance,
+            style: text_view_style(&theme, crate::theme::chat_text().size),
+            style_for: style_key(&theme),
             extensions: extensions_with(on_link.clone(), hooks.clone()),
             live_extensions: extensions_with(on_link.clone(), FenceHooks { streaming: true, ..hooks }),
             on_link,
@@ -671,9 +677,12 @@ impl Transcript {
 
     fn refresh_style(&mut self, cx: &Context<Self>) {
         let theme = cx.theme();
-        if theme.appearance != self.style_for {
-            self.style = text_view_style(theme, CHAT_TEXT.size);
-            self.style_for = theme.appearance;
+        let key = style_key(theme);
+        if key != self.style_for {
+            self.style = text_view_style(theme, crate::theme::chat_text().size);
+            self.style_for = key;
+            // Item heights were measured at the old sizes and fonts.
+            self.list_state().remeasure();
         }
     }
 
@@ -691,7 +700,7 @@ impl Transcript {
             .min_w_0()
             .flex()
             .flex_col()
-            .gap(px(CHAT_TEXT.size * 0.5))
+            .gap(px(crate::theme::chat_text().size * 0.5))
             .when(!main_empty, |el| el.child(markdown(&views.main, &self.extensions)))
             .children(views.live.as_ref().map(|live| markdown(live, &self.live_extensions)))
             .child(
@@ -754,7 +763,7 @@ impl Transcript {
         self.framed(ix, in_list, top, content)
     }
 
-    /// An item's content in the column: centred, `COLUMN_WIDTH` wide at most, `top` below the item before it.
+    /// An item's content in the column: centred, `column_width()` wide at most, `top` below the item before it.
     fn framed(&self, ix: usize, in_list: bool, top: f32, content: AnyElement) -> AnyElement {
         let painted = self.painted.clone();
         div()
@@ -765,7 +774,7 @@ impl Transcript {
             .justify_center()
             .px_4()
             .pt(px(top))
-            .child(div().w_full().max_w(px(COLUMN_WIDTH)).min_w_0().child(content))
+            .child(div().w_full().max_w(px(crate::theme::column_width())).min_w_0().child(content))
             .when(in_list, |row| {
                 row.child(
                     canvas(move |bounds, _, _| _ = painted.borrow_mut().rows.insert(ix, bounds), |_, _, _, _| {})
@@ -853,7 +862,7 @@ impl Transcript {
                     .border_color(theme.line)
                     .p(px(8.0))
                     .font_family(mono())
-                    .text_step(CODE_TEXT)
+                    .text_step(crate::theme::code_text())
                     .text_color(theme.ink)
                     .child(approval.command.clone()),
             )
@@ -962,8 +971,8 @@ fn user_message(text: AnyElement, theme: &Theme) -> impl IntoElement + use<> {
             .p(px(12.0))
             .rounded(RADIUS_WINDOW)
             .bg(theme.field)
-            .text_size(px(CHAT_TEXT.size))
-            .line_height(px(CHAT_TEXT.line_height))
+            .text_size(px(crate::theme::chat_text().size))
+            .line_height(px(crate::theme::chat_text().line_height))
             .text_color(theme.ink)
             .child(text),
     )

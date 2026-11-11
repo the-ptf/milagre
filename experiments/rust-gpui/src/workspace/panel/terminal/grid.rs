@@ -28,10 +28,12 @@ use gpui::{
 use super::colors::Palette;
 use super::session::{GridSize, Listener};
 use super::view::TerminalView;
-use crate::theme::{CODE_TEXT, mono};
+use crate::theme::mono;
 
 /// The Code size plus half a pixel, as xterm ran (`codeFontSize` in `terminal-sessions.ts`).
-pub const FONT_SIZE: f32 = CODE_TEXT.size + 0.5;
+pub fn font_size() -> f32 {
+    crate::theme::code_text().size + 0.5
+}
 /// xterm's `lineHeight: 1.2`.
 pub const LINE_HEIGHT_RATIO: f32 = 1.2;
 /// A beam or underline cursor's thickness.
@@ -219,11 +221,12 @@ pub struct Metrics {
 
 impl Metrics {
     pub fn measure(window: &Window) -> Self {
-        let font_size = px(FONT_SIZE);
+        let size = font_size();
+        let font_size = px(size);
         let text = window.text_system();
         let id = text.resolve_font(&font(mono()));
         let cell_width = text.advance(id, font_size, 'm').map(|s| s.width).unwrap_or(font_size * 0.6);
-        Self { font_size, cell_width, line_height: px((FONT_SIZE * LINE_HEIGHT_RATIO).round()) }
+        Self { font_size, cell_width, line_height: px((size * LINE_HEIGHT_RATIO).round()) }
     }
 
     /// How many cells fit in `bounds` (at least 2 columns and 1 line).

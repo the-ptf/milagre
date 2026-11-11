@@ -11,7 +11,7 @@ use gpui::{AnyElement, App, Bounds, FontWeight, Pixels, Rgba, Window, canvas, di
 
 use crate::data::{AccountUsage, UsageSnapshot, UsageStatus};
 use crate::logic::usage::report::{UsageTone, format_percent, usage_tone, visible_providers};
-use crate::theme::{TEXT_12, TEXT_13, TextStepExt, Theme};
+use crate::theme::{TEXT_12, TEXT_13, TextStepExt, Theme, sidebar_step};
 use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, ProviderLogo};
 
 const DONE_HEIGHT: f32 = 40.0;
@@ -70,9 +70,11 @@ pub fn bottom_group(
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
         .child(Icon::new(IconName::ArrowRight01).color(theme.ink3))
-        .child(div().text_step(TEXT_13).font_weight(FontWeight::MEDIUM).text_color(theme.ink2).child("Done"))
-        .child(div().text_step(TEXT_13).font_weight(FontWeight::MEDIUM).text_color(theme.ink3).child(done_count.to_string()));
+        .child(div().text_step(sidebar_step(TEXT_13)).font_weight(FontWeight::MEDIUM).text_color(theme.ink2).child("Done"))
+        .child(div().text_step(sidebar_step(TEXT_13)).font_weight(FontWeight::MEDIUM).text_color(theme.ink3).child(done_count.to_string()));
     let report = usage.report();
+    // Settings › Appearance › Sidebar usage "Compact": a mark and its fullest window per provider, in a row.
+    let compact = crate::theme::live::compact_usage();
     let usage = div()
         .id("sidebar-usage")
         .debug_selector(|| "sidebar-usage".to_string())
@@ -80,7 +82,12 @@ pub fn bottom_group(
         .flex_col()
         .flex_none()
         .py(px(8.0))
-        .children(visible_providers(&report).into_iter().map(|row| usage_row(row, theme)));
+        .when(compact, |el| el.flex_row().items_center().justify_center().gap(px(2.0)))
+        .children(
+            visible_providers(&report)
+                .into_iter()
+                .map(|row| if compact { usage_mark(row, theme).into_any_element() } else { usage_row(row, theme).into_any_element() }),
+        );
     div()
         .flex()
         .flex_col()
@@ -136,6 +143,37 @@ fn footer_bar(footer: Footer, theme: &Theme) -> impl IntoElement + use<> {
 }
 
 const USAGE_ROW_HEIGHT: f32 = 32.0;
+
+/// The compact layout's cell (`sidebar-usage-row` in `data-usage-compact`): 32 wide, the provider mark at 14 and its
+/// fullest window as a 16 by 2 bar `bottom-1`, centred.
+fn usage_mark(row: &AccountUsage, theme: &Theme) -> impl IntoElement + use<> {
+    let name = row.provider.name();
+    let peak = row.windows.iter().map(|w| w.used_percent).fold(0.0_f64, f64::max);
+    let fill = if peak <= 0.0 { 0.0 } else { (16.0 * peak as f32 / 100.0).max(2.0) };
+    let fill_color = meter_fill(peak, theme);
+    div()
+        .relative()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(px(USAGE_ROW_HEIGHT))
+        .debug_selector(move || format!("usage-mark-{name}"))
+        .child(ProviderLogo::new(row.provider).size(14.0))
+        .when(!row.windows.is_empty(), |el| {
+            el.child(
+                div()
+                    .absolute()
+                    .bottom(px(4.0))
+                    .left(px(8.0))
+                    .w(px(16.0))
+                    .h(px(2.0))
+                    .rounded(px(1.0))
+                    .bg(theme.line)
+                    .child(div().w(px(fill)).h_full().rounded(px(1.0)).bg(fill_color)),
+            )
+        })
+}
 const METER_WIDTH: f32 = 68.0;
 
 /// One provider row: logo at x 12, name at x 40, then one or two meters ending at x 276.

@@ -7,6 +7,7 @@
 use gpui::{App, Hsla, ImgResourceLoader, IntoElement, ObjectFit, RenderOnce, Resource, StyledImage, Window, img, prelude::*, px, svg};
 
 use crate::data::Provider;
+use crate::theme::ActiveTheme;
 
 #[derive(IntoElement)]
 pub struct ProviderLogo {
@@ -57,8 +58,15 @@ impl Provider {
 }
 
 impl RenderOnce for ProviderLogo {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let size = px(self.size);
+        // Settings › Appearance › Provider icons "Simplified": the one-colour mark in the surrounding text colour
+        // (`providerIcons === "simplified"` in `ProviderLogo.tsx`).
+        if self.mono.is_none() && crate::theme::live::simplified_icons() {
+            // `ink-2`, the colour of the controls and rows that hold a mark.
+            let color = cx.theme().ink2;
+            return svg().path(self.provider.mono_logo_path()).flex_none().size(size).text_color(color).into_any_element();
+        }
         match self.mono {
             Some(color) => svg().path(self.provider.mono_logo_path()).flex_none().size(size).text_color(color).into_any_element(),
             // Decoded once by GPUI's image cache (resvg keeps the gradient, mask and blur filters).

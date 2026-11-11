@@ -18,7 +18,7 @@ use gpui_base::TextSelection;
 
 use super::{Item, Transcript};
 use crate::logic::prompts::parts::{QuoteFrom, quote_source};
-use crate::theme::{CHAT_TEXT, CONTROL_MD, RADIUS_CONTROL, TEXT_12, TEXT_13, TextStepExt, Theme};
+use crate::theme::{CONTROL_MD, RADIUS_CONTROL, TEXT_12, TEXT_13, TextStepExt, Theme};
 
 /// The button's offset from the selection's end, and its size for keeping it inside (`h-8`, about 140 wide).
 const GAP: f32 = 6.0;
@@ -106,7 +106,7 @@ impl Transcript {
 /// Where the button goes in `area` (the transcript's bounds, window coordinates): under the selection's end, or
 /// above it when that would leave the area; kept inside on the left and right. Relative to `area`'s origin.
 pub fn button_origin(at: Point<Pixels>, area: Bounds<Pixels>) -> Point<Pixels> {
-    let line = px(CHAT_TEXT.line_height / 2.0);
+    let line = px(crate::theme::chat_text().line_height / 2.0);
     let left = (at.x - px(NUDGE_LEFT)).min(area.right() - px(BUTTON_WIDTH + EDGE)).max(area.left() + px(EDGE));
     let below = at.y + line + px(GAP);
     let top =

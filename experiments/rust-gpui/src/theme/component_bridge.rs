@@ -17,7 +17,7 @@ use std::rc::Rc;
 use gpui::{App, Hsla, Rgba, SharedString};
 use gpui_component::{ThemeConfig, ThemeConfigColors, ThemeMode};
 
-use super::{Appearance, CODE_TEXT, RADIUS_CONTROL, RADIUS_WINDOW, SANS, Theme, mono, to_hex};
+use super::{Appearance, RADIUS_CONTROL, RADIUS_WINDOW, Theme, code_text, mono, to_hex, ui_font};
 
 /// gpui-component's general radius: buttons, inputs, menus, list rows (`rounded-control`).
 pub const COMPONENT_RADIUS: gpui::Pixels = RADIUS_CONTROL;
@@ -82,10 +82,10 @@ pub fn config(theme: &Theme) -> ThemeConfig {
         Appearance::Dark => "Milagre Blue Dark".into(),
     };
     config.mode = mode(theme.appearance);
-    config.font_family = Some(SANS.into());
+    config.font_family = Some(ui_font().into());
     config.font_size = Some(COMPONENT_REM);
     config.mono_font_family = Some(mono().into());
-    config.mono_font_size = Some(CODE_TEXT.size);
+    config.mono_font_size = Some(code_text().size);
     config.radius = Some(f32::from(COMPONENT_RADIUS) as usize);
     config.radius_lg = Some(f32::from(COMPONENT_RADIUS_LG) as usize);
     config.window_radius = Some(0);
@@ -332,9 +332,9 @@ mod tests {
         assert_eq!(component.muted_foreground, h(theme.ink3), "muted text is ink-3");
         assert_eq!(component.overlay, h(theme.scrim), "overlay is the scrim");
         assert_eq!(component.red, h(theme.red), "base red");
-        assert_eq!(component.font_family.as_ref(), SANS);
+        assert_eq!(component.font_family.as_ref(), crate::theme::SANS);
         assert_eq!(component.font_size, px(COMPONENT_REM));
-        assert_eq!(component.mono_font_size, px(CODE_TEXT.size));
+        assert_eq!(component.mono_font_size, px(crate::theme::CODE_TEXT.size));
         assert_eq!(component.radius, RADIUS_CONTROL);
         assert_eq!(component.radius_lg, RADIUS_WINDOW);
         assert_eq!(component.is_dark(), theme.appearance == Appearance::Dark);

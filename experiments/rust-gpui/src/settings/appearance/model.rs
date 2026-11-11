@@ -8,7 +8,8 @@ use super::color::with_alpha;
 use super::custom::{CustomTheme, custom_source, seeds_from};
 use super::palette::{Palette, Scheme, build_palette};
 use super::themes::{DEFAULT_THEME_ID, is_theme_id, theme_palette};
-use crate::theme::Theme;
+use crate::theme::live::{LiveStyle, set_live};
+use crate::theme::{SANS, Theme};
 
 /// System, Light or Dark (`ThemePreference`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -191,6 +192,30 @@ impl AppearanceOptions {
     pub fn motion_scale(&self) -> f32 {
         MOTION_SPEEDS.iter().find(|m| m.0 == self.motion).map_or(1.0, |m| m.2)
     }
+
+    /// What the views read while they draw (`theme::live`). `installed` says whether the platform lists a font
+    /// family: a font that is not installed is the system font, as `fontStack` falls back on the desktop.
+    pub fn live_style(&self, installed: &dyn Fn(&str) -> bool) -> LiveStyle {
+        let family = |list: &[FontChoice], id: &str| -> Option<&'static str> {
+            list.iter().skip(1).find(|f| f.id == id && installed(f.label)).map(|f| f.label)
+        };
+        LiveStyle {
+            ui_font: family(UI_FONTS, &self.ui_font).unwrap_or(SANS),
+            mono_font: family(MONO_FONTS, &self.mono_font),
+            chat_size: self.chat_px() as f32,
+            code_size: self.code_px() as f32,
+            sidebar_delta: self.sidebar_delta() as f32,
+            chat_width: self.chat_width_limit().map(|px| px as f32),
+            simplified_icons: self.provider_icons == "simplified",
+            compact_usage: self.sidebar_usage == "compact",
+        }
+    }
+}
+
+/// The platform's font list as a probe for [`AppearanceOptions::live_style`].
+fn installed_probe(cx: &App) -> impl Fn(&str) -> bool + use<> {
+    let names: std::collections::HashSet<String> = cx.text_system().all_font_names().into_iter().collect();
+    move |family| names.contains(family)
 }
 
 /// Everything Appearance edits: the mode, the colour theme, the custom theme and the options.
@@ -311,6 +336,7 @@ impl Global for Applied {}
 
 /// Records `state` as what the window already wears, so only a later change re-themes it.
 pub fn mark_applied(state: &AppearanceState, cx: &mut App) {
+    set_live(state.options.live_style(&installed_probe(cx)));
     cx.set_global(Applied(state.clone()));
 }
 
@@ -322,8 +348,15 @@ pub fn apply(state: &AppearanceState, cx: &mut App) {
         return;
     }
     let theme = state.theme(system_scheme(cx));
+    let live_changed = set_live(state.options.live_style(&installed_probe(cx)));
     cx.set_global(Applied(state.clone()));
-    if cx.try_global::<Theme>().is_none_or(|current| *current != theme) {
+    let theme_changed = cx.try_global::<Theme>().is_none_or(|current| *current != theme);
+    if theme_changed {
         cx.set_global(theme);
+    }
+    // Fonts, sizes and widths are read in `render`: one refresh rebuilds every view once, the cached ones included. A
+    // theme change already refreshes through the component bridge; the bridge also carries the fonts to the widgets.
+    if live_changed {
+        crate::theme::component_bridge::apply(cx);
     }
 }

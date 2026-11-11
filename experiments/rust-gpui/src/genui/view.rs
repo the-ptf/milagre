@@ -16,7 +16,7 @@ use super::contract::{
     Action, Block, ButtonVariant, CHART_HEIGHT, CHART_PAD_BOTTOM, CHART_PAD_LEFT, CHART_PAD_RIGHT, CHART_PAD_TOP, CHART_WIDTH, CalloutTone,
     Direction, Gap, Geometry, Node, TextTone,
 };
-use crate::theme::{ActiveTheme, CHAT_TEXT, RADIUS_CARD, SANS, TEXT_12, TextStepExt, Theme};
+use crate::theme::{ActiveTheme, RADIUS_CARD, TEXT_12, TextStepExt, Theme};
 use crate::ui::{Button, ButtonVariant as ButtonLook, ProgressBar};
 
 /// What a pressed button does with its message: the transcript posts it as the user's next message.
@@ -64,9 +64,9 @@ fn node(item: &Node, surface: &Surface, counter: &mut usize, window: &mut Window
         }
         Node::Heading { text, level } => {
             let (size, weight, color) = match level {
-                1 => (CHAT_TEXT.size + 2.0, FontWeight::SEMIBOLD, theme.ink),
-                3 => (CHAT_TEXT.size, FontWeight::MEDIUM, theme.ink2),
-                _ => (CHAT_TEXT.size + 1.0, FontWeight::SEMIBOLD, theme.ink),
+                1 => (crate::theme::chat_text().size + 2.0, FontWeight::SEMIBOLD, theme.ink),
+                3 => (crate::theme::chat_text().size, FontWeight::MEDIUM, theme.ink2),
+                _ => (crate::theme::chat_text().size + 1.0, FontWeight::SEMIBOLD, theme.ink),
             };
             div()
                 .debug_selector(|| "genui-heading".into())
@@ -78,7 +78,10 @@ fn node(item: &Node, surface: &Surface, counter: &mut usize, window: &mut Window
                 .into_any_element()
         }
         Node::Text { text, tone } => {
-            let base = div().debug_selector(|| "genui-text".into()).text_size(px(CHAT_TEXT.size)).line_height(px(CHAT_TEXT.size * 1.6));
+            let base = div()
+                .debug_selector(|| "genui-text".into())
+                .text_size(px(crate::theme::chat_text().size))
+                .line_height(px(crate::theme::chat_text().size * 1.6));
             match tone {
                 TextTone::Default => base.text_color(theme.ink),
                 TextTone::Muted => base.text_color(theme.ink2),
@@ -89,14 +92,15 @@ fn node(item: &Node, surface: &Surface, counter: &mut usize, window: &mut Window
         }
         Node::KeyValue { pairs } => {
             // `grid-cols-[auto_1fr]`: the key column is as wide as its widest key.
-            let widest = pairs.iter().map(|(key, _)| text_width(window, key, CHAT_TEXT.size)).fold(0.0_f32, f32::max).ceil() + 1.0;
+            let widest =
+                pairs.iter().map(|(key, _)| text_width(window, key, crate::theme::chat_text().size)).fold(0.0_f32, f32::max).ceil() + 1.0;
             div()
                 .debug_selector(|| "genui-keyvalue".into())
                 .flex()
                 .flex_col()
                 .gap(px(4.0))
-                .text_size(px(CHAT_TEXT.size))
-                .line_height(px(CHAT_TEXT.size * 1.6))
+                .text_size(px(crate::theme::chat_text().size))
+                .line_height(px(crate::theme::chat_text().size * 1.6))
                 .children(pairs.iter().map(|(key, value)| {
                     div()
                         .flex()
@@ -122,8 +126,8 @@ fn node(item: &Node, surface: &Surface, counter: &mut usize, window: &mut Window
                 .bg(fill)
                 .px(px(12.0))
                 .py(px(8.0))
-                .text_size(px(CHAT_TEXT.size))
-                .line_height(px(CHAT_TEXT.size * 1.6))
+                .text_size(px(crate::theme::chat_text().size))
+                .line_height(px(crate::theme::chat_text().size * 1.6))
                 .text_color(theme.ink)
                 .when_some(title.clone(), |el, title| el.child(div().mb(px(2.0)).font_weight(FontWeight::MEDIUM).child(title)))
                 .child(div().child(body.clone()))
@@ -133,8 +137,8 @@ fn node(item: &Node, surface: &Surface, counter: &mut usize, window: &mut Window
             let value = value.clamp(0.0, 1.0);
             div()
                 .debug_selector(|| "genui-progress".into())
-                .text_size(px(CHAT_TEXT.size))
-                .line_height(px(CHAT_TEXT.size * 1.6))
+                .text_size(px(crate::theme::chat_text().size))
+                .line_height(px(crate::theme::chat_text().size * 1.6))
                 .child(
                     div()
                         .mb(px(4.0))
@@ -159,8 +163,14 @@ fn node(item: &Node, surface: &Surface, counter: &mut usize, window: &mut Window
 
 fn text_width(window: &Window, text: &str, size: f32) -> f32 {
     let text: SharedString = text.replace('\n', " ").into();
-    let run =
-        TextRun { len: text.len(), font: font(SANS), color: gpui::black(), background_color: None, underline: None, strikethrough: None };
+    let run = TextRun {
+        len: text.len(),
+        font: font(crate::theme::ui_font()),
+        color: gpui::black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
     window.text_system().shape_line(text, px(size), &[run], None).width.into()
 }
 
@@ -208,8 +218,8 @@ fn table(columns: &[String], rows: &[Vec<String>], key: u64, theme: &Theme) -> A
                 .id(ElementId::Name(format!("genui-table-scroll-{key:x}").into()))
                 .w_full()
                 .overflow_x_scroll()
-                .text_size(px(CHAT_TEXT.size))
-                .line_height(px(CHAT_TEXT.size * 1.5))
+                .text_size(px(crate::theme::chat_text().size))
+                .line_height(px(crate::theme::chat_text().size * 1.5))
                 .child(div().min_w(px(56.0 * columns.len() as f32)).w_full().flex().flex_col().child(header).children(body)),
         )
         .into_any_element()
@@ -321,7 +331,7 @@ fn chart(kind: Kind, labels: &[String], values: &[f64], title: Option<&str>, the
                 let text: SharedString = short_label(label).replace('\n', " ").into();
                 let run = TextRun {
                     len: text.len(),
-                    font: font(SANS),
+                    font: font(crate::theme::ui_font()),
                     color: ink3.into(),
                     background_color: None,
                     underline: None,

@@ -4,7 +4,7 @@
 
 use gpui::{AnyElement, App, IntoElement, ParentElement as _, SharedString, Styled as _, div, prelude::*, px};
 
-use crate::theme::{ActiveTheme, CODE_TEXT, RADIUS_CONTROL, TEXT_11, TextStepExt, Theme, mono};
+use crate::theme::{ActiveTheme, RADIUS_CONTROL, TEXT_11, TextStepExt, Theme, mono};
 
 /// The source, in mono at the code size with its lines kept; wide lines scroll sideways instead of wrapping.
 pub fn source(code: &SharedString, theme: &Theme) -> AnyElement {
@@ -12,11 +12,11 @@ pub fn source(code: &SharedString, theme: &Theme) -> AnyElement {
         .px(px(12.0))
         .py(px(12.0))
         .font_family(mono())
-        .text_size(px(CODE_TEXT.size))
-        .line_height(px(CODE_TEXT.size * 1.6))
+        .text_size(px(crate::theme::code_text().size))
+        .line_height(px(crate::theme::code_text().size * 1.6))
         .text_color(theme.ink)
         .whitespace_nowrap()
-        .children(code.split('\n').map(|line| div().min_h(px(CODE_TEXT.size * 1.6)).child(line.to_string())))
+        .children(code.split('\n').map(|line| div().min_h(px(crate::theme::code_text().size * 1.6)).child(line.to_string())))
         .into_any_element()
 }
 

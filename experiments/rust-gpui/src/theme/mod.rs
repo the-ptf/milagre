@@ -19,10 +19,12 @@
 mod colors;
 pub mod component_bridge;
 mod elevation;
+pub mod live;
 mod metrics;
 mod typography;
 
 pub use colors::*;
+pub use live::{chat_text, code_text, column_width, prompt_text_size, sidebar_step, ui_font};
 pub use metrics::*;
 pub use typography::*;
 

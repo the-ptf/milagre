@@ -39,7 +39,7 @@ use gpui_base::{
 
 use crate::logic::files::file_link::{FileLink, local_file_link};
 use crate::theme::component_bridge::COMPONENT_REM;
-use crate::theme::{ActiveTheme, Appearance, CHAT_TEXT, CODE_TEXT, RADIUS_CONTROL, RADIUS_INLINE, SANS, Theme, mono};
+use crate::theme::{ActiveTheme, Appearance, RADIUS_CONTROL, RADIUS_INLINE, Theme, mono};
 use files::{FileLinkTarget, file_link_target};
 
 /// The hover group of one message: a code block's Copy shows while the pointer is over its message.
@@ -77,7 +77,7 @@ pub fn text_view_style(theme: &Theme, size: f32) -> TextViewStyle {
         .px(px(12.0))
         .pt(px(CODE_TOP))
         .pb(px(8.0))
-        .text_size(px(CODE_TEXT.size))
+        .text_size(px(crate::theme::code_text().size))
         .line_height(relative(CHAT_LINE));
     code_block.overflow.x = Some(Overflow::Scroll);
     code_block.text.font_family = Some(mono().into());
@@ -313,7 +313,7 @@ pub fn extensions_with(on_link: LinkHandler, hooks: FenceHooks) -> MarkdownExten
         .block_parser(fences::parse_fence)
         .block_parser(parse_html_block)
         .block_renderer(fences::NESTED_MARKDOWN, |node, _window, cx| {
-            fences::render_nested(node, Arc::new(text_view_style(cx.theme(), CHAT_TEXT.size)))
+            fences::render_nested(node, Arc::new(text_view_style(cx.theme(), crate::theme::chat_text().size)))
         })
         .block_renderer(fences::MERMAID, move |node, window, cx| {
             let code = node.data::<fences::FencedSource>().map(|source| source.code.clone()).unwrap_or_default();
@@ -344,7 +344,7 @@ pub struct Markdown {
 
 impl Markdown {
     pub fn new(state: &gpui::Entity<TextViewState>, style: TextViewStyle, extensions: MarkdownExtensions, on_link: LinkHandler) -> Self {
-        Self { state: state.clone(), style, extensions, on_link, size: CHAT_TEXT.size }
+        Self { state: state.clone(), style, extensions, on_link, size: crate::theme::chat_text().size }
     }
 
     /// The chat size this view lays out at (the style must have been built for the same size).
@@ -362,7 +362,7 @@ impl RenderOnce for Markdown {
             .group(GROUP)
             .w_full()
             .min_w_0()
-            .font_family(SANS)
+            .font_family(crate::theme::ui_font())
             .text_size(px(self.size))
             .line_height(px(self.size * CHAT_LINE))
             .text_color(theme.ink)

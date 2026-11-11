@@ -45,7 +45,7 @@ use crate::workspace::chat::composer::{Composer, ComposerEvent};
 use crate::workspace::chat::pills::bookmark::{self, Bookmark, FamilyChat, FamilyMenu};
 use crate::workspace::chat::pills::{PillEvent, PillRow};
 use crate::workspace::chat::running::RunningRow;
-use crate::workspace::chat::transcript::{BOTTOM_CLEARANCE, COLUMN_WIDTH, LIST_TOP_PAD, RUNNING_GAP, Transcript};
+use crate::workspace::chat::transcript::{BOTTOM_CLEARANCE, LIST_TOP_PAD, RUNNING_GAP, Transcript};
 use crate::workspace::chat::undo_panel::{Intent, UndoEvent, UndoPanel};
 use crate::workspace::chrome;
 use crate::workspace::sidebar::ChatRow;
@@ -385,7 +385,7 @@ impl Render for ChatView {
             )
             .child(div().flex_none().flex().justify_center().px_4().pb(px(composer_bottom)).child(match &self.undo {
                 // The panel takes the composer's place, as wide as it.
-                Some(undo) => div().w_full().max_w(px(COLUMN_WIDTH)).child(undo.clone()).into_any_element(),
+                Some(undo) => div().w_full().max_w(px(crate::theme::column_width())).child(undo.clone()).into_any_element(),
                 None => self.composer.clone().into_any_element(),
             }))
             .children(menu)
@@ -419,14 +419,11 @@ fn running_offset(list: &ListState) -> Option<Pixels> {
 
 /// The running row after the last item, and over the pills' strip when the list is pinned to the bottom.
 fn running_row(running: Entity<RunningRow>, offset: Pixels) -> impl IntoElement {
-    div()
-        .absolute()
-        .left_0()
-        .right_0()
-        .bottom(px(BOTTOM_CLEARANCE) - offset)
-        .h(CONTROL_XS)
-        .flex()
-        .justify_center()
-        .px_4()
-        .child(div().w_full().max_w(px(COLUMN_WIDTH)).h_full().child(AnyView::from(running).cached(StyleRefinement::default().size_full())))
+    div().absolute().left_0().right_0().bottom(px(BOTTOM_CLEARANCE) - offset).h(CONTROL_XS).flex().justify_center().px_4().child(
+        div()
+            .w_full()
+            .max_w(px(crate::theme::column_width()))
+            .h_full()
+            .child(AnyView::from(running).cached(StyleRefinement::default().size_full())),
+    )
 }

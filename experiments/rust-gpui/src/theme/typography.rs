@@ -26,7 +26,7 @@ static MONO_FAMILY: OnceLock<&'static str> = OnceLock::new();
 
 /// The code font family to use: [`MONO`], or [`MONO_FALLBACK`] when the system did not resolve it.
 pub fn mono() -> &'static str {
-    MONO_FAMILY.get().copied().unwrap_or(MONO)
+    super::live::chosen_mono().unwrap_or_else(|| MONO_FAMILY.get().copied().unwrap_or(MONO))
 }
 
 /// Checks once that the platform text system resolves [`MONO`]; called from `app::init`.

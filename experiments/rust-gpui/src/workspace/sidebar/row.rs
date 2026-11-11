@@ -26,7 +26,7 @@ use crate::logic::identity::project_list::project_initial;
 use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::marks::{ChatMark, MarkIcon, Tone, chat_mark_presentation};
 use crate::logic::prs::blockers::row_pull_requests;
-use crate::theme::{ActiveTheme, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_10, TEXT_12, TEXT_13, TextStepExt, Theme, hex};
+use crate::theme::{ActiveTheme, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_10, TEXT_12, TEXT_13, TextStepExt, Theme, hex, sidebar_step};
 use crate::ui::{Icon, IconName, IconSize, ProjectAvatar, SpinnerRing};
 
 /// Horizontal inset of each row inside the sidebar.
@@ -303,7 +303,7 @@ impl Render for ChatRowView {
                             .child(match &self.rename {
                                 Some(field) => div().h(px(18.0)).child(field.clone()).into_any_element(),
                                 None => div()
-                                    .text_step(TEXT_13)
+                                    .text_step(sidebar_step(TEXT_13))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme.ink)
                                     .truncate()
@@ -311,7 +311,12 @@ impl Render for ChatRowView {
                                     .into_any_element(),
                             })
                             .child(
-                                div().text_step(TEXT_12).font_weight(FontWeight::MEDIUM).text_color(theme.ink3).truncate().child(detail),
+                                div()
+                                    .text_step(sidebar_step(TEXT_12))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme.ink3)
+                                    .truncate()
+                                    .child(detail),
                             ),
                     )
                     .child(div().flex().flex_none().items_center().justify_center().w(px(MARK_SLOT)).child(status_mark(ix, row, &theme))),

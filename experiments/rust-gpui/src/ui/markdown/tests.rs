@@ -32,7 +32,7 @@ impl Render for Harness {
 fn mount<'a>(cx: &'a mut gpui::TestAppContext, text: &'static str) -> (Entity<Harness>, &'a mut VisualTestContext) {
     let (view, cx) = testing::mount_in_root(cx, move |_, cx| Harness {
         state: cx.new(|cx| TextViewState::markdown(text, cx)),
-        style: text_view_style(cx.theme(), CHAT_TEXT.size),
+        style: text_view_style(cx.theme(), crate::theme::CHAT_TEXT.size),
         clicks: Default::default(),
     });
     cx.run_until_parked();
