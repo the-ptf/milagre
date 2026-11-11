@@ -107,18 +107,44 @@ pub fn validate_consistency(document: &Value) -> Result<()> {
             ));
         }
     }
-    let mut issues = Vec::new();
+    let issues = warnings(document)
+        .into_iter()
+        .filter(|warning| warning["kind"] == "kit-drift")
+        .map(|warning| json!({"path":warning["path"],"message":warning["message"]}))
+        .collect::<Vec<_>>();
+    if !issues.is_empty() {
+        let mut error = Error::coded(
+            "DESIGN_KIT_DRIFT",
+            format!(
+                "Strict kit consistency: {} violation(s). {}",
+                issues.len(),
+                issues
+                    .iter()
+                    .take(5)
+                    .map(|issue| issue["message"].as_str().unwrap())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+        );
+        error.issues = Some(json!(issues));
+        return Err(error);
+    }
+    Ok(())
+}
+
+pub(super) fn warnings(document: &Value) -> Vec<Value> {
+    let Some(kit) = document.get("kit") else {
+        return vec![];
+    };
+    let mut warnings = Vec::new();
     let mut add = |node_id: &str, field: &str, value: Value, message: String| {
-        if document["consistency"]["exceptions"]
+        let exception = document["consistency"]["exceptions"]
             .as_array()
-            .is_some_and(|exceptions| {
-                exceptions.iter().any(|e| {
+            .and_then(|exceptions| {
+                exceptions.iter().find(|e| {
                     e["nodeId"] == node_id && e["field"] == field && equivalent(&e["value"], &value)
                 })
-            })
-        {
-            return;
-        }
+            });
         let path = if node_id == "$document" {
             field.split('.').map(|part| json!(part)).collect::<Vec<_>>()
         } else {
@@ -131,7 +157,7 @@ pub fn validate_consistency(document: &Value) -> Result<()> {
                 json!(field),
             ]
         };
-        issues.push(json!({"path":path,"message":message}));
+        warnings.push(json!({"id":node_id,"field":field,"actual":value,"path":path,"kind":if exception.is_some(){"kit-exception"}else{"kit-drift"},"message":if let Some(exception)=exception {format!("{message} Exception: {}",exception["reason"].as_str().unwrap())}else{message}}));
     };
     let label = format!("{} v{}", sid(kit, "id"), jsjson::to_string(&kit["version"]));
     for (name, expected) in object(&kit["colors"]) {
@@ -246,22 +272,5 @@ pub fn validate_consistency(document: &Value) -> Result<()> {
             add(&id,"typography",typography(node),format!("Text \"{id}\" does not match a text style from kit {label}. Set textStyle to a kit style."));
         }
     }
-    if !issues.is_empty() {
-        let mut error = Error::coded(
-            "DESIGN_KIT_DRIFT",
-            format!(
-                "Strict kit consistency: {} violation(s). {}",
-                issues.len(),
-                issues
-                    .iter()
-                    .take(5)
-                    .map(|issue| issue["message"].as_str().unwrap())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            ),
-        );
-        error.issues = Some(json!(issues));
-        return Err(error);
-    }
-    Ok(())
+    warnings
 }

@@ -136,7 +136,10 @@ impl DesignKits {
             None => all.last(),
         };
         if let Some(found) = found {
-            return validate_kit(found);
+            return validate_kit(found).map_err(|mut error| {
+                error.code = "INVALID_CONTENT_STORAGE".into();
+                error
+            });
         }
         if let Some(version) = request.get("version") {
             return Err(error(format!(

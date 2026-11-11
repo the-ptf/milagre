@@ -264,6 +264,9 @@ async function storeFixture(root) {
     },
     readKit: async () => clone(kit),
   });
+  await loadDesignFonts(styled);
+  const fontCss = designHtml(validateDesignDocument(styled)).match(/<style>(@font-face[\s\S]*?)<\/style>/)[1];
+  const fontKey = createHash("sha256").update(fontCss).digest("hex");
   const actions = [
     ["showDesign", { id: "screen", title: "  Welcome  ", group: " Onboarding ", document: styled }],
     ["apply", { id: "screen", expectedVersion: 1, operations: [{ op: "update", id: "title", patch: { text: "Second revision" } }] }],
@@ -281,6 +284,10 @@ async function storeFixture(root) {
     ["apply", { id: "strict", expectedVersion: 2, operations: [{ op: "update", id: "title", patch: { fontSize: 44 } }] }],
     ["showDesign", { id: "wrong-kit", title: "Wrong snapshot", document: { ...styled, kit: { ...kit, title: "Spoof" } } }],
     ["list", { format: "design" }],
+    ["get", { id: "screen", version: 1, fonts: { have: [] } }],
+    ["get", { id: "screen", version: 1, fonts: { have: [fontKey] } }],
+    ["exportDesign", { id: "screen", version: 1, format: "json" }],
+    ["exportDesign", { id: "screen", version: 1, format: "svg" }],
   ];
   const outputs = [];
   for (let index = 0; index < actions.length; index++) {

@@ -27,7 +27,7 @@ fn safe_json(value: &Value) -> String {
         .replace('\u{2028}', "\\u2028")
         .replace('\u{2029}', "\\u2029")
 }
-fn color(document: &Value, value: Option<&Value>, fallback: &str) -> String {
+pub(super) fn color(document: &Value, value: Option<&Value>, fallback: &str) -> String {
     let value = value.and_then(Value::as_str).unwrap_or(fallback);
     if let Some(token) = value.strip_prefix('$') {
         document["tokens"][token]
@@ -38,7 +38,7 @@ fn color(document: &Value, value: Option<&Value>, fallback: &str) -> String {
         value.to_owned()
     }
 }
-fn fill(node: &Value) -> &str {
+pub(super) fn fill(node: &Value) -> &str {
     match node["type"].as_str().unwrap() {
         "text" | "icon" => "#202720",
         "frame" => "transparent",
@@ -46,7 +46,7 @@ fn fill(node: &Value) -> &str {
         _ => "#d8ded8",
     }
 }
-fn family(node: &Value) -> String {
+pub(super) fn family(node: &Value) -> String {
     node["fontFamily"]
         .as_str()
         .unwrap_or("Inter, Arial, sans-serif")
@@ -78,7 +78,7 @@ fn family(node: &Value) -> String {
         .collect::<Vec<_>>()
         .join(", ")
 }
-fn faces(document: &Value) -> String {
+pub(super) fn faces(document: &Value) -> String {
     let mut faces = BTreeMap::<String, (String, f64, Vec<f64>, String)>::new();
     for node in nodes(document)
         .iter()

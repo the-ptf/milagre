@@ -19,24 +19,25 @@ fn opacity(value: Option<&str>) -> f64 {
         .clamp(0.0, 1.0)
 }
 pub fn paint(input: &str) -> Option<(String, f64)> {
-    let value = trim(input).to_ascii_lowercase();
+    let source = trim(input);
+    let value = source.to_ascii_lowercase();
     if value == "transparent" {
         return Some(("none".into(), 1.0));
     }
     if value.starts_with('#') && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return match value.len() {
-            4 | 7 => Some((value, 1.0)),
+            4 | 7 => Some((source.to_owned(), 1.0)),
             5 => Some((
                 format!(
                     "#{}{}{}",
-                    value[1..2].repeat(2),
-                    value[2..3].repeat(2),
-                    value[3..4].repeat(2)
+                    source[1..2].repeat(2),
+                    source[2..3].repeat(2),
+                    source[3..4].repeat(2)
                 ),
                 u8::from_str_radix(&value[4..5], 16).ok()? as f64 / 15.0,
             )),
             9 => Some((
-                value[..7].into(),
+                source[..7].into(),
                 u8::from_str_radix(&value[7..9], 16).ok()? as f64 / 255.0,
             )),
             _ => None,
@@ -149,6 +150,7 @@ pub fn paint(input: &str) -> Option<(String, f64)> {
 }
 pub fn key(input: &str) -> Option<(String, f64)> {
     let (color, alpha) = paint(input)?;
+    let color = color.to_ascii_lowercase();
     Some((
         if color.len() == 4 && color.starts_with('#') {
             format!(

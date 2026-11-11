@@ -162,3 +162,36 @@ fn native_kit_reader_and_renderer_commit_a_real_design_revision() {
     assert_eq!(read["document"]["nodes"][0]["fontSize"], 16);
     assert_eq!(read["document"]["kit"]["version"].as_f64(), Some(1.0));
 }
+
+#[test]
+fn valid_json_with_invalid_stored_kit_schema_is_a_storage_fault() {
+    use sha2::{Digest, Sha256};
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(&temp.path().join("copy"), &Policy::system()).unwrap();
+    let mut kits = DesignKits::open(
+        isolation.clone(),
+        Path::new("kits"),
+        Arc::new(|_| Ok("/project".into())),
+        Arc::new(|| Ok(())),
+    )
+    .unwrap();
+    let folder = isolation
+        .root()
+        .join("kits")
+        .join(hex::encode(Sha256::digest(b"/project")));
+    fs::create_dir(&folder).unwrap();
+    fs::write(
+        folder.join("project.json"),
+        br#"[{"id":"project","version":1,"title":"Malformed"}]"#,
+    )
+    .unwrap();
+    let error = kits.read(&json!({"chatId":"/project#1"})).unwrap_err();
+    assert_eq!(error.code, "INVALID_CONTENT_STORAGE");
+    assert!(error.issues.is_some());
+    assert_eq!(
+        kits.read(&json!({"chatId":"/project#1","version":2}))
+            .unwrap_err()
+            .code,
+        "CONTENT_ERROR"
+    );
+}

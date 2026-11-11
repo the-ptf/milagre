@@ -325,3 +325,53 @@ fn prune(directory: &Dir, previous: &[Value], meta: &Value) {
         }
     }
 }
+
+impl ArtifactStore {
+    /// Agent export retains font-family references, matching design_export. The
+    /// desktop can request embedded faces directly from design::render_svg.
+    pub fn export_design(&mut self, request: &Value) -> Result<Value> {
+        let mut query = request.clone();
+        query["format"] = json!("design");
+        query.as_object_mut().unwrap().shift_remove("fonts");
+        let current = self.get(&query)?;
+        let format = request["format"]
+            .as_str()
+            .filter(|format| ["json", "svg"].contains(format))
+            .ok_or_else(|| error("Choose json or svg for the design export."))?;
+        let content = if format == "svg" {
+            render_svg(&current["document"], &json!({"embedFonts":false}))?
+        } else {
+            pretty_json(&current["document"], 0)
+        };
+        Ok(
+            json!({"id":current["id"],"version":current["version"],"filename":format!("{}-v{}.{}",sid(&current,"id"),jsjson::to_string(&current["version"]),format),"mimeType":if format=="svg"{"image/svg+xml"}else{"application/json"},"content":content}),
+        )
+    }
+}
+fn pretty_json(value: &Value, depth: usize) -> String {
+    let nested = "  ".repeat(depth + 1);
+    let outer = "  ".repeat(depth);
+    match value {
+        Value::Array(values) if !values.is_empty() => format!(
+            "[\n{}\n{outer}]",
+            values
+                .iter()
+                .map(|value| format!("{nested}{}", pretty_json(value, depth + 1)))
+                .collect::<Vec<_>>()
+                .join(",\n")
+        ),
+        Value::Object(values) if !values.is_empty() => format!(
+            "{{\n{}\n{outer}}}",
+            jsjson::js_entries(values)
+                .into_iter()
+                .map(|(key, value)| format!(
+                    "{nested}{}: {}",
+                    jsjson::to_string(&json!(key)),
+                    pretty_json(value, depth + 1)
+                ))
+                .collect::<Vec<_>>()
+                .join(",\n")
+        ),
+        _ => jsjson::to_string(value),
+    }
+}

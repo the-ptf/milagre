@@ -2,7 +2,12 @@
 //! Operations return a new document; callers must render it and enforce pinned-kit
 //! authority before persisting a source/preview revision.
 mod colors;
+mod diagnostics;
+mod diff;
+pub use diagnostics::{diagnostics, warning_text};
+pub use diff::document_diff;
 mod components;
+pub(crate) mod font_cache;
 mod kit;
 mod kits;
 mod layout;
@@ -13,7 +18,9 @@ mod render;
 pub use render::{render_html, render_html_with_options};
 mod schema;
 mod store;
+mod svg;
 pub use store::{KitReader, PreparedDesign, Renderer};
+pub use svg::render_svg;
 
 use crate::{
     validation::{trim, utf8},

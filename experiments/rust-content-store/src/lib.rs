@@ -321,18 +321,17 @@ impl ArtifactStore {
                 meta = current;
             }
         }
-        if !html && request["fonts"]["have"].is_array() {
-            return Err(Error::coded(
-                "UNSUPPORTED_CONTENT_OPERATION",
-                "Structured Design font transport is not implemented by the Rust Artifact store.",
-            ));
-        }
-        self.read_version(
+        let current = self.read_version(
             &folder,
             &meta,
             if html { None } else { request.get("version") },
-        )
+        )?;
+        Ok(design::font_cache::transfer(
+            current,
+            &request["fonts"]["have"],
+        ))
     }
+
     pub fn artifact_read(&mut self, request: &Value) -> Result<Value> {
         let mut input = request.clone();
         input["format"] = json!("html");

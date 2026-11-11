@@ -209,6 +209,7 @@ fn node_saved_revisions_variants_and_real_rendered_previews_match() {
                 .prepare_design_apply(&request, &reader)
                 .and_then(|prepared| store.commit_design(prepared, &reader, &renderer)),
             "get" => store.get(&request),
+            "exportDesign" => store.export_design(&request),
             "list" => store.list(&request),
             _ => unreachable!(),
         };
