@@ -25,7 +25,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -61,7 +61,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", ""],
@@ -72,7 +73,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "/project/a"],
@@ -83,7 +85,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "/project/removed"],
@@ -94,7 +97,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "/other"],
@@ -105,7 +109,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "remote|/other"],
@@ -116,7 +121,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "C:\\work"],
@@ -127,7 +133,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "milagre-link:11111111-1111-4111-8111-111111111111"],
@@ -138,7 +145,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
@@ -149,373 +157,435 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", null],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", ""],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "/project/a"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "/project/removed"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "remote|/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "C:\\work"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "milagre-link:11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", null],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", ""],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "/project/a"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "/project/removed"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "remote|/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "C:\\work"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "milagre-link:11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", null],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", ""],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "/project/a"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "/project/removed"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "remote|/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "C:\\work"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "milagre-link:11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", null],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", ""],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "/project/a"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "/project/removed"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "remote|/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "C:\\work"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "milagre-link:11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "codex"],
@@ -544,7 +614,8 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "codex", "default"],
@@ -573,13 +644,15 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "codex", "00000009-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "claude"],
@@ -608,7 +681,8 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "claude", "default"],
@@ -637,13 +711,15 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "claude", "00000009-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "antigravity"],
@@ -657,7 +733,15 @@
               "GEMINI_HOME": "/fixture/profile/accounts/antigravity-default",
               "AGY_ACP_FORCE_FILE_STORAGE": "1"
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "antigravity",
+              "directory": "/fixture/profile/accounts/antigravity-default",
+              "root": "/fixture/profile/accounts",
+              "home": "/fixture/home"
+            }
+          ]
         },
         {
           "call": ["environment", "antigravity", "default"],
@@ -671,13 +755,15 @@
               "GEMINI_HOME": "/fixture/profile/accounts/antigravity-default",
               "AGY_ACP_FORCE_FILE_STORAGE": "1"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "antigravity", "00000009-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "kiro"],
@@ -706,7 +792,8 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "kiro", "default"],
@@ -735,43 +822,50 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "kiro", "00000009-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "codex", "00000001-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "claude", "00000002-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "antigravity", "00000003-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "bad", null],
           "result": {
             "error": "Unknown account provider."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "../codex"],
           "result": {
             "error": "Unknown account provider."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "/project/a"],
@@ -837,7 +931,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "/project/removed"],
@@ -903,7 +998,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "/other"],
@@ -969,7 +1065,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "remote|/other"],
@@ -1035,7 +1132,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "C:\\work"],
@@ -1101,7 +1199,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "milagre-link:11111111-1111-4111-8111-111111111111"],
@@ -1167,7 +1266,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
@@ -1233,37 +1333,43 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         }
       ],
       "initial": {
@@ -1325,7 +1431,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -1361,7 +1467,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", ""],
@@ -1372,7 +1479,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "/project/a"],
@@ -1383,7 +1491,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "/project/removed"],
@@ -1394,7 +1503,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "/other"],
@@ -1405,7 +1515,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "remote|/other"],
@@ -1416,7 +1527,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "C:\\work"],
@@ -1427,7 +1539,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "milagre-link:11111111-1111-4111-8111-111111111111"],
@@ -1438,7 +1551,8 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
@@ -1449,373 +1563,435 @@
               "antigravity": "default",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", null],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", ""],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "/project/a"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "/project/removed"],
           "result": {
             "ok": "00000009-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "remote|/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "C:\\work"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "milagre-link:11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", null],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", ""],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "/project/a"],
           "result": {
             "ok": "00000002-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "/project/removed"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "remote|/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "C:\\work"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "milagre-link:11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", null],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", ""],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "/project/a"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "/project/removed"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "remote|/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "C:\\work"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "milagre-link:11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", null],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", ""],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "/project/a"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "/project/removed"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "remote|/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "C:\\work"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "milagre-link:11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "codex"],
@@ -1844,7 +2020,8 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "codex", "default"],
@@ -1873,13 +2050,15 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "codex", "00000009-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "claude"],
@@ -1908,7 +2087,8 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "claude", "default"],
@@ -1937,13 +2117,15 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "claude", "00000009-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "antigravity"],
@@ -1957,7 +2139,15 @@
               "GEMINI_HOME": "/fixture/profile/accounts/antigravity-default",
               "AGY_ACP_FORCE_FILE_STORAGE": "1"
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "antigravity",
+              "directory": "/fixture/profile/accounts/antigravity-default",
+              "root": "/fixture/profile/accounts",
+              "home": "/fixture/home"
+            }
+          ]
         },
         {
           "call": ["environment", "antigravity", "default"],
@@ -1971,13 +2161,15 @@
               "GEMINI_HOME": "/fixture/profile/accounts/antigravity-default",
               "AGY_ACP_FORCE_FILE_STORAGE": "1"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "antigravity", "00000009-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "kiro"],
@@ -2006,7 +2198,8 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "kiro", "default"],
@@ -2035,13 +2228,15 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "kiro", "00000009-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "codex", "00000001-1111-4111-8111-111111111111"],
@@ -2073,7 +2268,17 @@
               "CODEX_ACCESS_TOKEN": "",
               "CODEX_HOME": "/fixture/profile/accounts/00000001-1111-4111-8111-111111111111"
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "mcp",
+              "provider": "codex",
+              "sourceDir": "/fixture/home/.codex",
+              "targetDir": "/fixture/profile/accounts/00000001-1111-4111-8111-111111111111",
+              "home": "/fixture/home",
+              "configDirSet": false
+            }
+          ]
         },
         {
           "call": ["environment", "claude", "00000002-1111-4111-8111-111111111111"],
@@ -2110,7 +2315,17 @@
               "ANTHROPIC_PROFILE": "",
               "CLAUDE_CONFIG_DIR": "/fixture/profile/accounts/00000002-1111-4111-8111-111111111111"
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "mcp",
+              "provider": "claude",
+              "sourceDir": "/fixture/home/.claude",
+              "targetDir": "/fixture/profile/accounts/00000002-1111-4111-8111-111111111111",
+              "home": "/fixture/home",
+              "configDirSet": false
+            }
+          ]
         },
         {
           "call": ["environment", "antigravity", "00000003-1111-4111-8111-111111111111"],
@@ -2124,19 +2339,22 @@
               "GEMINI_HOME": "/fixture/profile/accounts/00000003-1111-4111-8111-111111111111",
               "AGY_ACP_FORCE_FILE_STORAGE": "1"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "bad", null],
           "result": {
             "error": "Unknown account provider."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "../codex"],
           "result": {
             "error": "Unknown account provider."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "/project/a"],
@@ -2220,7 +2438,25 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "mcp",
+              "provider": "codex",
+              "sourceDir": "/fixture/home/.codex",
+              "targetDir": "/fixture/profile/accounts/00000001-1111-4111-8111-111111111111",
+              "home": "/fixture/home",
+              "configDirSet": false
+            },
+            {
+              "kind": "mcp",
+              "provider": "claude",
+              "sourceDir": "/fixture/home/.claude",
+              "targetDir": "/fixture/profile/accounts/00000002-1111-4111-8111-111111111111",
+              "home": "/fixture/home",
+              "configDirSet": false
+            }
+          ]
         },
         {
           "call": ["scope", "/project/removed"],
@@ -2312,7 +2548,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "/other"],
@@ -2396,7 +2633,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "remote|/other"],
@@ -2480,7 +2718,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "C:\\work"],
@@ -2564,7 +2803,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "milagre-link:11111111-1111-4111-8111-111111111111"],
@@ -2648,7 +2888,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
@@ -2732,37 +2973,43 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         }
       ],
       "initial": {
@@ -2842,7 +3089,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -2878,7 +3125,8 @@
               "antigravity": "00000003-1111-4111-8111-111111111111",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", ""],
@@ -2889,7 +3137,8 @@
               "antigravity": "00000003-1111-4111-8111-111111111111",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "/project/a"],
@@ -2900,7 +3149,8 @@
               "antigravity": "00000003-1111-4111-8111-111111111111",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "/project/removed"],
@@ -2911,7 +3161,8 @@
               "antigravity": "00000003-1111-4111-8111-111111111111",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "/other"],
@@ -2922,7 +3173,8 @@
               "antigravity": "00000003-1111-4111-8111-111111111111",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "remote|/other"],
@@ -2933,7 +3185,8 @@
               "antigravity": "00000003-1111-4111-8111-111111111111",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "C:\\work"],
@@ -2944,7 +3197,8 @@
               "antigravity": "00000003-1111-4111-8111-111111111111",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "milagre-link:11111111-1111-4111-8111-111111111111"],
@@ -2955,7 +3209,8 @@
               "antigravity": "00000003-1111-4111-8111-111111111111",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
@@ -2966,373 +3221,435 @@
               "antigravity": "00000003-1111-4111-8111-111111111111",
               "kiro": "default"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["pin", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", null],
           "result": {
             "ok": "00000001-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", ""],
           "result": {
             "ok": "00000001-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "/project/a"],
           "result": {
             "ok": "00000001-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "/project/removed"],
           "result": {
             "ok": "00000009-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "/other"],
           "result": {
             "ok": "00000001-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "remote|/other"],
           "result": {
             "ok": "00000001-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "C:\\work"],
           "result": {
             "ok": "00000001-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "milagre-link:11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "00000001-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "00000001-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "codex", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", null],
           "result": {
             "ok": "00000002-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", ""],
           "result": {
             "ok": "00000002-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "/project/a"],
           "result": {
             "ok": "00000002-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "/project/removed"],
           "result": {
             "ok": "00000002-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "/other"],
           "result": {
             "ok": "00000002-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "remote|/other"],
           "result": {
             "ok": "00000002-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "C:\\work"],
           "result": {
             "ok": "00000002-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "milagre-link:11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "00000002-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "00000002-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "claude", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", null],
           "result": {
             "ok": "00000003-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", ""],
           "result": {
             "ok": "00000003-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "/project/a"],
           "result": {
             "ok": "00000003-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "/project/removed"],
           "result": {
             "ok": "00000003-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "/other"],
           "result": {
             "ok": "00000003-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "remote|/other"],
           "result": {
             "ok": "00000003-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "C:\\work"],
           "result": {
             "ok": "00000003-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "milagre-link:11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "00000003-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "00000003-1111-4111-8111-111111111111"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "antigravity", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", null],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", ""],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "/project/a"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "/project/removed"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "remote|/other"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "C:\\work"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "milagre-link:11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
           "result": {
             "ok": "default"
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "kiro", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "codex"],
@@ -3364,7 +3681,17 @@
               "CODEX_ACCESS_TOKEN": "",
               "CODEX_HOME": "/fixture/profile/accounts/00000001-1111-4111-8111-111111111111"
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "mcp",
+              "provider": "codex",
+              "sourceDir": "/fixture/home/.codex",
+              "targetDir": "/fixture/profile/accounts/00000001-1111-4111-8111-111111111111",
+              "home": "/fixture/home",
+              "configDirSet": false
+            }
+          ]
         },
         {
           "call": ["environment", "codex", "default"],
@@ -3393,13 +3720,15 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "codex", "00000009-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "claude"],
@@ -3436,7 +3765,17 @@
               "ANTHROPIC_PROFILE": "",
               "CLAUDE_CONFIG_DIR": "/fixture/profile/accounts/00000002-1111-4111-8111-111111111111"
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "mcp",
+              "provider": "claude",
+              "sourceDir": "/fixture/home/.claude",
+              "targetDir": "/fixture/profile/accounts/00000002-1111-4111-8111-111111111111",
+              "home": "/fixture/home",
+              "configDirSet": false
+            }
+          ]
         },
         {
           "call": ["environment", "claude", "default"],
@@ -3465,13 +3804,15 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "claude", "00000009-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "antigravity"],
@@ -3485,7 +3826,8 @@
               "GEMINI_HOME": "/fixture/profile/accounts/00000003-1111-4111-8111-111111111111",
               "AGY_ACP_FORCE_FILE_STORAGE": "1"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "antigravity", "default"],
@@ -3499,13 +3841,22 @@
               "GEMINI_HOME": "/fixture/profile/accounts/antigravity-default",
               "AGY_ACP_FORCE_FILE_STORAGE": "1"
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "antigravity",
+              "directory": "/fixture/profile/accounts/antigravity-default",
+              "root": "/fixture/profile/accounts",
+              "home": "/fixture/home"
+            }
+          ]
         },
         {
           "call": ["environment", "antigravity", "00000009-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "kiro"],
@@ -3534,7 +3885,8 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "kiro", "default"],
@@ -3563,13 +3915,15 @@
               "PYTHONUNBUFFERED": "dummy-PYTHONUNBUFFERED",
               "ELECTRON_RUN_AS_NODE": "dummy-ELECTRON_RUN_AS_NODE"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "kiro", "00000009-1111-4111-8111-111111111111"],
           "result": {
             "error": "Account not found. Refresh and try again."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "codex", "00000001-1111-4111-8111-111111111111"],
@@ -3601,7 +3955,17 @@
               "CODEX_ACCESS_TOKEN": "",
               "CODEX_HOME": "/fixture/profile/accounts/00000001-1111-4111-8111-111111111111"
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "mcp",
+              "provider": "codex",
+              "sourceDir": "/fixture/home/.codex",
+              "targetDir": "/fixture/profile/accounts/00000001-1111-4111-8111-111111111111",
+              "home": "/fixture/home",
+              "configDirSet": false
+            }
+          ]
         },
         {
           "call": ["environment", "claude", "00000002-1111-4111-8111-111111111111"],
@@ -3638,7 +4002,17 @@
               "ANTHROPIC_PROFILE": "",
               "CLAUDE_CONFIG_DIR": "/fixture/profile/accounts/00000002-1111-4111-8111-111111111111"
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "mcp",
+              "provider": "claude",
+              "sourceDir": "/fixture/home/.claude",
+              "targetDir": "/fixture/profile/accounts/00000002-1111-4111-8111-111111111111",
+              "home": "/fixture/home",
+              "configDirSet": false
+            }
+          ]
         },
         {
           "call": ["environment", "antigravity", "00000003-1111-4111-8111-111111111111"],
@@ -3652,19 +4026,22 @@
               "GEMINI_HOME": "/fixture/profile/accounts/00000003-1111-4111-8111-111111111111",
               "AGY_ACP_FORCE_FILE_STORAGE": "1"
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["selected", "bad", null],
           "result": {
             "error": "Unknown account provider."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["environment", "../codex"],
           "result": {
             "error": "Unknown account provider."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "/project/a"],
@@ -3748,7 +4125,25 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "mcp",
+              "provider": "codex",
+              "sourceDir": "/fixture/home/.codex",
+              "targetDir": "/fixture/profile/accounts/00000001-1111-4111-8111-111111111111",
+              "home": "/fixture/home",
+              "configDirSet": false
+            },
+            {
+              "kind": "mcp",
+              "provider": "claude",
+              "sourceDir": "/fixture/home/.claude",
+              "targetDir": "/fixture/profile/accounts/00000002-1111-4111-8111-111111111111",
+              "home": "/fixture/home",
+              "configDirSet": false
+            }
+          ]
         },
         {
           "call": ["scope", "/project/removed"],
@@ -3840,7 +4235,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "/other"],
@@ -3924,7 +4320,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "remote|/other"],
@@ -4008,7 +4405,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "C:\\work"],
@@ -4092,7 +4490,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "milagre-link:11111111-1111-4111-8111-111111111111"],
@@ -4176,7 +4575,8 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "milagre-link:peer|11111111-1111-4111-8111-111111111111"],
@@ -4260,37 +4660,43 @@
                 }
               ]
             }
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "local|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "__proto__"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "milagre-link:invalid"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "../relative"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         },
         {
           "call": ["scope", "peer_name|/a"],
           "result": {
             "error": "Choose a valid Project or Link."
-          }
+          },
+          "preparations": []
         }
       ],
       "initial": {
@@ -4370,7 +4776,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -4430,7 +4836,17 @@
               "CODEX_API_KEY": "",
               "CODEX_ACCESS_TOKEN": ""
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "mcp",
+              "provider": "codex",
+              "sourceDir": "/private/fixture/synthetic-codex",
+              "targetDir": "/fixture/profile/accounts/00000001-1111-4111-8111-111111111111",
+              "home": "/fixture/home",
+              "configDirSet": true
+            }
+          ]
         },
         {
           "call": ["environment", "claude", "00000002-1111-4111-8111-111111111111"],
@@ -4468,7 +4884,17 @@
               "ANTHROPIC_BASE_URL": "",
               "ANTHROPIC_PROFILE": ""
             }
-          }
+          },
+          "preparations": [
+            {
+              "kind": "mcp",
+              "provider": "claude",
+              "sourceDir": "/private/fixture/synthetic-claude",
+              "targetDir": "/fixture/profile/accounts/00000002-1111-4111-8111-111111111111",
+              "home": "/fixture/home",
+              "configDirSet": true
+            }
+          ]
         },
         {
           "call": ["environment", "antigravity", "00000003-1111-4111-8111-111111111111"],
@@ -4484,7 +4910,8 @@
               "GEMINI_HOME": "/fixture/profile/accounts/00000003-1111-4111-8111-111111111111",
               "AGY_ACP_FORCE_FILE_STORAGE": "1"
             }
-          }
+          },
+          "preparations": []
         }
       ],
       "initial": {
@@ -4564,7 +4991,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -4599,7 +5026,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -4634,7 +5061,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -4669,7 +5096,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -4704,7 +5131,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -4739,7 +5166,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -4774,7 +5201,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -4809,7 +5236,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -4844,7 +5271,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -4879,7 +5306,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",
@@ -4914,7 +5341,7 @@
       "context": {
         "dataDir": "/fixture/profile",
         "home": "/fixture/home",
-        "cwd": "/working-directory",
+        "cwd": "/private/fixture/working-directory",
         "env": {
           "HOME": "/fixture/home",
           "KEEP": "synthetic-value",

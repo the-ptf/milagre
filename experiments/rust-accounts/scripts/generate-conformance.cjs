@@ -3,6 +3,20 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const assert = require("node:assert/strict");
+// Record the real preparation arguments while still executing Node's implementation.
+const preparationCalls = [];
+const mcp = require("../../../packages/core/src/account-mcp.cjs");
+const inheritMcp = mcp.inheritMcp;
+mcp.inheritMcp = (provider, options) => {
+  preparationCalls.push({ kind: "mcp", provider, ...options });
+  return inheritMcp(provider, options);
+};
+const antigravity = require("../../../packages/core/src/antigravity-account.cjs");
+const prepareAntigravityProfile = antigravity.prepareAntigravityProfile;
+antigravity.prepareAntigravityProfile = (directory, options) => {
+  preparationCalls.push({ kind: "antigravity", directory, root: path.dirname(directory), home: options.home });
+  return prepareAntigravityProfile(directory, options);
+};
 const { createAccounts } = require("../../../packages/core/src/accounts.cjs");
 const { createAccountRouting } = require("../../../packages/core/src/account-routing.cjs");
 const { AMBIENT_ENV } = require("../../../packages/core/src/agents/antigravity-install.cjs");
@@ -23,7 +37,11 @@ async function record(name, body, operations, envOverrides = {}) {
   const dir = path.join(root, name);
   const home = path.join(dir, "home");
   const dataDir = path.join(dir, "profile");
+  const previousCwd = process.cwd();
+  const cwd = path.join(dir, "working-directory");
   fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(cwd);
+  process.chdir(cwd);
   if (body !== null) {
     fs.mkdirSync(path.join(dataDir, "accounts"), { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(dataDir, "accounts/accounts.json"), body, { mode: 0o600 });
@@ -55,18 +73,24 @@ async function record(name, body, operations, envOverrides = {}) {
     const routing = createAccountRouting({ accounts, cli: async () => ({}) });
     for (const operation of operations) {
       let result;
+      const before = preparationCalls.length;
       try {
         const [method, ...args] = operation;
         result = { ok: method === "pin" ? routing.selection(...args) : await accounts[method](...args) };
       } catch (error) {
         result = { error: error.message };
       }
-      out.operations.push({ call: operation, result: replace(result, dir, "/fixture") });
+      out.operations.push({
+        call: operation,
+        result: replace(result, dir, "/fixture"),
+        preparations: replace(preparationCalls.slice(before), dir, "/fixture"),
+      });
     }
   } catch (error) {
     out.error = error.message;
   } finally {
     accounts?.close();
+    process.chdir(previousCwd);
   }
   fixtures.push(out);
 }

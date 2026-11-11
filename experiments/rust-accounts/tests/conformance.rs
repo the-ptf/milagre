@@ -23,6 +23,7 @@ fn actual_node_accounts_match_on_saved_metadata_scopes_and_environment() {
             env: serde_json::from_value(c["env"].clone()).unwrap(),
         };
         for operation in case["operations"].as_array().unwrap() {
+            let mut preparations = Vec::new();
             let args = operation["call"].as_array().unwrap();
             let string = |i: usize| args.get(i).and_then(Value::as_str);
             let result = match string(0).unwrap() {
@@ -40,7 +41,14 @@ fn actual_node_accounts_match_on_saved_metadata_scopes_and_environment() {
                         ),
                         &context,
                     )
-                    .and_then(|p| p.prepare(|_| Ok(())))
+                    .and_then(|p| p.prepare(|prep| {
+                        use milagre_accounts::Preparation;
+                        preparations.push(match prep {
+                            Preparation::AntigravityDefault { directory, root, home } => json!({"kind":"antigravity","directory":directory,"root":root,"home":home}),
+                            Preparation::InheritMcp { provider, source, target, home, config_dir_set } => json!({"kind":"mcp","provider":provider,"sourceDir":source,"targetDir":target,"home":home,"configDirSet":config_dir_set}),
+                        });
+                        Ok(())
+                    }))
                     .map(|env| json!(env)),
                 "scope" => accounts.scope_snapshot(string(1).unwrap()),
                 other => panic!("unreplayed operation {other}"),
@@ -50,6 +58,19 @@ fn actual_node_accounts_match_on_saved_metadata_scopes_and_environment() {
                 Err(e) => json!({"error":e.to_string()}),
             };
             assert_eq!(actual, operation["result"], "{name}: {}", operation["call"]);
+            if string(0) == Some("environment")
+                && (!operation["preparations"].as_array().unwrap().is_empty()
+                    || string(1) != Some("antigravity"))
+            {
+                // Node memoizes Antigravity default preparation; the Rust owner must do so.
+                // Compare every actual first invocation and every MCP invocation verbatim.
+                assert_eq!(
+                    json!(preparations),
+                    operation["preparations"],
+                    "{name}: preparation {}",
+                    operation["call"]
+                );
+            }
             calls += 1;
         }
     }
