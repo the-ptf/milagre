@@ -169,12 +169,6 @@ impl Sidebar {
         cx.notify();
     }
 
-    /// The editor "Open in …" names; `None` says "No editor found".
-    pub fn set_editor(&mut self, editor: Option<gpui::SharedString>, cx: &mut Context<Self>) {
-        self.editor = editor;
-        cx.notify();
-    }
-
     /// Moves the undo book's clock forward (tests): a deletion past its window can no longer be taken back.
     pub fn advance_clock(&mut self, ms: i64) {
         self.book.advance(ms);
@@ -202,7 +196,6 @@ impl Sidebar {
             gitless,
             remote: scope.project.computer.as_ref() != LOCAL,
             linked: self.linked.get(key).is_some_and(|labels| !labels.is_empty()),
-            editor: self.editor.clone(),
         })
     }
 
@@ -235,11 +228,6 @@ impl Sidebar {
         let context = open.context;
         let key = context.key.clone();
         match action {
-            MenuAction::CopyPath => {
-                if let Some(path) = &context.path {
-                    cx.write_to_clipboard(ClipboardItem::new_string(path.to_string()));
-                }
-            }
             MenuAction::CopyBranch => {
                 if let Some(branch) = &context.branch {
                     cx.write_to_clipboard(ClipboardItem::new_string(branch.to_string()));
@@ -247,22 +235,8 @@ impl Sidebar {
             }
             MenuAction::Rename => self.start_rename(&key, window, cx),
             MenuAction::Reload => self.send(SidebarCall::Reload { chat: key }),
-            MenuAction::ReportBug => self.send(SidebarCall::ReportBug { chat: key }),
             MenuAction::UnlinkIssue => self.send(SidebarCall::UnlinkIssue { chat: key }),
-            MenuAction::LinkIssue => self.send(SidebarCall::LinkIssue { chat: key }),
-            MenuAction::MarkRead => self.set_unread(&key, false, cx),
             MenuAction::MarkUnread => self.set_unread(&key, true, cx),
-            MenuAction::Reveal => {
-                if let Some(path) = context.path {
-                    self.send(SidebarCall::Reveal { path: path.to_string() });
-                }
-            }
-            MenuAction::Editor => {
-                if let Some(path) = context.path {
-                    self.send(SidebarCall::OpenInEditor { path: path.to_string() });
-                }
-            }
-            MenuAction::Commit => self.send(SidebarCall::CommitAndOpenPr { chat: key }),
             MenuAction::Pin => self.pin(&key, true, true, cx),
             MenuAction::Unpin => self.pin(&key, false, true, cx),
             MenuAction::LinkWith => {
@@ -278,7 +252,6 @@ impl Sidebar {
             MenuAction::Detach => self.detach(&key, cx),
             MenuAction::Done => self.mark_done(&key, true, cx),
             MenuAction::Reopen => self.reopen(&key, true, cx),
-            MenuAction::Delete => self.delete(&key, true, cx),
         }
         cx.notify();
     }

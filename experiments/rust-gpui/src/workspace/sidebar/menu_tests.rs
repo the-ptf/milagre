@@ -42,6 +42,13 @@ fn run(sidebar: &Entity<Sidebar>, cx: &mut VisualTestContext, ix: usize, action:
     cx.run_until_parked();
 }
 
+/// Deleting has no menu item any more; the undo book and the toast still handle it.
+fn delete(sidebar: &Entity<Sidebar>, cx: &mut VisualTestContext, ix: usize) {
+    let key = key(sidebar, cx, ix);
+    cx.update(|_, cx| sidebar.update(cx, |s, cx| s.delete(&key, true, cx)));
+    cx.run_until_parked();
+}
+
 fn labels(context: &MenuContext) -> Vec<String> {
     entries(context)
         .into_iter()
@@ -58,34 +65,17 @@ fn context() -> MenuContext {
         path: Some("/w/one".into()),
         branch: Some("milagre/one".into()),
         linkable: true,
-        editor: Some("Zed".into()),
         ..MenuContext::default()
     }
 }
 
 #[test]
-fn the_menu_lists_the_desktops_items_in_its_order() {
+fn the_menu_lists_the_kept_items_in_order() {
     assert_eq!(
         labels(&context()),
-        [
-            "Copy path",
-            "Copy branch name",
-            "Rename Chat",
-            "Reload Chat",
-            "Report a Milagre bug",
-            "Link issue…",
-            "Mark as unread",
-            "Open in Finder",
-            "Open in Zed",
-            "Commit and open PR…",
-            "Pin",
-            "Link with…",
-            "-",
-            "Mark Done",
-            "Delete"
-        ]
+        ["Copy branch name", "Rename Chat", "Reload Chat", "Mark as unread", "Pin", "Link with…", "-", "Mark Done"]
     );
-    // Every conditional item at once: 17 distinct actions, the other flavour of each pair left out.
+    // Every conditional item at once: the other flavour of each pair left out.
     let all = MenuContext {
         linear_key: Some("MIL-1".into()),
         unread: true,
@@ -98,37 +88,40 @@ fn the_menu_lists_the_desktops_items_in_its_order() {
     assert_eq!(
         labels(&all),
         [
-            "Copy path",
             "Copy branch name",
             "Rename Chat",
             "Reload Chat",
-            "Report a Milagre bug",
             "Unlink issue",
-            "Mark as read",
-            "Open in Finder",
-            "Open in Zed",
-            "Commit and open PR…",
             "Unpin",
             "Link with…",
             "Remove Link with…",
             "Detach from parent",
             "-",
-            "Reopen",
-            "Delete"
+            "Reopen"
         ]
     );
+    // The removed items never show, whatever the Chat is.
+    for context in [context(), all] {
+        let shown = labels(&context);
+        for gone in ["Copy path", "Report a Milagre bug", "Link issue…", "Mark as read", "Open in Finder", "Commit and open PR…", "Delete"]
+        {
+            assert!(!shown.iter().any(|label| label == gone), "{gone}");
+        }
+        assert!(!shown.iter().any(|label| label.starts_with("Open in") || label == "No editor found"));
+        assert_ne!(shown.first().map(String::as_str), Some("-"));
+        assert!(shown.windows(2).all(|pair| !(pair[0] == "-" && pair[1] == "-")) && shown.last().map(String::as_str) != Some("-"));
+    }
 }
 
 #[test]
 fn a_chat_without_a_project_or_on_another_computer_loses_the_items_that_need_a_folder() {
     let home = MenuContext { gitless: true, path: None, branch: None, linkable: false, ..context() };
-    assert_eq!(labels(&home), ["Rename Chat", "Reload Chat", "Report a Milagre bug", "Mark as unread", "Pin", "-", "Mark Done", "Delete"]);
-    let remote = MenuContext { remote: true, ..context() };
-    let remote = labels(&remote);
-    assert!(!remote.iter().any(|label| label.starts_with("Open in") || label == "Link with…"));
-    assert!(remote.contains(&"Copy path".to_owned()) && remote.contains(&"Commit and open PR…".to_owned()));
-    // No folder: the folder items stay but cannot be pressed; no editor says so.
-    let none = MenuContext { path: None, branch: None, editor: None, ..context() };
+    assert_eq!(labels(&home), ["Rename Chat", "Reload Chat", "Mark as unread", "Pin", "-", "Mark Done"]);
+    let remote = labels(&MenuContext { remote: true, ..context() });
+    assert!(!remote.iter().any(|label| label == "Link with…"));
+    assert!(remote.contains(&"Copy branch name".to_owned()));
+    // No branch: Copy branch name stays but cannot be pressed.
+    let none = MenuContext { path: None, branch: None, ..context() };
     let items: Vec<_> = entries(&none)
         .into_iter()
         .filter_map(|entry| match entry {
@@ -137,9 +130,7 @@ fn a_chat_without_a_project_or_on_another_computer_loses_the_items_that_need_a_f
         })
         .collect();
     let find = |label: &str| items.iter().find(|item| item.label == label).unwrap_or_else(|| panic!("{label}"));
-    assert!(find("Copy path").disabled && find("Open in Finder").disabled && find("Commit and open PR…").disabled);
-    assert!(find("No editor found").disabled);
-    assert!(find("Delete").danger && !find("Rename Chat").disabled);
+    assert!(find("Copy branch name").disabled && !find("Rename Chat").disabled);
 }
 
 #[gpui::test]
@@ -152,7 +143,7 @@ fn a_right_press_opens_the_menu_at_the_pointer_and_escape_closes_it(cx: &mut Tes
     assert_eq!(menu.size.width, px(240.0));
     let row = cx.debug_bounds("chat-row-3").unwrap();
     assert!(menu.left() <= row.center().x + px(1.0) && menu.top() >= row.top());
-    for id in ["menu-rename", "menu-reload", "menu-pin", "menu-done", "menu-archive", "menu-detach"] {
+    for id in ["menu-rename", "menu-reload", "menu-pin", "menu-done", "menu-detach"] {
         assert!(cx.debug_bounds(id).is_some(), "{id} is in a Subchat's menu");
     }
     cx.simulate_keystrokes("escape");
@@ -191,48 +182,23 @@ fn clicking_a_menu_item_runs_it_and_closes_the_menu(cx: &mut TestAppContext) {
 fn each_menu_item_sends_its_call(cx: &mut TestAppContext) {
     let (sidebar, cx) = mount(cx);
     let two = key(&sidebar, cx, 2);
-    let path = "/fixture/worktrees/milagre-ade/migrate-desktop-to-rust-76".to_owned();
 
     run(&sidebar, cx, 2, MenuAction::Reload);
-    run(&sidebar, cx, 2, MenuAction::ReportBug);
-    run(&sidebar, cx, 2, MenuAction::LinkIssue);
-    run(&sidebar, cx, 2, MenuAction::Reveal);
-    run(&sidebar, cx, 2, MenuAction::Editor);
-    run(&sidebar, cx, 2, MenuAction::Commit);
     run(&sidebar, cx, 2, MenuAction::LinkWith);
     run(&sidebar, cx, 2, MenuAction::MarkUnread);
     assert_eq!(
         calls(&sidebar, cx),
         [
             SidebarCall::Reload { chat: two.clone() },
-            SidebarCall::ReportBug { chat: two.clone() },
-            SidebarCall::LinkIssue { chat: two.clone() },
-            SidebarCall::Reveal { path: path.clone() },
-            SidebarCall::OpenInEditor { path: path.clone() },
-            SidebarCall::CommitAndOpenPr { chat: two.clone() },
             SidebarCall::LinkWith { chat: two.clone() },
             SidebarCall::Patch { chat: two.clone(), patch: ChatPatch::Unread(true) },
         ]
     );
-    // The unread mark shows at once; Mark as read takes it back.
-    assert_eq!(
-        sidebar.read_with(cx, |s, _| s.row(2).unwrap().mark),
-        crate::logic::marks::ChatMark::Running,
-        "a running Chat keeps its spinner"
-    );
-    run(&sidebar, cx, 5, MenuAction::MarkRead);
-    let five = key(&sidebar, cx, 5);
-    assert_eq!(calls(&sidebar, cx).last(), Some(&SidebarCall::Patch { chat: five, patch: ChatPatch::Unread(false) }));
 }
 
 #[gpui::test]
-fn copy_path_and_copy_branch_put_the_worktree_on_the_clipboard(cx: &mut TestAppContext) {
+fn copy_branch_puts_the_branch_on_the_clipboard(cx: &mut TestAppContext) {
     let (sidebar, cx) = mount(cx);
-    run(&sidebar, cx, 2, MenuAction::CopyPath);
-    assert_eq!(
-        cx.read_from_clipboard().and_then(|item| item.text()),
-        Some("/fixture/worktrees/milagre-ade/migrate-desktop-to-rust-76".into())
-    );
     run(&sidebar, cx, 2, MenuAction::CopyBranch);
     assert_eq!(cx.read_from_clipboard().and_then(|item| item.text()), Some("milagre/migrate-desktop-to-rust".into()));
     assert!(calls(&sidebar, cx).is_empty(), "copying asks the host for nothing");
@@ -289,7 +255,7 @@ fn delete_hides_the_chat_only_and_the_toast_undo_takes_it_back(cx: &mut TestAppC
     let (sidebar, cx) = mount(cx);
     let chat = key(&sidebar, cx, 8);
     let rows = sidebar.read_with(cx, |s, _| s.row_count());
-    run(&sidebar, cx, 8, MenuAction::Delete);
+    delete(&sidebar, cx, 8);
     assert_eq!(calls(&sidebar, cx), [SidebarCall::Archive { chat: chat.clone(), mode: ArchiveMode::HideOnly }]);
     assert_eq!(sidebar.read_with(cx, |s, _| s.row_count()), rows - 1);
     assert!(sidebar.read_with(cx, |s, _| s.is_archived_key(&chat)));
@@ -307,7 +273,7 @@ fn delete_hides_the_chat_only_and_the_toast_undo_takes_it_back(cx: &mut TestAppC
 fn a_deletion_cannot_be_undone_after_six_seconds(cx: &mut TestAppContext) {
     let (sidebar, cx) = mount(cx);
     let chat = key(&sidebar, cx, 8);
-    run(&sidebar, cx, 8, MenuAction::Delete);
+    delete(&sidebar, cx, 8);
     cx.update(|_, cx| sidebar.update(cx, |s, _| s.advance_clock(6_500)));
     cx.simulate_keystrokes("cmd-z");
     assert!(sidebar.read_with(cx, |s, _| s.is_archived_key(&chat)), "still deleted");
@@ -359,7 +325,8 @@ fn undo_walks_back_three_steps_and_redo_forward_again(cx: &mut TestAppContext) {
     run(&sidebar, cx, 2, MenuAction::Pin);
     let at = |cx: &VisualTestContext, key: &str| sidebar.read_with(cx, |s, _| s.row_keys().iter().position(|k| k == key)).expect("listed");
     run(&sidebar, cx, at(cx, &done), MenuAction::Done);
-    run(&sidebar, cx, at(cx, &delete), MenuAction::Delete);
+    let delete_ix = at(cx, &delete);
+    super::menu_tests::delete(&sidebar, cx, delete_ix);
     let after = sidebar.read_with(cx, |s, _| (s.row_count(), s.pinned_count(), s.done_count()));
     assert_eq!(after, (initial.0 - 2, initial.1 + 1, initial.2 + 1));
 

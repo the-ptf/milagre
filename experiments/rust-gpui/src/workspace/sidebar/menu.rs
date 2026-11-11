@@ -1,4 +1,4 @@
-//! A Chat row's context menu (`ChatMenu` in `components/sidebar/ChatRow.tsx`, 17 items): the entries are a pure
+//! A Chat row's context menu (`ChatMenu` in `components/sidebar/ChatRow.tsx`, cut down to the items Victor keeps): the entries are a pure
 //! function of [`MenuContext`] (what the Chat is and where it lives), so the order and the conditions are testable
 //! without a window; [`render`] draws them in a 240px card at the pointer, which keeps inside the window (flipping
 //! upwards near the bottom, as `ChatMenu` does) and closes on Escape and on a press outside.
@@ -40,25 +40,16 @@ pub struct MenuContext {
     pub remote: bool,
     /// A canvas Link reaches its Worktree.
     pub linked: bool,
-    /// The editor "Open in …" names; none says "No editor found".
-    pub editor: Option<SharedString>,
 }
 
 /// What an item does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuAction {
-    CopyPath,
     CopyBranch,
     Rename,
     Reload,
-    ReportBug,
     UnlinkIssue,
-    LinkIssue,
-    MarkRead,
     MarkUnread,
-    Reveal,
-    Editor,
-    Commit,
     Pin,
     Unpin,
     LinkWith,
@@ -66,7 +57,6 @@ pub enum MenuAction {
     Detach,
     Done,
     Reopen,
-    Delete,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -95,40 +85,23 @@ impl MenuItem {
     }
 }
 
-/// `ChatMenu`'s items for this Chat, in its order: copy, Rename, Reload, bug report, Linear, read state, Finder,
-/// editor, commit, Pin, Links, Detach, a divider, then Done or Reopen and Delete.
+/// The menu's items for this Chat, in `ChatMenu`'s order: Copy branch name, Rename, Reload, Unlink issue, Mark as
+/// unread, Pin, Links, Detach, a divider, then Done or Reopen. (Copy path, bug report, Link issue, Mark as read, Finder,
+/// editor, commit and Delete are not offered.)
 pub fn entries(ctx: &MenuContext) -> Vec<MenuEntry> {
     use MenuAction as A;
     let row = |item: MenuItem| MenuEntry::Row(item);
     let mut out = Vec::new();
     if !ctx.gitless {
-        out.push(row(MenuItem::new(A::CopyPath, "Copy path", IconName::Copy01).disabled(ctx.path.is_none())));
         out.push(row(MenuItem::new(A::CopyBranch, "Copy branch name", IconName::GitBranch).disabled(ctx.branch.is_none())));
     }
     out.push(row(MenuItem::new(A::Rename, "Rename Chat", IconName::PencilEdit02)));
     out.push(row(MenuItem::new(A::Reload, "Reload Chat", IconName::Refresh01)));
-    out.push(row(MenuItem::new(A::ReportBug, "Report a Milagre bug", IconName::Bug01)));
-    if ctx.linkable {
-        out.push(row(if ctx.linear_key.is_some() {
-            MenuItem::new(A::UnlinkIssue, "Unlink issue", IconName::Link04)
-        } else {
-            MenuItem::new(A::LinkIssue, "Link issue…", IconName::Link04)
-        }));
+    if ctx.linkable && ctx.linear_key.is_some() {
+        out.push(row(MenuItem::new(A::UnlinkIssue, "Unlink issue", IconName::Link04)));
     }
-    out.push(row(if ctx.unread {
-        MenuItem::new(A::MarkRead, "Mark as read", IconName::Tick02)
-    } else {
-        MenuItem::new(A::MarkUnread, "Mark as unread", IconName::Circle)
-    }));
-    if !ctx.gitless && !ctx.remote {
-        out.push(row(MenuItem::new(A::Reveal, "Open in Finder", IconName::FolderOpen).disabled(ctx.path.is_none())));
-        out.push(row(match &ctx.editor {
-            Some(editor) => MenuItem::new(A::Editor, format!("Open in {editor}"), IconName::SourceCode).disabled(ctx.path.is_none()),
-            None => MenuItem::new(A::Editor, "No editor found", IconName::SourceCode).disabled(true),
-        }));
-    }
-    if !ctx.gitless {
-        out.push(row(MenuItem::new(A::Commit, "Commit and open PR…", IconName::GitPullRequest).disabled(ctx.path.is_none())));
+    if !ctx.unread {
+        out.push(row(MenuItem::new(A::MarkUnread, "Mark as unread", IconName::Circle)));
     }
     out.push(row(if ctx.pinned {
         MenuItem::new(A::Unpin, "Unpin", IconName::PinOff)
@@ -150,7 +123,6 @@ pub fn entries(ctx: &MenuContext) -> Vec<MenuEntry> {
     } else {
         MenuItem::new(A::Done, "Mark Done", IconName::Tick02)
     }));
-    out.push(row(MenuItem { danger: true, ..MenuItem::new(A::Delete, "Delete", IconName::Delete02) }));
     out
 }
 
@@ -239,18 +211,11 @@ pub fn render(
 pub fn action_id(action: MenuAction) -> &'static str {
     use MenuAction as A;
     match action {
-        A::CopyPath => "copy-path",
         A::CopyBranch => "copy-branch",
         A::Rename => "rename",
         A::Reload => "reload",
-        A::ReportBug => "report-bug",
         A::UnlinkIssue => "unlink-issue",
-        A::LinkIssue => "link-issue",
-        A::MarkRead => "read",
         A::MarkUnread => "unread",
-        A::Reveal => "reveal",
-        A::Editor => "editor",
-        A::Commit => "commit",
         A::Pin => "pin",
         A::Unpin => "unpin",
         A::LinkWith => "link-with",
@@ -258,6 +223,5 @@ pub fn action_id(action: MenuAction) -> &'static str {
         A::Detach => "detach",
         A::Done => "done",
         A::Reopen => "reopen",
-        A::Delete => "archive",
     }
 }

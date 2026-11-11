@@ -50,8 +50,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, AnyView, Bounds, Context, Entity, FocusHandle, KeyDownEvent, MouseButton, Pixels, ScrollStrategy, SharedString,
-    StyleRefinement, Subscription, UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
+    AnyElement, AnyView, Bounds, Context, Entity, FocusHandle, KeyDownEvent, MouseButton, Pixels, ScrollStrategy, StyleRefinement,
+    Subscription, UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
 };
 
 use crate::data::{Data, Polled, poll_once};
@@ -103,8 +103,6 @@ pub struct Sidebar {
     list_filters: ListFilters,
     /// Which facts a row's second line carries (Filters › Show).
     show: ChatRowShow,
-    /// The editor "Open in …" names.
-    editor: Option<SharedString>,
     /// Chats whose Worktree a canvas Link reaches, with the labels of what they are Linked with.
     linked: HashMap<String, Vec<String>>,
     book: undo::UndoBook,
@@ -170,7 +168,6 @@ impl Sidebar {
             recorder,
             list_filters: ListFilters::default(),
             show: DESKTOP_CHAT_ROW_SHOW,
-            editor: Some("Zed".into()),
             linked: HashMap::new(),
             book: undo::UndoBook::new(),
             toast_shown: None,
