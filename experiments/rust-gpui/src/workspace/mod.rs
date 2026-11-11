@@ -21,6 +21,7 @@ mod tests;
 
 use gpui::{Context, Entity, Subscription, Window, div, prelude::*, px};
 
+use crate::routines::RoutinesView;
 use crate::settings::{self, SettingsModal, ToggleSettings};
 use crate::theme::{ActiveTheme, Theme};
 use crate::workspace::chat::ChatView;
@@ -33,11 +34,16 @@ pub struct Workspace {
     pub chat: Entity<ChatView>,
     pub panel: Entity<Panel>,
     pub settings: Entity<SettingsModal>,
+    /// The Routines page, in place of the Chat column while the sidebar's Routines button is on (WP-45).
+    pub routines: Entity<RoutinesView>,
+    routines_open: bool,
+    /// The sidebar row picked when Routines opened: a different pick closes it.
+    routines_at: Option<usize>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl Workspace {
-    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         dock::install_keys(cx);
         settings::init(cx);
         let (sidebar, chat, panel, settings) =
@@ -45,13 +51,27 @@ impl Workspace {
         // The panel's place in the window changed: lay the columns out again.
         let layout = cx.subscribe(&panel, |_, _, _: &PanelEvent, cx| cx.notify());
         let new_chat = cx.subscribe(&sidebar, |this, _, event: &SidebarEvent, cx| match event {
-            SidebarEvent::NewChat => this.chat.update(cx, |chat, cx| chat.composer.update(cx, |composer, cx| composer.start_new_chat(cx))),
+            SidebarEvent::NewChat => {
+                this.routines_open = false;
+                this.chat.update(cx, |chat, cx| chat.composer.update(cx, |composer, cx| composer.start_new_chat(cx)))
+            }
+            SidebarEvent::Routines => this.open_routines(cx),
         });
         let follow = cx.observe(&sidebar, |this, _, cx| this.follow_sidebar(None, cx));
         // A web page draws over GPUI: it hides while Settings is open (src/platform/webview.rs).
         let web = cx
             .observe(&settings, |_, settings, cx| crate::platform::webview::set_overlay_open("settings", settings.read(cx).is_open(), cx));
-        Self { sidebar, chat, panel, settings, _subscriptions: vec![layout, follow, web, new_chat] }
+        let routines = cx.new(|cx| RoutinesView::new(window, cx));
+        let routines_open = crate::routines::start_from_env().is_some();
+        let routines_at = sidebar.read(cx).selected();
+        Self { sidebar, chat, panel, settings, routines, routines_open, routines_at, _subscriptions: vec![layout, follow, web, new_chat] }
+    }
+
+    /// The sidebar's Routines button: the Routines page takes the Chat column's place until another Chat is picked.
+    fn open_routines(&mut self, cx: &mut Context<Self>) {
+        self.routines_open = true;
+        self.routines_at = self.sidebar.read(cx).selected();
+        cx.notify();
     }
 
     /// A different Chat picked in the sidebar: the panel shows that Chat's tab and width. The sidebar does not
@@ -78,7 +98,20 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.follow_sidebar(Some(window), cx);
         let theme = *cx.theme();
-        let columns = dock::layout(&self.panel, self.chat.clone(), cx);
+        if self.routines_open {
+            // The first row picked after the sidebar loads is not a different pick.
+            let picked = self.sidebar.read(cx).selected();
+            if self.routines_at.is_none() {
+                self.routines_at = picked;
+            } else if picked != self.routines_at {
+                self.routines_open = false;
+            }
+        }
+        let columns = if self.routines_open {
+            div().flex().flex_1().min_w_0().h_full().child(self.routines.clone()).into_any_element()
+        } else {
+            dock::layout(&self.panel, self.chat.clone(), cx)
+        };
         let settings = self.settings.clone();
         dock::on_actions(div(), &self.panel)
             .on_action(move |_: &ToggleSettings, window, cx| {

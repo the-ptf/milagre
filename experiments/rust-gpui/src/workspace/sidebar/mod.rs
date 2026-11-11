@@ -72,6 +72,8 @@ pub struct Sidebar {
 pub enum SidebarEvent {
     /// The New Chat button: the Chat column opens its new-Chat composer.
     NewChat,
+    /// The Routines button: the window shows the Routines page in place of the Chat column.
+    Routines,
 }
 
 impl gpui::EventEmitter<SidebarEvent> for Sidebar {}
@@ -279,7 +281,13 @@ impl Render for Sidebar {
                 move |_, cx| sidebar.update(cx, |_, cx| cx.emit(SidebarEvent::NewChat))
             }))
             .child(destination("canvas", "Canvas", IconName::FlowConnection, false, &theme))
-            .child(destination("routines", "Routines", IconName::TimeSchedule, true, &theme))
+            .child(div().id("routines-button").on_click(cx.listener(|_, _, _, cx| cx.emit(SidebarEvent::Routines))).child(destination(
+                "routines",
+                "Routines",
+                IconName::TimeSchedule,
+                true,
+                &theme,
+            )))
             .child(destination("links", "Links", IconName::Link04, false, &theme))
             .when(!pinned.is_empty(), |el| {
                 el.child(

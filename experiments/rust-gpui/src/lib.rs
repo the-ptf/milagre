@@ -10,6 +10,7 @@ pub mod data;
 pub mod fitcheck;
 pub mod logic;
 pub mod platform;
+pub mod routines;
 pub mod settings;
 #[cfg(target_os = "macos")]
 pub mod snapshot;
