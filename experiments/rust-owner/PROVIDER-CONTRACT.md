@@ -216,7 +216,12 @@ agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the n
   prompt, `GIT_DIR`/`GIT_WORK_TREE` pinned, discovery ceiling at the copy, hooks and fsmonitor off), in its own process
   group (killed whole on timeout; pipes waited on 500 ms at most), 3 s per run and 6 s per handoff, 1 MiB of Git output
   and 2 MiB of listed files per handoff, aliases up to 256 bytes; the `.git` folder and config identity is compared
-  before and after the run. Anything not admitted or failing gives no list, as Node's `changedFiles().catch(() => [])`. Lines are read as
+  before and after the run. Git never reads the repository's own Git folder as its own: each run gets a private one in `.owner/git` (a plain
+  config keeping only an allow-list of `core` read settings, HEAD as its commit, copies of the index and `info/exclude`,
+  objects through one alternate) with submodules ignored and no attributes file or excludes of its own, so no filter,
+  hook, fsmonitor, include, `worktreeConfig` or submodule the repository names runs; extensions or object alternates
+  give no list. Pipes are read without threads. Anything not admitted or failing gives no list, as Node's
+  `changedFiles().catch(() => [])`. Lines are read as
   Node reads them (`line.slice(3)`, the alias in front for a Link member); Git's own defaults apply where Node would
   use the person's Git config (`core.quotePath`). Admission is a new runtime API: coordinate before the runtime calls
   it.

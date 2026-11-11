@@ -8,18 +8,27 @@
 //! - **Cleared environment.** `/usr/bin/git` with only `PATH=/usr/bin:/bin`, `HOME` the isolated copy, `LC_ALL=C`, no
 //!   system or global config, `GIT_OPTIONAL_LOCKS=0`, no prompt, `GIT_DIR`/`GIT_WORK_TREE` pinned and discovery
 //!   ceiling at the copy; `core.fsmonitor=false` and `core.hooksPath=/dev/null` on the command line.
-//! - **Bounded.** 3 seconds per run and 6 for all members of a handoff (then the run's whole process group is
-//!   killed, and its pipes waited on for at most half a second, never joined blindly), 1 MiB of Git output and 2 MiB of
-//!   listed files for all members together, aliases of at most 256 bytes, at most [`MAX_MEMBERS`] members.
-//! - **No config swapped mid-run.** The `.git` folder's and its config's identity (device, inode, size, change time)
-//!   is read before the checks and again after Git ran; any difference gives no list. (A config edited and put back
-//!   to the same size within one change-time tick isn't caught.)
+//! - **Bounded.** 3 seconds per run and 6 for all members of a handoff (the deadline covers the config read too),
+//!   1 MiB of Git output and 2 MiB of listed files for all members together (counted before each name is built),
+//!   aliases of at most 256 bytes, at most [`MAX_MEMBERS`] members.
+//! - **Pipes read without threads.** Nonblocking reads on the running thread until both pipes close; past the deadline
+//!   the process group is killed (before Git is reaped); after Git exits the pipes may stay open half a second (a
+//!   descendant), then they are closed and the run gives no list. Nothing of a run outlives it.
 //! - **Off the actor.** It runs inside the transcript job (`TranscriptJob::run`), on the runtime's blocking worker.
 //!
 //! Node's answer for anything that fails (a member not admitted, Git failing, a timeout) is no list at all
 //! (`changedFiles().catch(() => [])`): the same here. Output is read as Node's `execFile(…, "utf8")` reads it and each
-//! line becomes `line.slice(3)` (UTF-16), with the member's alias in front for a Link Chat. Git's defaults apply (no
-//! global config): `core.quotePath` quotes unusual names, where Node uses the person's own Git config.
+//! line becomes `line.slice(3)` (UTF-16), with the member's alias in front for a Link Chat. Deliberate differences:
+//! Git's defaults apply where Node uses the person's own Git config (`core.quotePath`, global excludes), only a short
+//! allow-list of the repository's own `core` settings is kept (how the folder is read: case, Unicode composition, file
+//! modes, symlinks, ctime, stat, line ends), and submodules are never opened, so a submodule's own changes aren't
+//! listed.
+//! - **The repository's own Git folder isn't Git's.** Each run gets a private Git folder in `.owner/git` (removed
+//!   after): a plain config with only that allow-list (read by `git config --no-includes` as data, values checked),
+//!   HEAD as the commit it names, a copy of the index and `info/exclude`, and the repository's objects through one
+//!   alternate. So no filter, hook, fsmonitor, include, `worktreeConfig`, replace ref or submodule the repository
+//!   names is ever read or run; attributes files can name filters, but none is configured. A repository with
+//!   extensions (SHA-256, reftables, `worktreeConfig`) or object alternates of its own gives no list.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -126,20 +135,6 @@ impl GitGrants {
     }
 }
 
-/// What a run's checks saw of the Git folder and its config (device, inode, size, change time): compared again
-/// after the run, so a config swapped or edited while Git ran gives no list.
-type Seen = [(u64, u64, u64, i64, i64); 2];
-
-fn seen(path: &Path) -> Option<Seen> {
-    use std::os::unix::fs::MetadataExt;
-    let of = |path: &Path| {
-        std::fs::symlink_metadata(path)
-            .ok()
-            .map(|m| (m.dev(), m.ino(), m.len(), m.ctime(), m.ctime_nsec()))
-    };
-    Some([of(&path.join(".git"))?, of(&path.join(".git/config"))?])
-}
-
 /// The admission checks, run again before each Git run.
 fn check(copy: &Path, path: &Path) -> Result<()> {
     let real =
@@ -206,42 +201,198 @@ fn check(copy: &Path, path: &Path) -> Result<()> {
 /// does; `None` when anything fails. Blocking: call it off the owner's actor.
 pub fn changed_files(copy: &Path, plan: &ChangedPlan) -> Option<Vec<String>> {
     let plan = plan.as_ref()?;
-    let started = Instant::now();
+    let deadline = Instant::now() + TOTAL_TIMEOUT;
     let mut output_left = OUTPUT_LIMIT;
     let mut list_bytes = 0usize;
     let mut files = Vec::new();
     for (alias, folder) in plan {
-        // One budget for the whole handoff: time and output shrink as members run.
-        let time_left = TOTAL_TIMEOUT.checked_sub(started.elapsed())?.min(TIMEOUT);
-        let before = seen(folder)?;
         check(copy, folder).ok()?;
-        let output = status(copy, folder, time_left, output_left)?;
-        // The config Git read must be the one checked: anything swapped or edited meanwhile gives no list.
-        if seen(folder)? != before {
-            return None;
-        }
-        check(copy, folder).ok()?;
+        let output = status(copy, folder, deadline, output_left)?;
         output_left -= output.len();
         for line in output.split('\n').filter(|line| !line.is_empty()) {
             let units = jsjson::to_utf16(line);
-            let name = jsjson::from_utf16(&units[units.len().min(3)..]);
+            let name = &units[units.len().min(3)..];
+            // Counted before anything is built: the alias, the slash and the name as UTF-8 (at most 3 bytes a unit).
+            let needed = alias.as_ref().map_or(0, |alias| alias.len() + 1) + name.len() * 3;
+            if list_bytes + needed > LIST_LIMIT {
+                return None;
+            }
+            let name = jsjson::from_utf16(name);
             let file = match alias {
                 Some(alias) => format!("{alias}/{name}"),
                 None => name,
             };
             list_bytes += file.len();
-            if list_bytes > LIST_LIMIT {
-                return None;
-            }
             files.push(file);
         }
     }
     Some(files)
 }
 
-/// `git status --porcelain` in `folder`, hardened (see the module docs); its output read as UTF-8 (U+FFFD for
-/// invalid bytes, as Node's `encoding: "utf8"`), or `None`.
-fn status(copy: &Path, folder: &Path, timeout: Duration, limit: usize) -> Option<String> {
+/// The settings of the repository's own config the run keeps (how the working folder is read, never commands),
+/// each with the values it may take.
+const KEPT: [(&str, &[&str]); 8] = [
+    ("core.ignorecase", &["true", "false"]),
+    ("core.precomposeunicode", &["true", "false"]),
+    ("core.filemode", &["true", "false"]),
+    ("core.symlinks", &["true", "false"]),
+    ("core.trustctime", &["true", "false"]),
+    ("core.checkstat", &["default", "minimal"]),
+    ("core.autocrlf", &["true", "false", "input"]),
+    ("core.eol", &["lf", "crlf", "native"]),
+];
+
+/// A private Git folder for one run, inside the copy's `.owner/git`, removed when dropped: Git reads its config,
+/// HEAD, refs and index from here, never from the repository's own `.git` (whose objects it reads through an
+/// alternate only). So nothing the repository's config names (filters, fsmonitor, hooks, submodules, includes,
+/// `worktreeConfig`, replace refs) is ever run or read.
+struct Scratch {
+    dir: PathBuf,
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// A plain file of at most `cap` bytes inside the repository's `.git` (no link), or `None`.
+fn small_file(path: &Path, cap: u64) -> Option<Vec<u8>> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > cap {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    (bytes.len() as u64 <= cap).then_some(bytes)
+}
+
+fn hex_id(text: &str) -> bool {
+    (text.len() == 40) && text.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+impl Scratch {
+    fn make(copy: &Path, folder: &Path, deadline: Instant) -> Option<Scratch> {
+        use std::os::unix::fs::DirBuilderExt;
+        let owner = copy.join(crate::isolation::OWNER_DIR);
+        for part in [owner.clone(), owner.join("git")] {
+            match std::fs::symlink_metadata(&part) {
+                Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => {}
+                Ok(_) => return None,
+                Err(_) => std::fs::DirBuilder::new().mode(0o700).create(&part).ok()?,
+            }
+        }
+        let mut random = [0u8; 8];
+        std::fs::File::open("/dev/urandom")
+            .ok()?
+            .read_exact(&mut random)
+            .ok()?;
+        let dir = owner.join("git").join(hex::encode(random));
+        std::fs::DirBuilder::new().mode(0o700).create(&dir).ok()?;
+        let scratch = Scratch { dir };
+        scratch.fill(copy, folder, deadline)?;
+        Some(scratch)
+    }
+
+    fn fill(&self, copy: &Path, folder: &Path, deadline: Instant) -> Option<()> {
+        let git = folder.join(".git");
+        let config = small_file(&git.join("config"), 64 * 1024)?;
+        let text = String::from_utf8_lossy(&config).to_ascii_lowercase();
+        // A repository format this run can't read with a plain config (SHA-256 objects, reftables): no list.
+        if text.contains("[extensions") {
+            return None;
+        }
+        // HEAD as the commit it names (the branch doesn't show in porcelain output), or as is while unborn.
+        let head = String::from_utf8(small_file(&git.join("HEAD"), 4096)?).ok()?;
+        let head = head.trim();
+        let commit = match head.strip_prefix("ref: ") {
+            Some(name)
+                if name.starts_with("refs/")
+                    && !name
+                        .split('/')
+                        .any(|part| part.is_empty() || part.starts_with('.')) =>
+            {
+                let loose = small_file(&git.join(name), 4096)
+                    .and_then(|bytes| String::from_utf8(bytes).ok())
+                    .map(|id| id.trim().to_string())
+                    .filter(|id| hex_id(id));
+                loose.or_else(|| {
+                    let packed =
+                        String::from_utf8(small_file(&git.join("packed-refs"), 16 << 20)?).ok()?;
+                    packed.lines().find_map(|line| {
+                        let (id, rest) = line.split_once(' ')?;
+                        (rest == name && hex_id(id)).then(|| id.to_string())
+                    })
+                })
+            }
+            Some(_) => return None,
+            None if hex_id(head) => Some(head.to_string()),
+            None => return None,
+        };
+        let head = match &commit {
+            Some(id) => format!("{id}\n"),
+            None => format!("{head}\n"),
+        };
+        let objects = std::fs::canonicalize(git.join("objects")).ok()?;
+        if !objects.starts_with(folder) || !std::fs::symlink_metadata(&objects).ok()?.is_dir() {
+            return None;
+        }
+        // Its objects must be its own: an alternate would have Git read another repository's.
+        if std::fs::symlink_metadata(objects.join("info/alternates")).is_ok() {
+            return None;
+        }
+        let dir = &self.dir;
+        for sub in ["refs", "objects", "objects/info", "objects/pack", "info"] {
+            std::fs::create_dir(dir.join(sub)).ok()?;
+        }
+        std::fs::write(dir.join("HEAD"), head).ok()?;
+        std::fs::write(
+            dir.join("objects/info/alternates"),
+            format!("{}\n", objects.display()),
+        )
+        .ok()?;
+        if let Some(index) = small_file(&git.join("index"), 64 << 20) {
+            std::fs::write(dir.join("index"), index).ok()?;
+        }
+        if let Some(exclude) = small_file(&git.join("info/exclude"), 1 << 20) {
+            std::fs::write(dir.join("info/exclude"), exclude).ok()?;
+        }
+        // Only the allow-listed settings of the repository's config, read by Git as data (no includes), values checked.
+        let mut kept = String::from("[core]\n\trepositoryformatversion = 0\n\tbare = false\n");
+        let mut read = Command::new(GIT);
+        read.current_dir(dir)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", copy)
+            .env("LC_ALL", "C")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_DIR", dir)
+            .arg("config")
+            .arg("--file")
+            .arg(git.join("config"))
+            .args(["--no-includes", "--get-regexp", "^core\\.(ignorecase|precomposeunicode|filemode|symlinks|trustctime|checkstat|autocrlf|eol)$"]);
+        // Exit 1 is "no such setting": nothing to keep.
+        let listed = run_bounded(read, deadline, 64 * 1024, true).unwrap_or_default();
+        for line in listed.lines() {
+            let Some((key, value)) = line.split_once(' ') else {
+                continue;
+            };
+            let value = value.trim().to_ascii_lowercase();
+            if let Some((name, allowed)) = KEPT.iter().find(|(name, _)| *name == key) {
+                if allowed.contains(&value.as_str()) {
+                    kept.push_str(&format!("\t{} = {value}\n", &name[5..]));
+                }
+            }
+        }
+        std::fs::write(dir.join("config"), kept).ok()?;
+        Some(())
+    }
+}
+
+/// `git status --porcelain` in `folder` through a private Git folder (see [`Scratch`]), hardened (see the module docs);
+/// its output read as UTF-8 (U+FFFD for invalid bytes, as Node's `encoding: "utf8"`), or `None`.
+fn status(copy: &Path, folder: &Path, deadline: Instant, limit: usize) -> Option<String> {
+    let scratch = Scratch::make(copy, folder, deadline)?;
     let mut command = Command::new(GIT);
     command
         .current_dir(folder)
@@ -251,28 +402,52 @@ fn status(copy: &Path, folder: &Path, timeout: Duration, limit: usize) -> Option
         .env("LC_ALL", "C")
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_ATTR_NOSYSTEM", "1")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_CEILING_DIRECTORIES", copy)
-        .env("GIT_DIR", folder.join(".git"))
+        .env("GIT_DIR", &scratch.dir)
         .env("GIT_WORK_TREE", folder)
         .args([
             "-c",
             "core.fsmonitor=false",
             "-c",
             "core.hooksPath=/dev/null",
+            "-c",
+            "core.attributesFile=/dev/null",
+            "-c",
+            "core.excludesFile=/dev/null",
+            "-c",
+            "core.untrackedCache=false",
+            "-c",
+            "submodule.recurse=false",
             "status",
             "--porcelain",
+            "--ignore-submodules=all",
         ]);
-    let output = run_bounded(command, timeout, limit);
+    let output = run_bounded(
+        command,
+        deadline.min(Instant::now() + TIMEOUT),
+        limit,
+        false,
+    );
     #[cfg(feature = "test-fixtures")]
     test_hooks::run_after_git();
+    drop(scratch);
     output
 }
 
-/// Runs `command` in its own process group with its pipes read on threads: `None` past `timeout` (the whole group
-/// killed), past `limit` bytes of output, on failure, or when its pipes stay open DRAIN after it exits.
-fn run_bounded(mut command: Command, timeout: Duration, limit: usize) -> Option<String> {
+/// Runs `command` in its own process group, reading its pipes without threads (nonblocking, on this thread): `None`
+/// past `deadline` (the whole group killed before it is reaped), past `limit` bytes of output, when it fails (unless
+/// `exit_one_ok` and it exits 1), or when its pipes are still open DRAIN after it exits. The pipes are closed when this
+/// returns, so a descendant left holding one holds nothing of ours: no thread, no descriptor.
+fn run_bounded(
+    mut command: Command,
+    deadline: Instant,
+    limit: usize,
+    exit_one_ok: bool,
+) -> Option<String> {
     use std::os::unix::process::CommandExt;
     let mut child = command
         .stdin(Stdio::null())
@@ -283,37 +458,79 @@ fn run_bounded(mut command: Command, timeout: Duration, limit: usize) -> Option<
         .spawn()
         .ok()?;
     let group = rustix::process::Pid::from_raw(child.id() as i32)?;
-    let read = |mut pipe: Box<dyn Read + Send>, keep: usize| {
-        let (done, result) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            let _ = (&mut pipe).take(keep as u64 + 1).read_to_end(&mut bytes);
-            // Whatever is left is drained (never kept), so Git can't block on a full pipe.
-            let _ = std::io::copy(&mut pipe, &mut std::io::sink());
-            let _ = done.send(bytes);
-        });
-        result
-    };
-    let stdout = read(Box::new(child.stdout.take()?), limit);
-    let stderr = read(Box::new(child.stderr.take()?), 64 * 1024);
-    let started = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if started.elapsed() < timeout => std::thread::sleep(Duration::from_millis(5)),
-            _ => break None,
+    let mut stdout = child.stdout.take()?;
+    let mut stderr = child.stderr.take()?;
+    for pipe in [
+        std::os::fd::AsFd::as_fd(&stdout),
+        std::os::fd::AsFd::as_fd(&stderr),
+    ] {
+        let flags = rustix::fs::fcntl_getfl(pipe).ok()?;
+        rustix::fs::fcntl_setfl(pipe, flags | rustix::fs::OFlags::NONBLOCK).ok()?;
+    }
+    let mut out = Vec::new();
+    let mut ignored = 0usize;
+    let (mut out_open, mut err_open) = (true, true);
+    let mut status = None;
+    let mut drained_by: Option<Instant> = None;
+    let mut buffer = [0u8; 8192];
+    let killed = loop {
+        let mut progress = false;
+        if out_open {
+            match stdout.read(&mut buffer) {
+                Ok(0) => out_open = false,
+                Ok(read) => {
+                    progress = true;
+                    // Kept up to one byte past the limit (to tell it was passed), the rest read and dropped.
+                    let keep = (limit + 1).saturating_sub(out.len()).min(read);
+                    out.extend_from_slice(&buffer[..keep]);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(_) => out_open = false,
+            }
+        }
+        if err_open {
+            match stderr.read(&mut buffer) {
+                Ok(0) => err_open = false,
+                Ok(read) => {
+                    progress = true;
+                    ignored += read;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(_) => err_open = false,
+            }
+        }
+        if status.is_none() {
+            status = child.try_wait().ok().flatten();
+            if status.is_some() {
+                drained_by = Some(Instant::now() + DRAIN);
+            }
+        }
+        if status.is_some() && !out_open && !err_open {
+            break false;
+        }
+        let now = Instant::now();
+        if status.is_none() && now >= deadline {
+            break true;
+        }
+        if drained_by.is_some_and(|by| now >= by) {
+            // Exited, but something it started still holds a pipe: no output, and the pipes close below.
+            return None;
+        }
+        if !progress {
+            std::thread::sleep(Duration::from_millis(2));
         }
     };
-    if status.is_none() {
-        // Timed out: Git isn't reaped yet, so its group id is still its own; the whole group goes, then Git is reaped.
+    let _ = ignored;
+    if killed {
+        // Not reaped yet, so its group id is still its own: the whole group goes, then Git is reaped.
         let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
         let _ = child.kill();
         let _ = child.wait();
+        return None;
     }
-    // A descendant left holding a pipe can't hold the run: the readers are waited on for DRAIN at most, never joined.
-    let out = stdout.recv_timeout(DRAIN).ok()?;
-    let _ = stderr.recv_timeout(DRAIN);
-    if !status?.success() || out.len() > limit {
+    let status = status?;
+    let ok = status.success() || (exit_one_ok && status.code() == Some(1));
+    if !ok || out.len() > limit {
         return None;
     }
     Some(String::from_utf8_lossy(&out).into_owned())
@@ -347,6 +564,6 @@ pub mod test_hooks {
     ) -> Option<String> {
         let mut command = std::process::Command::new(program);
         command.args(args);
-        super::run_bounded(command, timeout, limit)
+        super::run_bounded(command, std::time::Instant::now() + timeout, limit, false)
     }
 }

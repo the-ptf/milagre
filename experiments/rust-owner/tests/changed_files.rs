@@ -292,26 +292,85 @@ fn runs_are_bounded_in_time_descendants_and_output() {
     );
 }
 
-/// A config edited while Git ran gives no list; an alias over 256 bytes or that isn't text-like gives no list.
+/// Whatever the repository's own config or attributes name is never run: a clean filter on every file (required),
+/// a submodule with its own filter, a config changed after admission. Its changes still list as Node's would for the
+/// same repository without them. `worktreeConfig` (an extension) and object alternates give no list. Odd aliases give
+/// no list.
 #[test]
-fn a_config_changed_mid_run_or_an_odd_alias_gives_no_list() {
-    use milagre_owner_store::changed_files::test_hooks::after_git;
-    let Some((_base, copy)) = setup() else { return };
+fn nothing_the_repository_names_is_run() {
+    let Some((base, copy)) = setup() else { return };
+    let marker = base.path().join("MARKER");
     let repo = repository(&copy, "repo");
+    // A nested repository committed as a submodule, with a hostile filter of its own and a change inside.
+    let sub = repo.join("sub");
+    std::fs::create_dir(&sub).unwrap();
+    git(&sub, &["init", "-q"]);
+    std::fs::write(sub.join("f.txt"), "x").unwrap();
+    git(&sub, &["add", "."]);
+    git(&sub, &["commit", "-q", "-m", "sub"]);
+    git(&repo, &["add", "sub"]);
+    std::fs::write(sub.join("f.txt"), "changed").unwrap();
+    let hostile = |dir: &Path| {
+        let config = dir.join(".git/config");
+        let mut text = std::fs::read_to_string(&config).unwrap();
+        text.push_str(&format!(
+            "[filter \"evil\"]\n\tclean = touch {0}\n\tsmudge = touch {0}\n\trequired = true\n[core]\n\thooksPath = /tmp\n[diff]\n\texternal = touch {0}\n",
+            marker.display()
+        ));
+        std::fs::write(&config, text).unwrap();
+        std::fs::write(dir.join(".gitattributes"), "* filter=evil\n").unwrap();
+    };
     let mut grants = GitGrants::new(&copy);
     grants.admit(&repo).unwrap();
+    let expected = node_changed(&copy, &[(None, &repo)]);
+    // Turned hostile after admission (the checks only refuse include/worktree/fsmonitor).
+    hostile(&repo);
+    hostile(&sub);
     let plan = grants.plan(Some(&repo.display().to_string()), None);
-    let config = repo.join(".git/config");
-    after_git(move || {
-        let mut text = std::fs::read_to_string(&config).unwrap();
-        text.push_str("[user]\n\tname = changed\n");
-        std::fs::write(&config, text).unwrap();
-    });
+    let rust = changed_files(&copy, &plan).expect("a list");
+    assert!(!marker.exists(), "a repository-named command ran");
+    // Deliberately not listed: the submodule itself (Node's run looks into it; this one never opens a submodule).
+    let mut expected: Vec<String> = expected.into_iter().filter(|file| file != "sub").collect();
+    expected.push(".gitattributes".into());
+    expected.sort();
+    let mut rust_sorted = rust.clone();
+    rust_sorted.sort();
+    assert_eq!(rust_sorted, expected, "{rust:?}");
     assert!(
-        changed_files(&copy, &plan).is_none(),
-        "a config changed mid-run was read as checked"
+        !rust.iter().any(|file| file.starts_with("sub")),
+        "the submodule was looked into: {rust:?}"
     );
-    assert!(changed_files(&copy, &plan).is_some());
+    // An extension (worktreeConfig) and an object alternate: no list, nothing run.
+    let extended = repository(&copy, "extended");
+    grants.admit(&extended).unwrap();
+    let config = extended.join(".git/config");
+    let mut text = std::fs::read_to_string(&config).unwrap();
+    text.push_str("[extensions]\n\tworktreeConfig = true\n");
+    std::fs::write(&config, text).unwrap();
+    assert!(changed_files(
+        &copy,
+        &grants.plan(Some(&extended.display().to_string()), None)
+    )
+    .is_none());
+    let alternated = repository(&copy, "alternated");
+    grants.admit(&alternated).unwrap();
+    std::fs::write(
+        alternated.join(".git/objects/info/alternates"),
+        format!("{}/.git/objects\n", repo.display()),
+    )
+    .unwrap();
+    assert!(changed_files(
+        &copy,
+        &grants.plan(Some(&alternated.display().to_string()), None)
+    )
+    .is_none());
+    assert!(!marker.exists());
+    // No private Git folder is left behind.
+    let scratch = copy.join(".owner/git");
+    assert_eq!(
+        std::fs::read_dir(&scratch).map(|d| d.count()).unwrap_or(0),
+        0
+    );
     let path = repo.display().to_string();
     assert!(grants
         .plan(
