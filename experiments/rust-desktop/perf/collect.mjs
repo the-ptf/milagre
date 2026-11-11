@@ -22,6 +22,7 @@ const { values } = parseArgs({
     "electron-helper-pid": { type: "string", multiple: true, default: [] },
     "rust-helper-pid": { type: "string", multiple: true, default: [] },
     "helper-evidence": { type: "string" },
+    "observer-pid": { type: "string", multiple: true, default: [] },
     "matched-workload": { type: "boolean", default: false },
     "workload-description": { type: "string", default: "Existing running apps; UI, visibility, open windows and agent activity were not controlled." },
     samples: { type: "string", default: "7" },
@@ -156,7 +157,8 @@ for (const helper of helperPids) {
 }
 if (values["matched-workload"] && (!values["workload-description"]?.trim() || values["workload-description"].startsWith("Existing running apps;")))
   throw new Error("A matched workload needs a description.");
-const config = { electronPid: roots.electron.pid, rustPid: roots.rust.pid, daemonPid, electronHelpers, rustHelpers, observerPid: process.pid };
+const observerPids = values["observer-pid"].map(pid);
+const config = { electronPid: roots.electron.pid, rustPid: roots.rust.pid, daemonPid, electronHelpers, rustHelpers, observerPid: process.pid, observerPids };
 const initialIdentities = new Map(initial.map((row) => [row.pid, `${row.started}|${row.executable}`]));
 const started = new Date().toISOString();
 const samples = [];
@@ -273,6 +275,7 @@ const report = {
   attribution: {
     roots,
     excludedCollectorPid: process.pid,
+    excludedObserverPids: observerPids,
     sharedDaemon: {
       pid: daemonPid,
       source: values["daemon-pid"] ? "explicit PID" : status.pid ? "live daemon:status" : "unmeasured",

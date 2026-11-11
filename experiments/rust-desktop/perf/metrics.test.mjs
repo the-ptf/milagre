@@ -54,8 +54,8 @@ test("CPU interval refuses process churn and PID reuse; missing values never bec
 });
 
 test("an agent-launched Electron capture shell is charged once, separately from shared daemon work", () => {
-  const rows = [row(10, 1), row(11, 10), row(12, 11), row(20, 12), row(21, 20), row(30, 12), row(31, 30), row(32, 1, "WebKit"), row(40, 12)];
-  const groups = selectProcessGroups(rows, { electronPid: 20, daemonPid: 11, rustPid: 30, rustHelpers: [32], observerPid: 40 });
+  const rows = [row(10, 1), row(11, 10), row(12, 11), row(20, 12), row(21, 20), row(30, 12), row(31, 30), row(32, 1, "WebKit"), row(40, 12), row(41, 40)];
+  const groups = selectProcessGroups(rows, { electronPid: 20, daemonPid: 11, rustPid: 30, rustHelpers: [32], observerPid: 41, observerPids: [40] });
   assert.deepEqual(
     groups.electronShell.map((item) => item.pid),
     [20, 21],

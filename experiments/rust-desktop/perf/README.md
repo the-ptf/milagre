@@ -24,7 +24,7 @@ Four separate groups are reported:
 3. `sharedDaemon`: the existing Node host process, counted once, separately.
 4. `sharedDaemonChildren`: host-owned agents, tools and other children. The Rust app may itself have been launched by such an agent; its subtree is excluded here.
 
-The collector and its `ps` subprocesses are excluded. No unassociated WebKit process is attributed to Rust based on timing, process name or a memory change. If macOS exposes a verified responsible-process relationship through an independent tool, supply that exact PID with `--rust-helper-pid PID` (repeatable) and `--helper-evidence 'How ownership was established'`. The same applies to `--electron-helper-pid`. This is operator-supplied evidence, not independent verification by this script. Recheck PIDs after app restarts. Supplying one helper does not prove all rendering, GPU and networking services were identified; the full Rust footprint stays explicitly unmeasured.
+The collector and its `ps` subprocesses are excluded. A sampling orchestrator can also exclude its own process and descendants with `--observer-pid PID`; those IDs are recorded in the report. `paired-observation.mjs` does this for itself. Never use this flag to hide application work. No unassociated WebKit process is attributed to Rust based on timing, process name or a memory change. If macOS exposes a verified responsible-process relationship through an independent tool, supply that exact PID with `--rust-helper-pid PID` (repeatable) and `--helper-evidence 'How ownership was established'`. The same applies to `--electron-helper-pid`. This is operator-supplied evidence, not independent verification by this script. Recheck PIDs after app restarts. Supplying one helper does not prove all rendering, GPU and networking services were identified; the full Rust footprint stays explicitly unmeasured.
 
 `identify-webkit.mjs --rust-pid PID --output /tmp/milagre-webkit-identities.json` gathers targeted LaunchServices evidence for the installed `com.milagre.rust-poc` app and its exact `Milagre_Rust_Web_Content`, `Milagre_Rust_Graphics_and_Media` and `Milagre_Rust_Networking` service identities. Only a single matching Rust root yields suggested helper PIDs. Review that JSON, then supply its IDs and evidence path to the collector. This is app-label evidence, not direct IPC ownership proof. The OS responsibility API can name the Electron agent that originally launched Rust as responsible for both Rust and its helpers; that result alone cannot distinguish Rust's services.
 
@@ -80,15 +80,31 @@ Build the actual renderer, then provide an external JSON plan with entries like 
 ```sh
 npm run build:renderer --workspace=milagre
 env -u ELECTRON_RUN_AS_NODE MILAGRE_BACKGROUND=1 \
-  node_modules/electron/dist/Electron.app/Contents/MacOS/Electron \
+  "$PWD/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron" \
   experiments/rust-desktop/perf/capture-electron.cjs \
   --plan /tmp/milagre-capture-plan.json --output /tmp/milagre-comparison
 ```
 
 The helper exits after capture unless `--hold-seconds 180` keeps the final verified surface alive for an explicitly limited renderer-shell observation. Its `electron-capture.json` then reports `stage: "holding"`, the exact PID, selected Chat and rendered metadata before waiting. Use `--electron-app /absolute/checkout/node_modules/electron/dist/Electron.app --electron-pid PID` in the collector. Agent-launched capture shells are separated from their daemon ancestor, avoiding double counting in shared host work. Wait for builds/tests and the live probe to finish, verify the same visible state in Rust, warm both for 30 seconds, then collect repeated samples. These observations compare background rendering shells with different native-service scope, not complete installed applications; name that limitation beside every metric.
 
+Use an absolute Electron executable path when collecting process samples. macOS `ps` can preserve a relative launch path; the collector deliberately rejects that path instead of assuming a process's working directory or weakening executable identity checks.
+
 `prepare-capture.js` can also be evaluated in Rust after the real shell selects the same Chat and sets `window.__comparisonCapture` to the same plan entry. It uses actual panel controls, waits for content and fonts, and completes finite presentation animations before capture. It never replaces DOM content or application CSS. Keep all screenshots and data JSON outside Git. Compare the same preference snapshot, panel selection, viewport and transcript state; live sidebar counters can change between captures.
 
 For named Rust captures, launch the installed Rust app in background smoke mode with `MILAGRE_RUST_SMOKE=1 MILAGRE_RUST_CAPTURE_PLAN=/tmp/milagre-capture-plan.json`. The plan must be a task-owned regular JSON file, not a symlink, at most 1 MiB. It accepts at most one entry per `chat`, `designs` and `artifacts` panel. The optional live-provider probe runs separately only when explicitly configured by its launcher; the capture plan itself never sends a Chat. The sequence waits for ordinary/workflow checks, then any configured live probe, before viewing each saved surface. It confirms the selected Chat from the actual sidebar selection or saved/generated title.
 
 The existing `smoke_result` command accepts an optional enum label and waits for the real WebKit callback. Named captures write `/tmp/milagre-rust-chat.png`, `/tmp/milagre-rust-designs.png` and `/tmp/milagre-rust-artifacts.png`, plus each `-state.json` and `/tmp/milagre-rust-capture-LABEL.json` completion report. All writes use the Rust private-evidence helper, which rejects symlinks, wrong owners and multiple hard links. A callback timeout or encoding/write failure is an error, not success. Final `/tmp/milagre-rust-smoke.json` includes `comparison.captures` with pixel dimensions and rendered state. Native titlebar controls are outside these content-area snapshots.
+
+## Repeated observation of the same visible content
+
+With both captures complete and the Electron shell holding its final surface, `paired-observation.mjs` verifies the last captured Chat key, panel, title, viewport, font, colors, panel state and display scale. It warms for at least 30 seconds, then collects five sets of 11 samples by default. Each set uses the existing read-only collector and checks stable shell/host process attribution. Its summary reports per-run medians, the median of those medians, all observed ranges and usable sample counts. Raw run JSON remains beside it.
+
+```sh
+node experiments/rust-desktop/perf/paired-observation.mjs \
+  --electron-report /tmp/milagre-comparison/electron-capture.json \
+  --rust-smoke /tmp/milagre-rust-smoke.json --rust-pid ACTUAL_PID \
+  --webkit-evidence /tmp/milagre-webkit-identities.json \
+  --output /tmp/milagre-paired-observation
+```
+
+This is a same-content observation, not a fully controlled performance benchmark. Both native windows are hidden, but Electron's `paintWhenInitiallyHidden` reports `document.visibilityState=visible` while hidden WebKit reports `hidden`. The tool records both values without spoofing them. It keeps `matchedWorkload` false, does not compute a relative speedup or total-memory reduction, and discloses different native services, process histories, engine scheduling and ongoing shared backend work. Startup and foreground latency remain unmeasured.

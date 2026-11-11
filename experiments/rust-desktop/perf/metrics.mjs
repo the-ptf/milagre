@@ -62,8 +62,8 @@ export function intervalCpu(previous, current, elapsedSeconds) {
   return { value: (delta / elapsedSeconds) * 100, reason: null };
 }
 
-export function selectProcessGroups(rows, { electronPid, rustPid, daemonPid, electronHelpers = [], rustHelpers = [], observerPid = null }) {
-  const observerTree = descendants(rows, observerPid);
+export function selectProcessGroups(rows, { electronPid, rustPid, daemonPid, electronHelpers = [], rustHelpers = [], observerPid = null, observerPids = [] }) {
+  const observerTree = new Set([observerPid, ...observerPids].flatMap((root) => [...descendants(rows, root)]));
   rows = rows.filter((row) => !observerTree.has(row.pid));
   const daemonTree = descendants(rows, daemonPid);
   const rustTree = descendants(rows, rustPid);
