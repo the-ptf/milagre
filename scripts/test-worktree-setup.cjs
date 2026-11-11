@@ -108,8 +108,9 @@ async function browserChecks() {
       throw new Error(`${source}: ${error.message}`, { cause: error });
     }
   };
-  async function waitFor(source) {
-    for (let n = 0; n < 200; n++) {
+  async function waitFor(source, timeout = 5000) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
       if (await evaluate(source)) return;
       await delay(25);
     }
@@ -151,7 +152,9 @@ async function browserChecks() {
 
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`!!document.querySelector('[aria-label="New chat"]')`);
+    // loadURL can finish before the fixture's awaited App import and initial render. Allow cold Vite startup
+    // its own budget; subsequent setup interactions still have five seconds.
+    await waitFor(`!!document.querySelector('[aria-label="New chat"]')`, 30000);
 
     // Settings › Worktrees: the field saves what is typed, and a repo file takes it over.
     await evaluate(`document.querySelector('[aria-label="Settings"]').click()`);
