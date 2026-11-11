@@ -19,6 +19,10 @@ const CHECK_EVERY_MS = 60_000;
 const NETWORK_MS = 5_000;
 // A computer that can't be reached at launch is tried again after these waits; a runtime then retries on its own.
 const BACKOFF_MS = [1000, 2000, 5000, 10_000, 30_000];
+// Past those, a computer the relay says is offline (its Mac asleep or quit) is dialed less and less often, up to every
+// 5 min: each refused dial wakes that Mac's relay room, and a 30 s redial kept rooms awake all day (2026-11-10, the
+// relay's daily Durable Objects limit). Opening it or calling it here dials at once (wake).
+const OFFLINE_BACKOFF_MS = [60_000, 120_000, 300_000];
 // A call made while the runtime moves between the relay and the LAN waits this long for it to be back.
 const SWITCH_WAIT_MS = 10_000;
 // A call made while a computer is connecting or reconnecting (a dropped socket, a route check) waits this long for it
@@ -156,7 +160,8 @@ async function stop(entry) {
  *   emit?: (id: string, channel: string, payload: unknown) => void; ownHostId?: () => Promise<string | null>;
  *   allowLocalRelay?: boolean; createSocket?: (url: string) => any; fetch?: typeof globalThis.fetch;
  *   now?: () => number; random?: (n: number) => Uint8Array; reconnectMs?: number; switchWaitMs?: number;
- *   offlineAfterMs?: number; checkEveryMs?: number; networkMs?: number; backoffMs?: number[]; lanWaitMs?: number;
+ *   offlineAfterMs?: number; checkEveryMs?: number; networkMs?: number; backoffMs?: number[]; offlineBackoffMs?: number[];
+ *   lanWaitMs?: number;
  *   networkSignature?: () => string; reconnectWaitMs?: number; log?: (line: string) => void; acceptStream?: (target: string, port: number) => import("node:net").Socket;
  * }} options
  */
@@ -179,6 +184,7 @@ function createComputers({
   checkEveryMs = CHECK_EVERY_MS,
   networkMs = NETWORK_MS,
   backoffMs = BACKOFF_MS,
+  offlineBackoffMs = OFFLINE_BACKOFF_MS,
   lanWaitMs = LAN_WAIT_MS,
   networkSignature = defaultNetworkSignature,
   reconnectWaitMs = RECONNECT_WAIT_MS,
@@ -295,6 +301,9 @@ function createComputers({
       starting: null,
       retryTimer: null,
       offlineTimer: null,
+      /** Ends a redial wait early (a call or an open asks for the computer); null when nothing waits. */
+      /** @type {(() => void) | null} */
+      wake: null,
       attempts: 0,
       failures: 0,
       refused: false,
@@ -332,19 +341,37 @@ function createComputers({
     return entry;
   }
 
-  /** Waits out the step the runtime's redials back off by; turning the computer off or removing it ends the wait. */
+  /** The wait before redial `n` (0-based): the short steps, then the offline steps while the relay says offline. */
+  function redialWait(n, error) {
+    if (n < backoffMs.length || !(error instanceof PeerError && error.code === "offline")) return backoffMs[Math.min(n, backoffMs.length - 1)];
+    return offlineBackoffMs[Math.min(n - backoffMs.length, offlineBackoffMs.length - 1)];
+  }
+
+  /**
+   * Waits out the step the runtime's redials back off by; turning the computer off or removing it ends the wait, and
+   * wake ends it early.
+   */
   function backoff(entry) {
-    const wait = backoffMs[Math.min(entry.failures - 1, backoffMs.length - 1)];
+    const wait = redialWait(entry.failures - 1, entry.lastError);
     const { signal } = entry.abort;
     return new Promise((/** @type {(value?: any) => void} */ resolve, reject) => {
-      const onAbort = () => {
+      const finish = () => {
         clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+        if (entry.wake === finish) entry.wake = null;
+      };
+      const onAbort = () => {
+        finish();
         reject(new Error("This computer is no longer connected."));
       };
       const timer = setTimeout(() => {
-        signal.removeEventListener("abort", onAbort);
+        finish();
         resolve();
       }, wait);
+      entry.wake = () => {
+        finish();
+        resolve();
+      };
       if (signal.aborted) onAbort();
       else signal.addEventListener("abort", onAbort, { once: true });
     });
@@ -493,6 +520,7 @@ function createComputers({
       return entry.starting;
     }
     clearTimeout(entry.retryTimer);
+    entry.wake = null;
     let handed = first;
     entry.starting = (async () => {
       try {
@@ -530,13 +558,28 @@ function createComputers({
           return;
         }
         down(entry, error);
-        const wait = backoffMs[Math.min(entry.attempts++, backoffMs.length - 1)];
+        const wait = redialWait(entry.attempts++, error);
         entry.retryTimer = setTimeout(() => void start(entry), wait);
+        entry.wake = () => {
+          entry.wake = null;
+          void start(entry);
+        };
       } finally {
         entry.starting = null;
       }
     })();
     return entry.starting;
+  }
+
+  /**
+   * A call for a computer that is coming back waits for it a moment. One that reads offline is dialed now instead of
+   * at the next backed-off redial, so opening a sleeping Mac's Chat once it is awake doesn't wait up to 5 min.
+   */
+  async function redialFor(entry) {
+    if (entry.state === "offline" && entry.wake) {
+      entry.wake();
+      await whenOnline(entry, reconnectWaitMs);
+    } else if (entry.state === "connecting" || entry.state === "reconnecting") await whenOnline(entry, reconnectWaitMs);
   }
 
   function checkRoutes() {
@@ -701,14 +744,14 @@ function createComputers({
         await Promise.race([entry.recovery.promise, new Promise((resolve) => (timer = setTimeout(resolve, switchWaitMs)))]);
         clearTimeout(timer);
       }
-      if (entry && (entry.state === "connecting" || entry.state === "reconnecting")) await whenOnline(entry, reconnectWaitMs);
+      if (entry) await redialFor(entry);
       if (!entry?.runtime || entry.state !== "online") throw new Error(`${store.get(id)?.name ?? "That computer"} is offline.`);
       return entry.runtime.invoke(method, args);
     },
     /** A TCP stream from computer `id` to `target:port` as it sees them, for its Chats' Browser pages (browser-proxy.cjs). */
     async openStream(id, target, port) {
       const entry = entries.get(id);
-      if (entry && (entry.state === "connecting" || entry.state === "reconnecting")) await whenOnline(entry, reconnectWaitMs);
+      if (entry) await redialFor(entry);
       if (!entry?.runtime || entry.state !== "online")
         throw Object.assign(new Error(`${store.get(id)?.name ?? "That computer"} is offline.`), { code: "offline" });
       return entry.runtime.openStream(target, port);
