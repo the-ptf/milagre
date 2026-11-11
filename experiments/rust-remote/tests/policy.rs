@@ -218,11 +218,11 @@ fn failure_quotas_bound_source_churn_and_reset_at_deadline() {
         ..Default::default()
     });
     assert!(matches!(
-        a.begin(Source::Direct(1), b"bad", 0, &mut OsRng),
+        a.begin(Source::Direct(1), &bad_hello(), 0, &mut OsRng),
         Err(PolicyError::Protocol(_))
     ));
     assert!(matches!(
-        a.begin(Source::Direct(1), b"bad", 1, &mut OsRng),
+        a.begin(Source::Direct(1), &bad_hello(), 1, &mut OsRng),
         Err(PolicyError::Admission(AdmissionError::FailureQuota {
             scope: Scope::DirectSource,
             retry_at_ms: 10
@@ -230,13 +230,13 @@ fn failure_quotas_bound_source_churn_and_reset_at_deadline() {
     ));
     for id in 2..=3 {
         assert!(matches!(
-            a.begin(Source::Direct(id), b"bad", 1, &mut OsRng),
+            a.begin(Source::Direct(id), &bad_hello(), 1, &mut OsRng),
             Err(PolicyError::Protocol(_))
         ));
     }
     for id in 4..10_000 {
         assert!(matches!(
-            a.begin(Source::Direct(id), b"bad", 9, &mut OsRng),
+            a.begin(Source::Direct(id), &bad_hello(), 9, &mut OsRng),
             Err(PolicyError::Admission(AdmissionError::FailureQuota {
                 scope: Scope::GlobalEnrollment,
                 retry_at_ms: 10
@@ -247,12 +247,12 @@ fn failure_quotas_bound_source_churn_and_reset_at_deadline() {
     assert_eq!(state.source_entries, 1);
     assert_eq!(state.enrollment_failures, 3);
     assert_eq!(state.failures.untracked_source, 2);
-    assert_eq!(state.enrollment_units_remaining, 16); // shape rejection precedes crypto
+    assert_eq!(state.enrollment_units_remaining, 13); // only three admitted crypto failures
     assert!(
         state.source_table_full && state.global_enrollment_locked && state.direct_source_locked
     );
     assert!(matches!(
-        a.begin(Source::Direct(3), b"bad", 10, &mut OsRng),
+        a.begin(Source::Direct(3), &bad_hello(), 10, &mut OsRng),
         Err(PolicyError::Protocol(_))
     ));
     assert_eq!(
@@ -262,7 +262,7 @@ fn failure_quotas_bound_source_churn_and_reset_at_deadline() {
         0
     );
     assert!(matches!(
-        a.begin(Source::Direct(3), b"bad", 9, &mut OsRng),
+        a.begin(Source::Direct(3), &bad_hello(), 9, &mut OsRng),
         Err(PolicyError::Time)
     ));
     assert!(matches!(
@@ -272,7 +272,13 @@ fn failure_quotas_bound_source_churn_and_reset_at_deadline() {
 }
 #[test]
 fn bad_token_counts_failure_success_does_not_spend_pairing_window() {
-    let mut a = authority(Limits::default());
+    let mut a = authority(Limits {
+        admission: AdmissionLimits {
+            known_key_units: 64,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
     a.open_pairing(1).unwrap();
     assert!(matches!(
         a.begin(
@@ -583,7 +589,7 @@ fn service_global_session_admission_precedes_new_record_commit() {
 }
 
 #[test]
-fn relay_garbage_flood_and_direct_lockout_do_not_block_known_reconnect() {
+fn relay_garbage_flood_does_not_lock_known_or_new_phones() {
     let mut a = authority(Limits::default());
     a.open_pairing(1).unwrap();
     let valid = hello(2, DeviceKind::Phone, TOKEN);
@@ -602,8 +608,8 @@ fn relay_garbage_flood_and_direct_lockout_do_not_block_known_reconnect() {
         assert!(a.begin(Source::Relay, bytes, 1, &mut OsRng).is_err());
     }
     let state = a.admission_status(Source::Direct(1), 1).unwrap();
-    assert!(state.global_enrollment_locked && state.direct_source_locked);
-    assert_eq!(state.failures.bad_hello, 32);
+    assert!(!state.global_enrollment_locked && !state.direct_source_locked);
+    assert_eq!(state.failures.bad_hello, 1008);
     assert_eq!(state.known_units_remaining, 64);
     assert_eq!(state.enrollment_units_remaining, 15);
     for source in [Source::Relay, Source::Direct(1)] {
@@ -614,8 +620,17 @@ fn relay_garbage_flood_and_direct_lockout_do_not_block_known_reconnect() {
         a.admission_status(Source::Relay, 1)
             .unwrap()
             .enrollment_failures,
-        32
+        0
     );
+    let t = a
+        .begin(
+            Source::Relay,
+            &hello(3, DeviceKind::Phone, TOKEN),
+            1,
+            &mut OsRng,
+        )
+        .unwrap();
+    assert!(a.complete(t, || 1).unwrap().device().first_pairing);
 }
 
 #[test]
@@ -668,14 +683,14 @@ fn crypto_lanes_bound_unknown_flood_and_expose_targeted_known_saturation() {
         let _ = a.begin(Source::Relay, b"bad", 1, &mut OsRng);
     }
     assert!(
-        a.admission_status(Source::Relay, 1000)
+        !a.admission_status(Source::Relay, 1000)
             .unwrap()
             .global_enrollment_locked
     );
     let t = a.begin(Source::Relay, &valid, 1001, &mut OsRng).unwrap();
     a.complete(t, || 1001).unwrap();
     assert!(
-        a.admission_status(Source::Relay, 1001)
+        !a.admission_status(Source::Relay, 1001)
             .unwrap()
             .global_enrollment_locked
     );
@@ -760,4 +775,81 @@ fn one_window_allows_multiple_devices_but_each_desktop_requires_own_approval() {
     assert_eq!(fixture["knownAfterWindow"], false);
     assert_eq!(fixture["removedSameWindow"], false);
     assert_eq!(fixture["removedNextWindow"], true);
+}
+
+fn bad_hello() -> Vec<u8> {
+    let mut bytes = vec![0; 105];
+    bytes[0] = 1;
+    bytes
+}
+#[test]
+fn cryptographic_failure_lockout_still_admits_known_phone() {
+    let mut a = authority(Limits {
+        admission: AdmissionLimits {
+            enrollment_crypto_units: 64,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    a.open_pairing(1).unwrap();
+    let valid = hello(2, DeviceKind::Phone, TOKEN);
+    let t = a.begin(Source::Relay, &valid, 1, &mut OsRng).unwrap();
+    a.complete(t, || 1).unwrap();
+    for i in 0..32 {
+        assert!(a
+            .begin(
+                if i < 8 {
+                    Source::Direct(1)
+                } else {
+                    Source::Relay
+                },
+                &bad_hello(),
+                1,
+                &mut OsRng
+            )
+            .is_err());
+    }
+    let state = a.admission_status(Source::Direct(1), 1).unwrap();
+    assert!(state.global_enrollment_locked && state.direct_source_locked);
+    let t = a.begin(Source::Direct(1), &valid, 1, &mut OsRng).unwrap();
+    a.complete(t, || 1).unwrap();
+}
+#[test]
+fn spoofed_key_subquota_leaves_other_known_phone_admissible() {
+    let mut a = authority(Limits::default());
+    a.open_pairing(1).unwrap();
+    let first = hello(2, DeviceKind::Phone, TOKEN);
+    let second = hello(3, DeviceKind::Phone, TOKEN);
+    for bytes in [&first, &second] {
+        let t = a.begin(Source::Relay, bytes, 1, &mut OsRng).unwrap();
+        a.complete(t, || 1).unwrap();
+    }
+    let mut spoofed = first;
+    *spoofed.last_mut().unwrap() ^= 1;
+    for _ in 0..8 {
+        assert!(matches!(
+            a.begin(Source::Relay, &spoofed, 1, &mut OsRng),
+            Err(PolicyError::Protocol(_))
+        ));
+    }
+    for _ in 0..1000 {
+        assert!(matches!(
+            a.begin(Source::Relay, &spoofed, 1, &mut OsRng),
+            Err(PolicyError::Admission(AdmissionError::Saturated {
+                lane: Lane::KnownDevice,
+                ..
+            }))
+        ));
+    }
+    let t = a.begin(Source::Relay, &second, 1, &mut OsRng).unwrap();
+    assert!(!a.complete(t, || 1).unwrap().device().first_pairing);
+    let state = a.admission_status(Source::Relay, 1).unwrap();
+    assert_eq!(state.known_key_entries, 2);
+    assert_eq!(state.known_units_remaining, 55);
+    assert_eq!(
+        a.admission_status(Source::Relay, 1001)
+            .unwrap()
+            .known_key_entries,
+        0
+    );
 }

@@ -50,7 +50,7 @@ Observed Node contract: remove the old record before cleanup; abort pending owne
 
 Thirteen registry tests cover these rules, successful bidirectional fragmented peer transfer, lone-surrogate/PUA phone bytes, fixed fragment expiry despite activity, upload lease handoff/expiry, exact queue/request/idle deadlines, session revocation, reused request IDs, foreign handles, capacity failure, carrier failure and global/device/connection release while stale handles/tokens remain alive. The allocation suite also rejects dense managed phone headers before constructing a map.
 
-The epoch safety checkpoint totals **83 Rust tests and four compile-fail doctests**. Existing three reciprocal Node checks remain required; the fourth Node check is the lifecycle trace, not a signature or app interoperability test:
+The epoch safety checkpoint totals **86 Rust tests and four compile-fail doctests**. Existing three reciprocal Node checks remain required; the fourth Node check is the lifecycle trace, not a signature or app interoperability test:
 
 ```sh
 cargo test --offline --manifest-path experiments/rust-remote/Cargo.toml --locked
@@ -60,3 +60,5 @@ node experiments/rust-remote/tests/registry-node.mjs
 ```
 
 Service listeners, persistent revocation/restart, live-subscription bridging, real fetch cancellation, owner RPC dispatch, heartbeat integration and actual phone/relay interoperability remain separate. No production endpoint/profile/mobile change was made.
+
+Pending carrier admission now has its own `Limits::pending_carriers` bound (default eight), within the overall 16-carrier cap. New OPEN evicts the oldest pending generation when either bound is reached; it never evicts an established phone. A test floods 32 pending OPENs, then installs a known reconnect while an established phone remains active. Continuous OPEN racing can still replace a pending negotiation; this is bounded capacity handling, not transport fairness or relay per-IP mitigation.

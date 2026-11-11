@@ -439,22 +439,20 @@ impl TemporaryAuthority {
         let shaped = hello.len() >= 105
             && hello.len() <= channel::MAX_HELLO_BYTES
             && hello.first() == Some(&1);
-        let known_candidate = shaped
-            && matches!(
-                self.records.get(&URL_SAFE_NO_PAD.encode(&hello[33..65])),
-                Some(Record::Active { .. })
-            );
-        self.admission.check(source, known_candidate)?;
         if !shaped {
             let error = if hello.len() > channel::MAX_HELLO_BYTES {
                 crate::Error::TooLarge
             } else {
                 crate::Error::BadHello
             };
-            self.admission.failed(source, false, error);
+            self.admission.malformed();
             return Err(error.into());
         }
-        self.admission.crypto(known_candidate, hello.len())?;
+        let key = URL_SAFE_NO_PAD.encode(&hello[33..65]);
+        let known_candidate = matches!(self.records.get(&key), Some(Record::Active { .. }));
+        self.admission.check(source, known_candidate)?;
+        self.admission
+            .crypto(known_candidate.then_some(key.as_str()), hello.len())?;
         let accepted = channel::host_accept(
             &self.host,
             hello,

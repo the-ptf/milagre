@@ -41,7 +41,7 @@ Drop removes only the known marker/snapshot and empty directory, never recursive
 
 ## Bounds and final acceptance guards
 
-Default policy limits: 64 total active/tombstone records, 16 pending tickets and four pending desktops. `Limits::admission` defaults to 64 remembered direct source IDs, eight failed enrollments per direct source and 32 globally per fixed 60-second window. Known candidates bypass these failure quotas but still require full authentication and authoritative policy. Independent crypto budgets default to 64 known and 16 enrollment work units per second. See [ADMISSION.md](ADMISSION.md) for byte charging, source churn bounds, local status, short saturation and exact compatibility limits.
+Default policy limits: 64 total active/tombstone records, 16 pending tickets and four pending desktops. `Limits::admission` defaults to 64 remembered direct source IDs, eight failed enrollments per direct source and 32 globally per fixed 60-second window. Known candidates bypass these failure quotas but still require full authentication and authoritative policy. Independent crypto budgets default to 64 known (eight per stored key) and 16 enrollment work units per second. Cheap shape failures are diagnostic-only. See [ADMISSION.md](ADMISSION.md) for byte charging, source churn bounds, local status, short saturation and exact compatibility limits.
 
 Established sessions are capped at 16 per authority and four per device. Admission checks precede record commit. `Session` retains its permit and private `Authorized`; borrow `reply()`/`device()` and use checked `seal_encoded`/`open_encoded`; raw Channel extraction is no longer exposed. Drop releases admission. The in-memory registry now owns Session for a synthetic connection. There is no real listener.
 
@@ -53,7 +53,7 @@ Low-level `Accepted::authorize(decision, still_current)` is a breaking API updat
 
 ## Checks and outstanding services
 
-Current checkpoint evidence: 83 Rust tests plus four compile-fail doctests; Clippy with warnings denied; Rust/Node formatting; original crypto/frame and phone Node reciprocal checks; additional reciprocal Node signature check, Node lifecycle trace and Node pairing-window predicate/handshake trace. Synthetic policy tests cover new/known/stored kind, approval, removed/retired state, multi-device windows and consumed tickets, ticket replacement/foreign authority/cancel, expiry before and after IO, monotonic rollback/overflow, failed persistence, global/source/device/session limits, device/global budget rollback and artifact permissions/cleanup.
+Current checkpoint evidence: 86 Rust tests plus four compile-fail doctests; Clippy with warnings denied; Rust/Node formatting; original crypto/frame and phone Node reciprocal checks; additional reciprocal Node signature check, Node lifecycle trace and Node pairing-window predicate/handshake trace. Synthetic policy tests cover new/known/stored kind, approval, removed/retired state, multi-device windows and consumed tickets, ticket replacement/foreign authority/cancel, expiry before and after IO, monotonic rollback/overflow, failed persistence, global/source/device/session limits, device/global budget rollback and artifact permissions/cleanup.
 
 ```sh
 cargo test --offline --manifest-path experiments/rust-remote/Cargo.toml --locked

@@ -12,6 +12,7 @@ pub enum Source {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lane {
     KnownCandidate,
+    KnownDevice,
     Enrollment,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,6 +36,7 @@ pub struct Limits {
     pub failures_global: u32,
     pub failure_window_ms: u64,
     pub known_crypto_units: u32,
+    pub known_key_units: u32,
     pub enrollment_crypto_units: u32,
     pub crypto_window_ms: u64,
 }
@@ -46,6 +48,7 @@ impl Default for Limits {
             failures_global: 32,
             failure_window_ms: 60_000,
             known_crypto_units: 64,
+            known_key_units: 8,
             enrollment_crypto_units: 16,
             crypto_window_ms: 1000,
         }
@@ -59,6 +62,7 @@ impl Limits {
             && self.failures_global > 0
             && self.failure_window_ms > 0
             && (1..=1024).contains(&self.known_crypto_units)
+            && (1..=1024).contains(&self.known_key_units)
             && (1..=1024).contains(&self.enrollment_crypto_units)
             && (10..=1000).contains(&self.crypto_window_ms)
     }
@@ -66,6 +70,7 @@ impl Limits {
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Failures {
     pub bad_hello: u64,
+    pub malformed: u64,
     pub bad_token: u64,
     pub unknown_device: u64,
     pub policy: u64,
@@ -83,6 +88,7 @@ pub struct Status {
     pub source_entries: usize,
     pub source_table_full: bool,
     pub known_units_remaining: u32,
+    pub known_key_entries: usize,
     pub enrollment_units_remaining: u32,
     pub failures: Failures,
 }
@@ -93,6 +99,7 @@ pub(crate) struct Admission {
     failures: u32,
     sources: BTreeMap<u64, u32>,
     known_work: u32,
+    known_keys: BTreeMap<String, u32>,
     enrollment_work: u32,
     totals: Failures,
 }
@@ -105,6 +112,7 @@ impl Admission {
             failures: 0,
             sources: BTreeMap::new(),
             known_work: 0,
+            known_keys: BTreeMap::new(),
             enrollment_work: 0,
             totals: Failures::default(),
         }
@@ -135,6 +143,7 @@ impl Admission {
         if let Some(until) = crypto {
             self.crypto_until = until;
             self.known_work = 0;
+            self.known_keys.clear();
             self.enrollment_work = 0;
         }
         Ok(())
@@ -165,13 +174,22 @@ impl Admission {
     }
     pub(crate) fn crypto(
         &mut self,
-        known_candidate: bool,
+        known_key: Option<&str>,
         length: usize,
     ) -> Result<(), AdmissionError> {
         // At most four work units for the 16 KiB HELLO cap. This is an operation/byte
         // bound, not a measured wall-clock CPU guarantee. Calls are serialized by &mut.
         let units = length.div_ceil(4096).max(1) as u32;
-        let (used, limit, lane) = if known_candidate {
+        if let Some(key) = known_key {
+            let used = self.known_keys.get(key).copied().unwrap_or(0);
+            if units > self.limits.known_key_units.saturating_sub(used) {
+                return Err(AdmissionError::Saturated {
+                    lane: Lane::KnownDevice,
+                    retry_at_ms: self.crypto_until,
+                });
+            }
+        }
+        let (used, limit, lane) = if known_key.is_some() {
             (
                 &mut self.known_work,
                 self.limits.known_crypto_units,
@@ -191,7 +209,14 @@ impl Admission {
             });
         }
         *used += units;
+        if let Some(key) = known_key {
+            *self.known_keys.entry(key.to_owned()).or_default() += units;
+        }
         Ok(())
+    }
+    pub(crate) fn malformed(&mut self) {
+        self.totals.malformed = self.totals.malformed.saturating_add(1);
+        self.totals.bad_hello = self.totals.bad_hello.saturating_add(1);
     }
     pub(crate) fn failed(&mut self, source: Source, known_candidate: bool, error: Error) {
         let field = match error {
@@ -230,6 +255,7 @@ impl Admission {
             source_entries: self.sources.len(),
             source_table_full: self.sources.len() >= self.limits.sources,
             known_units_remaining: self.limits.known_crypto_units - self.known_work,
+            known_key_entries: self.known_keys.len(),
             enrollment_units_remaining: self.limits.enrollment_crypto_units - self.enrollment_work,
             failures: self.totals,
         }

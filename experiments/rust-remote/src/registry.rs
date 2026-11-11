@@ -110,6 +110,7 @@ impl WorkToken {
 #[derive(Clone, Copy)]
 pub struct Limits {
     pub carriers: usize,
+    pub pending_carriers: usize,
     pub hello_ms: u64,
     pub idle_ms: u64,
     pub inflight: usize,
@@ -124,6 +125,7 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             carriers: 16,
+            pending_carriers: 8,
             hello_ms: 15_000,
             idle_ms: 45_000,
             inflight: 16,
@@ -284,6 +286,8 @@ impl Registry {
     pub fn new(limits: Limits, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self> {
         if limits.carriers == 0
             || limits.carriers > 16
+            || limits.pending_carriers == 0
+            || limits.pending_carriers > 16
             || limits.hello_ms == 0
             || limits.idle_ms == 0
             || limits.inflight == 0
@@ -350,15 +354,30 @@ impl Registry {
         if self.retired || carrier == 0 {
             return Err(RegistryError::Revoked);
         }
-        if !self.entries.contains_key(&carrier) && self.entries.len() >= self.limits.carriers {
-            return Err(Error::TooLarge.into());
-        }
         let generation = self.next.checked_add(1).ok_or(Error::Exhausted)?;
         let deadline = now
             .checked_add(self.limits.hello_ms)
             .ok_or(Error::Exhausted)?;
         if let Some(old) = self.entries.get(&carrier) {
             self.close(&old.handle.clone(), CloseReason::Replaced);
+        }
+        let pending = self
+            .entries
+            .values()
+            .filter(|e| matches!(e.state, State::Pending { .. }))
+            .count();
+        if pending >= self.limits.pending_carriers || self.entries.len() >= self.limits.carriers {
+            let oldest = self
+                .entries
+                .values()
+                .filter(|e| matches!(e.state, State::Pending { .. }))
+                .min_by_key(|e| e.handle.generation)
+                .map(|e| e.handle.clone());
+            if let Some(old) = oldest {
+                self.close(&old, CloseReason::Replaced);
+            } else {
+                return Err(Error::TooLarge.into());
+            }
         }
         self.next = generation;
         let handle = Handle {

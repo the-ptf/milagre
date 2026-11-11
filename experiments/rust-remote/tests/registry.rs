@@ -332,7 +332,8 @@ fn limits_foreign_handles_and_revoked_session_operations_fail_closed() {
         ..Default::default()
     });
     let h = r.open_carrier(1, 0).unwrap();
-    assert!(r.open_carrier(2, 0).is_err());
+    assert!(r.open_carrier(2, 0).is_ok());
+    assert_eq!(h.status(), CarrierStatus::Closed(CloseReason::Replaced));
     assert_eq!(r.carriers(), 1);
     let mut foreign = registry(Default::default());
     assert!(!foreign.close(&h, CloseReason::Disconnected));
@@ -559,4 +560,26 @@ fn removal_waits_for_started_delivery_then_forbids_any_later_delivery() {
         removal.join().unwrap();
     });
     assert!(r.send_encoded(&h, b"null", 1).is_err());
+}
+
+#[test]
+fn pending_carrier_flood_evicts_oldest_pending_and_preserves_established_phones() {
+    let mut a = authority();
+    let mut r = registry(Default::default());
+    let (active, _, _, _) = install(&mut r, &mut a, 1, 2, DeviceKind::Phone, 1);
+    let oldest = r.open_carrier(2, 1).unwrap();
+    for id in 3..34 {
+        r.open_carrier(id, 1).unwrap();
+        assert!(r.carriers() <= 9);
+    }
+    assert_eq!(
+        oldest.status(),
+        CarrierStatus::Closed(CloseReason::Replaced)
+    );
+    assert_eq!(active.status(), CarrierStatus::Active);
+    let (known, _) = session(&mut a, 2, DeviceKind::Phone, 1);
+    assert!(!known.device().first_pairing);
+    let h = r.open_carrier(34, 1).unwrap();
+    r.establish(&h, known, 1).unwrap();
+    assert_eq!(h.status(), CarrierStatus::Active);
 }
