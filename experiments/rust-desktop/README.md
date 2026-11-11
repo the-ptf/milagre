@@ -1,6 +1,6 @@
 # Milagre Rust migration
 
-Local integration branch: `poc/rust-tauri-local`. Do not push. Installed development bundle: `~/Applications/Milagre Rust.app`, orange R icon, bundle ID `com.milagre.rust-poc`.
+Local integration branch: `poc/rust-tauri-local`. Do not push. Installed development bundle: `~/Applications/Milagre Rust.app`, golden-yellow Milagre blueprint icon, bundle ID `com.milagre.rust-poc`.
 
 ## Current implementation
 
