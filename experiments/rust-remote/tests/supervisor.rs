@@ -517,3 +517,100 @@ fn realtime_idle_timer_and_explicit_retire_need_no_caller_tick() {
     drop(s);
     assert!(c.is_finished());
 }
+
+#[test]
+fn thousand_pending_evictions_without_event_consumer_preserve_phones_and_authoritative_events() {
+    let (s, c, _) = start(Limits::default());
+    run(&c, Command::OpenPairing);
+    let (phone_handle, phone_memory, mut channel) = phone(&c, 1, 2);
+    for id in 2..1002 {
+        attach(&c, id);
+    }
+    assert_eq!(c.stop_reason(), StopReason::Running);
+    assert_eq!(phone_handle.status(), CarrierStatus::Active);
+    assert!(!phone_memory.is_closed());
+    let stats = c.event_stats();
+    assert_eq!(stats.advisory, 64);
+    assert_eq!(stats.authoritative, 0);
+    assert!(stats.closed_dropped > 900);
+    work(&c, &phone_handle, &mut channel, 1);
+    let (desktop, memory) = attach(&c, 1002);
+    let pending = hello(&c, &desktop, 3, 1, DeviceKind::Desktop);
+    assert_eq!(c.event_stats().authoritative, 2);
+    let token = next_work(&c); // authoritative events skip the queued advisory closures
+    let permit = match c.next_event(WAIT).unwrap() {
+        Event::Approval { permit, .. } => permit,
+        _ => panic!(),
+    };
+    run(&c, Command::Approve(permit));
+    pending.finish(&memory.receive().unwrap()).unwrap();
+    run(
+        &c,
+        Command::Finish {
+            token,
+            response: b"null".to_vec(),
+        },
+    );
+    assert_eq!(
+        channel
+            .open_encoded(&phone_memory.receive().unwrap())
+            .unwrap(),
+        b"null"
+    );
+    assert_eq!(c.stop_reason(), StopReason::Running);
+    drop(s);
+    assert_eq!(c.retained_bytes(), 0);
+}
+#[test]
+fn one_event_slot_drops_advisories_and_still_delivers_approval() {
+    let (s, c, _) = start(Limits {
+        events: 1,
+        ..Default::default()
+    });
+    run(&c, Command::OpenPairing);
+    for _ in 0..20 {
+        attach(&c, 1);
+    }
+    assert_eq!(c.event_stats().advisory, 0);
+    assert_eq!(c.event_stats().closed_dropped, 19);
+    let (h, m) = attach(&c, 1);
+    let pending = hello(&c, &h, 2, 1, DeviceKind::Desktop);
+    let permit = match c.next_event(WAIT).unwrap() {
+        Event::Approval { permit, .. } => permit,
+        _ => panic!(),
+    };
+    run(&c, Command::Approve(permit));
+    pending.finish(&m.receive().unwrap()).unwrap();
+    assert_eq!(c.stop_reason(), StopReason::Running);
+    drop(s);
+    assert_eq!(c.retained_bytes(), 0);
+}
+
+#[test]
+fn authoritative_event_evicts_advisory_from_full_queue() {
+    let (s, c, _) = start(Limits {
+        events: 2,
+        ..Default::default()
+    });
+    run(&c, Command::OpenPairing);
+    attach(&c, 9);
+    attach(&c, 9); // one advisory
+    let (h, _, mut ch) = phone(&c, 1, 2);
+    work(&c, &h, &mut ch, 1); // fills queue
+    assert_eq!(c.event_stats().advisory, 1);
+    assert_eq!(c.event_stats().authoritative, 1);
+    let (d, m) = attach(&c, 2);
+    let pending = hello(&c, &d, 3, 1, DeviceKind::Desktop);
+    assert_eq!(c.event_stats().advisory, 0);
+    assert_eq!(c.event_stats().authoritative, 2);
+    assert_eq!(c.event_stats().closed_dropped, 1);
+    next_work(&c);
+    let permit = match c.next_event(WAIT).unwrap() {
+        Event::Approval { permit, .. } => permit,
+        _ => panic!(),
+    };
+    run(&c, Command::Approve(permit));
+    pending.finish(&m.receive().unwrap()).unwrap();
+    drop(s);
+    assert_eq!(c.retained_bytes(), 0);
+}

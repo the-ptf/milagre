@@ -325,12 +325,20 @@ struct Shared {
     stop: AtomicU8,
     finished: AtomicBool,
     ticks: AtomicU64,
+    closed_dropped: AtomicU64,
     ingress: ConnectionBudget,
     events: ConnectionBudget,
     global: GlobalBudget,
     limits: Limits,
 }
 impl Shared {
+    fn dropped_closure(&self) {
+        let _ = self
+            .closed_dropped
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                Some(n.saturating_add(1))
+            });
+    }
     fn stop(&self, why: StopReason) {
         let _ = self
             .stop
@@ -345,6 +353,12 @@ impl Drop for Completion {
         self.0.finished.store(true, Ordering::SeqCst);
         self.0.changed.notify_all();
     }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventStats {
+    pub authoritative: usize,
+    pub advisory: usize,
+    pub closed_dropped: u64,
 }
 #[derive(Clone)]
 pub struct Client(Arc<Shared>);
@@ -377,7 +391,26 @@ impl Client {
                 q.events.is_empty() && !self.0.finished.load(Ordering::SeqCst)
             })
             .unwrap_or_else(|e| e.into_inner());
-        q.events.pop_front().map(|n| n.event)
+        // Authoritative FIFO has priority over lossy closure diagnostics.
+        let index = q
+            .events
+            .iter()
+            .position(|n| !matches!(n.event, Event::Closed(_)))
+            .unwrap_or(0);
+        q.events.remove(index).map(|n| n.event)
+    }
+    pub fn event_stats(&self) -> EventStats {
+        let q = self.0.queues.lock().unwrap_or_else(|e| e.into_inner());
+        let advisory = q
+            .events
+            .iter()
+            .filter(|n| matches!(n.event, Event::Closed(_)))
+            .count();
+        EventStats {
+            authoritative: q.events.len() - advisory,
+            advisory,
+            closed_dropped: self.0.closed_dropped.load(Ordering::SeqCst),
+        }
     }
     pub fn stop_reason(&self) -> StopReason {
         match self.0.stop.load(Ordering::SeqCst) {
@@ -437,6 +470,7 @@ impl Supervisor {
             stop: AtomicU8::new(0),
             finished: AtomicBool::new(false),
             ticks: AtomicU64::new(0),
+            closed_dropped: AtomicU64::new(0),
             ingress: global.connection(limits.command_bytes)?,
             events: global.connection(limits.events * 2048)?,
             global,
@@ -529,15 +563,53 @@ impl Actor {
         if self.shared.stop.load(Ordering::SeqCst) != 0 {
             return;
         }
-        if q.events.len() >= self.shared.limits.events {
-            self.shared.stop(StopReason::EventOverflow);
-            return;
+        let advisory = matches!(event, Event::Closed(_));
+        if advisory {
+            let closures = q
+                .events
+                .iter()
+                .filter(|n| matches!(n.event, Event::Closed(_)))
+                .count();
+            // Reserve at least half the configured slots for Approval/Work. A
+            // single-slot queue holds authoritative events only.
+            if closures >= self.shared.limits.events / 2
+                || q.events.len() >= self.shared.limits.events
+            {
+                self.shared.dropped_closure();
+                return;
+            }
+        } else if q.events.len() >= self.shared.limits.events {
+            if let Some(index) = q
+                .events
+                .iter()
+                .position(|n| matches!(n.event, Event::Closed(_)))
+            {
+                q.events.remove(index);
+                self.shared.dropped_closure();
+            } else {
+                self.shared.stop(StopReason::EventOverflow);
+                return;
+            }
         }
-        match self.shared.events.reserve(2048) {
+        let mut reservation = self.shared.events.reserve(2048);
+        while reservation.is_err() && !advisory {
+            let Some(index) = q
+                .events
+                .iter()
+                .position(|n| matches!(n.event, Event::Closed(_)))
+            else {
+                break;
+            };
+            q.events.remove(index);
+            self.shared.dropped_closure();
+            reservation = self.shared.events.reserve(2048);
+        }
+        match reservation {
             Ok(lease) => q.events.push_back(Notification {
                 event,
                 _lease: lease,
             }),
+            Err(_) if advisory => self.shared.dropped_closure(),
             Err(_) => self.shared.stop(StopReason::EventOverflow),
         }
         self.shared.changed.notify_all();
@@ -857,6 +929,7 @@ mod tests {
             stop: AtomicU8::new(0),
             finished: AtomicBool::new(false),
             ticks: AtomicU64::new(0),
+            closed_dropped: AtomicU64::new(0),
             ingress: global.connection(limits.command_bytes).unwrap(),
             events: global.connection(limits.events * 2048).unwrap(),
             global,
