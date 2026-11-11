@@ -415,7 +415,7 @@ test("Linux and Windows editor detection uses installed CLIs instead of app bund
 
 test("Windows tracked port processes are forgotten when their PID is reused", async () => {
   const { PortWatcher } = require("./agents/ports.cjs");
-  let rows = "10 1 10 @100 root.exe\n20 10 20 @200 node.exe";
+  let rows = "10 1 10 @100 root.exe\n20 10 20 @200 cmd.exe";
   let roots = new Map([["chat", { pid: 10 }]]);
   const watcher = new PortWatcher({
     platform: "win32",
@@ -435,25 +435,118 @@ test("Windows tracked port processes are forgotten when their PID is reused", as
   }
 });
 
-test("Windows native port detection stops only a current Chat listener", { skip: process.platform !== "win32" }, async (t) => {
+// Real listeners behind the same keeper -> CLI -> command-shell boundary as a provider,
+// or a Terminal shell with two independent commands. No user processes are touched.
+async function nativePortFixture(t, terminal) {
   const { spawn } = require("node:child_process");
+  const { spawnWindowsJob } = require("./agents/windows-job.cjs");
   const { killTree } = require("./agents/process-tree.cjs");
-  const { PortWatcher } = require("./agents/ports.cjs");
-  const grandchild =
-    'const net=require("node:net");const server=net.createServer();server.listen(0,"127.0.0.1",()=>console.log(JSON.stringify({pid:process.pid,port:server.address().port})))';
-  const parent = `const {spawn}=require('node:child_process');const c=spawn(process.execPath,['-e',${JSON.stringify(grandchild)}],{stdio:['ignore','pipe','inherit']});c.stdout.pipe(process.stdout);setInterval(()=>{},1000)`;
-  const child = spawn(process.execPath, ["-e", parent], { stdio: ["ignore", "pipe", "inherit"] });
-  const listener = JSON.parse(String(await new Promise((resolve) => child.stdout.once("data", resolve))));
-  const watcher = new PortWatcher({ roots: () => new Map([["chat", { pid: child.pid }]]), publish() {} });
+  const { powershell, powershellEnvironment } = require("./private-files.cjs");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-port-safety-"));
+  const server = path.join(directory, "server.cjs");
+  const start = path.join(directory, "start.cjs");
+  fs.writeFileSync(
+    server,
+    `const fs=require('node:fs');const s=require('node:net').createServer(c=>c.end());s.listen(0,'127.0.0.1',()=>fs.writeFileSync(process.argv[2],JSON.stringify({pid:process.pid,port:s.address().port})));`,
+  );
+  const ready = (name) => path.join(directory, `${name}.json`);
+  const quote = (value) => `'${value.replaceAll("'", "''")}'`;
+  const psArgs = (script) => ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")];
+  let child;
+  if (terminal) {
+    const script =
+      ["listener", "sibling"]
+        .map(
+          (name) =>
+            `Start-Process -WindowStyle Hidden -FilePath ${quote(process.execPath)} -ArgumentList @(${quote('"' + server + '"')},${quote('"' + ready(name) + '"')}) | Out-Null`,
+        )
+        .join("; ") + "; while ($true) { Start-Sleep -Seconds 1 }";
+    child = spawn(powershell(), psArgs(script), { windowsHide: true, env: powershellEnvironment(), stdio: "ignore" });
+  } else {
+    const commandArgs = psArgs(`& ${quote(process.execPath)} ${quote(server)} ${quote(ready("listener"))}`);
+    fs.writeFileSync(
+      start,
+      `const {spawn}=require('node:child_process');spawn(process.execPath,${JSON.stringify([server, ready("sibling")])},{stdio:'ignore',windowsHide:true});spawn(${JSON.stringify(powershell())},${JSON.stringify(commandArgs)},{stdio:'ignore',windowsHide:true});process.argv[2]=${JSON.stringify(ready("cli"))};require(${JSON.stringify(server)});`,
+    );
+    child = spawnWindowsJob(process.execPath, [start], { stdio: "ignore", env: powershellEnvironment() });
+  }
   t.after(async () => {
-    watcher.close();
     await killTree(child);
+    fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
+  const names = terminal ? ["listener", "sibling"] : ["listener", "sibling", "cli"];
+  const deadline = Date.now() + 30000;
+  while (!names.every((name) => fs.existsSync(ready(name))) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  const listeners = Object.fromEntries(names.map((name) => [name, JSON.parse(fs.readFileSync(ready(name), "utf8"))]));
+  return { child, ...listeners };
+}
+
+async function portAcceptsConnections(port) {
+  return new Promise((resolve, reject) => {
+    const socket = require("node:net").connect(port, "127.0.0.1");
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", (error) => {
+      socket.destroy();
+      if (error.code === "ECONNREFUSED") resolve(false);
+      else reject(error);
+    });
+    socket.setTimeout(3000, () => {
+      socket.destroy();
+      reject(new Error("TCP probe timed out"));
+    });
+  });
+}
+
+for (const terminal of [false, true]) {
+  test(
+    terminal
+      ? "Windows native Terminal stop preserves its shell and sibling listener"
+      : "Windows native port detection stops only a current Chat command, preserving CLI and MCP listeners",
+    { skip: process.platform !== "win32" },
+    async (t) => {
+      const { child, listener, sibling, cli } = await nativePortFixture(t, terminal);
+      const { PortWatcher } = require("./agents/ports.cjs");
+      const watcher = new PortWatcher({ roots: () => new Map([["chat", terminal ? { shells: [child.pid] } : { pid: child.pid }]]), publish() {} });
+      t.after(() => watcher.close());
+      await watcher.poll({ fresh: true });
+      assert.deepEqual(
+        watcher
+          .snapshot()
+          .chat.map((port) => port.pid)
+          .sort((a, b) => a - b),
+        (terminal ? [listener.pid, sibling.pid] : [listener.pid]).sort((a, b) => a - b),
+      );
+      assert.equal(await watcher.stopPort("other-chat", listener.pid), false);
+      assert.equal(await watcher.stopPort("chat", child.pid), false);
+      if (!terminal) assert.equal(await watcher.stopPort("chat", sibling.pid), false);
+      assert.equal(await watcher.stopPort("chat", listener.pid), true);
+      assert.ok(!watcher.snapshot().chat?.some((port) => port.pid === listener.pid));
+      assert.equal(await portAcceptsConnections(listener.port), false);
+      assert.equal(await portAcceptsConnections(sibling.port), true);
+      if (cli) assert.equal(await portAcceptsConnections(cli.port), true);
+      assert.doesNotThrow(() => process.kill(child.pid, 0));
+    },
+  );
+}
+
+test("Windows native refused port stop retains the live listener", { skip: process.platform !== "win32" }, async (t) => {
+  const { child, listener, sibling } = await nativePortFixture(t, true);
+  const { PortWatcher } = require("./agents/ports.cjs");
+  const { killWindowsTree } = require("./agents/process-tree.cjs");
+  const watcher = new PortWatcher({
+    roots: () => new Map([["chat", { shells: [child.pid] }]]),
+    publish() {},
+    stopWindowsTree: (pid, exec, options) => killWindowsTree(pid, exec, { ...options, expectedStartTime: "1" }),
+  });
+  t.after(() => watcher.close());
   await watcher.poll({ fresh: true });
-  assert.ok(watcher.snapshot().chat?.some((port) => port.port === listener.port && port.pid === listener.pid));
-  assert.equal(await watcher.stopPort("other-chat", listener.pid), false);
-  assert.equal(await watcher.stopPort("chat", listener.pid), true);
-  assert.ok(!watcher.snapshot().chat?.some((port) => port.pid === listener.pid));
+  assert.equal(await watcher.stopPort("chat", listener.pid), false);
+  assert.ok(watcher.snapshot().chat.some((port) => port.pid === listener.pid));
+  assert.equal(await portAcceptsConnections(listener.port), true);
+  assert.equal(await portAcceptsConnections(sibling.port), true);
   assert.doesNotThrow(() => process.kill(child.pid, 0));
 });
 

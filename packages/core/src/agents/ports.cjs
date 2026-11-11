@@ -12,6 +12,7 @@ const { execFile } = require("node:child_process");
 
 const POLL_MS = 3000;
 const SHELLS = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "sandbox-exec"]);
+const WINDOWS_SHELLS = new Set(["cmd.exe", "powershell.exe", "pwsh.exe", "sh.exe", "bash.exe", "zsh.exe", "fish.exe", "dash.exe", "ksh.exe"]);
 
 const basename = (command) => command.split("/").pop().replace(/^-/, "");
 
@@ -77,10 +78,14 @@ function parseTaskOutputs(output) {
  * (absent once its session closed); `groups` maps a chat id to the process groups it has seen, and is
  * updated in place.
  */
-function chatProcesses(processes, roots, groups) {
+function chatProcesses(processes, roots, groups, platform = "posix") {
   const children = new Map();
   const byPid = new Map(processes.map((row) => [row.pid, row]));
+  const protectedPids = new Set([...roots.values()].flatMap((root) => [root.pid, ...(root.agents ?? []), ...(root.shells ?? [])]).filter(Boolean));
   for (const row of processes) {
+    // Windows retains a dead parent's PID. A newer process with that PID is not its parent.
+    const parent = byPid.get(row.ppid);
+    if (platform === "win32" && (!row.startedAt || !parent?.startedAt || BigInt(row.startedAt) < BigInt(parent.startedAt))) continue;
     if (!children.has(row.ppid)) children.set(row.ppid, []);
     children.get(row.ppid).push(row);
   }
@@ -93,7 +98,7 @@ function chatProcesses(processes, roots, groups) {
       const stack = [row];
       while (stack.length) {
         const next = stack.pop();
-        if (pids.has(next.pid)) continue;
+        if (pids.has(next.pid) || (platform === "win32" && protectedPids.has(next.pid))) continue;
         pids.add(next.pid);
         stack.push(...(children.get(next.pid) ?? []));
       }
@@ -101,11 +106,22 @@ function chatProcesses(processes, roots, groups) {
     const agents = [roots.get(chatId)?.pid, ...(roots.get(chatId)?.agents ?? [])].map((pid) => byPid.get(pid)).filter(Boolean);
     for (const root of agents) {
       for (const child of children.get(root.pid) ?? []) {
-        if (SHELLS.has(basename(child.command)) || child.pgid !== root.pgid) add(child);
+        // Windows has no POSIX process groups: the collector's pgid is just the PID.
+        // Only a command shell establishes ownership, never a direct CLI/MCP helper.
+        if (
+          platform === "win32"
+            ? WINDOWS_SHELLS.has(child.command.split(/[\\/]/).pop().toLowerCase())
+            : SHELLS.has(basename(child.command)) || child.pgid !== root.pgid
+        )
+          add(child);
       }
     }
-    // A Terminal's shell and everything it started belong to its Chat.
-    for (const pid of roots.get(chatId)?.shells ?? []) if (byPid.has(pid)) add(byPid.get(pid));
+    // Terminal commands belong to their Chat. On Windows the shell is a stop boundary.
+    for (const pid of roots.get(chatId)?.shells ?? []) {
+      if (platform === "win32") {
+        for (const child of children.get(pid) ?? []) add(child);
+      } else if (byPid.has(pid)) add(byPid.get(pid));
+    }
     for (const row of processes) if (known.has(row.pgid) && !agents.some((root) => root.pgid === row.pgid)) add(row);
     const live = new Set();
     for (const pid of pids) live.add(byPid.get(pid).pgid);
@@ -242,24 +258,47 @@ class PortWatcher {
   async stopPort(chatId, pid) {
     if (!this.ports[chatId]?.some((port) => port.pid === pid)) return false;
     if (this.platform === "win32") {
+      const requestedStart = this.windowsIdentities.get(pid);
       await this.poll({ fresh: true });
       if (!this.ports[chatId]?.some((port) => port.pid === pid)) return false;
       const owned = this.groups.get(chatId);
-      const agentPid = this.roots().get(chatId)?.pid;
+      const rootsToProtect = [...this.roots().values()].flatMap((root) => [root.pid, ...(root.agents ?? []), ...(root.shells ?? [])]).filter(Boolean);
+      const protectedPids = new Set(rootsToProtect);
+      // Killing an ancestor would also kill a nested agent or Terminal, even though
+      // that root itself is excluded from the command's owned processes.
+      for (const protectedPid of rootsToProtect) {
+        let row = this.processes.get(protectedPid);
+        const ancestors = new Set();
+        while (row && !ancestors.has(row.pid)) {
+          ancestors.add(row.pid);
+          protectedPids.add(row.pid);
+          const parent = this.processes.get(row.ppid);
+          if (!row.startedAt || !parent?.startedAt || BigInt(parent.startedAt) > BigInt(row.startedAt)) break;
+          row = parent;
+        }
+      }
       let target = this.processes.get(pid);
-      if (!target || !owned?.has(pid) || target.startedAt !== this.windowsIdentities.get(pid)) return false;
+      if (!requestedStart || !target || protectedPids.has(pid) || !owned?.has(pid) || target.startedAt !== requestedStart) return false;
       const seen = new Set([pid]);
       while (true) {
         const parent = this.processes.get(target.ppid);
-        if (!parent || parent.pid === agentPid || !owned.has(parent.pid) || seen.has(parent.pid) || parent.startedAt !== this.windowsIdentities.get(parent.pid))
+        if (
+          !parent ||
+          protectedPids.has(parent.pid) ||
+          !owned.has(parent.pid) ||
+          seen.has(parent.pid) ||
+          !parent.startedAt ||
+          parent.startedAt !== this.windowsIdentities.get(parent.pid) ||
+          BigInt(parent.startedAt) > BigInt(target.startedAt)
+        )
           break;
         seen.add(parent.pid);
         target = parent;
       }
       if (!target.startedAt) return false;
-      await this.stopWindowsTree(target.pid, undefined, { expectedStartTime: target.startedAt });
+      const stopped = await this.stopWindowsTree(target.pid, undefined, { expectedStartTime: target.startedAt });
       await this.poll({ fresh: true });
-      return true;
+      return stopped;
     }
     const pgid = this.processes.get(pid)?.pgid;
     // A Terminal's shell leads its own group: stopping a port there must leave the Terminal open.
@@ -316,7 +355,7 @@ class PortWatcher {
         this.windowsIdentities = current;
       }
       this.processes = new Map(processes.map((row) => [row.pid, row]));
-      const byChat = chatProcesses(processes, roots, this.groups);
+      const byChat = chatProcesses(processes, roots, this.groups, this.platform);
       const pids = [...new Set([...byChat.values()].flatMap((set) => [...set]))];
       const listeners = await this.listenersOf(pids, fresh);
       const tasks = this.listeners.tasks;
