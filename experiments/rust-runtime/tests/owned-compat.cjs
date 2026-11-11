@@ -11,7 +11,7 @@ const { createHash } = require("node:crypto");
 const { connect } = require("../../../apps/daemon/src/client.cjs");
 const { connectDesktopRuntime } = require("../../../apps/daemon/src/runtime-client.cjs");
 const { ProjectStates } = require("../../../packages/core/src/project-states.cjs");
-const { readProjectState } = require("../../../packages/core/src/project-store.cjs");
+const { readProjectState, compactProjectState } = require("../../../packages/core/src/project-store.cjs");
 const { withDetails } = require("../../../packages/core/src/project-content.cjs");
 const { chatPage, chatSearch } = require("../../../packages/core/src/chat-pages.cjs");
 const { wholeState, unloadedChats } = require("../../../packages/core/src/message-store.cjs");
@@ -29,6 +29,7 @@ let stage = "startup",
   runtime;
 const states = new ProjectStates({
   read: readProjectState,
+  compact: compactProjectState, // Match production runtime, including summaries on first read.
   save: async () => {
     throw new Error("The oracle never saves");
   },
@@ -147,6 +148,10 @@ async function run() {
     const open = await runtime.openProject(source);
     const current = await states.get(oracle);
     const whole = wholeState(current);
+    if (name === "alpha") {
+      assert.equal(whole.sessions[1].summary.count, 7, "production compaction repairs the sparse seed summary");
+      assert.equal(whole.sessions[1].summary.titleLine, "Fix the needle in the parser");
+    }
     assert.deepEqual(open, normalize({ path: source, name, git: false, state: whole }));
     const lock = path.join(source, ".milagre/runtime.lock/owner.json");
     assert.equal(JSON.parse(fs.readFileSync(lock, "utf8")).pid, child.pid, "Rust owns only this copied Project");
