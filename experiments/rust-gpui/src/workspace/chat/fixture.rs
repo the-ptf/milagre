@@ -7,8 +7,8 @@
 
 use gpui::SharedString;
 
-use crate::markdown;
-use crate::transcript::{Activity, Approval, ApprovalState, Glyph, Item, Tool};
+use crate::workspace::chat::markdown;
+use crate::workspace::chat::transcript::{Activity, Approval, ApprovalState, Glyph, Item, Tool};
 
 /// Items in the default transcript.
 pub const HISTORY_ITEMS: usize = 2000;

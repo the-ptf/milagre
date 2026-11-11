@@ -1,10 +1,13 @@
 //! Side panel column: the tab strip and an empty body.
 
+#[cfg(test)]
+mod tests;
+
 use gpui::{ClickEvent, Context, FontWeight, ScrollHandle, Window, div, prelude::*, px};
 
-use crate::chrome;
-use crate::icons::{PanelIcon, icon};
 use crate::theme::{ActiveTheme, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, StyledText, TEXT_12};
+use crate::ui::legacy_icons::{PanelIcon, icon};
+use crate::workspace::chrome;
 
 pub const PANEL_WIDTH: f32 = 518.0;
 

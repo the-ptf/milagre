@@ -6,12 +6,12 @@
 
 use gpui::{ClipboardItem, Entity, EntityInputHandler as _, Focusable as _, Modifiers, TestAppContext, VisualTestContext, px};
 
-use crate::chat::ChatView;
-use crate::composer::Composer;
-use crate::markdown::{self, Block, SpanStyle};
 use crate::theme::Theme;
-use crate::transcript::{ApprovalState, COLUMN_WIDTH, Item, Transcript};
 use crate::workspace::Workspace;
+use crate::workspace::chat::ChatView;
+use crate::workspace::chat::composer::Composer;
+use crate::workspace::chat::markdown::{self, Block, SpanStyle};
+use crate::workspace::chat::transcript::{ApprovalState, COLUMN_WIDTH, Item, Transcript};
 
 fn mount(cx: &mut TestAppContext) -> (Entity<Transcript>, Entity<Composer>, &mut VisualTestContext) {
     cx.update(|cx| cx.set_global(Theme::dark()));
@@ -78,7 +78,7 @@ fn items_sit_in_the_536px_column_with_the_composer(cx: &mut TestAppContext) {
     let (_, _, cx) = mount(cx);
     let composer = cx.debug_bounds("composer").expect("composer drawn");
     assert_eq!(composer.size.width, px(COLUMN_WIDTH));
-    assert!(composer.size.height >= px(crate::composer::COMPOSER_MIN_HEIGHT));
+    assert!(composer.size.height >= px(crate::workspace::chat::composer::COMPOSER_MIN_HEIGHT));
     let running = cx.debug_bounds("running-row").expect("running row drawn");
     assert_eq!(running.origin.x, composer.origin.x, "transcript column and composer share a left edge");
     let progress = cx.debug_bounds("pill-progress").expect("3/7 pill drawn");
@@ -238,7 +238,7 @@ fn typing_does_not_re_render_the_transcript(cx: &mut TestAppContext) {
     let after_typing = transcript.read_with(cx, |t, _| t.item_renders());
     assert_eq!(after_typing, before, "the transcript is a cached view; keystrokes reuse its last frame");
 
-    let appended = crate::markdown::parse("One more **answer** with `code`.");
+    let appended = crate::workspace::chat::markdown::parse("One more **answer** with `code`.");
     transcript.update(cx, |t, cx| t.push(Item::Prose(appended), cx));
     cx.run_until_parked();
     let after_append = transcript.read_with(cx, |t, _| t.item_renders());

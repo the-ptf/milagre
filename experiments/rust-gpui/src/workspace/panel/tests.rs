@@ -2,11 +2,11 @@
 
 use gpui::{Modifiers, TestAppContext, px};
 
-use crate::panel::{PANEL_WIDTH, PanelTab};
 use crate::theme::Theme;
 use crate::workspace::Workspace;
+use crate::workspace::panel::{PANEL_WIDTH, PanelTab};
 
-fn mount(cx: &mut TestAppContext) -> (gpui::Entity<crate::panel::Panel>, &mut gpui::VisualTestContext) {
+fn mount(cx: &mut TestAppContext) -> (gpui::Entity<crate::workspace::panel::Panel>, &mut gpui::VisualTestContext) {
     cx.update(|cx| cx.set_global(Theme::dark()));
     let (workspace, cx) = cx.add_window_view(Workspace::new);
     let panel = workspace.read_with(cx, |workspace, _| workspace.panel.clone());

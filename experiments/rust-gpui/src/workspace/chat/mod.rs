@@ -5,14 +5,22 @@
 //! ancestors but reuses the transcript's last layout and paint; only `cx.notify()` on the transcript
 //! (a new item, a settled approval, a scroll) lays its visible items out again.
 
+pub mod composer;
+pub mod fixture;
+pub mod markdown;
+pub mod transcript;
+
+#[cfg(test)]
+mod tests;
+
 use gpui::{
     AnyView, Context, Entity, FocusHandle, Focusable, FontWeight, SharedString, StyleRefinement, Subscription, Window, div, prelude::*, px,
 };
 
-use crate::chrome;
-use crate::composer::{Composer, ComposerEvent};
 use crate::theme::{ActiveTheme, CONTROL_SM, StyledText, TEXT_12, TEXT_13, Theme};
-use crate::transcript::{COLUMN_WIDTH, Transcript};
+use crate::workspace::chat::composer::{Composer, ComposerEvent};
+use crate::workspace::chat::transcript::{COLUMN_WIDTH, Transcript};
+use crate::workspace::chrome;
 
 const COMPOSER_BOTTOM: f32 = 24.0;
 const PILLS_BOTTOM: f32 = 8.0;

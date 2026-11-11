@@ -10,6 +10,9 @@
 //! and `on_key_down` moves the selection on Up/Down and scrolls the row into view through the
 //! `UniformListScrollHandle`.
 
+#[cfg(test)]
+mod tests;
+
 use std::f32::consts::TAU;
 use std::ops::Range;
 
@@ -18,13 +21,13 @@ use gpui::{
     UniformListScrollHandle, Window, canvas, div, point, prelude::*, px, uniform_list,
 };
 
-use crate::chrome;
-pub use crate::fixtures::{ChatRow, ChatStatus};
-use crate::fixtures::{LogoKind, USAGE, UsageRow, chat_fixtures};
-use crate::icons::{ProviderLogo, provider_logo};
+pub use crate::data::fixture::{ChatRow, ChatStatus};
+use crate::data::fixture::{LogoKind, USAGE, UsageRow, chat_fixtures};
 use crate::theme::{
     ActiveTheme, CONTROL_MD, CONTROL_XS, RADIUS_CHIP, RADIUS_CONTROL, ROW_TWO_LINE, StyledText, TEXT_11, TEXT_12, TEXT_13, Theme, hex,
 };
+use crate::ui::legacy_icons::{ProviderLogo, provider_logo};
+use crate::workspace::chrome;
 
 pub const SIDEBAR_WIDTH: f32 = 304.0;
 /// Horizontal inset of each row inside the sidebar.

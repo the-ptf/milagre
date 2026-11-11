@@ -3,9 +3,9 @@
 
 use gpui::{Modifiers, TestAppContext};
 
-use crate::panel::PanelTab;
 use crate::theme::Theme;
 use crate::workspace::Workspace;
+use crate::workspace::panel::PanelTab;
 
 #[gpui::test]
 fn clicking_a_panel_tab_makes_it_active(cx: &mut TestAppContext) {
@@ -33,7 +33,7 @@ fn clicking_a_chat_row_selects_it(cx: &mut TestAppContext) {
 
     let row = cx.debug_bounds("chat-row-4").expect("row 4 is drawn by the uniform_list");
     assert_eq!(row.size.height, crate::theme::ROW_TWO_LINE);
-    assert_eq!(row.size.width, gpui::px(crate::sidebar::SIDEBAR_WIDTH - 16.0), "8px inset on each side");
+    assert_eq!(row.size.width, gpui::px(crate::workspace::sidebar::SIDEBAR_WIDTH - 16.0), "8px inset on each side");
     cx.simulate_click(row.center(), Modifiers::none());
     assert_eq!(sidebar.read_with(cx, |sidebar, _| sidebar.selected()), Some(4));
 }
@@ -48,7 +48,7 @@ fn columns_have_their_fixed_widths(cx: &mut TestAppContext) {
     // the panel's left edge, which is the window width minus 518.
     assert_eq!(row.origin.x, gpui::px(8.0));
     let window_width = cx.update(|window, _| window.viewport_size().width);
-    assert_eq!(first_tab.origin.x, window_width - gpui::px(crate::panel::PANEL_WIDTH) + gpui::px(8.0));
+    assert_eq!(first_tab.origin.x, window_width - gpui::px(crate::workspace::panel::PANEL_WIDTH) + gpui::px(8.0));
 }
 
 /// gpui-component is available to views: its `init` runs in the headless test platform and one of

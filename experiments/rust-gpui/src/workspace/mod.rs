@@ -3,12 +3,20 @@
 //! Each column is its own entity with its own `Render` impl, so one can change and re-render without
 //! touching the others (`cx.notify()` in the panel re-renders the panel only).
 
+pub mod chat;
+pub mod chrome;
+pub mod panel;
+pub mod sidebar;
+
+#[cfg(test)]
+mod tests;
+
 use gpui::{Context, Entity, Window, div, prelude::*, px};
 
-use crate::chat::ChatView;
-use crate::panel::Panel;
-use crate::sidebar::Sidebar;
 use crate::theme::{ActiveTheme, Theme};
+use crate::workspace::chat::ChatView;
+use crate::workspace::panel::Panel;
+use crate::workspace::sidebar::Sidebar;
 
 pub struct Workspace {
     pub sidebar: Entity<Sidebar>,

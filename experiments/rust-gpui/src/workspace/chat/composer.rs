@@ -21,9 +21,9 @@ use gpui::{
 };
 use unicode_segmentation::UnicodeSegmentation as _;
 
-use crate::markdown::{PROSE_LINE_HEIGHT, PROSE_SIZE, SANS};
 use crate::theme::{ActiveTheme, CONTROL_SM, RADIUS_WINDOW, StyledText, TEXT_12, Theme};
-use crate::transcript::{COLUMN_WIDTH, Glyph, glyph};
+use crate::workspace::chat::markdown::{PROSE_LINE_HEIGHT, PROSE_SIZE, SANS};
+use crate::workspace::chat::transcript::{COLUMN_WIDTH, Glyph, glyph};
 
 actions!(
     composer,

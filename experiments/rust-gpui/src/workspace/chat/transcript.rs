@@ -19,8 +19,8 @@ use gpui::{
     Pixels, Rgba, SharedString, Window, canvas, div, list, point, prelude::*, px,
 };
 
-use crate::markdown::{self, Block, MONO, PROSE_LINE_HEIGHT, PROSE_SIZE};
 use crate::theme::{ActiveTheme, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_WINDOW, StyledText, TEXT_12, TEXT_13, Theme};
+use crate::workspace::chat::markdown::{self, Block, MONO, PROSE_LINE_HEIGHT, PROSE_SIZE};
 
 /// The Chat content column, centred in the Chat column.
 pub const COLUMN_WIDTH: f32 = 536.0;
@@ -98,10 +98,12 @@ pub struct Transcript {
 impl Transcript {
     /// The fixture transcript: ~2,000 items, or `MILAGRE_GPUI_TRANSCRIPT_ITEMS` when set.
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let count =
-            std::env::var("MILAGRE_GPUI_TRANSCRIPT_ITEMS").ok().and_then(|v| v.parse().ok()).unwrap_or(crate::chat_fixtures::HISTORY_ITEMS);
+        let count = std::env::var("MILAGRE_GPUI_TRANSCRIPT_ITEMS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(crate::workspace::chat::fixture::HISTORY_ITEMS);
         let started = Instant::now();
-        let items = crate::chat_fixtures::transcript(count);
+        let items = crate::workspace::chat::fixture::transcript(count);
         let built = started.elapsed();
         let mut this = Self::with_items(items, cx);
         if std::env::var_os("MILAGRE_GPUI_TIMING").is_some() {

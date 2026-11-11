@@ -1,30 +1,14 @@
-//! GPUI spike for Milagre's desktop UI: the three-column shell (sidebar, Chat, side panel) drawn
-//! with Zed's GPUI and Milagre's theme tokens. `main.rs` opens the window; every view lives here so
-//! tests can mount it in a GPUI test window.
+//! Milagre's desktop UI in GPUI (Zed's Rust UI framework), growing from a spike into a full port that runs
+//! beside the Tauri shell. `main.rs` only calls [`app::run`]; everything else lives in this library so the
+//! headless tests can mount it. Module layout and the rules for parallel work: `CONVENTIONS.md`.
 
-pub mod chat;
-pub mod chat_fixtures;
-pub mod chrome;
-pub mod composer;
-pub mod fixtures;
-pub mod icons;
-pub mod markdown;
-pub mod panel;
-pub mod sidebar;
+pub mod app;
+pub mod data;
 #[cfg(target_os = "macos")]
 pub mod snapshot;
 pub mod theme;
-pub mod transcript;
+pub mod ui;
 pub mod workspace;
 
 #[cfg(test)]
-mod tests;
-
-#[cfg(test)]
-mod sidebar_tests;
-
-#[cfg(test)]
-mod panel_tests;
-
-#[cfg(test)]
-mod chat_tests;
+pub mod testing;
