@@ -258,6 +258,8 @@ fn post_snapshot_events() {
             // Reads that do not write: they must not produce events either.
             synced.adapter.open_project(LOCAL.into(), path.clone().into()).await.unwrap();
             synced.adapter.chat_messages(ScopeKey::project(LOCAL, &path), 1, PageRequest::OPEN).await.unwrap();
+            let runs_seq = synced.reducer.state().expect("applied").runs.seq;
+            println!("GPUI_ADAPTER_INITIAL_SNAPSHOT populated={populated} eventSeq={} runsSeq={runs_seq}", synced.snapshot.event_seq);
             let store = crate::LiveStore::new(std::mem::take(&mut synced.reducer));
             let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
             let mut channels = Vec::new();
@@ -268,7 +270,7 @@ fn post_snapshot_events() {
                         if let milagre_daemon_client::Notice::Event { channel, payload, .. } = &notice {
                             body(&format!("live_{channel}"), payload);
                             channels.push(channel.clone());
-                            if payload.get("state").is_some() {
+                            if channel == "project:state" {
                                 last_state_payload = Some(payload.clone());
                             }
                         }
@@ -280,8 +282,9 @@ fn post_snapshot_events() {
             }
             if populated {
                 // The populated preset releases real events here; the state they leave is checked, not just counted.
-                assert!(!channels.is_empty(), "the populated fixture released no event after the snapshot");
-                let last = last_state_payload.as_ref().expect("a state-bearing event");
+                // The positive claim is a real `project:state` channel event, not any state-bearing envelope.
+                assert!(channels.iter().any(|c| c == "project:state"), "no project:state after the snapshot: {channels:?}");
+                let last = last_state_payload.as_ref().expect("the last project:state payload");
                 store.read(|reducer| {
                     let applied = reducer.state().expect("live state");
                     assert_eq!(reducer.counts().state_replacements as usize, channels.iter().filter(|c| *c == "project:state").count());

@@ -25,6 +25,8 @@ const NORMAL: [&str; 5] = ["message-sent", "session-started", "message-sent", "t
 const BLOCKED: [&str; 2] = ["message-sent", "session-started"];
 const CANCELLED: [&str; 1] = ["turn-cancelled"];
 const REPLY: &str = "Scripted isolated reply";
+/// The cancelled turn's saved reply: an empty body with outcome `cancelled` (observed in the recorded runs).
+const CANCELLED_BODY: &str = "";
 
 struct Opened {
     adapter: DaemonAdapter,
@@ -34,6 +36,8 @@ struct Opened {
     actions: ScriptedActions,
     path: String,
     last: u64,
+    /// The accepted snapshot's global watermark and its runs' sequence, for the evidence output.
+    initial: Value,
 }
 
 /// Connect; check the actions refuse before `project:open` on this connection; open; snapshot, apply, accept.
@@ -43,10 +47,14 @@ async fn open(guard: &FixtureGuard) -> Opened {
     let actions = guard.scripted_actions(&client).expect("scripted actions for this guard's client");
     let refused = actions.send(1, "not opened", "gpui-refused-before-open").await;
     assert!(matches!(&refused, Err(Error::Remote { code, .. }) if code == "ISOLATED_SCOPE_ONLY"), "{refused:?}");
+    let refused = actions.interrupt(1).await;
+    assert!(matches!(&refused, Err(Error::Remote { code, .. }) if code == "ISOLATED_SCOPE_ONLY"), "{refused:?}");
     client.open_view(&path).await.expect("explicit project:open");
     let snapshot = client.runtime_snapshot().await.expect("snapshot");
     let mut reducer = Reducer::default();
-    reducer.apply_snapshot(&snapshot).expect("apply");
+    let runs_seq = reducer.apply_snapshot(&snapshot).expect("apply").runs.seq;
+    let initial = json!({"eventSeq": snapshot.event_seq, "runsSeq": runs_seq});
+    println!("GPUI_ADAPTER_INITIAL_SNAPSHOT {initial}");
     client.accept_snapshot(&snapshot).await.expect("accept");
     Opened {
         adapter: DaemonAdapter::new(client.clone()),
@@ -56,6 +64,7 @@ async fn open(guard: &FixtureGuard) -> Opened {
         actions,
         path,
         last: snapshot.event_seq,
+        initial,
     }
 }
 
@@ -112,7 +121,9 @@ impl Opened {
                     if let Notice::Event { wire_seq, channel, payload, .. } = &notice {
                         assert!(*wire_seq > self.last);
                         self.last = *wire_seq;
-                        seen.push(json!({"wireSeq": wire_seq, "channel": channel, "type": payload["event"]["type"]}));
+                        seen.push(
+                            json!({"wireSeq": wire_seq, "channel": channel, "chatId": payload["chatId"], "type": payload["event"]["type"]}),
+                        );
                     }
                     self.store.apply_notice(notice).expect("applied");
                 }
@@ -126,6 +137,25 @@ impl Opened {
     fn count(&self, chat: u64) -> usize {
         self.store.read(|r| r.state().unwrap().projects[0].state.as_ref().unwrap().sessions[&chat].summary.as_ref().unwrap().count)
     }
+}
+
+/// Role, body, client id and outcome of each message, for exact transcript assertions.
+fn described(messages: &[milagre_gpui_spike::data::ChatMessage]) -> Vec<Value> {
+    use milagre_gpui_spike::data::Role;
+    messages
+        .iter()
+        .map(|m| {
+            json!({"role": if m.role == Role::User { "user" } else { "assistant" }, "body": m.body.as_ref(),
+                "clientMessageId": m.client_message_id.as_deref(), "outcome": m.outcome.map(|o| o.key())})
+        })
+        .collect()
+}
+
+/// The exact-sequence claims cover the Chat's `agent:event`s up to and including the terminal one. Events released
+/// after it (a `project:state` arrived there in every recorded run, but the contract does not promise one) are
+/// collected for the evidence and only checked to hold no further `agent:event` for the Chat.
+fn assert_no_late_agent_events(late: &[Value], key: &str) {
+    assert!(late.iter().all(|r| !(r["channel"] == "agent:event" && r["chatId"] == key)), "late agent events: {late:?}");
 }
 
 fn types(seen: &[Value], key: &str) -> Vec<String> {
@@ -146,6 +176,7 @@ fn a_send_streams_into_the_live_state_and_persists_two_messages() {
         let receipt = o.actions.send(1, "Streamed from GPUI", "gpui-action-1").await.expect("send");
         let seen = o.collect(1, "turn-completed");
         let late = o.drain(Duration::from_millis(300));
+        assert_no_late_agent_events(&late, &key);
         let observed = types(&seen, &key);
         assert_eq!(observed, NORMAL, "documented Scripted sequence");
         // The run appears with the owner's message-sent, its text grows with the delta, and it ends.
@@ -160,13 +191,18 @@ fn a_send_streams_into_the_live_state_and_persists_two_messages() {
         let page =
             o.adapter.chat_messages(ScopeKey::project(LOCAL, &o.path), 1, milagre_gpui_spike::data::PageRequest::OPEN).await.unwrap();
         assert_eq!(page.total, 6);
-        let tail: Vec<_> =
-            page.messages[4..].iter().map(|m| (m.body.to_string(), m.client_message_id.as_deref().map(str::to_owned))).collect();
-        assert_eq!(tail, [("Streamed from GPUI".to_owned(), Some("gpui-action-1".to_owned())), (REPLY.to_owned(), None)]);
+        assert_eq!(
+            described(&page.messages[4..]),
+            [
+                json!({"role": "user", "body": "Streamed from GPUI", "clientMessageId": "gpui-action-1", "outcome": null}),
+                json!({"role": "assistant", "body": REPLY, "clientMessageId": null, "outcome": "completed"}),
+            ]
+        );
+        let o_initial = o.initial.clone();
         o.client.disconnect();
         drop(o);
         shut_down(&guard).await;
-        println!("GPUI_ADAPTER_ACTIONS_EVIDENCE send receipt={receipt} events={} late={}", json!(seen), json!(late));
+        println!("GPUI_ADAPTER_ACTIONS_EVIDENCE send initial={} receipt={receipt} events={} late={}", o_initial, json!(seen), json!(late));
     });
 }
 
@@ -184,19 +220,29 @@ fn a_blocked_start_then_interrupt_cancels_and_removes_the_run() {
         let stopped = o.actions.interrupt(2).await.expect("interrupt");
         let cancelled = o.collect(2, "turn-cancelled");
         let late = o.drain(Duration::from_millis(300));
+        assert_no_late_agent_events(&late, &key);
         assert_eq!(types(&cancelled, &key), CANCELLED);
         assert!(o.store.read(|r| r.state().unwrap().runs.runs.is_empty()), "the run is removed");
         let page =
             o.adapter.chat_messages(ScopeKey::project(LOCAL, &o.path), 2, milagre_gpui_spike::data::PageRequest::OPEN).await.unwrap();
         assert_eq!(page.total, 4);
-        assert_eq!(page.messages[2].client_message_id.as_deref(), Some("gpui-action-2"));
-        assert_eq!(page.messages[3].outcome.map(|o| o.key()), Some("cancelled"));
+        println!("GPUI_ADAPTER_CANCELLED_TRANSCRIPT {}", json!(described(&page.messages)));
+        assert_eq!(
+            described(&page.messages),
+            [
+                json!({"role": "user", "body": "Fixture history: another Chat", "clientMessageId": null, "outcome": null}),
+                json!({"role": "assistant", "body": REPLY, "clientMessageId": null, "outcome": "completed"}),
+                json!({"role": "user", "body": "fixture:blocked-start", "clientMessageId": "gpui-action-2", "outcome": null}),
+                json!({"role": "assistant", "body": CANCELLED_BODY, "clientMessageId": null, "outcome": "cancelled"}),
+            ]
+        );
+        let o_initial = o.initial.clone();
         o.client.disconnect();
         assert_eq!(o.actions.interrupt(2).await, Err(Error::Disconnected));
         drop(o);
         shut_down(&guard).await;
         println!(
-            "GPUI_ADAPTER_ACTIONS_EVIDENCE cancel receipt={receipt} interrupt={stopped} blocked={} cancelled={} late={}",
+            "GPUI_ADAPTER_ACTIONS_EVIDENCE cancel initial={o_initial} receipt={receipt} interrupt={stopped} blocked={} cancelled={} late={}",
             json!(blocked),
             json!(cancelled),
             json!(late)
@@ -242,7 +288,8 @@ fn the_mounted_transcript_shows_the_new_messages_after_a_send(cx: &mut TestAppCo
     let seen = vcx.foreground_executor().block_test(async {
         o.actions.send(1, "Shown in the GPUI transcript", "gpui-action-3").await.expect("send");
         let seen = o.collect(1, "turn-completed");
-        o.drain(Duration::from_millis(300));
+        let late = o.drain(Duration::from_millis(300));
+        assert_no_late_agent_events(&late, &o.key(1));
         seen
     });
     assert_eq!(types(&seen, &key), NORMAL);
@@ -282,8 +329,9 @@ fn the_mounted_transcript_shows_the_new_messages_after_a_send(cx: &mut TestAppCo
         .collect();
     assert!(tops.windows(2).all(|pair| pair[0] < pair[1]), "the new messages are drawn last, in order: {tops:?}");
 
+    let initial = o.initial.clone();
     o.client.disconnect();
     drop(o);
     cx.foreground_executor().block_test(shut_down(&guard));
-    println!("GPUI_ADAPTER_ACTIONS_EVIDENCE transcript key={key:?} items={shown:?} tops={tops:?}");
+    println!("GPUI_ADAPTER_ACTIONS_EVIDENCE transcript initial={initial} key={key:?} items={shown:?} tops={tops:?}");
 }

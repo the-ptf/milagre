@@ -560,7 +560,9 @@ removes the stage; the log is `daemon-check/target/check-gpui-adapter.log`.
   character in half, JavaScript keeps a lone surrogate a Rust string cannot hold; both sides compare it as U+FFFD.
 - `src/real/actions.rs`: the backend's `ScriptedActions` (`send`, `interrupt`) on the populated fixture, after an
   explicit `project:open` and an accepted snapshot (before the open both refuse with `ISOLATED_SCOPE_ONLY`). Events are
-  awaited on the notifications with a bound, never on the action's future. A send streams through the live reducer
+  awaited on the notifications with a bound, never on the action's future. The exact sequences cover the Chat's `agent:event`s
+  up to the terminal one; events released after it (a `project:state` in every recorded run, not promised by the
+  contract) are collected and only checked to hold no further `agent:event` for that Chat. A send streams through the live reducer
   (run appears, text grows, run ends, summary count +2); a `fixture:blocked-start` send then `interrupt` gives
   `turn-cancelled` and removes the run; the mounted transcript shows the new messages through the same manual seam.
 - `src/view.rs`: `open_on_select` (explicit `project:open`, then the Chat's first page) and `transcript_items`.
@@ -569,7 +571,8 @@ removes the stage; the log is `daemon-check/target/check-gpui-adapter.log`.
   the panel.
 
 Not done in this stage: wiring the live state into the app's views, state patches, `applyAgentEvent`'s own state
-folding for events that carry no `state`, the viewed-image step cap, sends or any write, Links, other computers. Not decoded yet: subagent transcripts and progress (a non-empty one is an error),
+folding for events that carry no `state`, the viewed-image step cap, content writes and any write beyond the
+backend's fixture-only `ScriptedActions`, Links, other computers. Not decoded yet: subagent transcripts and progress (a non-empty one is an error),
 typed message contexts other than `reload`, `git-action`, `limit-reset` and `handover` (the rest stay whole in
 `ChatContext::Other`), `native_sessions`, `plan`, `limitResume`, `limitTurn`, `openSuggestions`, queued messages'
 images and context. The default fixture's two Chats have no messages, so the sidebar mounted from it lists no row
