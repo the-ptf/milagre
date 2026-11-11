@@ -1,4 +1,4 @@
-//! The bodies of the tabs that have no port yet (Terminal, Browser, Designs, Artifact, PR): one small view
+//! The bodies of the tabs that have no port yet (Terminal, Browser, Designs, Artifact): one small view
 //! each, so a tab's content is always its own cached view and never part of the panel's render.
 
 use gpui::{Context, Window, div, prelude::*};
@@ -7,7 +7,7 @@ use super::PanelTab;
 use crate::theme::ActiveTheme;
 use crate::ui::{EmptySize, EmptyState};
 
-/// What a tab says until its package lands (WP-33 Terminal, WP-35 Browser, WP-36 Designs, WP-37 Artifacts, WP-32 PR).
+/// What a tab says until its package lands (WP-33 Terminal, WP-35 Browser, WP-36 Designs, WP-37 Artifacts).
 pub struct TabPlaceholder {
     tab: PanelTab,
     renders: usize,

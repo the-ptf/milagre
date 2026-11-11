@@ -14,6 +14,7 @@ pub mod body;
 pub mod changes;
 pub mod dock;
 pub mod fixture;
+pub mod pr;
 pub mod terminal;
 
 #[cfg(test)]
@@ -33,6 +34,7 @@ use self::artifacts::ArtifactsView;
 use self::body::TabPlaceholder;
 use self::changes::ChangesView;
 use self::fixture::ChatContent;
+use self::pr::{PrEvent, PrView};
 use crate::theme::ActiveTheme;
 use crate::ui::{IconButton, IconButtonSize, IconName, IconSize, Tab};
 use crate::workspace::chrome::{self, NoDrag};
@@ -111,6 +113,7 @@ pub struct Panel {
     tabs_scroll: ScrollHandle,
     changes: Entity<ChangesView>,
     artifacts: Entity<ArtifactsView>,
+    pr: Entity<PrView>,
     placeholders: HashMap<PanelTab, Entity<TabPlaceholder>>,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
     renders: usize,
@@ -123,9 +126,17 @@ impl Panel {
         let content = fixture::content_for(&chat, seeded.as_deref());
         let changes = cx.new(ChangesView::new);
         changes.update(cx, |changes, cx| changes.set_chat(chat.clone(), content.changes.clone(), cx));
+        let pr = cx.new(PrView::new);
+        pr.update(cx, |pr, cx| pr.set_chat(chat.clone(), content.pr, pr::local_files(&content.changes), cx));
+        cx.subscribe(&pr, |panel, _, event: &PrEvent, cx| {
+            if let PrEvent::OpenChanges = event {
+                panel.activate(PanelTab::Changes, cx);
+            }
+        })
+        .detach();
         let placeholders = PanelTab::ALL
             .into_iter()
-            .filter(|tab| !matches!(tab, PanelTab::Changes))
+            .filter(|tab| !matches!(tab, PanelTab::Changes | PanelTab::Pr))
             .map(|tab| (tab, cx.new(|_| TabPlaceholder::new(tab))))
             .collect();
         let mut panel = Self {
@@ -141,6 +152,7 @@ impl Panel {
                 let panel = cx.entity();
                 cx.new(|cx| ArtifactsView::new(&panel, cx))
             },
+            pr,
             placeholders,
             renders: 0,
         };
@@ -212,6 +224,7 @@ impl Panel {
         match tab {
             PanelTab::Changes => Some(self.changes.clone().into()),
             PanelTab::Artifact => Some(self.artifacts.clone().into()),
+            PanelTab::Pr => Some(self.pr.clone().into()),
             other => self.placeholders.get(&other).map(|view| view.clone().into()),
         }
     }
@@ -257,6 +270,8 @@ impl Panel {
             self.state_mut().tab = PanelTab::Changes;
         }
         let (key, data) = (self.chat.clone(), self.content.changes.clone());
+        let local = pr::local_files(&data);
+        self.pr.update(cx, |pr, cx| pr.set_chat(key.clone(), self.content.pr, local, cx));
         self.changes.update(cx, |changes, cx| changes.set_chat(key, data, cx));
         self.relayout(cx);
     }

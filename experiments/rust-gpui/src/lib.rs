@@ -9,6 +9,7 @@ pub mod data;
 #[cfg(any(test, feature = "fitcheck"))]
 pub mod fitcheck;
 pub mod logic;
+pub mod overlays;
 pub mod platform;
 pub mod routines;
 pub mod settings;
