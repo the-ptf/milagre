@@ -1,0 +1,12 @@
+[package]
+name = "milagre-accounts"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Pure account selection and environment planning for the isolated Rust owner"
+
+[workspace]
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
+
