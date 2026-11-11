@@ -125,6 +125,12 @@ pub struct Isolation {
 impl Isolation {
     /// Marks `dir` (new, or empty) as an isolated copy folder.
     pub fn create(dir: &Path, policy: &Policy) -> Result<Self> {
+        if std::fs::symlink_metadata(dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return Err(StoreError::NotIsolated(format!(
+                "{} is a symbolic link; name the folder itself.",
+                dir.display()
+            )));
+        }
         if dir.exists() {
             let mut entries =
                 std::fs::read_dir(dir).map_err(|error| StoreError::io(error, "scandir", dir))?;
@@ -156,6 +162,12 @@ impl Isolation {
 
     /// An existing isolated copy folder, checked again, with no owner lock in any of its Projects.
     pub fn open(dir: &Path, policy: &Policy) -> Result<Self> {
+        if std::fs::symlink_metadata(dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return Err(StoreError::NotIsolated(format!(
+                "{} is a symbolic link; name the folder itself.",
+                dir.display()
+            )));
+        }
         let root =
             std::fs::canonicalize(dir).map_err(|error| StoreError::io(error, "realpath", dir))?;
         if !root.join(MARKER).is_file() {
@@ -181,24 +193,120 @@ impl Isolation {
         &self.root
     }
 
-    /// A Project folder inside this copy (made if missing), resolved.
-    pub fn project(&self, path: &Path) -> Result<PathBuf> {
-        let path = if path.is_absolute() {
+    /// A Project folder inside this copy, without creating anything: the path resolved lexically (`..` and `.`
+    /// folded, never through the file system) must be strictly inside the root, and every part of it that exists must be
+    /// a real folder (no symlink, no file). Then the Project's `.milagre` is checked: see [`Isolation::check_contents`].
+    pub fn resolve(&self, path: &Path) -> Result<PathBuf> {
+        let refuse = |why: &str| {
+            StoreError::NotIsolated(format!(
+                "{} {why} (isolated copy {}).",
+                path.display(),
+                self.root.display()
+            ))
+        };
+        let joined = if path.is_absolute() {
             path.to_path_buf()
         } else {
             self.root.join(path)
         };
-        std::fs::create_dir_all(&path).map_err(|error| StoreError::io(error, "mkdir", &path))?;
-        let resolved = std::fs::canonicalize(&path)
-            .map_err(|error| StoreError::io(error, "realpath", &path))?;
-        if !resolved.starts_with(&self.root) {
+        let mut normal = PathBuf::new();
+        for part in joined.components() {
+            match part {
+                std::path::Component::ParentDir => {
+                    if !normal.pop() {
+                        return Err(refuse("leaves the file system root"));
+                    }
+                }
+                std::path::Component::CurDir => {}
+                other => normal.push(other.as_os_str()),
+            }
+        }
+        let relative = normal
+            .strip_prefix(&self.root)
+            .map_err(|_| refuse("is outside the isolated copy"))?
+            .to_path_buf();
+        if relative.as_os_str().is_empty() {
+            return Err(refuse("is the isolated copy itself, not a Project in it"));
+        }
+        let mut walked = self.root.clone();
+        for part in relative.components() {
+            walked.push(part);
+            match std::fs::symlink_metadata(&walked) {
+                Ok(meta) if meta.file_type().is_symlink() => {
+                    return Err(refuse("goes through a symbolic link"))
+                }
+                Ok(meta) if !meta.is_dir() => return Err(refuse("goes through a file")),
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error) => return Err(StoreError::io(error, "lstat", &walked)),
+            }
+        }
+        if walked == normal {
+            Self::check_contents(&normal)?;
+        }
+        Ok(normal)
+    }
+
+    /// A Project folder inside this copy, created only after [`Isolation::resolve`] accepted it, then checked again.
+    pub fn project(&self, path: &Path) -> Result<PathBuf> {
+        let project = self.resolve(path)?;
+        std::fs::create_dir_all(&project)
+            .map_err(|error| StoreError::io(error, "mkdir", &project))?;
+        let resolved = std::fs::canonicalize(&project)
+            .map_err(|error| StoreError::io(error, "realpath", &project))?;
+        if resolved != project {
             return Err(StoreError::NotIsolated(format!(
-                "{} is outside the isolated copy {}.",
+                "{} resolves to {} (isolated copy {}).",
+                project.display(),
                 resolved.display(),
                 self.root.display()
             )));
         }
-        Ok(resolved)
+        Self::check_contents(&project)?;
+        Ok(project)
+    }
+
+    /// Nothing the owner reads or writes under `<project>/.milagre` may lead outside: the folder and everything in it
+    /// must be real folders and files (no symbolic link anywhere), and no file may be hard-linked (a hard link would
+    /// make a write here change a file elsewhere).
+    pub fn check_contents(project: &Path) -> Result<()> {
+        let metadata = project.join(".milagre");
+        let mut stack = vec![metadata];
+        while let Some(path) = stack.pop() {
+            let meta = match std::fs::symlink_metadata(&path) {
+                Ok(meta) => meta,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(StoreError::io(error, "lstat", &path)),
+            };
+            let refuse = |why: &str| {
+                StoreError::NotIsolated(format!(
+                    "{} {why}; the Rust owner doesn't follow it.",
+                    path.display()
+                ))
+            };
+            if meta.file_type().is_symlink() {
+                return Err(refuse("is a symbolic link"));
+            }
+            if meta.is_dir() {
+                for entry in std::fs::read_dir(&path)
+                    .map_err(|error| StoreError::io(error, "scandir", &path))?
+                {
+                    stack.push(
+                        entry
+                            .map_err(|error| StoreError::io(error, "scandir", &path))?
+                            .path(),
+                    );
+                }
+            } else if meta.is_file() {
+                use std::os::unix::fs::MetadataExt;
+                if meta.nlink() > 1 {
+                    return Err(refuse("is hard-linked to another file"));
+                }
+            } else {
+                return Err(refuse("isn't a regular file or folder"));
+            }
+        }
+        Ok(())
     }
 
     /// Copies a Project's saved state (`.milagre/` without its lock, runtime folder or temporary files) into
