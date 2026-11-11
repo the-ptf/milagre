@@ -1178,3 +1178,63 @@ fn synthetic_http_outcome_is_one_shot_even_for_distinct_work_tokens() {
     assert!(memory.receive().is_some());
     drop(s);
 }
+
+#[test]
+fn timeout_504_is_deliverable_through_margin_but_not_at_request_expiry() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use milagre_remote::http_dispatch::{MemoryHttp, Outcome, REQUEST_LIFETIME_MS, TIMEOUT_MS};
+    assert_eq!(
+        milagre_remote::registry::Limits::default().request_ms,
+        REQUEST_LIFETIME_MS
+    );
+    for elapsed in [TIMEOUT_MS, REQUEST_LIFETIME_MS - 1, REQUEST_LIFETIME_MS] {
+        let (s, c, clock) = start(Limits::default());
+        run(&c, Command::OpenPairing);
+        let (h, memory, mut ch) = phone(&c, 1, 2);
+        work(&c, &h, &mut ch, 1);
+        let token = next_work(&c);
+        // Actual request traffic keeps the independent 45-second idle deadline alive.
+        // No enlarged idle limit or direct polling of the registry tick.
+        let target = 1 + elapsed;
+        let mut now = 1;
+        let mut id = 2;
+        while now + 40_000 < target {
+            now += 40_000;
+            clock.advance_to(now).unwrap();
+            work(&c, &h, &mut ch, id);
+            id += 1;
+        }
+        clock.advance_to(target).unwrap();
+        let http = MemoryHttp::new(Outcome::Timeout).unwrap();
+        let receipt = c
+            .submit(Command::DispatchSynthetic {
+                token: token.clone(),
+                http: http.clone(),
+            })
+            .unwrap();
+        if elapsed < REQUEST_LIFETIME_MS {
+            match receipt.wait(WAIT).unwrap() {
+                Reply::Dispatched(record) => assert_eq!(record.status, 504),
+                _ => panic!(),
+            }
+            assert_eq!(http.calls(), 1);
+            let frame: serde_json::Value =
+                serde_json::from_slice(&ch.open_encoded(&memory.receive().unwrap()).unwrap())
+                    .unwrap();
+            assert_eq!(frame["status"], 504);
+            assert_eq!(
+                STANDARD.decode(frame["chunk"].as_str().unwrap()).unwrap(),
+                b"{\"v\":1,\"error\":{\"message\":\"The computer took too long to answer\"}}"
+            );
+            assert_eq!(token.status(), WorkStatus::Completed);
+        } else {
+            assert!(receipt.wait(WAIT).is_err());
+            assert_eq!(http.calls(), 0);
+            assert_eq!(token.status(), WorkStatus::TimedOut);
+            assert!(memory.receive().is_none());
+        }
+        assert_eq!(h.status(), CarrierStatus::Active);
+        drop(s);
+        assert_eq!(c.retained_bytes(), 0);
+    }
+}

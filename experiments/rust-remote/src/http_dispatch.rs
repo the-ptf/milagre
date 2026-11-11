@@ -7,6 +7,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 pub const TARGET: &str = "http://synthetic.invalid";
 pub const TOKEN: &str = "synthetic-http-bridge-token";
 pub const TIMEOUT_MS: u64 = 340_000;
+/// Time to encode/queue/deliver a timeout response after Node's fetch deadline.
+pub const DELIVERY_MARGIN_MS: u64 = 5_000;
+pub const REQUEST_LIFETIME_MS: u64 = TIMEOUT_MS + DELIVERY_MARGIN_MS;
 const MAX_HEADERS: usize = 64 * 1024;
 const BLOCKED: &[&str] = &[
     "host",

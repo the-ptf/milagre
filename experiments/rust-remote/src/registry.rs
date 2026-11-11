@@ -154,7 +154,7 @@ impl Default for Limits {
             inflight: 16,
             queued: 64,
             queue_wait_ms: 20_000,
-            request_ms: 340_000,
+            request_ms: crate::http_dispatch::REQUEST_LIFETIME_MS,
             request_bytes: 16 * 1024 * 1024,
             outbound_bytes: 32 * 1024 * 1024,
             outbound_frames: 256,

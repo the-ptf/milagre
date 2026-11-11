@@ -34,7 +34,7 @@ node experiments/rust-remote/tests/http-node.mjs experiments/rust-remote/target/
 
 Use `node experiments/rust-remote/tests/http-node.mjs --record` only after reviewing an intentional source-contract change. The normal check compares committed fixtures first.
 
-Rust regressions cover multipart encrypted delivery, one-shot invocation across repeated/distinct tokens, stale/expired/removed/disposed refusal, unknown delivery without replay, queued promotion, response-budget preflight, command-capacity admission, malformed header shapes, allocation amplification, route bounds, and exact error bytes. This checkpoint brings the crate to 128 tests and six compile-fail doctests, plus six Node compatibility checks.
+Rust regressions cover multipart encrypted delivery, one-shot invocation across repeated/distinct tokens, stale/expired/removed/disposed refusal, unknown delivery without replay, queued promotion, response-budget preflight, command-capacity admission, malformed header shapes, allocation amplification, route bounds, and exact error bytes. This checkpoint brings the crate to 135 tests and six compile-fail doctests, plus six Node compatibility checks.
 
 ## Still unwired
 
@@ -49,3 +49,13 @@ An exact threshold regression fills the real 64 MiB connection budget leaving re
 Plan validation failures also return before invocation without closing unrelated work. A future real worker must translate invalid requests to per-request errors. Response size is known only because this is an injected fake; real fetch integration must reserve a bounded completion/error path before the side effect, enforce a streaming response cap and produce Node's 502 error when the body does not fit. It must not close and invite a POST replay as its size-control strategy. A claimed external POST must never be started twice. None of that worker/network behavior is implemented here.
 
 Oracle scope remains pre-fetch plans and fake outcomes. Real fetch normalization for differently cased duplicate request headers, invalid/non-ASCII header names, URL percent-encoding, 204/304 bodies and statuses below 200 is not demonstrated. HEAD/PUT remain rejected by the GET/POST transport codec. Existing query-string fixtures cover literal target concatenation only.
+
+## Timeout delivery and future claim contract
+
+Node's fetch timeout remains `TIMEOUT_MS = 340_000`. The default registry completion lifetime is now `REQUEST_LIFETIME_MS = 345_000`: fetch timeout plus `DELIVERY_MARGIN_MS = 5_000`. Promotion begins that lifetime. A timeout result arriving at promotion plus 340 seconds can still be encoded and delivered; at the request deadline it is refused. Custom short registry lifetimes remain available for synthetic tests and are not valid real-fetch configuration.
+
+The synchronous fake has one serialized claim point: after token/generation/deadline validation and complete reservation, PreparedExchange consumes the one-shot outcome under its mutex. Preflight errors do not claim, consume or cancel work. After invocation the result is completed once or fails without replay. There is no asynchronous fetch, public async Claim ticket, or detached callback introduced here.
+
+Before a real worker is wired, it must add an atomic request-level `Claim` transition from InFlight to Dispatching, return a single-use continuation, and retain ownership of cancellation and completion/error capacity. A lost claim receipt must be observed again, never repeated as another POST. The real fetch deadline must start at claim, and completion expiry must be claim time plus timeout plus delivery margin; delayed unclaimed jobs need their own bounded scheduling deadline. Thus the five-second margin is not permission to start an arbitrarily late 340-second fetch against the current promotion deadline. That async lifecycle is an explicit integration prerequisite, not implemented functionality.
+
+A manual-clock regression keeps the normal 45-second carrier idle deadline alive with other encrypted requests. It receives and decrypts the exact Node 504 at 340 seconds and at completion deadline minus one millisecond. At the exact completion deadline, invocation count remains zero and the token is TimedOut while the carrier stays active. The test does not enlarge the idle limit or disable periodic expiration.
