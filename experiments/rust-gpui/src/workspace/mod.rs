@@ -21,6 +21,7 @@ mod tests;
 
 use gpui::{Context, Entity, Subscription, Window, div, prelude::*, px};
 
+use crate::settings::{self, SettingsModal, ToggleSettings};
 use crate::theme::{ActiveTheme, Theme};
 use crate::workspace::chat::ChatView;
 use crate::workspace::panel::dock;
@@ -31,17 +32,20 @@ pub struct Workspace {
     pub sidebar: Entity<Sidebar>,
     pub chat: Entity<ChatView>,
     pub panel: Entity<Panel>,
+    pub settings: Entity<SettingsModal>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl Workspace {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         dock::install_keys(cx);
-        let (sidebar, chat, panel) = (cx.new(Sidebar::new), cx.new(ChatView::new), cx.new(Panel::new));
+        settings::init(cx);
+        let (sidebar, chat, panel, settings) =
+            (cx.new(Sidebar::new), cx.new(ChatView::new), cx.new(Panel::new), cx.new(SettingsModal::new));
         // The panel's place in the window changed: lay the columns out again.
         let layout = cx.subscribe(&panel, |_, _, _: &PanelEvent, cx| cx.notify());
         let follow = cx.observe(&sidebar, |this, _, cx| this.follow_sidebar(cx));
-        Self { sidebar, chat, panel, _subscriptions: vec![layout, follow] }
+        Self { sidebar, chat, panel, settings, _subscriptions: vec![layout, follow] }
     }
 
     /// A different Chat picked in the sidebar: the panel shows that Chat's tab and width. The sidebar does not
@@ -61,7 +65,12 @@ impl Render for Workspace {
         self.follow_sidebar(cx);
         let theme = *cx.theme();
         let columns = dock::layout(&self.panel, self.chat.clone(), cx);
+        let settings = self.settings.clone();
         dock::on_actions(div(), &self.panel)
+            .on_action(move |_: &ToggleSettings, window, cx| {
+                settings.update(cx, |modal, cx| modal.toggle(window, cx));
+            })
+            .relative()
             .flex()
             .flex_row()
             .size_full()
@@ -70,6 +79,7 @@ impl Render for Workspace {
             .child(self.sidebar.clone())
             .child(hairline(&theme))
             .child(columns)
+            .child(self.settings.clone())
     }
 }
 

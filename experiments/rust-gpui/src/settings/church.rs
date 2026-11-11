@@ -1,0 +1,77 @@
+//! Church (Experimental) Settings section (`ExperimentalSettings` in `Settings.tsx`).
+
+use gpui::{App, IntoElement, ParentElement, SharedString, Styled, div, prelude::*};
+
+use super::group::{CheckboxRow, SettingsGroup, page_header};
+use super::store::SettingsStore;
+
+pub fn render_church(highlighted: Option<&str>, cx: &App) -> impl IntoElement {
+    let store = cx.global::<SettingsStore>().clone();
+    let hl_shared = highlighted.map(|s| SharedString::from(s.to_owned()));
+
+    let mut beta_group = SettingsGroup::new()
+        .title("Beta")
+        .highlighted_row(hl_shared)
+        .row(
+            CheckboxRow::new("church-floating-inbox", "Floating inbox", store.floating_inbox)
+                .description("A thin bar attached to the screen edge. Drag its grip to show docking targets over a dimmed desktop. Drop left, right, or bottom; release elsewhere to return. The bottom bar is horizontal. Hover a dot to preview its Chat.")
+                .highlighted(highlighted)
+                .on_change(|next, _, cx| {
+                    cx.update_global::<SettingsStore, _>(|s, _| s.floating_inbox = next);
+                }),
+        );
+
+    if store.floating_inbox {
+        beta_group = beta_group.row(
+            CheckboxRow::new("church-floating-inbox-ticker", "Show Chat activity", store.floating_inbox_ticker)
+                .description("Each running Chat shows its latest step beside its dot.")
+                .indented(true)
+                .highlighted(highlighted)
+                .on_change(|next, _, cx| {
+                    cx.update_global::<SettingsStore, _>(|s, _| s.floating_inbox_ticker = next);
+                }),
+        );
+    }
+
+    beta_group = beta_group
+        .row(
+            CheckboxRow::new("church-ultracode-fatality", "Ultracode Fatality", store.ultracode_fatality)
+                .description("Turning Ultracode on darkens the window, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.")
+                .highlighted(highlighted)
+                .on_change(|next, _, cx| {
+                    cx.update_global::<SettingsStore, _>(|s, _| s.ultracode_fatality = next);
+                }),
+        )
+        .row(
+            CheckboxRow::new("church-new-chat-stats", "New Chat stats", store.new_chat_stats)
+                .description("Open pull requests, plan usage and today's tokens on a new Chat.")
+                .highlighted(highlighted)
+                .on_change(|next, _, cx| {
+                    cx.update_global::<SettingsStore, _>(|s, _| s.new_chat_stats = next);
+                }),
+        )
+        .row(
+            CheckboxRow::new("church-delegate-computers", "Delegate to other computers", store.delegate_to_other_computers)
+                .description("A Chat's agent can hand work to a Project on another paired computer. That computer runs the turn, and this Chat shows it as it runs. Needs Drive other computers on in Settings > Devices.")
+                .highlighted(highlighted)
+                .on_change(|next, _, cx| {
+                    cx.update_global::<SettingsStore, _>(|s, _| s.delegate_to_other_computers = next);
+                }),
+        )
+        .row(
+            CheckboxRow::new("church-device-notes", "Device notes", store.device_notes)
+                .description("Tell a Chat's agent when you write from your phone, iPad or another computer, so it doesn't ask you to open files or apps on the Mac.")
+                .warning("Adds about 100 tokens to every message you send from another device.")
+                .highlighted(highlighted)
+                .on_change(|next, _, cx| {
+                    cx.update_global::<SettingsStore, _>(|s, _| s.device_notes = next);
+                }),
+        );
+
+    div()
+        .debug_selector(|| "settings-section-experimental".into())
+        .flex()
+        .flex_col()
+        .child(page_header("Church", Some("Features still in progress. May change or be removed."), cx))
+        .child(beta_group)
+}
