@@ -543,6 +543,14 @@ export function CanvasView({
     const timer = window.setInterval(() => void refresh(), CANVAS_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [refresh]);
+  // Opening Canvas during a host restart can fail its first read. Retry as soon as the host is usable.
+  useEffect(
+    () =>
+      window.milagre.onRuntimeConnection?.((connection) => {
+        if (connection.connected) void refresh();
+      }),
+    [refresh],
+  );
   // A Link changed elsewhere (the sidebar, the phone, another window) shows at once, not at the next read.
   useEffect(() => window.milagre.onLinksChanged?.((links) => Array.isArray(links) && setSnapshot((current) => current && { ...current, links })), []);
   // "Idle · 25m ago" stays true without a state change.

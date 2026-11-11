@@ -679,6 +679,8 @@ async function main() {
     const canvasLinks = await client.call("canvas:link-add", endpoints);
     const edge = canvasLinks.find((item) => item.a.worktree_path === adoptedPaths[0]);
     const adopted = (await client.call("canvas:chat-mode", [edge.id, "shared"])).find((item) => item.id === edge.id).sharedChat;
+    // The direct test client reconnects before Electron does. Wait for the real desktop's transport, not a fixed delay.
+    await waitFor(async () => (await evaluate("window.milagre.getRuntimeConnection()")).connected, "desktop reconnected before adoption UI");
     await evaluate(`document.querySelector('[data-sidebar-tools] button[aria-label="Canvas"]').click()`);
     const adoptedRow = `[data-canvas-worktree=${JSON.stringify(adoptedPaths[0])}] [data-canvas-chat]`;
     await waitFor(() => evaluate(`!!document.querySelector(${JSON.stringify(adoptedRow)})`), "adopted canvas Chat");

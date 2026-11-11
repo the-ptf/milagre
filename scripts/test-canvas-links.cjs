@@ -28,9 +28,11 @@ const projects = [
 const run = (approvals, questions) => ({ approvals, questions });
 const runs = { "/a#2": run([{ id: "approval" }], []), "/a#10": run([], [{ id: "question" }]), "/b#2": run([], []) };
 const readLinks = () => JSON.parse(localStorage.getItem("canvas-test-links") || "[]");
+window.__canvasOffline = true;
 window.milagre = {
+  onRuntimeConnection: (callback) => { window.__connectionChanged = callback; return () => {}; },
   onLinksChanged: (callback) => { window.__linksChanged = callback; return () => {}; },
-  getCanvas: async () => ({ projects, links: readLinks(), worktreePositions: {}, states: [{ path: "/a", state: frontend }, { path: "/b", state: backend }, { path: "/c", state: empty }] }),
+  getCanvas: async () => { if (window.__canvasOffline) throw new Error("Host disconnected"); return ({ projects, links: readLinks(), worktreePositions: {}, states: [{ path: "/a", state: frontend }, { path: "/b", state: backend }, { path: "/c", state: empty }] }); },
   addLink: async (a, b) => { const links = [...readLinks(), { id: "link-1", a, b, created_at: new Date().toISOString() }]; localStorage.setItem("canvas-test-links", JSON.stringify(links)); return links; },
   removeLink: async id => { const links = readLinks().filter(link => link.id !== id); localStorage.setItem("canvas-test-links", JSON.stringify(links)); return links; },
   setLinkChatMode: async (id, mode) => {
@@ -88,6 +90,9 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await evaluate('localStorage.removeItem("canvas-test-links")');
     await window.reload();
+    await waitFor('document.body.textContent.includes("Host disconnected")');
+    assert.equal(await evaluate('document.querySelectorAll("[data-canvas-chat]").length'), 0);
+    await evaluate("window.__canvasOffline = false; window.__connectionChanged({ connected: true })");
     await waitFor('document.querySelectorAll(".react-flow__node-project").length === 2');
     await waitFor('document.querySelectorAll("[data-canvas-chat]").length === 4');
     // Only what the sidebar lists: archived chats, empty starters and Projects left with neither stay off.
@@ -138,6 +143,8 @@ async function browserChecks() {
     await waitFor('JSON.parse(localStorage.getItem("canvas-test-links") || "[]").length === 0');
     // The same gesture creates it again; a reload reads the saved Link through the stubbed bridge.
     await window.reload();
+    await waitFor("!!window.__connectionChanged");
+    await evaluate("window.__canvasOffline = false; window.__connectionChanged({ connected: true })");
     await waitFor('document.querySelectorAll(".react-flow__node-project").length === 2');
     const fromAgain = await point("Frontend", "right");
     const toAgain = await point("Backend", "left");
@@ -150,8 +157,12 @@ async function browserChecks() {
     mouse("mouseUp", toAgain.x, toAgain.y);
     await waitFor('JSON.parse(localStorage.getItem("canvas-test-links") || "[]").length === 1');
     await window.reload();
+    await waitFor("!!window.__connectionChanged");
+    await evaluate("window.__canvasOffline = false; window.__connectionChanged({ connected: true })");
     await waitFor('document.querySelectorAll(".react-flow__edge").length === 1');
     await window.loadURL(`${process.argv[2]}?dark`);
+    await waitFor("!!window.__connectionChanged");
+    await evaluate("window.__canvasOffline = false; window.__connectionChanged({ connected: true })");
     await waitFor('document.querySelectorAll(".react-flow__edge").length === 1');
     // A Link changed outside the canvas (the sidebar, the phone) reaches it without waiting for its next read.
     await evaluate("window.__linksChanged([])");

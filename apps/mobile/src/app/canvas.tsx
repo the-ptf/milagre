@@ -101,9 +101,11 @@ export default function CanvasScreen() {
       ),
     [listed, previewProject],
   );
+  // The live socket refreshes Links on reconnect, including when Canvas opened before its first Project read succeeded.
   useEffect(() => {
+    setError("");
     void load();
-  }, [load]);
+  }, [load, links.links]);
   const refresh = useCallback(async () => {
     setRefreshing(true);
     setError("");

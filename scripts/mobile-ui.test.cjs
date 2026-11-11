@@ -16877,8 +16877,8 @@ test("unmarked design cards reload their catalog after Designs is turned on", as
   h.cleanup();
 });
 
-function canvasHost() {
-  const react = hookHost();
+function canvasHost({ effects = false } = {}) {
+  const react = hookHost({ effects });
   react.useSyncExternalStore = (_subscribe, read) => read();
   const routes = [];
   const calls = [];
@@ -16982,8 +16982,28 @@ function canvasHost() {
     react.begin();
     return CanvasScreen();
   };
-  return { render, routes, calls, confirmations, links };
+  return { render, routes, calls, confirmations, links, session };
 }
+
+test("phone canvas retries failed Project previews when Links refresh after reconnect", async () => {
+  const host = canvasHost({ effects: true });
+  let offline = true;
+  let reads = 0;
+  host.session.previewProject = async () => {
+    reads++;
+    if (offline) throw new Error("Host disconnected");
+  };
+  host.render();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(textOf(host.render()).includes("Host disconnected"));
+  const failedReads = reads;
+  offline = false;
+  host.links.links = [...host.links.links];
+  host.render();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(reads > failedReads, "a reconnect rereads the Worktrees");
+  assert.equal(textOf(host.render()).includes("Host disconnected"), false);
+});
 
 test("phone canvas changes Chat mode only after explaining ownership and permissions", async () => {
   const host = canvasHost();

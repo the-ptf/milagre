@@ -159,6 +159,14 @@ test("canvas Chat modes adopt exact Worktrees, preserve old histories, and relea
   assert.ok(owner);
   const opened = await f.runtime.invoke("link:open", [owner.linkId]);
   assert.equal(opened.state.sessions[1].permissionMode, "ask");
+  // On Windows these aliases are junctions, not privileged directory symlinks. Exercise real alias IO before and after release.
+  for (const [index, member] of opened.state.sessions[1].worktrees.entries()) {
+    const alias = path.join(opened.state.sessions[1].workspacePath, member.alias);
+    assert.ok((await fs.lstat(alias)).isSymbolicLink());
+    assert.equal(await fs.realpath(alias), sides[index].worktree.path);
+    await fs.writeFile(path.join(alias, "through-alias.txt"), `member ${index}`);
+    assert.equal(await fs.readFile(path.join(sides[index].worktree.path, "through-alias.txt"), "utf8"), `member ${index}`);
+  }
   assert.deepEqual(
     opened.state.sessions[1].worktrees.map((item) => item.worktreePath),
     sides.map((side) => side.worktree.path),
