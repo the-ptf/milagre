@@ -1,11 +1,11 @@
 use super::*;
 use serde_json::json;
-static SERIAL: Mutex<()> = Mutex::new(());
+pub(super) static SERIAL: Mutex<()> = Mutex::new(());
 const START: i64 = 1_767_607_200_000;
 fn spec() -> Value {
     json!({"name":"check","prompt":"look","trigger":{"kind":"schedule","cron":"0 * * * *","timezone":"UTC"},"target":{"kind":"new-chat","projectPath":"/synthetic","workspace":"project"},"createdBy":{"kind":"user"}})
 }
-fn setup() -> (Copy, Writer) {
+pub(super) fn setup() -> (Copy, Writer) {
     let copy = Copy::create(None, START).unwrap();
     let mut writer = copy.open(START).unwrap();
     writer
@@ -13,13 +13,13 @@ fn setup() -> (Copy, Writer) {
         .unwrap();
     (copy, writer)
 }
-fn actual(copy: &Copy) -> Vec<u8> {
+pub(super) fn actual(copy: &Copy) -> Vec<u8> {
     let root = copy.0.data.lock().unwrap();
     let data = root.as_ref().unwrap();
     let file = io::open_at(data.dir().unwrap(), FILE, libc::O_RDONLY, 0).unwrap();
     io::bytes(&file, LIMIT).unwrap()
 }
-fn due(writer: &Writer) -> i64 {
+pub(super) fn due(writer: &Writer) -> i64 {
     writer.diagnostic()["list"][0]["nextRunAt"]
         .as_i64()
         .unwrap()
@@ -29,7 +29,10 @@ fn finish(copy: Copy, mut writer: Writer) {
     drop(writer);
     copy.destroy().unwrap();
 }
-fn both_busy(copy: &Copy) -> bool {
+pub(super) fn both_busy(copy: &Copy) -> bool {
+    locks_busy(copy) == (true, true)
+}
+pub(super) fn locks_busy(copy: &Copy) -> (bool, bool) {
     let root = copy.0.data.lock().unwrap();
     let data = root.as_ref().unwrap();
     let directory = io::open_at(
@@ -40,7 +43,10 @@ fn both_busy(copy: &Copy) -> bool {
     )
     .unwrap();
     let file = io::open_at(data.dir().unwrap(), LOCK, libc::O_RDWR, 0).unwrap();
-    matches!(io::lock(&directory), Err(Error::Busy)) && matches!(io::lock(&file), Err(Error::Busy))
+    (
+        matches!(io::lock(&directory), Err(Error::Busy)),
+        matches!(io::lock(&file), Err(Error::Busy)),
+    )
 }
 fn rename(dir: &File, from: &str, to: &str) {
     let from = io::name(from).unwrap();

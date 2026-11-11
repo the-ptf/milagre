@@ -1,8 +1,9 @@
 # Fresh copied routine-store writer proposal
 
-Status: accepted plan after root and independent source review. Only slice 1, the private
-candidate seam without filesystem I/O, is authorized for implementation first. Each later
-slice needs its preceding implementation review; no filesystem writer has been implemented.
+Status: accepted plan after root and independent source review. Slice 1 was accepted as
+`9fdf0c0c`; slice 2 was accepted as `e5c34652`. The authorized slice 3 implementation is
+recorded in `CRASH-WRITER-CHECKPOINT.md` and awaits its own implementation review. The
+source table below remains the historical input baseline, not refreshed implementation hashes.
 The private state baseline is accepted commit `4ff6175e`; the public library
 still exposes only cron helpers. This proposal extends the deferred disk-owner section of
 `STORE-PLAN.md` without admitting a live profile, an existing caller path or a dispatcher.

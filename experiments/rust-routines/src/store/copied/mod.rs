@@ -1,4 +1,6 @@
 //! Private fresh-copy fixture storage. No live-path admission or dispatch authority.
+#[cfg(test)]
+mod crash;
 mod io;
 mod owner;
 #[cfg(test)]
@@ -85,10 +87,20 @@ pub enum Fault {
     IoAndCleanup(Point),
     #[cfg(test)]
     ChangeStageBytes,
+    #[cfg(test)]
+    Crash,
+    #[cfg(test)]
+    CrashIo(Point),
+    #[cfg(test)]
+    CrashIoAndCleanup(Point),
 }
 impl Fault {
     fn hit(self, point: Point) -> Result<()> {
         match self {
+            #[cfg(test)]
+            Self::CrashIo(at) if at == point => Err(Error::Io),
+            #[cfg(test)]
+            Self::CrashIoAndCleanup(at) if at == point || point == Point::Cleanup => Err(Error::Io),
             Self::Io(at) if at == point => Err(Error::Io),
             Self::IoAndCleanup(at) if at == point || point == Point::Cleanup => Err(Error::Io),
             Self::Panic(at) if at == point => {

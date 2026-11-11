@@ -2,7 +2,8 @@
 
 Status: accepted after implementation-agent checks, root validation and Claude Sonnet's
 independent source review/rereview. This is slice 2 of `WRITER-PLAN.md` at `785989a3`, on the accepted candidate seam
-`9fdf0c0c`. Real process-crash/reopen work in slice 3 has not started.
+`9fdf0c0c`. This document records slice 2 evidence. The later exec-only retained-parent
+crash implementation and its limits are recorded in [CRASH-WRITER-CHECKPOINT.md](CRASH-WRITER-CHECKPOINT.md).
 
 ## Admission and ownership
 
@@ -177,8 +178,8 @@ checks use a fresh temporary NODE_PATH link to this worktree's exact `packages/s
 without changing repository package links. Model mutation checks remain explicitly distinct
 from native-owner mutation/crash acceptance.
 
-Slice 3 still needs actual killed-process barriers, exact child
-reaping and retained-capability reopen, plus its native ownership/publication mutants. There
-is no claim that a parent can already adopt a child-published replacement inode after crash.
+At this accepted slice 2 baseline, killed-process barriers and native mutants were deferred.
+The later [slice 3 checkpoint](CRASH-WRITER-CHECKPOINT.md) adds only an exec-test parent that
+captured the exact replacement descriptor before rename; it adds no arbitrary crash adoption.
 Corruption/quarantine, production profile admission, scheduler/dispatch, host/provider work,
 external callbacks and end-to-end exactly-once execution remain absent.

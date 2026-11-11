@@ -6,7 +6,9 @@ and `nextRun`. A separate private schedule/heartbeat state fixture is described 
 [STORE-CHECKPOINT.md](STORE-CHECKPOINT.md); it is compiled only for tests and explicit fixture
 targets, with no public store or commit API. The private Unix `copied_store_fixture` adds
 fresh-copy file ownership and publication as described in
-[COPIED-WRITER-CHECKPOINT.md](COPIED-WRITER-CHECKPOINT.md). The public library remains pure.
+[COPIED-WRITER-CHECKPOINT.md](COPIED-WRITER-CHECKPOINT.md). Exec-only retained-parent crash
+tests and native mutations are described in [CRASH-WRITER-CHECKPOINT.md](CRASH-WRITER-CHECKPOINT.md).
+The public library remains pure.
 There is no timer, scheduler, host access, provider launch, network operation or Node fallback.
 Test scripts invoke the real Node source as an oracle.
 This is a bounded IANA-timezone checkpoint, not complete cron parity or a full routines port.

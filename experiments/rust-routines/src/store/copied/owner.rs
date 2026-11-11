@@ -14,6 +14,14 @@ static SLOT: Mutex<Slot> = Mutex::new(Slot {
     retained: None,
 });
 static NEXT: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+pub(super) fn retained_copy_id() -> Option<u64> {
+    let slot = SLOT.lock().ok()?;
+    match slot.retained.as_ref()? {
+        Retained::Copy(data) => Some(data.id),
+        _ => None,
+    }
+}
 pub(super) enum Retained {
     Copy(Box<Data>),
     Writer(Box<writer::State>),
@@ -135,6 +143,48 @@ struct CleanupLocks {
 }
 
 impl Copy {
+    // Exec-only test transport. The parent supplied these pinned descriptors before
+    // spawning this exact test binary; there is no normal path/capability decoder.
+    #[cfg(test)]
+    pub(super) fn inherited(name: String, token: Vec<u8>) -> Result<Self> {
+        let suffix = name
+            .strip_prefix("milagre-routine-copy-")
+            .ok_or(Error::Ownership)?;
+        if Uuid::parse_str(suffix)
+            .map_err(|_| Error::Ownership)?
+            .to_string()
+            != suffix
+        {
+            return Err(Error::Ownership);
+        }
+        let mut reservation = Reservation::acquire()?;
+        // SAFETY: only the ignored exec child calls this once, with fixed dup2 slots.
+        let descriptors = [198, 199, 200, 201, 202].map(|fd| unsafe { File::from_raw_fd(fd) });
+        let [parent, root, marker, lock, canonical] = descriptors;
+        let bytes = Arc::from(io::bytes(&canonical, LIMIT)?);
+        let data = Box::new(Data {
+            id: reservation.0,
+            parent,
+            name,
+            root: Some(root),
+            created: true,
+            admitted: true,
+            marker: Some(marker),
+            lock: Some(lock),
+            canonical: Some(Pin {
+                file: canonical,
+                bytes,
+            }),
+            token,
+            teardown: None,
+        });
+        data.verify()?;
+        reservation.0 = 0;
+        Ok(Self(Arc::new(Root {
+            id: data.id,
+            data: Mutex::new(Some(data)),
+        })))
+    }
     pub fn create(seed: Option<String>, now: i64) -> Result<Self> {
         Self::create_fault(seed, now, Fault::None)
     }

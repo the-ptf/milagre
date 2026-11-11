@@ -183,7 +183,12 @@ impl State {
             stage: None,
             renamed: false,
         });
-        let result = caught(|| self.persist(data, fault));
+        let result = caught(|| {
+            self.persist(data, fault)?;
+            #[cfg(test)]
+            crash::pause(fault, "before-install", None, &self.model)?;
+            Ok(())
+        });
         if let Err(error) = result {
             if self.pending.as_ref().is_some_and(|p| p.renamed) || matches!(error, Error::Ownership)
             {
@@ -234,8 +239,12 @@ impl State {
         fault.hit(Point::PartialWrite)?;
         file.write_all(&pending.bytes[split..])
             .map_err(|_| Error::Io)?;
+        #[cfg(test)]
+        crash::pause(fault, "written", Some(&stage.name), &self.model)?;
         fault.hit(Point::FileSync)?;
         io::sync(file)?;
+        #[cfg(test)]
+        crash::pause(fault, "file-synced", None, &self.model)?;
         #[cfg(test)]
         if matches!(fault, Fault::ChangeStageBytes) {
             std::os::unix::fs::FileExt::write_all_at(file, b"!", 0).map_err(|_| Error::Io)?;
@@ -252,6 +261,8 @@ impl State {
         fault.hit(Point::BeforeRename)?;
         let from = io::name(&stage.name)?;
         fault.hit(Point::Rename)?;
+        #[cfg(test)]
+        crash::pause(fault, "before-rename", None, &self.model)?;
         if unsafe {
             libc::renameat(
                 data.dir()?.as_raw_fd(),
@@ -264,8 +275,12 @@ impl State {
             return Err(Error::Io);
         }
         pending.renamed = true; // First operation after successful rename. No fallible gap.
+        #[cfg(test)]
+        crash::pause(fault, "renamed", None, &self.model)?;
         fault.hit(Point::DirectorySync)?;
         io::sync(data.dir()?)?;
+        #[cfg(test)]
+        crash::pause(fault, "directory-synced", None, &self.model)?;
         fault.hit(Point::FinalVerify)?;
         self.finish_renamed(data)
     }
