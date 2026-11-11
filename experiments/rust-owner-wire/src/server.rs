@@ -30,6 +30,9 @@ use std::{
 #[derive(Clone)]
 pub struct Config {
     pub max_frame_bytes: usize,
+    /// Per-client queued and currently writing bytes. None retains twice the frame limit.
+    /// Independent of the unchanged 64-frame queue bound.
+    pub outgoing_budget_bytes: Option<usize>,
     pub page_budget_bytes: usize,
     pub page_ttl: Duration,
     pub max_clients: usize,
@@ -41,6 +44,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             max_frame_bytes: MAX_FRAME_BYTES,
+            outgoing_budget_bytes: None,
             page_budget_bytes: 128 * 1024 * 1024,
             page_ttl: Duration::from_secs(30),
             max_clients: 64,
@@ -218,13 +222,16 @@ impl Server {
         config: Config,
     ) -> Result<Self, RpcError> {
         if !(1024..=MAX_FRAME_BYTES).contains(&config.max_frame_bytes)
+            || config.outgoing_budget_bytes.is_some_and(|budget| {
+                budget < config.max_frame_bytes + 1 || budget > 2 * MAX_FRAME_BYTES
+            })
             || config.page_budget_bytes == 0
             || config.page_budget_bytes > 128 * 1024 * 1024
             || !(1..=128).contains(&config.max_clients)
         {
             return Err(RpcError::new(
                 "INVALID_CONFIG",
-                "Frame, page or client budget is outside the supported limits",
+                "Frame, outgoing, page or client budget is outside the supported limits",
             ));
         }
         let token = if config.require_authentication {
@@ -622,10 +629,17 @@ impl Client {
             return Err(RpcError::new("DAEMON_CLOSED", "Connection is closed"));
         }
         let size = bytes.len();
-        if self.queued_bytes.fetch_add(size, Ordering::AcqRel)
-            > 2 * inner.config.max_frame_bytes - size
+        let budget = inner
+            .config
+            .outgoing_budget_bytes
+            .unwrap_or(2 * inner.config.max_frame_bytes);
+        if self
+            .queued_bytes
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |queued| {
+                queued.checked_add(size).filter(|total| *total <= budget)
+            })
+            .is_err()
         {
-            self.queued_bytes.fetch_sub(size, Ordering::AcqRel);
             self.disconnect();
             return Err(RpcError::new("SLOW_CLIENT", "Client write budget exceeded"));
         }
@@ -1336,6 +1350,113 @@ mod tests {
         );
         assert!(client.queued_bytes.load(Ordering::Acquire) <= 2048);
         server.shutdown().unwrap();
+    }
+
+    // No writer consumes this queue, so admission boundaries don't depend on socket scheduling.
+    fn unwritten_client(server: &Server) -> (Client, mpsc::Receiver<Outbound>, UnixStream) {
+        let (socket, peer) = UnixStream::pair().unwrap();
+        let (outgoing, receiver) = mpsc::sync_channel(64);
+        let config = &server.inner.config;
+        (
+            Client {
+                id: u64::MAX,
+                inner: Arc::downgrade(&server.inner),
+                socket,
+                outgoing,
+                queued_bytes: AtomicUsize::new(0),
+                closed: AtomicBool::new(false),
+                authenticated: AtomicBool::new(true),
+                view: Mutex::new(ClientView::default()),
+                inflight: Mutex::new(HashMap::new()),
+                next_request: AtomicU64::new(0),
+                pages: Mutex::new(Pages::new(
+                    config.max_frame_bytes,
+                    config.page_budget_bytes,
+                    config.page_ttl,
+                )),
+            },
+            receiver,
+            peer,
+        )
+    }
+
+    #[test]
+    fn outgoing_byte_budget_is_independent_of_frame_limit_and_exact() {
+        for configured in [None, Some(128 * 1024)] {
+            let server = Server::bind(
+                IsolatedProfile::create().unwrap(),
+                Arc::new(Empty),
+                Config {
+                    max_frame_bytes: 4096,
+                    outgoing_budget_bytes: configured,
+                    ..Config::default()
+                },
+            )
+            .unwrap();
+            let (client, receiver, _peer) = unwritten_client(&server);
+            assert_eq!(
+                client
+                    .send(&json!({"text": "x".repeat(4096)}))
+                    .unwrap_err()
+                    .code,
+                "FRAME_TOO_LARGE"
+            );
+            assert_eq!(client.queued_bytes.load(Ordering::Acquire), 0);
+            let budget = configured.unwrap_or(8192);
+            for _ in 0..budget / 4096 {
+                client.enqueue(vec![0; 4096]).unwrap();
+            }
+            assert_eq!(client.queued_bytes.load(Ordering::Acquire), budget);
+            assert_eq!(client.enqueue(vec![0]).unwrap_err().code, "SLOW_CLIENT");
+            assert_eq!(client.queued_bytes.load(Ordering::Acquire), budget);
+            assert_eq!(
+                receiver
+                    .try_iter()
+                    .filter(|frame| matches!(frame, Outbound::Frame(..)))
+                    .count(),
+                budget / 4096
+            );
+            assert!(client.closed.load(Ordering::Acquire));
+            server.shutdown().unwrap();
+        }
+    }
+
+    #[test]
+    fn larger_byte_budget_still_enforces_the_frame_queue_bound() {
+        let server = Server::bind(
+            IsolatedProfile::create().unwrap(),
+            Arc::new(Empty),
+            Config {
+                max_frame_bytes: 4096,
+                outgoing_budget_bytes: Some(128 * 1024),
+                ..Config::default()
+            },
+        )
+        .unwrap();
+        let (client, receiver, _peer) = unwritten_client(&server);
+        for _ in 0..64 {
+            client.enqueue(vec![0]).unwrap();
+        }
+        assert_eq!(client.enqueue(vec![0]).unwrap_err().code, "SLOW_CLIENT");
+        assert_eq!(client.queued_bytes.load(Ordering::Acquire), 64);
+        assert_eq!(receiver.try_iter().count(), 64);
+        server.shutdown().unwrap();
+    }
+
+    #[test]
+    fn outgoing_budget_configuration_rejects_undersized_or_unbounded_limits() {
+        for budget in [0, 4096, 2 * MAX_FRAME_BYTES + 1, usize::MAX] {
+            let result = Server::bind(
+                IsolatedProfile::create().unwrap(),
+                Arc::new(Empty),
+                Config {
+                    max_frame_bytes: 4096,
+                    outgoing_budget_bytes: Some(budget),
+                    ..Config::default()
+                },
+            );
+            assert!(matches!(result, Err(error) if error.code == "INVALID_CONFIG"));
+        }
     }
     #[test]
     fn executable_finish_waits_for_server_and_request_owners_before_cleanup() {
