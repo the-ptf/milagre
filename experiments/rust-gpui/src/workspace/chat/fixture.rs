@@ -8,7 +8,11 @@
 
 use gpui::SharedString;
 
-use crate::workspace::chat::transcript::{Activity, Approval, ApprovalState, Item, Prose, Tool, ToolKind};
+use crate::data::{ChatStep, Millis, StepKind, StepStatus};
+use crate::workspace::chat::transcript::{Activity, Approval, ApprovalState, Entry, Item, Prose, StepItem};
+
+/// The clock the fixture's running steps count from (the transcript has no ticking clock yet).
+pub const NOW: Millis = 1_800_000_000_000;
 
 /// Items in the default transcript.
 pub const HISTORY_ITEMS: usize = 2000;
@@ -25,34 +29,79 @@ pub fn transcript(total: usize) -> Vec<Item> {
 pub fn first_screen() -> Vec<Item> {
     vec![
         Item::User("The intro hangs on Linux after the star lands. Find it, fix it and open a PR.".into()),
-        Item::Activity(Activity {
-            marks: vec![ToolKind::Think, ToolKind::Read, ToolKind::Command],
-            summary: "Thought for 12s · read 6 files · ran 2 commands".into(),
-            duration: "41s".into(),
-        }),
+        Item::Activity(first_activity()),
         Item::Prose(Prose::new(
             "The hang is in the Dawn intro. On Linux the compositor never fires `transitionend` for the star layer, so \
              **Begin** stays disabled. I'm adding a timer fallback and a check for it.",
         )),
-        Item::Tool(Tool {
-            kind: ToolKind::Edit,
-            label: "Edit intro/Dawn.tsx".into(),
-            added: Some(12),
-            removed: Some(3),
-            duration: "0.4s".into(),
-        }),
+        Item::Step(StepItem::new(edit_step("first-edit", "intro/Dawn.tsx", 12, 3, 400), NOW)),
         Item::Approval(Approval {
-            tool: Tool {
-                kind: ToolKind::Command,
-                label: "Run the onboarding check".into(),
-                added: None,
-                removed: None,
-                duration: "".into(),
+            step: ChatStep {
+                id: "approval-step".into(),
+                kind: Some(StepKind::Shell),
+                title: "Run the onboarding check".into(),
+                ..ChatStep::default()
             },
             command: "npm test -- --only test-onboarding".into(),
             state: ApprovalState::Waiting,
         }),
     ]
+}
+
+/// A finished step that took `ms`, ending at `end`.
+fn done(id: impl Into<SharedString>, kind: StepKind, title: impl Into<SharedString>, end: Millis, ms: u64) -> ChatStep {
+    ChatStep {
+        id: id.into(),
+        kind: Some(kind),
+        title: title.into(),
+        started_at: Some(end - ms as Millis),
+        ended_at: Some(end),
+        duration_ms: Some(ms),
+        ..ChatStep::default()
+    }
+}
+
+/// An edit with its unified diff and counts, as the host keeps them.
+fn edit_step(id: &str, path: &str, added: u32, removed: u32, ms: u64) -> ChatStep {
+    let mut diff = format!("--- a/{path}\n+++ b/{path}\n@@ -40,{removed} +40,{added} @@\n");
+    for n in 0..removed.min(6) {
+        diff.push_str(&format!("-  const old{n} = waitFor(\"transitionend\");\n"));
+    }
+    for n in 0..added.min(12) {
+        diff.push_str(&format!("+  const fallback{n} = window.setTimeout(onReady, 1200);\n"));
+    }
+    ChatStep {
+        summary: Some(format!("+{added} -{removed}").into()),
+        detail: Some(diff.into()),
+        file: Some(path.to_string().into()),
+        ..done(id.to_string(), StepKind::Edit, format!("Edited `{path}`"), NOW, ms)
+    }
+}
+
+/// "Thought for 12s · read 6 files · ran 2 commands", over 41s: the first screen's folded reply.
+fn first_activity() -> Activity {
+    let start = NOW - 41_000;
+    let mut entries = vec![Entry::Step(ChatStep {
+        detail: Some("The star layer waits for a transition that some compositors skip. A timer would cover it.".into()),
+        ..done("t1", StepKind::Thinking, "Thought for 12s", start + 12_000, 12_000)
+    })];
+    for (n, path) in PATHS.iter().take(6).enumerate() {
+        entries.push(Entry::Step(done(
+            format!("r{n}"),
+            StepKind::Read,
+            format!("Read `{path}`"),
+            start + 14_000 + n as Millis * 1_500,
+            300,
+        )));
+    }
+    for (n, command) in ["npm run typecheck", "npm test -- --unit"].iter().enumerate() {
+        entries.push(Entry::Step(ChatStep {
+            input: Some((*command).into()),
+            detail: Some(format!("$ {command}\nok").into()),
+            ..done(format!("c{n}"), StepKind::Shell, format!("Ran `{command}`"), start + 30_000 + n as Millis * 5_500, 5_000)
+        }));
+    }
+    Activity::new(entries, NOW)
 }
 
 /// A small deterministic generator (64-bit LCG), so every run and test sees the same history.
@@ -92,25 +141,44 @@ fn push_turn(turn: usize, rng: &mut Rng, items: &mut Vec<Item>) {
     let thought = 3 + rng.below(40);
     let files = 1 + rng.below(14);
     let commands = rng.below(5);
-    let mut marks = vec![ToolKind::Think, ToolKind::Read];
-    if commands > 0 {
-        marks.push(ToolKind::Command);
+    let start = NOW - 3_600_000 + turn as Millis * 1_000;
+    let mut entries = vec![Entry::Step(done(
+        format!("t{turn}"),
+        StepKind::Thinking,
+        format!("Thought for {thought}s"),
+        start + thought as Millis * 1_000,
+        thought as u64 * 1_000,
+    ))];
+    for n in 0..files {
+        let path = PATHS[(turn + n) % PATHS.len()];
+        entries.push(Entry::Step(done(
+            format!("r{turn}-{n}"),
+            StepKind::Read,
+            format!("Read `{path}` {n}"),
+            start + 20_000 + n as Millis * 800,
+            300,
+        )));
     }
-    let summary = match commands {
-        0 => format!("Thought for {thought}s · read {files} files"),
-        1 => format!("Thought for {thought}s · read {files} files · ran 1 command"),
-        n => format!("Thought for {thought}s · read {files} files · ran {n} commands"),
-    };
-    items.push(Item::Activity(Activity { marks, summary: summary.into(), duration: duration(rng) }));
+    for n in 0..commands {
+        let command = COMMANDS[(turn + n) % COMMANDS.len()];
+        entries.push(Entry::Step(done(
+            format!("c{turn}-{n}"),
+            StepKind::Shell,
+            format!("Ran `{command}`"),
+            start + 60_000 + n as Millis * 4_000,
+            3_000,
+        )));
+    }
+    items.push(Item::Activity(Activity::new(entries, NOW)));
 
-    for _ in 0..1 + rng.below(4) {
-        items.push(Item::Tool(tool(rng)));
+    for n in 0..1 + rng.below(4) {
+        items.push(Item::Step(StepItem::new(tool(turn * 10 + n, rng), NOW)));
     }
     if turn % 7 == 3 {
         let (label, command) = APPROVALS[rng.below(APPROVALS.len())];
         let state = if rng.below(5) == 0 { ApprovalState::Denied } else { ApprovalState::Allowed };
         items.push(Item::Approval(Approval {
-            tool: Tool { kind: ToolKind::Command, label: label.into(), added: None, removed: None, duration: duration(rng) },
+            step: done(format!("a{turn}"), StepKind::Shell, label, NOW, 2_000 + rng.below(200_000) as u64),
             command: command.into(),
             state,
         }));
@@ -119,38 +187,105 @@ fn push_turn(turn: usize, rng: &mut Rng, items: &mut Vec<Item>) {
     let source = if turn % 4 == 1 { LONG_ANSWERS[rng.below(LONG_ANSWERS.len())] } else { rng.pick(SHORT_ANSWERS) };
     items.push(Item::Prose(Prose::new(source)));
     if rng.below(3) == 0 {
-        items.push(Item::Tool(tool(rng)));
+        items.push(Item::Step(StepItem::new(tool(turn * 10 + 9, rng), NOW)));
         items.push(Item::Prose(Prose::new(rng.pick(SHORT_ANSWERS))));
     }
 }
 
-fn duration(rng: &mut Rng) -> SharedString {
-    let seconds = 2 + rng.below(240);
-    if seconds < 60 { format!("{seconds}s").into() } else { format!("{}m {:02}s", seconds / 60, seconds % 60).into() }
+fn tool(n: usize, rng: &mut Rng) -> ChatStep {
+    let path = rng.pick(PATHS);
+    let ms = 100 + rng.below(4000) as u64;
+    let id = format!("tool-{n}");
+    match rng.below(4) {
+        0 => ChatStep { file: Some(path.into()), ..done(id, StepKind::Read, format!("Read `{path}`"), NOW, ms) },
+        1 => edit_step(&id, path, 1 + rng.below(8) as u32, rng.below(6) as u32, ms),
+        2 => {
+            let command = rng.pick(COMMANDS);
+            ChatStep {
+                input: Some(command.into()),
+                detail: Some(format!("$ {command}\nfinished").into()),
+                ..done(id, StepKind::Shell, format!("Ran `{command}`"), NOW, ms)
+            }
+        }
+        _ => {
+            let query = rng.pick(SEARCHES);
+            ChatStep {
+                summary: Some("3 results".into()),
+                detail: Some(format!("{path}:12: {query}\n{path}:48: {query}\n{path}:90: {query}").into()),
+                ..done(id, StepKind::Search, format!("Searched for `{query}`"), NOW, ms)
+            }
+        }
+    }
 }
 
-fn tool(rng: &mut Rng) -> Tool {
-    let path = rng.pick(PATHS);
-    let tenths = 1 + rng.below(40);
-    let duration: SharedString = format!("{}.{}s", tenths / 10, tenths % 10).into();
-    match rng.below(4) {
-        0 => Tool { kind: ToolKind::Read, label: format!("Read {path}").into(), added: None, removed: None, duration },
-        1 => Tool {
-            kind: ToolKind::Edit,
-            label: format!("Edit {path}").into(),
-            added: Some(1 + rng.below(80) as u32),
-            removed: Some(rng.below(30) as u32),
-            duration,
+/// One of every kind of row the app draws, finished: thinking, read, search, edit, write, command, a failed
+/// command, Linear and other MCP tools, a web fetch, a subagent and the to-do list.
+pub fn every_kind() -> Vec<ChatStep> {
+    let at = NOW - 20_000;
+    let mcp = |id: &str, server: &str, name: &str, title: &str, input: &str, detail: &str, ms: u64| ChatStep {
+        source_name: Some(name.to_string().into()),
+        source_server: Some(server.to_string().into()),
+        input: Some(input.to_string().into()),
+        detail: Some(detail.to_string().into()),
+        ..done(id.to_string(), StepKind::Other, title.to_string(), at, ms)
+    };
+    vec![
+        ChatStep {
+            detail: Some("The star layer waits for `transitionend`. Wayland compositors skip it when the layer is not repainted, so a timer is the safe fallback.".into()),
+            ..done("k-think", StepKind::Thinking, "Thought for 12s", at, 12_000)
         },
-        2 => Tool { kind: ToolKind::Command, label: format!("Ran {}", rng.pick(COMMANDS)).into(), added: None, removed: None, duration },
-        _ => Tool {
-            kind: ToolKind::Search,
-            label: format!("Searched for {}", rng.pick(SEARCHES)).into(),
-            added: None,
-            removed: None,
-            duration,
+        ChatStep { file: Some("apps/desktop/app/src/intro/Dawn.tsx".into()), ..done("k-read", StepKind::Read, "Read `apps/desktop/app/src/intro/Dawn.tsx`", at, 300) },
+        ChatStep {
+            summary: Some("3 results".into()),
+            detail: Some("intro/Dawn.tsx:42: transitionend\nintro/Star.tsx:18: transitionend\nlib/motion.ts:7: transitionend".into()),
+            ..done("k-search", StepKind::Search, "Searched for `transitionend`", at, 900)
         },
-    }
+        edit_step("k-edit", "intro/Dawn.tsx", 12, 3, 400),
+        ChatStep { summary: Some("+24 -0".into()), file: Some("intro/fallback.ts".into()), ..done("k-write", StepKind::Edit, "Wrote `intro/fallback.ts`", at, 200) },
+        ChatStep {
+            input: Some("npm test -- --only test-onboarding".into()),
+            summary: Some("12 passed".into()),
+            detail: Some("$ npm test -- --only test-onboarding\n> milagre@1.0.0 test\n# pass 12\n# fail 0".into()),
+            ..done("k-shell", StepKind::Shell, "Ran `npm test -- --only test-onboarding`", at, 4_200)
+        },
+        ChatStep {
+            status: StepStatus::Failed,
+            summary: Some("2 failed · 10 passed".into()),
+            error: Some("expected onReady to be called once, was called twice".into()),
+            input: Some("npm test -- --unit".into()),
+            detail: Some("$ npm test -- --unit\nnot ok 3 - fallback fires once\n# fail 2".into()),
+            ..done("k-failed", StepKind::Shell, "Ran `npm test -- --unit`", at, 6_000)
+        },
+        mcp("k-linear", "Linear", "get_issue", "Used `get_issue` from Linear", "{\"identifier\":\"ENG-412\"}", "{\"title\":\"Intro hangs on Linux\"}", 700),
+        mcp("k-fetch", "web", "fetch", "Fetched `https://developer.mozilla.org/en-US/docs/Web/API/Element/transitionend_event`", "{\"url\":\"https://developer.mozilla.org\"}", "transitionend fires when a CSS transition has completed.", 1_400),
+        mcp("k-agent", "claude", "Task", "Started subagent `Explore`", "{\"prompt\":\"find every transitionend listener\"}", "Found 3 listeners.", 8_000),
+        mcp("k-todo", "claude", "TodoWrite", "Updated to-do list", "{\"todos\":3}", "3 items", 100),
+    ]
+}
+
+/// The snapshot of the activity package (`MILAGRE_GPUI_TRANSCRIPT_ACTIVITY=1`): a folded reply, an expanded one
+/// with every kind of row (some open), a standalone running tool and a streaming reply.
+pub fn activity_demo() -> Vec<Item> {
+    let mut items = vec![
+        Item::User("Fix the intro hang, then run the checks.".into()),
+        Item::Activity(first_activity()),
+        Item::Prose(Prose::new("Fixed. The details of what ran:")),
+    ];
+    let entries = every_kind().into_iter().map(Entry::Step).collect();
+    items.push(Item::Activity(Activity::new(entries, NOW).with_open_rows(&["k-edit", "k-failed", "k-linear"])));
+    items.push(Item::Prose(Prose::new("The fallback fires once; the failing run is the old listener.")));
+    items.push(Item::Step(StepItem::new(
+        ChatStep {
+            id: "k-running".into(),
+            kind: Some(StepKind::Shell),
+            title: "Ran `npm run typecheck`".into(),
+            status: StepStatus::Running,
+            started_at: Some(NOW - 8_000),
+            ..ChatStep::default()
+        },
+        NOW,
+    )));
+    items
 }
 
 const PATHS: &[&str] = &[

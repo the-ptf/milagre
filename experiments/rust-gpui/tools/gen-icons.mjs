@@ -29,6 +29,7 @@ const ICONS = [
   "Filter",
   "ArrowRight01",
   "ArrowDown01",
+  "ArrowUp01",
   "FolderAdd",
   "Settings01",
   "ShieldAlert",

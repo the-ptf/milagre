@@ -458,3 +458,38 @@ chip) and `insert_image_mentions` for the attachments tray (WP-25); `set_mention
 row is unchanged. Not built: dictation, the attachments tray and file-chip attachment sync, the model picker,
 queue and steering placeholders, draft persistence, the skill chip's description tooltip, `/undo` and `/storage`
 opening their panels.
+
+## Activity notes
+
+WP-22 (2026-11-11): the activity fold and the tool rows, in `workspace/chat/transcript/{summary,step_row,activity}.rs`.
+
+- **Data.** Items hold the real `data::ChatStep`: `Item::Activity(Activity)` is a reply's activity (entries of text and
+  steps) and draws as a fold, or as the lone step's row when it has one step; `Item::Step` is a call between two
+  texts; `Item::Approval` wraps a `ChatStep`. The old `Tool`/`ToolKind` stand-ins are gone.
+- **The logic was not in `logic::activity`**, so `summary.rs` ports `tool-activity.mjs` (titles, durations, sources,
+  sections), `reply-parts.ts` (`replyActivity`, `activitySummary`, `titleSpans`) and `activity-window.ts`, with tests.
+  `logic::lists::chat_display::ToolCallDisplay` is used as is (`Transcript::set_display`, default Compact; Full detail
+  draws every call inline; Always expand reasoning opens thinking rows).
+- **Rows** are 24 high, glyph on the reply text's edge, hover fill drawn 13px past it (an absolute child behind the
+  row). The app's nine kinds map to six glyph families: shell/setup, read, edit (and write: both `edit`), search,
+  thinking, other (MCP, web fetch, subagent, to-do are all `other` in the app, told apart by title and `source`);
+  image and artifact steps are cards in the app (WP-23) and stay out of the fold.
+- **Folding re-measures one item.** The rows of an open fold are drawn inside the fold's own list item; every click
+  is one `ListState::splice(ix..ix + 1, 1)`. Tests assert the neighbour keeps its height.
+- **Shimmer.** The app sweeps a gradient through the title text; GPUI cannot clip a gradient to glyphs, so the whole
+  title pulses between `ink-3` and `ink` (1.2s loop, per span), and keeps the static `ink-3` tint with motion off. A
+  `with_animation` inside the list marks the transcript dirty every frame, so while a tool runs the visible items
+  are rebuilt each frame (about 13). The running mark avoids this by being outside the list; the shimmer cannot.
+  Moving it into a cached view does not help (rule 1). Not measured here; a person should watch CPU with a tool
+  running, and the fix, if needed, is a lower frame rate (stepped fade) or painting the title in a custom element.
+- **The running row** now follows the last item (`chat/mod.rs::running_offset`): the distance the reader has scrolled
+  from the end moves it down with the content and the transcript's box clips it. Past 40 items from the end the list
+  has not measured the gap, so the row is simply not drawn. `ListState::bounds_for_item` is wrong while the list is
+  pinned to the end (its pinned scroll top is the content's end, not the viewport's top), so it is not used.
+- **Not built:** the full diff view (the edit's detail is a placeholder naming the Changes package, with the first
+  lines on the diff colours), markdown in thinking and in text between steps (plain text), the fold's 280ms height
+  transition, the inline approval on a fold's line and `agent:respond-permission`, the Linear mark (a wrench), detail
+  the host keeps elsewhere (`has_detail`: needs `chat:message`), a ticking clock for running durations (`Activity.now`
+  is fixed), file-link clicks on read and edit titles, tooltips on the marks.
+- Snapshot: `MILAGRE_GPUI_TRANSCRIPT_ACTIVITY=1` swaps the history for `fixture::activity_demo()` (a folded reply, an
+  open one with every kind of row, a running tool); add `MILAGRE_GPUI_TRANSCRIPT_TOP=0` to open at its top.

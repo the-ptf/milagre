@@ -16,19 +16,28 @@ use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gpui::{
-    AnyElement, ClickEvent, ClipboardItem, Context, Entity, FontWeight, ListAlignment, ListOffset, ListState, Pixels, Rgba, SharedString,
-    Task, Window, canvas, div, list, prelude::*, px,
+    AnyElement, ClickEvent, ClipboardItem, Context, Entity, FontWeight, ListAlignment, ListOffset, ListState, Pixels, SharedString, Task,
+    Window, canvas, div, list, prelude::*, px,
 };
 use gpui_base::{MarkdownExtensions, TextSelection, TextViewState, TextViewStyle};
 
+use crate::data::ChatStep;
+use crate::logic::lists::chat_display::ToolCallDisplay;
 use crate::theme::{
-    ActiveTheme, Appearance, CHAT_TEXT, CODE_TEXT, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_WINDOW, TEXT_12, TEXT_13, TextStepExt,
-    Theme, mono,
+    ActiveTheme, Appearance, CHAT_TEXT, CODE_TEXT, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_WINDOW, TEXT_12, TextStepExt, Theme, mono,
 };
 use crate::ui::markdown::stream::{close_open_markdown, split_streaming_blocks};
 use crate::ui::markdown::{LinkHandler, Markdown, extensions, open_with_system, plain_text_source, text_view_style};
 use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconName, IconSize};
+use crate::workspace::chat::transcript::step_row::StepRow;
 use crate::workspace::chat::transcript_selection::{Keeper, SelectionTracker, SharedPainted, SharedTracker};
+
+pub mod activity;
+pub mod step_row;
+pub mod summary;
+
+pub use activity::{Activity, RowState, StepItem};
+pub use summary::Entry;
 
 /// The Chat content column, centred in the Chat column.
 pub const COLUMN_WIDTH: f32 = 536.0;
@@ -39,8 +48,6 @@ pub const RUNNING_GAP: f32 = 12.0;
 /// Padding above the list's first item.
 pub const LIST_TOP_PAD: f32 = 16.0;
 const USER_MAX_WIDTH: f32 = 420.0;
-const MARK_SIZE: f32 = 20.0;
-const MARK_OVERLAP: f32 = 6.0;
 /// Extra height laid out above and below the viewport, so scrolling does not pop items in.
 const OVERDRAW: f32 = 600.0;
 /// Text views kept for items this far outside the last drawn range; further ones are dropped and parsed again
@@ -53,9 +60,11 @@ pub const STREAM_RENDER: Duration = Duration::from_millis(50);
 #[derive(Clone, Debug)]
 pub enum Item {
     User(SharedString),
+    /// A reply's activity: a fold of its steps, or the lone step's row.
     Activity(Activity),
     Prose(Prose),
-    Tool(Tool),
+    /// A tool call that stands between two pieces of text.
+    Step(StepItem),
     Approval(Approval),
 }
 
@@ -73,26 +82,10 @@ impl Prose {
     }
 }
 
-/// A folded reply's summary: up to three marks, one line of what happened, and how long it took.
-#[derive(Clone, Debug)]
-pub struct Activity {
-    pub marks: Vec<ToolKind>,
-    pub summary: SharedString,
-    pub duration: SharedString,
-}
-
-#[derive(Clone, Debug)]
-pub struct Tool {
-    pub kind: ToolKind,
-    pub label: SharedString,
-    pub added: Option<u32>,
-    pub removed: Option<u32>,
-    pub duration: SharedString,
-}
-
 #[derive(Clone, Debug)]
 pub struct Approval {
-    pub tool: Tool,
+    /// The call that waits (its title and kind draw the row; it has no detail of its own).
+    pub step: ChatStep,
     pub command: SharedString,
     pub state: ApprovalState,
 }
@@ -152,6 +145,9 @@ pub struct Transcript {
     painted: SharedPainted,
     /// Snapshot mode (`MILAGRE_GPUI_TRANSCRIPT_SELECT`): drag over this item once it has been drawn.
     select_on_open: Option<usize>,
+    /// Settings › Chat › Tool call display (default Compact) and Always expand reasoning (default off).
+    display: ToolCallDisplay,
+    expand_reasoning: bool,
 }
 
 impl Transcript {
@@ -162,7 +158,9 @@ impl Transcript {
             .and_then(|v| v.parse().ok())
             .unwrap_or(crate::workspace::chat::fixture::HISTORY_ITEMS);
         let started = Instant::now();
-        let items = crate::workspace::chat::fixture::transcript(count);
+        let demo = std::env::var_os("MILAGRE_GPUI_TRANSCRIPT_ACTIVITY").is_some();
+        let items =
+            if demo { crate::workspace::chat::fixture::activity_demo() } else { crate::workspace::chat::fixture::transcript(count) };
         let built = started.elapsed();
         let mut this = Self::with_items(items, cx);
         if std::env::var_os("MILAGRE_GPUI_TIMING").is_some() {
@@ -208,6 +206,18 @@ impl Transcript {
             tracker: SharedTracker::default(),
             painted: SharedPainted::default(),
             select_on_open: None,
+            display: ToolCallDisplay::Compact,
+            expand_reasoning: false,
+        }
+    }
+
+    /// The two Chat settings that shape the activity: every item is built again, so heights are measured again.
+    pub fn set_display(&mut self, display: ToolCallDisplay, expand_reasoning: bool, cx: &mut Context<Self>) {
+        if (self.display, self.expand_reasoning) != (display, expand_reasoning) {
+            self.display = display;
+            self.expand_reasoning = expand_reasoning;
+            self.list.reset(self.items.len());
+            cx.notify();
         }
     }
 
@@ -523,8 +533,8 @@ impl Transcript {
             Item::User(_) => user_message(self.text_block(ix), &theme).into_any_element(),
             Item::Prose(_) if selectable => self.text_block(ix),
             Item::Prose(_) => div().into_any_element(),
-            Item::Activity(activity) => activity_row(activity, &theme).into_any_element(),
-            Item::Tool(tool) => tool_row(tool, &theme).into_any_element(),
+            Item::Activity(activity) => self.activity_item(ix, activity, &theme, cx),
+            Item::Step(item) => self.step_item(ix, item, &theme, cx),
             Item::Approval(approval) => self.approval(ix, approval, &theme, cx).into_any_element(),
         };
         let painted = self.painted.clone();
@@ -598,18 +608,36 @@ impl Transcript {
                 )
                 .child(approval.state.label())
         };
-        div().flex().flex_col().gap_1().child(tool_row(&approval.tool, theme)).child(state_row).child(
-            div()
-                .rounded(RADIUS_CONTROL)
-                .bg(theme.inset)
-                .border_1()
-                .border_color(theme.line)
-                .p(px(8.0))
-                .font_family(mono())
-                .text_step(CODE_TEXT)
-                .text_color(theme.ink)
-                .child(approval.command.clone()),
-        )
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(step_row::row(
+                &StepRow {
+                    step: &approval.step,
+                    key: (ix, 0),
+                    open: false,
+                    all_lines: false,
+                    waiting: false,
+                    now: 0,
+                    on_toggle: None,
+                    on_all: None,
+                },
+                theme,
+            ))
+            .child(state_row)
+            .child(
+                div()
+                    .rounded(RADIUS_CONTROL)
+                    .bg(theme.inset)
+                    .border_1()
+                    .border_color(theme.line)
+                    .p(px(8.0))
+                    .font_family(mono())
+                    .text_step(CODE_TEXT)
+                    .text_color(theme.ink)
+                    .child(approval.command.clone()),
+            )
     }
 
     /// Deny (`danger-ghost`), Always allow (`secondary`) and Allow once (`primary`), all 28 high (DESIGN.md
@@ -657,13 +685,13 @@ impl Render for Transcript {
 }
 
 fn top_gap(previous: Option<&Item>, item: &Item) -> f32 {
-    let stacked = |item: Option<&Item>| matches!(item, Some(Item::Tool(_)) | Some(Item::Approval(_)));
+    let stacked = |item: Option<&Item>| matches!(item, Some(Item::Step(_)) | Some(Item::Approval(_)));
     match item {
         Item::User(_) => 24.0,
         Item::Activity(_) => 12.0,
         Item::Prose(_) => 8.0,
-        Item::Tool(_) | Item::Approval(_) if stacked(previous) => 0.0,
-        Item::Tool(_) | Item::Approval(_) => 8.0,
+        Item::Step(_) | Item::Approval(_) if stacked(previous) => 0.0,
+        Item::Step(_) | Item::Approval(_) => 8.0,
     }
 }
 
@@ -680,87 +708,6 @@ fn user_message(text: AnyElement, theme: &Theme) -> impl IntoElement + use<> {
             .text_color(theme.ink)
             .child(text),
     )
-}
-
-fn activity_row(activity: &Activity, theme: &Theme) -> impl IntoElement + use<> {
-    let shown = activity.marks.len().min(3);
-    // The marks' row gets an explicit width: with negative margins on its children, a hugging flex
-    // container measures 0px wide in GPUI 0.2.2 (taffy), and the summary text lands on the marks.
-    let marks_width = if shown == 0 { 0.0 } else { MARK_SIZE + (shown - 1) as f32 * (MARK_SIZE - MARK_OVERLAP) };
-    let marks = activity.marks.iter().take(shown).enumerate().map(|(n, kind)| {
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .size(px(MARK_SIZE))
-            .when(n > 0, |mark| mark.ml(px(-MARK_OVERLAP)))
-            .rounded_full()
-            .bg(theme.field)
-            .border_2()
-            .border_color(theme.page)
-            .child(Icon::new(kind.icon()).size(IconSize::S12).color(theme.ink2))
-    });
-    div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .h(CONTROL_XS)
-        .child(div().debug_selector(|| "activity-marks".into()).flex().flex_none().w(px(marks_width)).children(marks))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_step(TEXT_12)
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme.ink3)
-                .child(activity.summary.clone()),
-        )
-        .child(div().flex_none().text_step(TEXT_12).text_color(theme.ink3).child(activity.duration.clone()))
-}
-
-fn tool_row(tool: &Tool, theme: &Theme) -> impl IntoElement + use<> {
-    div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .h(CONTROL_SM)
-        .child(div().flex().flex_none().items_center().justify_center().size(px(16.0)).child(Icon::new(tool.kind.icon()).color(theme.ink3)))
-        .child(
-            div().min_w_0().truncate().text_step(TEXT_13).font_weight(FontWeight::MEDIUM).text_color(theme.ink2).child(tool.label.clone()),
-        )
-        .children(tool.added.map(|n| count(format!("+{n}"), theme.green)))
-        .children(tool.removed.map(|n| count(format!("-{n}"), theme.red_ink)))
-        .child(div().flex_1())
-        .child(div().flex_none().text_step(TEXT_12).text_color(theme.ink3).child(tool.duration.clone()))
-}
-
-fn count(text: String, color: Rgba) -> impl IntoElement {
-    div().flex_none().text_step(TEXT_12).font_weight(FontWeight::MEDIUM).text_color(color).child(text)
-}
-
-/// What a tool row or an activity mark stands for. Each kind draws the desktop's glyph
-/// (`agents/ActivitySource.tsx`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ToolKind {
-    Edit,
-    Read,
-    Command,
-    Search,
-    Think,
-}
-
-impl ToolKind {
-    pub fn icon(self) -> IconName {
-        match self {
-            ToolKind::Edit => IconName::PencilEdit02,
-            ToolKind::Read => IconName::File01,
-            ToolKind::Command => IconName::CommandLine,
-            ToolKind::Search => IconName::Search01,
-            ToolKind::Think => IconName::AiBrain01,
-        }
-    }
 }
 
 fn ms(duration: Duration) -> f64 {
