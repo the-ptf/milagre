@@ -11,6 +11,37 @@ const { pathToFileURL } = require("node:url");
 
 const root = path.resolve(__dirname, "..");
 
+async function stopFixtureHost(client, profile) {
+  const started = Date.now();
+  const controller = new AbortController();
+  const closed = once(client, "close", { signal: controller.signal });
+  const timeout = setTimeout(() => controller.abort(new Error("Timed out: daemon transport close")), 31000);
+  try {
+    // The ownership lock is released before the transport closes. Wait for both the acknowledgment and close,
+    // so a replacement cannot accidentally attach to the host that is still stopping.
+    await Promise.all([client.call("daemon:stop"), closed]);
+    const elapsed = Date.now() - started;
+    // Keep the 31 s diagnostic deadline, but never accept the old 30 s gh timeout as successful shutdown.
+    assert.ok(elapsed < 5000, `daemon:stop acknowledgment and transport close took ${elapsed} ms (limit 5000 ms)`);
+    console.log(`PASS: daemon:stop acknowledged and transport closed (${elapsed} ms)`);
+  } catch (error) {
+    let diagnostic;
+    try {
+      diagnostic = await require("@milagre/daemon/client").connect({ dataDir: profile, timeoutMs: 1000 });
+      const { pid, closing } = await diagnostic.call("daemon:status");
+      console.error("Host after failed stop:", { pid, closing, elapsedMs: Date.now() - started });
+    } catch (statusError) {
+      console.error("Host after failed stop:", statusError.message);
+    } finally {
+      diagnostic?.close();
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+  }
+}
+
 async function packagedExecutable(input) {
   const bundle = path.resolve(input);
   if (!(await fs.stat(bundle)).isDirectory()) return bundle;
@@ -85,37 +116,6 @@ async function checkDesignRaster({ executable, raster, label }) {
 function packagedRaster(executable) {
   const resources = process.platform === "darwin" ? path.join(path.dirname(executable), "../Resources") : path.join(path.dirname(executable), "resources");
   return path.join(resources, "app.asar/node_modules/@milagre/core/src/design-raster.cjs");
-}
-
-async function stopFixtureHost(client, profile) {
-  const started = Date.now();
-  const controller = new AbortController();
-  const closed = once(client, "close", { signal: controller.signal });
-  const timeout = setTimeout(() => controller.abort(new Error("Timed out: daemon transport close")), 31000);
-  try {
-    // The ownership lock is released before the transport closes. Wait for both the acknowledgment and close,
-    // so a replacement cannot accidentally attach to the host that is still stopping.
-    await Promise.all([client.call("daemon:stop"), closed]);
-    const elapsed = Date.now() - started;
-    // Keep the 31 s diagnostic deadline, but never accept the old 30 s gh timeout as successful shutdown.
-    assert.ok(elapsed < 5000, `daemon:stop acknowledgment and transport close took ${elapsed} ms (limit 5000 ms)`);
-    console.log(`PASS: daemon:stop acknowledged and transport closed (${elapsed} ms)`);
-  } catch (error) {
-    let diagnostic;
-    try {
-      diagnostic = await require("@milagre/daemon/client").connect({ dataDir: profile, timeoutMs: 1000 });
-      const { pid, closing } = await diagnostic.call("daemon:status");
-      console.error("Host after failed stop:", { pid, closing, elapsedMs: Date.now() - started });
-    } catch (statusError) {
-      console.error("Host after failed stop:", statusError.message);
-    } finally {
-      diagnostic?.close();
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-    controller.abort();
-  }
 }
 
 async function checkApp({ executable, args, profile, project, expectTheme, expectStartupError = false, onboarding, recoverOwnership }) {
