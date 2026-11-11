@@ -86,3 +86,56 @@ shell files before Tauri's internal native teardown; observed non-recreation doe
 not prove object destruction. The two preference hashes are narrower evidence
 than full live-profile isolation. No full persona QA fleet ran for this technical
 smoke, and no installed application or production host was replaced.
+
+## Composer send regression (separate feature, currently blocked)
+
+Build the shell with `--features fixture-send-smoke` instead, then run the same
+fixed observer. The native context/report records `scenario: "send"`; missing
+send-probe results cannot pass this feature. Storage-only assertions remain
+independent and passed again in
+`/private/tmp/milagre-native-fixture-observer-KdGDtn/observer.json`.
+
+The added sequence opens real Settings > Models, turns off the actual TLDR
+checkbox, opens the real model picker, selects Kiro > Scripted Rust fixture,
+closes the picker, types through the composer's `beforeinput` handler and clicks
+the real Send button exactly once. It never calls `sendMessage` directly or
+rewrites the renderer's request. The runtime's separately tested non-Claude
+`replies: "concise"` compatibility fix is required (`015983df`).
+
+The first accepted send is recorded in
+`/private/tmp/milagre-native-fixture-observer-krSHbh/observer.json`, with real PNGs
+in `/private/tmp/milagre-fixture-evidence-Uav9IX`. Model/Ask selection, Settings,
+one click, one `chat:send`, ordered agent events 1 through 5, streamed text and
+exactly one `turn-completed` passed. Owner reads returned user 10 and assistant
+11, session 1, total two messages, with the exact test prompt/reply. The same
+messages remained readable after the page reload.
+
+**The native lifecycle test fails:** the production sidebar still says "No Chats
+yet" and reload opens an empty composer instead of rendering the saved reply.
+The assertion is retained. Production `compactProjectState` calls
+`withChatSummaries`; the Rust owner's current `slim` only ports detail compaction.
+An existing zero-count summary suppresses the Chat in the production sidebar.
+No frontend summary fallback, fixture seed removal or direct Chat-open event is
+used to bypass this backend compatibility gap.
+
+The final diagnostic run is
+`/private/tmp/milagre-native-fixture-observer-dTEZWF/observer.json`, with PNGs and
+native document results in `/private/tmp/milagre-fixture-evidence-EBJch8`.
+It records the exact owner-read `session.summary: {"count": 0}` beside the two
+messages both before and after reload. The first phase sends once and receives
+the reply; the second phase fails its rendered-reply assertion and is captured
+by the native deadline. Owner stop and explicit shell cleanup still succeed,
+and the external observer confirms both roots remain absent through five seconds.
+The send-feature headless suite has 27 passing tests, the default shell has 39,
+and strict Clippy passes. Those checks do not turn this failed native regression
+into a passing lifecycle milestone.
+
+The read result is labelled `ownerReadConfirmed`, not disk persistence. Missing
+`state.persistence` means no reported save error; it does not prove a completed
+save. The shell never reads the owner profile's SQLite files. Same-run durable
+disk evidence, queue/Stop behavior and real-provider turns remain separate work.
+The observer compares message identities across reload and requires zero send
+calls after reload when the lifecycle eventually passes. A native startup
+document probe after three seconds records bounded progress even if hidden
+WebKit timers suspend the JavaScript wait; the existing forty-second watchdog
+still fails and quits rather than reporting success.

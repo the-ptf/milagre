@@ -31,7 +31,7 @@ impl Smoke {
             .map_err(|e| e.to_string())?;
         let root = temp.keep();
         let nonce = root.file_name().unwrap().to_string_lossy().into_owned();
-        let report = json!({"schemaVersion":1,"source":"actual background WKWebView, production renderer, isolated scripted Rust owner","identity":context.smoke_identity(),"evidenceRoot":root,"passed":false,"cookies":"not tested","nativeDeallocation":"not observed","stages":[]});
+        let report = json!({"schemaVersion":1,"scenario":if cfg!(feature="fixture-send-smoke") {"send"} else {"storage"},"source":"actual background WKWebView, production renderer, isolated scripted Rust owner","identity":context.smoke_identity(),"evidenceRoot":root,"passed":false,"cookies":"not tested","nativeDeallocation":"not observed","stages":[]});
         let value = Self {
             root,
             nonce,
@@ -69,7 +69,9 @@ impl Smoke {
                 json!({"code":"SMOKE_STORE_NOT_READY","message":"Nonpersistent native store not confirmed"}),
             );
         }
-        Ok(json!({"phase":self.phase.load(Ordering::Acquire),"nonce":self.nonce,"project":project}))
+        Ok(
+            json!({"phase":self.phase.load(Ordering::Acquire),"nonce":self.nonce,"project":project,"scenario":if cfg!(feature="fixture-send-smoke") {"send"} else {"storage"}}),
+        )
     }
     pub fn page_loaded(&self, window: &tauri::WebviewWindow, url: &str) {
         if let Ok(mut report) = self.report.lock() {
@@ -77,6 +79,8 @@ impl Smoke {
         }
         let _ = self.write();
         if self.phase.load(Ordering::Acquire) < 2 {
+            #[cfg(feature = "fixture-send-smoke")]
+            let _ = window.eval(include_str!("../renderer/fixture-send-smoke.js"));
             let evaluated = window.eval(include_str!("../renderer/fixture-native-smoke.js"));
             if let Ok(mut report) = self.report.lock() {
                 report["probeEvaluation"] = match evaluated {
@@ -116,7 +120,17 @@ pub async fn result(app: tauri::AppHandle, value: String) -> Result<Value, Strin
     if smoke.submitted.swap(true, Ordering::AcqRel) {
         return Err("Fixture smoke phase already submitted".into());
     }
-    let passed = result["passed"] == true && smoke.store.load(Ordering::Acquire) == 1;
+    let scenario_ok = if cfg!(feature = "fixture-send-smoke") {
+        if phase == 0 {
+            result["send"]["stage"] == "complete"
+        } else {
+            result["send"]["reloadSurvived"] == true
+        }
+    } else {
+        true
+    };
+    let passed =
+        result["passed"] == true && smoke.store.load(Ordering::Acquire) == 1 && scenario_ok;
     let window = app
         .get_webview_window("main")
         .ok_or("Main window missing")?;
@@ -174,8 +188,21 @@ pub async fn result(app: tauri::AppHandle, value: String) -> Result<Value, Strin
 
 pub fn watchdog(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(40);
         let _ = tauri::async_runtime::spawn_blocking(|| {
-            std::thread::sleep(std::time::Duration::from_secs(40))
+            std::thread::sleep(std::time::Duration::from_secs(3))
+        })
+        .await;
+        if let Some(window) = app.get_webview_window("main") {
+            let probe = document_probe(&window).await;
+            let smoke = app.state::<Smoke>();
+            if let Ok(mut report) = smoke.report.lock() {
+                report["startupDocumentProbe"] = probe;
+            }
+            let _ = smoke.write();
+        }
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            std::thread::sleep(deadline.saturating_duration_since(std::time::Instant::now()))
         })
         .await;
         let phase = app.state::<Smoke>().phase.load(Ordering::Acquire);
@@ -187,7 +214,7 @@ pub fn watchdog(app: tauri::AppHandle) {
 
 async fn document_probe(window: &tauri::WebviewWindow) -> Value {
     let (send, recv) = std::sync::mpsc::sync_channel(1);
-    let script = r#"({url:location.href,readyState:document.readyState,title:document.title,tauri:typeof window.__TAURI__,bridge:typeof window.milagre,probeStarted:!!window.__fixtureNativeSmoke,rootChildren:document.getElementById('root')?.childElementCount,text:document.body?.innerText.slice(0,3000),diagnostics:window.__rustDiagnostics?{ready:window.__rustDiagnostics.ready,errors:window.__rustDiagnostics.errors.slice(-30),calls:window.__rustDiagnostics.calls.slice(-40).map(({method,error,pending})=>({method,error,pending}))}:null})"#;
+    let script = r#"({url:location.href,readyState:document.readyState,title:document.title,tauri:typeof window.__TAURI__,bridge:typeof window.milagre,probeStarted:!!window.__fixtureNativeSmoke,sendProbe:window.__fixtureSendTrace??null,rootChildren:document.getElementById('root')?.childElementCount,text:document.body?.innerText.slice(0,3000),diagnostics:window.__rustDiagnostics?{ready:window.__rustDiagnostics.ready,errors:window.__rustDiagnostics.errors.slice(-30),calls:window.__rustDiagnostics.calls.slice(-40).map(({method,error,pending})=>({method,error,pending}))}:null})"#;
     if let Err(error) = window.eval_with_callback(script, move |value| {
         let _ = send.send(value);
     }) {

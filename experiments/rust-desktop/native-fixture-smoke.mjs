@@ -157,6 +157,16 @@ async function run(index) {
   assert.equal(entry.report.ownerStop.ok, true);
   assert.equal(entry.report.exitCleanup.ok, true);
   assert.equal(entry.report.stages.length, 2);
+  if (entry.report.scenario === "send") {
+    const [sent, reloaded] = entry.report.stages.map((stage) => stage.send);
+    assert.equal(sent.sendClicks, 1);
+    assert.equal(sent.sendCalls, 1);
+    assert.equal(sent.stage, "complete");
+    assert.equal(reloaded.sendClicks, 0);
+    assert.equal(reloaded.sendCalls, 0);
+    assert.equal(reloaded.reloadSurvived, true);
+    assert.deepEqual(reloaded.transcript, sent.transcript);
+  }
   for (const stage of entry.report.stages) {
     assert.equal(stage.passed, true);
     assert.equal(stage.storage.outboxStateUnchanged, true);
