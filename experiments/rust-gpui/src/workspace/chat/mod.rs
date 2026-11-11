@@ -16,6 +16,8 @@ pub mod transcript_selection;
 #[cfg(test)]
 mod activity_tests;
 #[cfg(test)]
+mod cards_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod transcript_tests;
