@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use tokio::sync::watch;
 
@@ -48,6 +48,8 @@ pub struct SessionOptions {
     pub subagent_poll_interval: Duration,
     /// Budget for session events not yet received; past it Codex is stopped.
     pub event_queue: QueueLimits,
+    /// How long `turn/start` may take (codex-provider.cjs: 90 s).
+    pub turn_start_timeout: Duration,
 }
 
 impl SessionOptions {
@@ -64,6 +66,7 @@ impl SessionOptions {
             forward_raw_notifications: false,
             subagent_poll_interval: Duration::from_millis(1500),
             event_queue: QueueLimits::default(),
+            turn_start_timeout: crate::codex::client::TURN_START_TIMEOUT,
         }
     }
 }
@@ -90,6 +93,8 @@ pub struct TurnSettings {
     pub permission_mode: Option<PermissionMode>,
     /// `serviceTierForTurn`; codex-provider.cjs sends `"default"` unless fast mode is on.
     pub service_tier: String,
+    /// Overrides [`SessionOptions::turn_start_timeout`] for this turn.
+    pub start_timeout: Option<Duration>,
     pub extra: serde_json::Map<String, Value>,
 }
 
@@ -171,8 +176,12 @@ struct State {
     /// turn/start is in flight.
     starting: bool,
     mode: Option<PermissionMode>,
-    /// By Milagre request id (`String(id)`), in arrival order.
+    /// By Milagre request id (`String(id)`, made unique when Codex mixes `5` and `"5"`), in arrival order.
     pending: indexmap::IndexMap<String, Pending>,
+    /// A turn/start timed out: that turn may still run, so while the next turn/start is in flight
+    /// its turn-scoped notifications wait in `held` until the new turn's id is known.
+    stale_start: bool,
+    held: Vec<Notification>,
     /// fileChange items from item/started; their approval requests carry no diff of their own.
     file_changes: HashMap<String, Vec<Value>>,
     /// Why the session stopped Codex itself, for the crash message.
@@ -201,6 +210,8 @@ struct Inner {
     turn_ready: watch::Sender<u64>,
     poll_scheduled: AtomicBool,
     polling: tokio::sync::Mutex<HashMap<String, ChildHistory>>,
+    /// Held while one notification is handled, so held-back ones are replayed in order.
+    notifications: tokio::sync::Mutex<()>,
 }
 
 #[derive(Clone)]
@@ -227,8 +238,11 @@ impl CodexSession {
             turn_ready: watch::channel(0).0,
             poll_scheduled: AtomicBool::new(false),
             polling: tokio::sync::Mutex::new(HashMap::new()),
+            notifications: tokio::sync::Mutex::new(()),
         });
-        tokio::spawn(pump(inner.clone(), rpc_events));
+        // The pump holds no strong reference: dropping every CodexSession (or a `start` that is
+        // cancelled) drops the client, which kills the process tree.
+        tokio::spawn(pump(Arc::downgrade(&inner), rpc_events));
         let session = CodexSession { inner };
         match session.open_thread(thread).await {
             Ok(()) => Ok((session, events_rx)),
@@ -417,18 +431,20 @@ impl CodexSession {
         params.insert("approvalPolicy".into(), turn.policy.approval_policy.into());
         params.insert("sandboxPolicy".into(), turn.policy.sandbox_policy);
         params.extend(turn.extra);
-        let result = inner.client.turn_start(Value::Object(params)).await;
-        inner.state.lock().unwrap().starting = false;
-        inner.turn_ready.send_modify(|n| *n += 1);
+        let start_timeout = turn.start_timeout.unwrap_or(inner.options.turn_start_timeout);
+        // A caller that stops waiting (a timeout, an aborted task) must not leave the turn open
+        // forever: the guard stops it the way Stop would.
+        let mut guard = StartGuard { inner: Some(inner.clone()) };
+        let result = inner.client.rpc().request_with_timeout(methods::TURN_START, Value::Object(params), Some(start_timeout)).await;
+        guard.inner = None;
+        if matches!(result, Err(RpcError::Timeout { .. })) {
+            inner.state.lock().unwrap().stale_start = true;
+        }
+        let confirmed = result.as_ref().ok().and_then(|r| r.pointer("/turn/id")).and_then(Value::as_str).map(str::to_string);
+        inner.release_held(confirmed).await;
         match result {
-            Ok(result) => {
-                let turn_id = {
-                    let mut mapper = inner.mapper.lock().unwrap();
-                    if mapper.turn_id.is_none() {
-                        mapper.turn_id = result.pointer("/turn/id").and_then(Value::as_str).map(str::to_string);
-                    }
-                    mapper.turn_id.clone()
-                };
+            Ok(_) => {
+                let turn_id = inner.mapper.lock().unwrap().turn_id.clone();
                 let cancel = {
                     let state = inner.state.lock().unwrap();
                     state.cancel_requested && state.turn_active
@@ -476,14 +492,18 @@ impl CodexSession {
     /// doesn't end the turn within the grace period (or refuses), the process is stopped and the
     /// turn ends as `turn-cancelled`. Returns once the turn has ended.
     pub async fn interrupt(&self) {
+        self.inner.state.lock().unwrap().cancel_requested = true;
+        self.interrupt_requested().await;
+    }
+
+    async fn interrupt_requested(&self) {
         let inner = &self.inner;
         let mut ended = inner.turn_ended.subscribe();
         {
-            let mut state = inner.state.lock().unwrap();
+            let state = inner.state.lock().unwrap();
             if !state.turn_active {
                 return;
             }
-            state.cancel_requested = true;
         }
         inner.cancel_all().await;
         let (thread_id, turn_id) = {
@@ -509,9 +529,11 @@ impl CodexSession {
         self.inner.finish_turn(vec![json!({ "type": "turn-cancelled" })], false).await;
     }
 
-    /// Answers a permission request (`PendingPermissions.resolve`). `false` when it is unknown or
-    /// already settled. "allow-for-chat" on a card that didn't offer it is "allow".
-    pub async fn respond_to_permission(&self, request_id: &str, decision: Decision) -> bool {
+    /// Answers a permission request (`PendingPermissions.resolve`). `Ok(false)` when it is unknown
+    /// or already settled. "allow-for-chat" on a card that didn't offer it is "allow". When the answer
+    /// could not be written but Codex still waits, the card stays open and the error is returned so
+    /// the answer can be given again.
+    pub async fn respond_to_permission(&self, request_id: &str, decision: Decision) -> Result<bool, SessionError> {
         let pending = {
             let mut state = self.inner.state.lock().unwrap();
             match state.pending.get(request_id) {
@@ -519,14 +541,15 @@ impl CodexSession {
                 _ => None,
             }
         };
-        let Some(pending) = pending else { return false };
-        self.inner.resolve_permission(request_id, pending, decision).await;
-        true
+        let Some(pending) = pending else { return Ok(false) };
+        self.inner.answer_permission(request_id, pending, decision).await?;
+        Ok(true)
     }
 
     /// Answers a question (`PendingQuestions.answer`): answers to questions it didn't ask and blank
-    /// answers are dropped; nothing left is a dismissal. `Dismissed` dismisses.
-    pub async fn answer_question(&self, request_id: &str, outcome: QuestionOutcome) -> bool {
+    /// answers are dropped; nothing left is a dismissal. `Dismissed` dismisses. Errors as
+    /// [`CodexSession::respond_to_permission`].
+    pub async fn answer_question(&self, request_id: &str, outcome: QuestionOutcome) -> Result<bool, SessionError> {
         let pending = {
             let mut state = self.inner.state.lock().unwrap();
             match state.pending.get(request_id) {
@@ -534,7 +557,7 @@ impl CodexSession {
                 _ => None,
             }
         };
-        let Some(pending) = pending else { return false };
+        let Some(pending) = pending else { return Ok(false) };
         let outcome = match outcome {
             QuestionOutcome::Answered(answers) => {
                 let given: Vec<(String, Vec<String>)> = answers
@@ -551,8 +574,8 @@ impl CodexSession {
             }
             other => other,
         };
-        self.inner.settle_question(request_id, pending, outcome).await;
-        true
+        self.inner.answer_question(request_id, pending, outcome).await?;
+        Ok(true)
     }
 
     /// Codex fixes its approval policy when a turn starts, so a switch mid-turn is applied to open
@@ -575,7 +598,7 @@ impl CodexSession {
             ids.into_iter().filter_map(|id| state.pending.shift_remove(&id).map(|p| (id, p))).collect()
         };
         for (id, pending) in allowed {
-            self.inner.resolve_permission(&id, pending, Decision::Allow).await;
+            self.inner.resolve_permission(&id, pending, Decision::Allow);
         }
     }
 
@@ -691,6 +714,8 @@ impl Inner {
         self.turn_ended.send_modify(|n| *n += 1);
     }
 
+    /// Cancels every open card. Answers are queued, not awaited: a stalled pipe can't delay the
+    /// turn's end, an interrupt or a close (Node's replies are fire-and-forget too).
     async fn cancel_all(&self) {
         let open: Vec<(String, Pending)> = {
             let mut state = self.state.lock().unwrap();
@@ -698,9 +723,9 @@ impl Inner {
         };
         for (id, pending) in open {
             if pending.kind == PendingKind::Question {
-                self.settle_question(&id, pending, QuestionOutcome::Cancelled).await;
+                self.settle_question(&id, pending, QuestionOutcome::Cancelled);
             } else {
-                self.resolve_permission(&id, pending, Decision::Cancelled).await;
+                self.resolve_permission(&id, pending, Decision::Cancelled);
             }
         }
     }
@@ -713,23 +738,60 @@ impl Inner {
             ids.into_iter().filter_map(|id| state.pending.shift_remove(&id).map(|p| (id, p))).collect()
         };
         for (id, pending) in open {
-            self.settle_question(&id, pending, outcome.clone()).await;
+            self.settle_question(&id, pending, outcome.clone());
         }
     }
 
-    async fn resolve_permission(&self, request_id: &str, pending: Pending, decision: Decision) {
+    fn permission_reply(pending: &Pending, decision: Decision) -> (Decision, Value) {
         let given = if decision == Decision::AllowForChat && !pending.allow_for_chat { Decision::Allow } else { decision };
         let reply = match pending.kind {
             PendingKind::McpApproval => approvals::mcp_response(given),
             _ => approvals::approval_response(given),
         };
+        (given, reply)
+    }
+
+    /// A decision Milagre makes itself (cancel, a mode switch): queued, and resolved at once.
+    fn resolve_permission(&self, request_id: &str, pending: Pending, decision: Decision) {
+        let (given, reply) = Self::permission_reply(&pending, decision);
         // Codex may already have exited or withdrawn it; then there is nobody left to answer.
-        let _ = self.client.rpc().respond(&pending.rpc_id, reply).await;
+        let _ = self.client.rpc().respond_nowait(&pending.rpc_id, reply);
         self.emit_agent(json!({ "type": "permission-resolved", "requestId": request_id, "decision": decision_name(given) }));
     }
 
-    async fn settle_question(&self, request_id: &str, pending: Pending, outcome: QuestionOutcome) {
-        let _ = self.client.rpc().respond(&pending.rpc_id, approvals::question_response(&outcome)).await;
+    /// The user's decision: written before the card resolves. If nothing reached Codex and it still
+    /// waits, the card stays open and the error is returned.
+    async fn answer_permission(&self, request_id: &str, pending: Pending, decision: Decision) -> Result<(), SessionError> {
+        let (given, reply) = Self::permission_reply(&pending, decision);
+        if let Err(error) = self.client.rpc().respond(&pending.rpc_id, reply).await {
+            return Err(self.restore_after_failed_answer(request_id, pending, error));
+        }
+        self.emit_agent(json!({ "type": "permission-resolved", "requestId": request_id, "decision": decision_name(given) }));
+        Ok(())
+    }
+
+    async fn answer_question(&self, request_id: &str, pending: Pending, outcome: QuestionOutcome) -> Result<(), SessionError> {
+        if let Err(error) = self.client.rpc().respond(&pending.rpc_id, approvals::question_response(&outcome)).await {
+            return Err(self.restore_after_failed_answer(request_id, pending, error));
+        }
+        self.emit_question_resolved(request_id, &outcome);
+        Ok(())
+    }
+
+    fn restore_after_failed_answer(&self, request_id: &str, pending: Pending, error: RpcError) -> SessionError {
+        let waiting = self.client.rpc().open_server_requests().contains(&pending.rpc_id);
+        if waiting {
+            self.state.lock().unwrap().pending.insert(request_id.to_string(), pending);
+        }
+        SessionError::Rpc(error)
+    }
+
+    fn settle_question(&self, request_id: &str, pending: Pending, outcome: QuestionOutcome) {
+        let _ = self.client.rpc().respond_nowait(&pending.rpc_id, approvals::question_response(&outcome));
+        self.emit_question_resolved(request_id, &outcome);
+    }
+
+    fn emit_question_resolved(&self, request_id: &str, outcome: &QuestionOutcome) {
         let name = match outcome {
             QuestionOutcome::Answered(_) => "answered",
             QuestionOutcome::Dismissed => "dismissed",
@@ -743,8 +805,53 @@ impl Inner {
         state.turn_active && !state.cancel_requested && !state.closed
     }
 
+    /// An answer Milagre gives without asking anyone; queued so the pump never waits on the pipe.
     async fn reply(&self, id: &RequestId, result: Value) {
-        let _ = self.client.rpc().respond(id, result).await;
+        let _ = self.client.rpc().respond_nowait(id, result);
+    }
+
+    /// The id cards carry: `String(id)` as in Node, made unique if Codex sends both `5` and `"5"`.
+    fn public_id(state: &State, id: &RequestId) -> String {
+        let base = id.to_string();
+        let taken = |key: &str| state.pending.get(key).is_some_and(|p| &p.rpc_id != id);
+        if !taken(&base) {
+            return base;
+        }
+        (2..).map(|n| format!("{base}#{n}")).find(|key| !taken(key)).expect("an unused id")
+    }
+
+    /// Holds a turn-scoped notification while a turn/start is in flight after an earlier one timed
+    /// out, so the abandoned turn's events can't be taken for the new one's.
+    fn hold(&self, notification: &Notification) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if !(state.starting && state.stale_start) {
+            return false;
+        }
+        let params = &notification.params;
+        let own = params.get("threadId").and_then(Value::as_str) == self.mapper.lock().unwrap().thread_id.as_deref();
+        let scoped = notification.method.starts_with("turn/") || params.get("turnId").is_some_and(|t| !t.is_null());
+        if own && scoped {
+            state.held.push(notification.clone());
+            return true;
+        }
+        false
+    }
+
+    /// turn/start settled: adopt the turn id it confirmed, then replay what was held in order.
+    async fn release_held(self: &Arc<Self>, confirmed: Option<String>) {
+        let _order = self.notifications.lock().await;
+        if let Some(id) = confirmed {
+            self.mapper.lock().unwrap().turn_id = Some(id);
+        }
+        let held = {
+            let mut state = self.state.lock().unwrap();
+            state.starting = false;
+            std::mem::take(&mut state.held)
+        };
+        self.turn_ready.send_modify(|n| *n += 1);
+        for notification in held {
+            self.handle_notification_now(notification).await;
+        }
     }
 
     fn in_workspace(&self, files: &[String]) -> bool {
@@ -764,13 +871,14 @@ impl Inner {
             };
             return self.reply(&id, reply).await;
         }
-        let request_id = id.to_string();
         let allow_for_chat = card.get("allowForChat") == Some(&Value::Bool(true));
-        self.state
-            .lock()
-            .unwrap()
-            .pending
-            .insert(request_id, Pending { rpc_id: id, kind, allow_for_chat, in_workspace, question_ids: vec![] });
+        let mut card = card;
+        {
+            let mut state = self.state.lock().unwrap();
+            let request_id = Self::public_id(&state, &id);
+            card["requestId"] = request_id.clone().into();
+            state.pending.insert(request_id, Pending { rpc_id: id, kind, allow_for_chat, in_workspace, question_ids: vec![] });
+        }
         let mut event = json!({ "type": "permission-request" });
         if let (Some(target), Value::Object(fields)) = (event.as_object_mut(), card) {
             target.extend(fields);
@@ -821,15 +929,19 @@ impl Inner {
             methods::REQUEST_USER_INPUT => {
                 let card = approvals::question_request(&id, &params);
                 match card {
-                    Some(card) if !analysis && self.accepting() => {
+                    Some(mut card) if !analysis && self.accepting() => {
                         let question_ids = card["questions"]
                             .as_array()
                             .map(|qs| qs.iter().filter_map(|q| q["id"].as_str().map(str::to_string)).collect())
                             .unwrap_or_default();
-                        self.state.lock().unwrap().pending.insert(
-                            id.to_string(),
+                        let mut state = self.state.lock().unwrap();
+                        let request_id = Self::public_id(&state, &id);
+                        card["requestId"] = request_id.clone().into();
+                        state.pending.insert(
+                            request_id,
                             Pending { rpc_id: id, kind: PendingKind::Question, allow_for_chat: false, in_workspace: false, question_ids },
                         );
+                        drop(state);
                         let mut event = json!({ "type": "question-request" });
                         if let (Some(target), Value::Object(fields)) = (event.as_object_mut(), card) {
                             target.extend(fields);
@@ -848,6 +960,14 @@ impl Inner {
     }
 
     async fn handle_notification(self: &Arc<Self>, notification: Notification) {
+        let _order = self.notifications.lock().await;
+        if self.hold(&notification) {
+            return;
+        }
+        self.handle_notification_now(notification).await;
+    }
+
+    async fn handle_notification_now(self: &Arc<Self>, notification: Notification) {
         if self.options.forward_raw_notifications {
             self.emit(SessionEvent::Notification(notification.clone()));
         }
@@ -861,9 +981,12 @@ impl Inner {
         }
         if method == methods::SERVER_REQUEST_RESOLVED {
             if let Some(id) = params.get("requestId").and_then(RequestId::from_value) {
-                let request_id = id.to_string();
-                let removed = self.state.lock().unwrap().pending.shift_remove(&request_id);
-                if let Some(pending) = removed {
+                let removed = {
+                    let mut state = self.state.lock().unwrap();
+                    let key = state.pending.iter().find(|(_, p)| p.rpc_id == id).map(|(key, _)| key.clone());
+                    key.and_then(|key| state.pending.shift_remove(&key).map(|p| (key, p)))
+                };
+                if let Some((request_id, pending)) = removed {
                     self.emit_agent(if pending.kind == PendingKind::Question {
                         json!({ "type": "question-resolved", "requestId": request_id, "outcome": "cancelled" })
                     } else {
@@ -880,8 +1003,14 @@ impl Inner {
             if !active && !mapper.subagents.contains_key(&thread) {
                 return;
             }
-            if mapper.thread_id.as_deref() == Some(thread.as_str()) && mapper.turn_id.is_none() {
-                mapper.turn_id = params.pointer("/turn/id").and_then(Value::as_str).map(str::to_string);
+            let started = params.pointer("/turn/id").and_then(Value::as_str);
+            if mapper.thread_id.as_deref() == Some(thread.as_str()) {
+                match (&mapper.turn_id, started) {
+                    (None, _) => mapper.turn_id = started.map(str::to_string),
+                    // Another turn of this thread (one whose start timed out) is not this turn's start.
+                    (Some(current), Some(started)) if current != started => return,
+                    _ => {}
+                }
             }
         }
         let (events, recheck) = {
@@ -1079,8 +1208,29 @@ fn turn_end(event: &Value, crashed: bool) -> TurnEnd {
     }
 }
 
-async fn pump(inner: Arc<Inner>, mut events: EventReceiver<ServerEvent>) {
+/// Ends a turn whose `turn/start` caller stopped waiting: replays anything held, then stops the
+/// turn as Stop would (interrupt once its id is known, else kill after the grace).
+struct StartGuard {
+    inner: Option<Arc<Inner>>,
+}
+
+impl Drop for StartGuard {
+    fn drop(&mut self) {
+        let Some(inner) = self.inner.take() else { return };
+        inner.state.lock().unwrap().cancel_requested = true;
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                inner.release_held(None).await;
+                CodexSession { inner }.interrupt_requested().await;
+            });
+        }
+    }
+}
+
+async fn pump(inner: Weak<Inner>, mut events: EventReceiver<ServerEvent>) {
     while let Some(event) = events.recv().await {
+        // Every CodexSession is gone: the client went with it and the process is being killed.
+        let Some(inner) = inner.upgrade() else { return };
         match event {
             ServerEvent::Notification(notification) => inner.handle_notification(notification).await,
             ServerEvent::Request(request) => inner.handle_request(request).await,
@@ -1103,6 +1253,8 @@ async fn pump(inner: Arc<Inner>, mut events: EventReceiver<ServerEvent>) {
                     failed_with(&crash_message(&detail, signal.as_deref()), &[])
                 };
                 inner.finish_turn(vec![terminal], !cancelled).await;
+                // Shells and MCP servers left in the group outlive the leader unless stopped here.
+                inner.client.close().await;
                 inner.emit(SessionEvent::Exited(exit));
                 return;
             }
@@ -1208,7 +1360,16 @@ pub fn chat_thread(model: Option<String>, policy: CodexPolicy) -> ThreadSettings
 
 /// Default `TurnSettings`.
 pub fn turn(input: Vec<Value>, model: Option<String>, policy: CodexPolicy) -> TurnSettings {
-    TurnSettings { input, model, effort: None, policy, permission_mode: None, service_tier: "default".into(), extra: Default::default() }
+    TurnSettings {
+        input,
+        model,
+        effort: None,
+        policy,
+        permission_mode: None,
+        service_tier: "default".into(),
+        start_timeout: None,
+        extra: Default::default(),
+    }
 }
 
 #[allow(dead_code)]

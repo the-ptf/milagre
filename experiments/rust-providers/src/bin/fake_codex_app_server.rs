@@ -59,6 +59,9 @@ struct Turn {
 
 fn main() {
     let scenario = std::env::var("FAKE_SCENARIO").unwrap_or_else(|_| "reply".into());
+    if let Ok(file) = std::env::var("FAKE_PID_FILE") {
+        let _ = std::fs::write(file, std::process::id().to_string());
+    }
     let out = Out(Arc::new(Mutex::new(Some(std::io::stdout()))));
     let received: Arc<Mutex<Vec<Value>>> = Arc::default();
     let mut turn: Option<Turn> = None;
@@ -105,6 +108,7 @@ fn main() {
                     out.reply(&id, json!({ "data": [{ "id": "gpt-fake-2", "hidden": true }], "nextCursor": "page-2" }));
                 }
             }
+            "thread/start" if scenario == "hang-thread" => {}
             "thread/start" => {
                 threads += 1;
                 out.reply(&id, json!({ "thread": { "id": format!("thread-{threads}") }, "model": params.get("model") }));
@@ -164,6 +168,36 @@ fn main() {
                     _ => out.reply(&id, json!({ "data": [{ "id": "dt-1", "status": "completed", "items": [] }], "backwardsCursor": null })),
                 }
             }
+            "turn/start" if scenario == "hang-turn" => {}
+            "turn/start" if scenario == "late-start" => {
+                turns += 1;
+                let thread = params.get("threadId").and_then(Value::as_str).unwrap_or_default().to_string();
+                let turn_id = format!("turn-{turns}");
+                let out = out.clone();
+                if turns == 1 {
+                    // Answered after Milagre gave up on it; the abandoned turn then runs to its end.
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(300));
+                        out.reply(&id, json!({ "turn": { "id": turn_id, "status": "inProgress" } }));
+                        out.notify("turn/started", json!({ "threadId": thread, "turn": { "id": turn_id, "status": "inProgress" } }));
+                        out.notify(
+                            "item/agentMessage/delta",
+                            json!({ "threadId": thread, "turnId": turn_id, "itemId": "old", "delta": "old" }),
+                        );
+                        out.notify(
+                            "turn/completed",
+                            json!({ "threadId": thread, "turn": { "id": turn_id, "status": "completed", "items": [], "error": null } }),
+                        );
+                    });
+                } else {
+                    turn = Some(Turn { thread: thread.clone(), turn: turn_id.clone(), waiting: None });
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(500));
+                        out.reply(&id, json!({ "turn": { "id": turn_id, "status": "inProgress" } }));
+                        out.notify("turn/started", json!({ "threadId": thread, "turn": { "id": turn_id, "status": "inProgress" } }));
+                    });
+                }
+            }
             "turn/start" => {
                 turns += 1;
                 let thread = params.get("threadId").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -210,6 +244,11 @@ fn main() {
                 out.reply(&id, json!({ "received": frames }));
             }
             "fake/hang" => {}
+            "fake/stop-reading" => {
+                // Stops reading stdin (this loop) for a while, as a wedged Codex would.
+                std::thread::sleep(Duration::from_millis(params.get("ms").and_then(Value::as_u64).unwrap_or(0)));
+                out.reply(&id, json!({ "ok": true }));
+            }
             "fake/flood" => {
                 let count = params.get("count").and_then(Value::as_u64).unwrap_or(0);
                 let filler = "z".repeat(params.get("bytes").and_then(Value::as_u64).unwrap_or(10) as usize);
@@ -348,6 +387,12 @@ fn start_turn(scenario: &str, out: &Out, mut turn: Turn) -> Option<Turn> {
             Some(turn)
         }
         "stubborn" | "slow" | "steer-late" => Some(turn),
+        "dup-ids" => {
+            out.send(&json!({ "id": 5, "method": "item/commandExecution/requestApproval", "params": { "threadId": thread, "turnId": turn_id, "command": "/bin/zsh -lc ls" } }));
+            out.send(&json!({ "id": "5", "method": "item/tool/requestUserInput", "params": { "threadId": thread, "turnId": turn_id,
+                "questions": [{ "id": "q", "question": "Which?", "options": [{ "label": "A" }] }] } }));
+            Some(turn)
+        }
         "chatty" => {
             for n in 0..300 {
                 out.notify(

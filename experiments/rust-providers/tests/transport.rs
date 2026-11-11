@@ -386,3 +386,115 @@ async fn too_many_open_server_requests_stop_codex() {
     assert_eq!(exit.reason, ExitReason::ProtocolViolation);
     assert!(exit.detail.contains("more than 5 requests"), "{}", exit.detail);
 }
+
+fn big_params(bytes: usize) -> Value {
+    json!({ "blob": "b".repeat(bytes) })
+}
+
+#[tokio::test]
+async fn a_codex_that_stops_reading_is_stopped_after_the_write_timeout() {
+    let limits = Limits { write_timeout: Duration::from_millis(300), ..fast_limits() };
+    let (rpc, _events) = CodexRpc::spawn(fake("reply").limits(limits)).unwrap();
+    tokio::spawn({
+        let rpc = rpc.clone();
+        async move { rpc.request_with_timeout("fake/stop-reading", json!({ "ms": 5000 }), None).await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    // Far past the pipe buffer, and with no request time limit: only the write timeout can end it.
+    let started = tokio::time::Instant::now();
+    let error = rpc.request_with_timeout("fake/big", big_params(4 << 20), None).await.unwrap_err();
+    assert!(started.elapsed() < Duration::from_secs(3), "took {:?}", started.elapsed());
+    assert!(matches!(error, RpcError::Io(_) | RpcError::Exited { .. }), "{error:?}");
+    let exit = rpc.wait_exit().await;
+    assert_eq!(exit.reason, ExitReason::InputStalled, "{exit:?}");
+}
+
+#[tokio::test]
+async fn close_does_not_wait_behind_a_stuck_write() {
+    let (rpc, _events) = spawn("reply");
+    let pid = rpc.pid().unwrap();
+    tokio::spawn({
+        let rpc = rpc.clone();
+        async move { rpc.request_with_timeout("fake/stop-reading", json!({ "ms": 20000 }), None).await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let stuck = tokio::spawn({
+        let rpc = rpc.clone();
+        async move { rpc.request_with_timeout("fake/big", big_params(4 << 20), None).await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let started = tokio::time::Instant::now();
+    let exit = rpc.close().await;
+    assert!(started.elapsed() < Duration::from_secs(2), "close took {:?}", started.elapsed());
+    assert_eq!(exit.reason, ExitReason::Closed);
+    assert!(stuck.await.unwrap().is_err());
+    assert!(eventually(|| !pid_alive(pid), Duration::from_secs(2)).await);
+}
+
+#[tokio::test]
+async fn a_timed_out_write_never_leaves_half_a_frame() {
+    let limits = Limits { write_timeout: Duration::from_secs(10), ..fast_limits() };
+    let (rpc, _events) = CodexRpc::spawn(fake("reply").limits(limits)).unwrap();
+    tokio::spawn({
+        let rpc = rpc.clone();
+        async move { rpc.request_with_timeout("fake/stop-reading", json!({ "ms": 400 }), None).await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    // Times out mid-write: the frame still goes out whole.
+    let big = rpc.request_with_timeout("fake/big", big_params(1 << 20), Some(Duration::from_millis(50))).await.unwrap_err();
+    assert!(matches!(big, RpcError::Timeout { .. }), "{big:?}");
+    // Times out while queued behind it: never written at all.
+    let queued = rpc.request_with_timeout("fake/queued", json!({}), Some(Duration::from_millis(50))).await.unwrap_err();
+    assert!(matches!(queued, RpcError::Timeout { .. }), "{queued:?}");
+    // The next frame arrives intact once Codex reads again.
+    assert_eq!(rpc.request("echo", json!({ "value": "after" })).await.unwrap()["value"], "after");
+    let frames = received(&rpc).await;
+    let big_frame = frames.iter().find(|f| f["method"] == "fake/big").expect("big frame parsed whole");
+    assert_eq!(big_frame["params"]["blob"].as_str().unwrap().len(), 1 << 20);
+    assert!(!frames.iter().any(|f| f["method"] == "fake/queued"), "a cancelled queued frame was written");
+    assert_eq!(rpc.stats().malformed_frames, 0);
+    rpc.close().await;
+}
+
+#[tokio::test]
+async fn an_answer_that_cannot_be_written_is_reported() {
+    let limits = Limits { write_timeout: Duration::from_millis(300), ..fast_limits() };
+    let (rpc, mut events) = CodexRpc::spawn(fake("reply").limits(limits)).unwrap();
+    rpc.request("fake/server-request", json!({ "id": "srv-a", "method": "item/commandExecution/requestApproval" })).await.unwrap();
+    next_matching(&mut events, |e| matches!(e, ServerEvent::Request(_)).then_some(())).await;
+    tokio::spawn({
+        let rpc = rpc.clone();
+        async move { rpc.request_with_timeout("fake/stop-reading", json!({ "ms": 5000 }), None).await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::spawn({
+        let rpc = rpc.clone();
+        async move { rpc.notify("fake/big", Some(big_params(4 << 20))).await }
+    });
+    // The answer queues behind the stuck frame.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let answered = rpc.respond(&RequestId::from("srv-a"), json!({ "decision": "accept" })).await;
+    assert!(answered.is_err(), "a lost answer was reported as sent");
+}
+
+#[tokio::test]
+async fn close_after_the_leader_exited_stops_what_it_left_running() {
+    let (rpc, _events) = spawn("reply");
+    let grandchild = rpc.request("fake/spawn-grandchild", json!({})).await.unwrap()["pid"].as_u64().unwrap() as u32;
+    rpc.notify("fake/exit", Some(json!({ "code": 0 }))).await.unwrap();
+    let exit = rpc.wait_exit().await;
+    assert_eq!(exit.code, Some(0));
+    assert!(pid_alive(grandchild), "the grandchild should outlive its leader until close");
+    rpc.close().await;
+    assert!(eventually(|| !pid_alive(grandchild), Duration::from_secs(3)).await);
+}
+
+#[test]
+fn spawn_options_never_print_the_environment() {
+    let options = SpawnOptions::new("codex").env([("OPENAI_API_KEY", "sk-secret"), ("HOME", "/Users/me")]);
+    let printed = format!("{options:?}");
+    assert!(!printed.contains("sk-secret") && !printed.contains("OPENAI_API_KEY"), "{printed}");
+    assert!(printed.contains("<2 variables redacted>"), "{printed}");
+    let session = milagre_providers::codex::SessionOptions::new(milagre_providers::codex::ConnectOptions::new(options, "0"), "/repo");
+    assert!(!format!("{session:?}").contains("sk-secret"));
+}

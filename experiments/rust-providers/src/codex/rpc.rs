@@ -74,7 +74,7 @@ impl Default for Limits {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SpawnOptions {
     pub command: OsString,
     /// codex-rpc.cjs defaults to `["app-server"]`.
@@ -83,6 +83,19 @@ pub struct SpawnOptions {
     /// `Some` replaces the environment entirely (Node's `env` option); `None` inherits it.
     pub env: Option<Vec<(OsString, OsString)>>,
     pub limits: Limits,
+}
+
+/// Never prints the environment: it holds API keys and tokens.
+impl std::fmt::Debug for SpawnOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SpawnOptions")
+            .field("command", &self.command)
+            .field("args", &self.args)
+            .field("cwd", &self.cwd)
+            .field("env", &self.env.as_ref().map(|vars| format!("<{} variables redacted>", vars.len())))
+            .field("limits", &self.limits)
+            .finish()
+    }
 }
 
 impl SpawnOptions {
@@ -141,6 +154,9 @@ pub enum RpcError {
     /// Answering a server request that is unknown, already answered, withdrawn or from a dead process.
     #[error("Codex is not waiting on server request {id}.")]
     UnknownServerRequest { id: String },
+    /// The request was cancelled before any byte of it was written.
+    #[error("The Codex request was cancelled before it was sent.")]
+    Cancelled,
     #[error("Writing to Codex failed: {0}")]
     Io(String),
 }
@@ -187,6 +203,8 @@ pub enum ExitReason {
     ProtocolViolation,
     /// Nobody read the events within [`Limits::event_queue`]; Milagre stopped Codex.
     ConsumerStalled,
+    /// Codex stopped reading its input for [`Limits::write_timeout`]; Milagre stopped it.
+    InputStalled,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -254,6 +272,10 @@ struct Shared {
     stopped: Mutex<Option<StopCause>>,
     pid: Option<u32>,
     kill_tx: mpsc::UnboundedSender<KillRequest>,
+    /// The leader has been waited for; its pid may be reused once its group is empty.
+    reaped: AtomicBool,
+    /// The group was seen empty after the leader was reaped: never signal that id again.
+    group_gone: AtomicBool,
     stderr: Mutex<Vec<u8>>,
     closing: AtomicBool,
     counters: Counters,
@@ -278,12 +300,34 @@ impl Shared {
             }
             *stopped = Some(cause);
         }
-        #[cfg(unix)]
-        if let Some(pid) = self.pid {
-            signal_group(pid, libc::SIGKILL);
-        }
+        self.signal(SIGKILL_OR_KILL);
         let _ = self.kill_tx.send(KillRequest::Kill);
     }
+
+    /// Whether the process group may still have members we started. Once the leader is reaped and
+    /// the group is empty, the id may belong to someone else: it is never signalled again.
+    #[cfg(unix)]
+    fn group_signallable(&self) -> Option<u32> {
+        let pid = self.pid?;
+        if self.group_gone.load(Ordering::Acquire) {
+            return None;
+        }
+        if self.reaped.load(Ordering::Acquire) && !group_alive(pid) {
+            self.group_gone.store(true, Ordering::Release);
+            return None;
+        }
+        Some(pid)
+    }
+
+    #[cfg(unix)]
+    fn signal(&self, signal: libc::c_int) {
+        if let Some(pid) = self.group_signallable() {
+            signal_group(pid, signal);
+        }
+    }
+
+    #[cfg(not(unix))]
+    fn signal(&self, _signal: i32) {}
 
     fn is_exited(&self) -> bool {
         self.exited.lock().unwrap().is_some()
@@ -365,6 +409,7 @@ impl Shared {
             let stopped = self.stopped.lock().unwrap().clone();
             let reason = match (&stopped, end) {
                 (Some(StopCause::ConsumerStalled { .. }), _) => ExitReason::ConsumerStalled,
+                (Some(StopCause::InputStalled), _) => ExitReason::InputStalled,
                 (Some(StopCause::TooManyServerRequests), _) | (_, ReadEnd::FrameTooLarge(_)) => ExitReason::ProtocolViolation,
                 _ if self.closing.load(Ordering::SeqCst) => ExitReason::Closed,
                 _ => ExitReason::ProcessEnded,
@@ -372,6 +417,9 @@ impl Shared {
             let detail = match (&stopped, end) {
                 (Some(StopCause::ConsumerStalled { events, bytes }), _) => {
                     format!("Milagre stopped Codex: {events} of its events ({bytes} bytes) were waiting to be read.")
+                }
+                (Some(StopCause::InputStalled), _) => {
+                    format!("Codex stopped reading its input for {} s; Milagre stopped it.", self.limits.write_timeout.as_secs_f64())
                 }
                 (Some(StopCause::TooManyServerRequests), _) => format!(
                     "Codex left more than {} requests unanswered at once; Milagre stopped it.",
@@ -421,6 +469,7 @@ pub fn signal_name(signal: i32) -> String {
 enum StopCause {
     ConsumerStalled { events: usize, bytes: usize },
     TooManyServerRequests,
+    InputStalled,
 }
 
 #[derive(Debug)]
@@ -441,7 +490,9 @@ pub struct CodexRpc {
 
 struct Handle {
     shared: Arc<Shared>,
-    stdin: tokio::sync::Mutex<Option<ChildStdin>>,
+    /// Frames for the writer task, which owns stdin: a frame is written whole or not at all, and
+    /// nobody but the writer ever waits on the pipe.
+    writer: mpsc::UnboundedSender<WriterMsg>,
     next_id: AtomicI64,
     pid: Option<u32>,
     kill_tx: mpsc::UnboundedSender<KillRequest>,
@@ -460,11 +511,80 @@ impl Drop for Handle {
             return;
         }
         self.shared.closing.store(true, Ordering::SeqCst);
-        #[cfg(unix)]
-        if let Some(pid) = self.pid {
-            signal_group(pid, libc::SIGKILL);
-        }
+        self.shared.signal(SIGKILL_OR_KILL);
         let _ = self.kill_tx.send(KillRequest::Kill);
+    }
+}
+
+#[cfg(unix)]
+const SIGKILL_OR_KILL: libc::c_int = libc::SIGKILL;
+#[cfg(not(unix))]
+const SIGKILL_OR_KILL: i32 = 9;
+
+enum WriterMsg {
+    Frame(Outgoing),
+    /// Close stdin once the frame being written (if any) is done.
+    Close,
+}
+
+struct Outgoing {
+    bytes: Vec<u8>,
+    /// Set when the caller gave up; checked before the first byte is written.
+    cancelled: Option<Arc<AtomicBool>>,
+    done: Option<oneshot::Sender<WriteOutcome>>,
+}
+
+#[derive(Debug)]
+enum WriteOutcome {
+    Written,
+    /// Nothing of it reached the pipe.
+    NotWritten(RpcError),
+    /// The pipe broke or stalled; the transport is stopping.
+    Failed(RpcError),
+}
+
+async fn write_frames(mut stdin: ChildStdin, mut rx: mpsc::UnboundedReceiver<WriterMsg>, shared: Arc<Shared>) {
+    let timeout = shared.limits.write_timeout;
+    while let Some(message) = rx.recv().await {
+        let WriterMsg::Frame(outgoing) = message else { break };
+        let reply = |outcome: WriteOutcome| {
+            if let Some(done) = outgoing.done {
+                let _ = done.send(outcome);
+            }
+        };
+        if outgoing.cancelled.as_ref().is_some_and(|c| c.load(Ordering::Acquire)) {
+            reply(WriteOutcome::NotWritten(RpcError::Cancelled));
+            continue;
+        }
+        if shared.is_exited() {
+            reply(WriteOutcome::NotWritten(RpcError::NotRunning));
+            continue;
+        }
+        let written = async {
+            stdin.write_all(&outgoing.bytes).await?;
+            stdin.flush().await
+        };
+        match tokio::time::timeout(timeout, written).await {
+            Ok(Ok(())) => reply(WriteOutcome::Written),
+            Ok(Err(error)) => {
+                // A broken pipe means the process is going away; the supervisor reports how.
+                reply(WriteOutcome::Failed(if shared.is_exited() { RpcError::NotRunning } else { RpcError::Io(error.to_string()) }));
+                break;
+            }
+            Err(_) => {
+                // A frame cut short would corrupt every later one: stop Codex instead.
+                shared.stop(StopCause::InputStalled);
+                reply(WriteOutcome::Failed(RpcError::Io(format!("Codex did not read its input within {} s.", timeout.as_secs_f64()))));
+                break;
+            }
+        }
+    }
+    drop(stdin);
+    rx.close();
+    while let Some(message) = rx.recv().await {
+        if let WriterMsg::Frame(Outgoing { done: Some(done), .. }) = message {
+            let _ = done.send(WriteOutcome::NotWritten(RpcError::NotRunning));
+        }
     }
 }
 
@@ -514,13 +634,19 @@ impl CodexRpc {
             stopped: Mutex::new(None),
             pid,
             kill_tx: kill_tx.clone(),
+            reaped: AtomicBool::new(false),
+            group_gone: AtomicBool::new(false),
             stderr: Mutex::new(Vec::new()),
             closing: AtomicBool::new(false),
             counters: Counters::default(),
             command_name,
         });
+        let (writer, writer_rx) = mpsc::unbounded_channel();
+        if let Some(stdin) = stdin {
+            tokio::spawn(write_frames(stdin, writer_rx, shared.clone()));
+        }
         tokio::spawn(supervise(child, stdout, stderr, shared.clone(), kill_rx));
-        let handle = Handle { shared, stdin: tokio::sync::Mutex::new(stdin), next_id: AtomicI64::new(1), pid, kill_tx, exit_rx };
+        let handle = Handle { shared, writer, next_id: AtomicI64::new(1), pid, kill_tx, exit_rx };
         Ok((CodexRpc { handle: Arc::new(handle) }, events_rx))
     }
 
@@ -613,9 +739,10 @@ impl CodexRpc {
             }
             pending.insert(id, Waiter { method: method.to_string(), tx });
         }
-        let guard = PendingGuard { shared, id };
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let guard = PendingGuard { shared, id, cancelled: cancelled.clone() };
         let exchange = async {
-            self.write_frame(&frame).await?;
+            self.write(frame, Some(cancelled)).await?;
             shared.counters.requests_sent.fetch_add(1, Ordering::Relaxed);
             match rx.await {
                 Ok(result) => result,
@@ -640,7 +767,7 @@ impl CodexRpc {
             return Err(RpcError::NotRunning);
         }
         let frame = encode(&protocol::notification_frame(method, params.as_ref()), self.handle.shared.limits.max_frame_bytes)?;
-        self.write_with_timeout(&frame).await
+        self.write(frame, None).await
     }
 
     /// Answers a server request. Fails without writing when Codex no longer waits on it.
@@ -653,6 +780,21 @@ impl CodexRpc {
         self.answer(id, protocol::error_frame(id, protocol::METHOD_NOT_FOUND, message)).await
     }
 
+    /// Queues an answer without waiting for it to be written: answers keep their order with every
+    /// other frame, and a stalled pipe never holds up the caller (cancelling open cards at a turn's
+    /// end, for one). Fails only when Codex no longer waits on the request.
+    pub fn respond_nowait(&self, id: &RequestId, result: Value) -> Result<(), RpcError> {
+        let shared = &self.handle.shared;
+        if shared.is_exited() {
+            return Err(RpcError::NotRunning);
+        }
+        let frame = encode(&protocol::response_frame(id, &result), shared.limits.max_frame_bytes)?;
+        if shared.server_requests.lock().unwrap().remove(id).is_none() {
+            return Err(RpcError::UnknownServerRequest { id: id.to_string() });
+        }
+        self.handle.writer.send(WriterMsg::Frame(Outgoing { bytes: frame, cancelled: None, done: None })).map_err(|_| RpcError::NotRunning)
+    }
+
     async fn answer(&self, id: &RequestId, frame: Value) -> Result<(), RpcError> {
         let shared = &self.handle.shared;
         if shared.is_exited() {
@@ -660,41 +802,36 @@ impl CodexRpc {
         }
         let frame = encode(&frame, shared.limits.max_frame_bytes)?;
         // Claimed before writing so two answers can never both go out.
-        if shared.server_requests.lock().unwrap().remove(id).is_none() {
+        let method = shared.server_requests.lock().unwrap().remove(id);
+        let Some(method) = method else {
             return Err(RpcError::UnknownServerRequest { id: id.to_string() });
-        }
-        self.write_with_timeout(&frame).await
-    }
-
-    async fn write_with_timeout(&self, frame: &[u8]) -> Result<(), RpcError> {
-        let after = self.handle.shared.limits.write_timeout;
-        match tokio::time::timeout(after, self.write_frame(frame)).await {
-            Ok(result) => result,
-            Err(_) => Err(RpcError::Io(format!("Codex did not read its input within {} s.", after.as_secs()))),
-        }
-    }
-
-    async fn write_frame(&self, frame: &[u8]) -> Result<(), RpcError> {
-        let mut stdin = self.handle.stdin.lock().await;
-        let Some(pipe) = stdin.as_mut() else {
-            return Err(RpcError::NotRunning);
         };
-        let written = async {
-            pipe.write_all(frame).await?;
-            pipe.flush().await
-        };
-        match written.await {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                // A broken pipe means the process is going away; the supervisor reports how.
-                *stdin = None;
-                if self.handle.shared.is_exited() {
-                    Err(RpcError::NotRunning)
-                } else {
-                    Err(RpcError::Io(error.to_string()))
+        match self.write_outcome(frame, None).await {
+            WriteOutcome::Written => Ok(()),
+            WriteOutcome::NotWritten(error) => {
+                // Nothing reached Codex: it still waits, so the answer can be given again.
+                if !shared.is_exited() {
+                    shared.server_requests.lock().unwrap().insert(id.clone(), method);
                 }
+                Err(error)
             }
+            WriteOutcome::Failed(error) => Err(error),
         }
+    }
+
+    async fn write(&self, frame: Vec<u8>, cancelled: Option<Arc<AtomicBool>>) -> Result<(), RpcError> {
+        match self.write_outcome(frame, cancelled).await {
+            WriteOutcome::Written => Ok(()),
+            WriteOutcome::NotWritten(error) | WriteOutcome::Failed(error) => Err(error),
+        }
+    }
+
+    async fn write_outcome(&self, bytes: Vec<u8>, cancelled: Option<Arc<AtomicBool>>) -> WriteOutcome {
+        let (done, written) = oneshot::channel();
+        if self.handle.writer.send(WriterMsg::Frame(Outgoing { bytes, cancelled, done: Some(done) })).is_err() {
+            return WriteOutcome::NotWritten(RpcError::NotRunning);
+        }
+        written.await.unwrap_or(WriteOutcome::NotWritten(RpcError::NotRunning))
     }
 
     /// Stops the process tree: closes stdin, SIGTERMs the process group, SIGKILLs it after
@@ -705,16 +842,17 @@ impl CodexRpc {
         if !shared.is_exited() {
             shared.closing.store(true, Ordering::SeqCst);
         }
-        // Dropping stdin lets an idle app-server exit on its own.
-        self.handle.stdin.lock().await.take();
+        // Closing stdin lets an idle app-server exit on its own. Never waited on: a stalled write
+        // can't hold up the kill below.
+        let _ = self.handle.writer.send(WriterMsg::Close);
         let grace = shared.limits.kill_grace;
         #[cfg(unix)]
-        if let Some(pid) = self.handle.pid {
-            let alive = || group_alive(pid) || !shared.is_exited();
+        {
+            let alive = || shared.group_signallable().is_some() || !shared.is_exited();
             if alive() {
-                signal_group(pid, libc::SIGTERM);
+                shared.signal(libc::SIGTERM);
                 if !wait_until(|| !alive(), grace).await {
-                    signal_group(pid, libc::SIGKILL);
+                    shared.signal(libc::SIGKILL);
                     wait_until(|| !alive(), grace).await;
                 }
             }
@@ -736,14 +874,17 @@ impl CodexRpc {
     }
 }
 
-/// Forgets a request's id when its future ends for any reason (answer, timeout, drop).
+/// Forgets a request's id when its future ends for any reason (answer, timeout, drop), and keeps
+/// its frame from being written if it hasn't started yet.
 struct PendingGuard<'a> {
     shared: &'a Shared,
     id: i64,
+    cancelled: Arc<AtomicBool>,
 }
 
 impl Drop for PendingGuard<'_> {
     fn drop(&mut self) {
+        self.cancelled.store(true, Ordering::Release);
         self.shared.pending.lock().unwrap().remove(&self.id);
     }
 }
@@ -879,6 +1020,9 @@ async fn supervise(
             Some(KillRequest::Kill) = kill_rx.recv() => { let _ = child.start_kill(); }
         }
     }
+    if status.is_some() {
+        shared.reaped.store(true, Ordering::Release);
+    }
     match end {
         Some(read_end) => {
             // stdout ended first. A process that closed its protocol pipe (or broke framing) is
@@ -918,6 +1062,7 @@ async fn supervise(
     if tokio::time::timeout(grace, &mut stderr_task).await.is_err() {
         stderr_task.abort();
     }
+    shared.reaped.store(true, Ordering::Release);
     let status = status.expect("set on every path");
     let (code, signal) = status_parts(&status);
     shared.finalize(code, signal, end.as_ref().expect("set on every path"));

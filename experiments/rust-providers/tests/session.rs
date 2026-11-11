@@ -182,8 +182,8 @@ async fn a_command_approval_becomes_a_card_and_is_answered_once() {
                 "cwd": "/repo", "reason": "Clean the build", "allowForChat": true, "stepId": "cmd-1" })
     );
     assert_eq!(session.open_requests(), ["srv-1"]);
-    assert!(session.respond_to_permission("srv-1", Decision::Deny).await);
-    assert!(!session.respond_to_permission("srv-1", Decision::Allow).await);
+    assert!(session.respond_to_permission("srv-1", Decision::Deny).await.unwrap());
+    assert!(!session.respond_to_permission("srv-1", Decision::Allow).await.unwrap());
     let (seen, end, _) = until_end(&mut events).await;
     assert_eq!(seen[0], json!({ "type": "permission-resolved", "requestId": "srv-1", "decision": "deny" }));
     assert_eq!((text_of(&seen), end), (vec!["decision:decline".to_string()], TurnEnd::Completed));
@@ -227,7 +227,7 @@ async fn allow_for_chat_is_downgraded_when_the_card_did_not_offer_it() {
     session.send(send("x")).await.unwrap();
     let card = agent(&mut events, "permission-request").await;
     assert_eq!(card["allowForChat"], false);
-    session.respond_to_permission("srv-mcp", Decision::AllowForChat).await;
+    session.respond_to_permission("srv-mcp", Decision::AllowForChat).await.unwrap();
     let (seen, _, _) = until_end(&mut events).await;
     assert_eq!(seen[0]["decision"], "allow");
     assert_eq!(text_of(&seen), [r#"answer:{"action":"accept","content":{}}"#]);
@@ -241,7 +241,7 @@ async fn a_file_change_approval_carries_the_started_items_diff() {
     let card = agent(&mut events, "permission-request").await;
     assert_eq!((card["requestId"].as_str(), card["title"].as_str()), (Some("7"), Some("Edit notes.txt?")));
     assert_eq!(card["diff"], "--- /repo/notes.txt\n+hello\n");
-    session.respond_to_permission("7", Decision::AllowForChat).await;
+    session.respond_to_permission("7", Decision::AllowForChat).await.unwrap();
     let (seen, _, _) = until_end(&mut events).await;
     assert_eq!(text_of(&seen), ["decision:acceptForSession"]);
     session.close().await;
@@ -253,9 +253,9 @@ async fn questions_drop_blank_and_unknown_answers() {
     session.send(send("ask")).await.unwrap();
     let card = agent(&mut events, "question-request").await;
     assert_eq!(card["questions"][0]["options"][1], json!({ "label": "Green", "description": "Calm" }));
-    assert!(!session.respond_to_permission("srv-q", Decision::Allow).await);
+    assert!(!session.respond_to_permission("srv-q", Decision::Allow).await.unwrap());
     let answers = vec![("color".into(), vec![" Red ".into(), "  ".into()]), ("nope".into(), vec!["x".into()])];
-    assert!(session.answer_question("srv-q", QuestionOutcome::Answered(answers)).await);
+    assert!(session.answer_question("srv-q", QuestionOutcome::Answered(answers)).await.unwrap());
     let (seen, _, _) = until_end(&mut events).await;
     assert_eq!(seen[0], json!({ "type": "question-resolved", "requestId": "srv-q", "outcome": "answered" }));
     assert_eq!(text_of(&seen), [r#"answer:{"answers":{"color":{"answers":["Red"]}}}"#]);
@@ -265,7 +265,7 @@ async fn questions_drop_blank_and_unknown_answers() {
     let (session, mut events) = start(fake("question")).await;
     session.send(send("ask")).await.unwrap();
     agent(&mut events, "question-request").await;
-    session.answer_question("srv-q", QuestionOutcome::Answered(vec![("color".into(), vec![" ".into()])])).await;
+    session.answer_question("srv-q", QuestionOutcome::Answered(vec![("color".into(), vec![" ".into()])])).await.unwrap();
     let (seen, _, _) = until_end(&mut events).await;
     assert_eq!(seen[0]["outcome"], "dismissed");
     assert_eq!(text_of(&seen), [r#"answer:{"answers":{}}"#]);
@@ -568,14 +568,14 @@ async fn node_fake_approval_question_and_plan_tools() {
     session.send(send("x")).await.unwrap();
     let card = agent(&mut events, "permission-request").await;
     assert_eq!(card["command"], "rm -rf build");
-    session.respond_to_permission("srv-1", Decision::Allow).await;
+    session.respond_to_permission("srv-1", Decision::Allow).await.unwrap();
     assert_eq!(text_of(&until_end(&mut events).await.0), ["decision:accept"]);
     session.close().await;
 
     let (session, mut events) = start(node_fake("question").unwrap()).await;
     session.send(send("x")).await.unwrap();
     agent(&mut events, "question-request").await;
-    session.answer_question("srv-q", QuestionOutcome::Answered(vec![("color".into(), vec!["Green".into()])])).await;
+    session.answer_question("srv-q", QuestionOutcome::Answered(vec![("color".into(), vec!["Green".into()])])).await.unwrap();
     assert_eq!(text_of(&until_end(&mut events).await.0), [r#"answer:{"answers":{"color":{"answers":["Green"]}}}"#]);
     session.close().await;
 
@@ -629,5 +629,111 @@ async fn two_messages_at_once_start_one_turn_and_steer_the_other() {
     assert_eq!(b.turn_id.as_deref(), Some("turn-1"));
     assert_ne!(a.steered, b.steered);
     assert_eq!(agent(&mut events, "text-delta").await["text"], "steered");
+    session.close().await;
+}
+
+fn with_pid_file(spawn: SpawnOptions) -> (SpawnOptions, std::path::PathBuf) {
+    let file = std::env::temp_dir().join(format!("milagre-fake-pid-{}-{}", std::process::id(), rand_suffix()));
+    let mut env = spawn.env.clone().unwrap_or_default();
+    env.push(("FAKE_PID_FILE".into(), file.clone().into_os_string()));
+    (SpawnOptions { env: Some(env), ..spawn }, file)
+}
+
+fn rand_suffix() -> u128 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+}
+
+async fn pid_from(file: &std::path::Path) -> u32 {
+    let mut pid = None;
+    eventually(
+        || {
+            pid = std::fs::read_to_string(file).ok().and_then(|s| s.parse().ok());
+            pid.is_some()
+        },
+        Duration::from_secs(3),
+    )
+    .await;
+    let _ = std::fs::remove_file(file);
+    pid.expect("fake wrote its pid")
+}
+
+#[tokio::test]
+async fn dropping_a_session_without_close_kills_codex() {
+    let (session, events) = start(fake("reply")).await;
+    let pid = session.pid().unwrap();
+    drop(session);
+    drop(events);
+    assert!(eventually(|| !pid_alive(pid), Duration::from_secs(3)).await, "Codex outlived its dropped session");
+}
+
+#[tokio::test]
+async fn cancelling_start_during_an_untimed_thread_start_kills_codex() {
+    let (spawn, file) = with_pid_file(fake("hang-thread"));
+    let started = tokio::time::timeout(Duration::from_millis(1500), CodexSession::start(options(spawn), chat_thread(None, policy()))).await;
+    assert!(started.is_err(), "thread/start should hang");
+    let pid = pid_from(&file).await;
+    assert!(eventually(|| !pid_alive(pid), Duration::from_secs(3)).await, "Codex outlived a cancelled start");
+}
+
+#[tokio::test]
+async fn a_cancelled_send_still_ends_its_turn() {
+    let (session, mut events) = start(fake("hang-turn")).await;
+    assert!(tokio::time::timeout(Duration::from_millis(100), session.send(send("x"))).await.is_err());
+    // The caller gave up; the turn is stopped as Stop would (here by killing, since Codex never gave an id).
+    let (_, end, _) = until_end(&mut events).await;
+    assert_eq!(end, TurnEnd::Cancelled);
+    assert!(!session.turn_active());
+    next(&mut events, |e| matches!(e, SessionEvent::Exited(_)).then_some(())).await;
+}
+
+#[tokio::test]
+async fn a_late_completion_of_a_timed_out_start_does_not_end_the_next_turn() {
+    let (session, mut events) = start(fake("late-start")).await;
+    let mut first = send("one");
+    first.start_timeout = Some(Duration::from_millis(100));
+    let first = session.send(first).await.unwrap_err();
+    assert!(first.to_string().contains("did not answer turn/start"), "{first}");
+    let (_, end, _) = until_end(&mut events).await;
+    assert!(matches!(end, TurnEnd::Failed { .. }), "{end:?}");
+    // turn-1's late answer, start, text and completion all arrive while turn-2 is starting.
+    let outcome = session.send(send("two")).await.unwrap();
+    assert_eq!(outcome.turn_id.as_deref(), Some("turn-2"));
+    let started = agent(&mut events, "turn-started").await;
+    assert_eq!(started["turnId"], "turn-2");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(session.turn_active(), "turn-1's completion ended turn-2");
+    assert_eq!(session.turn_id().as_deref(), Some("turn-2"));
+    session.interrupt().await;
+    let (seen, end, _) = until_end(&mut events).await;
+    assert_eq!(end, TurnEnd::Cancelled);
+    assert!(text_of(&seen).is_empty(), "turn-1's text leaked into turn-2: {seen:?}");
+    assert!(!seen.iter().any(|e| e["type"] == "turn-started"), "{seen:?}");
+    session.close().await;
+}
+
+#[tokio::test]
+async fn numeric_and_string_server_request_ids_do_not_collide() {
+    let mut opts = options(fake("dup-ids"));
+    opts.forward_raw_notifications = true;
+    let (session, mut events) = start_with(opts).await;
+    session.send(send("x")).await.unwrap();
+    let permission = agent(&mut events, "permission-request").await;
+    let question = agent(&mut events, "question-request").await;
+    assert_eq!(permission["requestId"], "5");
+    assert_eq!(question["requestId"], "5#2");
+    assert!(session.respond_to_permission("5", Decision::Deny).await.unwrap());
+    assert!(session.answer_question("5#2", QuestionOutcome::Answered(vec![("q".into(), vec!["A".into()])])).await.unwrap());
+    let mut answered = Vec::new();
+    while answered.len() < 2 {
+        answered.push(
+            next(&mut events, |e| match e {
+                SessionEvent::Notification(n) if n.method == "fake/answered" => Some(n.params.clone()),
+                _ => None,
+            })
+            .await,
+        );
+    }
+    assert_eq!(answered[0], json!({ "id": 5, "answer": { "decision": "decline" } }));
+    assert_eq!(answered[1], json!({ "id": "5", "answer": { "answers": { "q": { "answers": ["A"] } } } }));
     session.close().await;
 }

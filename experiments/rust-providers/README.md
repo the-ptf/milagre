@@ -47,11 +47,27 @@ with `SessionOptions::forward_raw_notifications`. `SessionEvent::Exited` is alwa
   deadlock), and are budgeted (`QueueLimits`: 100k events / 256 MiB for transport events; the
   session's own queue likewise). Past the budget Codex is stopped (`ExitReason::ConsumerStalled`
   or a crash message naming the stall); the turn's end and the exit still get through.
+- One writer task owns stdin: a frame is written whole or not at all. A request cancelled or timed
+  out before its first byte is never written; one already being written finishes intact. A Codex
+  that stops reading for `write_timeout` (10 s) is stopped (`ExitReason::InputStalled`), so no
+  write, untimed `thread/start` included, waits forever, and `close()` never waits on the pipe.
 - Per-request timeout (30 s default, `None` waits until exit). A dropped request future forgets
   its id. Late answers surface as `Diagnostic::UnmatchedResponse`; ids are never reused and
   nothing is ever resent.
 - Server requests are answered once; withdrawn ones resolve as `cancelled`; everything open is
-  cancelled when a turn ends.
+  cancelled when a turn ends (queued, never awaited). A user's answer that could not be written
+  returns an error from `respond_to_permission` / `answer_question` and, if Codex still waits,
+  the card stays open. Card ids are `String(id)` as in Node, made unique (`5#2`) if Codex sends
+  both `5` and `"5"`.
+- Cancel safety: dropping every `CodexSession` (or a `start` future mid-way, e.g. during an
+  untimed `thread/start`) kills the process tree. A `send` / `start_turn` whose caller stops
+  waiting still ends its turn: Milagre interrupts it, or kills Codex after the grace when the
+  turn never got an id.
+- After a `turn/start` timeout the abandoned turn may still run: while the next `turn/start` is in
+  flight, that thread's turn-scoped notifications are held and replayed once the new turn's id is
+  known, so a late `turn/completed` or text of the old turn can't end or leak into the new one.
+- On `Exited` the session also closes what is left of the process group (shells, MCP servers).
+- `SpawnOptions` (and the options that hold it) never print the environment in `Debug`.
 - stderr is drained into a 4000-byte tail, never parsed as protocol, only used for exit text.
 - Exactly one `ServerEvent::Exit`; every waiter fails with its detail; later calls `NotRunning`.
   A process that closes stdout but keeps running is killed after `drain_grace`.
