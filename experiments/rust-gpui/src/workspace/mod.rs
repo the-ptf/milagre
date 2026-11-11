@@ -15,7 +15,6 @@ pub mod chat;
 pub mod chrome;
 mod overlays;
 pub mod panel;
-pub mod shell;
 pub mod sidebar;
 
 #[cfg(test)]
@@ -32,7 +31,6 @@ use crate::workspace::chat::{ChatEvent, ChatView};
 use crate::workspace::panel::dock;
 use crate::workspace::panel::terminal::{self, TerminalDrawer};
 use crate::workspace::panel::{Panel, PanelEvent};
-use crate::workspace::shell::keys::{NewChat, ToggleSidebar};
 use crate::workspace::sidebar::{Sidebar, SidebarEvent};
 
 pub struct Workspace {
@@ -58,7 +56,6 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        shell::keys::install_keys(cx);
         dock::install_keys(cx);
         settings::init(cx);
         cx.bind_keys([KeyBinding::new("cmd-k", TogglePalette, None)]);
@@ -90,7 +87,6 @@ impl Workspace {
         // A web page draws over GPUI: it hides while Settings is open (src/platform/webview.rs).
         let web = cx
             .observe(&settings, |_, settings, cx| crate::platform::webview::set_overlay_open("settings", settings.read(cx).is_open(), cx));
-        Self::refocus_after_settings(&settings, window, cx);
         let routines = cx.new(|cx| RoutinesView::new(window, cx));
         let routines_open = crate::routines::start_from_env().is_some();
         let routines_at = sidebar.read(cx).selected();
@@ -158,8 +154,7 @@ impl Render for Workspace {
         let columns = if self.routines_open {
             div().flex().flex_1().min_w_0().h_full().child(self.routines.clone()).into_any_element()
         } else {
-            let column = self.chat_column(terminal::column(self.chat.clone(), &self.terminals, window, cx), cx);
-            dock::layout(&self.panel, column, cx)
+            dock::layout(&self.panel, terminal::column(self.chat.clone(), &self.terminals, window, cx), cx)
         };
         let settings = self.settings.clone();
         let palette = self.palette.clone();
@@ -177,16 +172,9 @@ impl Render for Workspace {
             .size_full()
             .bg(theme.page)
             .text_color(theme.ink)
-            // The shell's window-level keys: ⌘B, ⌘N, the Window menu, and Escape after every view under focus.
-            .on_key_down(cx.listener(Self::on_escape_key))
-            .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
-            .on_action(cx.listener(|this, _: &NewChat, _, cx| this.new_chat(cx)))
-            .map(shell::keys::on_window_actions)
             .child(self.sidebar.clone())
             .child(hairline(&theme))
             .child(columns)
-            // Over the columns' headers, under Settings and the overlays.
-            .child(self.top_bar(cx))
             .child(self.settings.clone())
             .child(palette)
     }
