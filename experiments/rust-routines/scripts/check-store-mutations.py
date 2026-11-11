@@ -57,8 +57,18 @@ def main():
             shutil.copytree(CRATE, work, ignore=shutil.ignore_patterns("target", "__pycache__"))
             path = work / "src/store" / filename
             if label == "publication-before-failure":
-                replace_once(path, "fault.check()?; // Test-only refusal immediately before internal publication.", "")
-                replace_once(path, "self.saves += 1;", "self.saves += 1;\n            fault.check()?;")
+                replace_once(path, '''        if self.pending_image(stamp)?.is_some() {
+            if let Err(error) = fault.check() {
+                self.discard(stamp)?;
+                return Err(error);
+            }
+        }
+        self.install(stamp)''', '''        let changed = self.pending_image(stamp)?.is_some();
+        let result = self.install(stamp)?;
+        if changed {
+            fault.check()?;
+        }
+        Ok(result)''')
             else:
                 replace_once(path, before, after)
             build = subprocess.run(["cargo", "build", "--offline", "--locked", "--manifest-path",

@@ -5,6 +5,9 @@ mod check;
 pub mod jsjson;
 pub mod limits;
 mod mutations;
+mod preparation;
+#[cfg(test)]
+mod preparation_tests;
 #[cfg(test)]
 mod tests;
 mod transitions;
@@ -154,7 +157,37 @@ struct Tx {
     ended: Vec<Value>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Stamp {
+    origin: u64,
+    generation: u64,
+}
+enum Phase {
+    Ready,
+    Preparing(Stamp),
+    Pending(Box<Candidate>),
+}
+// Never leaves its originating Model. A stamp identifies it but carries no result or proof.
+struct Candidate {
+    stamp: Stamp,
+    publication: Option<Publication>,
+    maintained_at: i64,
+    result: Value,
+    effects: Vec<Value>,
+}
+struct Publication {
+    data: Value,
+    image: String,
+    positions: HashMap<String, usize>,
+    run_index: HashMap<String, (String, usize)>,
+    tracked: HashSet<String>,
+    saves: u64,
+}
+
 pub struct Model {
+    origin: u64,
+    generation: u64,
+    phase: Phase,
     data: Value,
     maintained_at: i64,
     pub published: Option<String>,
@@ -167,6 +200,7 @@ pub struct Model {
 }
 impl Model {
     pub fn open(seed: Option<String>, now: i64) -> Result<Self> {
+        let origin = preparation::identity()?;
         time(&json!(now))?;
         let mut data = match &seed {
             None => empty(),
@@ -202,6 +236,9 @@ impl Model {
         check::state(&data)?;
         limits::image(&data)?;
         let mut model = Self {
+            origin,
+            generation: 0,
+            phase: Phase::Ready,
             data: empty(),
             maintained_at: now,
             published: seed,
@@ -229,21 +266,22 @@ impl Model {
         Ok(model)
     }
     pub fn reload(&mut self, now: i64) -> Result<Value> {
+        self.ready()?;
         // Build before replacing; an invalid import never empties an existing model.
         let mut next = Self::open(self.published.clone(), now)?;
+        next.tracked.extend(self.tracked.iter().cloned());
         next.ids = std::mem::take(&mut self.ids);
         next.saves = self.saves;
-        next.tracked.extend(self.tracked.drain());
         *self = next;
         Ok(Value::Null)
     }
-    fn reindex(&mut self) {
-        self.positions = rows(&self.data)
+    fn indexes(data: &Value) -> (HashMap<String, usize>, HashMap<String, (String, usize)>) {
+        let positions = rows(data)
             .iter()
             .enumerate()
             .map(|(i, r)| (r["id"].as_str().unwrap().to_owned(), i))
             .collect();
-        self.run_index = self.data["runs"]
+        let run_index = data["runs"]
             .as_object()
             .unwrap()
             .iter()
@@ -255,6 +293,10 @@ impl Model {
                     .map(move |(i, r)| (r["id"].as_str().unwrap().to_owned(), (rid.clone(), i)))
             })
             .collect();
+        (positions, run_index)
+    }
+    fn reindex(&mut self) {
+        (self.positions, self.run_index) = Self::indexes(&self.data);
     }
     fn track(&mut self, data: &Value) {
         self.tracked.extend(
@@ -270,9 +312,9 @@ impl Model {
     fn transact(
         &mut self,
         now: i64,
-        fault: Fault,
         change: impl FnOnce(&mut Value, &mut Ids, &mut Tx) -> Result<Value>,
-    ) -> Result<Value> {
+    ) -> Result<Candidate> {
+        let stamp = self.preparing()?;
         check::state(&self.data)?; // Before candidate cloning, including unknown metadata.
         let mut draft = self.data.clone();
         let mut tx = Tx::default();
@@ -306,22 +348,57 @@ impl Model {
         } else {
             None
         };
-        if let Some(image) = image {
-            fault.check()?; // Test-only refusal immediately before internal publication.
-            self.track(&draft);
-            self.data = draft;
-            self.reindex();
-            self.published = Some(image);
-            self.saves += 1;
-        }
-        if upkeep {
-            self.maintained_at = now;
-        }
-        self.effects = effects;
-        Ok(result)
+        let publication = image
+            .map(|image| {
+                let (positions, run_index) = Self::indexes(&draft);
+                let mut tracked = self.tracked.clone();
+                tracked.extend(
+                    rows(&draft)
+                        .iter()
+                        .map(|r| r["id"].as_str().unwrap().to_owned()),
+                );
+                tracked.extend(draft["removed"].as_object().unwrap().keys().cloned());
+                tracked.extend(draft["runs"].as_object().unwrap().keys().cloned());
+                let saves = self
+                    .saves
+                    .checked_add(1)
+                    .ok_or_else(|| Error::Refused("publication counter exhausted".into()))?;
+                Ok(Publication {
+                    data: draft,
+                    image,
+                    positions,
+                    run_index,
+                    tracked,
+                    saves,
+                })
+            })
+            .transpose()?;
+        Ok(Candidate {
+            stamp,
+            publication,
+            maintained_at: if upkeep { now } else { self.maintained_at },
+            result,
+            effects,
+        })
     }
     pub fn execute(&mut self, op: &str, args: &[Value], now: i64, fault: Fault) -> Result<Value> {
-        self.effects.clear();
+        if op == "reload" {
+            self.ready()?;
+            self.effects.clear();
+            time(&json!(now))?;
+            limits::values(&args.iter().collect::<Vec<_>>())?;
+            return self.reload(now);
+        }
+        let stamp = self.prepare(op, args, now)?;
+        if self.pending_image(stamp)?.is_some() {
+            if let Err(error) = fault.check() {
+                self.discard(stamp)?;
+                return Err(error);
+            }
+        }
+        self.install(stamp)
+    }
+    fn dispatch(&mut self, op: &str, args: &[Value], now: i64) -> Result<Candidate> {
         time(&json!(now))?;
         limits::values(&args.iter().collect::<Vec<_>>())?;
         if matches!(
@@ -348,23 +425,22 @@ impl Model {
             check::safe_id(id)?;
         }
         match op {
-            "list" => Ok(self.list()),
-            "get" => Ok(self.get(&text_of(arg(args, 0)))),
-            "runs" => Ok(self.runs(&text_of(arg(args, 0)))),
-            "getRun" => Ok(self.get_run(&text_of(arg(args, 0)))),
-            "hasRun" => Ok(json!(self.run_index.contains_key(&text_of(arg(args, 0))))),
-            "runningCount" => Ok(json!(self.running_count())),
-            "hasPending" => Ok(json!(self.pending(&text_of(arg(args, 0))))),
-            "wasRemoved" => Ok(json!(self.data["removed"]
+            "list" => self.no_write(self.list()),
+            "get" => self.no_write(self.get(&text_of(arg(args, 0)))),
+            "runs" => self.no_write(self.runs(&text_of(arg(args, 0)))),
+            "getRun" => self.no_write(self.get_run(&text_of(arg(args, 0)))),
+            "hasRun" => self.no_write(json!(self.run_index.contains_key(&text_of(arg(args, 0))))),
+            "runningCount" => self.no_write(json!(self.running_count())),
+            "hasPending" => self.no_write(json!(self.pending(&text_of(arg(args, 0))))),
+            "wasRemoved" => self.no_write(json!(self.data["removed"]
                 .get(text_of(arg(args, 0)))
                 .is_some())),
-            "reload" => self.reload(now),
-            "create" => self.create(arg(args, 0), now, fault),
-            "upsertHeartbeat" => self.upsert(arg(args, 0), now, fault),
-            "update" => self.update(&text_of(arg(args, 0)), arg(args, 1), now, fault),
+            "create" => self.create(arg(args, 0), now),
+            "upsertHeartbeat" => self.upsert(arg(args, 0), now),
+            "update" => self.update(&text_of(arg(args, 0)), arg(args, 1), now),
             "remove" | "claimDue" | "startRun" | "finishRun" | "expireDue" | "complete"
             | "recoverInterrupted" | "pause" | "setLastError" | "attachChat" | "setRunTitle" => {
-                self.transition(op, args, now, fault)
+                self.transition(op, args, now)
             }
             _ => refuse("method outside schedule checkpoint"),
         }

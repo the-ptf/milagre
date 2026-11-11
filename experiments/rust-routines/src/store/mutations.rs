@@ -1,6 +1,7 @@
 use super::*;
 impl Model {
-    pub(super) fn create(&mut self, input: &Value, at: i64, fault: Fault) -> Result<Value> {
+    pub(super) fn create(&mut self, input: &Value, at: i64) -> Result<Candidate> {
+        self.preparing()?;
         if !input.is_object() {
             return error("A Routine needs its settings");
         }
@@ -52,14 +53,15 @@ impl Model {
             routine["expiresAt"] = json!(future_time(&json!(at + 7 * DAY))?);
         }
         routine["nextRunAt"] = json!(check::next(&routine["trigger"], at)?);
-        self.transact(at, fault, move |state, _, tx| {
+        self.transact(at, move |state, _, tx| {
             rows_mut(state).push(routine.clone());
             tx.changed = true;
             Ok(routine)
         })
     }
 
-    pub(super) fn upsert(&mut self, input: &Value, at: i64, fault: Fault) -> Result<Value> {
+    pub(super) fn upsert(&mut self, input: &Value, at: i64) -> Result<Candidate> {
+        self.preparing()?;
         if !input.is_object() {
             return refuse("heartbeat settings outside typed domain");
         }
@@ -113,7 +115,7 @@ impl Model {
             ("timezone", input["timezone"].clone()),
         ]);
         let next = check::next(&trigger, at)?;
-        self.transact(at, fault, |state, ids, tx| {
+        self.transact(at, |state, ids, tx| {
             let existing = rows(state).iter().position(|r| {
                 !truth(r, "completedAt")
                     && r["name"] == input["name"]
@@ -203,14 +205,9 @@ impl Model {
         })
     }
 
-    pub(super) fn update(
-        &mut self,
-        id: &str,
-        patch: &Value,
-        at: i64,
-        fault: Fault,
-    ) -> Result<Value> {
-        self.transact(at, fault, |state, _, tx| {
+    pub(super) fn update(&mut self, id: &str, patch: &Value, at: i64) -> Result<Candidate> {
+        self.preparing()?;
+        self.transact(at, |state, _, tx| {
             let Some(i) = position(state, id) else {
                 return error(format!("Routine not found: {id}"));
             };

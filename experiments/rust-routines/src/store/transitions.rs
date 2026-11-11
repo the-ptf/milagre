@@ -169,13 +169,8 @@ fn finish(
 }
 
 impl Model {
-    pub(super) fn transition(
-        &mut self,
-        op: &str,
-        args: &[Value],
-        now: i64,
-        fault: Fault,
-    ) -> Result<Value> {
+    pub(super) fn transition(&mut self, op: &str, args: &[Value], now: i64) -> Result<Candidate> {
+        self.preparing()?;
         let id = text_of(arg(args, 0));
         let at = if matches!(op, "claimDue" | "expireDue") {
             time(arg(args, 0))?
@@ -227,13 +222,13 @@ impl Model {
         }
         if now - self.maintained_at < HOUR {
             if op == "claimDue" && !rows(&self.data).iter().any(|r| due(r, at)) {
-                return Ok(json!([]));
+                return self.no_write(json!([]));
             }
             if op == "expireDue" && !rows(&self.data).iter().any(|r| expired(r, at)) {
-                return Ok(jsjson::undefined());
+                return self.no_write(jsjson::undefined());
             }
         }
-        self.transact(now, fault, |state, ids, tx| match op {
+        self.transact(now, |state, ids, tx| match op {
             "remove" => {
                 let Some(i) = position(state, &id) else {
                     return Ok(json!(false));
