@@ -4,6 +4,8 @@
 
 This is a daemon service checkpoint. The desktop still connects to the installed Node owner. No fixture launch context, WebKit run, installation or production migration is included.
 
+The app fixture now shares one native content writer between trusted tool calls and renderer reads/Design edits. [APP-CONTENT.md](APP-CONTENT.md) records the fixed saved content, command authority, tests and remaining gates. This adds no real provider execution or production profile admission.
+
 ## Added commands
 
 The feature adds these commands only to this new actor instance. Existing actor/Claude/ACP executables retain their method sets even when compiled with the feature.
@@ -44,7 +46,7 @@ cargo check --manifest-path experiments/rust-runtime/Cargo.toml --no-default-fea
 node experiments/rust-runtime/fixtures/app-bootstrap-node.cjs --check
 ```
 
-The combined suite has 81 tests including two receipt identity/bounds tests and five bootstrap admission/send-option tests. Default dependency-tree inspection excludes `milagre-registry` and `milagre-accounts`; the app binary's `required-features` prevents a default build from selecting it. The original intermittent paging disconnect remains unproven; this checkpoint does not add stress runs or change wire policies.
+The combined suite has 83 tests, including two receipt identity/bounds tests, five bootstrap admission/send-option tests and two app-content integration/lifetime checks. Default dependency-tree inspection excludes `milagre-registry` and `milagre-accounts`; the app binary's `required-features` prevents a default build from selecting it. The original intermittent paging disconnect remains unproven; this checkpoint does not add stress runs or change wire policies.
 
 ## Bootstrap receipt and proposed desktop handoff
 

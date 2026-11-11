@@ -31,6 +31,7 @@ const TICK: Duration = Duration::from_millis(20);
 const READINESS_CHECK: Duration = Duration::from_millis(250);
 const QUEUE: usize = 64;
 const BYTES: usize = 8 * 1024 * 1024;
+const DESIGN_SETTINGS: &[&str] = &["designs:enabled:read", "designs:enabled:save"];
 const METHODS: &[&str] = &[
     "project:open",
     "project:switch",
@@ -196,13 +197,24 @@ impl Handler for Actor {
                 .copied(),
             )
             .chain(app_methods(self.app_fixture).iter().copied())
+            .chain(
+                if self.content && self.app_fixture {
+                    DESIGN_SETTINGS
+                } else {
+                    &[]
+                }
+                .iter()
+                .copied(),
+            )
             .map(str::to_owned)
             .collect()
     }
     fn invoke(&self, method: &str, args: &[Value], context: &ClientContext) -> RpcResult {
         if !METHODS.contains(&method)
             && !app_methods(self.app_fixture).contains(&method)
-            && !(self.content && crate::artifacts::METHODS.contains(&method))
+            && !(self.content
+                && (crate::artifacts::METHODS.contains(&method)
+                    || (self.app_fixture && DESIGN_SETTINGS.contains(&method))))
         {
             return Err(RpcError::new(
                 "UNSUPPORTED_MUTATION",
@@ -499,6 +511,14 @@ impl State {
                 .as_ref()
                 .ok_or_else(closed)?
                 .renderer(method, args.first().unwrap_or(&Value::Null));
+        }
+        #[cfg(feature = "app-fixture")]
+        if self.bootstrap.is_some() && self.content.is_some() && DESIGN_SETTINGS.contains(&method) {
+            self.host
+                .require_project_ready(&self.project)
+                .map_err(convert)?;
+            // Node permanently enables Designs; old clients cannot turn the retired switch off.
+            return Ok(json!({"enabled": true}));
         }
         let path = self.project.to_string_lossy();
         match method {
@@ -1022,13 +1042,15 @@ pub(crate) fn start_app_fixture() -> Result<(Server, Value), RpcError> {
         fixture["seed"].to_string(),
     )?;
     let bootstrap = crate::app_fixture::Bootstrap::new(isolation.clone(), &project)?;
+    let content = crate::claude_content::SharedContent::new(isolation.clone(), project.clone())
+        .map_err(|error| RpcError::new(error.code, error.message))?;
     let (server, mut metadata) = start_provider(
         profile,
         isolation,
         project,
         Box::new(Scripted::default()),
         "kiro",
-        None,
+        Some(content),
         Some(bootstrap),
     )?;
     metadata["appFixture"] = json!(true);
@@ -1114,6 +1136,10 @@ fn start_provider(
     host.open_project(&project).map_err(convert)?;
     if let Some(content) = &content {
         content.opened(true);
+        #[cfg(feature = "app-fixture")]
+        if bootstrap.is_some() {
+            crate::app_content::initialize(content, &project)?;
+        }
     }
     let shared = Arc::new(Shared {
         snapshot: Mutex::new(

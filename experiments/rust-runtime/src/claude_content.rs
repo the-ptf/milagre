@@ -254,7 +254,7 @@ impl SharedContent {
             assert_active: self.caller_guard(),
         }
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "app-fixture"))]
     pub(crate) fn dispatcher(&self, chat: &str) -> Result<milagre_tools::Dispatcher, Error> {
         self.owner.session(self.caller(chat))
     }

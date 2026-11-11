@@ -4,6 +4,8 @@
 pub mod acp_fixture;
 pub mod actor;
 #[cfg(feature = "app-fixture")]
+mod app_content;
+#[cfg(feature = "app-fixture")]
 pub mod app_fixture;
 mod artifacts;
 mod claude_content;
