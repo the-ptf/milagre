@@ -10,11 +10,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use milagre_owner_store::chat_host::AnswerResult;
 use milagre_owner_store::chat_host::{
     AnswerTicket, ChatHost, MockProvider, Notice, SteeringMode, TurnId,
 };
 use milagre_owner_store::isolation::{Isolation, Policy};
-use milagre_owner_store::jsjson;
+use milagre_owner_store::jsjson::{self, RawJson};
 use milagre_owner_store::states::{ProjectStates, Timing};
 use serde_json::{json, Map, Value};
 
@@ -123,7 +124,9 @@ impl Run {
             }
             "event" => {
                 let chat = self.chat(&step["session"]);
-                self.mock.emit(&chat, step["event"].clone());
+                // The trace holds encoded JSON; a provider hands over raw JSON, which the host encodes once.
+                self.mock
+                    .emit(&chat, RawJson::decode(&step["event"]).unwrap().0);
                 let errors = self.host.pump();
                 match errors.into_iter().next() {
                     Some(error) => json!({ "error": self.clean(&error.to_string()) }),
@@ -213,8 +216,10 @@ impl Run {
         });
         self.held.extend(notices);
         match result {
-            Some(Ok(accepted)) => Value::Bool(accepted),
-            Some(Err(error)) => json!({ "error": self.clean(&error) }),
+            Some(AnswerResult::Accepted) => Value::Bool(true),
+            Some(AnswerResult::NotWaiting) => Value::Bool(false),
+            Some(AnswerResult::Failed(error)) => json!({ "error": self.clean(&error) }),
+            Some(AnswerResult::Uncertain(error)) => json!({ "uncertain": self.clean(&error) }),
             None => json!("unsettled"),
         }
     }
@@ -234,7 +239,7 @@ impl Run {
             .filter(|notice| {
                 !matches!(
                     notice,
-                    Notice::Started { .. } | Notice::AnswerSettled { .. } | Notice::SteerRequested { .. }
+                    Notice::Started { .. } | Notice::AnswerSettled { .. } | Notice::AnswerResolved { .. } | Notice::SteerRequested { .. }
                 )
             })
             .map(|notice| match notice {
@@ -255,7 +260,7 @@ impl Run {
                 }
                 Notice::Gap { what, .. } => json!({ "gap": what }),
                 Notice::Failed { what, error, .. } => json!({ "failed": what, "error": error }),
-                Notice::Started { .. } | Notice::AnswerSettled { .. } | Notice::SteerRequested { .. } => {
+                Notice::Started { .. } | Notice::AnswerSettled { .. } | Notice::AnswerResolved { .. } | Notice::SteerRequested { .. } => {
                     unreachable!()
                 }
             })

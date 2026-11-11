@@ -42,7 +42,7 @@ use serde_json::{json, Map, Value};
 use crate::agent_runs::{self, chat_key, is_turn_end, session_of_key, Runs};
 use crate::chat_db::LookupField;
 use crate::error::{Result, StoreError};
-use crate::jsjson;
+use crate::jsjson::{self, RawJson};
 use crate::message_store::{Msg, MsgRef, ProjectState};
 use crate::states::ProjectStates;
 
@@ -109,7 +109,7 @@ pub enum ProviderEvent {
     Started {
         chat: String,
         turn: TurnId,
-        result: Value,
+        result: RawJson,
     },
     /// The turn couldn't start (startTurn rejected); the host ends it with `turn-failed`.
     StartFailed {
@@ -124,7 +124,7 @@ pub enum ProviderEvent {
     Agent {
         chat: String,
         turn: TurnId,
-        event: Value,
+        event: RawJson,
     },
     /// The provider's process for this Chat ended, after running `turn` (the last turn it ran). Fails that turn if
     /// it still runs; otherwise closes that session, so its late events are dropped. Never touches a newer turn.
@@ -152,9 +152,29 @@ pub enum AnswerOutcome {
     Accepted,
     /// Nothing waited on that request (answered already, withdrawn, or another session).
     NotWaiting,
-    /// Handing it over failed after it was queued (a broken pipe, the process gone).
+    /// Proven not delivered: it never reached the session (refused before writing, dropped from the queue unwritten).
     Failed(ProviderError),
+    /// It may have reached the session (written, then the pipe broke or the process died before a confirmation).
+    /// The answers stay shown, and the same request can't be answered again in that session generation until a later
+    /// definitive settlement or the session closes.
+    Uncertain(ProviderError),
 }
+
+/// What an answer came to, as told in [`Notice::AnswerSettled`] (and [`Notice::AnswerResolved`] later).
+#[derive(Clone, Debug, PartialEq)]
+pub enum AnswerResult {
+    /// Node's `true`.
+    Accepted,
+    /// Node's `false`: nothing waited; the answers message was taken back.
+    NotWaiting,
+    /// Proven not delivered: the command rejects with the message; the answers message was taken back.
+    Failed(String),
+    /// Delivery unknown: the command rejects with code `ANSWER_DELIVERY_UNKNOWN`; the answers message stays.
+    Uncertain(String),
+}
+
+/// The error code a command rejects with for [`AnswerResult::Uncertain`] and for a retry it blocks.
+pub const ANSWER_DELIVERY_UNKNOWN: &str = "ANSWER_DELIVERY_UNKNOWN";
 
 /// What answering returned at once: settled already (`false` when no session could take it), or waiting for its
 /// [`Notice::AnswerSettled`]. A wire server keeps the client's reply until then (Node's command awaits the same).
@@ -169,6 +189,7 @@ pub enum AnswerTicket {
 struct PendingAnswer {
     chat: String,
     turn: TurnId,
+    request: String,
     /// The answers message to take back unless the session takes them.
     message: Option<f64>,
     due: i64,
@@ -243,13 +264,25 @@ pub struct MockState {
     pub refuse_answers: bool,
     /// Answers are queued but not settled (for deadline tests).
     pub hold_answers: bool,
-    /// The next answer handed over fails after queueing.
+    /// The next answer handed over fails after queueing, proven undelivered.
     pub fail_next_answer: Option<String>,
+    /// The next answer handed over ends with its delivery unknown.
+    pub uncertain_next_answer: Option<String>,
 }
 
 impl MockState {
     fn settle(&mut self, chat: &str, answer: AnswerId) {
         if self.hold_answers {
+            return;
+        }
+        if let Some(message) = self.uncertain_next_answer.take() {
+            let outcome =
+                AnswerOutcome::Uncertain(ProviderError::new(ProviderErrorKind::Exited, message));
+            self.events.push(ProviderEvent::AnswerSettled {
+                chat: chat.into(),
+                answer,
+                outcome,
+            });
             return;
         }
         let outcome = match self.fail_next_answer.take() {
@@ -296,7 +329,7 @@ impl MockProvider {
         state.events.push(ProviderEvent::Agent {
             chat: chat.into(),
             turn,
-            event,
+            event: RawJson(event),
         });
     }
 
@@ -309,7 +342,7 @@ impl MockProvider {
             .push(ProviderEvent::Agent {
                 chat: chat.into(),
                 turn,
-                event,
+                event: RawJson(event),
             });
     }
 
@@ -350,7 +383,11 @@ impl Provider for MockProvider {
                 state.next_turn += 1;
                 let result =
                     json!({ "turnId": format!("turn-{}", state.next_turn), "steered": false });
-                ProviderEvent::Started { chat, turn, result }
+                ProviderEvent::Started {
+                    chat,
+                    turn,
+                    result: RawJson(result),
+                }
             }
         };
         state.events.push(event);
@@ -444,7 +481,14 @@ pub enum Notice {
     AnswerSettled {
         chat: String,
         answer: AnswerId,
-        result: std::result::Result<bool, String>,
+        result: AnswerResult,
+    },
+    /// A later definitive settlement of an answer told `Uncertain` before: `Accepted` (it stays), or `NotWaiting` /
+    /// `Failed` (its answers message was taken back). The command was answered already; this is for the Chat.
+    AnswerResolved {
+        chat: String,
+        answer: AnswerId,
+        result: AnswerResult,
     },
     /// A steering message was admitted and saved: what Node would hand SessionManager.startTurn for the running
     /// `turn` ([`SteeringMode::Recorded`] only; no provider is called).
@@ -508,6 +552,8 @@ const FORMER_WORKTREE: &str = "This Run's Worktree was removed because the Run l
 const PERMISSION_MODES: [&str; 3] = ["ask", "auto", "full"];
 /// Longest answers summary (UTF-16 code units) shown as the user's message: 20 questions of 10,000 plus labels.
 pub const MAX_ANSWER_SUMMARY: usize = 210_000;
+/// Answers with an unknown delivery kept to block retries; past this the oldest stops blocking (its message stays).
+pub const MAX_UNCERTAIN_ANSWERS: usize = 256;
 /// How long a handed-over answer may wait for its settlement before the host fails it.
 pub const ANSWER_GRACE_MS: i64 = 30_000;
 /// How long an interrupted turn gets to end by itself before the host forces it.
@@ -624,6 +670,9 @@ pub struct ChatHost {
     dropped_notices: u64,
     next_answer: u64,
     pending_answers: BTreeMap<AnswerId, PendingAnswer>,
+    /// Answers told `Uncertain`, kept (bounded by `MAX_UNCERTAIN_ANSWERS`, oldest dropped) until a definitive
+    /// settlement or their session generation closes; each blocks a retry of its request in that generation.
+    uncertain_answers: BTreeMap<AnswerId, PendingAnswer>,
     /// How long a handed-over answer may wait for its settlement before `tick` fails it (ms of the states clock).
     pub answer_grace_ms: i64,
     /// Queued messages whose start is still in flight, by turn: told as `QueueStarted` once it resolves.
@@ -661,6 +710,7 @@ impl ChatHost {
             dropped_notices: 0,
             next_answer: 0,
             pending_answers: BTreeMap::new(),
+            uncertain_answers: BTreeMap::new(),
             answer_grace_ms: ANSWER_GRACE_MS,
             queue_turns: HashMap::new(),
             seq: 0,
@@ -1622,11 +1672,12 @@ impl ChatHost {
             .map(|(answer, pending)| (*answer, pending.chat.clone()))
             .collect();
         for (answer, chat) in late {
+            // A deadline proves nothing about delivery: the answer stays, its delivery unknown.
             let error = ProviderError::new(
                 ProviderErrorKind::Timeout,
-                "The agent didn't take the answer in time.",
+                "The agent hasn't confirmed the answer.",
             );
-            let _ = self.settle_answer(&chat, answer, AnswerOutcome::Failed(error));
+            let _ = self.settle_answer(&chat, answer, AnswerOutcome::Uncertain(error));
         }
         errors
     }
@@ -1659,6 +1710,7 @@ impl ChatHost {
                         turn.0
                     )));
                 }
+                let result = result.encode();
                 self.notice(Notice::Started {
                     chat,
                     turn,
@@ -1669,10 +1721,14 @@ impl ChatHost {
             }
             ProviderEvent::StartFailed { chat, turn, error } => {
                 self.queue_started(turn, Value::Null);
-                let event = json!({ "type": "turn-failed", "message": error.message });
+                let event =
+                    json!({ "type": "turn-failed", "message": jsjson::js_string(&error.message) });
                 self.receive(&chat, turn, &event)
             }
-            ProviderEvent::Agent { chat, turn, event } => self.receive(&chat, turn, &event),
+            // The one place provider JSON enters the owner's encoding (see jsjson::RawJson).
+            ProviderEvent::Agent { chat, turn, event } => {
+                self.receive(&chat, turn, &event.encode())
+            }
             ProviderEvent::AnswerSettled {
                 chat,
                 answer,
@@ -1681,7 +1737,7 @@ impl ChatHost {
             ProviderEvent::Exited { chat, turn, error } => {
                 let mut result = Ok(());
                 if self.active_turn(&chat) == Some(turn) {
-                    let event = json!({ "type": "turn-failed", "message": error.message });
+                    let event = json!({ "type": "turn-failed", "message": jsjson::js_string(&error.message) });
                     result = self.receive(&chat, turn, &event);
                 }
                 // That session is gone (whether it ran a turn or idled); a newer turn is untouched.
@@ -2545,12 +2601,15 @@ impl ChatHost {
         let Some((turn, provider)) = self.session_of(&chat) else {
             return Ok(AnswerTicket::Settled(false));
         };
-        let answer = self.next_answer_id();
         let id = jsjson::property_key(request_id);
+        if let Some(why) = self.answer_in_flight(&chat, turn, &id) {
+            return Err(StoreError::AnswerDeliveryUnknown(why.into()));
+        }
+        let answer = self.next_answer_id();
         self.provider(&provider)?
             .respond_permission(&chat, turn, answer, &id, decision)
-            .map_err(|error| StoreError::Invalid(error.message))?;
-        self.hold_answer(answer, &chat, turn, None);
+            .map_err(|error| StoreError::Invalid(jsjson::js_string(&error.message)))?;
+        self.hold_answer(answer, &chat, turn, &id, None);
         Ok(AnswerTicket::Pending(answer))
     }
 
@@ -2559,76 +2618,127 @@ impl ChatHost {
         AnswerId(self.next_answer)
     }
 
-    fn hold_answer(&mut self, answer: AnswerId, chat: &str, turn: TurnId, message: Option<f64>) {
+    fn hold_answer(
+        &mut self,
+        answer: AnswerId,
+        chat: &str,
+        turn: TurnId,
+        request: &str,
+        message: Option<f64>,
+    ) {
         let due = self.states.now() + self.answer_grace_ms;
         self.pending_answers.insert(
             answer,
             PendingAnswer {
                 chat: chat.into(),
                 turn,
+                request: request.into(),
                 message,
                 due,
             },
         );
     }
 
-    /// Settles a handed-over answer: told as `Notice::AnswerSettled`; anything but `Accepted` takes its answers
-    /// message back (Node's takeBack). Unknown, already settled, or another Chat's: dropped.
+    /// Settles a handed-over answer, told as `Notice::AnswerSettled`. `NotWaiting` and `Failed` (proven
+    /// undelivered) take its answers message back; `Uncertain` keeps it and keeps the answer to block retries. A later
+    /// definitive settlement of an uncertain answer is told as `Notice::AnswerResolved`. Unknown, already settled, or
+    /// another Chat's: dropped.
     fn settle_answer(
         &mut self,
         chat: &str,
         answer: AnswerId,
         outcome: AnswerOutcome,
     ) -> Result<()> {
-        let pending = match self.pending_answers.get(&answer) {
-            Some(pending) if pending.chat == chat => {
-                self.pending_answers.remove(&answer).expect("present")
-            }
-            _ => {
-                return Err(StoreError::Invalid(format!(
-                    "A settlement of answer {} for {chat} was dropped: no such answer waits.",
-                    answer.0
-                )))
-            }
-        };
+        let message_of = |error: ProviderError| jsjson::js_string(&error.message);
         let result = match outcome {
-            AnswerOutcome::Accepted => Ok(true),
-            AnswerOutcome::NotWaiting => Ok(false),
-            AnswerOutcome::Failed(error) => Err(error.message),
+            AnswerOutcome::Accepted => AnswerResult::Accepted,
+            AnswerOutcome::NotWaiting => AnswerResult::NotWaiting,
+            AnswerOutcome::Failed(error) => AnswerResult::Failed(message_of(error)),
+            AnswerOutcome::Uncertain(error) => AnswerResult::Uncertain(message_of(error)),
         };
-        if result != Ok(true) {
-            if let Some(message) = pending.message {
-                if let Err(error) = self.take_back(chat, message) {
-                    self.notice(Notice::Failed {
-                        chat: chat.into(),
-                        what: "taking the answers back".into(),
-                        error: error.to_string(),
-                    });
-                }
+        if let Some(pending) = self
+            .pending_answers
+            .get(&answer)
+            .filter(|pending| pending.chat == chat)
+            .cloned()
+        {
+            self.pending_answers.remove(&answer);
+            match &result {
+                AnswerResult::Uncertain(_) => self.keep_uncertain(answer, pending),
+                AnswerResult::Accepted => {}
+                _ => self.take_back_or_tell(chat, pending.message),
             }
+            self.notice(Notice::AnswerSettled {
+                chat: chat.into(),
+                answer,
+                result,
+            });
+            return Ok(());
         }
-        self.notice(Notice::AnswerSettled {
-            chat: chat.into(),
-            answer,
-            result,
-        });
-        Ok(())
+        if let Some(kept) = self
+            .uncertain_answers
+            .get(&answer)
+            .filter(|kept| kept.chat == chat)
+            .cloned()
+        {
+            if matches!(result, AnswerResult::Uncertain(_)) {
+                return Ok(());
+            }
+            self.uncertain_answers.remove(&answer);
+            if result != AnswerResult::Accepted {
+                self.take_back_or_tell(chat, kept.message);
+            }
+            self.notice(Notice::AnswerResolved {
+                chat: chat.into(),
+                answer,
+                result,
+            });
+            return Ok(());
+        }
+        Err(StoreError::Invalid(format!(
+            "A settlement of answer {} for {chat} was dropped: no such answer waits.",
+            answer.0
+        )))
     }
 
-    /// Fails the answers still waiting on a session that is gone (closed, exited, forced), or past their grace.
+    fn keep_uncertain(&mut self, answer: AnswerId, pending: PendingAnswer) {
+        self.uncertain_answers.insert(answer, pending);
+        while self.uncertain_answers.len() > MAX_UNCERTAIN_ANSWERS {
+            self.uncertain_answers.pop_first();
+        }
+    }
+
+    /// Whether a request already has an answer on its way, or one whose delivery is unknown, in this session generation.
+    fn answer_in_flight(&self, chat: &str, turn: TurnId, request: &str) -> Option<&'static str> {
+        let same = |pending: &PendingAnswer| {
+            pending.chat == chat && pending.turn == turn && pending.request == request
+        };
+        if self.pending_answers.values().any(same) {
+            return Some("An answer to this request is already on its way to the agent.");
+        }
+        if self.uncertain_answers.values().any(same) {
+            return Some("An earlier answer to this request may have reached the agent; it can't be answered again until that's known.");
+        }
+        None
+    }
+
+    /// Settles the answers still waiting on a session generation that is gone (closed, exited, forced, quit): their
+    /// delivery is unknown, so they stay shown. Answers kept as uncertain for it stop blocking retries.
     fn fail_answers(&mut self, chat: &str, turn: Option<TurnId>, message: &str) {
+        let in_scope = |pending: &PendingAnswer| {
+            pending.chat == chat && turn.is_none_or(|turn| pending.turn == turn)
+        };
         let doomed: Vec<AnswerId> = self
             .pending_answers
             .iter()
-            .filter(|(_, pending)| {
-                pending.chat == chat && turn.is_none_or(|turn| pending.turn == turn)
-            })
+            .filter(|(_, pending)| in_scope(pending))
             .map(|(answer, _)| *answer)
             .collect();
         for answer in doomed {
             let error = ProviderError::new(ProviderErrorKind::Exited, message);
-            let _ = self.settle_answer(chat, answer, AnswerOutcome::Failed(error));
+            let _ = self.settle_answer(chat, answer, AnswerOutcome::Uncertain(error));
         }
+        self.uncertain_answers.retain(|_, kept| !in_scope(kept));
     }
 
     fn provider(&mut self, name: &str) -> Result<&mut Box<dyn Provider>> {
@@ -2702,6 +2812,14 @@ impl ChatHost {
             && self
                 .states
                 .has(Path::new(agent_runs::project_of_key(&chat)));
+        // One answer per request and session generation while one is on its way or its delivery is unknown: checked
+        // before anything is shown.
+        let request_key = jsjson::property_key(request_id);
+        if let Some((turn, _)) = self.session_of(&chat) {
+            if let Some(why) = self.answer_in_flight(&chat, turn, &request_key) {
+                return Err(StoreError::AnswerDeliveryUnknown(why.into()));
+            }
+        }
         let recorded = match (jsjson::truthy(answers.as_ref()), summary) {
             (true, Some(summary)) if open => {
                 match self.record_answers(&chat, summary, request_id, answers.as_ref().unwrap()) {
@@ -2734,7 +2852,9 @@ impl ChatHost {
                         .and_then(|adapter| {
                             adapter
                                 .answer_question(&chat, turn, answer, &id, &given)
-                                .map_err(|error| StoreError::Invalid(error.message))
+                                .map_err(|error| {
+                                    StoreError::Invalid(jsjson::js_string(&error.message))
+                                })
                         })
                         .map(|_| Some((answer, turn)))
                 }
@@ -2742,7 +2862,7 @@ impl ChatHost {
         };
         match handed {
             Ok(Some((answer, turn))) => {
-                self.hold_answer(answer, &chat, turn, recorded);
+                self.hold_answer(answer, &chat, turn, &request_key, recorded);
                 Ok(AnswerTicket::Pending(answer))
             }
             Ok(None) => {

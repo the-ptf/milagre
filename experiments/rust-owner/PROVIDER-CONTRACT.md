@@ -44,44 +44,77 @@ then `turn-failed`), then handles events again. A forced end never starts anythi
 
 Node's `agent:respond-permission` / `agent:answer-question` await `SessionManager`, whose boolean comes from the
 session. A Rust adapter can't return that synchronously without blocking (Claude) or lying (Codex queues a JSON-RPC
-reply that can fail after it was queued). So answers settle asynchronously:
+reply with `write_outcome(frame, None)`: dropping the reply future doesn't withdraw a queued frame). So answers settle
+asynchronously, and nothing claims a delivery is undone:
 
 ```rust
 fn respond_permission(&mut self, chat: &str, turn: TurnId, answer: AnswerId, request_id: &str, decision: &str) -> Result<(), ProviderError>;
 fn answer_question(&mut self, chat: &str, turn: TurnId, answer: AnswerId, request_id: &str, answers: &Value) -> Result<(), ProviderError>;
 
 ProviderEvent::AnswerSettled { chat, answer: AnswerId, outcome: AnswerOutcome }
-enum AnswerOutcome { Accepted, NotWaiting, Failed(ProviderError) }
+enum AnswerOutcome { Accepted, NotWaiting, Failed(ProviderError), Uncertain(ProviderError) }
 ```
 
 Adapter side:
 
-1. Enqueue only. `Err` means refused at once (that session is gone); nothing was handed over.
-2. Exactly one `AnswerSettled` per `AnswerId`:
-   - `Accepted`: the session took it (Claude: the callback resolved; Codex: the reply was written).
-   - `NotWaiting`: nothing waited on that request id (answered, withdrawn, other session): Node's `false`.
-   - `Failed(error)`: handing it over failed after queueing (broken pipe, process gone, write stalled).
-3. `turn` is the Chat's latest turn (its session generation); answer within that session only.
-4. The host validates first: decision is one of `allow`, `allow-for-chat`, `deny`; answers are `null` or at most
-   10 question ids with at most 20 strings of 10,000 code units. Secret (`milagre-secret-*`), bug-report
-   (`milagre-bug-report-*`) and setup-review (`setup-review-*`) requests never reach a provider.
+1. Enqueue only. `Err` means refused at once (that session is gone): nothing was handed over.
+2. Settle each `AnswerId` with one of:
+   - `Accepted`: the session took it (Claude: the callback resolved; Codex: the reply frame was written).
+   - `NotWaiting`: proven that nothing waited on that request id: Node's `false`.
+   - `Failed(error)`: proven not delivered (refused before writing, or removed from the queue unwritten).
+   - `Uncertain(error)`: it may have reached the session (written, or possibly written, then the pipe broke, the
+     process died or no confirmation came). Use this whenever non-delivery can't be proven.
+3. After an `Uncertain`, the adapter may still send one definitive settlement for the same `AnswerId` if it learns
+   more (`Accepted`, `NotWaiting`, `Failed`); the host resolves the kept answer with it.
+4. `turn` is the Chat's latest turn (its session generation); answer within that session only.
+5. The host validates first:
+   - decision is one of `allow`, `allow-for-chat`, `deny`;
+   - answers are `null` or at most 10 question ids with at most 20 strings of 10,000 code units;
+   - the summary is at most `MAX_ANSWER_SUMMARY` code units.
+
+   Secret (`milagre-secret-*`), bug-report (`milagre-bug-report-*`) and setup-review (`setup-review-*`) requests never
+   reach a provider.
 
 Host side (`ChatHost::respond_permission` / `answer_question` return an `AnswerTicket`):
 
 - `Settled(false)` at once when the Chat has no live session here (Node's `?? false`).
-- `Pending(answer)` otherwise. The answers message is shown first (Node's `recordAnswers`, before the agent has them),
-  then `Notice::AnswerSettled { answer, result }` follows:
-  - `Ok(true)`: taken.
-  - `Ok(false)`: nothing waited; the answers message is taken back.
-  - `Err(message)`: failed; taken back too.
-- An answer with no settlement after `answer_grace_ms` (30 s) fails as a timeout and is taken back; a later settlement
-  is dropped. An answer waiting on a session that closes (forced end, `forget`, `Exited`, quit) fails the same way.
-- Duplicate, unknown or other-Chat settlements are dropped (an error from `pump`/`deliver`).
+- A request that already has an answer on its way, or one with an unknown delivery, in the same Chat and session
+  generation: refused with `StoreError::AnswerDeliveryUnknown` (code `ANSWER_DELIVERY_UNKNOWN`) before anything is
+  shown or handed over.
+- `Pending(answer)` otherwise. The answers message is shown first (Node's `recordAnswers`), then
+  `Notice::AnswerSettled { answer, result }` follows, with `result` one of:
+  - `Accepted`: the command answers `true`;
+  - `NotWaiting`: `false`, and the answers message is taken back;
+  - `Failed(message)`: rejects with the message, and the answers message is taken back;
+  - `Uncertain(message)`: rejects with code `ANSWER_DELIVERY_UNKNOWN`. The answers message stays, and the answer is
+    kept to block retries of that request.
+- **The host never proves non-delivery itself.**
+  - No settlement within `answer_grace_ms` (30 s) settles `Uncertain` ("The agent hasn't confirmed the answer.").
+  - A session generation that closes with answers on its way settles them `Uncertain` too: forced end, `Exited`,
+    `forget`, quit. Their messages stay, and that generation's kept answers stop blocking, since a new session has no
+    such request.
+- **Kept uncertain answers**, by `AnswerId`: at most `MAX_UNCERTAIN_ANSWERS` (256), the oldest dropped first (it
+  stops blocking; its message stays). Each is removed by:
+  - a definitive settlement, told as `Notice::AnswerResolved`, where `NotWaiting` and `Failed` take the message back;
+  - its generation closing;
+  - eviction.
+- Unknown, duplicate or other-Chat settlements are dropped (an error from `pump`/`deliver`).
 
 Runtime actor: keep the client's command reply for a `Pending` ticket and answer it from the matching
-`Notice::AnswerSettled` (`true`/`false`, or reject with the message). `ChatHost::call` returns
-`{ "pendingAnswer": id }` for those two commands so a generic boundary can tell. Never reply `true` before
-settlement.
+`Notice::AnswerSettled`: `true`, `false`, reject with the message, or reject with `ANSWER_DELIVERY_UNKNOWN`.
+`Notice::AnswerResolved` is for the Chat only: the reply was sent already. `ChatHost::call` returns
+`{ "pendingAnswer": id }` for these two commands. Never reply `true` before settlement.
+
+## JSON boundary
+
+- Provider JSON is raw: `ProviderEvent::Agent { event: RawJson }` and `Started { result: RawJson }` carry plain
+  `serde_json` values, strings as the provider produced them. `ProviderError.message` is a plain string.
+- `ChatHost::deliver` encodes it once (`RawJson::encode`: every string and key through `jsjson::js_string`, a real
+  U+10FFFE doubled). After that, a provider string can't read as the `undefined` marker or decode as a lone surrogate.
+  Adapters must not jsjson-encode themselves: the runtime's conversion goes.
+- `ChatHost::receive`, `send`, `call` and every value in a `Notice` are encoded (jsjson). Serialize notices with
+  `jsjson::to_string`, never with `serde_json`, and decode wire requests with `jsjson::parse`.
+- A recorded trace replayed through a provider decodes first (`RawJson::decode`, which refuses an unpaired surrogate).
 
 ## Owner policy boundary
 

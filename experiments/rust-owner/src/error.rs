@@ -51,6 +51,8 @@ pub enum StoreError {
     },
     /// A write outside an isolated copy, or an isolated copy that isn't safe to write (see isolation.rs).
     NotIsolated(String),
+    /// An answer whose delivery to the agent is unknown, or a retry it blocks (`ANSWER_DELIVERY_UNKNOWN`).
+    AnswerDeliveryUnknown(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -178,6 +180,7 @@ impl fmt::Display for StoreError {
                 write!(f, "Milagre ownership changed: {}", lock.display())
             }
             StoreError::NotIsolated(message) => write!(f, "{message}"),
+            StoreError::AnswerDeliveryUnknown(message) => write!(f, "{message}"),
             StoreError::OwnershipLost { lock, why } => write!(
                 f,
                 "This process no longer owns the Project ({why}: {}); nothing was written.",

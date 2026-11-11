@@ -124,6 +124,59 @@ fn units(text: &str) -> impl Iterator<Item = Unit> + '_ {
     })
 }
 
+/// JSON as a provider produced it: a plain `serde_json` value, its strings as they are (they may hold U+10FFFE, the
+/// `undefined` marker's text or anything else). The owner's own values are encoded (see the module docs); a
+/// `RawJson` crosses into them once, through [`RawJson::encode`] (ChatHost::deliver does it for every provider event).
+/// Values a caller already encoded (parsed with [`parse`], or read back from storage) never go through it again.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RawJson(pub Value);
+
+impl RawJson {
+    /// The encoded value: every string and key through [`js_string`] (a real U+10FFFE doubled).
+    pub fn encode(&self) -> Value {
+        encode_raw(&self.0)
+    }
+
+    /// The raw value of an encoded one (for a test or a recorded trace replayed through a provider). Fails on an
+    /// unpaired surrogate, which a plain Rust string can't hold.
+    pub fn decode(encoded: &Value) -> Result<RawJson, String> {
+        decode_value(encoded).map(RawJson)
+    }
+}
+
+fn encode_raw(value: &Value) -> Value {
+    match value {
+        Value::String(text) => Value::String(js_string(text)),
+        Value::Array(items) => Value::Array(items.iter().map(encode_raw).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, item)| (js_string(key), encode_raw(item)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+fn decode_text(text: &str) -> Result<String, String> {
+    String::from_utf16(&to_utf16(text))
+        .map_err(|_| "an unpaired surrogate has no plain Rust string".to_string())
+}
+
+fn decode_value(value: &Value) -> Result<Value, String> {
+    Ok(match value {
+        Value::String(text) => Value::String(decode_text(text)?),
+        Value::Array(items) => {
+            Value::Array(items.iter().map(decode_value).collect::<Result<_, _>>()?)
+        }
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, item)| Ok((decode_text(key)?, decode_value(item)?)))
+                .collect::<Result<_, String>>()?,
+        ),
+        other => other.clone(),
+    })
+}
+
 /// A string from outside JSON (SQLite text, a path) in the encoding `Value`s use: a real U+10FFFE doubled.
 pub fn js_string(text: &str) -> String {
     if text.contains(ESC) {

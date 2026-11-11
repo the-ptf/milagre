@@ -117,7 +117,7 @@ pub struct ProviderError { pub kind: ProviderErrorKind, pub message: String } //
 
 Automatic compaction stays off (Node's default) and can't be turned on.
 
-- **Answers** (`agent:respond-permission`, `agent:answer-question`): validated as SessionManager does, the answers shown as the user's message after the reply so far (`recordAnswers`), handed to the provider and settled asynchronously; anything but acceptance takes the message back. See `PROVIDER-CONTRACT.md`.
+- **Answers** (`agent:respond-permission`, `agent:answer-question`): validated as SessionManager does, the answers shown as the user's message after the reply so far (`recordAnswers`), handed to the provider and settled asynchronously: `NotWaiting` and proven `Failed` take the message back, `Uncertain` (the adapter's, a deadline's, or a closing session's) keeps it and blocks a retry of that request in that session generation until a definitive settlement or the session closes. Provider JSON is raw and encoded once in `deliver`. See `PROVIDER-CONTRACT.md`.
 
 Steering and handoffs: what Node does and what each needs is in `STEERING-HANDOFF.md`. Steering admission and save are ported behind `SteeringMode` (default `Gated`; `Recorded` is for conformance and calls no provider); the Provider call for it is a proposal there.
 
@@ -140,7 +140,7 @@ What remains different:
 
 ```sh
 cd experiments/rust-owner
-cargo test        # unit, reads (620 Node cases), writer (93 steps), runtime (109 steps), ChatHost (182 steps + 21 safety), summarizeStep (43 Node cases), locks, ownership, containment, CLI
+cargo test        # unit, reads (620 Node cases), writer (93 steps), runtime (109 steps), ChatHost (182 steps + 24 safety), summarizeStep (43 Node cases), locks, ownership, containment, CLI
 node fixtures/generate.cjs --check           # do the committed read fixtures still match current Node?
 node fixtures/generate.cjs                   # regenerate after a deliberate format change, then cargo test
 

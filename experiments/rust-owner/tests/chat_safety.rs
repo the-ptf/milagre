@@ -6,10 +6,11 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use milagre_owner_store::chat_host::{
-    AnswerId, AnswerOutcome, AnswerTicket, ChatHost, MockProvider, Notice, ProviderError,
-    ProviderErrorKind, ProviderEvent, SteeringMode, TurnId,
+    AnswerId, AnswerOutcome, AnswerResult, AnswerTicket, ChatHost, MockProvider, Notice,
+    ProviderError, ProviderErrorKind, ProviderEvent, SteeringMode, TurnId,
 };
 use milagre_owner_store::isolation::{Isolation, Policy};
+use milagre_owner_store::jsjson::{self, RawJson};
 use milagre_owner_store::ownership;
 use milagre_owner_store::states::{ProjectStates, Timing};
 use milagre_owner_store::StoreError;
@@ -744,7 +745,7 @@ fn a_tick_handles_events_before_forcing() {
     copy.kiro.push(ProviderEvent::Started {
         chat,
         turn,
-        result: json!({ "turnId": "late", "steered": false }),
+        result: RawJson(json!({ "turnId": "late", "steered": false })),
     });
     assert_eq!(copy.host.pump().len(), 1);
     assert!(copy.host.take_notices().is_empty());
@@ -764,7 +765,7 @@ fn answer(copy: &mut Copy, request: &str, body: &str) -> AnswerTicket {
     copy.host.answer_question(&request).unwrap()
 }
 
-fn settlement(copy: &mut Copy, answer: AnswerId) -> Option<Result<bool, String>> {
+fn settlement(copy: &mut Copy, answer: AnswerId) -> Option<AnswerResult> {
     copy.host
         .take_notices()
         .into_iter()
@@ -796,7 +797,10 @@ fn an_answer_that_fails_after_queueing_is_taken_back() {
     );
     copy.host.take_notices();
     assert!(copy.host.pump().is_empty());
-    assert_eq!(settlement(&mut copy, id), Some(Err("broken pipe".into())));
+    assert_eq!(
+        settlement(&mut copy, id),
+        Some(AnswerResult::Failed("broken pipe".into()))
+    );
     assert!(
         !user_bodies(&copy.messages()).contains(&"Red".to_string()),
         "a failed answer stayed"
@@ -811,10 +815,15 @@ fn an_answer_that_fails_after_queueing_is_taken_back() {
     assert_eq!(copy.host.pump().len(), 1);
 }
 
-/// An answer that never settles fails after its grace (taken back); its late settlement is dropped. Answers waiting
-/// on a session that is forced closed fail too.
+fn handed(copy: &Copy) -> usize {
+    copy.kiro.state.lock().unwrap().answers.len()
+}
+
+/// Delivery unknown (a host deadline, or the adapter saying so): the answers stay shown, a retry of the same request
+/// in that session generation is refused before anything is shown or handed over, and a later definitive settlement
+/// resolves it (taking the message back only when it proves nothing was delivered).
 #[test]
-fn unsettled_answers_fail_after_their_grace_or_when_the_session_closes() {
+fn uncertain_answers_stay_and_block_retries() {
     let mut copy = Copy::plain();
     copy.send("one", "c1", json!({})).unwrap();
     copy.host.pump();
@@ -824,47 +833,77 @@ fn unsettled_answers_fail_after_their_grace_or_when_the_session_closes() {
         panic!("settled at once")
     };
     copy.host.take_notices();
+    // While it is on its way, the same request can't be answered again.
+    let request = json!({ "chatId": copy.chat(), "requestId": "q1", "answers": { "c": ["Blue"] }, "summary": "Blue" });
+    assert!(matches!(
+        copy.host.answer_question(&request),
+        Err(StoreError::AnswerDeliveryUnknown(_))
+    ));
     let start = copy.host.states.now();
-    copy.host.tick(start + copy.host.answer_grace_ms - 1);
-    assert_eq!(settlement(&mut copy, id), None);
     copy.host.tick(start + copy.host.answer_grace_ms);
     assert_eq!(
         settlement(&mut copy, id),
-        Some(Err("The agent didn't take the answer in time.".into()))
+        Some(AnswerResult::Uncertain(
+            "The agent hasn't confirmed the answer.".into()
+        ))
     );
-    assert!(!user_bodies(&copy.messages()).contains(&"Red".to_string()));
+    assert!(
+        user_bodies(&copy.messages()).contains(&"Red".to_string()),
+        "an unknown delivery was taken back"
+    );
+    let (shown, asked) = (copy.messages().len(), handed(&copy));
+    assert!(matches!(
+        copy.host.answer_question(&request),
+        Err(StoreError::AnswerDeliveryUnknown(_))
+    ));
+    assert_eq!(
+        (copy.messages().len(), handed(&copy)),
+        (shown, asked),
+        "a blocked retry was shown or handed over"
+    );
+    // The adapter later proves nothing was delivered: the answers go, and the request can be answered again.
     let chat = copy.chat();
     copy.kiro.push(ProviderEvent::AnswerSettled {
         chat: chat.clone(),
         answer: id,
-        outcome: AnswerOutcome::Accepted,
+        outcome: AnswerOutcome::NotWaiting,
     });
-    assert_eq!(copy.host.pump().len(), 1, "a late settlement was taken");
-
-    let AnswerTicket::Pending(second) = answer(&mut copy, "q1", "Blue") else {
+    assert!(copy.host.pump().is_empty());
+    let notices = copy.host.take_notices();
+    assert!(notices.iter().any(|n| matches!(n, Notice::AnswerResolved { answer, result: AnswerResult::NotWaiting, .. } if *answer == id)));
+    assert!(!user_bodies(&copy.messages()).contains(&"Red".to_string()));
+    copy.kiro.state.lock().unwrap().hold_answers = false;
+    copy.kiro.state.lock().unwrap().uncertain_next_answer = Some("pipe broke after writing".into());
+    let AnswerTicket::Pending(second) = copy.host.answer_question(&request).unwrap() else {
         panic!("settled at once")
     };
-    copy.host.take_notices();
-    copy.host.interrupt(&chat).unwrap();
-    let now = copy.host.states.now();
-    copy.host.tick(now + copy.host.interrupt_grace_ms);
+    assert!(copy.host.pump().is_empty());
     assert_eq!(
         settlement(&mut copy, second),
-        Some(Err(
-            "The agent's session was closed before it took the answer.".into()
-        ))
+        Some(AnswerResult::Uncertain("pipe broke after writing".into()))
     );
-    assert!(!user_bodies(&copy.messages()).contains(&"Blue".to_string()));
-    // With no session left, an answer settles `false` at once.
-    assert_eq!(
-        answer(&mut copy, "q1", "Green"),
-        AnswerTicket::Settled(false)
-    );
+    assert!(user_bodies(&copy.messages()).contains(&"Blue".to_string()));
+    // A late acceptance resolves it: it stays.
+    copy.kiro.push(ProviderEvent::AnswerSettled {
+        chat: chat.clone(),
+        answer: second,
+        outcome: AnswerOutcome::Accepted,
+    });
+    assert!(copy.host.pump().is_empty());
+    assert!(copy.host.take_notices().iter().any(|n| matches!(
+        n,
+        Notice::AnswerResolved {
+            result: AnswerResult::Accepted,
+            ..
+        }
+    )));
+    assert!(user_bodies(&copy.messages()).contains(&"Blue".to_string()));
 }
 
-/// The running session's exit fails the answers waiting on it.
+/// A session generation that closes with an answer on its way (forced end, exit): its delivery is unknown, the
+/// answers stay, and nothing stays blocked (that session is gone; a new one has no such request).
 #[test]
-fn an_exit_fails_waiting_answers() {
+fn a_closing_session_leaves_answers_uncertain_and_unblocked() {
     let mut copy = Copy::plain();
     copy.send("one", "c1", json!({})).unwrap();
     copy.host.pump();
@@ -877,15 +916,114 @@ fn an_exit_fails_waiting_answers() {
     let chat = copy.chat();
     let turn = copy.host.active_turn(&chat).unwrap();
     copy.kiro.push(ProviderEvent::Exited {
-        chat,
+        chat: chat.clone(),
         turn,
         error: ProviderError::new(ProviderErrorKind::Exited, "kiro-cli exited"),
     });
     assert!(copy.host.pump().is_empty());
     assert_eq!(
         settlement(&mut copy, id),
-        Some(Err("kiro-cli exited".into()))
+        Some(AnswerResult::Uncertain("kiro-cli exited".into()))
     );
+    assert!(user_bodies(&copy.messages()).contains(&"Red".to_string()));
+    // No live session: an answer settles `false` at once, unblocked.
+    assert_eq!(
+        answer(&mut copy, "q1", "Green"),
+        AnswerTicket::Settled(false)
+    );
+}
+
+/// The raw boundary: provider JSON is encoded once, so a real U+10FFFE, the `undefined` marker's text and a PUA
+/// character after U+10FFFE come back exactly as the provider sent them.
+#[test]
+fn provider_strings_cross_the_boundary_once() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    let chat = copy.chat();
+    let marker = "\u{10FFFE}\u{0}undefined";
+    let tricky = format!("a\u{10FFFE}\u{F0001}b {marker}");
+    copy.kiro.emit(
+        &chat,
+        json!({ "type": "session-started", "nativeId": "native" }),
+    );
+    copy.kiro.emit(&chat, json!({ "type": "subagent-update", "agent": { "id": "s1", "title": marker, "status": "running", "startedAt": 1, "updatedAt": 1, "transcript": [] } }));
+    copy.kiro
+        .emit(&chat, json!({ "type": "text-delta", "text": tricky }));
+    copy.kiro.emit(&chat, json!({ "type": "turn-completed" }));
+    assert!(copy.host.pump().is_empty());
+    let last = copy.messages().last().cloned().unwrap();
+    assert_eq!(RawJson::decode(&last["body"]).unwrap().0, json!(tricky));
+    let title = copy.session()["subagents"][0]["title"].clone();
+    assert!(
+        !jsjson::is_undefined(&title),
+        "a provider string was read as undefined"
+    );
+    assert_eq!(RawJson::decode(&title).unwrap().0, json!(marker));
+    // And on disk: read back from a fresh open, the same strings.
+    let project = copy.project.clone();
+    copy.host.states.flush(Some(&project)).unwrap();
+    let text = jsjson::to_string(&copy.host.states.current(&project).unwrap().to_value());
+    let reread = jsjson::parse(&text).unwrap();
+    let body = reread["messages"].as_array().unwrap().last().unwrap()["body"].clone();
+    assert_eq!(RawJson::decode(&body).unwrap().0, json!(tricky));
+}
+
+/// Remote re-review P2-1: a turn end handled while a quit is checked waits; when the quit is refused (another turn
+/// still runs), that Chat's queue moves on.
+#[test]
+fn a_refused_quit_moves_deferred_queues_on() {
+    let mut copy = Copy::new(
+        json!({ "1": { "id": 1, "worktree_id": 1 }, "2": { "id": 2, "worktree_id": 1 } }),
+        json!([]),
+    );
+    let path = copy.path();
+    let other = format!("{path}#2");
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.send("long", "c9", json!({ "sessionId": 2 })).unwrap();
+    copy.host.pump();
+    copy.native();
+    copy.send("next", "c2", json!({})).unwrap();
+    assert_eq!(copy.started(), 2);
+    // Chat 1's end waits in the provider's events; Chat 2 keeps running.
+    let chat = copy.chat();
+    copy.kiro.emit(&chat, json!({ "type": "turn-completed" }));
+    let error = copy.host.shutdown(false).unwrap_err().to_string();
+    assert!(error.contains("suspend and resume"), "{error}");
+    assert_eq!(
+        copy.started(),
+        3,
+        "the queue behind the ended turn didn't move on"
+    );
+    assert!(copy.host.active_turn(&chat).is_some());
+    assert!(copy.host.active_turn(&other).is_some());
+    // The host runs on: sends are taken again.
+    copy.send("more", "c3", json!({})).unwrap();
+}
+
+/// Remote re-review P3: a forced close holds the queue it left (no auto-send once reopened), and a summary past the
+/// bound is refused before anything is shown.
+#[test]
+fn a_forced_close_holds_and_summaries_are_bounded() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    copy.native();
+    copy.send("two", "c2", json!({})).unwrap();
+    let project = copy.project.clone();
+    copy.host.forget(&project, true).unwrap();
+    copy.host.states.get(&project).unwrap();
+    assert_eq!(copy.session()["queueHeld"], true);
+
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    let before = copy.messages().len();
+    let summary = "x".repeat(milagre_owner_store::chat_host::MAX_ANSWER_SUMMARY + 1);
+    let request = json!({ "chatId": copy.chat(), "requestId": "q1", "answers": { "c": ["x"] }, "summary": summary });
+    let error = copy.host.answer_question(&request).unwrap_err().to_string();
+    assert!(error.contains("summary is longer"), "{error}");
+    assert_eq!(copy.messages().len(), before);
 }
 
 /// A Copy whose Chat runs on Claude (which can steer), with steering recorded.
@@ -991,61 +1129,4 @@ fn steering_is_gated_or_recorded_never_sent() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("quitting"), "{error}");
-}
-
-/// Remote re-review P2-1: a turn end handled while a quit is checked waits; when the quit is refused (another turn
-/// still runs), that Chat's queue moves on.
-#[test]
-fn a_refused_quit_moves_deferred_queues_on() {
-    let mut copy = Copy::new(
-        json!({ "1": { "id": 1, "worktree_id": 1 }, "2": { "id": 2, "worktree_id": 1 } }),
-        json!([]),
-    );
-    let path = copy.path();
-    let other = format!("{path}#2");
-    copy.send("one", "c1", json!({})).unwrap();
-    copy.send("long", "c9", json!({ "sessionId": 2 })).unwrap();
-    copy.host.pump();
-    copy.native();
-    copy.send("next", "c2", json!({})).unwrap();
-    assert_eq!(copy.started(), 2);
-    // Chat 1's end waits in the provider's events; Chat 2 keeps running.
-    let chat = copy.chat();
-    copy.kiro.emit(&chat, json!({ "type": "turn-completed" }));
-    let error = copy.host.shutdown(false).unwrap_err().to_string();
-    assert!(error.contains("suspend and resume"), "{error}");
-    assert_eq!(
-        copy.started(),
-        3,
-        "the queue behind the ended turn didn't move on"
-    );
-    assert!(copy.host.active_turn(&chat).is_some());
-    assert!(copy.host.active_turn(&other).is_some());
-    // The host runs on: sends are taken again.
-    copy.send("more", "c3", json!({})).unwrap();
-}
-
-/// Remote re-review P3: a forced close holds the queue it left (no auto-send once reopened), and a summary past the
-/// bound is refused before anything is shown.
-#[test]
-fn a_forced_close_holds_and_summaries_are_bounded() {
-    let mut copy = Copy::plain();
-    copy.send("one", "c1", json!({})).unwrap();
-    copy.host.pump();
-    copy.native();
-    copy.send("two", "c2", json!({})).unwrap();
-    let project = copy.project.clone();
-    copy.host.forget(&project, true).unwrap();
-    copy.host.states.get(&project).unwrap();
-    assert_eq!(copy.session()["queueHeld"], true);
-
-    let mut copy = Copy::plain();
-    copy.send("one", "c1", json!({})).unwrap();
-    copy.host.pump();
-    let before = copy.messages().len();
-    let summary = "x".repeat(milagre_owner_store::chat_host::MAX_ANSWER_SUMMARY + 1);
-    let request = json!({ "chatId": copy.chat(), "requestId": "q1", "answers": { "c": ["x"] }, "summary": summary });
-    let error = copy.host.answer_question(&request).unwrap_err().to_string();
-    assert!(error.contains("summary is longer"), "{error}");
-    assert_eq!(copy.messages().len(), before);
 }
