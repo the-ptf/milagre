@@ -100,7 +100,7 @@ pub fn authorize(a: Accepted) -> Authorized {
         persistence: Persistence::Committed,
         desktop: DesktopAccess::Enabled,
     };
-    a.authorize(decision).unwrap()
+    a.authorize(decision, || true).unwrap()
 }
 pub fn pair() -> (Channel, Channel) {
     let f = fixtures();

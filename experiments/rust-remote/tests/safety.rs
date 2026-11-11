@@ -38,11 +38,11 @@ fn authorization_consumes_and_checks_each_service_obligation() {
         for known in [false, true] {
             let a = pending(known, kind);
             let d = decision(&a);
-            assert!(a.authorize(d).is_ok());
+            assert!(a.authorize(d, || true).is_ok());
         }
     }
     assert!(matches!(
-        pending(false, DeviceKind::Phone).authorize(ServiceDecision::Deny),
+        pending(false, DeviceKind::Phone).authorize(ServiceDecision::Deny, || true),
         Err(Error::Unauthorized)
     ));
     for case in 0..8 {
@@ -70,7 +70,7 @@ fn authorization_consumes_and_checks_each_service_obligation() {
             }
         }
         assert!(
-            matches!(a.authorize(d), Err(Error::Unauthorized)),
+            matches!(a.authorize(d, || true), Err(Error::Unauthorized)),
             "case {case}"
         );
     }
@@ -80,7 +80,7 @@ fn authorization_consumes_and_checks_each_service_obligation() {
         if let ServiceDecision::Allow { stored: s, .. } = &mut d {
             *s = stored;
         }
-        assert!(matches!(a.authorize(d), Err(Error::Unauthorized)));
+        assert!(matches!(a.authorize(d, || true), Err(Error::Unauthorized)));
     }
     let a = pending(false, DeviceKind::Phone);
     let mut d = decision(&a);
@@ -88,7 +88,7 @@ fn authorization_consumes_and_checks_each_service_obligation() {
         *owner = OwnerApproval::NotRequired;
         *desktop = DesktopAccess::Disabled;
     }
-    assert!(a.authorize(d).is_ok());
+    assert!(a.authorize(d, || true).is_ok());
 }
 #[test]
 fn node_callback_oracle_calls_pairability_even_for_known_devices() {
@@ -313,4 +313,25 @@ fn payload_limits_roundtrip_without_counting_envelope_overhead() {
             Err(Error::TooLarge)
         );
     }
+}
+#[test]
+fn device_and_global_reservations_roll_back_every_counter() {
+    let global = GlobalBudget::new(1000).unwrap();
+    let device = global.device(800).unwrap();
+    let first = device.connection(600).unwrap();
+    let second = device.connection(600).unwrap();
+    let held = first.reserve(500).unwrap();
+    assert!(second.reserve(400).is_err());
+    assert_eq!(second.used(), 0);
+    assert_eq!(device.used(), 500);
+    assert_eq!(global.used(), 500);
+    let other = global.connection(500).unwrap().reserve(500).unwrap();
+    assert!(second.reserve(100).is_err());
+    assert_eq!(second.used(), 0);
+    assert_eq!(device.used(), 500);
+    assert_eq!(global.used(), 1000);
+    drop(other);
+    drop(held);
+    assert_eq!(device.used(), 0);
+    assert_eq!(global.used(), 0);
 }

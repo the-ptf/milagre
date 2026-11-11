@@ -15,7 +15,6 @@ serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
 subtle = "2.6"
 thiserror = "2"
 
-[dev-dependencies]
 sha2 = "0.10"
 
 [workspace]

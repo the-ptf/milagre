@@ -2,9 +2,13 @@
 
 Addresses rust-remote P2.1/P2.2 and the requested P3.6/P3.7 cases from `rust-remote-codex-policy-review.md`, read from the review Worktree without changing it. Only this crate changed. No network requests, live keys, profiles, pairing, daemon or service locks, or pushes were used.
 
+## Subsequent policy checkpoint
+
+See [HOST-POLICY.md](HOST-POLICY.md): `authorize` now also requires a last generation callback and enforces a ten-minute monotonic acceptance age; `Channel::open` validates raw JSON before Value allocation. A temporary-only record authority derives service decisions and owns shared device/connection budgets. The original 42-test checkpoint below remains historical; the current total is 59 tests plus three doctests. Rust Ed25519 remains blocked offline.
+
 ## Consuming service authorization
 
-`host_accept` now returns a private-field `Accepted`. `device()` exposes immutable sanitized metadata only. No method reveals the reply or channel until `authorize(self, ServiceDecision)` succeeds. Both success and refusal consume the acceptance; dropping it is also refusal. Compile-fail doctests check reply privacy, channel privacy and inability to authorize twice.
+`host_accept` now returns a private-field `Accepted`. `device()` exposes immutable sanitized metadata only. No method reveals the reply or channel until `authorize(self, ServiceDecision, still_current)` succeeds. Both success and refusal consume the acceptance; dropping it is also refusal. Compile-fail doctests check reply privacy, channel privacy and inability to authorize twice.
 
 A service constructs an explicit `ServiceDecision::Deny` or `ServiceDecision::Allow` with all observations below. There is no `Default`, `allow_all` constructor or generic success boolean:
 

@@ -6,7 +6,9 @@ use crypto_box::{aead::Aead, PublicKey, SalsaBox, SecretKey};
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::time::{Duration, Instant};
 use subtle::ConstantTimeEq;
+pub const MAX_ACCEPT_AGE: Duration = Duration::from_secs(600);
 
 /// Local input bound, not a negotiated protocol change.
 pub const MAX_HELLO_BYTES: usize = 16 * 1024;
@@ -172,6 +174,7 @@ impl PendingHello {
 /// Cryptographic acceptance only. No reply or channel is exposed before authorize.
 /// Dropping this value denies the connection and releases its keys.
 pub struct Accepted {
+    created: Instant,
     reply: Vec<u8>,
     device: Device,
     channel: Channel,
@@ -228,7 +231,9 @@ impl Accepted {
         &self.device
     }
     /// Consumes the pending acceptance on success AND refusal. A failed policy decision
-    /// cannot be retried against the same acceptance with weaker assertions.
+    /// cannot be retried against the same acceptance with weaker assertions. The last
+    /// callback must read the current service generation/deadline, not a cached boolean.
+    /// Acceptances expire after ten monotonic minutes even if the callback returns true.
     ///
     /// ```compile_fail
     /// fn bypass(a: milagre_remote::channel::Accepted) { let _ = a.reply; }
@@ -238,9 +243,13 @@ impl Accepted {
     /// ```
     /// ```compile_fail
     /// use milagre_remote::channel::{Accepted, ServiceDecision};
-    /// fn twice(a: Accepted) { a.authorize(ServiceDecision::Deny); a.authorize(ServiceDecision::Deny); }
+    /// fn twice(a: Accepted) { a.authorize(ServiceDecision::Deny, || true); a.authorize(ServiceDecision::Deny, || true); }
     /// ```
-    pub fn authorize(self, decision: ServiceDecision) -> Result<Authorized> {
+    pub fn authorize(
+        self,
+        decision: ServiceDecision,
+        still_current: impl FnOnce() -> bool,
+    ) -> Result<Authorized> {
         let ServiceDecision::Allow {
             device_key,
             identity,
@@ -272,6 +281,11 @@ impl Accepted {
             }
             (false, StoredDevice::Known(kind)) if kind == self.device.kind => {}
             _ => return Err(Error::Unauthorized),
+        }
+        // Evaluate the authoritative connection-generation check LAST. A slow callback
+        // also cannot extend the absolute age of the cryptographic acceptance.
+        if !still_current() || self.created.elapsed() >= MAX_ACCEPT_AGE {
+            return Err(Error::Unauthorized);
         }
         Ok(Authorized {
             reply: self.reply,
@@ -351,6 +365,7 @@ pub fn host_accept(
         .map(str::to_owned)
         .collect();
     Ok(Accepted {
+        created: Instant::now(),
         reply,
         device: Device {
             key,
@@ -422,13 +437,57 @@ impl Channel {
     }
     /// Convenience decoder for Unicode scalar JSON only. For lossless JS strings use open_encoded.
     pub fn open(&mut self, frame: &[u8]) -> Result<Value> {
-        serde_json::from_slice(&self.open_encoded(frame)?).map_err(|_| Error::Schema)
+        let plain = self.open_encoded(frame)?;
+        crate::raw_json::validate(&plain)?;
+        serde_json::from_slice(&plain).map_err(|_| Error::Schema)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn acceptance_expires_and_generation_guard_is_evaluated_last() {
+        let make = |age| {
+            let a = SecretKey::from([17; 32]);
+            let b = SecretKey::from([29; 32]);
+            Accepted {
+                created: Instant::now().checked_sub(age).unwrap(),
+                reply: vec![],
+                device: Device {
+                    key: "synthetic".into(),
+                    first_pairing: false,
+                    kind: DeviceKind::Phone,
+                    name: None,
+                    caps: vec![],
+                },
+                channel: Channel::new(SalsaBox::new(&b.public_key(), &a), 1),
+            }
+        };
+        let decision = || ServiceDecision::Allow {
+            device_key: "synthetic".into(),
+            identity: IdentityStatus::Current,
+            stored: StoredDevice::Known(DeviceKind::Phone),
+            owner: OwnerApproval::NotRequired,
+            persistence: Persistence::NotRequired,
+            desktop: DesktopAccess::Disabled,
+        };
+        assert!(matches!(
+            make(MAX_ACCEPT_AGE).authorize(decision(), || true),
+            Err(Error::Unauthorized)
+        ));
+        assert!(matches!(
+            make(Duration::ZERO).authorize(decision(), || false),
+            Err(Error::Unauthorized)
+        ));
+        assert!(make(Duration::ZERO).authorize(decision(), || true).is_ok());
+        assert!(matches!(
+            make(Duration::ZERO).authorize(ServiceDecision::Deny, || panic!(
+                "only after policy succeeds"
+            )),
+            Err(Error::Unauthorized)
+        ));
+    }
     #[test]
     fn counters_never_wrap_or_reuse_nonces() {
         let a = SecretKey::from([17; 32]);

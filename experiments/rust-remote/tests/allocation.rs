@@ -1,5 +1,6 @@
 //! Single-test binary: allocator instrumentation only, never linked into the library.
 //! The production library retains forbid(unsafe_code).
+mod support;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use milagre_remote::{budget::*, peer::*, Error};
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -103,6 +104,24 @@ fn raw_validation_and_fragment_assembly_do_not_amplify_compact_json_into_values(
     assert!(largest <= dense.len());
     assert_eq!(c.used(), 0);
     assert!(!r.pending());
+    // Channel's Value convenience path must reject dense plaintext before allocating Values.
+    let (mut sender, mut receiver) = support::pair();
+    let dense_channel = format!("[{}0]", "0,".repeat(200_000));
+    let encrypted = sender.seal_encoded(dense_channel.as_bytes()).unwrap();
+    let (result, total, _) = measure(|| receiver.open(&encrypted));
+    assert_eq!(result, Err(Error::TooLarge));
+    assert!(
+        total < 2 * dense_channel.len() + 65_536,
+        "allocated {total}"
+    );
+    // Authenticated rejected JSON still consumes the counter.
+    assert_eq!(receiver.open(&encrypted), Err(Error::Order));
+    assert_eq!(
+        receiver
+            .open(&sender.seal_encoded(b"null").unwrap())
+            .unwrap(),
+        serde_json::Value::Null
+    );
     // Many fields in a bounded envelope are rejected without a map allocation.
     let many = format!(
         "{{\"t\":\"rpc\",\"frame\":null,{}}}",
