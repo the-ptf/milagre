@@ -3,7 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execCommand } = require("./agents/command.cjs");
 
-// Kiro's credits for the month (docs/adr/0007-kiro-over-acp.md). kiro-cli answers its `/usage` command without a model
+// Kiro's credits for the month (docs/adr/0017-kiro-over-acp.md). kiro-cli answers its `/usage` command without a model
 // turn, so it costs nothing: "Estimated Usage | resets on 2026-11-01 | KIRO POWER", then "Credits (452.97 of 10000
 // covered in plan), 4.5%". It takes a few seconds and leaves a session record behind, so it runs in a folder of its
 // own whose records are removed afterwards, at most once every few minutes, and never holds up the other providers.

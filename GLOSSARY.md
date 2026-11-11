@@ -50,7 +50,7 @@ Work that outlives the **Chat**'s turn and reports back to it by itself: a backg
 _Avoid_: job, child (Codex's term for a subagent)
 
 **Browser page**:
-A page in a Chromium browser on the host that a **Chat** may view and control. It belongs to the **Chat** whose agent process started its browser, or to a **Chat** the user attached that browser to. See ADR-0006.
+A page in a Chromium browser on the host that a **Chat** may view and control. It belongs to the **Chat** whose agent process started its browser, or to a **Chat** the user attached that browser to. See ADR-0016.
 _Avoid_: tab (a browser's own UI term), session (the page's sign-in state is part of it, not a separate thing)
 
 **Terminal**:

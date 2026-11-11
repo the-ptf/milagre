@@ -4,7 +4,7 @@ const path = require("node:path");
 const { babysitDenial, commandsOf } = require("../babysit-guard.cjs");
 
 // Auto mode's risk filter for an agent that asks before every command it doesn't consider read-only (Kiro; see
-// docs/adr/0007-kiro-over-acp.md). A command is risky when it reaches outside the Chat's worktree or can't be undone
+// docs/adr/0017-kiro-over-acp.md). A command is risky when it reaches outside the Chat's worktree or can't be undone
 // from it: it writes or deletes outside the worktree, discards uncommitted work, writes to GitHub or another remote
 // service, runs as an administrator, installs software on the computer, runs a script from the internet, sends data
 // over the network or changes the computer itself. A risky command gets a card that says why; anything else runs.

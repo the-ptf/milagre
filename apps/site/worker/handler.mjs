@@ -1,7 +1,9 @@
-export const RELEASES_API = "https://api.github.com/repos/the-ptf/milagre-ade/releases/latest";
-export const RELEASES_PAGE = "https://github.com/the-ptf/milagre-ade/releases/latest";
-export const REPO_API = "https://api.github.com/repos/the-ptf/milagre-ade";
-export const RECENT_RELEASES_API = "https://api.github.com/repos/the-ptf/milagre-ade/releases?per_page=10";
+import { owner, repo as repositoryName, url as repositoryUrl } from "@milagre/shared/repository";
+
+export const RELEASES_API = `https://api.github.com/repos/${owner}/${repositoryName}/releases/latest`;
+export const RELEASES_PAGE = `${repositoryUrl}/releases/latest`;
+export const REPO_API = `https://api.github.com/repos/${owner}/${repositoryName}`;
+export const RECENT_RELEASES_API = `https://api.github.com/repos/${owner}/${repositoryName}/releases?per_page=10`;
 
 // Release assets carry the version in their names, so match by pattern.
 const TARGETS = {

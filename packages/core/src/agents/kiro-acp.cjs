@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { resolveKiroModel } = require("@milagre/shared/kiro-models");
 
-// Kiro is AWS's agent (kiro-cli) over ACP; see docs/adr/0007-kiro-over-acp.md. This is everything AcpSession needs
+// Kiro is AWS's agent (kiro-cli) over ACP; see docs/adr/0017-kiro-over-acp.md. This is everything AcpSession needs
 // to know about it. Run against kiro-cli 2.34.2 on macOS arm64, engine v3, signed in through IAM Identity Center.
 
 // The v3 engine: its `model` option reports each model's credit multiplier and efforts, and an `effortLevel` option

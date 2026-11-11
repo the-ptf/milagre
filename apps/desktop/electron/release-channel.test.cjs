@@ -27,7 +27,7 @@ function fakeUpdater() {
   updater.setFeedURL = (options) => updater.feeds.push(options);
   return updater;
 }
-const GITHUB_FEED = { provider: "github", owner: "the-ptf", repo: "milagre-ade", releaseType: "release" };
+const GITHUB_FEED = { provider: "github", owner: "the-ptf", repo: "milagre", releaseType: "release" };
 
 test("stable installs follow GitHub's latest release and never see prereleases or downgrade", () => {
   const updater = fakeUpdater();
@@ -40,8 +40,8 @@ test("stable installs follow GitHub's latest release and never see prereleases o
 
 test("beta installs read the feed of the release they were pointed at, and never downgrade", () => {
   const updater = fakeUpdater();
-  configureUpdater(updater, "beta", "https://github.com/the-ptf/milagre-ade/releases/download/v0.104.1-beta.3");
-  assert.deepEqual(updater.feeds, [{ provider: "generic", url: "https://github.com/the-ptf/milagre-ade/releases/download/v0.104.1-beta.3", channel: "beta" }]);
+  configureUpdater(updater, "beta", "https://github.com/the-ptf/milagre/releases/download/v0.104.1-beta.3");
+  assert.deepEqual(updater.feeds, [{ provider: "generic", url: "https://github.com/the-ptf/milagre/releases/download/v0.104.1-beta.3", channel: "beta" }]);
   assert.equal(updater.channel, "beta");
   assert.equal(updater.allowPrerelease, true);
   assert.equal(updater.allowDowngrade, false);
@@ -79,11 +79,8 @@ test("the beta feed is the newest published beta that carries this platform's be
   // v0.104.1 is a stable that still carries a copy of the beta feed (as stables did before v0.230): beta installs
   // skip it, since it rebuilds a beta they already run. Among betas of one version, the higher build number wins,
   // compared as a number.
-  assert.equal(
-    await resolveBetaFeed({ fetch: answer(releases), platform: "darwin" }),
-    "https://github.com/the-ptf/milagre-ade/releases/download/v0.104.1-beta.10",
-  );
-  assert.match(answer.calls.at(-1).url, /^https:\/\/api\.github\.com\/repos\/the-ptf\/milagre-ade\/releases\?per_page=\d+$/);
+  assert.equal(await resolveBetaFeed({ fetch: answer(releases), platform: "darwin" }), "https://github.com/the-ptf/milagre/releases/download/v0.104.1-beta.10");
+  assert.match(answer.calls.at(-1).url, /^https:\/\/api\.github\.com\/repos\/the-ptf\/milagre\/releases\?per_page=\d+$/);
   // Linux reads beta-linux.yml; a stable alone is never a beta feed.
   assert.equal(await resolveBetaFeed({ fetch: answer([release("v0.104.1-beta.3", ["beta-mac.yml"])]), platform: "linux" }), null);
   assert.equal(await resolveBetaFeed({ fetch: answer([release("v0.104.1", ["latest-mac.yml", "beta-mac.yml"])]), platform: "darwin" }), null);
@@ -96,7 +93,7 @@ test("a GitHub API failure is an error the caller can fall back from", async () 
 test("prepareUpdater resolves the beta feed, and falls back to GitHub's lookup when that fails", async () => {
   const updater = fakeUpdater();
   await prepareUpdater(updater, "beta", { fetch: answer([release("v0.104.1-beta.3", ["beta-mac.yml"])]), platform: "darwin" });
-  assert.equal(updater.feeds.at(-1).url, "https://github.com/the-ptf/milagre-ade/releases/download/v0.104.1-beta.3");
+  assert.equal(updater.feeds.at(-1).url, "https://github.com/the-ptf/milagre/releases/download/v0.104.1-beta.3");
   await prepareUpdater(updater, "beta", {
     fetch: async () => {
       throw new Error("offline");

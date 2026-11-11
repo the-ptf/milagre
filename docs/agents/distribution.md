@@ -85,6 +85,10 @@ The repository key fingerprint is `0AC0E3D496374278E689EC0F6605D632D39BA587`. It
 
 After a signed Windows EXE is public, validate the attached manifest with `winget validate`, test `winget install --manifest`, and submit it to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). `winget install --id Milagre.Milagre` becomes available after Microsoft accepts the submission.
 
+## Repository rename
+
+Installed builds up to this release read their update feed from `the-ptf/milagre-ade` through GitHub's redirect to `the-ptf/milagre`. Never create a repository named `the-ptf/milagre-ade`: it would take over that update feed and strand those installs.
+
 ## In-app updates
 
 Desktop checks at launch, every five minutes, when a window regains focus, and when the computer wakes. Automatic checks are throttled to one per minute; a manual check bypasses that throttle. Checks share one pending request and leave a downloading or downloaded update intact.

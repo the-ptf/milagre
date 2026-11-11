@@ -82,7 +82,7 @@ test("rejects unknown paths, query strings, encoded paths and write requests", a
 test("proxies only an exact mapped versioned release and limits forwarded headers", async () => {
   const { createRepositoryWorker } = await import("../distribution/linux-repository/repository-handler.mjs");
   let request;
-  const url = "https://github.com/the-ptf/milagre-ade/releases/download/v1.2.3/Milagre-1.2.3-amd64.deb";
+  const url = "https://github.com/the-ptf/milagre/releases/download/v1.2.3/Milagre-1.2.3-amd64.deb";
   const worker = createRepositoryWorker(
     {},
     { "/pool/main/m/milagre/Milagre-1.2.3-amd64.deb": { url, sha256: "b".repeat(64), size: 4 } },
@@ -109,6 +109,23 @@ test("proxies only an exact mapped versioned release and limits forwarded header
   assert.equal(await response.text(), "test");
 });
 
+test("retains old repository mappings with canonical URLs after the rename", () => {
+  const { previousPackages } = require("./generate-linux-repository.cjs");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-package-map-rename-"));
+  const file = path.join(directory, "package-map.json");
+  const route = "/pool/main/m/milagre/Milagre-1.0.0-amd64.deb";
+  const releasePath = "/releases/download/v1.0.0/Milagre-1.0.0-amd64.deb";
+  try {
+    for (const repository of ["milagre-ade", "milagre"]) {
+      const entry = { url: `https://github.com/the-ptf/${repository}${releasePath}`, size: 4, sha256: "a".repeat(64) };
+      fs.writeFileSync(file, JSON.stringify({ [route]: entry }));
+      assert.deepEqual(previousPackages(file), { [route]: { ...entry, url: `https://github.com/the-ptf/milagre${releasePath}` } });
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("rejects previous maps that could proxy arbitrary URLs", () => {
   const { previousPackages, previousMetadata } = require("./generate-linux-repository.cjs");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-package-map-"));
@@ -117,7 +134,7 @@ test("rejects previous maps that could proxy arbitrary URLs", () => {
     for (const entry of [
       { "/pool/main/m/milagre/Milagre-1.0.0-amd64.deb": { url: "https://attacker.example/secret", size: 4, sha256: "a".repeat(64) } },
       {
-        "/pool/../secret": { url: "https://github.com/the-ptf/milagre-ade/releases/download/v1.0.0/Milagre-1.0.0-amd64.deb", size: 4, sha256: "a".repeat(64) },
+        "/pool/../secret": { url: "https://github.com/the-ptf/milagre/releases/download/v1.0.0/Milagre-1.0.0-amd64.deb", size: 4, sha256: "a".repeat(64) },
       },
     ]) {
       fs.writeFileSync(file, JSON.stringify(entry));
@@ -177,7 +194,7 @@ test(
         oldMap,
         JSON.stringify({
           "/pool/main/m/milagre/Milagre-1.0.0-amd64.deb": {
-            url: "https://github.com/the-ptf/milagre-ade/releases/download/v1.0.0/Milagre-1.0.0-amd64.deb",
+            url: "https://github.com/the-ptf/milagre/releases/download/v1.0.0/Milagre-1.0.0-amd64.deb",
             sha256: "a".repeat(64),
             size: 4,
           },
@@ -245,10 +262,7 @@ test(
         Object.keys(metadata).some((name) => /\.(deb|rpm)$/.test(name)),
         false,
       );
-      assert.equal(
-        proxies["/rpm/x86_64/Milagre-1.2.3-x86_64.rpm"].url,
-        "https://github.com/the-ptf/milagre-ade/releases/download/v1.2.3/Milagre-1.2.3-x86_64.rpm",
-      );
+      assert.equal(proxies["/rpm/x86_64/Milagre-1.2.3-x86_64.rpm"].url, "https://github.com/the-ptf/milagre/releases/download/v1.2.3/Milagre-1.2.3-x86_64.rpm");
       assert.ok(metadata["/package-map.json"]);
       assert.equal(Buffer.from(metadata[oldRoute].base64, "base64").toString(), oldIndex.toString());
       assert.match(fs.readFileSync(path.join(output, "milagre.repo"), "utf8"), /repo_gpgcheck=1/);

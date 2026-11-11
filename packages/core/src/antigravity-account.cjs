@@ -6,7 +6,7 @@ const { AcpRpc } = require("./agents/acp-rpc.cjs");
 const { AGENT_NAME, tokenFile, hasToken } = require("./agents/antigravity-install.cjs");
 const { antigravityAcp, antigravitySpawn, isSubscriptionError, signInUrl } = require("./agents/antigravity-acp.cjs");
 
-// Antigravity Accounts (docs/adr/0005-provider-accounts.md, docs/adr/0006-antigravity-over-acp.md). A profile is a
+// Antigravity Accounts (docs/adr/0015-provider-accounts.md, docs/adr/0006-antigravity-over-acp.md). A profile is a
 // GEMINI_HOME directory; Antigravity keeps its token in <home>/antigravity-acp/acp_token.json (file storage,
 // never the keychain). Antigravity's ACP server reads every path from GEMINI_HOME (its paths.py):
 //   <home>/config/skills, <home>/antigravity-cli/skills   user skills (read only)

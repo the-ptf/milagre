@@ -1,4 +1,5 @@
 // Deployment must never advertise a missing or different public installer.
+const { url: repository } = require("../packages/shared/src/repository.mjs");
 const fs = require("node:fs");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
@@ -11,7 +12,7 @@ async function main() {
   }
   if (!/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(options.tag ?? "")) throw new Error("Expected stable release tag");
   const map = JSON.parse(fs.readFileSync(path.join(options.directory, "package-map.json"), "utf8"));
-  const prefix = `https://github.com/the-ptf/milagre-ade/releases/download/${options.tag}/`;
+  const prefix = `${repository}/releases/download/${options.tag}/`;
   const v = options.tag.slice(1),
     names = [`Milagre-${v}-amd64.deb`, `Milagre-${v}-x86_64.rpm`];
   for (const name of names) {

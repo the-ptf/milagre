@@ -1,6 +1,7 @@
 // Triage sessions: the playbook and a file of machine facts, written to a fresh folder, for a coding agent that diagnoses
 // a misbehaving install and helps file an issue. `milagre triage` (apps/daemon/src/triage.cjs) and the in-app
 // "Triage an issue" entry (the triage:prepare command) both start from these files. Modeled on T3 Code's `t3 triage`.
+const { url: repository } = require("@milagre/shared/repository");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -68,7 +69,7 @@ ${entryLines(entry).join("\n")}
 - OS: ${process.platform} ${process.arch} (${os.release()})
 - Node: ${process.version}
 - Agent CLIs: ${agents.map((agent) => `${agent.id} ${agent.path ?? "not found on PATH"}`).join("; ")}
-- Repo: https://github.com/the-ptf/milagre-ade
+- Repo: ${repository}
 - Source cache dir (clone the repo here): ${sourceCacheDir}
 ${entry.kind === "app" ? IN_APP : ""}
 ## Profiles

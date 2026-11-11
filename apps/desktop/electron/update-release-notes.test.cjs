@@ -12,7 +12,7 @@ test("loads and caches Markdown for the selected release, including beta", async
   });
   assert.match(await notes("1.2.3-beta.2"), /Update downloads/);
   await notes("1.2.3-beta.2");
-  assert.deepEqual(urls, ["https://api.github.com/repos/the-ptf/milagre-ade/releases/tags/v1.2.3-beta.2"]);
+  assert.deepEqual(urls, ["https://api.github.com/repos/the-ptf/milagre/releases/tags/v1.2.3-beta.2"]);
   await assert.rejects(notes("../../elsewhere"), /Invalid release/);
   assert.equal(urls.length, 1);
 });

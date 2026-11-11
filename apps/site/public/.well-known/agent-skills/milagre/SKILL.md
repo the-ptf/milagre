@@ -36,5 +36,5 @@ On the same network the phone talks to the computer directly. Away from it, the 
 
 ## More
 
-- Source, issues and releases: https://github.com/the-ptf/milagre-ade
+- Source, issues and releases: https://github.com/the-ptf/milagre
 - Site: https://milagre.cloud

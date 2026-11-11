@@ -1,6 +1,6 @@
 const { execCommand } = require("./agents/command.cjs");
 
-// Kiro's account is the one kiro-cli is signed in to (docs/adr/0007-kiro-over-acp.md). Its sign-in needs the
+// Kiro's account is the one kiro-cli is signed in to (docs/adr/0017-kiro-over-acp.md). Its sign-in needs the
 // organization's start URL and region for IAM Identity Center, so it happens in a terminal (`kiro-cli login`),
 // never from Milagre. `kiro-cli whoami` says who it is: exit 0 with the identity, exit 1 with "Not logged in".
 

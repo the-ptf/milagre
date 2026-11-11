@@ -2,6 +2,10 @@
   "name": "milagre-monorepo",
   "version": "0.1.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/the-ptf/milagre.git"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -178,7 +182,7 @@
     "publish": {
       "provider": "github",
       "owner": "the-ptf",
-      "repo": "milagre-ade",
+      "repo": "milagre",
       "releaseType": "release"
     }
   },
