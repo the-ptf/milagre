@@ -1,13 +1,13 @@
 //! The composer's bottom row (`PromptComposer.tsx` footer, DESIGN.md "Composer" and the decided two-row layout):
-//! the prompt on top; below it the attach button on the left, and on the right the permission chip, the model chip,
-//! the context slot, the mic and the send button, which is Stop while a turn runs and nothing can be sent.
+//! the prompt on top; below it the attach button on the left, and on the right the model chip, the context slot and
+//! the send button, which is Stop while a turn runs and nothing can be sent. There is no microphone (dictation is out
+//! of scope) and no permission chip: the permission mode lives in the model picker (`permission.rs`).
 //!
 //! - Attach opens the platform's file prompt (`Composer::open_file_picker`); the chosen paths go to the tray.
-//! - The permission and model chips are trigger chips (`ui::Chip`, transparent `ink-2`, `hover-2` while open); their
-//!   pickers are `permission.rs` and `model_picker.rs`.
+//! - The model chip is a trigger chip (`ui::Chip`, transparent `ink-2`, `hover-2` while open); its picker is
+//!   `model_picker.rs`. It carries an orange shield while Full permissions are on.
 //! - The context slot is the ring and its card (`context.rs`), shown once the data layer gives the tokens
 //!   ([`Composer::set_context`], [`Composer::set_context_percent`]).
-//! - The mic is drawn and inert: dictation is a later package.
 //! - The send button is `send::SendState`'s decision: Send, Send now (steers), Queue message, or Stop (a 10px
 //!   square with 2px corners); disabled at 40% when there is nothing to send.
 
@@ -45,6 +45,8 @@ pub struct BarState {
     pub context: Option<(f64, f64)>,
     /// The composer popover that is open (`pick_list::popup`).
     pub open: Option<&'static str>,
+    /// The permission menu inside the model picker is open.
+    pub permission_menu: bool,
 }
 
 impl Default for BarState {
@@ -66,6 +68,7 @@ impl Default for BarState {
             tab: Provider::Claude,
             context: None,
             open: None,
+            permission_menu: false,
         }
     }
 }
@@ -205,10 +208,8 @@ impl Composer {
                 ),
             )
             .child(div().flex_1())
-            .child(self.permission_chip(theme, cx))
             .child(self.model_chip(theme, cx))
             .child(self.context_slot(theme, cx))
-            .child(IconButton::new("composer-mic", IconName::Mic01).pill())
             .child(self.send_button(state, theme, cx))
     }
 

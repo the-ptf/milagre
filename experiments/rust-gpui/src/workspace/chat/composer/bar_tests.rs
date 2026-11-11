@@ -310,8 +310,20 @@ fn the_chips_open_their_pickers(cx: &mut TestAppContext) {
         c.set_context_percent(Some(42), cx);
     });
     cx.run_until_parked();
-    assert!(cx.debug_bounds("composer-permission-chip").is_some() && cx.debug_bounds("composer-model-chip").is_some());
+    assert!(cx.debug_bounds("composer-permission-chip").is_none(), "the permission mode has no chip on the bar");
+    assert!(cx.debug_bounds("composer-mic").is_none(), "dictation is out of scope: no microphone");
+    assert!(cx.debug_bounds("composer-model-chip").is_some());
     assert!(bounds(cx, "composer-context-slot").size.width > gpui::px(0.0));
     click(cx, "composer-model-chip");
     assert!(cx.debug_bounds("model-picker").is_some(), "the model chip opens its picker");
+    assert!(cx.debug_bounds("permission-footer").is_some() && cx.debug_bounds("permission-menu").is_none());
+    click(cx, "permission-trigger");
+    assert!(cx.debug_bounds("permission-menu").is_some(), "the footer trigger opens the three modes");
+    for id in ["permission-ask", "permission-auto", "permission-full"] {
+        assert!(cx.debug_bounds(id).is_some(), "{id}");
+    }
+    click(cx, "permission-auto");
+    rig.composer.read_with(cx, |c, _| assert_eq!(c.bar.permission, crate::data::PermissionMode::Auto));
+    assert!(cx.debug_bounds("permission-menu").is_none(), "picking closes the menu");
+    assert!(cx.debug_bounds("model-picker").is_some(), "and leaves the picker open");
 }

@@ -4,9 +4,11 @@
 //! multiplier at the row's end) and, when the picked model has any, its settings on the right: the thinking-effort
 //! slider with its caption, then the Fast and Ultracode tiles (bordered, taking their tint when on).
 //!
+//! Under it all sits the permission footer (`permission.rs`): Ask, Auto or Full, Full in orange. The chip shows an
+//! orange shield before the provider mark while Full is on, and the Fast bolt after the effort while Fast is on.
+//!
 //! The list is [`models::catalog`], a fixture. Not built: the search field, the per-Project account select, the CLI
-//! update notice, a row's description tooltip and the permission select in the picker's footer (the permission chip
-//! has its own picker).
+//! update notice and a row's description tooltip.
 
 use gpui::{AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, Rgba, SharedString, Styled, Window, div, prelude::*, px};
 
@@ -62,17 +64,21 @@ impl Composer {
 
     pub(super) fn model_chip(&self, theme: &Theme, cx: &mut gpui::Context<Self>) -> AnyElement {
         let (provider, name, effort) = (self.bar.provider, self.bar.model_name.clone(), self.bar.effort.clone());
-        let dim = theme.ink3;
+        let (dim, warn) = (theme.ink3, theme.orange_ink);
+        let (full, fast) = (self.bar.permission == crate::data::PermissionMode::Full, self.bar.fast);
         let composer = cx.entity();
-        super::pick_list::popup(&composer, "composer-model", self.bar.open == Some("composer-model"))
+        let open = matches!(self.bar.open, Some("composer-model" | "composer-permission"));
+        super::pick_list::popup(&composer, "composer-model", open)
             .trigger(move |open| {
                 Chip::new("composer-model-chip")
                     .on(open)
+                    .when(full, |chip| chip.child(Icon::new(IconName::ShieldAlert).size(IconSize::S14).color(warn)))
                     .child(ProviderLogo::new(provider).size(14.0))
                     .child(div().min_w_0().max_w(px(112.0)).truncate().child(name.clone()))
                     .when_some(effort.clone(), |chip, effort| {
                         chip.child(div().flex_none().text_color(dim).child("\u{b7}")).child(div().flex_none().child(effort))
                     })
+                    .when(fast, |chip| chip.child(Icon::new(IconName::Flash).size(IconSize::S14).color(warn)))
                     .into_any_element()
             })
             .content(move |_, window, cx| picker(&composer, window, cx))
@@ -86,8 +92,15 @@ fn apply(composer: &Entity<Composer>, window: &mut Window, cx: &mut App, change:
     window.refresh();
 }
 
-fn picker(composer: &Entity<Composer>, _window: &mut Window, cx: &mut App) -> AnyElement {
+fn picker(composer: &Entity<Composer>, window: &mut Window, cx: &mut App) -> AnyElement {
     let theme = *cx.theme();
+    // A snapshot (or an action) that opens the permission popover opens the picker with its menu out.
+    if composer.read(cx).bar.open == Some("composer-permission") {
+        composer.update(cx, |c, _| {
+            c.bar.open = Some("composer-model");
+            c.bar.permission_menu = true;
+        });
+    }
     let bar: BarState = composer.read(cx).bar.clone();
     let selected = models::find(bar.provider, &bar.model_id);
     let capability = selected.as_ref().map(capability);
@@ -166,8 +179,11 @@ fn picker(composer: &Entity<Composer>, _window: &mut Window, cx: &mut App) -> An
     if let (true, Some(capability)) = (has_settings, capability) {
         body = body.child(settings(composer, &bar, &capability, &theme));
     }
+    let mode = super::permission::to_mode(bar.permission);
+    let trigger = super::permission::trigger_focus(window, cx);
     div()
         .debug_selector(|| "model-picker".into())
+        .relative()
         .flex()
         .flex_col()
         .w(px(if has_settings { WIDTH_WITH_SETTINGS } else { WIDTH_PLAIN }))
@@ -178,6 +194,16 @@ fn picker(composer: &Entity<Composer>, _window: &mut Window, cx: &mut App) -> An
         .shadow(theme.shadow_raised())
         .text_color(theme.ink)
         .child(body)
+        .child(super::permission::footer(composer, mode, bar.permission_menu, window, cx, &theme))
+        .when(bar.permission_menu, |el| {
+            el.child(
+                div()
+                    .absolute()
+                    .right(px(10.0))
+                    .bottom(px(super::permission::FOOTER_HEIGHT + 2.0))
+                    .child(super::permission::menu(composer, mode, trigger, &theme)),
+            )
+        })
         .into_any_element()
 }
 

@@ -53,11 +53,6 @@ impl Row {
         self
     }
 
-    pub fn title_color(mut self, color: Rgba) -> Self {
-        self.title_color = Some(color);
-        self
-    }
-
     pub fn subtitle(mut self, subtitle: impl Into<SharedString>) -> Self {
         self.subtitle = Some(subtitle.into());
         self
@@ -215,6 +210,7 @@ pub fn popup(composer: &gpui::Entity<super::Composer>, key: &'static str, open: 
     let composer = composer.clone();
     crate::ui::Popover::new(key).above().bare().open(open).on_open_change(move |open, window, cx| {
         composer.update(cx, |composer, cx| {
+            composer.bar.permission_menu = false;
             if open {
                 composer.bar.open = Some(key);
             } else if composer.bar.open == Some(key) {
