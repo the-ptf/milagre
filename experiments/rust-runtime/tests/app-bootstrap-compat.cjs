@@ -1,7 +1,8 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync } = require("node:child_process");
+const os = require("node:os");
 const { once } = require("node:events");
 const readline = require("node:readline");
 const { connect } = require("../../../apps/daemon/src/client.cjs");
@@ -15,7 +16,33 @@ async function until(label, check) {
   }
   throw Error("Timed out: " + label);
 }
+function checkNodeReplyPreferences() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-replies-oracle-"));
+  try {
+    const driver = path.resolve(__dirname, "../../rust-owner/fixtures/chat-node.cjs");
+    const template = require("../../rust-owner/fixtures/chat-traces.json").find((v) => v.name === "send-lifecycle");
+    for (const replies of ["concise", "normal"]) {
+      const trace = structuredClone(template);
+      trace.name = replies;
+      trace.steps = trace.steps.slice(0, 2);
+      assert.equal(trace.steps[1].op, "send");
+      trace.steps[1].request.replies = replies;
+      const traces = path.join(root, replies + ".json");
+      const project = path.join(root, replies);
+      fs.writeFileSync(traces, JSON.stringify([trace]));
+      execFileSync(process.execPath, [driver, "seed", traces, replies, project]);
+      const output = execFileSync(process.execPath, [driver, "run", traces, replies, project], { encoding: "utf8" });
+      const result = JSON.parse(JSON.parse(output.trim().split("\n").at(-1)).line);
+      assert.equal(result.turns.length, 1);
+      assert.equal(result.turns[0].provider, "kiro");
+      assert.equal(result.turns[0].replies, replies);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
 async function main() {
+  checkNodeReplyPreferences();
   const child = spawn(process.argv[2], [], { stdio: ["pipe", "pipe", "pipe"] });
   const exited = once(child, "exit");
   const lines = readline.createInterface({ input: child.stdout });
@@ -122,7 +149,15 @@ async function main() {
     }
     assert.deepEqual(await client.call("project:registry"), expand(fixture.registry.projects));
     await client.call("chat:send", [
-      { projectPath: project, sessionId: 2, provider: "kiro", model: "scripted", body: "fixture:blocked-start", clientMessageId: "bootstrap-run" },
+      {
+        projectPath: project,
+        sessionId: 2,
+        provider: "kiro",
+        model: "scripted",
+        body: "fixture:blocked-start",
+        clientMessageId: "bootstrap-run",
+        replies: "concise",
+      },
     ]);
     await until("owner run visible", async () => Boolean((await client.call("chat:runs")).runs[project + "#2"]));
     // The blocked fixture emits exactly one session-started event after send admission.

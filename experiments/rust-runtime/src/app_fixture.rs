@@ -133,9 +133,12 @@ impl Bootstrap {
                     .get(*key)
                     .is_some_and(|v| !v.is_null() && !v.as_array().is_some_and(Vec::is_empty))
             })
-            || ["effort", "replies"]
+            || ["effort"]
                 .iter()
                 .any(|key| request.get(*key).is_some_and(|v| !v.is_null()))
+            || request.get("replies").is_some_and(|v| {
+                !v.is_null() && (request["provider"] != "kiro" || (v != "concise" && v != "normal"))
+            })
             || ["fastMode", "ultracode", "tldrEnabled"].iter().any(|key| {
                 request
                     .get(*key)
@@ -264,6 +267,16 @@ mod tests {
             .is_err());
         let base = json!({"model":"scripted","body":"hello","permissionMode":"ask","images":[],"files":[],"fastMode":false});
         bootstrap.validate_send(&base).unwrap();
+        // The production composer sends Claude's style preference for every provider.
+        // Kiro/ACP does not interpret it; retain the field in the owner request.
+        for style in ["concise", "normal"] {
+            let mut request = base.clone();
+            request["provider"] = json!("kiro");
+            request["replies"] = json!(style);
+            bootstrap.validate_send(&request).unwrap();
+            request["provider"] = json!("claude");
+            assert!(bootstrap.validate_send(&request).is_err());
+        }
         for (key, value) in [
             ("model", json!("real-model")),
             ("permissionMode", json!("full")),
