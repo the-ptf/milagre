@@ -441,14 +441,16 @@ impl Inner {
             }
             Err(ShutdownError::Incomplete(error)) => return Err(error),
         }
-        if let Some((client, id)) = acknowledgement {
-            client.send(&json!({"v":VERSION,"id":id,"result":{"stopping":true}}))?;
-        }
-        EventSink {
+        // Owner shutdown is irreversible. Notification delivery cannot leave
+        // this server admitting stop retries against an already-stopped owner.
+        self.stopped.store(true, Ordering::Release);
+        let acknowledgement = acknowledgement.map_or(Ok(()), |(client, id)| {
+            client.send(&json!({"v":VERSION,"id":id,"result":{"stopping":true}}))
+        });
+        let notification = EventSink {
             inner: Arc::downgrade(self),
         }
-        .emit("daemon:stopping", json!({}))?;
-        self.stopped.store(true, Ordering::Release);
+        .emit("daemon:stopping", json!({}));
         let clients: Vec<_> = self.clients.lock().unwrap().values().cloned().collect();
         for client in clients {
             client.end();
@@ -457,7 +459,7 @@ impl Inner {
         while !self.clients.lock().unwrap().is_empty() && Instant::now() < flush_deadline {
             thread::sleep(Duration::from_millis(5));
         }
-        Ok(())
+        acknowledgement.and(notification.map(|_| ()))
     }
 }
 impl Drop for Inner {
@@ -1117,6 +1119,75 @@ mod tests {
         assert!(UnixStream::connect(server.socket_path()).is_ok());
         server.shutdown().unwrap();
         assert!(server.is_stopped());
+    }
+    #[test]
+    fn notification_failure_cannot_strand_a_successfully_stopped_owner() {
+        struct Closing {
+            calls: AtomicUsize,
+            fail_event: bool,
+        }
+        impl Handler for Closing {
+            fn methods(&self) -> Vec<String> {
+                vec![]
+            }
+            fn invoke(&self, _: &str, _: &[Value], _: &ClientContext) -> RpcResult {
+                Ok(Value::Null)
+            }
+            fn snapshot(&self, _: &ClientContext) -> RpcResult {
+                Ok(json!({}))
+            }
+            fn encode_result(&self, value: &Value) -> Result<String, RpcError> {
+                if self.fail_event {
+                    Err(RpcError::new("ENCODE_FAILED", "Fixture event failure"))
+                } else {
+                    Ok(value.to_string())
+                }
+            }
+            fn shutdown(&self) -> RpcResult {
+                self.calls.fetch_add(1, Ordering::AcqRel);
+                Ok(Value::Null)
+            }
+        }
+        for fail_event in [false, true] {
+            let handler = Arc::new(Closing {
+                calls: AtomicUsize::new(0),
+                fail_event,
+            });
+            let server = Server::bind(
+                IsolatedProfile::create().unwrap(),
+                handler.clone(),
+                Config::default(),
+            )
+            .unwrap();
+            let path = server.profile_path().to_path_buf();
+            let (peer, socket) = UnixStream::pair().unwrap();
+            Client::start(socket, &server.inner).unwrap();
+            let client = server
+                .inner
+                .clients
+                .lock()
+                .unwrap()
+                .values()
+                .next()
+                .unwrap()
+                .clone();
+            let result = if fail_event {
+                server.shutdown()
+            } else {
+                // Guaranteed failed acknowledgement; no OS scheduling race.
+                client.disconnect();
+                server.inner.shutdown(Some((&client, &json!(1))))
+            };
+            assert!(result.is_err());
+            assert!(server.is_stopped());
+            assert!(server.inner.clients.lock().unwrap().is_empty());
+            server.shutdown().unwrap();
+            assert_eq!(handler.calls.load(Ordering::Acquire), 1);
+            drop(client);
+            drop(peer);
+            Server::finish(Arc::new(server)).unwrap();
+            assert!(!path.exists());
+        }
     }
     #[test]
     fn only_explicit_shutdown_refusal_reopens_wire_admission() {

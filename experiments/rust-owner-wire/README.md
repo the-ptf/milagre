@@ -27,6 +27,8 @@ The public `Handler` trait provides:
 - `view_changed(context)`, `disconnected(client_id)` and `shutdown()` lifecycle hooks. `disconnected` must not block, publish events or reenter the server. Resources that need draining belong in `shutdown`.
 - `shutdown_attempt()` returns a typed `ShutdownError`. Its default maps every legacy shutdown error to `Incomplete`, which keeps admission closed for a later stop retry. An owner may return `Refused` only when that exact attempt left it running and normal admission is safe. The wire reopens admission only for this explicit refusal; save failures, pending cleanup and ambiguous errors remain closed.
 
+Once the owner confirms shutdown, the server marks itself stopped before sending the acknowledgement or stopping event. A disconnected caller or event-encoding failure still closes clients and allows profile cleanup. Delivery errors remain visible to the initiating call; a repeated stop never calls the stopped owner again.
+
 `ClientContext` supplies a generated connection ID, its own `ClientView`, connection status and an `EventSink`. Request arguments never choose the acting client. View state tracks the selected Project or Link, Chat and focus. A Project switch on one socket cannot change another socket's view. Disconnect discards that socket's view and page captures.
 
 For a state mutation, use `context.events.transaction(|publication| { ... })`, acquire the handler's state lock **inside** that closure, mutate, and call `publication.emit(...)`. Snapshot holds the same publication lock while reading the handler and capturing its watermark. A handler that mutates independently of this boundary can produce inconsistent snapshots; this crate cannot make unrelated store writes atomic for it.
