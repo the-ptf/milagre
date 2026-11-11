@@ -14,7 +14,7 @@
 //! renders only when something it shows changes (typing in the composer never reaches it).
 //!
 //! "Send N comments" in the diff is a [`ChangesEvent::SendToChat`], which the panel sends to the Chat as it sends
-//! "Fix in Chat". Not built here: the Link variant, the refresh button and the "branch no longer exists" notice.
+//! "Fix in Chat". Not built here: the Link variant and the "branch no longer exists" notice.
 
 pub mod commits;
 pub mod data;
@@ -170,6 +170,24 @@ impl ChangesView {
         cx.notify();
     }
 
+    /// The diff bar's Refresh (`changes.refresh()`): the Worktree is read again. The fixture answers with a fresh copy of
+    /// the same read, which is new data to `rebuild_diff`: the open diff takes the new patches and keeps its folds, and
+    /// the list stays up meanwhile (no skeleton), as the desktop's refresh does.
+    pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        let ChangesData::Ready(changes) = &self.data else { return };
+        let read = std::rc::Rc::new((**changes).clone());
+        self.set_data(ChangesData::Ready(read), cx);
+    }
+
+    /// Which read the panel shows (the address of its `Rc`), so a test can tell a refresh brought a new one.
+    #[cfg(test)]
+    pub(crate) fn data_ptr(&self) -> usize {
+        match &self.data {
+            ChangesData::Ready(read) => std::rc::Rc::as_ptr(read) as usize,
+            _ => 0,
+        }
+    }
+
     pub fn renders(&self) -> usize {
         self.renders
     }
@@ -300,7 +318,8 @@ impl ChangesView {
                     cx.notify();
                 }
             }
-            DiffEvent::Refresh | DiffEvent::AddToReview { .. } => {}
+            DiffEvent::Refresh => this.refresh(cx),
+            DiffEvent::AddToReview { .. } => {}
         }));
         self.diff = Some(diff.clone());
         diff

@@ -17,6 +17,7 @@
 //! Not built: Ultracode Fatality (K-16, optional; its sparks and audio clip), and the composer's pill slot (the pill
 //! hangs from the Chat column's bottom left, the desktop's fallback without a Chat; see `update.rs`).
 
+pub mod driver;
 pub mod fixture;
 pub mod host;
 pub mod model;

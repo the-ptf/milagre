@@ -54,10 +54,11 @@ impl PanelTab {
     }
 }
 
-actions!(milagre_gpui_panel, [ToggleChanges, ToggleTerminal, ToggleBrowser, ToggleDesigns, ToggleArtifacts]);
+actions!(milagre_gpui_panel, [ToggleChanges, ToggleTerminal, ToggleBrowser, ToggleDesigns, ToggleArtifacts, ToggleSimulator]);
 
 /// The commands bound here. `terminal.toggle` shows the Terminals drawer (`panel/terminal/`), not a panel tab.
-const COMMANDS: [&str; 5] = ["changes.toggle", "terminal.toggle", "browser.toggle", "designs.toggle", "artifacts.toggle"];
+const COMMANDS: [&str; 6] =
+    ["changes.toggle", "terminal.toggle", "browser.toggle", "designs.toggle", "artifacts.toggle", "simulator.toggle"];
 
 /// Binds the panel's commands from the effective key table (`default_keybindings`), once per app.
 pub fn install_keys(cx: &mut App) {
@@ -80,6 +81,7 @@ pub fn install_keys(cx: &mut App) {
                 "browser.toggle" => KeyBinding::new(stroke, ToggleBrowser, context),
                 "designs.toggle" => KeyBinding::new(stroke, ToggleDesigns, context),
                 "artifacts.toggle" => KeyBinding::new(stroke, ToggleArtifacts, context),
+                "simulator.toggle" => KeyBinding::new(stroke, ToggleSimulator, context),
                 _ => return None,
             })
         })
@@ -105,6 +107,17 @@ pub fn on_actions<E: InteractiveElement>(element: E, panel: &Entity<Panel>) -> E
         .on_action(move |_: &ToggleBrowser, _, cx| browser(cx))
         .on_action(move |_: &ToggleDesigns, _, cx| designs(cx))
         .on_action(move |_: &ToggleArtifacts, _, cx| artifacts(cx))
+        .on_action({
+            // Only a Chat with an attached simulator has the tab (`PanelToggles.tsx` offers it then).
+            let panel = panel.clone();
+            move |_: &ToggleSimulator, _, cx| {
+                panel.update(cx, |panel, cx| {
+                    if panel.visible_tabs().contains(&PanelTab::Simulator) {
+                        panel.toggle_tab(PanelTab::Simulator, cx)
+                    }
+                })
+            }
+        })
 }
 
 /// The columns right of the sidebar: the Chat, and the panel beside it when open. Open, they are one

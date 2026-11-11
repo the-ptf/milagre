@@ -10,7 +10,7 @@
 //! | `sky.rs` | the wash behind the steps |
 //!
 //! [`OnboardingLayer`] sits over the whole window and draws nothing until onboarding starts: from the first launch with
-//! no Project (not wired to the data source yet: [`start_from_env`] starts it for snapshots and tests). It covers the
+//! no Project (`project:current` answers `None`: the fixture switch `MILAGRE_GPUI_NO_PROJECT`, and [`start_from_env`] for a named scenario). It covers the
 //! window, so every click lands on the steps. Fixture data only: nothing installs, signs in or clones.
 //!
 //! Not built: the Dawn intro (O-03: clouds, falling star, Begin) and the Welcome sky (O-04), which need SVG-filter
@@ -36,6 +36,13 @@ pub fn start_from_env() -> Option<Scenario> {
     std::env::var("MILAGRE_GPUI_ONBOARDING").ok().and_then(|name| Scenario::from_name(&name))
 }
 
+/// Whether the data source has no current Project (`project:current` answers `None`): onboarding shows. A source that
+/// is missing or errors is not "no Project".
+fn no_project(cx: &gpui::App) -> bool {
+    use crate::data::{Data, now};
+    cx.try_global::<Data>().is_some_and(|data| matches!(now(data.0.current_project()), Ok(None)))
+}
+
 #[derive(Default)]
 pub struct OnboardingLayer {
     view: Option<Entity<Onboarding>>,
@@ -47,6 +54,8 @@ impl OnboardingLayer {
         let mut layer = Self::default();
         if let Some(scenario) = start_from_env() {
             layer.start(Some(scenario), window, cx);
+        } else if no_project(cx) {
+            layer.start(None, window, cx);
         }
         layer
     }
@@ -58,8 +67,9 @@ impl OnboardingLayer {
             view.update(cx, |view, cx| view.apply(scenario, window, cx));
         }
         // A Project opened or skipped ends onboarding; the window under it is the app.
-        self._subscription = Some(cx.subscribe(&view, |this, _, _: &OnboardingEvent, cx| {
+        self._subscription = Some(cx.subscribe(&view, |this, _, event: &OnboardingEvent, cx| {
             this.view = None;
+            cx.emit(event.clone());
             cx.notify();
         }));
         self.view = Some(view);
@@ -74,6 +84,9 @@ impl OnboardingLayer {
         self.view.is_some()
     }
 }
+
+/// The layer re-emits how onboarding ended, so the window can start the first Chat (`firstChat` in `App.tsx`).
+impl gpui::EventEmitter<OnboardingEvent> for OnboardingLayer {}
 
 impl Render for OnboardingLayer {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {

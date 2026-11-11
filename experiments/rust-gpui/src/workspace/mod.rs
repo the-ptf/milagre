@@ -22,6 +22,8 @@ pub mod sidebar;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod wiring_tests;
 
 use gpui::{Context, Entity, KeyBinding, Subscription, Window, div, prelude::*, px};
 
@@ -83,7 +85,20 @@ impl Workspace {
         let dialog_host: crate::overlays::dialogs::Host = std::rc::Rc::new(crate::overlays::dialogs::FixtureHost::new());
         let allow_prompt = crate::overlays::dialogs::allow_prompt::new(dialog_host.clone(), "this computer", cx);
         let notices = cx.new(|cx| crate::notices::NoticesLayer::new(dialog_host.clone(), cx));
+        let update = notices.read(cx).update.clone();
+        crate::notices::driver::install(&update, cx);
         let onboarding = cx.new(|cx| crate::onboarding::OnboardingLayer::new(window, cx));
+        // A Project opened from onboarding starts its first Chat with the starter tasks over the composer.
+        let first_chat = cx.subscribe(&onboarding, |this, _, event: &crate::onboarding::OnboardingEvent, cx| {
+            if let crate::onboarding::OnboardingEvent::Opened { name, .. } = event {
+                this.chat.update(cx, |chat, cx| {
+                    chat.composer.update(cx, |composer, cx| {
+                        composer.start_new_chat(cx);
+                        composer.set_starters(Some(name), cx);
+                    })
+                });
+            }
+        });
         let notice_events = cx.subscribe_in(&notices, window, |this, _, event: &crate::notices::NoticeEvent, window, cx| match event {
             crate::notices::NoticeEvent::OpenSettings => this.settings.update(cx, |settings, cx| settings.open(window, cx)),
         });
@@ -106,6 +121,10 @@ impl Workspace {
         // A web page draws over GPUI: it hides while Settings is open (src/platform/webview.rs).
         let web = cx
             .observe(&settings, |_, settings, cx| crate::platform::webview::set_overlay_open("settings", settings.read(cx).is_open(), cx));
+        // The palette draws over the page too.
+        let palette_web = cx.observe(&palette, |_, palette, cx| {
+            crate::platform::webview::set_overlay_open("palette", palette.read(cx).is_open(), cx);
+        });
         Self::refocus_after_settings(&settings, window, cx);
         let routines = cx.new(|cx| RoutinesView::new(window, cx));
         let routines_open = crate::routines::start_from_env().is_some();
@@ -127,7 +146,7 @@ impl Workspace {
             routines,
             routines_open,
             routines_at,
-            _subscriptions: vec![layout, follow, web, new_chat, open_chat, palette_events, notice_events]
+            _subscriptions: vec![layout, follow, web, palette_web, new_chat, open_chat, palette_events, notice_events, first_chat]
                 .into_iter()
                 .chain(grid_subscriptions)
                 .collect(),
@@ -167,6 +186,12 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.follow_sidebar(Some(window), cx);
+        // A dialog or sheet (gpui-component's layers in `Root`) draws over the page: hide it while one is open.
+        {
+            use gpui_component::WindowExt as _;
+            let open = window.has_active_dialog(cx) || window.has_active_sheet(cx);
+            crate::platform::webview::set_overlay_open("dialog", open, cx);
+        }
         Self::open_overlay_from_env(window, cx);
         self.open_link_from_env(window, cx);
         let theme = *cx.theme();

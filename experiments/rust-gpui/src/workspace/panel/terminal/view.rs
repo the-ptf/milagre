@@ -293,6 +293,7 @@ impl TerminalView {
     fn on_right_down(&mut self, event: &MouseDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let can_copy = self.session.term.lock().selection.as_ref().is_some_and(|s| !s.is_empty());
         self.menu = Some((event.position, can_copy));
+        crate::platform::webview::set_overlay_open("terminal-menu", true, cx);
         cx.stop_propagation();
         cx.notify();
     }
@@ -304,6 +305,7 @@ impl TerminalView {
     /// Closes the menu and gives the keyboard back to the Terminal.
     pub fn close_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.menu.take().is_some() {
+            crate::platform::webview::set_overlay_open("terminal-menu", false, cx);
             window.focus(&self.focus, cx);
             cx.notify();
         }

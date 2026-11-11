@@ -33,8 +33,8 @@ use std::rc::Rc;
 
 use gpui::{
     App, Bounds, Context, Element, ElementId, Entity, EventEmitter, FocusHandle, Focusable, Global, GlobalElementId, Hitbox,
-    HitboxBehavior, InspectorElementId, IntoElement, LayoutId, MouseDownEvent, Pixels, Render, Size, Style, Subscription, Task, Window,
-    div, point, prelude::*,
+    HitboxBehavior, InspectorElementId, IntoElement, LayoutId, MouseDownEvent, Pixels, Render, SharedString, Size, Style, Subscription,
+    Task, Window, div, point, prelude::*,
 };
 
 /// One request of the page to the host's scheme.
@@ -88,7 +88,7 @@ pub enum WebEvent {
 /// The GPUI overlays open over the window (a modal, a menu over the panel). While any is, every page hides.
 #[derive(Default)]
 pub struct WebOverlays {
-    open: Vec<&'static str>,
+    open: Vec<SharedString>,
 }
 
 impl Global for WebOverlays {}
@@ -100,7 +100,8 @@ impl WebOverlays {
 }
 
 /// Marks the overlay `name` open or closed.
-pub fn set_overlay_open(name: &'static str, open: bool, cx: &mut App) {
+pub fn set_overlay_open(name: impl Into<SharedString>, open: bool, cx: &mut App) {
+    let name = name.into();
     let overlays = cx.default_global::<WebOverlays>();
     let was = overlays.open.contains(&name);
     if open == was {

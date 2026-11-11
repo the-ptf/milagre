@@ -94,7 +94,12 @@ pub fn init(cx: &mut App) {
 /// The fixture data source as the app's `data::Data`, and the sidebar's device state (opened Subchat families, the
 /// Chat on screen) seeded from it until a preference store exists.
 pub fn install_fixture(cx: &mut App) {
-    let source = crate::data::FixtureSource::new();
+    // `MILAGRE_GPUI_NO_PROJECT=1`: the fixture of a first launch, so the window opens on onboarding.
+    let source = if std::env::var_os("MILAGRE_GPUI_NO_PROJECT").is_some() {
+        crate::data::FixtureSource::without_project()
+    } else {
+        crate::data::FixtureSource::new()
+    };
     let data = source.data();
     cx.set_global(crate::workspace::sidebar::SidebarSeed {
         open_families: data.open_families.iter().cloned().collect(),

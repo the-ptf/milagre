@@ -554,6 +554,7 @@ impl SimulatorView {
                 "simulator-home",
                 "Home",
                 self.glyph(Glyph::Home, theme.ink2, cx),
+                self.glyph(Glyph::Home, theme.ink, cx),
                 !controllable,
                 false,
                 theme,
@@ -564,6 +565,7 @@ impl SimulatorView {
                 "simulator-back",
                 "Back",
                 self.glyph(Glyph::Back, theme.ink2, cx),
+                self.glyph(Glyph::Back, theme.ink, cx),
                 !controllable,
                 false,
                 theme,
@@ -575,6 +577,7 @@ impl SimulatorView {
                 "simulator-rotate",
                 "Rotate",
                 self.glyph(Glyph::Rotate, theme.ink2, cx),
+                self.glyph(Glyph::Rotate, theme.ink, cx),
                 !controllable,
                 false,
                 theme,
@@ -584,6 +587,7 @@ impl SimulatorView {
                 "simulator-more",
                 "More controls",
                 self.glyph(Glyph::More, if self.extras_open { theme.accent } else { theme.ink2 }, cx),
+                self.glyph(Glyph::More, if self.extras_open { theme.accent } else { theme.ink }, cx),
                 false,
                 self.extras_open,
                 theme,
@@ -594,6 +598,7 @@ impl SimulatorView {
                 "simulator-control",
                 "Take control",
                 self.glyph(Glyph::Control, theme.ink2, cx),
+                self.glyph(Glyph::Control, theme.ink, cx),
                 self.claiming,
                 false,
                 theme,
@@ -700,15 +705,30 @@ fn rail_button(
     id: &'static str,
     label: &'static str,
     glyph: Option<Arc<RenderImage>>,
+    hover_glyph: Option<Arc<RenderImage>>,
     disabled: bool,
     pressed: bool,
     theme: &Theme,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
-    let icon = glyph.map(|image| img(ImageSource::Render(image)).flex_none().size(px(RAIL_GLYPH)));
+    // The glyph goes `ink` while the button is hovered: a second image in `ink`, swapped in by the button's group.
+    let group: SharedString = format!("{id}-glyph").into();
+    let icon = glyph.map(|image| {
+        img(ImageSource::Render(image)).absolute().flex_none().size(px(RAIL_GLYPH)).group_hover(group.clone(), |s| s.opacity(0.0))
+    });
+    let hovered = hover_glyph.map(|image| {
+        img(ImageSource::Render(image))
+            .absolute()
+            .flex_none()
+            .size(px(RAIL_GLYPH))
+            .opacity(0.0)
+            .group_hover(group.clone(), |s| s.opacity(1.0))
+    });
     let hover = theme.hover;
     div()
         .id(id)
+        .group(group)
+        .relative()
         .debug_selector(move || id.to_string())
         .flex()
         .flex_none()
@@ -720,7 +740,7 @@ fn rail_button(
         .when(disabled, |el| el.opacity(0.3))
         .when(!disabled, |el| el.cursor_pointer().hover(move |s| s.bg(hover)).on_click(on_click))
         .tooltip(Tooltip::text(label))
-        .children(icon)
+        .child(div().relative().flex_none().size(px(RAIL_GLYPH)).children(icon).children(hovered))
         .into_any_element()
 }
 

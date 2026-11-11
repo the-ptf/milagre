@@ -663,3 +663,25 @@ fn write_fixture_frames() {
         img.save_with_format(dir.join(format!("frame-{}.png", frame + 1)), image::ImageFormat::Png).expect("saved");
     }
 }
+
+#[gpui::test]
+fn the_simulator_shortcut_shows_and_hides_its_tab_only_where_a_simulator_is_attached(cx: &mut TestAppContext) {
+    let (panel, cx) = workspace_with_simulator(cx);
+    assert!(panel.read_with(cx, |p, _| p.is_open()));
+    cx.simulate_keystrokes("shift-cmd-s");
+    settle(cx);
+    assert!(!panel.read_with(cx, |p, _| p.is_open()), "simulator.toggle hides the open Simulator tab");
+    cx.simulate_keystrokes("shift-cmd-s");
+    settle(cx);
+    assert!(panel.read_with(cx, |p, _| p.is_open() && p.active() == crate::workspace::panel::PanelTab::Simulator));
+}
+
+#[gpui::test]
+fn the_simulator_shortcut_does_nothing_without_a_simulator(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
+    let before = panel.read_with(cx, |p, _| (p.is_open(), p.active()));
+    cx.simulate_keystrokes("shift-cmd-s");
+    settle(cx);
+    assert_eq!(panel.read_with(cx, |p, _| (p.is_open(), p.active())), before);
+}

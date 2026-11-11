@@ -753,11 +753,18 @@ fn usage() -> UsageSnapshot {
 #[derive(Clone, Default)]
 pub struct FixtureSource {
     data: Arc<FixtureData>,
+    /// The fixture switch for a Mac with no Project yet: `project:current` answers `None` and onboarding shows.
+    no_project: bool,
 }
 
 impl FixtureSource {
     pub fn new() -> Self {
-        Self { data: Arc::new(FixtureData::new()) }
+        Self { data: Arc::new(FixtureData::new()), no_project: false }
+    }
+
+    /// The fixture of a first launch: the same data, but no current Project, so the window opens on onboarding.
+    pub fn without_project() -> Self {
+        Self { data: Arc::new(FixtureData::new()), no_project: true }
     }
 
     pub fn data(&self) -> &FixtureData {
@@ -783,7 +790,7 @@ impl DataSource for FixtureSource {
     }
 
     fn current_project(&self) -> DataFuture<Option<OpenProject>> {
-        ready(Ok(Some(self.data.open(&self.data.scopes[self.data.current], true))))
+        ready(Ok((!self.no_project).then(|| self.data.open(&self.data.scopes[self.data.current], true))))
     }
 
     fn open_project(&self, computer: ComputerId, folder: SharedString) -> DataFuture<OpenProject> {

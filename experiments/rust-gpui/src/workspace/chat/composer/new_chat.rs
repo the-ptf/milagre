@@ -86,6 +86,7 @@ impl Composer {
     /// Back to a Chat's plain composer.
     pub fn end_new_chat(&mut self, cx: &mut gpui::Context<Self>) {
         self.new_chat = None;
+        self.starters.clear();
         cx.notify();
     }
 

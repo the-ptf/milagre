@@ -40,6 +40,7 @@ use gpui_component::popover::{Popover as WidgetPopover, PopoverState};
 
 use super::focus::{RovingAxis, focused_index, inset_ring, item_focus, roving_index};
 use super::{Icon, IconName, IconSize, SectionLabel, ShortcutKeys};
+use crate::platform::webview::set_overlay_open;
 use crate::theme::{ActiveTheme, RADIUS_CARD, RADIUS_INLINE, TEXT_11, TEXT_12, TEXT_13, TextStepExt};
 
 /// How far a menu keeps from the window's edges (`INSET` in `Popover.tsx`).
@@ -167,6 +168,13 @@ impl RenderOnce for Popover {
         let theme = *cx.theme();
         let content = self.content;
         let bare = self.bare;
+        // A web page draws over GPUI, so an open popover hides it (`platform::webview::set_overlay_open`). Its state
+        // is tracked by id: from the caller's `open` on each render, and from the widget's open changes.
+        let overlay: SharedString = format!("popover:{}", self.id).into();
+        if let Some(open) = self.open {
+            set_overlay_open(overlay.clone(), open, cx);
+        }
+        let on_open_change = self.on_open_change;
         WidgetPopover::new(self.id)
             .anchor(match (self.above, self.align_start) {
                 (false, true) => Anchor::TopLeft,
@@ -190,7 +198,12 @@ impl RenderOnce for Popover {
             .when_some(self.width, |popover, width| popover.w(width))
             .when_some(self.trigger, |popover, build| popover.trigger(Trigger { build, open: false }))
             .when_some(self.open, |popover, open| popover.open(open))
-            .when_some(self.on_open_change, |popover, handler| popover.on_open_change(move |open, window, cx| handler(*open, window, cx)))
+            .on_open_change(move |open, window, cx| {
+                set_overlay_open(overlay.clone(), *open, cx);
+                if let Some(handler) = &on_open_change {
+                    handler(*open, window, cx);
+                }
+            })
             .content(move |_state: &mut PopoverState, window, cx| {
                 let entity = cx.entity();
                 let dismiss = Dismiss(Rc::new(move |window, cx| entity.update(cx, |state, cx| state.dismiss(window, cx))));

@@ -167,7 +167,13 @@ pub struct Composer {
     queue: queue::Queue,
     bar: bar::BarState,
     new_chat: Option<new_chat::NewChat>,
+    /// The first Chat's starter tasks (`starters` in `ChatComposer.tsx`), over the tray of an empty new Chat.
+    starters: Vec<crate::onboarding::model::Starter>,
     sink: Option<Rc<dyn MessageSink>>,
+    /// The context ring's keyboard focus, and the pending open or close of its card (`ContextRing.tsx`).
+    context_focus: gpui::FocusHandle,
+    context_pointer: Option<gpui::Task<()>>,
+    context_card_hovered: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -217,9 +223,14 @@ impl Composer {
         // `project`, `computer`, `isolation`, `branch`) and/or the new-Chat tray.
         let mut bar = bar::BarState::default();
         let mut new_chat = None;
+        let mut starters = Vec::new();
         for part in env("MILAGRE_GPUI_COMPOSER_OPEN").unwrap_or_default().split(',') {
             match part {
                 "tray" => new_chat = Some(new_chat::NewChat::fixture()),
+                "starters" => {
+                    new_chat = Some(new_chat::NewChat::fixture());
+                    starters = crate::onboarding::model::first_chat_starters("milagre-ade");
+                }
                 "model" => bar.open = Some("composer-model"),
                 "permission" => bar.open = Some("composer-permission"),
                 "context" => bar.open = Some("composer-context"),
@@ -257,7 +268,11 @@ impl Composer {
             queue: queue::Queue::default(),
             bar,
             new_chat,
+            starters,
             sink: None,
+            context_focus: cx.focus_handle(),
+            context_pointer: None,
+            context_card_hovered: false,
             _subscriptions: Vec::new(),
         }
     }
@@ -342,6 +357,33 @@ impl Composer {
         cx.notify();
     }
 
+    /// The first Chat's starter tasks for a Project named `name`, shown over an empty new Chat until one is picked, the
+    /// Chat is left, or something is typed (`firstChat === project.path` in `App.tsx`).
+    pub fn set_starters(&mut self, name: Option<&str>, cx: &mut Context<Self>) {
+        self.starters = name.map(crate::onboarding::model::first_chat_starters).unwrap_or_default();
+        cx.notify();
+    }
+
+    pub fn starters(&self) -> &[crate::onboarding::model::Starter] {
+        &self.starters
+    }
+
+    /// A starter picked: its prompt is sent as the first message and the starters go (`onPick`).
+    fn pick_starter(&mut self, prompt: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.starters.clear();
+        self.set_text(&prompt, window, cx);
+        self.submit(window, cx);
+        cx.notify();
+    }
+
+    fn render_starters(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let composer = cx.entity().downgrade();
+        crate::onboarding::FirstChatStarters::new(self.starters.clone(), move |starter, window, cx| {
+            let prompt = starter.prompt.clone();
+            composer.update(cx, |composer, cx| composer.pick_starter(prompt, window, cx)).ok();
+        })
+    }
+
     /// Restores a draft (a Chat switch, a saved draft): a new history, the caret at the end.
     pub fn set_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.ensure_editor(window, cx);
@@ -373,6 +415,7 @@ impl Composer {
         if self.editor.is_some() {
             return;
         }
+        self.watch_context_focus(window, cx);
         let editor = PromptEditor::new(window, cx);
         let state = editor.state.clone();
         self._subscriptions.push(cx.subscribe_in(&state, window, |this, _, event: &InputEvent, window, cx| {
@@ -894,6 +937,8 @@ impl Render for Composer {
             .child(self.render_send_row(&theme, cx))
             .when_some(menu, |el, menu| el.child(self.render_menu(&menu, &theme, cx)));
         let header = self.render_tray_header(&theme, cx);
+        // `isNewChat && starters.length > 0`, and nothing typed or sent yet.
+        let starters_shown = self.new_chat.is_some() && !self.starters.is_empty() && empty;
         let bar = match header {
             // The new-Chat tray: the chips and the composer in one `inset` box.
             Some(header) => div()
@@ -922,6 +967,7 @@ impl Render for Composer {
             .w_full()
             .max_w(px(COLUMN_WIDTH))
             .when_some(queue, |el, queue| el.child(queue))
+            .when(starters_shown, |el| el.child(self.render_starters(cx)))
             .child(bar)
     }
 }

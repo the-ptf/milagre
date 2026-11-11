@@ -4,11 +4,15 @@
 //! opens upward on click and says "120k of 200k tokens", draws the gradient bar with both threshold markers (Compact
 //! at 70%, automatic at 85%, `CONTEXT_DEFAULTS`) and, on Claude, a Compact now button that sends `/compact`.
 //!
-//! Not built: opening on hover or focus (a click opens it) and the thresholds from Settings (the defaults are used).
+//! The card opens on hover (after 120 ms), on keyboard focus and on click, and closes 150 ms after the pointer leaves
+//! the ring and the card, on blur and on Escape, as `ContextRing.tsx` does. Not built: the thresholds from Settings
+//! (the defaults are used).
 
 use gpui::{
     AnyElement, FontWeight, IntoElement, ParentElement, Rgba, Styled, div, linear_color_stop, linear_gradient, prelude::*, px, rgb,
 };
+
+use std::time::Duration;
 
 use super::Composer;
 use super::pick_list::popup;
@@ -27,6 +31,10 @@ const BAR_WIDTH: f32 = CARD_WIDTH - 2.0 * CARD_PAD_X;
 const MARKER: f32 = 16.0;
 /// The ring's own bar in the bottom row.
 const RING_BAR: (f32, f32) = (16.0, 4.0);
+/// `OPEN_DELAY_MS` and `CLOSE_DELAY_MS`.
+const OPEN_DELAY: Duration = Duration::from_millis(120);
+const CLOSE_DELAY: Duration = Duration::from_millis(150);
+const KEY: &str = "composer-context";
 
 impl Composer {
     /// The used and total tokens of the Chat's context window.
@@ -47,12 +55,18 @@ impl Composer {
         let composer = cx.entity();
         let compact_blocked = self.bar.compacting || self.bar.blocked;
         let card_composer = composer.clone();
+        let (enter, focus) = (composer.downgrade(), self.context_focus.clone());
         slot.child(
             popup(&composer, "composer-context", self.bar.open == Some("composer-context"))
                 .trigger(move |open| {
                     div()
                         .id("composer-context-ring")
                         .debug_selector(|| "composer-context-ring".into())
+                        .track_focus(&focus)
+                        .tab_stop(true)
+                        .on_hover(move |hovered, _, cx| {
+                            enter.update(cx, |composer, cx| composer.context_pointer(*hovered, cx)).ok();
+                        })
                         .flex()
                         .flex_none()
                         .items_center()
@@ -81,14 +95,67 @@ impl Composer {
                 .content(move |dismiss, _, cx| {
                     let theme = *cx.theme();
                     let composer = card_composer.clone();
+                    let hover = card_composer.downgrade();
                     let dismiss = dismiss.clone();
-                    card(&theme, &summary.tokens, percent, claude, compact_blocked, move |window, cx| {
-                        composer.update(cx, |c, cx| c.compact(cx));
-                        dismiss.call(window, cx);
-                    })
+                    card(
+                        &theme,
+                        &summary.tokens,
+                        percent,
+                        claude,
+                        compact_blocked,
+                        move |window, cx| {
+                            composer.update(cx, |c, cx| c.compact(cx));
+                            dismiss.call(window, cx);
+                        },
+                        move |hovered, _, cx| {
+                            hover
+                                .update(cx, |composer, cx| {
+                                    composer.context_card_hovered = *hovered;
+                                    composer.context_pointer(*hovered, cx);
+                                })
+                                .ok();
+                        },
+                    )
                 }),
         )
         .into_any_element()
+    }
+
+    /// The pointer entered (`inside`) or left the ring or its card: the card opens after [`OPEN_DELAY`] or closes after
+    /// [`CLOSE_DELAY`]. A newer move replaces the pending one, so crossing from the ring to the card keeps it open.
+    pub(super) fn context_pointer(&mut self, inside: bool, cx: &mut gpui::Context<Self>) {
+        self.context_pointer = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(if inside { OPEN_DELAY } else { CLOSE_DELAY }).await;
+            this.update(cx, |this, cx| {
+                if inside {
+                    this.bar.open = Some(KEY);
+                } else if this.bar.open == Some(KEY) && !this.context_card_hovered {
+                    this.bar.open = None;
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    /// Keyboard focus on the ring opens the card at once (`:focus-visible`); focus leaving closes it, unless the
+    /// pointer is on the card (its Compact now button).
+    pub(super) fn watch_context_focus(&mut self, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
+        let handle = self.context_focus.clone();
+        self._subscriptions.push(cx.on_focus_in(&handle, window, |this, window, cx| {
+            if window.last_input_was_keyboard() && this.bar.context.is_some() {
+                this.context_pointer = None;
+                this.bar.open = Some(KEY);
+                cx.notify();
+            }
+        }));
+        self._subscriptions.push(cx.on_blur(&handle, window, |this, _, cx| {
+            if this.bar.open == Some(KEY) && !this.context_card_hovered {
+                this.context_pointer = None;
+                this.bar.open = None;
+                cx.notify();
+            }
+        }));
     }
 
     /// Compact now: asks the host to send `/compact`.
@@ -104,9 +171,12 @@ fn card(
     claude: bool,
     blocked: bool,
     compact: impl Fn(&mut gpui::Window, &mut gpui::App) + 'static,
+    on_hover: impl Fn(&bool, &mut gpui::Window, &mut gpui::App) + 'static,
 ) -> AnyElement {
     div()
+        .id("context-card")
         .debug_selector(|| "context-card".into())
+        .on_hover(on_hover)
         .flex()
         .flex_col()
         .gap_2()

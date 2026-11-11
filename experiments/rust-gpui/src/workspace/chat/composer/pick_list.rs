@@ -219,6 +219,8 @@ pub fn popup(composer: &gpui::Entity<super::Composer>, key: &'static str, open: 
                 composer.bar.open = Some(key);
             } else if composer.bar.open == Some(key) {
                 composer.bar.open = None;
+                // The context card goes with its pointer: no hover end comes for a card that is gone.
+                composer.context_card_hovered = false;
             }
             cx.notify();
         });
