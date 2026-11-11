@@ -29,6 +29,9 @@ impl Permit {
     }
 }
 impl Registry {
+    pub(crate) fn claim_device_key(&mut self, token: &WorkToken, now: u64) -> Result<String> {
+        Ok(self.work(token, now)?.session.device().key.clone())
+    }
     pub(crate) fn inspect_claim(
         &mut self,
         token: &WorkToken,

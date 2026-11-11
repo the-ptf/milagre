@@ -1,8 +1,11 @@
 //! Fresh-capability restart under a retained synthetic broker. No existing-store
-//! constructor, worker launcher, network listener, or supervisor integration.
+//! constructor or network listener. Private fixed workers retain ownership here;
+//! supervisor dispatch and asynchronous output remain unwired.
 #[allow(dead_code)]
 pub(crate) mod claim_worker;
 pub(crate) mod composition;
+#[allow(dead_code)]
+pub(crate) mod fixed_executor;
 use super::*;
 use crate::{
     registry::{self, CloseReason, Handle, Registry, WorkCursor, WorkPage, WorkToken},
@@ -306,9 +309,11 @@ fn decode_key(key: &str) -> Option<[u8; 32]> {
 }
 
 /// Owns the shared policy and its bound registry. Neither can be extracted.
-/// All operations are synchronous and exclusive; this layer owns no thread/task.
+/// Public operations remain synchronous and exclusive. A private synthetic executor
+/// core may retain fixed-result workers; terminal ownership includes their joins.
 pub struct PersistentAuthority {
     phase: Phase,
+    fixed: fixed_executor::Core,
     pending_carriers: BTreeMap<u64, composition::Binding>,
     core: Option<TemporaryAuthority>,
     registry: Option<Registry>,
@@ -414,6 +419,7 @@ impl PersistentAuthority {
         };
         OpenedAuthority::Ready(Self {
             phase: Phase::Running,
+            fixed: fixed_executor::Core::default(),
             pending_carriers: BTreeMap::new(),
             core: Some(core),
             registry: Some(registry),
@@ -461,6 +467,7 @@ impl PersistentAuthority {
         let writer = (*store).into_writer();
         std::mem::forget(core);
         std::mem::forget(self.registry.take());
+        std::mem::forget(std::mem::take(&mut self.fixed));
         StoppedAuthority {
             writer,
             diagnostics: diag,
@@ -585,10 +592,12 @@ impl PersistentAuthority {
         if self.core().retired {
             self.abort_in_place();
         }
+        self.fixed.cancel_closed();
         result
     }
     pub fn remove_device(&mut self, key: &str, now: u64) -> super::Result<()> {
         self.check_policy()?;
+        self.fixed.cancel_device(key);
         let result = self
             .core
             .as_mut()
@@ -669,7 +678,11 @@ impl PersistentAuthority {
         self.check_policy()?;
         let result = (|| {
             self.core().expire(now)?;
-            Ok(self.registry.as_mut().unwrap().tick(now)?)
+            let started = self.registry.as_mut().unwrap().tick(now)?;
+            if self.poll_fixed(now).is_err() {
+                return Err(PolicyError::Denied.into());
+            }
+            Ok(started)
         })();
         if result.is_err() {
             self.abort_in_place();
@@ -782,6 +795,7 @@ impl Drop for PersistentAuthority {
         if let Some(registry) = &mut self.registry {
             registry.retire();
         }
+        self.fixed.drain();
         // WriterLease Drop invalidates the broker ledger. No snapshot writes here.
     }
 }

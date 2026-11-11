@@ -1,4 +1,5 @@
-//! Private composition boundary. No worker, queue admission or join receipt here.
+//! Private composition boundary. Authority quiescence includes retained fixed-worker
+//! drainage; the caller still owns the separate service-thread join.
 use super::*;
 use crate::budget::Reservation;
 
@@ -30,7 +31,8 @@ pub(crate) enum CarrierDecision {
 
 impl PersistentAuthority {
     /// Derive eligibility before revocation; mark Aborted until teardown completes.
-    /// Caller must still join its future worker before consuming terminal close.
+    /// Drains authority-owned executors. Caller must also join its service worker
+    /// before consuming terminal close.
     pub(crate) fn quiesce_for_join(&mut self) -> std::result::Result<(), StoreFault> {
         if self.pid != std::process::id() {
             return Err(StoreFault::WrongProcess);
@@ -55,6 +57,9 @@ impl PersistentAuthority {
         self.core().retire();
         self.registry.as_mut().unwrap().retire();
         self.pending_carriers.clear();
+        if !self.fixed.drain() {
+            return Err(StoreFault::DirtyRun);
+        }
         self.phase = Phase::Quiesced;
         Ok(())
     }
@@ -65,6 +70,7 @@ impl PersistentAuthority {
         if self.pid != std::process::id() {
             return;
         }
+        self.fixed.cancel_all();
         if let Some(core) = &mut self.core {
             core.retire();
         }
@@ -78,6 +84,7 @@ impl PersistentAuthority {
             return self.abandon_inherited();
         }
         self.abort_in_place();
+        self.fixed.drain();
         let mut core = self.core.take().unwrap();
         let RecordStore::Persistent(store) =
             std::mem::replace(&mut core.storage, RecordStore::Closed)
@@ -117,6 +124,7 @@ impl PersistentAuthority {
         if self.pid != std::process::id() {
             return;
         }
+        self.fixed.cancel_closed();
         let stale: Vec<_> = self
             .pending_carriers
             .iter()

@@ -118,4 +118,6 @@ The [HTTP Claim/cancellation proposal](HTTP-CLAIM-PROPOSAL.md) specifies owner-o
 
 A [private authority/joined-worker composition](HTTP-CLAIM-COMPOSITION.md) now exercises actual Registry claims and encrypted fixed responses. It uses real joins and scoped ciphertext credit return. It remains separate from supervisor dispatch and the full-body/network adapter.
 
-The proposed [fixed-Claim supervisor integration](FIXED-CLAIM-SUPERVISOR-PROPOSAL.md) narrows that next step to authority-owned executors, tracked synthetic delivery, prepaid status/output and fair bounded actor dispatch. It awaits agreement; its first implementation checkpoint adds only the private retained executor core, with no owner API, scheduler or network adapter.
+The [fixed-Claim supervisor contract](FIXED-CLAIM-SUPERVISOR-PROPOSAL.md) separates authority-owned executors, tracked synthetic delivery, prepaid status/output and fair bounded actor dispatch. Checkpoint 1 is concluded; later output and owner-pump integration still require agreement and review.
+
+Checkpoint 1 of that contract is implemented as the [private retained executor core](FIXED-EXECUTOR-CORE.md): two authority-owned slots, fixed results, cancellation/deadline polling, actual joins and terminal drainage. It has no supervisor command or egress.

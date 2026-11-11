@@ -734,3 +734,6 @@ mod composition_tests;
 
 #[path = "claim_worker_tests.rs"]
 mod claim_worker_tests;
+
+#[path = "fixed_executor_tests.rs"]
+mod fixed_executor_tests;
