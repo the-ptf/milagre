@@ -13,24 +13,16 @@ pub struct PrAction {
 /// `PR_ACTIONS[blocker]`.
 pub fn pr_action(blocker: Blocker) -> PrAction {
     match blocker {
-        Blocker::Conflicts => PrAction {
-            label: "Resolve conflicts",
-            sentence: "Resolve the conflicts on pull request",
-            skill: "milagre-resolve-conflicts",
-        },
-        Blocker::ChangesRequested => PrAction {
-            label: "Address review",
-            sentence: "Address the review on pull request",
-            skill: "milagre-address-review",
-        },
-        Blocker::ChecksFailed => {
-            PrAction { label: "Fix CI", sentence: "Fix CI on pull request", skill: "milagre-fix-ci" }
+        Blocker::Conflicts => {
+            PrAction { label: "Resolve conflicts", sentence: "Resolve the conflicts on pull request", skill: "milagre-resolve-conflicts" }
         }
-        Blocker::Behind => PrAction {
-            label: "Update branch",
-            sentence: "Update the branch of pull request",
-            skill: "milagre-update-branch",
-        },
+        Blocker::ChangesRequested => {
+            PrAction { label: "Address review", sentence: "Address the review on pull request", skill: "milagre-address-review" }
+        }
+        Blocker::ChecksFailed => PrAction { label: "Fix CI", sentence: "Fix CI on pull request", skill: "milagre-fix-ci" },
+        Blocker::Behind => {
+            PrAction { label: "Update branch", sentence: "Update the branch of pull request", skill: "milagre-update-branch" }
+        }
     }
 }
 

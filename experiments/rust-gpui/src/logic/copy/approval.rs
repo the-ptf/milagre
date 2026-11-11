@@ -17,7 +17,7 @@ pub enum ApprovalKind {
 
 /// The line above an approval's title (`approvalKind`): what kind of action it is, in words. The agent's own
 /// tool names never show; other tools keep the name the request gives them.
-pub fn approval_kind<'a>(kind: ApprovalKind, tool: &'a str) -> &'a str {
+pub fn approval_kind(kind: ApprovalKind, tool: &str) -> &str {
     match kind {
         ApprovalKind::Command => "Command",
         ApprovalKind::Edit => "File change",

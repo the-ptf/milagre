@@ -15,26 +15,19 @@ pub fn round_i64(value: f64) -> i64 {
 pub fn is_space(c: char) -> bool {
     matches!(
         c,
-        '\t' | '\n'
-            | '\u{0B}'
-            | '\u{0C}'
-            | '\r'
-            | ' '
-            | '\u{A0}'
-            | '\u{1680}'
-            | '\u{2000}'..='\u{200A}'
-            | '\u{2028}'
-            | '\u{2029}'
-            | '\u{202F}'
-            | '\u{205F}'
-            | '\u{3000}'
-            | '\u{FEFF}'
+        '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r' | ' ' | '\u{A0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{FEFF}'
     )
 }
 
 /// JavaScript's `String.prototype.trim`.
 pub fn trim(text: &str) -> &str {
     text.trim_matches(is_space)
+}
+
+/// `text.replace(/\s+$/, "")`.
+pub fn trim_end_js(text: &str) -> &str {
+    text.trim_end_matches(is_space)
 }
 
 /// JavaScript's `\w`: ASCII letters, digits and underscore.
@@ -44,11 +37,7 @@ pub fn is_word(c: char) -> bool {
 
 /// A number as `String(n)` prints it for the values the ported code produces (integers and short decimals).
 pub fn number_string(value: f64) -> String {
-    if value == value.trunc() && value.abs() < 1e15 {
-        format!("{}", value as i64)
-    } else {
-        format!("{value}")
-    }
+    if value == value.trunc() && value.abs() < 1e15 { format!("{}", value as i64) } else { format!("{value}") }
 }
 
 /// `text.length` in JavaScript: UTF-16 code units.

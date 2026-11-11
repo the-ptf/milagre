@@ -56,10 +56,10 @@ fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
         at += tag[at..].chars().take_while(|c| js::is_space(*c)).map(char::len_utf8).sum::<usize>();
         let rest = &tag[at..];
         for quote in ['"', '\''] {
-            if let Some(inner) = rest.strip_prefix(quote) {
-                if let Some(close) = inner.find(quote) {
-                    return Some(&inner[..close]);
-                }
+            if let Some(inner) = rest.strip_prefix(quote)
+                && let Some(close) = inner.find(quote)
+            {
+                return Some(&inner[..close]);
             }
         }
         let bare = rest.find(|c: char| js::is_space(c) || c == '>').unwrap_or(rest.len());
@@ -89,10 +89,11 @@ fn wrapper_end(text: &str, at: usize) -> Option<usize> {
         name_at += 1;
     }
     for name in WRAPPERS.iter().chain(WRAPPERS_TAIL.iter()).filter(|name| !name.is_empty()) {
-        if starts_with_ci(text, name_at, name) && boundary_after_word(text, name_at + name.len()) {
-            if let Some(end) = tag_end(text, name_at + name.len()) {
-                return Some(end);
-            }
+        if starts_with_ci(text, name_at, name)
+            && boundary_after_word(text, name_at + name.len())
+            && let Some(end) = tag_end(text, name_at + name.len())
+        {
+            return Some(end);
         }
     }
     None
@@ -111,12 +112,13 @@ fn convert(text: &str) -> String {
         }
         // The three replacements run one after another in TypeScript (images, then `<br>`, then wrappers). A
         // replacement never creates text another one would match, so one left-to-right pass gives the same result.
-        if starts_with_ci(text, at + 1, "img") && boundary_after_word(text, at + 4) {
-            if let Some(end) = tag_end(text, at + 4) {
-                out.push_str(&image_markdown(&text[at..end]));
-                at = end;
-                continue;
-            }
+        if starts_with_ci(text, at + 1, "img")
+            && boundary_after_word(text, at + 4)
+            && let Some(end) = tag_end(text, at + 4)
+        {
+            out.push_str(&image_markdown(&text[at..end]));
+            at = end;
+            continue;
         }
         if starts_with_ci(text, at + 1, "br") {
             let mut next = at + 3;
@@ -246,7 +248,10 @@ mod tests {
 
     #[test]
     fn a_drag_dropped_image_tag_becomes_a_markdown_image_inside_a_table_too() {
-        assert_eq!(github_html_to_markdown(&format!("<img width=\"250\" alt=\"Screen\" src=\"{ASSET}\" />")), format!("![Screen](<{ASSET}>)"));
+        assert_eq!(
+            github_html_to_markdown(&format!("<img width=\"250\" alt=\"Screen\" src=\"{ASSET}\" />")),
+            format!("![Screen](<{ASSET}>)")
+        );
         assert_eq!(github_html_to_markdown(&format!("| <img src='{ASSET}'> | b |")), format!("| ![Image](<{ASSET}>) | b |"));
         assert_eq!(github_html_to_markdown("<img alt=x>"), "", "An image without a source goes");
     }

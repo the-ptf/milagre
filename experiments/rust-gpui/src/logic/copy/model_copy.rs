@@ -146,7 +146,8 @@ pub struct SetupApprovalCopy {
     pub deny: &'static str,
 }
 
-pub const SETUP_APPROVAL_COPY: SetupApprovalCopy = SetupApprovalCopy { allow: "Run once", always: "Trust this version", deny: "Skip setup" };
+pub const SETUP_APPROVAL_COPY: SetupApprovalCopy =
+    SetupApprovalCopy { allow: "Run once", always: "Trust this version", deny: "Skip setup" };
 
 /// `EFFORT_COPY`, in the table's order.
 pub const EFFORT_COPY: [(&str, &str, &str); 7] = [
@@ -225,7 +226,10 @@ mod tests {
 
     #[test]
     fn effort_copy_falls_back_to_the_level_itself() {
-        assert_eq!(effort_copy("xhigh"), EffortCopy { name: "Extra high".into(), description: "Deep reasoning for complex problems".into() });
+        assert_eq!(
+            effort_copy("xhigh"),
+            EffortCopy { name: "Extra high".into(), description: "Deep reasoning for complex problems".into() }
+        );
         assert_eq!(effort_copy("turbo"), EffortCopy { name: "turbo".into(), description: String::new() });
     }
 

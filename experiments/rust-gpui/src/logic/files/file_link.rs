@@ -283,7 +283,20 @@ mod tests {
 
     #[test]
     fn web_links_and_anchors_stay_links() {
-        for href in ["https://example.com/a.md", "mailto:a@b.c", "#section", "//example.com/a.md", "file:///etc/passwd", "/repo/docs/", "javascript:alert(1)", "", "  ", "/a\nb", "/a%zz.md", "/a%ff.md"] {
+        for href in [
+            "https://example.com/a.md",
+            "mailto:a@b.c",
+            "#section",
+            "//example.com/a.md",
+            "file:///etc/passwd",
+            "/repo/docs/",
+            "javascript:alert(1)",
+            "",
+            "  ",
+            "/a\nb",
+            "/a%zz.md",
+            "/a%ff.md",
+        ] {
             assert_eq!(local_file_link(href, None), None, "{href}");
         }
     }

@@ -105,7 +105,8 @@ pub fn limit_choices(groups: &[ProviderAccounts], limit: &UsageLimit, now: i64, 
         .iter()
         .filter(|account| account.id != group.effective_id && !account.missing)
         .map(|account| {
-            let limited_until = account.limited_until.as_deref().filter(|text| !text.is_empty()).and_then(|text| reset_time(Some(text), now, zone));
+            let limited_until =
+                account.limited_until.as_deref().filter(|text| !text.is_empty()).and_then(|text| reset_time(Some(text), now, zone));
             let unavailable = if account.state != AccountState::Ready {
                 Some("Not signed in".to_string())
             } else {
@@ -127,7 +128,11 @@ pub fn limit_choices(groups: &[ProviderAccounts], limit: &UsageLimit, now: i64, 
 
 /// `switchedText`: what the card says once a switch went through.
 pub fn switched_text(continued: bool, label: &str) -> String {
-    if continued { format!("Switched to {label}. Continuing\u{2026}") } else { format!("Switched to {label}. Send your message again to continue.") }
+    if continued {
+        format!("Switched to {label}. Continuing\u{2026}")
+    } else {
+        format!("Switched to {label}. Send your message again to continue.")
+    }
 }
 
 /// `accountSwitchText`: the line a Chat shows where it continued on another account after the limit.
@@ -177,13 +182,21 @@ mod tests {
                 effective_id: "default".into(),
                 accounts: vec![
                     account("default", "Default", AccountState::Ready),
-                    ProviderAccount { email: Some("me@work.com".into()), plan: Some("Max".into()), ..account("work", "Work", AccountState::Ready) },
+                    ProviderAccount {
+                        email: Some("me@work.com".into()),
+                        plan: Some("Max".into()),
+                        ..account("work", "Work", AccountState::Ready)
+                    },
                     ProviderAccount { limited_until: Some(at(13, 14, 0, offset)), ..account("side", "Side", AccountState::Ready) },
                     account("old", "Old", AccountState::SignedOut),
                     ProviderAccount { missing: true, ..account("gone", "Removed account", AccountState::Error) },
                 ],
             },
-            ProviderAccounts { provider: Provider::Codex, effective_id: "default".into(), accounts: vec![account("c", "C", AccountState::Ready)] },
+            ProviderAccounts {
+                provider: Provider::Codex,
+                effective_id: "default".into(),
+                accounts: vec![account("c", "C", AccountState::Ready)],
+            },
         ]
     }
 
@@ -226,10 +239,15 @@ mod tests {
             let zone = FixedZone(offset);
             let now = epoch_ms(2026, 10, 13, 12, 0, offset);
             let choices = limit_choices(&snapshot(offset), &limit(offset), now, &zone);
-            let shape: Vec<(&str, &str, &str, bool)> = choices.iter().map(|c| (c.id.as_str(), c.label.as_str(), c.detail.as_str(), c.disabled)).collect();
+            let shape: Vec<(&str, &str, &str, bool)> =
+                choices.iter().map(|c| (c.id.as_str(), c.label.as_str(), c.detail.as_str(), c.disabled)).collect();
             assert_eq!(
                 shape,
-                vec![("work", "me@work.com", "Personal", false), ("side", "Side", "Limited until 2:00 PM", true), ("old", "Old", "Not signed in", true)]
+                vec![
+                    ("work", "me@work.com", "Personal", false),
+                    ("side", "Side", "Limited until 2:00 PM", true),
+                    ("old", "Old", "Not signed in", true)
+                ]
             );
             assert!(limit_choices(&[], &limit(offset), now, &zone).is_empty());
         }

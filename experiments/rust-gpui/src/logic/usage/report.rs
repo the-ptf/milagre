@@ -142,7 +142,8 @@ pub struct UsageSnapshot {
 /// `overviewUpdatedAt`: the oldest last-good read, so a fresh account never makes another account's stale data
 /// look current. ISO string, or `None` when no provider has windows.
 pub fn overview_updated_at(snapshot: Option<&UsageSnapshot>) -> Option<String> {
-    let oldest = snapshot?.providers.iter().filter(|item| !item.windows.is_empty()).filter_map(|item| time::parse_iso_ms(&item.updated_at)).min()?;
+    let oldest =
+        snapshot?.providers.iter().filter(|item| !item.windows.is_empty()).filter_map(|item| time::parse_iso_ms(&item.updated_at)).min()?;
     Some(time::format_iso(oldest))
 }
 
@@ -192,7 +193,9 @@ pub fn merge_snapshot(previous: Option<&UsageSnapshot>, next: &UsageSnapshot, no
                 return current.clone();
             }
             let before = previous.and_then(|previous| {
-                previous.providers.iter().find(|item| item.provider == current.provider && item.account.as_ref().map(|a| &a.id) == current.account.as_ref().map(|a| &a.id))
+                previous.providers.iter().find(|item| {
+                    item.provider == current.provider && item.account.as_ref().map(|a| &a.id) == current.account.as_ref().map(|a| &a.id)
+                })
             });
             let Some(before) = before.filter(|before| !before.windows.is_empty()) else { return current.clone() };
             let windows = before
@@ -222,7 +225,12 @@ pub fn merge_snapshot(previous: Option<&UsageSnapshot>, next: &UsageSnapshot, no
 pub fn account_usage_groups(snapshot: Option<&UsageSnapshot>) -> Vec<(Provider, Vec<&AccountUsage>)> {
     PROVIDER_ORDER
         .into_iter()
-        .map(|provider| (provider, snapshot.map(|snapshot| snapshot.providers.iter().filter(|item| item.provider == provider).collect()).unwrap_or_default()))
+        .map(|provider| {
+            (
+                provider,
+                snapshot.map(|snapshot| snapshot.providers.iter().filter(|item| item.provider == provider).collect()).unwrap_or_default(),
+            )
+        })
         .filter(|(_, accounts): &(Provider, Vec<&AccountUsage>)| !accounts.is_empty())
         .collect()
 }
@@ -267,7 +275,8 @@ pub fn context_tone(percent: i64) -> UsageTone {
 
 /// `contextHint`: explains the warning threshold; the button supplies the action.
 pub fn context_hint(percent: i64) -> Option<String> {
-    (percent >= CONTEXT_WARN_PERCENT).then(|| format!("Context above {CONTEXT_WARN_PERCENT}% may reduce response quality and slow replies."))
+    (percent >= CONTEXT_WARN_PERCENT)
+        .then(|| format!("Context above {CONTEXT_WARN_PERCENT}% may reduce response quality and slow replies."))
 }
 
 #[cfg(test)]
@@ -278,7 +287,14 @@ mod tests {
     const NOW: i64 = 1_794_139_200_000; // 2026-11-08T12:00:00Z
 
     fn window(label: &str, used: f64, resets: Option<&str>) -> WindowUsage {
-        WindowUsage { id: label.into(), label: label.into(), short_label: label.into(), used_percent: used, resets_at: resets.map(Into::into), detail: None }
+        WindowUsage {
+            id: label.into(),
+            label: label.into(),
+            short_label: label.into(),
+            used_percent: used,
+            resets_at: resets.map(Into::into),
+            detail: None,
+        }
     }
 
     fn usage(provider: Provider, id: &str, status: UsageStatus, windows: Vec<WindowUsage>, updated_at: &str) -> AccountUsage {
@@ -387,7 +403,13 @@ mod tests {
 
     #[test]
     fn labels_name_the_account_and_say_when_numbers_are_stale() {
-        let mut item = usage(Provider::Claude, "work", UsageStatus::Ok, vec![window("5h", 40.4, None), window("wk", 12.0, None), window("x", 1.0, None)], "");
+        let mut item = usage(
+            Provider::Claude,
+            "work",
+            UsageStatus::Ok,
+            vec![window("5h", 40.4, None), window("wk", 12.0, None), window("x", 1.0, None)],
+            "",
+        );
         item.account = Some(AccountRef { id: "work".into(), label: "Work".into(), email: Some("me@work.com".into()) });
         assert_eq!(usage_label(&item, UsageDisplay::Used), "Claude (me@work.com) usage: 5h 40% used, wk 12% used");
         assert_eq!(usage_label(&item, UsageDisplay::Remaining), "Claude (me@work.com) usage: 5h 60% left, wk 88% left");
@@ -416,14 +438,23 @@ mod tests {
             Provider::Claude,
             "a",
             UsageStatus::Ok,
-            vec![window("5h", 10.0, Some(&past)), window("wk", 20.0, Some(&future)), window("mo", 30.0, None), window("bad", 5.0, Some("garbage"))],
+            vec![
+                window("5h", 10.0, Some(&past)),
+                window("wk", 20.0, Some(&future)),
+                window("mo", 30.0, None),
+                window("bad", 5.0, Some("garbage")),
+            ],
             "2026-11-08T11:00:00.000Z",
         );
         good.banked_resets = Some(2);
         let previous = UsageSnapshot { account_key: Some("k".into()), generated_at: Some("g".into()), providers: vec![good] };
         let failed = usage(Provider::Claude, "a", UsageStatus::Error, vec![], "2026-11-08T11:59:00.000Z");
         let other = usage(Provider::Codex, "z", UsageStatus::Ok, vec![window("5h", 1.0, None)], "x");
-        let next = UsageSnapshot { account_key: Some("k".into()), generated_at: Some("g2".into()), providers: vec![failed.clone(), other.clone()] };
+        let next = UsageSnapshot {
+            account_key: Some("k".into()),
+            generated_at: Some("g2".into()),
+            providers: vec![failed.clone(), other.clone()],
+        };
         let merged = merge_snapshot(Some(&previous), &next, NOW);
         assert_eq!(merged.generated_at.as_deref(), Some("g2"));
         let kept = &merged.providers[0];

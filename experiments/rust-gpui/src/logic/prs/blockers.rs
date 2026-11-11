@@ -380,7 +380,8 @@ pub fn update_blocker_dismissals(dismissed: &[String], pr: Option<&PullRequestSt
         }
         return dismissed.to_vec();
     }
-    let cleared: Vec<String> = Blocker::ORDER.into_iter().filter(|blocker| clears(pr, *blocker)).map(|blocker| dismissal_key(blocker, &pr.url)).collect();
+    let cleared: Vec<String> =
+        Blocker::ORDER.into_iter().filter(|blocker| clears(pr, *blocker)).map(|blocker| dismissal_key(blocker, &pr.url)).collect();
     if cleared.iter().any(|entry| dismissed.contains(entry)) {
         dismissed.iter().filter(|entry| !cleared.contains(entry)).cloned().collect()
     } else {

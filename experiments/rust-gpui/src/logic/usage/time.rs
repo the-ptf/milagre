@@ -139,13 +139,7 @@ pub fn format_iso(ms: i64) -> String {
     let days = ms.div_euclid(DAY);
     let rest = ms.rem_euclid(DAY);
     let (year, month, day) = civil_from_days(days);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
-        rest / HOUR,
-        rest % HOUR / MINUTE,
-        rest % MINUTE / 1000,
-        rest % 1000
-    )
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z", rest / HOUR, rest % HOUR / MINUTE, rest % MINUTE / 1000, rest % 1000)
 }
 
 /// A moment as the clock on the wall shows it in a zone.

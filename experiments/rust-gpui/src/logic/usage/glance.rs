@@ -201,7 +201,12 @@ mod tests {
     use crate::logic::usage::time::{FixedZone, epoch_ms, parse_iso_ms};
 
     fn pr(number: u32) -> PullRequestStatus {
-        PullRequestStatus { number: Some(number), title: format!("PR {number}"), url: format!("https://github.com/o/r/pull/{number}"), ..Default::default() }
+        PullRequestStatus {
+            number: Some(number),
+            title: format!("PR {number}"),
+            url: format!("https://github.com/o/r/pull/{number}"),
+            ..Default::default()
+        }
     }
 
     fn open(pr: PullRequestStatus, updated_at: Option<&str>) -> OpenPullRequest {
@@ -242,9 +247,15 @@ mod tests {
     fn pr_status_names_the_worst_thing_first() {
         let status = |pr: PullRequestStatus| pull_request_status(&pr);
         assert_eq!(status(PullRequestStatus { is_draft: true, checks: Some(Checks::Failed), ..pr(1) }), ("draft", GlancePrTone::Muted));
-        assert_eq!(status(PullRequestStatus { has_conflicts: true, checks: Some(Checks::Running), ..pr(1) }), ("conflicts", GlancePrTone::Red));
+        assert_eq!(
+            status(PullRequestStatus { has_conflicts: true, checks: Some(Checks::Running), ..pr(1) }),
+            ("conflicts", GlancePrTone::Red)
+        );
         assert_eq!(status(PullRequestStatus { checks: Some(Checks::Failed), ..pr(1) }), ("CI failed", GlancePrTone::Red));
-        assert_eq!(status(PullRequestStatus { changes_requested: true, checks: Some(Checks::Running), ..pr(1) }), ("changes requested", GlancePrTone::Orange));
+        assert_eq!(
+            status(PullRequestStatus { changes_requested: true, checks: Some(Checks::Running), ..pr(1) }),
+            ("changes requested", GlancePrTone::Orange)
+        );
         assert_eq!(status(PullRequestStatus { checks: Some(Checks::Running), ..pr(1) }), ("CI running", GlancePrTone::Orange));
         assert_eq!(status(PullRequestStatus { is_behind: true, ready_to_merge: true, ..pr(1) }), ("behind base", GlancePrTone::Orange));
         assert_eq!(status(PullRequestStatus { ready_to_merge: true, ..pr(1) }), ("ready to merge", GlancePrTone::Purple));
@@ -270,11 +281,18 @@ mod tests {
                 series: vec![
                     TokenBucket {
                         start: at(9),
-                        providers: vec![(Provider::Claude, TokenSplit { tokens: 1000.0, cost_usd: 1.0 }), (Provider::Codex, TokenSplit { tokens: 500.0, cost_usd: 0.5 })],
+                        providers: vec![
+                            (Provider::Claude, TokenSplit { tokens: 1000.0, cost_usd: 1.0 }),
+                            (Provider::Codex, TokenSplit { tokens: 500.0, cost_usd: 0.5 }),
+                        ],
                     },
                     TokenBucket { start: at(14), providers: vec![(Provider::Claude, TokenSplit { tokens: 1500.0, cost_usd: 1.5 })] },
                 ],
-                projects: vec![TokenProject { milagre: true, count: 3 }, TokenProject { milagre: true, count: 2 }, TokenProject { milagre: false, count: 7 }],
+                projects: vec![
+                    TokenProject { milagre: true, count: 3 },
+                    TokenProject { milagre: true, count: 2 },
+                    TokenProject { milagre: false, count: 7 },
+                ],
             };
             let today = glance_today(Some(&report), at(15), &zone).unwrap();
             assert_eq!((today.cost_usd, today.tokens, today.chats), (3.0, 3000.0, 5));
@@ -287,7 +305,10 @@ mod tests {
     fn unpriced_days_count_tokens_per_hour() {
         let zone = FixedZone(0);
         let report = TokenReport {
-            series: vec![TokenBucket { start: epoch_ms(2026, 11, 8, 2, 0, 0), providers: vec![(Provider::Codex, TokenSplit { tokens: 700.0, cost_usd: 0.0 })] }],
+            series: vec![TokenBucket {
+                start: epoch_ms(2026, 11, 8, 2, 0, 0),
+                providers: vec![(Provider::Codex, TokenSplit { tokens: 700.0, cost_usd: 0.0 })],
+            }],
             ..Default::default()
         };
         assert_eq!(glance_today(Some(&report), epoch_ms(2026, 11, 8, 3, 0, 0), &zone).unwrap().hours[2], 700.0);
