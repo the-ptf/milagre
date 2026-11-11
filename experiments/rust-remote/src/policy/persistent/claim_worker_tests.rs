@@ -442,3 +442,53 @@ fn worker_panic_retains_execution_charge_until_actual_join() {
     assert!(matches!(p.acquire_writer(), Err(StoreFault::Busy)));
     stopped.release();
 }
+
+#[test]
+fn unread_loan_is_discarded_but_never_makes_an_executed_request_replayable() {
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(StoreLimits::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    let (h, mut channel, _) = pair(&mut a, 1, 4, 1);
+    let work = request(&mut a, &h, &mut channel, 1, 2).remove(0);
+    let (_, clock) = clock();
+    with_claim(&mut a, work.clone(), clock, Outcome::Success, |claim| {
+        finish_worker(claim);
+        claim.may_send().unwrap();
+        assert!(!claim.packet_receipt_for_test());
+        drop(claim.receive().unwrap()); // Intentionally never calls bytes().
+        assert!(claim.packet_receipt_for_test());
+        assert!(claim.cleanup_complete());
+        assert_eq!(claim.observe().delivery, Delivery::Discarded);
+        assert_eq!(claim.observe().phase, Phase::Discarded);
+        assert_eq!(claim.observe().execution, Execution::MayHaveRun);
+        assert_eq!(claim.observe().status, Some(200));
+        assert!(claim.may_send().is_err());
+    });
+    assert_eq!(work.status(), WorkStatus::Cancelled);
+    let (_, clock) = crate::policy::persistent::tests::claim_worker_tests::clock();
+    assert!(Prepared::new(&mut a, work, clock).is_err());
+    clean(a);
+}
+#[test]
+fn unused_prepaid_credit_is_released_without_inventing_a_packet_receipt() {
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(StoreLimits::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    let (h, mut channel, _) = pair(&mut a, 1, 4, 1);
+    let work = request(&mut a, &h, &mut channel, 1, 2).remove(0);
+    let pool = a.global_pool().unwrap();
+    let (_, clock) = clock();
+    with_claim(&mut a, work, clock, Outcome::Success, |claim| {
+        finish_worker(claim);
+        let retained = pool.used();
+        assert!(!claim.packet_receipt_for_test());
+        claim.cancel();
+        assert!(pool.used() < retained);
+        assert!(claim.cleanup_complete());
+        assert!(!claim.packet_receipt_for_test());
+        assert_eq!(claim.observe().delivery, Delivery::None);
+    });
+    clean(a);
+}

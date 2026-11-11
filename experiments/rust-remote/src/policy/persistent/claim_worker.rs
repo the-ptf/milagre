@@ -1,9 +1,12 @@
 //! Private single-claim composition, exclusively borrowing a fresh synthetic authority.
 //! Real joins and leased ciphertext, but only fixed in-memory outcomes. No HTTP adapter.
 use super::*;
+mod output_credit;
 use crate::{
     budget::Reservation, http_dispatch, phone, registry::claim::Permit, supervisor::Clock,
 };
+use output_credit::{Packet, ReturnReceiver, ReturnSender, ReturnedCredit};
+use std::cell::Cell;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc, Condvar, Mutex,
@@ -12,6 +15,8 @@ use std::thread::{self, JoinHandle};
 
 const STACK: usize = 2 * 1024 * 1024;
 const OUTPUT: usize = 64 * 1024;
+// Retains the bounded receipt channel and signal after packet/execution leases return.
+const METADATA: usize = 2048;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Fault {
     Full,
@@ -39,6 +44,7 @@ pub(crate) enum Delivery {
     None,
     MaySend,
     Returned,
+    Discarded,
     Unknown,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +53,7 @@ pub(crate) enum Phase {
     Running,
     Ready,
     Completed,
+    Discarded,
     Cancelled,
     TimedOut,
     Failed,
@@ -124,12 +131,6 @@ impl Drop for OwnedWorker {
         }
     }
 }
-struct Packet {
-    bytes: Vec<u8>,
-    _lease: Reservation,
-}
-/// Only constructed after the scoped output loan destroys its Packet and lease.
-struct ReturnedCredit;
 pub(crate) struct Claim<'a> {
     authority: &'a mut PersistentAuthority,
     permit: Permit,
@@ -138,6 +139,10 @@ pub(crate) struct Claim<'a> {
     joined: Option<Joined>,
     output: Option<Packet>,
     returned: Option<ReturnedCredit>,
+    return_sender: Option<ReturnSender>,
+    return_receiver: ReturnReceiver,
+    packet_issued: bool,
+    exposed: Cell<bool>,
     prepaid: Option<Reservation>,
     _metadata: Reservation,
     http_deadline: u64,
@@ -163,7 +168,8 @@ impl OutputLoan<'_, '_> {
         {
             return Err(Fault::Stale);
         }
-        Ok(&self.claim.output.as_ref().unwrap().bytes)
+        self.claim.exposed.set(true);
+        Ok(self.claim.output.as_ref().unwrap().bytes())
     }
 }
 impl Drop for OutputLoan<'_, '_> {
@@ -193,13 +199,25 @@ impl Drop for OutputLoan<'_, '_> {
             );
             return;
         }
-        drop(self.claim.output.take());
-        self.claim.returned = Some(ReturnedCredit);
-        self.claim.observation.delivery = Delivery::Returned;
-        self.claim.observation.phase = Phase::Completed;
+        self.claim.release_packet();
+        let exposed = self.claim.exposed.get();
+        self.claim.observation.delivery = if exposed {
+            Delivery::Returned
+        } else {
+            Delivery::Discarded
+        };
+        self.claim.observation.phase = if exposed {
+            Phase::Completed
+        } else {
+            Phase::Discarded
+        };
         self.claim.authority.registry.as_mut().unwrap().end_claim(
             &self.claim.permit,
-            registry::WorkStatus::Completed,
+            if exposed {
+                registry::WorkStatus::Completed
+            } else {
+                registry::WorkStatus::Cancelled
+            },
             self.claim.clock.now(),
         );
     }
@@ -224,7 +242,7 @@ impl<'a> Prepared<'a> {
             .unwrap()
             .inspect_claim(&token, clock.now())
             .map_err(refused)?;
-        let metadata = budget.reserve(512).map_err(|_| Fault::Full)?;
+        let metadata = budget.reserve(METADATA).map_err(|_| Fault::Full)?;
         Ok(Self {
             authority,
             token,
@@ -282,6 +300,8 @@ impl<'a> Prepared<'a> {
             }
         };
         let execution = prepaid.split(STACK + 2048).unwrap();
+        // Allocate the bounded receipt channel before claim/Begin, under prepaid credit.
+        let (return_sender, return_receiver) = output_credit::channel();
         let signal = Arc::new(Signal {
             gate: Mutex::new(Gate::default()),
             wake: Condvar::new(),
@@ -371,6 +391,10 @@ impl<'a> Prepared<'a> {
             joined: None,
             output: None,
             returned: None,
+            return_sender: Some(return_sender),
+            return_receiver,
+            packet_issued: false,
+            exposed: Cell::new(false),
             prepaid: Some(prepaid),
             _metadata: self._metadata,
             http_deadline,
@@ -467,13 +491,18 @@ impl<'a> Claim<'a> {
         self.observation.phase = Phase::Ready;
         Ok(())
     }
+    fn release_packet(&mut self) {
+        drop(self.output.take());
+        if self.returned.is_none() {
+            self.returned = self.return_receiver.try_recv().ok();
+        }
+    }
     fn stop_output(&mut self, phase: Phase) {
         if self.observation.delivery == Delivery::MaySend {
             self.observation.delivery = Delivery::Unknown;
         }
-        drop(self.output.take());
+        self.release_packet();
         drop(self.prepaid.take());
-        self.returned = Some(ReturnedCredit);
         self.observation.phase = phase;
     }
     pub fn cancel(&mut self) {
@@ -520,7 +549,11 @@ impl<'a> Claim<'a> {
         }
         if matches!(
             self.observation.phase,
-            Phase::Completed | Phase::Cancelled | Phase::TimedOut | Phase::Failed
+            Phase::Completed
+                | Phase::Discarded
+                | Phase::Cancelled
+                | Phase::TimedOut
+                | Phase::Failed
         ) {
             return Ok(());
         }
@@ -594,10 +627,12 @@ impl<'a> Claim<'a> {
             self.permit.handle(),
             self.clock.now(),
             |bytes, lease| {
-                packet = Some(Packet {
+                packet = Some(Packet::new(
                     bytes,
-                    _lease: lease,
-                });
+                    lease,
+                    self.return_sender.take().unwrap(),
+                ));
+                self.packet_issued = true;
                 Ok(())
             },
         );
@@ -622,7 +657,7 @@ impl<'a> Claim<'a> {
     /// Owned resources can only finish after a real join and actual packet/lease return.
     pub fn cleanup_complete(&self) -> bool {
         self.joined.is_some()
-            && self.returned.is_some()
+            && (!self.packet_issued || self.returned.is_some())
             && self.output.is_none()
             && self.prepaid.is_none()
     }
@@ -631,10 +666,10 @@ impl Drop for Claim<'_> {
     fn drop(&mut self) {
         self.worker.cancel();
         let _ = self.join();
-        if self.observation.phase != Phase::Completed {
+        if !matches!(self.observation.phase, Phase::Completed | Phase::Discarded) {
             self.cancel();
         }
-        drop(self.output.take());
+        self.release_packet();
         self.prepaid.take();
         // The mutable authority borrow ends only after this joined, drained Drop.
     }
@@ -642,6 +677,9 @@ impl Drop for Claim<'_> {
 
 #[cfg(test)]
 impl Claim<'_> {
+    pub(crate) fn packet_receipt_for_test(&self) -> bool {
+        self.returned.is_some()
+    }
     pub(crate) fn joined_probe_for_test(&self) -> Arc<std::sync::atomic::AtomicBool> {
         self.worker.joined_probe.clone()
     }
