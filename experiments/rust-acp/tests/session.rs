@@ -699,12 +699,14 @@ async fn native_receipts_follow_child_consumption_not_turn_admission() {
     assert_eq!(snapshot["receivedPrompts"].as_array().unwrap().len(), 1);
     assert_native_receipt(&snapshot["receivedPrompts"][0], 1, "fault-session", ordinary);
     // The native child holds the first response. The accepted second turn is not a receipt.
-    tokio::time::sleep(Duration::from_millis(30)).await;
+    // Child stdin barrier runs after prior frames, without releasing the held response.
+    assert_eq!(s.probe_fake_receipts().await, Ok(1));
     assert_eq!(s.inspect().await.unwrap()["receivedPromptCount"], 1);
     s.finish_fake().await.unwrap();
     assert_eq!(ended(&mut events, first).await.last().unwrap()["type"], "turn-completed");
     let snapshot = received_prompts(&s, 2).await;
     assert_native_receipt(&snapshot["receivedPrompts"][1], 2, "fault-session", restore);
+    assert_eq!(s.probe_fake_receipts().await, Ok(2));
     s.finish_fake().await.unwrap();
     assert_eq!(ended(&mut events, second).await.last().unwrap()["type"], "turn-completed");
     // Inspection is a snapshot, not a request for a synthetic echo or another native prompt.
@@ -724,7 +726,8 @@ async fn native_prompt_receipts_bound_history_and_complete_text_by_utf8_bytes() 
             _ => format!("prompt {sequence}"),
         };
         let turn = s.send(&body).unwrap();
-        assert_eq!(ended(&mut events, turn).await.last().unwrap()["type"], "turn-completed");
+        let seen = ended(&mut events, turn).await;
+        assert_eq!(seen.last().unwrap()["type"], "turn-completed", "{seen:?}");
         let snapshot = s.inspect().await.unwrap();
         assert_eq!(snapshot["receivedPromptCount"], sequence);
         let receipts = snapshot["receivedPrompts"].as_array().unwrap();
@@ -737,5 +740,81 @@ async fn native_prompt_receipts_bound_history_and_complete_text_by_utf8_bytes() 
     let turn = s.send("no receipt hook in ordinary scenarios").unwrap();
     ended(&mut events, turn).await;
     assert_eq!(s.inspect().await.unwrap()["receivedPromptCount"], 0);
+    assert_eq!(s.probe_fake_receipts().await, Err(SessionError::Configuration));
     s.shutdown().await;
+}
+
+#[tokio::test]
+async fn native_receipts_preserve_escape_heavy_text_and_unicode_line_separators() {
+    let (s, mut events) = FakeSession::launch(options("prompt-receipts")).unwrap();
+    let escaped = "\0\"\\\r\n\t".repeat(682) + "\r\n\0\"";
+    assert_eq!(escaped.len(), 4096);
+    for (index, body) in [escaped, "line\r\nnext\u{2028}paragraph\u{2029}😀\\u2028".into()].iter().enumerate() {
+        let turn = s.send(body).unwrap();
+        let seen = ended(&mut events, turn).await;
+        assert_eq!(seen.last().unwrap()["type"], "turn-completed", "{seen:?}");
+        let snapshot = s.inspect().await.unwrap();
+        assert_eq!(snapshot["receivedPromptCount"], index + 1);
+        assert_native_receipt(&snapshot["receivedPrompts"][index], (index + 1) as u64, "fault-session", body);
+    }
+    assert_eq!(s.probe_fake_receipts().await, Ok(2));
+    s.shutdown().await;
+}
+
+fn receipt_child() -> milagre_acp::SpawnOptions {
+    let node = std::env::var_os("PATH")
+        .and_then(|paths| std::env::split_paths(&paths).map(|p| p.join("node")).find(|p| p.is_file()))
+        .expect("Node is required for the fixed ACP receipt fixture");
+    milagre_acp::SpawnOptions::new(node)
+        .args([std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/fake-session-agent.cjs").into_os_string()])
+        .env([("FAKE_SCENARIO", "prompt-receipts")])
+}
+#[tokio::test]
+async fn native_rejected_prompt_does_not_advance_receipt_sequence() {
+    use milagre_acp::{AcpRpc, RpcError, ServerEvent};
+    let (rpc, mut events) = AcpRpc::spawn(receipt_child()).unwrap();
+    for blocks in [json!([]), json!([{"type":"image","text":"bad"}]), json!([{"type":"text","text":4}])] {
+        let error = rpc.request("session/prompt", json!({"sessionId":"fault-session","prompt":blocks})).await.unwrap_err();
+        assert!(matches!(error, RpcError::Server { code: -32602, .. }));
+        assert_eq!(rpc.request("fake/receipt-barrier", json!({})).await.unwrap(), 0);
+    }
+    let body = "valid\u{2028}after\u{2029}rejection\r\n";
+    rpc.request("session/prompt", milagre_acp::protocol::prompt("fault-session", &[json!({"type":"text","text":body})])).await.unwrap();
+    assert_eq!(rpc.request("fake/receipt-barrier", json!({})).await.unwrap(), 1);
+    let receipt = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let Some(ServerEvent::Notification(n)) = events.recv().await {
+                if n.method == "fake/prompt-received" {
+                    break n.params;
+                }
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_native_receipt(&receipt, 1, "fault-session", body);
+    rpc.close().await;
+}
+#[tokio::test]
+async fn fixed_native_reader_rejects_overlong_frame_before_prompt_receipt() {
+    let (rpc, mut events) = milagre_acp::AcpRpc::spawn(receipt_child()).unwrap();
+    let result = rpc
+        .request_with_timeout(
+            "session/prompt",
+            milagre_acp::protocol::prompt("fault-session", &[json!({"type":"text","text":"x".repeat(512*1024)})]),
+            Some(Duration::from_secs(2)),
+        )
+        .await;
+    assert!(result.is_err());
+    rpc.close().await;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(event) = events.recv().await {
+            if matches!(event, milagre_acp::ServerEvent::Exit(_)) {
+                break;
+            }
+            assert!(!matches!(event, milagre_acp::ServerEvent::Notification(n) if n.method == "fake/prompt-received"));
+        }
+    })
+    .await
+    .unwrap();
 }

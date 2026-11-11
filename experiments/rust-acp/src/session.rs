@@ -6,6 +6,7 @@ use crate::queue::{self, EventReceiver, EventSender, QueueLimits};
 use crate::rpc::value_weight;
 use crate::{AcpRpc, RequestId, RpcError, ServerEvent, SpawnOptions};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
@@ -44,7 +45,11 @@ impl ReceivedPrompt {
             && digest(&self.frame_sha256)
             && digest(&self.text_sha256)
             && match &self.text {
-                Some(text) => text.len() == self.text_bytes && text.len() <= RECEIVED_PROMPT_TEXT_BYTES,
+                Some(text) => {
+                    text.len() == self.text_bytes
+                        && text.len() <= RECEIVED_PROMPT_TEXT_BYTES
+                        && format!("{:x}", Sha256::digest(text.as_bytes())) == self.text_sha256
+                }
                 None => self.text_bytes > RECEIVED_PROMPT_TEXT_BYTES,
             }
     }
@@ -295,6 +300,7 @@ enum Command {
     Inspect(oneshot::Sender<Value>),
     /// Fixed fake method, never arbitrary provider RPC.
     FinishFake(oneshot::Sender<Result<(), SessionError>>),
+    ProbeReceipts(oneshot::Sender<Result<u64, SessionError>>),
 }
 impl FakeSession {
     /// Launches only repository-owned fake scripts, with an empty environment except scenario.
@@ -467,6 +473,13 @@ impl FakeSession {
         let (tx, rx) = oneshot::channel();
         self.handle.commands.try_send(Command::Inspect(tx)).map_err(|_| SessionError::Closed)?;
         rx.await.map_err(|_| SessionError::Closed)
+    }
+    /// Fixed stdin barrier: the receipt fake reports how many valid prompts it parsed before
+    /// this probe. Does not release a held prompt or manufacture a stored receipt.
+    pub async fn probe_fake_receipts(&self) -> Result<u64, SessionError> {
+        let (tx, rx) = oneshot::channel();
+        self.handle.commands.try_send(Command::ProbeReceipts(tx)).map_err(|_| SessionError::Busy)?;
+        rx.await.unwrap_or(Err(SessionError::Closed))
     }
     pub async fn finish_fake(&self) -> Result<(), SessionError> {
         let (tx, rx) = oneshot::channel();
@@ -1005,6 +1018,32 @@ impl Actor {
             Command::Inspect(reply) => {
                 let _=reply.send(json!({"nativeId":self.native,"capabilities":self.capabilities,"receivedPromptCount":self.received_prompt_count,"receivedPrompts":self.received_prompts,"state":self.state.snapshot(),"stateBytes":self.state.retained_weight(),"permissions":self.permissions.len(),"ready":self.ready,"writingPermission":self.writing.as_ref().and_then(|w|w.work.id.as_ref()).map(RequestId::to_value),"queuedPermissionWrites":self.writes.iter().filter_map(|w|w.id.as_ref().map(RequestId::to_value)).collect::<Vec<_>>(),"pid":self.rpc.as_ref().and_then(AcpRpc::pid)}));
             }
+            Command::ProbeReceipts(reply) => {
+                if !["prompt-receipts", "prompt-receipts-held"].contains(&self.options.scenario.as_str()) {
+                    let _ = reply.send(Err(SessionError::Configuration));
+                    return;
+                }
+                let Some(rpc) = self.rpc.clone() else {
+                    let _ = reply.send(Err(SessionError::Closed));
+                    return;
+                };
+                if self.writing.is_some() || !self.writes.is_empty() {
+                    let _ = reply.send(Err(SessionError::Busy));
+                } else {
+                    self.writing = Some(Writing {
+                        work: Write { id: None, turn: None, result: json!("fake/receipt-barrier"), reply: None },
+                        future: Box::pin(async move {
+                            let result = rpc.request("fake/receipt-barrier", json!({})).await.and_then(|v| {
+                                v.as_u64()
+                                    .filter(|n| *n <= 9_007_199_254_740_991)
+                                    .ok_or_else(|| RpcError::Io("Invalid fake receipt barrier.".into()))
+                            });
+                            let _ = reply.send(result.as_ref().copied().map_err(|_| SessionError::Closed));
+                            result.map(|_| ())
+                        }),
+                    });
+                }
+            }
             Command::FinishFake(reply) => {
                 let Some(rpc) = self.rpc.clone() else {
                     let _ = reply.send(Err(SessionError::Closed));
@@ -1220,5 +1259,139 @@ mod admission_tests {
         }
         assert!(!prompt_fits_frame(&"x".repeat(allowed + 1)));
         assert!(!prompt_fits_frame(&"\0".repeat(allowed / 6 + 1)));
+    }
+}
+
+#[cfg(test)]
+mod receipt_rejection_tests {
+    use super::*;
+
+    fn actor() -> Actor {
+        let options = FakeOptions { scenario: "prompt-receipts".into(), ..FakeOptions::default() };
+        let mut actor = Actor::new(
+            options,
+            SpawnOptions::new("never-spawned"),
+            mpsc::channel(1).1,
+            queue::channel(QueueLimits::default()).0,
+            watch::channel(0).1,
+            watch::channel(false).1,
+            Arc::new(AtomicBool::new(false)),
+            watch::channel(false).0,
+        );
+        actor.active = Some(Turn {
+            id: TurnId(1),
+            epoch: 0,
+            queued_at: Instant::now(),
+            blocks: vec![],
+            _slot: Arc::new(Semaphore::new(1)).try_acquire_owned().unwrap(),
+            _bytes: Arc::new(Semaphore::new(1)).try_acquire_owned().unwrap(),
+        });
+        actor
+    }
+    fn receipt(sequence: u64) -> Value {
+        json!({"sequence":sequence,"requestId":3,"frameBytes":128,"frameSha256":"a".repeat(64),
+            "textBytes":2,"textSha256":format!("{:x}",Sha256::digest(b"hi")),"text":"hi"})
+    }
+    fn rejected(params: Value, message: &str) {
+        let mut actor = actor();
+        actor.notification("fake/prompt-received", &receipt(1));
+        assert_eq!(actor.received_prompt_count, 1);
+        let before = actor.received_prompts.clone();
+        actor.notification("fake/prompt-received", &params);
+        assert!(actor.stopping, "accepted {params}");
+        assert!(actor.closed.load(Ordering::Acquire));
+        assert_eq!(actor.terminal.as_ref().unwrap()["type"], "turn-failed");
+        assert_eq!(actor.terminal.as_ref().unwrap()["message"], message);
+        assert_eq!(actor.received_prompt_count, 1);
+        assert_eq!(actor.received_prompts, before, "invalid receipt changed retained history");
+        assert!(actor.rpc.is_none());
+    }
+    #[test]
+    fn malformed_receipt_schema_closes_without_retention_or_child() {
+        for value in [Value::Null, json!([]), json!(true), json!(42), json!("receipt")] {
+            rejected(value, "Invalid fake prompt receipt.");
+        }
+        for field in ["sequence", "requestId", "frameBytes", "frameSha256", "textBytes", "textSha256"] {
+            let mut value = receipt(2);
+            value.as_object_mut().unwrap().remove(field);
+            rejected(value, "Invalid fake prompt receipt.");
+        }
+        for patch in [
+            json!({"unknown":"field"}),
+            json!({"sequence":"2"}),
+            json!({"requestId":false}),
+            json!({"frameBytes":-1}),
+            json!({"text":[]}),
+            json!({"textSha256":null}),
+            json!({"requestId":1.5}),
+        ] {
+            let mut value = receipt(2);
+            value.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
+            rejected(value, "Invalid fake prompt receipt.");
+        }
+    }
+    #[test]
+    fn invalid_receipt_sequence_digest_and_byte_bounds_close_without_retention() {
+        for patch in [
+            json!({"sequence":0}),
+            json!({"sequence":1}),
+            json!({"sequence":3}),
+            json!({"sequence":9_007_199_254_740_992u64}),
+            json!({"requestId":0}),
+            json!({"requestId":9_007_199_254_740_992u64}),
+            json!({"frameBytes":0}),
+            json!({"frameBytes":SESSION_FRAME_BYTES+1}),
+            json!({"textBytes":129}),
+            json!({"frameSha256":"a".repeat(63)}),
+            json!({"frameSha256":"A".repeat(64)}),
+            json!({"textSha256":"g".repeat(64)}),
+            json!({"textSha256":"a".repeat(65)}),
+            json!({"textSha256":format!("{:x}",Sha256::digest(b"no"))}),
+            json!({"textBytes":3}),
+            json!({"text":null}),
+            json!({"text":"é","textBytes":1}),
+            json!({"text":"x".repeat(4097),"textBytes":4097,"frameBytes":5000,
+                "textSha256":format!("{:x}",Sha256::digest("x".repeat(4097).as_bytes()))}),
+        ] {
+            let mut value = receipt(2);
+            value.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
+            rejected(value, "Invalid fake prompt receipt bounds or sequence.");
+        }
+        let mut missing = receipt(2);
+        missing.as_object_mut().unwrap().remove("text");
+        rejected(missing, "Invalid fake prompt receipt bounds or sequence.");
+        let r: ReceivedPrompt = serde_json::from_value(receipt(2)).unwrap();
+        assert!(!r.valid(u64::MAX));
+    }
+    #[test]
+    fn receipt_weight_gate_is_exact_and_precedes_schema_validation() {
+        let base = value_weight(&json!({"padding":""}));
+        for extra in [0, 1] {
+            let params = json!({"padding":"x".repeat(RECEIVED_PROMPT_WEIGHT-base+extra)});
+            assert_eq!(value_weight(&params), RECEIVED_PROMPT_WEIGHT + extra);
+            rejected(params, if extra == 0 { "Invalid fake prompt receipt." } else { "Fake prompt receipt exceeds inspection budget." });
+        }
+    }
+    #[test]
+    fn retained_text_digest_is_checked_only_when_complete_text_exists() {
+        let mut actor = actor();
+        let mut small = receipt(1);
+        small["text"] = json!("");
+        small["textBytes"] = json!(0);
+        small["textSha256"] = json!(format!("{:x}", Sha256::digest(b"")));
+        actor.notification("fake/prompt-received", &small);
+        assert_eq!(actor.received_prompt_count, 1);
+        let mut large = receipt(2);
+        large["text"] = Value::Null;
+        large["textBytes"] = json!(4097);
+        large["frameBytes"] = json!(5000);
+        // Without complete text, the digest is shape-checked and independently verified by the fixture caller.
+        actor.notification("fake/prompt-received", &large);
+        assert_eq!(actor.received_prompt_count, 2);
+        assert!(!actor.stopping);
+        actor.options.scenario = "reply".into();
+        actor.notification("fake/prompt-received", &json!({"invalid":true}));
+        assert!(!actor.stopping);
+        assert_eq!(actor.received_prompt_count, 2);
     }
 }

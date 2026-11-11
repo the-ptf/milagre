@@ -199,7 +199,7 @@ script, provider constructor, extra host capability or production accessor.
 ```
 
 The example numbers/digests are schematic. Each record originates in `fake/prompt-received`,
-emitted by Node **after its stdin line handler parses a complete `session/prompt` request**.
+emitted by Node **after its bounded LF-only stdin handler parses a complete `session/prompt` request**.
 Rust admission and write completion never create records. The child hashes its received UTF-8
 JSON line, excluding the line-ending LF, without reserializing it (`frameBytes`, `frameSha256`).
 It separately hashes the exact UTF-8 bytes of the single decoded text block (`textBytes`,
@@ -213,7 +213,10 @@ receipt history. Complete `text` is present for at most 4,096 UTF-8 bytes, other
 truncated prefix). Each receipt has at most an 8 KiB conservative allocation charge before
 retention, for at most 64 KiB total receipt charge, independently of mapper state. Frame lengths
 remain bounded by the 512 KiB transport limit. Schema, sequential count, integer ID, byte-length
-and lowercase digest-shape violations close this fake session. The existing transport bounds
+and lowercase digest-shape violations close this fake session. When complete text is retained,
+Rust also verifies its SHA-256 against `textSha256`; `sha2` is enabled only by `fake-session`.
+Without complete text, the caller verifies the digest against the expected prompt. The frame hash
+is also checked by the fixture caller, since Rust does not retain the child's source line. The existing transport bounds
 also apply to notifications before inspection. Inspection only copies the bounded snapshot.
 
 For the runtime Restore assertion, select `prompt-receipts`, finish each turn, then compare the
@@ -225,6 +228,20 @@ and SHA-256 too. Inspect before shutdown. A new process resets the receipt histo
 session independently if the adapter intentionally creates one process per host TurnId.
 
 The held-response regression admits two turns, observes only one native receipt while the first
-response is held, releases that response, then verifies the second exact payload and wire digest.
+response is held, executes a fixed child stdin barrier, releases that response, then verifies the
+second exact payload and wire digest. `probe_fake_receipts().await -> Result<u64, SessionError>`
+requests only `fake/receipt-barrier` with empty params; Node returns its valid prompt count after
+processing preceding stdin frames, without releasing the held response. It uses the existing
+single auxiliary operation slot, returns `Busy` if occupied and `Configuration` outside the two
+receipt scenarios. It creates no stored receipt and makes no claim about future stdin frames.
 A separate test covers automatic completion, saved-session load, UTF-8 text limits, a 400,000-byte
 prompt and eviction after twelve turns. These are fixture assertions, not owner/runtime wiring.
+
+Receipt rejection tests feed the private actor directly, with no child: malformed schema, unknown
+or missing fields, integer bounds, duplicate/skipped sequences, digest format/content, byte-length
+mismatches, omitted/oversized retained text, and the exact 8,192/8,193 allocation-charge boundary.
+Each rejection seals admission and leaves accepted receipt history unchanged. Native tests cover
+4 KiB escape-heavy text, CR/LF, NUL, U+2028/U+2029, rejected prompt shapes without counter drift,
+and the 512 KiB reader cap. The fixed child's LF-only framing replaces Node `readline`, which
+split literal U+2028 on the tested Node version. Vendor framing compatibility remains separate;
+this change applies only to the repository fake, not a production transport or installed provider.

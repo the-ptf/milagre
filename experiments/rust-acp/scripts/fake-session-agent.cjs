@@ -1,5 +1,4 @@
 // Lifecycle fault injector. No filesystem, vendor SDK, network, account or profile access.
-const { createInterface } = require("node:readline");
 const { createHash } = require("node:crypto");
 const scenario = process.env.FAKE_SCENARIO;
 const send = (frame) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...frame }) + "\n");
@@ -22,7 +21,7 @@ const permission = (sessionId, id = "permission") =>
 let prompt;
 let native;
 let turns = 0;
-createInterface({ input: process.stdin }).on("line", (line) => {
+function handleLine(line) {
   const { id, method, params = {} } = JSON.parse(line);
   switch (method) {
     case "initialize":
@@ -42,15 +41,17 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       native = "fault-session";
       return result(id, scenario === "missing-id" ? {} : { sessionId: native });
     case "session/prompt":
-      prompt = id;
-      native = params.sessionId;
-      turns++;
       if (["prompt-receipts", "prompt-receipts-held"].includes(scenario)) {
         // Receipt is generated only after this complete native stdin line has been parsed.
         // No prompt history is retained in Node. Hash the exact line (without LF), and decoded text.
         if (params.prompt?.length !== 1 || params.prompt[0]?.type !== "text" || typeof params.prompt[0]?.text !== "string") {
           return send({ id, error: { code: -32602, message: "fake receipt requires one text block" } });
         }
+      }
+      prompt = id;
+      native = params.sessionId;
+      turns++;
+      if (["prompt-receipts", "prompt-receipts-held"].includes(scenario)) {
         const body = params.prompt[0].text;
         const textBytes = Buffer.byteLength(body, "utf8");
         const digest = (value) => createHash("sha256").update(value, "utf8").digest("hex");
@@ -143,6 +144,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       if (prompt) result(prompt, { stopReason: "cancelled" });
       prompt = null;
       return;
+    case "fake/receipt-barrier":
+      if (["prompt-receipts", "prompt-receipts-held"].includes(scenario)) return result(id, turns);
+      return send({ id, error: { code: -32601, message: "unsupported fake method" } });
     case "fake/finish":
       if (prompt) result(prompt, { stopReason: "end_turn" });
       prompt = null;
@@ -154,5 +158,25 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         prompt = null;
       }
       if (method) send({ id, error: { code: -32601, message: "unsupported fake method" } });
+  }
+}
+// ACP frames end at LF, not at Unicode line/paragraph separators inside JSON strings.
+// Bound each accumulated frame before concatenating; stdin chunks can contain several frames.
+let pending = Buffer.alloc(0);
+process.stdin.on("data", (chunk) => {
+  let start = 0;
+  while (start < chunk.length) {
+    const end = chunk.indexOf(10, start);
+    const part = chunk.subarray(start, end < 0 ? chunk.length : end);
+    if (pending.length + part.length > 512 * 1024) {
+      process.stderr.write("fixed fake input frame exceeded 512 KiB\n");
+      process.exit(1);
+    }
+    pending = Buffer.concat([pending, part]);
+    if (end < 0) break;
+    const line = pending.toString("utf8");
+    pending = Buffer.alloc(0);
+    handleLine(line);
+    start = end + 1;
   }
 });
