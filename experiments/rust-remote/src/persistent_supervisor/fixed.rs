@@ -1,10 +1,14 @@
-//! Private owner admission only. No submission scheduler or delivery pump in this stage.
+//! Private owner admission and retained core lifecycle. No delivery pump.
+mod lifecycle;
 use super::*;
-use crate::persistent::fixed_executor::TargetId;
+use crate::persistent::fixed_executor::{self as executor, TargetId};
 use crate::{
     registry::{self, Handle, WorkStatus, WorkToken},
     supervisor::MemoryCarrier,
 };
+pub(crate) use lifecycle::OwnerBinding;
+#[cfg(test)]
+pub(crate) use lifecycle::TestHooks;
 use std::sync::Weak;
 
 pub(crate) const STATUS_SLOTS: usize = 512;
@@ -64,12 +68,25 @@ pub(crate) enum NotClaimed {
     Cancelled,
     Expired,
     Stale,
+    Full,
+    Spawn,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Terminal {
+    NotClaimed(NotClaimed),
+    Cancelled,
+    TimedOut,
+    Failed,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Phase {
     Prepared,
     Queued,
-    Terminal(NotClaimed),
+    Starting,
+    Claimed,
+    Running,
+    Ready,
+    Terminal(Terminal),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Observation {
@@ -78,6 +95,9 @@ pub(crate) enum Observation {
     Present {
         phase: Phase,
         cancel_requested: bool,
+        execution: executor::Execution,
+        status: Option<u16>,
+        cleanup_pending: bool,
     },
 }
 #[derive(Clone)]
@@ -131,13 +151,30 @@ struct Row {
     target: TargetId,
     phase: Phase,
     cancel: bool,
+    cancel_applied: bool,
     hidden: bool,
-    // Only admission exists in this stage. This private proof is constructed while
-    // no core start has occurred, and cannot be supplied by a caller or acknowledgment.
-    disposal: Unclaimed,
+    execution: executor::Execution,
+    status: Option<u16>,
+    ownership: RowOwnership,
+    #[cfg(test)]
+    test: Option<TestHooks>,
+    #[cfg(test)]
+    probe: Option<executor::Probe>,
     _lease: Reservation,
 }
 struct Unclaimed;
+enum RowOwnership {
+    Unclaimed(Unclaimed),
+    Starting,
+    Retained(executor::Id),
+    Disposed(executor::Disposed),
+    DirtyPending,
+}
+impl RowOwnership {
+    fn disposed(&self) -> bool {
+        matches!(self, Self::Unclaimed(_) | Self::Disposed(_))
+    }
+}
 struct ReplyCell {
     generation: u64,
     result: Option<Result<PreparedReply, PrepareRefusal>>,
@@ -201,6 +238,8 @@ pub(super) struct State {
     operations: Ring<Pending, QUEUE_SLOTS>,
     replies: [Option<ReplyCell>; QUEUE_SLOTS],
     submissions: Ring<Submission, QUEUE_SLOTS>,
+    #[cfg(test)]
+    pause_dispatch: bool,
     _lease: Reservation,
 }
 impl State {
@@ -217,11 +256,18 @@ impl State {
             operations: Ring::default(),
             replies: std::array::from_fn(|_| None),
             submissions: Ring::default(),
+            #[cfg(test)]
+            pause_dispatch: false,
             _lease: lease,
         }))
     }
     pub(super) fn has_operations(&self) -> bool {
         self.operations.len != 0
+            || self.rows.iter().flatten().any(|r| {
+                r.cancel
+                    && (matches!(r.phase, Phase::Prepared | Phase::Queued)
+                        || (matches!(r.ownership, RowOwnership::Retained(_)) && !r.cancel_applied))
+            })
     }
     fn row(&self, id: FixedId) -> Option<&Row> {
         self.rows
@@ -246,9 +292,9 @@ impl State {
             let Some(row) = slot else {
                 continue;
             };
-            let Unclaimed = row.disposal;
             if row.hidden
                 && matches!(row.phase, Phase::Terminal(_))
+                && row.ownership.disposed()
                 && !self.submissions.contains(row.id, |s| s.id)
                 && !self.replies.iter().flatten().any(
                     |r| matches!(&r.result, Some(Ok(PreparedReply::Attempt(id))) if *id == row.id),
@@ -395,6 +441,9 @@ impl FixedOwnerClient {
         Observation::Present {
             phase: row.phase,
             cancel_requested: row.cancel,
+            execution: row.execution,
+            status: row.status,
+            cleanup_pending: !row.ownership.disposed(),
         }
     }
     pub(crate) fn cancel(&self, id: FixedId) -> Result<(), StatusRefusal> {
@@ -553,7 +602,7 @@ impl Runtime {
             return;
         };
         for row in fixed.rows.iter_mut().flatten() {
-            if matches!(row.phase, Phase::Terminal(_)) {
+            if !matches!(row.phase, Phase::Prepared | Phase::Queued) {
                 continue;
             }
             let terminal = if row.cancel {
@@ -568,7 +617,7 @@ impl Runtime {
                 None
             };
             if let Some(terminal) = terminal {
-                row.phase = Phase::Terminal(terminal);
+                row.phase = Phase::Terminal(Terminal::NotClaimed(terminal));
             }
         }
         let len = fixed.submissions.len;
@@ -624,6 +673,7 @@ impl Runtime {
                 .map(PreparedReply::Attempt),
         };
         self.reconcile(shared);
+        self.publish_fixed_readiness(shared);
         if self.authority.global_pool().is_err() {
             shared.fail(WorkerFault::InvalidExit);
         }
@@ -747,8 +797,15 @@ impl Runtime {
             target,
             phase: Phase::Prepared,
             cancel: false,
+            cancel_applied: false,
             hidden: false,
-            disposal: Unclaimed,
+            execution: executor::Execution::NotStarted,
+            status: None,
+            ownership: RowOwnership::Unclaimed(Unclaimed),
+            #[cfg(test)]
+            test: None,
+            #[cfg(test)]
+            probe: None,
             _lease: lease,
         });
         fixed.next = generation;
@@ -817,8 +874,8 @@ mod layout_tests {
         ];
         #[cfg(target_pointer_width = "64")]
         {
-            assert_eq!(sizes, [155_232, 2048, 296, 48, 136, 40]);
-            assert_eq!(backing_bytes(), Some(161_376));
+            assert_eq!(sizes, [220_776, 2048, 424, 48, 136, 40]);
+            assert_eq!(backing_bytes(), Some(226_920));
         }
         assert!(sizes[2] <= STATUS_BYTES);
     }

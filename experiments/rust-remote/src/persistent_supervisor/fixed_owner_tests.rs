@@ -1,7 +1,7 @@
 use super::*;
 use crate::persistent_supervisor::fixed::{
     self, FixedFixture, FixedOutcome, FixedOwnerClient, NotClaimed, Observation, Phase,
-    PrepareRefusal, StatusRefusal, SubmitRefusal, SubmitRejection, WaitFault,
+    PrepareRefusal, StatusRefusal, SubmitRefusal, SubmitRejection, Terminal, WaitFault,
 };
 fn fixture() -> (
     PersistentSupervisor,
@@ -20,6 +20,7 @@ fn fixture() -> (
     .unwrap_or_else(|_| panic!("fixed fixture start"));
     let owner = s.owner();
     let fixed = s.fixed_owner().unwrap();
+    fixed.pause_dispatch(true);
     run(&owner, C::OpenPairing);
     (s, owner, fixed, clock)
 }
@@ -135,8 +136,11 @@ fn fixed_full_returns_exact_unqueued_permit_and_explicit_retry_consumes_once() {
     wait(|| {
         fixed.observe(first_id)
             == Observation::Present {
-                phase: Phase::Terminal(NotClaimed::Cancelled),
+                phase: Phase::Terminal(Terminal::NotClaimed(NotClaimed::Cancelled)),
                 cancel_requested: true,
+                execution: crate::persistent::fixed_executor::Execution::NotStarted,
+                status: None,
+                cleanup_pending: false,
             }
     });
     fixed.ack_terminal(first_id).unwrap();
@@ -150,7 +154,10 @@ fn fixed_full_returns_exact_unqueued_permit_and_explicit_retry_consumes_once() {
         fixed.observe(second_id),
         Observation::Present {
             phase: Phase::Queued,
-            cancel_requested: false
+            cancel_requested: false,
+            execution: crate::persistent::fixed_executor::Execution::NotStarted,
+            status: None,
+            cleanup_pending: false,
         }
     );
     assert_eq!(fixed.counts().1, 1);
@@ -258,6 +265,9 @@ impl Drop for UnparkOnDrop {
     }
 }
 
+#[path = "fixed_lifecycle_tests.rs"]
+mod fixed_lifecycle_tests;
+
 #[test]
 fn fixed_all_512_statuses_remain_charged_across_device_churn_until_ack() {
     let _disk = crate::synthetic_store::testing_lock();
@@ -301,7 +311,7 @@ fn fixed_all_512_statuses_remain_charged_across_device_churn_until_ack() {
         matches!(
             fixed.observe(old),
             Observation::Present {
-                phase: Phase::Terminal(NotClaimed::Stale),
+                phase: Phase::Terminal(Terminal::NotClaimed(NotClaimed::Stale)),
                 ..
             }
         )
@@ -476,8 +486,11 @@ fn fixed_queued_expiry_progresses_on_tick_without_another_command() {
     wait(|| {
         fixed.observe(id)
             == Observation::Present {
-                phase: Phase::Terminal(NotClaimed::Expired),
+                phase: Phase::Terminal(Terminal::NotClaimed(NotClaimed::Expired)),
                 cancel_requested: false,
+                execution: crate::persistent::fixed_executor::Execution::NotStarted,
+                status: None,
+                cleanup_pending: false,
             }
     });
     assert_eq!(fixed.counts().1, 0);
@@ -542,7 +555,7 @@ fn fixed_expired_preparation_reasserts_real_promoted_work_without_execution() {
             && matches!(
                 fixed.observe(id),
                 Observation::Present {
-                    phase: Phase::Terminal(NotClaimed::Expired),
+                    phase: Phase::Terminal(Terminal::NotClaimed(NotClaimed::Expired)),
                     ..
                 }
             )

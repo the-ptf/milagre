@@ -1,9 +1,12 @@
 //! Private retained fixed executor. No owner queue, scheduler or caller-owned worker.
 mod output;
+mod owner;
 use super::*;
+use crate::persistent_supervisor::fixed::OwnerBinding;
 use crate::{budget::Reservation, registry::claim::Permit, supervisor::Clock};
 pub(crate) use output::TargetId;
 use output::{Target, Tracked, TRACKED_BYTES};
+pub(crate) use owner::{Disposal, Disposed};
 use std::sync::{atomic::AtomicBool, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -169,6 +172,7 @@ struct Entry {
     timeout: bool,
     _metadata: Reservation,
     tracked: Option<Tracked>,
+    owner: Option<OwnerBinding>,
 }
 impl Entry {
     fn cancel(&mut self, state: State) {
@@ -281,7 +285,7 @@ impl Core {
     }
 }
 #[derive(Default, Clone)]
-pub(super) struct Hooks {
+pub(crate) struct Hooks {
     #[cfg(test)]
     pub hold: bool,
     #[cfg(test)]
@@ -292,6 +296,8 @@ pub(super) struct Hooks {
     pub refuse_after_spawn: bool,
     #[cfg(test)]
     pub exit: Option<Arc<ExitGate>>,
+    #[cfg(test)]
+    pub before_claim: Option<Arc<ExitGate>>,
 }
 fn admission(e: registry::claim::AdmissionError) -> Fault {
     match e {
@@ -390,7 +396,18 @@ impl PersistentAuthority {
         hooks: Hooks,
         target: Option<TargetId>,
     ) -> std::result::Result<Id, StartFailure> {
-        let result = self.start_fixed_admitted(token, outcome, clock, hooks, target);
+        self.start_fixed_bound(token, outcome, clock, hooks, target, None)
+    }
+    fn start_fixed_bound(
+        &mut self,
+        token: WorkToken,
+        outcome: Outcome,
+        clock: &Clock,
+        hooks: Hooks,
+        target: Option<TargetId>,
+        owner: Option<OwnerBinding>,
+    ) -> std::result::Result<Id, StartFailure> {
+        let result = self.start_fixed_admitted(token, outcome, clock, hooks, target, owner);
         self.reconcile_bound();
         result.map_err(|failure| {
             // Reconciliation can discover dirty cleanup after a definitive local
@@ -417,6 +434,7 @@ impl PersistentAuthority {
         clock: &Clock,
         hooks: Hooks,
         target: Option<TargetId>,
+        owner: Option<OwnerBinding>,
     ) -> std::result::Result<Id, StartFailure> {
         self.check_registry().map_err(|_| Fault::Stale)?;
         let now = clock.now();
@@ -504,6 +522,10 @@ impl PersistentAuthority {
         if hooks.refuse_after_spawn {
             return Err(self.refuse_fixed_worker(worker, Fault::Spawn));
         }
+        #[cfg(test)]
+        if let Some(gate) = &hooks.before_claim {
+            gate.wait();
+        }
         let admission: std::result::Result<_, Fault> = (|| {
             let now = clock.now();
             let http = now.checked_add(340_000).ok_or(Fault::Expired)?;
@@ -540,6 +562,7 @@ impl PersistentAuthority {
             timeout: false,
             _metadata: metadata,
             tracked,
+            owner,
             observation: Observation {
                 state: State::Claimed,
                 delivery: Delivery::None,
@@ -548,6 +571,21 @@ impl PersistentAuthority {
                 joined: false,
             },
         });
+        if self.fixed.entries[index]
+            .as_ref()
+            .unwrap()
+            .owner
+            .as_ref()
+            .is_some_and(|owner| !owner.install(id))
+        {
+            self.abort_in_place();
+            return Err(self.refuse_fixed_begin(index, Fault::Worker, clock.now()));
+        }
+        #[cfg(test)]
+        if let Some(owner) = self.fixed.entries[index].as_ref().unwrap().owner.clone() {
+            owner.record_probe(self.fixed_probe(id));
+            owner.wait_before_begin();
+        }
         #[cfg(test)]
         if hooks.fail_installed {
             let signal = self.fixed.entry(id).unwrap().worker.signal.clone();
@@ -588,6 +626,9 @@ impl PersistentAuthority {
             self.abort_in_place();
         }
         let entry = self.fixed.entries[index].take().unwrap();
+        let owner = entry.owner.clone();
+        let observation = entry.observation;
+        let id = entry.id;
         let terminal = if entry.observation.state == State::TimedOut {
             BeginTerminal::TimedOut
         } else {
@@ -602,9 +643,16 @@ impl PersistentAuthority {
             now,
         );
         drop(entry); // Metadata is released before the failed start becomes observable.
-        if !joined || uncertain {
+        if !joined || uncertain || self.phase == Phase::Aborted || self.fixed.failed {
             StartFailure::Dirty(Fault::Worker)
         } else {
+            if let Some(owner) = owner {
+                let proof = Disposed::new(owner.id(), id, observation);
+                if !owner.settle(proof) {
+                    self.abort_in_place();
+                    return StartFailure::Dirty(Fault::Worker);
+                }
+            }
             // Only this post-claim, actual-join path creates a clean Begin refusal.
             StartFailure::BeginRefused { fault, terminal }
         }
@@ -637,6 +685,8 @@ impl PersistentAuthority {
             entry.cancel(State::TimedOut);
             return Err(Fault::Expired);
         }
+        let owner = entry.owner.clone();
+        let mut owner_failure = None;
         let result = self
             .registry
             .as_mut()
@@ -651,19 +701,40 @@ impl PersistentAuthority {
                 if gate.cancel {
                     return Err(crate::Error::Unauthorized);
                 }
-                entry.observation.execution = Execution::MayHaveRun;
-                entry.observation.state = State::Running;
-                gate.begin = true;
-                entry.worker.signal.wake.notify_all();
+                let mut commit = || {
+                    entry.observation.execution = Execution::MayHaveRun;
+                    entry.observation.state = State::Running;
+                    gate.begin = true;
+                    entry.worker.signal.wake.notify_all();
+                };
+                if let Some(owner) = owner {
+                    owner
+                        .commit_begin(id, now, entry.http_deadline, commit)
+                        .map_err(|fault| {
+                            owner_failure = Some(fault);
+                            crate::Error::Unauthorized
+                        })?;
+                } else {
+                    commit();
+                }
                 Ok(())
             });
         if result.is_err() {
-            entry.cancel(State::Cancelled);
-            if entry.worker.signal.gate.is_poisoned() {
+            entry.cancel(if owner_failure == Some(Fault::Expired) {
+                State::TimedOut
+            } else {
+                State::Cancelled
+            });
+            if entry.worker.signal.gate.is_poisoned()
+                || matches!(
+                    owner_failure,
+                    Some(Fault::Worker | Fault::State | Fault::Clock)
+                )
+            {
                 self.abort_in_place();
                 return Err(Fault::Worker);
             }
-            return Err(Fault::Stale);
+            return Err(owner_failure.unwrap_or(Fault::Stale));
         }
         Ok(())
     }
@@ -790,7 +861,8 @@ impl PersistentAuthority {
 }
 
 #[cfg(test)]
-pub(super) struct Probe {
+#[derive(Clone)]
+pub(crate) struct Probe {
     signal: std::sync::Weak<Signal>,
     joined: Arc<AtomicUsize>,
 }
@@ -843,14 +915,14 @@ impl PersistentAuthority {
 
 #[cfg(test)]
 #[derive(Default)]
-pub(super) struct ExitGate {
+pub(crate) struct ExitGate {
     entered: AtomicBool,
     open: Mutex<bool>,
     wake: Condvar,
 }
 #[cfg(test)]
 impl ExitGate {
-    fn wait(&self) {
+    pub(crate) fn wait(&self) {
         let open = self.open.lock().unwrap();
         self.entered.store(true, Ordering::SeqCst);
         drop(self.wake.wait_while(open, |open| !*open).unwrap());

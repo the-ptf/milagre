@@ -436,7 +436,7 @@ impl From<crate::persistent::PersistentError> for Error {
     }
 }
 impl Runtime {
-    pub(super) fn clear_owned(&mut self) {
+    pub(super) fn clear_owned(&mut self, _drained: &crate::persistent::composition::RunDrained) {
         for (_, c) in std::mem::take(&mut self.carriers) {
             c.memory.close();
         }
@@ -449,10 +449,18 @@ impl Runtime {
         if started.is_empty() {
             return;
         }
+        Self::mark_work_available(shared);
+    }
+    fn mark_work_available(shared: &Shared) {
         let mut q = shared.queues();
         if shared.stop.load(Ordering::SeqCst) == RUNNING {
             q.work_ready = true;
             shared.changed.notify_all();
+        }
+    }
+    pub(super) fn publish_fixed_readiness(&mut self, shared: &Shared) {
+        if self.authority.take_fixed_readiness() {
+            Self::mark_work_available(shared);
         }
     }
     fn emit(shared: &Shared, event: Event) -> bool {
@@ -561,10 +569,14 @@ impl Runtime {
         }
     }
     pub(super) fn maintain(&mut self, shared: &Shared) -> Result<()> {
-        let started = self.authority.tick(self.clock.now())?;
+        self.fixed_cancel_requests(shared)?;
+        let result = self.authority.tick(self.clock.now());
+        self.publish_fixed_readiness(shared);
+        let started = result?;
         Self::work_available(shared, started);
         self.reconcile(shared);
         self.fixed_maintain(shared);
+        self.fixed_copy_progress(shared)?;
         shared.ticks.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -575,6 +587,16 @@ impl Runtime {
             .values()
             .filter(|c| c.handle.status() == CarrierStatus::Active)
         {
+            if self.fixed.is_some() {
+                match self.authority.fixed_egress(&c.handle, self.clock.now()) {
+                    Ok(crate::registry::FixedEgress::TrackedFence) => continue,
+                    Ok(crate::registry::FixedEgress::Ordinary) => (),
+                    Err(_) => {
+                        failed.push(c.handle.clone());
+                        continue;
+                    }
+                }
+            }
             loop {
                 if shared.stop.load(Ordering::SeqCst) != RUNNING {
                     break;
@@ -754,7 +776,9 @@ impl Runtime {
             }
             C::RemoveDevice(key) => self.authority.remove_device(&key, now)?,
             C::DrainWork { cursor, limit } => {
-                let page = self.authority.drain_work(cursor.as_ref(), limit, now)?;
+                let result = self.authority.drain_work(cursor.as_ref(), limit, now);
+                self.publish_fixed_readiness(shared);
+                let page = result?;
                 if cursor.is_none() {
                     shared.queues().work_ready = false;
                 }
@@ -816,6 +840,7 @@ impl Runtime {
         }
         self.reconcile(shared);
         let failed = self.flush(shared);
+        self.publish_fixed_readiness(shared);
         if result.is_ok() && target.is_some_and(|h| failed.iter().any(|other| other.same(&h))) {
             result = Err(Error::DeliveryUnknown);
         }
@@ -824,7 +849,7 @@ impl Runtime {
         }
         result
     }
-    pub(super) fn run(&mut self, shared: &Shared) {
+    pub(super) fn run(&mut self, shared: &Arc<Shared>) {
         loop {
             if shared.stop.load(Ordering::SeqCst) != RUNNING {
                 break;
@@ -833,6 +858,7 @@ impl Runtime {
                 shared.fail(WorkerFault::Clock);
                 break;
             }
+            let occupied = self.authority.fixed_owner_occupancy();
             let envelope = {
                 let q = shared.queues();
                 let (mut q, _) = shared
@@ -841,6 +867,7 @@ impl Runtime {
                         q.commands.is_empty()
                             && q.controls.is_empty()
                             && !q.fixed.as_ref().is_some_and(|f| f.has_operations())
+                            && !q.fixed.as_ref().is_some_and(|f| f.can_start(&occupied))
                             && shared.stop.load(Ordering::SeqCst) == RUNNING
                     })
                     .unwrap_or_else(|e| {
@@ -867,6 +894,7 @@ impl Runtime {
                 let _ = envelope.reply.try_send(result);
             }
             self.fixed_prepare_one(shared);
+            self.fixed_start_one(shared);
         }
     }
 }

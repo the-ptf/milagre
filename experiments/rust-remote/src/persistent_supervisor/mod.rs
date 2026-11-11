@@ -254,7 +254,7 @@ impl Shared {
         self.wake.notify_all();
         self.changed.notify_all();
     }
-    fn drain(&self) {
+    fn drain(&self, _drained: &crate::persistent::composition::RunDrained) {
         let mut q = self.queues();
         for e in q.controls.drain(..) {
             e.reject();
@@ -280,14 +280,28 @@ struct Runtime {
     after_apply: Option<Box<dyn FnOnce() + Send>>,
 }
 impl Runtime {
+    fn drain_owned(&mut self, shared: &Shared) -> bool {
+        let drained = match self.authority.drain_fixed_for_owner() {
+            Ok(drained) => drained,
+            Err(_) => {
+                shared.fail(WorkerFault::InvalidExit);
+                return false;
+            }
+        };
+        if !drained.healthy() {
+            shared.fail(WorkerFault::InvalidExit);
+        }
+        self.clear_owned(&drained);
+        shared.drain(&drained);
+        drained.healthy()
+    }
     fn finish(&mut self, shared: &Shared) -> bool {
         if shared.stop.load(Ordering::SeqCst) == RUNNING {
             shared.fail(WorkerFault::InvalidExit);
         }
         if shared.stop.load(Ordering::SeqCst) != REQUESTED || shared.fault().is_some() {
             self.authority.abort_in_place();
-            self.clear_owned();
-            shared.drain();
+            self.drain_owned(shared);
             return false;
         }
         let healthy = self.authority.quiesce_for_join().is_ok();
@@ -295,8 +309,7 @@ impl Runtime {
             shared.fail(WorkerFault::InvalidExit);
             self.authority.abort_in_place();
         }
-        self.clear_owned();
-        shared.drain();
+        self.drain_owned(shared);
         healthy && shared.fault().is_none()
     }
 }
@@ -512,8 +525,7 @@ impl PersistentSupervisor {
         }
         drop(retained);
         // Final owner-side drainage also covers an unexpected top-level worker unwind.
-        runtime.clear_owned();
-        self.shared.drain();
+        runtime.drain_owned(&self.shared);
         if self.shared.fault().is_some() {
             runtime.authority.abort_in_place();
         }
@@ -523,8 +535,7 @@ impl PersistentSupervisor {
         let joined = self.worker.is_some();
         self.join(abort);
         let mut runtime = self.take_runtime();
-        runtime.clear_owned();
-        self.shared.drain();
+        runtime.drain_owned(&self.shared);
         StoppedService {
             profile: self.profile.take().unwrap(),
             guard: Some(Guard::Stopped(runtime.authority.abort_without_commit())),
@@ -642,9 +653,8 @@ fn worker_main(
         slot.quiesced = false;
         if let Some(runtime) = &mut slot.runtime {
             runtime.authority.abort_in_place();
-            runtime.clear_owned();
+            runtime.drain_owned(&shared);
         }
-        shared.drain();
     }
     shared.finished.store(true, Ordering::SeqCst);
     shared.wake.notify_all();

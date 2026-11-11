@@ -9,6 +9,15 @@ pub(super) enum Phase {
     Quiesced,
     Aborted,
 }
+/// Internal drainage evidence. It owns no writer and cannot authorize Clean.
+pub(crate) struct RunDrained {
+    healthy: bool,
+}
+impl RunDrained {
+    pub(crate) fn healthy(&self) -> bool {
+        self.healthy
+    }
+}
 pub(super) struct Binding {
     handle: Handle,
     ticket: u64,
@@ -30,6 +39,21 @@ pub(crate) enum CarrierDecision {
 }
 
 impl PersistentAuthority {
+    /// Keep owner rows/backing alive until all core workers and output are drained.
+    /// Dirty runs remain Aborted even when their physical cleanup succeeds.
+    pub(crate) fn drain_fixed_for_owner(&mut self) -> std::result::Result<RunDrained, StoreFault> {
+        if self.pid != std::process::id() {
+            return Err(StoreFault::WrongProcess);
+        }
+        if self.phase != Phase::Quiesced {
+            self.abort_in_place();
+        }
+        let healthy = self.fixed.drain();
+        if !healthy {
+            self.abort_in_place();
+        }
+        Ok(RunDrained { healthy })
+    }
     /// Derive eligibility before revocation; mark Aborted until teardown completes.
     /// Drains authority-owned executors. Caller must also join its service worker
     /// before consuming terminal close.

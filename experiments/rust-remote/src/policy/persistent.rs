@@ -637,6 +637,23 @@ impl PersistentAuthority {
         self.reconcile_bound();
         result
     }
+    pub(crate) fn take_fixed_readiness(&mut self) -> bool {
+        self.pid == std::process::id()
+            && self
+                .registry
+                .as_mut()
+                .is_some_and(Registry::take_fixed_readiness)
+    }
+    pub(crate) fn fixed_egress(
+        &mut self,
+        handle: &Handle,
+        now: u64,
+    ) -> registry::Result<registry::FixedEgress> {
+        self.check_registry()?;
+        let result = self.registry.as_mut().unwrap().fixed_egress(handle, now);
+        self.reconcile_bound();
+        result
+    }
     pub fn receive_request(
         &mut self,
         h: &Handle,

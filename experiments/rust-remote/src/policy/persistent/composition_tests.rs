@@ -421,3 +421,177 @@ fn duplicate_or_expired_hello_reconciles_the_existing_ticket_immediately() {
         clean(a);
     }
 }
+
+fn owner_drain_clock() -> crate::supervisor::Clock {
+    let clock = crate::supervisor::ManualClock::default();
+    clock.advance_to(2).unwrap();
+    crate::supervisor::Clock::Manual(clock)
+}
+fn owner_drain_until(mut ready: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while !ready() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "owner drain did not progress"
+        );
+        std::thread::yield_now();
+    }
+}
+struct OwnerDrainRelease(Arc<crate::policy::persistent::fixed_executor::ExitGate>);
+impl Drop for OwnerDrainRelease {
+    fn drop(&mut self) {
+        self.0.release();
+    }
+}
+
+#[test]
+fn owner_dirty_drain_holds_join_credit_and_writer_until_actual_worker_exit() {
+    use crate::policy::persistent::fixed_executor::{
+        ExitGate, Hooks, Outcome, EXECUTION_BYTES, METADATA_BYTES,
+    };
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(Default::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    let (h, mut peer, _) = pair(&mut a, 1, 4, 1);
+    let memory = MemoryCarrier::new();
+    let target = a
+        .register_fixed_carrier(&h, memory.clone(), Default::default())
+        .unwrap();
+    let work = request(&mut a, &h, &mut peer, 1, 2).remove(0);
+    let exit = Arc::new(ExitGate::default());
+    let release = OwnerDrainRelease(exit.clone());
+    let id = a
+        .fixed_tracked_hooks(
+            work.clone(),
+            target,
+            Outcome::Success,
+            &owner_drain_clock(),
+            Hooks {
+                exit: Some(exit.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let probe = a.fixed_probe(id);
+    let pool = a.global_pool().unwrap();
+    let revision = a.diagnostics().revision;
+    owner_drain_until(|| exit.entered());
+    assert_eq!(probe.joins(), 0);
+    assert!(!a.fixed_thread_finished(id));
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let draining = std::thread::spawn(move || {
+        let proof = a.drain_fixed_for_owner().unwrap();
+        let _ = tx.send(proof.healthy());
+        a
+    });
+    owner_drain_until(|| probe.cancelled());
+    let premature = rx.try_recv();
+    let busy = matches!(p.acquire_writer(), Err(StoreFault::Busy));
+    let joins_before_exit = probe.joins();
+    let charged_before_exit = pool.used();
+    drop(release);
+    let a = draining.join().unwrap();
+    assert!(matches!(
+        premature,
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+    assert!(busy);
+    assert_eq!(joins_before_exit, 0);
+    assert!(
+        charged_before_exit
+            >= StoreLimits::default().working_bytes + EXECUTION_BYTES + METADATA_BYTES
+    );
+    assert!(rx.recv_timeout(std::time::Duration::from_secs(3)).unwrap());
+    assert_eq!(probe.joins(), 1);
+    assert_eq!(a.phase, Phase::Aborted); // Healthy resource drainage cannot certify a clean run.
+    assert_eq!(a.fixed_occupied_slots(), 0);
+    assert!(a.observe_fixed(id).is_none());
+    assert_eq!(work.status(), WorkStatus::Cancelled);
+    assert!(memory.is_closed());
+    assert_eq!(pool.used(), StoreLimits::default().working_bytes);
+    assert_eq!(a.diagnostics().revision, revision);
+    let (fault, stopped) = a.close_for_restart().err().unwrap().into_parts();
+    assert_eq!(fault, StoreFault::DirtyRun);
+    assert_eq!(stopped.diagnostics().revision, revision);
+    assert!(matches!(p.acquire_writer(), Err(StoreFault::Busy)));
+    stopped.release();
+}
+
+#[test]
+fn owner_drain_discovers_unpolled_worker_panic_and_never_authorizes_clean() {
+    use crate::policy::persistent::fixed_executor::Outcome;
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(Default::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    let (h, mut peer, _) = pair(&mut a, 1, 4, 1);
+    let work = request(&mut a, &h, &mut peer, 1, 2).remove(0);
+    let id = a
+        .start_fixed(work.clone(), Outcome::PanicAfterBegin, &owner_drain_clock())
+        .unwrap();
+    let probe = a.fixed_probe(id);
+    let pool = a.global_pool().unwrap();
+    let revision = a.diagnostics().revision;
+    owner_drain_until(|| a.fixed_thread_finished(id));
+    assert_eq!(a.phase, Phase::Running);
+    assert_eq!(probe.joins(), 0);
+    assert!(!a.observe_fixed(id).unwrap().joined);
+    assert!(!a.drain_fixed_for_owner().unwrap().healthy());
+    assert_eq!(probe.joins(), 1);
+    assert_eq!(a.phase, Phase::Aborted);
+    assert_eq!(a.fixed_occupied_slots(), 0);
+    assert_eq!(work.status(), WorkStatus::Cancelled);
+    assert_eq!(pool.used(), StoreLimits::default().working_bytes);
+    assert!(!a.drain_fixed_for_owner().unwrap().healthy()); // Failed cleanup stays sticky.
+    assert_eq!(probe.joins(), 1);
+    let (fault, stopped) = a.close_for_restart().err().unwrap().into_parts();
+    assert_eq!(fault, StoreFault::DirtyRun);
+    assert_eq!(stopped.diagnostics().revision, revision);
+    assert!(matches!(p.acquire_writer(), Err(StoreFault::Busy)));
+    stopped.release();
+    match PersistentAuthority::resume(p.acquire_writer().unwrap(), Default::default(), &mut OsRng) {
+        OpenedAuthority::Quarantined(quarantined) => {
+            quarantined.release();
+        }
+        _ => panic!("drain failure must not write Clean"),
+    }
+}
+
+#[test]
+fn owner_drain_after_healthy_quiescence_is_idempotent_and_preserves_clean_close() {
+    use crate::policy::persistent::fixed_executor::Outcome;
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(Default::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    let (h, mut peer, _) = pair(&mut a, 1, 4, 1);
+    let memory = MemoryCarrier::new();
+    let target = a
+        .register_fixed_carrier(&h, memory.clone(), Default::default())
+        .unwrap();
+    let work = request(&mut a, &h, &mut peer, 1, 2).remove(0);
+    let id = a
+        .start_fixed_tracked(work.clone(), target, Outcome::Success, &owner_drain_clock())
+        .unwrap();
+    let probe = a.fixed_probe(id);
+    let pool = a.global_pool().unwrap();
+    let revision = a.diagnostics().revision;
+    owner_drain_until(|| a.fixed_thread_finished(id));
+    assert_eq!(probe.joins(), 0);
+    a.quiesce_for_join().unwrap();
+    assert_eq!(probe.joins(), 1);
+    for _ in 0..3 {
+        assert!(a.drain_fixed_for_owner().unwrap().healthy());
+        assert_eq!(a.phase, Phase::Quiesced);
+        assert_eq!(a.diagnostics().revision, revision);
+        assert_eq!(probe.joins(), 1);
+        assert_eq!(a.fixed_occupied_slots(), 0);
+        assert!(matches!(p.acquire_writer(), Err(StoreFault::Busy)));
+        assert_eq!(pool.used(), StoreLimits::default().working_bytes);
+    }
+    assert_eq!(work.status(), WorkStatus::Cancelled);
+    assert!(memory.is_closed());
+    assert_eq!(clean(a).revision, revision.map(|n| n + 1));
+    clean(resume(&mut p, Default::default()));
+}

@@ -56,7 +56,9 @@ impl Registry {
         now: u64,
         fence: Option<&crate::tracked_output::Fence>,
     ) -> std::result::Result<ConnectionBudget, AdmissionError> {
-        let ready = self.inspect_ready_candidate(token, now).candidate?;
+        let inspection = self.inspect_ready_candidate(token, now);
+        self.fixed_readiness |= !inspection.promoted.is_empty();
+        let ready = inspection.candidate?;
         let limits = self.limits;
         let a = self.active(&token.handle, now)?;
         if !fence.is_some_and(|f| {
@@ -258,6 +260,7 @@ impl Registry {
             return;
         }
         let mut failed = false;
+        let mut promoted = false;
         if let State::Active(a) = &mut self
             .entries
             .get_mut(&permit.handle().carrier)
@@ -269,9 +272,13 @@ impl Registry {
                 .is_some_and(|job| job.claimed && job.token.serial == permit.token.serial)
             {
                 a.remove_job(permit.token.id, status);
-                failed = a.promote(now, limits).is_err();
+                match a.promote(now, limits) {
+                    Ok(started) => promoted = !started.is_empty(),
+                    Err(_) => failed = true,
+                }
             }
         }
+        self.fixed_readiness |= promoted;
         if failed {
             self.close(permit.handle(), CloseReason::Protocol);
         }
@@ -279,6 +286,30 @@ impl Registry {
 }
 
 impl Registry {
+    /// Transfers a coalesced notification of actual fixed-path promotion. Refusal,
+    /// observation and unrelated operations do not clear it.
+    pub(crate) fn take_fixed_readiness(&mut self) -> bool {
+        std::mem::take(&mut self.fixed_readiness)
+    }
+    /// Classify only this current session's live fence. This does not export output
+    /// or relax the ordinary producer/export checks.
+    pub(crate) fn fixed_egress(&mut self, handle: &Handle, now: u64) -> Result<FixedEgress> {
+        let active = self.active(handle, now)?;
+        active
+            .session
+            .with_access(|| {
+                Ok(
+                    if active.fixed_fence.as_ref().is_some_and(|fence| {
+                        fence.active() && fence.target.generation == handle.generation
+                    }) {
+                        FixedEgress::TrackedFence
+                    } else {
+                        FixedEgress::Ordinary
+                    },
+                )
+            })
+            .map_err(Into::into)
+    }
     pub(crate) fn fixed_registration(
         &mut self,
         handle: &Handle,

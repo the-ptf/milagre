@@ -1,5 +1,7 @@
 # Private fixed owner admission
 
+This records the accepted stage 1 boundary at `bd46a369`. [Stage 2A lifecycle](FIXED-OWNER-LIFECYCLE.md) now extends it with private owner start/cancel/poll/disposal; delivery and full fairness remain separate.
+
 Checkpoint 3 stage 1 implements the consuming preparation, status and submission boundary from [the agreed owner-pump proposal](FIXED-OWNER-PUMP-PROPOSAL.md). An explicitly opted-in, crate-private fixture mode extends the existing `PersistentSupervisor`. Ordinary public `start` allocates no fixed state and exposes no fixed owner capability. All existing public commands, carrier clients and profile authority remain unchanged.
 
 The real synthetic service Attach/HELLO/Request/DrainWork flow supplies authoritative `WorkToken`s. The actor can adopt its existing mailbox and process one private preparation operation per loop. Submission records an outcome and queues a consuming permit. **This stage never starts a queued worker or delivers its response.** Fair scheduling, synthetic peer adoption, final Begin cancellation synchronization, fenced generic-flush integration, completion wakes and automatic tracked delivery remain stage 2 work. Its review is still required.

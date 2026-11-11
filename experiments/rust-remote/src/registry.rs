@@ -48,6 +48,11 @@ pub enum CarrierStatus {
     Active,
     Closed(CloseReason),
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FixedEgress {
+    Ordinary,
+    TrackedFence,
+}
 #[derive(Clone)]
 pub struct Handle {
     binding: Option<crate::policy::SessionBinding>,
@@ -317,6 +322,7 @@ pub struct Registry {
     next: u64,
     now: u64,
     retired: bool,
+    fixed_readiness: bool,
     entries: BTreeMap<u64, Entry>,
 }
 impl Limits {
@@ -354,6 +360,7 @@ impl Registry {
             next: 0,
             now: 0,
             retired: false,
+            fixed_readiness: false,
             entries: BTreeMap::new(),
         })
     }
@@ -1005,3 +1012,6 @@ impl Drop for Registry {
 // Private fixed-response authority/worker composition. No public async dispatcher.
 #[allow(dead_code)]
 pub(crate) mod claim;
+#[cfg(test)]
+#[path = "registry/fixed_prerequisite_tests.rs"]
+mod fixed_prerequisite_tests;
