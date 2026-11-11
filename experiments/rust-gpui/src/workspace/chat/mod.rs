@@ -59,7 +59,7 @@ impl ChatView {
             ComposerEvent::Send(text) if !text.is_empty() => {
                 this.transcript.update(cx, |transcript, cx| transcript.push_user(text.clone(), cx))
             }
-            ComposerEvent::Send(_) | ComposerEvent::Queued(_) => {}
+            ComposerEvent::Send(_) | ComposerEvent::Queued(_) | ComposerEvent::Compact => {}
             // Stop ends the fixture's turn: the running row goes and the send button is Send again.
             ComposerEvent::Stop => {
                 this.running = None;

@@ -28,10 +28,18 @@ mod bar;
 #[cfg(test)]
 mod bar_tests;
 mod chips;
+mod context;
 mod editor;
 mod history;
 mod mentions;
 mod menu;
+mod model_picker;
+mod models;
+mod new_chat;
+mod permission;
+mod pick_list;
+#[cfg(test)]
+mod picker_tests;
 mod queue;
 mod send;
 #[cfg(test)]
@@ -109,6 +117,8 @@ pub enum ComposerEvent {
     Queued(SharedString),
     /// The send button was Stop: the running turn should end.
     Stop,
+    /// Compact now was pressed on the context card: send `/compact`.
+    Compact,
 }
 
 /// Attachments the composer hands to the tray (WP-25). `at` is the selection the paste or drop replaced, where
@@ -155,6 +165,7 @@ pub struct Composer {
     tray: attachments::Tray,
     queue: queue::Queue,
     bar: bar::BarState,
+    new_chat: Option<new_chat::NewChat>,
     sink: Option<Rc<dyn MessageSink>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -201,6 +212,31 @@ impl Composer {
         let quotes =
             env("MILAGRE_GPUI_COMPOSER_QUOTE").and_then(|passage| composer_quote(&passage, Some("Claude reply"))).into_iter().collect();
         let menu = MenuState::default();
+        // `MILAGRE_GPUI_COMPOSER_OPEN=<popover>[,tray]`: a snapshot opens a picker (`model`, `permission`, `context`,
+        // `project`, `computer`, `isolation`, `branch`) and/or the new-Chat tray.
+        let mut bar = bar::BarState::default();
+        let mut new_chat = None;
+        for part in env("MILAGRE_GPUI_COMPOSER_OPEN").unwrap_or_default().split(',') {
+            match part {
+                "tray" => new_chat = Some(new_chat::NewChat::fixture()),
+                "model" => bar.open = Some("composer-model"),
+                "permission" => bar.open = Some("composer-permission"),
+                "context" => bar.open = Some("composer-context"),
+                "project" | "computer" | "isolation" | "branch" => {
+                    new_chat = Some(new_chat::NewChat::fixture());
+                    bar.open = Some(match part {
+                        "project" => "new-chat-project",
+                        "computer" => "new-chat-computer",
+                        "isolation" => "new-chat-isolation",
+                        _ => "new-chat-branch",
+                    });
+                }
+                _ => {}
+            }
+        }
+        if bar.open == Some("composer-context") || env("MILAGRE_GPUI_COMPOSER_OPEN").is_some_and(|v| v.contains("context")) {
+            bar.context = Some((146_000.0, 200_000.0));
+        }
         Self {
             focus_handle: cx.focus_handle(),
             editor: None,
@@ -218,7 +254,8 @@ impl Composer {
             demo: env("MILAGRE_GPUI_COMPOSER_BAR"),
             tray: attachments::Tray::default(),
             queue: queue::Queue::default(),
-            bar: bar::BarState::default(),
+            bar,
+            new_chat,
             sink: None,
             _subscriptions: Vec::new(),
         }
@@ -855,6 +892,26 @@ impl Render for Composer {
             )
             .child(self.render_send_row(&theme, cx))
             .when_some(menu, |el, menu| el.child(self.render_menu(&menu, &theme, cx)));
+        let header = self.render_tray_header(&theme, cx);
+        let bar = match header {
+            // The new-Chat tray: the chips and the composer in one `inset` box.
+            Some(header) => div()
+                .id("new-chat-tray")
+                .debug_selector(|| "new-chat-tray".into())
+                .flex()
+                .flex_col()
+                .w_full()
+                .p(px(6.0))
+                .pt(px(4.0))
+                .rounded(px(new_chat::TRAY_RADIUS))
+                .border_1()
+                .border_color(theme.line)
+                .bg(theme.inset)
+                .child(header)
+                .child(bar)
+                .into_any_element(),
+            None => bar.into_any_element(),
+        };
         // The queue is docked above the composer's box, 8px clear of it (`mb-2`).
         div()
             .id("composer-dock")

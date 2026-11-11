@@ -630,3 +630,14 @@ WP-25 (2026-11-11): the composer's bottom row, attachments tray, queue and the o
 - The Chat's `ChatView` subscribes to `ComposerEvent::{Send, Queued, Stop}`: Stop ends the fixture's turn. Empty sends are not echoed.
 - The textarea's own placeholder is empty; the composer draws the placeholder (it changes while a turn runs).
 - Snapshot env: `MILAGRE_GPUI_COMPOSER_BAR=1` (running, queue setting, tray with two images and a file, two queued messages) or `=stop` (nothing typed, the Stop button).
+
+## Model picker notes
+
+WP-26 (`src/workspace/chat/composer/{models,model_picker,permission,context,new_chat,pick_list}.rs`, `src/ui/range_slider.rs`):
+
+- All composer popovers open upward (`ui::Popover::above()`, added) and are controlled by `BarState::open`, so a snapshot or an action opens one and only one is open. `MILAGRE_GPUI_COMPOSER_OPEN=model|permission|context|project|computer|isolation|branch|tray` (comma-separated) opens them in snapshot mode. Popover content is a layer a composer `notify` does not reach, so handlers call `window.refresh()`.
+- `pick_list.rs` is the shared row list (coloured icons, tick, meta, one `hover-2` highlight; Up/Down/Home/End, Enter/Space, checked row focused on open). `ui::MenuRow` cannot colour its icon, and Full permissions are orange.
+- The model catalog is a fixture (`models.rs`, ids and names from `model-options.ts`, `antigravity-models.mjs`, `kiro-models.mjs`); capabilities and context windows follow `capabilityFor` and `contextWindowFor`.
+- `RangeSlider` measures its track in a canvas, so the first frame uses a 176px guess; no spring, the handle lands at once.
+- The new-Chat tray folds the Project picker (React's "Start building in" heading) in as its first chip. Start it with `Composer::start_new_chat`; the sidebar's New Chat button needs `chat.composer.update(cx, |c, cx| c.start_new_chat(cx))`.
+- Not built: model search, account select, CLI notice, row tooltips, the picker's footer permission select, Ultracode's breathing glow, context card on hover/focus and Settings thresholds, branch search, Linear issue chip.

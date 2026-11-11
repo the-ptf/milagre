@@ -51,6 +51,7 @@ fn mount(cx: &mut TestAppContext) -> (Rig, &mut VisualTestContext) {
                     ComposerEvent::Send(text) => format!("send:{text}"),
                     ComposerEvent::Queued(text) => format!("queued:{text}"),
                     ComposerEvent::Stop => "stop".to_string(),
+                    ComposerEvent::Compact => "compact".to_string(),
                 })
             }),
             cx.subscribe(&composer, move |_, event: &ComposerAttachment, _| a.borrow_mut().push(event.clone())),
@@ -302,7 +303,7 @@ fn remove_drops_a_queued_message_and_a_turn_that_cannot_steer_is_stopped_first(c
 }
 
 #[gpui::test]
-fn the_chips_open_a_placeholder_that_names_the_picker_package(cx: &mut TestAppContext) {
+fn the_chips_open_their_pickers(cx: &mut TestAppContext) {
     let (rig, cx) = mount(cx);
     rig.composer.update(cx, |c, cx| {
         c.set_permission_mode(crate::data::PermissionMode::Full, cx);
@@ -312,5 +313,5 @@ fn the_chips_open_a_placeholder_that_names_the_picker_package(cx: &mut TestAppCo
     assert!(cx.debug_bounds("composer-permission-chip").is_some() && cx.debug_bounds("composer-model-chip").is_some());
     assert!(bounds(cx, "composer-context-slot").size.width > gpui::px(0.0));
     click(cx, "composer-model-chip");
-    assert!(cx.debug_bounds("composer-placeholder-popover-Model").is_some(), "the model chip opens its placeholder");
+    assert!(cx.debug_bounds("model-picker").is_some(), "the model chip opens its picker");
 }

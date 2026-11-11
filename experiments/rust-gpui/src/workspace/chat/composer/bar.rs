@@ -3,22 +3,22 @@
 //! the context slot, the mic and the send button, which is Stop while a turn runs and nothing can be sent.
 //!
 //! - Attach opens the platform's file prompt (`Composer::open_file_picker`); the chosen paths go to the tray.
-//! - The permission and model chips are trigger chips (`ui::Chip`, transparent `ink-2`, `hover-2` while open). Their
-//!   pickers are WP-26: a click opens a placeholder popover that names it.
-//! - The context slot shows the used percentage when the data layer gives one ([`Composer::set_context_percent`]);
-//!   the ring and its card are WP-26.
+//! - The permission and model chips are trigger chips (`ui::Chip`, transparent `ink-2`, `hover-2` while open); their
+//!   pickers are `permission.rs` and `model_picker.rs`.
+//! - The context slot is the ring and its card (`context.rs`), shown once the data layer gives the tokens
+//!   ([`Composer::set_context`], [`Composer::set_context_percent`]).
 //! - The mic is drawn and inert: dictation is a later package.
 //! - The send button is `send::SendState`'s decision: Send, Send now (steers), Queue message, or Stop (a 10px
 //!   square with 2px corners); disabled at 40% when there is nothing to send.
 
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, SharedString, div, prelude::*, px};
+use gpui::{ClickEvent, Context, SharedString, div, prelude::*, px};
 
 use super::Composer;
 use super::send::{Delivery, MessageSink, SendAction, SendState};
 use crate::data::{PermissionMode, Provider};
 use crate::logic::identity::capabilities::provider_capabilities;
-use crate::theme::{ActiveTheme, CONTROL_SM, RADIUS_CONTROL, TEXT_12, TextStepExt, Theme};
-use crate::ui::{Chip, Icon, IconButton, IconName, IconSize, Popover, ProviderLogo, Tooltip};
+use crate::theme::{CONTROL_SM, Theme};
+use crate::ui::{Icon, IconButton, IconName, Tooltip};
 
 use std::rc::Rc;
 
@@ -35,7 +35,16 @@ pub struct BarState {
     pub model_id: SharedString,
     pub model_name: SharedString,
     pub effort: Option<SharedString>,
-    pub context_percent: Option<u8>,
+    /// The effort's id ("medium"); `effort` is its name.
+    pub effort_id: Option<&'static str>,
+    pub fast: bool,
+    pub ultracode: bool,
+    /// The provider tab the model picker shows.
+    pub tab: Provider,
+    /// Used and total tokens of the context window.
+    pub context: Option<(f64, f64)>,
+    /// The composer popover that is open (`pick_list::popup`).
+    pub open: Option<&'static str>,
 }
 
 impl Default for BarState {
@@ -48,10 +57,15 @@ impl Default for BarState {
             blocked: false,
             permission: PermissionMode::Ask,
             provider: Provider::Claude,
-            model_id: "opus".into(),
+            model_id: "claude-opus-5-5".into(),
             model_name: "Opus 5.5".into(),
             effort: Some("Medium".into()),
-            context_percent: None,
+            effort_id: Some("medium"),
+            fast: false,
+            ultracode: false,
+            tab: Provider::Claude,
+            context: None,
+            open: None,
         }
     }
 }
@@ -102,12 +116,14 @@ impl Composer {
         self.bar.can_steer = provider_capabilities(Some(provider.id())).steer;
         self.bar.model_id = id.to_string().into();
         self.bar.model_name = name.to_string().into();
+        self.bar.tab = provider;
         self.bar.effort = effort.map(|effort| effort.to_string().into());
+        self.bar.effort_id = None;
         cx.notify();
     }
 
     pub fn set_context_percent(&mut self, percent: Option<u8>, cx: &mut Context<Self>) {
-        self.bar.context_percent = percent;
+        self.bar.context = percent.map(|percent| (f64::from(percent) * 2000.0, 200_000.0));
         cx.notify();
     }
 
@@ -148,7 +164,7 @@ impl Composer {
         let images = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/assets/images");
         self.bar.running = true;
         self.bar.follow_ups = Delivery::Queue;
-        self.bar.context_percent = Some(42);
+        self.bar.context = Some((84_000.0, 200_000.0));
         let (model, provider) = (self.bar.model_id.clone(), self.bar.provider);
         let queued = move |id: &str, body: &str, files: usize| crate::data::QueuedMessage {
             id: id.to_string().into(),
@@ -189,60 +205,11 @@ impl Composer {
                 ),
             )
             .child(div().flex_1())
-            .child(self.permission_chip(theme))
-            .child(self.model_chip(theme))
-            .child(self.context_slot(theme))
+            .child(self.permission_chip(theme, cx))
+            .child(self.model_chip(theme, cx))
+            .child(self.context_slot(theme, cx))
             .child(IconButton::new("composer-mic", IconName::Mic01).pill())
             .child(self.send_button(state, theme, cx))
-    }
-
-    fn permission_chip(&self, theme: &Theme) -> AnyElement {
-        let mode = self.bar.permission;
-        let warn = theme.orange_ink;
-        Popover::new("composer-permission")
-            .trigger(move |open| {
-                Chip::new("composer-permission-chip")
-                    .on(open)
-                    .when(mode == PermissionMode::Full, |chip| chip.child(Icon::new(IconName::ShieldAlert).size(IconSize::S14).color(warn)))
-                    .child(permission_label(mode))
-                    .into_any_element()
-            })
-            .content(|_, _, cx| placeholder_popover("Permission", "The permission picker", cx))
-            .into_any_element()
-    }
-
-    fn model_chip(&self, theme: &Theme) -> AnyElement {
-        let (provider, name, effort) = (self.bar.provider, self.bar.model_name.clone(), self.bar.effort.clone());
-        let dim = theme.ink3;
-        Popover::new("composer-model")
-            .trigger(move |open| {
-                Chip::new("composer-model-chip")
-                    .on(open)
-                    .child(ProviderLogo::new(provider).size(14.0))
-                    .child(div().min_w_0().max_w(px(112.0)).truncate().child(name.clone()))
-                    .when_some(effort.clone(), |chip, effort| {
-                        chip.child(div().flex_none().text_color(dim).child("\u{b7}")).child(div().flex_none().child(effort))
-                    })
-                    .into_any_element()
-            })
-            .content(|_, _, cx| placeholder_popover("Model", "The model picker", cx))
-            .into_any_element()
-    }
-
-    /// Reserved between the chips and the mic: the percentage once there is one (the ring is WP-26).
-    fn context_slot(&self, theme: &Theme) -> impl IntoElement + use<> {
-        div().debug_selector(|| "composer-context-slot".into()).flex().flex_none().items_center().when_some(
-            self.bar.context_percent,
-            |slot, percent| {
-                slot.h(CONTROL_SM)
-                    .px(px(6.0))
-                    .rounded(RADIUS_CONTROL)
-                    .text_step(TEXT_12)
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.ink2)
-                    .child(format!("{percent}%"))
-            },
-        )
     }
 
     fn send_button(&self, state: SendState, theme: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -273,21 +240,4 @@ impl Composer {
                 Icon::new(IconName::ArrowUp02).color(on_ink).into_any_element()
             })
     }
-}
-
-/// What a trigger chip opens until its picker exists.
-fn placeholder_popover(title: &'static str, what: &'static str, cx: &mut gpui::App) -> AnyElement {
-    let theme = *cx.theme();
-    div()
-        .debug_selector(move || format!("composer-placeholder-popover-{title}"))
-        .flex()
-        .flex_col()
-        .gap_1()
-        .p_2()
-        .max_w(px(240.0))
-        .text_step(TEXT_12)
-        .text_color(theme.ink2)
-        .child(div().font_weight(FontWeight::MEDIUM).text_color(theme.ink).child(title))
-        .child(format!("{what} is a later package (WP-26)."))
-        .into_any_element()
 }

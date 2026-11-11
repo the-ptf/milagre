@@ -48,6 +48,13 @@ const ICONS = [
   "Attachment01",
   "Mic01",
   "ArrowUp02",
+  // Model picker, permission picker and new-Chat tray (ModelPicker.tsx, ChatComposer.tsx)
+  "Flash",
+  "UserMultiple",
+  "Shield01",
+  "SecurityCheck",
+  "ChatGpt",
+  "GitFork",
   // Tool rows and activity marks (agents/ActivitySource.tsx)
   "AiBrain01",
   "CommandLine",

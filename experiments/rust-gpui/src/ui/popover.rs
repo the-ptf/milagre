@@ -87,6 +87,7 @@ pub struct Popover {
     id: ElementId,
     align_start: bool,
     bare: bool,
+    above: bool,
     width: Option<Pixels>,
     trigger: Option<Box<dyn FnOnce(bool) -> AnyElement>>,
     content: Option<ContentFn>,
@@ -96,7 +97,17 @@ pub struct Popover {
 
 impl Popover {
     pub fn new(id: impl Into<ElementId>) -> Self {
-        Self { id: id.into(), align_start: false, bare: false, width: None, trigger: None, content: None, open: None, on_open_change: None }
+        Self {
+            id: id.into(),
+            align_start: false,
+            bare: false,
+            above: false,
+            width: None,
+            trigger: None,
+            content: None,
+            open: None,
+            on_open_change: None,
+        }
     }
 
     /// The trigger, drawn from whether the popover is open (a toggle's `.pressed(open)`).
@@ -124,6 +135,12 @@ impl Popover {
         self
     }
 
+    /// Opens above the trigger instead of below it (the composer's chips sit at the window's bottom).
+    pub fn above(mut self) -> Self {
+        self.above = true;
+        self
+    }
+
     /// A fixed width; otherwise it fits its rows, from 192px.
     pub fn width(mut self, width: Pixels) -> Self {
         self.width = Some(width);
@@ -148,7 +165,12 @@ impl RenderOnce for Popover {
         let content = self.content;
         let bare = self.bare;
         WidgetPopover::new(self.id)
-            .anchor(if self.align_start { Anchor::TopLeft } else { Anchor::TopRight })
+            .anchor(match (self.above, self.align_start) {
+                (false, true) => Anchor::TopLeft,
+                (false, false) => Anchor::TopRight,
+                (true, true) => Anchor::BottomLeft,
+                (true, false) => Anchor::BottomRight,
+            })
             .offset(px(6.0))
             .appearance(!bare)
             // Over the widget's own surface (`popover_style`: its fill, its shadow, `p_3`); the radius and
