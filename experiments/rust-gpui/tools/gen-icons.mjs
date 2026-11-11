@@ -85,6 +85,17 @@ const ICONS = [
   "SecurityCheck",
   "Clean",
   "VolumeHigh",
+  // Transcript cards and dividers (WP-23)
+  "Refresh01",
+  "ArrowShrink01",
+  "UserSwitch",
+  "Pulse01",
+  "Undo02",
+  "Redo02",
+  "ArrowDataTransferHorizontal",
+  "Clock01",
+  "CornerDownRight",
+  "Download04",
 ];
 
 /** The stroke written into every icon file; `src/assets` replaces it for the 12px (1.6) and 18px (2) sizes. */

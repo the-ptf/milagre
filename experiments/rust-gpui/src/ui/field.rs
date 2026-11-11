@@ -73,6 +73,7 @@ pub struct Input {
     masked_toggle: bool,
     cleanable: bool,
     leading: Option<IconName>,
+    bare: bool,
 }
 
 impl Input {
@@ -102,7 +103,14 @@ impl Input {
             masked_toggle: false,
             cleanable: false,
             leading: None,
+            bare: false,
         }
+    }
+
+    /// No border or fill of its own: the field lives inside a row that draws them (the question card's "Other…").
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
+        self
     }
 
     pub fn size(mut self, size: FieldSize) -> Self {
@@ -158,9 +166,9 @@ impl RenderOnce for Input {
             .cleanable(self.cleanable)
             .when_some(self.leading, |input, icon| input.prefix(Icon::new(icon).size(IconSize::S14).color(theme.ink3)))
             .when(self.masked_toggle, |input| input.mask_toggle())
+            .when(self.bare, |input| input.appearance(false))
             .h(self.size.height())
-            .bg(theme.field)
-            .border_color(edge(self.invalid, focused, cx))
+            .when(!self.bare, |input| input.bg(theme.field).border_color(edge(self.invalid, focused, cx)))
             .text_size(self.size.text_size())
             .text_color(theme.ink);
         div()

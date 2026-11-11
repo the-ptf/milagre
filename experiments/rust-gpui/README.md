@@ -519,7 +519,7 @@ WP-22 (2026-11-11): the activity fold and the tool rows, in `workspace/chat/tran
 ## Daemon adapter
 
 `daemon-check/` is the first real-data stage, off by default: `DaemonAdapter` implements `DataSource` on the
-backend's shared daemon client (`milagre-daemon-client`, used exactly as committed at a9d85d1d) and is checked
+backend's shared daemon client (`milagre-daemon-client`, used exactly as committed at 9aa5deb3) and is checked
 headless against the backend's owned `app-fixture`. It is its own crate with its own `[workspace]` and lock; this
 crate's manifest, lock and build do not know it exists, and the app never constructs the adapter.
 
@@ -530,7 +530,7 @@ cargo test --offline --locked                                                # m
 python3 scripts/check-gpui-adapter.py run --backend <backend worktree>      # real fixture, staged in /tmp
 ```
 
-`export` unpacks `git archive a9d85d1d experiments/rust-daemon-client` into `target/daemon-client-a9d85d1d/` and
+`export` unpacks `git archive 9aa5deb3 experiments/rust-daemon-client` into `target/daemon-client-9aa5deb3/` and
 checks every file against the commit's blobs. `run` also checks the fixture's SHA-256, stages the test runner beside
 a copy of that exact binary in a private /tmp directory (the client's `FixtureGuard::launch()` only launches its
 sibling `app-fixture`), runs each ignored `real::` test in its own process, records both hashes and HEADs, and
@@ -541,11 +541,35 @@ removes the stage; the log is `daemon-check/target/check-gpui-adapter.log`.
   `computers:list`, `project:recent`, `pull-requests:snapshot`, `usage:cached` and any other computer answer a typed
   `NotAvailable`. `chat:messages` needs `project:open` on the connection first (the owner refuses with
   `ISOLATED_SCOPE_ONLY`); the adapter does not open on its own, since opening may persist owner state.
-- `src/events.rs`: connect, `runtime_snapshot()`, apply to a `Reducer`, `accept_snapshot`, then released events, which
-  are recorded, not applied. A closed stream (`StateTooLarge` included) is an error, never an empty state.
+- `src/events.rs`: connect, `runtime_snapshot()`, apply to a `Reducer`, `accept_snapshot`, then released events in
+  `wire_seq` order (a stale or regressing one is refused with a typed error). Each is kept in a count plus a tail with
+  hard caps like the client's queue (1,024 events, 16 MiB of payload; an event over the byte cap is counted, not
+  kept). A closed stream (`StateTooLarge` included) is an error, never an empty state. `LiveStore` is the seam a view
+  subscribes to: a version counter, coalescing change signals and a read accessor; the app is not wired to it yet.
+- `src/live.rs`: the live fold. `project:state {path, state}` replaces the scope's state; `agent:event {chatId, event,
+  seq?, state?}` replaces it when it carries `state` and folds `event` into the Chat's run as `applyRunEvent` does
+  (skipped when `seq` is at or below the runs' `seq`). Hydrated events apply their current catch-up state the same
+  way. A stamp comes only from the payload. Other channels (`link:state`, ...), foreign scopes and event types the
+  run fold leaves alone are counted, never interpreted. Every live collection has a hard bound (`LiveBounds`).
+  A snapshot's runs are checked against the same bounds before it replaces anything. A turn started by the host
+  runs on the Chat summary's `lastModel` (`lastUserModel`), `startedAt` comes from an injectable clock, steering
+  uses JavaScript's `trim`, and step output is capped by UTF-16 units. `scripts/run-vectors.mjs` replays
+  `tests/vectors/run-cases.json` through the repository's own `applyRunEvent`
+  (`node scripts/run-vectors.mjs tests/vectors/run-cases.json > tests/vectors/run-traces.json`); a plain test
+  requires the Rust fold to match after every event. One normalized difference: where `capOutput` cuts an astral
+  character in half, JavaScript keeps a lone surrogate a Rust string cannot hold; both sides compare it as U+FFFD.
+- `src/real/actions.rs`: the backend's `ScriptedActions` (`send`, `interrupt`) on the populated fixture, after an
+  explicit `project:open` and an accepted snapshot (before the open both refuse with `ISOLATED_SCOPE_ONLY`). Events are
+  awaited on the notifications with a bound, never on the action's future. A send streams through the live reducer
+  (run appears, text grows, run ends, summary count +2); a `fixture:blocked-start` send then `interrupt` gives
+  `turn-cancelled` and removes the run; the mounted transcript shows the new messages through the same manual seam.
+- `src/view.rs`: `open_on_select` (explicit `project:open`, then the Chat's first page) and `transcript_items`.
+  The GPUI test swaps the Chat column's public `transcript` entity, because the base crate has no seam to give
+  `ChatView` a Chat (title and Project label are private fixture text) and `Workspace` routes a selection only to
+  the panel.
 
-Not done in this stage: live streaming into the UI, state patches, hydration of oversized states, sends or any
-write, Links, other computers. Not decoded yet: subagent transcripts and progress (a non-empty one is an error),
+Not done in this stage: wiring the live state into the app's views, state patches, `applyAgentEvent`'s own state
+folding for events that carry no `state`, the viewed-image step cap, sends or any write, Links, other computers. Not decoded yet: subagent transcripts and progress (a non-empty one is an error),
 typed message contexts other than `reload`, `git-action`, `limit-reset` and `handover` (the rest stay whole in
 `ChatContext::Other`), `native_sessions`, `plan`, `limitResume`, `limitTurn`, `openSuggestions`, queued messages'
 images and context. The fixture's two Chats have no messages, so the sidebar mounted from the adapter lists no row
@@ -585,3 +609,55 @@ a `1120 × 800` `rounded-window` (`12px`) surface, a `248px` `bg-canvas` left na
   work package.
 - **Snapshot env var**: `MILAGRE_GPUI_SETTINGS=1` (or a section id such as `MILAGRE_GPUI_SETTINGS=general` or `models`)
   opens Settings on that section before snapshot capture.
+images and context. The default fixture's two Chats have no messages, so the sidebar mounted from it lists no row
+(the shared rule leaves empty starter Chats out). `real::populated::*` uses `FixtureGuard::launch_populated()` (Chat 1:
+two turns, 4 messages; Chat 2: one turn, 2): the sidebar draws exactly those two rows, Chat 2 first (`ChatOrder::Created`:
+newest first message first), and both transcripts and their before/turns/limit pages read in order.
+
+## Cards notes
+
+WP-23 (2026-11-11): every non-prose transcript item, in `workspace/chat/transcript/cards/`. `Item::Card(Card)` is one list
+item per card; `cards::build::items_for(&ChatMessage)` picks what a message is in the order `MessageSection` does, so a
+context kind nothing knows (`ChatContext::Other`) draws as the ordinary bubble or answer (nothing when it has no text).
+
+| Kind                                  | React source                                                                                              | Status   | Notes                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Question card                         | `QuestionCard.tsx`, `question-answers.ts`                                                                 | partial  | options, Other field (`ui::Input::bare`), tabs, Next/Send, Dismiss, resolves in place; mic/image inert; no secret or bug-report variants; rows are mouse-only                                                                                                                                             |
+| Answer card                           | `AnswerCard.tsx`                                                                                          | done     |                                                                                                                                                                                                                                                                                                           |
+| Dividers (9 kinds)                    | `TranscriptDivider` and the eight divider files                                                           | partial  | handoff, compaction, reload, account switch, limit reset, Routine Run, babysit stopped, checkpoint restore, Worktree link. Brief opens in a simple overlay (handoff brief is not in the typed data); Redo inert; clock is UTC; no quiet-Run folding; handoff names the model string, not the catalog name |
+| Attachments, viewed, generated images | `Attachments.tsx`, `ViewedImages.tsx`, `GeneratedImage.tsx`                                               | partial  | sizes as the app; hover Copy/Download inert; no dither field (generating shows a label); decode is synchronous on first draw; viewer is an overlay (`Viewer`) with no zoom, pan, swipe or morph                                                                                                           |
+| PR action card                        | `PullRequestActionCard.tsx`                                                                               | done     | validated with `pull_request_action_context`; optional state pill from `pull_request_state_pill`                                                                                                                                                                                                          |
+| Linear issue card                     | `LinearIssueCard.tsx`                                                                                     | partial  | no Linear mark, state dot is neutral (data has the name only)                                                                                                                                                                                                                                             |
+| Usage-limit card                      | `UsageLimitCard.tsx`                                                                                      | partial  | headline, resume toggle, switch rows, result line; choices are given, no live accounts or schedule                                                                                                                                                                                                        |
+| Delegation report line                | `DelegationReportLine.tsx`                                                                                | partial  | report text opens as plain text (no markdown), no open-Chat link                                                                                                                                                                                                                                          |
+| Subchat note                          | `SubchatMessages.tsx` `NoteLine`                                                                          | partial  | "Answered by"; escalation line and suggestion card not built                                                                                                                                                                                                                                              |
+| Queued messages                       | `QueuedMessages.tsx`                                                                                      | moved    | docked above the composer now (see Composer bar notes); the transcript card is gone                                                                                                                                                                                                                       |
+| Not built                             | secret, bug report, advisor, recommendation, Heartbeat, next check, remote delegation, computer use cards | not done |                                                                                                                                                                                                                                                                                                           |
+
+Snapshot: `MILAGRE_GPUI_TRANSCRIPT_CARDS=1` (add `MILAGRE_GPUI_TRANSCRIPT_TOP=<item>`) shows `fixture::cards_demo()`, built from
+messages. Test images are generated PNGs in `tests/assets/images/`. Item re-measure: a card that changes is replaced with
+`set_card`, which splices its item.
+
+## Composer bar notes
+
+WP-25 (2026-11-11): the composer's bottom row, attachments tray, queue and the outgoing message, in
+`workspace/chat/composer/{bar,send,attachments,queue}.rs` (`bar_tests.rs` beside them).
+
+| Feature (React source)                                            | Status   | Notes                                                                                                                                                                                             |
+| ----------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Attach button + picker (`PromptComposer.tsx`)                     | done     | `cx.prompt_for_paths`; tests answer it with `simulate_path_prompt_response` or call `attach_paths`                                                                                                |
+| Permission and model trigger chips                                | partial  | `ui::Chip` triggers, Full shows the orange shield; click opens a placeholder popover naming WP-26. Popover opens below the chip (the `ui::Popover` has no upward anchor)                          |
+| Context ring slot                                                 | partial  | slot shows the percentage when `set_context_percent` gives one; ring and card are WP-26                                                                                                           |
+| Mic                                                               | partial  | drawn, inert (dictation is later)                                                                                                                                                                 |
+| Send / Stop / Send now / Queue message (`canSend`, `canStop`)     | done     | `send::SendState` table with tests; Stop is a 10px rounded square; disabled at 40%; Enter never stops; running placeholder ("Steer the agent…" / "Queue a message…")                              |
+| Attachments tray (`Attachments.tsx`)                              | partial  | image (80px) and file tiles, `#n` badges, remove buttons, tooltip path, in-memory; no upload progress/cancel, no offline placeholder, no preview dialog (tile click emits `OpenImage`/`OpenFile`) |
+| Image numbering and chips                                         | done     | add inserts `[Image #N]` at the caret/paste/drop point; tile remove and chip delete both drop the image and renumber                                                                              |
+| Limits and errors (`limits.mjs`, `usePastedImages.ts`)            | done     | PNG/JPEG/WebP/GIF pasted images, 50 MiB, React's three error texts; non-image paths become file tiles                                                                                             |
+| Queued messages (`QueuedMessages.tsx`)                            | done     | docked above the box, Send now (Stop and send when the provider cannot steer), Remove; Edit is new (needs an empty composer)                                                                      |
+| Steering                                                          | done     | idle sends; running + steering provider sends into the turn (`Steer`); Queue setting, compacting or a non-steering provider queues                                                                |
+| Outgoing message + sink (`send::{OutgoingMessage, MessageSink}`)  | done     | prompt, text, quotes, files, images, delivery; `FixtureSink` records calls; `set_sink`                                                                                                            |
+| Draft persistence, offline tray and outbox, quote chips' redesign | not done | later                                                                                                                                                                                             |
+
+- The Chat's `ChatView` subscribes to `ComposerEvent::{Send, Queued, Stop}`: Stop ends the fixture's turn. Empty sends are not echoed.
+- The textarea's own placeholder is empty; the composer draws the placeholder (it changes while a turn runs).
+- Snapshot env: `MILAGRE_GPUI_COMPOSER_BAR=1` (running, queue setting, tray with two images and a file, two queued messages) or `=stop` (nothing typed, the Stop button).

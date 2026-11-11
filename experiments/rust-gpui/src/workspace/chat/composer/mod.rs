@@ -13,16 +13,27 @@
 //! and ⇧⌘Z (and Ctrl+Y) replay our history, a paste of images or files becomes an event. Escape closes the menu,
 //! else it goes on to the window (where it will stop the running turn).
 //!
-//! Seams for later packages: [`ComposerAttachment`] events (WP-25 uploads pasted and dropped files, then calls
-//! [`Composer::insert_image_mentions`]); [`Composer::set_mentions`], [`Composer::set_image_count`],
+//! WP-25 (the bar and what it sends): `bar.rs` is the bottom row (attach, permission and model chips, context slot,
+//! mic, send or stop), `send.rs` the send decision table, the outgoing message and the sink trait, `attachments.rs`
+//! the tray, `queue.rs` the queued messages docked above the composer.
+//!
+//! Seams for later packages: [`ComposerAttachment`] events (pasted and dropped files also go to the tray here, which
+//! then calls [`Composer::insert_image_mentions`]); [`Composer::set_mentions`], [`Composer::set_image_count`],
 //! [`Composer::set_can_undo`], [`Composer::set_suggestion`], [`Composer::set_prompt_history`],
-//! [`Composer::add_quote`] and [`Composer::set_text`] (drafts) take real data; the send row is unchanged.
+//! [`Composer::add_quote`] and [`Composer::set_text`] (drafts) take real data; [`Composer::set_sink`],
+//! [`Composer::set_running`], [`Composer::set_model`], [`Composer::set_queue`] and friends take the Chat's state.
 
+mod attachments;
+mod bar;
+#[cfg(test)]
+mod bar_tests;
 mod chips;
 mod editor;
 mod history;
 mod mentions;
 mod menu;
+mod queue;
+mod send;
 #[cfg(test)]
 mod tests;
 
@@ -38,25 +49,27 @@ use gpui_component::input::{
     Cut, Enter, Escape, IndentInline, InputEvent, MoveDown, MoveUp, OutdentInline, Paste, Redo, Textarea, TextareaState, Undo,
 };
 
+pub use attachments::{Attachment, AttachmentKind, ERROR_PASTE, ERROR_SIZE, ERROR_TYPE, MAX_ATTACHMENT_BYTES, Tray};
+pub use bar::{BarState, permission_label};
 pub use chips::{CHIP_EM, ChipKind};
 pub use history::EditKind;
 pub use mentions::{FixtureMentions, MentionSource, SkillOption, SkillScope};
 pub use menu::{MenuKind, PromptToken, prompt_token};
+pub use queue::{Queue, QueuedEntry};
+pub use send::{Delivery, FixtureSink, MessageSink, OutgoingAttachment, OutgoingImage, OutgoingMessage, SendAction, SendState, SinkCall};
 
 use editor::{Catalog, PromptEditor};
 use menu::{MenuState, OpenMenu, Pick, insert_prompt_token, menu_footer, menu_rows, skill_names};
 
-use crate::data::Provider;
 use crate::logic::copy::js;
 use crate::logic::prompts::mentions::{PROMPT_PLACEHOLDER, mentioned_images, shift_image_mentions};
 use crate::logic::prompts::parts::{
     ComposerQuote, composer_quote, format_chat_mention, format_computer_mention, format_file_mention, quoted_message,
 };
 use crate::theme::{
-    ActiveTheme, CHAT_TEXT, CONTROL_MD, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_INLINE, RADIUS_WINDOW, TEXT_11, TEXT_12,
-    TextStepExt, Theme,
+    ActiveTheme, CHAT_TEXT, CONTROL_MD, CONTROL_XS, RADIUS_CONTROL, RADIUS_INLINE, RADIUS_WINDOW, TEXT_11, TEXT_12, TextStepExt, Theme,
 };
-use crate::ui::{Chip, Icon, IconButton, IconName, IconSize};
+use crate::ui::{Icon, IconName, IconSize};
 use crate::workspace::chat::transcript::COLUMN_WIDTH;
 
 /// The prompt's text: the Chat size plus one on a 20px line (`text-[calc(var(--chat-size)+1px)] leading-5`).
@@ -84,12 +97,18 @@ pub const COMPOSER_MIN_HEIGHT: f32 = 2.0 * FRAME_PAD + EDITOR_MIN_HEIGHT + ROW_G
 /// Quote chips: rows 32 high (`h-8`), the list at most 120 (`max-h-30`), inset 10 (`pl-2.5`).
 const QUOTES_MAX_HEIGHT: f32 = 120.0;
 const QUOTE_PAD_LEFT: f32 = 10.0;
+/// Between the docked queue and the composer's box (`mb-2`).
+const QUEUE_GAP: f32 = 8.0;
 const KEY_CONTEXT: &str = "Composer";
 pub const PLACEHOLDER: &str = PROMPT_PLACEHOLDER;
 
 pub enum ComposerEvent {
-    /// The message to send: quotes as blockquotes, then the prompt.
+    /// The message to send now (idle, or steering the running turn): quotes as blockquotes, then the prompt.
     Send(SharedString),
+    /// The message waits for the running turn: it is in the composer's queue (`Composer::queued`).
+    Queued(SharedString),
+    /// The send button was Stop: the running turn should end.
+    Stop,
 }
 
 /// Attachments the composer hands to the tray (WP-25). `at` is the selection the paste or drop replaced, where
@@ -107,8 +126,10 @@ pub enum ComposerAttachment {
     },
     /// An image chip was deleted from the text: its image goes, and the mentions after it were renumbered.
     ImageRemoved(u64),
-    /// An image chip was clicked: preview that image.
+    /// An image chip or an image tile was clicked: preview that image (1-based).
     OpenImage(u64),
+    /// A file tile was clicked: preview that file.
+    OpenFile(PathBuf),
 }
 
 pub struct Composer {
@@ -129,6 +150,12 @@ pub struct Composer {
     prefill: Option<(String, Option<Range<usize>>)>,
     /// A highlighted row for a snapshot, applied once the prefilled menu is open.
     prefill_active: Option<usize>,
+    /// `MILAGRE_GPUI_COMPOSER_BAR`: a snapshot's seeded bar state (`bar.rs` `seed_demo`).
+    demo: Option<String>,
+    tray: attachments::Tray,
+    queue: queue::Queue,
+    bar: bar::BarState,
+    sink: Option<Rc<dyn MessageSink>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -166,7 +193,8 @@ fn env_prefill() -> Option<(String, Option<Range<usize>>)> {
 impl Composer {
     /// Empty, unless `MILAGRE_GPUI_COMPOSER_TEXT` prefills it for a snapshot (`\n` for a newline), with
     /// `MILAGRE_GPUI_COMPOSER_SELECT=<start>..<end>` (bytes), `MILAGRE_GPUI_COMPOSER_IMAGES=<n>` attached images,
-    /// `MILAGRE_GPUI_COMPOSER_QUOTE=<passage>` and `MILAGRE_GPUI_COMPOSER_ACTIVE=<row>` (a highlighted menu row).
+    /// `MILAGRE_GPUI_COMPOSER_QUOTE=<passage>`, `MILAGRE_GPUI_COMPOSER_ACTIVE=<row>` (a highlighted menu row) and
+    /// `MILAGRE_GPUI_COMPOSER_BAR=1|stop` (a running Chat with a tray and a queue, or with the Stop button).
     pub fn new(cx: &mut Context<Self>) -> Self {
         bind_keys(cx);
         let env = |name: &str| std::env::var(name).ok();
@@ -187,6 +215,11 @@ impl Composer {
             menu,
             prefill: env_prefill(),
             prefill_active: env("MILAGRE_GPUI_COMPOSER_ACTIVE").and_then(|row| row.parse().ok()),
+            demo: env("MILAGRE_GPUI_COMPOSER_BAR"),
+            tray: attachments::Tray::default(),
+            queue: queue::Queue::default(),
+            bar: bar::BarState::default(),
+            sink: None,
             _subscriptions: Vec::new(),
         }
     }
@@ -329,6 +362,9 @@ impl Composer {
             });
             self.put(text, select.unwrap_or(end..end), None, window, cx);
         }
+        if let Some(mode) = self.demo.take() {
+            self.seed_demo(&mode, window, cx);
+        }
     }
 
     /// Puts a draft in from outside, recording `kind` as one undo step.
@@ -370,6 +406,7 @@ impl Composer {
                 let mut value = editor.value().to_string();
                 for index in &removed {
                     cx.emit(ComposerAttachment::ImageRemoved(*index));
+                    self.tray.remove_image_number(*index);
                     value = shift_image_mentions(&value, *index);
                 }
                 self.image_count = self.image_count.saturating_sub(removed.len());
@@ -469,7 +506,10 @@ impl Composer {
         }
         if !images.is_empty() || !paths.is_empty() {
             cx.stop_propagation();
-            cx.emit(ComposerAttachment::Pasted { images, paths, at: self.selected_range() });
+            let at = self.selected_range();
+            cx.emit(ComposerAttachment::Pasted { images: images.clone(), paths: paths.clone(), at: at.clone() });
+            self.attach_pasted(images, at.clone(), window, cx);
+            self.attach_paths(paths, at, window, cx);
             return;
         }
         let Some(editor) = self.editor.as_mut() else { return };
@@ -497,8 +537,10 @@ impl Composer {
         }
     }
 
-    fn on_drop(&mut self, paths: &ExternalPaths, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(ComposerAttachment::Dropped { paths: paths.paths().to_vec(), at: self.selected_range() });
+    fn on_drop(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
+        let at = self.selected_range();
+        cx.emit(ComposerAttachment::Dropped { paths: paths.paths().to_vec(), at: at.clone() });
+        self.attach_paths(paths.paths().to_vec(), at, window, cx);
     }
 
     // ---- Menu ----
@@ -573,26 +615,70 @@ impl Composer {
 
     fn visible_suggestion(&self) -> Option<SharedString> {
         let empty = self.editor.as_ref().is_none_or(|editor| editor.value().is_empty());
-        self.suggestion.clone().filter(|_| empty && self.quotes.is_empty() && self.open_menu().is_none())
+        self.suggestion
+            .clone()
+            .filter(|_| empty && self.quotes.is_empty() && self.tray.is_empty() && !self.bar.running && self.open_menu().is_none())
     }
 
     // ---- Send ----
 
-    /// Emits the message and clears the draft and quotes. Nothing to send sends nothing.
+    /// Enter: what the send decision table says (`SendState::enter`); nothing to send sends nothing, and Enter never
+    /// stops a turn.
     pub fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.editor.as_ref().map(|editor| js::trim(editor.value()).to_string()).unwrap_or_default();
-        if text.is_empty() && self.quotes.is_empty() {
+        let action = self.send_state().enter();
+        self.dispatch(action, window, cx);
+    }
+
+    /// The send button: Stop while a turn runs and nothing is typed, otherwise the same as Enter.
+    pub fn press_send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.send_state().button() {
+            SendAction::Stop => self.stop(cx),
+            action => self.dispatch(action, window, cx),
+        }
+    }
+
+    /// The Stop button: the sink and the Chat hear it.
+    pub fn stop(&mut self, cx: &mut Context<Self>) {
+        if let Some(sink) = &self.sink {
+            sink.stop();
+        }
+        cx.emit(ComposerEvent::Stop);
+    }
+
+    /// Builds the one outgoing message, hands it on (sent now, or queued) and clears the draft, tray and quotes.
+    fn dispatch(&mut self, action: SendAction, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(action, SendAction::Nothing | SendAction::Stop) {
             return;
         }
+        let text = self.editor.as_ref().map(|editor| js::trim(editor.value()).to_string()).unwrap_or_default();
         let quotes: Vec<&str> = self.quotes.iter().map(|quote| quote.text.as_str()).collect();
         let message = quoted_message(&quotes, &text);
-        if self.prompt_history.last() != Some(&message) {
+        let (images, files) = self.tray.outgoing();
+        let outgoing = OutgoingMessage {
+            prompt: message.clone(),
+            text,
+            quotes: quotes.iter().map(|quote| quote.to_string()).collect(),
+            files,
+            images,
+            delivery: action,
+        };
+        if self.prompt_history.last() != Some(&message) && !message.is_empty() {
             self.prompt_history.push(message.clone());
         }
-        cx.emit(ComposerEvent::Send(message.into()));
-        self.quotes.clear();
+        let quote_chips = std::mem::take(&mut self.quotes);
+        if action == SendAction::Queue {
+            self.enqueue(outgoing, quote_chips, cx);
+            cx.emit(ComposerEvent::Queued(message.into()));
+        } else {
+            if let Some(sink) = &self.sink {
+                sink.send(outgoing);
+            }
+            cx.emit(ComposerEvent::Send(message.into()));
+        }
         self.browsing = None;
         self.menu.dismissed = false;
+        self.image_count = 0;
+        self.tray.clear();
         self.put(String::new(), 0..0, Some(EditKind::Other), window, cx);
     }
 
@@ -662,7 +748,11 @@ impl Composer {
             .text_size(px(PROMPT_TEXT_SIZE))
             .line_height(px(PROMPT_LINE_HEIGHT))
             .text_color(theme.ink3)
-            .child(div().min_w_0().truncate().child(suggestion.clone().unwrap_or_else(|| PROMPT_PLACEHOLDER.into())))
+            .child(
+                div().min_w_0().truncate().child(
+                    suggestion.clone().unwrap_or_else(|| self.send_state().running_placeholder().unwrap_or(PROMPT_PLACEHOLDER).into()),
+                ),
+            )
             .when(suggestion.is_some(), |el| {
                 el.child(
                     div()
@@ -681,42 +771,6 @@ impl Composer {
                         .child("Tab"),
                 )
             })
-    }
-
-    /// The row under the prompt, as the spike built it (WP-25 restyles and wires it).
-    fn render_send_row(&self, theme: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap_1()
-            .h(CONTROL_SM)
-            .px(px(FRAME_PAD - FRAME_PAD_X))
-            .child(IconButton::new("composer-attach", IconName::Attachment01).pill())
-            .child(div().flex_1())
-            .child(Chip::new("composer-mode").child("Ask"))
-            .child(
-                Chip::new("composer-model")
-                    .child(div().flex_none().size(px(8.0)).rounded_full().bg(Provider::Claude.brand_color()))
-                    .child("Opus 5.5 · Medium"),
-            )
-            .child(IconButton::new("composer-mic", IconName::Mic01).pill())
-            .child(
-                div()
-                    .id("composer-send")
-                    .debug_selector(|| "composer-send".into())
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .size(CONTROL_SM)
-                    .rounded_full()
-                    .bg(theme.ink)
-                    .cursor_pointer()
-                    .hover(|style| style.opacity(0.9))
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.submit(window, cx)))
-                    .child(Icon::new(IconName::ArrowUp02).color(theme.on_ink)),
-            )
     }
 
     /// The prompt box's height: its rows and insets, from 68 up to 100.
@@ -755,7 +809,9 @@ impl Render for Composer {
                     entity.update(cx, |_, cx| cx.emit(ComposerAttachment::OpenImage(index))).ok();
                 }
             });
-        div()
+        let queue = self.render_queue(&theme, cx);
+        let tray = self.render_tray(&theme, cx);
+        let bar = div()
             .id("composer")
             .debug_selector(|| "composer".into())
             .key_context(KEY_CONTEXT)
@@ -776,7 +832,6 @@ impl Render for Composer {
             .flex_col()
             .gap(px(ROW_GAP))
             .w_full()
-            .max_w(px(COLUMN_WIDTH))
             .min_h(px(COMPOSER_MIN_HEIGHT))
             .pt(px(FRAME_PAD))
             .pb(px(FRAME_PAD))
@@ -786,6 +841,7 @@ impl Render for Composer {
             .border_1()
             .border_color(theme.line)
             .when(!self.quotes.is_empty(), |el| el.child(self.render_quotes(&theme, cx)))
+            .when_some(tray, |el, tray| el.child(tray))
             .child(
                 div()
                     .id("composer-input")
@@ -798,7 +854,17 @@ impl Render for Composer {
                     .when(empty && self.marked_range().is_none(), |el| el.child(self.render_placeholder(&theme))),
             )
             .child(self.render_send_row(&theme, cx))
-            .when_some(menu, |el, menu| el.child(self.render_menu(&menu, &theme, cx)))
+            .when_some(menu, |el, menu| el.child(self.render_menu(&menu, &theme, cx)));
+        // The queue is docked above the composer's box, 8px clear of it (`mb-2`).
+        div()
+            .id("composer-dock")
+            .flex()
+            .flex_col()
+            .gap(px(QUEUE_GAP))
+            .w_full()
+            .max_w(px(COLUMN_WIDTH))
+            .when_some(queue, |el, queue| el.child(queue))
+            .child(bar)
     }
 }
 

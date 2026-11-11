@@ -12,14 +12,16 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gpui::{
-    AnyElement, ClickEvent, ClipboardItem, Context, Entity, FontWeight, ListAlignment, ListOffset, ListState, Pixels, SharedString, Task,
-    Window, canvas, div, list, prelude::*, px,
+    AnyElement, ClickEvent, ClipboardItem, Context, Entity, FontWeight, ListAlignment, ListOffset, ListState, Pixels, SharedString,
+    Subscription, Task, Window, canvas, div, list, prelude::*, px,
 };
 use gpui_base::{MarkdownExtensions, TextSelection, TextViewState, TextViewStyle};
+use gpui_component::input::InputState;
 
 use crate::data::ChatStep;
 use crate::logic::lists::chat_display::ToolCallDisplay;
@@ -33,10 +35,12 @@ use crate::workspace::chat::transcript::step_row::StepRow;
 use crate::workspace::chat::transcript_selection::{Keeper, SelectionTracker, SharedPainted, SharedTracker};
 
 pub mod activity;
+pub mod cards;
 pub mod step_row;
 pub mod summary;
 
 pub use activity::{Activity, RowState, StepItem};
+pub use cards::Card;
 pub use summary::Entry;
 
 /// The Chat content column, centred in the Chat column.
@@ -66,6 +70,8 @@ pub enum Item {
     /// A tool call that stands between two pieces of text.
     Step(StepItem),
     Approval(Approval),
+    /// A card or divider (WP-23): `transcript/cards`.
+    Card(Card),
 }
 
 /// An assistant answer: markdown source, rendered by `ui::markdown`. While `streaming`, the transcript feeds it
@@ -148,6 +154,13 @@ pub struct Transcript {
     /// Settings › Chat › Tool call display (default Compact) and Always expand reasoning (default off).
     display: ToolCallDisplay,
     expand_reasoning: bool,
+    /// Images decoded for the cards (kept; `None` for one that could not be read).
+    images: HashMap<PathBuf, Option<cards::images::Decoded>>,
+    /// The image or brief open over the transcript.
+    viewer: Option<cards::images::Viewer>,
+    /// The text fields of open question cards, by (item, question).
+    inputs: HashMap<(usize, usize), Entity<InputState>>,
+    subscriptions: Vec<Subscription>,
 }
 
 impl Transcript {
@@ -159,8 +172,14 @@ impl Transcript {
             .unwrap_or(crate::workspace::chat::fixture::HISTORY_ITEMS);
         let started = Instant::now();
         let demo = std::env::var_os("MILAGRE_GPUI_TRANSCRIPT_ACTIVITY").is_some();
-        let items =
-            if demo { crate::workspace::chat::fixture::activity_demo() } else { crate::workspace::chat::fixture::transcript(count) };
+        let cards = std::env::var_os("MILAGRE_GPUI_TRANSCRIPT_CARDS").is_some();
+        let items = if cards {
+            crate::workspace::chat::fixture::cards_demo()
+        } else if demo {
+            crate::workspace::chat::fixture::activity_demo()
+        } else {
+            crate::workspace::chat::fixture::transcript(count)
+        };
         let built = started.elapsed();
         let mut this = Self::with_items(items, cx);
         if std::env::var_os("MILAGRE_GPUI_TIMING").is_some() {
@@ -208,6 +227,10 @@ impl Transcript {
             select_on_open: None,
             display: ToolCallDisplay::Compact,
             expand_reasoning: false,
+            images: HashMap::new(),
+            viewer: None,
+            inputs: HashMap::new(),
+            subscriptions: Vec::new(),
         }
     }
 
@@ -518,17 +541,22 @@ impl Transcript {
             .into_any_element()
     }
 
-    fn render_item(&mut self, ix: usize, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn render_item(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         self.item_renders.set(self.item_renders.get() + 1);
-        self.row(ix, true, cx)
+        self.row(ix, true, window, cx)
     }
 
     /// Item `ix` as the list draws it; `in_list` false for a copy the keeper draws off screen.
-    fn row(&mut self, ix: usize, in_list: bool, cx: &mut Context<Self>) -> AnyElement {
+    fn row(&mut self, ix: usize, in_list: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = *cx.theme();
         let previous = ix.checked_sub(1).and_then(|p| self.items.get(p));
         let top = top_gap(previous, &self.items[ix]);
         let selectable = self.ensure_views(ix, cx);
+        if let Item::Card(card) = &self.items[ix] {
+            let card = card.clone();
+            let content = self.card_item(ix, &card, &theme, window, cx);
+            return self.framed(ix, in_list, top, content);
+        }
         let content: AnyElement = match &self.items[ix] {
             Item::User(_) => user_message(self.text_block(ix), &theme).into_any_element(),
             Item::Prose(_) if selectable => self.text_block(ix),
@@ -536,7 +564,13 @@ impl Transcript {
             Item::Activity(activity) => self.activity_item(ix, activity, &theme, cx),
             Item::Step(item) => self.step_item(ix, item, &theme, cx),
             Item::Approval(approval) => self.approval(ix, approval, &theme, cx).into_any_element(),
+            Item::Card(_) => unreachable!("cards return above"),
         };
+        self.framed(ix, in_list, top, content)
+    }
+
+    /// An item's content in the column: centred, `COLUMN_WIDTH` wide at most, `top` below the item before it.
+    fn framed(&self, ix: usize, in_list: bool, top: f32, content: AnyElement) -> AnyElement {
         let painted = self.painted.clone();
         div()
             .debug_selector(move || if in_list { format!("transcript-item-{ix}") } else { format!("kept-item-{ix}") })
@@ -665,7 +699,9 @@ impl Render for Transcript {
         self.painted.borrow_mut().clear();
         // The items holding a selection end, built now; the keeper draws those the list does not.
         let ends: Vec<usize> = self.tracker.borrow().ends().filter(|ix| self.is_selectable(*ix)).collect();
-        let kept: Vec<(usize, AnyElement)> = ends.into_iter().map(|ix| (ix, self.row(ix, false, cx))).collect();
+        let kept: Vec<(usize, AnyElement)> = ends.into_iter().map(|ix| (ix, self.row(ix, false, window, cx))).collect();
+        let theme = *cx.theme();
+        let overlay = self.viewer_overlay(&theme, cx);
         div()
             .size_full()
             .relative()
@@ -677,6 +713,7 @@ impl Render for Transcript {
                     .pb(px(BOTTOM_CLEARANCE) + self.footer),
             )
             .child(Keeper::new(self.tracker.clone(), self.painted.clone(), kept))
+            .children(overlay)
             .children(frame.map(|frame| {
                 // Zero-size and last: its paint runs after every item of this frame has painted.
                 canvas(|_, _, _| {}, move |_, _, _, _| frame.painted()).absolute().size(px(0.0))
@@ -687,6 +724,7 @@ impl Render for Transcript {
 fn top_gap(previous: Option<&Item>, item: &Item) -> f32 {
     let stacked = |item: Option<&Item>| matches!(item, Some(Item::Step(_)) | Some(Item::Approval(_)));
     match item {
+        Item::Card(card) => cards::top_gap(card),
         Item::User(_) => 24.0,
         Item::Activity(_) => 12.0,
         Item::Prose(_) => 8.0,

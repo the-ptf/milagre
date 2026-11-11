@@ -449,3 +449,324 @@ useEffect(() => {
 
 See [the compositor notes](https://milagre.cloud/design) for the rest."#,
 ];
+
+/// A test image under `tests/assets/images` (small generated PNGs, no user data).
+fn test_image(name: &str) -> String {
+    format!("{}/tests/assets/images/{name}", env!("CARGO_MANIFEST_DIR"))
+}
+
+fn demo_message(id: u64, role: crate::data::Role, body: &str, context: Option<crate::data::ChatContext>) -> crate::data::ChatMessage {
+    let mut message = crate::data::ChatMessage::text(id, 1, role, body.to_string());
+    message.context = context;
+    message
+}
+
+fn demo_question(
+    id: &str,
+    header: &str,
+    question: &str,
+    options: &[(&str, Option<&str>)],
+    multi: bool,
+    other: bool,
+) -> crate::logic::activity::subchat_states::AgentQuestion {
+    use crate::logic::activity::subchat_states::{AgentQuestion, QuestionOption};
+    AgentQuestion {
+        id: id.into(),
+        header: header.into(),
+        question: question.into(),
+        options: options
+            .iter()
+            .map(|(label, description)| QuestionOption { label: (*label).into(), description: description.map(str::to_string) })
+            .collect(),
+        multi_select: multi,
+        allow_other: other,
+        secret: false,
+    }
+}
+
+/// One of every non-prose item kind, built from messages through `cards::build::items_for` where a message makes
+/// them (`MILAGRE_GPUI_TRANSCRIPT_CARDS=1`): dividers of every kind, attachments, viewed and generated images, a
+/// question card, an answered one, the PR action, Linear and usage-limit cards, delegation reports,
+/// messages and a context kind nothing knows.
+pub fn cards_demo() -> Vec<Item> {
+    use crate::data::{ChatContext, DividerStatus, ImageAttachment, Provider, QuestionRequest, Role, StepKind, StepStatus};
+    use crate::logic::prs::blockers::PrState;
+    use crate::logic::usage::limit::{AccountState, ProviderAccount, ProviderAccounts, UsageLimit, limit_choices};
+    use crate::logic::usage::time::{FixedZone, format_iso};
+    use crate::workspace::chat::transcript::Card;
+    use crate::workspace::chat::transcript::cards::build::{items_for, limit_card};
+    use crate::workspace::chat::transcript::cards::question::QuestionCard;
+    use serde_json::json;
+
+    let mut items = Vec::new();
+    let mut add = |message| items.extend(items_for(&message));
+
+    add(demo_message(
+        1,
+        Role::User,
+        "",
+        Some(ChatContext::Compaction {
+            automatic: false,
+            status: DividerStatus::Done,
+            before: Some(897_000),
+            after: Some(42_000),
+            size: Some(1_000_000),
+        }),
+    ));
+    let mut with_image = demo_message(2, Role::User, "The intro hangs on Linux after the star lands. Here is the screen.", None);
+    with_image.images = vec![ImageAttachment {
+        id: "i1".into(),
+        name: "intro-hang.png".into(),
+        path: Some(test_image("attachment-screenshot.png").into()),
+        data_url: None,
+        source_path: None,
+    }];
+    add(with_image);
+    let mut reply = demo_message(
+        3,
+        Role::Assistant,
+        "I looked at the frame and at two reference shots, then drew a placeholder for the star layer.",
+        None,
+    );
+    let read = |id: &str, file: &str| ChatStep {
+        id: id.into(),
+        kind: Some(StepKind::Read),
+        title: format!("Read `{file}`").into(),
+        file: Some(test_image(file).into()),
+        ..ChatStep::default()
+    };
+    reply.steps = vec![
+        read("v1", "viewed-checker.png"),
+        read("v2", "viewed-wide.png"),
+        ChatStep {
+            id: "g1".into(),
+            kind: Some(StepKind::Image),
+            title: "Generated an image".into(),
+            status: StepStatus::Done,
+            detail: Some("A sunrise over a flat horizon".into()),
+            file: Some(test_image("generated-sunrise.png").into()),
+            ..ChatStep::default()
+        },
+    ];
+    add(reply);
+    add(demo_message(
+        4,
+        Role::User,
+        "",
+        Some(ChatContext::Handoff {
+            from: Provider::Claude,
+            to: Provider::Codex,
+            from_model: Some("Opus 5.5".into()),
+            to_model: Some("GPT-6".into()),
+            status: DividerStatus::Done,
+        }),
+    ));
+    add(demo_message(5, Role::User, "", Some(ChatContext::Reload)));
+    add(demo_message(6, Role::User, "", Some(ChatContext::AccountSwitch { provider: Provider::Claude, label: "me@work.com".into() })));
+    add(demo_message(7, Role::User, "", Some(ChatContext::LimitReset)));
+    add(demo_message(
+        8,
+        Role::User,
+        "",
+        Some(ChatContext::RoutineRun {
+            routine_id: "r".into(),
+            run_id: "x".into(),
+            name: "CI watch".into(),
+            at: NOW,
+            label: None,
+            quiet: false,
+        }),
+    ));
+    add(demo_message(
+        9,
+        Role::User,
+        "",
+        Some(ChatContext::Other {
+            kind: "babysit-stopped".into(),
+            raw: json!({ "kind": "babysit-stopped", "pr": 77, "reason": "merged" }),
+        }),
+    ));
+    add(demo_message(
+        10,
+        Role::User,
+        "",
+        Some(ChatContext::Other {
+            kind: "checkpoint-restore".into(),
+            raw: json!({ "kind": "checkpoint-restore", "restored": 2, "redo": false, "recoveryId": "c1" }),
+        }),
+    ));
+    add(demo_message(
+        11,
+        Role::User,
+        "",
+        Some(ChatContext::Other {
+            kind: "worktree-linked".into(),
+            raw: json!({ "kind": "worktree-linked", "sameProject": false, "branches": ["main"], "project": { "name": "web", "path": "/w" }, "summary": "<linked_worktrees>\nweb on main: 3 files changed\n</linked_worktrees>" }),
+        }),
+    ));
+
+    let pr_url = "https://github.com/the-ptf/milagre-ade/pull/77";
+    add(demo_message(
+        12,
+        Role::User,
+        "Fix CI on pull request #77",
+        Some(ChatContext::PullRequestAction { action: "checks-failed".into(), pr: 77, url: pr_url.into() }),
+    ));
+    add(demo_message(
+        13,
+        Role::User,
+        "Update the branch of pull request #78",
+        Some(ChatContext::PullRequestAction {
+            action: "behind".into(),
+            pr: 78,
+            url: "https://github.com/the-ptf/milagre-ade/pull/78".into(),
+        }),
+    ));
+    if let Some(Item::Card(Card::PrAction(card))) = items.last_mut() {
+        card.state = Some((PrState::Merged, false));
+    }
+    let mut add = |message| items.extend(items_for(&message));
+    add(demo_message(
+        14,
+        Role::User,
+        "Start on this one; the repro is in the comments.",
+        Some(ChatContext::LinearIssue {
+            key: "ENG-412".into(),
+            title: "Intro hangs on Linux after the star lands, Begin stays disabled".into(),
+            url: "https://linear.app/milagre/issue/ENG-412".into(),
+            state: "In Progress".into(),
+            note: Some("Start on this one; the repro is in the comments.".into()),
+        }),
+    ));
+    add(demo_message(
+        15,
+        Role::User,
+        "Done: the fallback timer is in.",
+        Some(ChatContext::DelegationReport {
+            delegation_id: "d1".into(),
+            from: Some("c1".into()),
+            from_label: "milagre-ade / main / Fix the login".into(),
+            status: "done".into(),
+        }),
+    ));
+    add(demo_message(
+        16,
+        Role::User,
+        "It could not reach the relay.",
+        Some(ChatContext::DelegationReport {
+            delegation_id: "d2".into(),
+            from: Some("c2".into()),
+            from_label: "milagre-ade / main / Probe the relay".into(),
+            status: "failed".into(),
+        }),
+    ));
+    add(demo_message(
+        17,
+        Role::User,
+        "A kind from a newer app",
+        Some(ChatContext::Other { kind: "from-the-future".into(), raw: json!({ "kind": "from-the-future" }) }),
+    ));
+    add(demo_message(
+        18,
+        Role::User,
+        "",
+        Some(ChatContext::Other { kind: "from-the-future".into(), raw: json!({ "kind": "from-the-future" }) }),
+    ));
+    items.push(Item::Card(Card::Report(crate::workspace::chat::transcript::cards::ReportCard {
+        text: "Fix the login finished".into(),
+        kind: crate::logic::activity::subchat_states::SubchatKind::Done,
+        body: "The login now retries once with a fresh token.\n\nChanged `auth/session.ts`; the check passes.".into(),
+        open: true,
+    })));
+
+    let one = QuestionRequest {
+        request_id: "q1".into(),
+        secret_request: None,
+        bug_report: None,
+        questions: vec![demo_question(
+            "lib",
+            "Library",
+            "Which timer should the fallback use?",
+            &[
+                ("setTimeout", Some("Simple; fires even when the tab is hidden")),
+                ("requestAnimationFrame", Some("Pauses in the background")),
+                ("A CSS animation end", None),
+            ],
+            false,
+            true,
+        )],
+    };
+    items.push(Item::Card(Card::Question(Box::new(QuestionCard::new(&one, Some("1m 04s".into()))))));
+    let two = QuestionRequest {
+        request_id: "q2".into(),
+        secret_request: None,
+        bug_report: None,
+        questions: vec![
+            demo_question(
+                "platforms",
+                "Platforms",
+                "Which platforms get the fix?",
+                &[("macOS", None), ("Linux", None), ("Windows", None)],
+                true,
+                false,
+            ),
+            demo_question("ship", "Ship", "How should it ship?", &[("Beta first", None), ("Straight to stable", None)], false, true),
+        ],
+    };
+    items.push(Item::Card(Card::Question(Box::new(QuestionCard::new(&two, None)))));
+    let mut answered = demo_message(19, Role::User, "", None);
+    answered.answered = vec![
+        crate::data::AnsweredQuestion {
+            header: "Library".into(),
+            question: "Which timer should the fallback use?".into(),
+            answers: vec!["setTimeout".into()],
+        },
+        crate::data::AnsweredQuestion {
+            header: "Ship".into(),
+            question: "How should it ship?".into(),
+            answers: vec!["Beta first".into(), "Then stable on Friday".into()],
+        },
+    ];
+    items.extend(items_for(&answered));
+
+    let mut limited = demo_message(
+        20,
+        Role::Assistant,
+        "You've hit the Claude usage limit.",
+        Some(ChatContext::Limit {
+            provider: Provider::Claude,
+            account_id: Some("a".into()),
+            window: None,
+            resets_at: Some(format_iso(NOW + 3 * 3_600_000).into()),
+        }),
+    );
+    limited.role = Role::Assistant;
+    let mut built = items_for(&limited);
+    let limit = UsageLimit { provider: Provider::Claude, account_id: Some("a".into()), resets_at: Some(format_iso(NOW + 3 * 3_600_000)) };
+    let account = |id: &str, label: &str, state, email: Option<&str>, plan: Option<&str>| ProviderAccount {
+        id: id.into(),
+        label: label.into(),
+        state,
+        email: email.map(str::to_string),
+        plan: plan.map(str::to_string),
+        limited_until: None,
+        missing: false,
+    };
+    let groups = [ProviderAccounts {
+        provider: Provider::Claude,
+        effective_id: "a".into(),
+        accounts: vec![
+            account("a", "Personal", AccountState::Ready, Some("me@home.com"), Some("max")),
+            account("b", "Work", AccountState::Ready, Some("me@work.com"), Some("pro")),
+            account("c", "Old", AccountState::SignedOut, None, None),
+        ],
+    }];
+    if let Some(Item::Card(Card::Limit(card))) = built.last_mut() {
+        *card = limit_card(limit.clone(), NOW);
+        card.choices = limit_choices(&groups, &limit, NOW, &FixedZone(0));
+        card.interactive = true;
+    }
+    items.extend(built);
+
+    items
+}

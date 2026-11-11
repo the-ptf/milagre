@@ -63,6 +63,16 @@ pub enum IconName {
     SecurityCheck,
     Clean,
     VolumeHigh,
+    Refresh01,
+    ArrowShrink01,
+    UserSwitch,
+    Pulse01,
+    Undo02,
+    Redo02,
+    ArrowDataTransferHorizontal,
+    Clock01,
+    CornerDownRight,
+    Download04,
 }
 
 /// Each icon, its Hugeicons name, and its asset path per stroke: 1.6 (12px), 1.8 (14 and 16px), 2 (18px).
@@ -126,4 +136,14 @@ pub(crate) const ICONS: &[(IconName, &str, [&str; 3])] = &[
     (IconName::SecurityCheck, "SecurityCheck", ["hugeicons/security-check.svg@1.6", "hugeicons/security-check.svg", "hugeicons/security-check.svg@2"]),
     (IconName::Clean, "Clean", ["hugeicons/clean.svg@1.6", "hugeicons/clean.svg", "hugeicons/clean.svg@2"]),
     (IconName::VolumeHigh, "VolumeHigh", ["hugeicons/volume-high.svg@1.6", "hugeicons/volume-high.svg", "hugeicons/volume-high.svg@2"]),
+    (IconName::Refresh01, "Refresh01", ["hugeicons/refresh-01.svg@1.6", "hugeicons/refresh-01.svg", "hugeicons/refresh-01.svg@2"]),
+    (IconName::ArrowShrink01, "ArrowShrink01", ["hugeicons/arrow-shrink-01.svg@1.6", "hugeicons/arrow-shrink-01.svg", "hugeicons/arrow-shrink-01.svg@2"]),
+    (IconName::UserSwitch, "UserSwitch", ["hugeicons/user-switch.svg@1.6", "hugeicons/user-switch.svg", "hugeicons/user-switch.svg@2"]),
+    (IconName::Pulse01, "Pulse01", ["hugeicons/pulse-01.svg@1.6", "hugeicons/pulse-01.svg", "hugeicons/pulse-01.svg@2"]),
+    (IconName::Undo02, "Undo02", ["hugeicons/undo-02.svg@1.6", "hugeicons/undo-02.svg", "hugeicons/undo-02.svg@2"]),
+    (IconName::Redo02, "Redo02", ["hugeicons/redo-02.svg@1.6", "hugeicons/redo-02.svg", "hugeicons/redo-02.svg@2"]),
+    (IconName::ArrowDataTransferHorizontal, "ArrowDataTransferHorizontal", ["hugeicons/arrow-data-transfer-horizontal.svg@1.6", "hugeicons/arrow-data-transfer-horizontal.svg", "hugeicons/arrow-data-transfer-horizontal.svg@2"]),
+    (IconName::Clock01, "Clock01", ["hugeicons/clock-01.svg@1.6", "hugeicons/clock-01.svg", "hugeicons/clock-01.svg@2"]),
+    (IconName::CornerDownRight, "CornerDownRight", ["hugeicons/corner-down-right.svg@1.6", "hugeicons/corner-down-right.svg", "hugeicons/corner-down-right.svg@2"]),
+    (IconName::Download04, "Download04", ["hugeicons/download-04.svg@1.6", "hugeicons/download-04.svg", "hugeicons/download-04.svg@2"]),
 ];

@@ -1,0 +1,24 @@
+{
+  "messages": [
+    {
+      "id": 12,
+      "session_id": 1,
+      "body": "Fixture history: second turn",
+      "images": [],
+      "context": null,
+      "role": "user",
+      "model": "scripted"
+    },
+    {
+      "id": 13,
+      "session_id": 1,
+      "body": "Scripted isolated reply",
+      "context": null,
+      "role": "assistant",
+      "model": "scripted",
+      "outcome": "completed"
+    }
+  ],
+  "hasMore": true,
+  "total": 4
+}

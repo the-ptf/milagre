@@ -12,15 +12,16 @@ description = "Off-by-default DaemonAdapter: the GPUI crate's DataSource over th
 [dependencies]
 # The GPUI crate: its domain types and `DataSource` trait, and the sidebar the headless test mounts.
 milagre-gpui-spike = { path = ".." }
-# The backend's frozen client at a9d85d1d, exported (never edited) by scripts/check-gpui-adapter.py into the
+# The backend's frozen client at 9aa5deb3, exported (never edited) by scripts/check-gpui-adapter.py into the
 # GPUI crate's ignored target/ directory. Run `python3 scripts/check-gpui-adapter.py export --backend <worktree>`
 # before any cargo command here.
-milagre-daemon-client = { path = "../target/daemon-client-a9d85d1d/experiments/rust-daemon-client" }
+milagre-daemon-client = { path = "../target/daemon-client-9aa5deb3/experiments/rust-daemon-client" }
 gpui = { package = "gpui-pre", version = "=0.3.12" }
 anyhow = "1"
 serde_json = "1"
+# `LiveStore`'s change signals (futures::channel::mpsc). Already in the lock through GPUI.
+futures = "0.3"
 
 [dev-dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
 gpui-component = "=0.9.1"
-futures = "0.3"

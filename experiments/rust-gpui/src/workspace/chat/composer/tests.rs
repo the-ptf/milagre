@@ -70,6 +70,7 @@ fn record(composer: &Entity<Composer>, cx: &mut VisualTestContext) -> Recorded {
         [
             cx.subscribe(composer, move |_, event: &ComposerEvent, _| match event {
                 ComposerEvent::Send(text) => s.borrow_mut().push(text.to_string()),
+                ComposerEvent::Queued(_) | ComposerEvent::Stop => {}
             }),
             cx.subscribe(composer, move |_, event: &ComposerAttachment, _| a.borrow_mut().push(event.clone())),
         ]

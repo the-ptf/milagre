@@ -135,7 +135,7 @@ pub fn open_project(body: &Value) -> Result<OpenProject> {
     Ok(OpenProject { project, state, stamp: stamp(o.get("version"), o.get("epoch"), "project")? })
 }
 
-fn stamp(version: Option<&Value>, epoch: Option<&Value>, path: &str) -> Result<StateStamp> {
+pub(crate) fn stamp(version: Option<&Value>, epoch: Option<&Value>, path: &str) -> Result<StateStamp> {
     let version = version.map(|v| v.as_u64().ok_or_else(|| anyhow!("{path}.version: expected an unsigned integer"))).transpose()?;
     let epoch = epoch
         .map(|v| v.as_str().map(|s| SharedString::from(s.to_owned())).ok_or_else(|| anyhow!("{path}.epoch: expected a string")))
@@ -396,7 +396,7 @@ fn agent_run(value: &Value, path: &str) -> Result<AgentRun> {
     })
 }
 
-fn permission_request(value: &Value, path: &str) -> Result<PermissionRequest> {
+pub(crate) fn permission_request(value: &Value, path: &str) -> Result<PermissionRequest> {
     let o = obj(value, path)?;
     Ok(PermissionRequest {
         request_id: o.str("requestId")?,
@@ -436,7 +436,7 @@ fn permission_request(value: &Value, path: &str) -> Result<PermissionRequest> {
     })
 }
 
-fn question_request(value: &Value, path: &str) -> Result<QuestionRequest> {
+pub(crate) fn question_request(value: &Value, path: &str) -> Result<QuestionRequest> {
     let o = obj(value, path)?;
     Ok(QuestionRequest {
         request_id: o.str("requestId")?,
@@ -478,7 +478,7 @@ fn question_request(value: &Value, path: &str) -> Result<QuestionRequest> {
     })
 }
 
-fn step(value: &Value, path: &str) -> Result<ChatStep> {
+pub(crate) fn step(value: &Value, path: &str) -> Result<ChatStep> {
     let o = obj(value, path)?;
     let source = o.child("source")?;
     Ok(ChatStep {
