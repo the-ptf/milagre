@@ -1,0 +1,245 @@
+{
+  "gitVersion": "git version 2.54.0 (Apple Git-157)",
+  "cases": [
+    {
+      "command": "git 'rebase' '--e' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+      "subcommand": "rebase",
+      "option": "--e",
+      "inline": false,
+      "helperExecuted": false,
+      "exitCode": 129
+    },
+    {
+      "command": "git 'rebase' '--e=/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+      "subcommand": "rebase",
+      "option": "--e",
+      "inline": true,
+      "helperExecuted": false,
+      "exitCode": 129
+    },
+    {
+      "command": "git 'rebase' '--ex' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+      "subcommand": "rebase",
+      "option": "--ex",
+      "inline": false,
+      "helperExecuted": true,
+      "exitCode": 0
+    },
+    {
+      "command": "git 'rebase' '--ex=/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+      "subcommand": "rebase",
+      "option": "--ex",
+      "inline": true,
+      "helperExecuted": true,
+      "exitCode": 0
+    },
+    {
+      "command": "git 'rebase' '--exe' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+      "subcommand": "rebase",
+      "option": "--exe",
+      "inline": false,
+      "helperExecuted": true,
+      "exitCode": 0
+    },
+    {
+      "command": "git 'rebase' '--exe=/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+      "subcommand": "rebase",
+      "option": "--exe",
+      "inline": true,
+      "helperExecuted": true,
+      "exitCode": 0
+    },
+    {
+      "command": "git 'rebase' '--exec' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+      "subcommand": "rebase",
+      "option": "--exec",
+      "inline": false,
+      "helperExecuted": true,
+      "exitCode": 0
+    },
+    {
+      "command": "git 'rebase' '--exec=/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+      "subcommand": "rebase",
+      "option": "--exec",
+      "inline": true,
+      "helperExecuted": true,
+      "exitCode": 0
+    },
+    {
+      "command": "git 'fetch' '--u' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--u",
+      "inline": false,
+      "helperExecuted": false,
+      "exitCode": 129
+    },
+    {
+      "command": "git 'fetch' '--u=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--u",
+      "inline": true,
+      "helperExecuted": false,
+      "exitCode": 129
+    },
+    {
+      "command": "git 'fetch' '--up' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--up",
+      "inline": false,
+      "helperExecuted": false,
+      "exitCode": 129
+    },
+    {
+      "command": "git 'fetch' '--up=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--up",
+      "inline": true,
+      "helperExecuted": false,
+      "exitCode": 129
+    },
+    {
+      "command": "git 'fetch' '--upl' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upl",
+      "inline": false,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upl=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upl",
+      "inline": true,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--uplo' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--uplo",
+      "inline": false,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--uplo=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--uplo",
+      "inline": true,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--uploa' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--uploa",
+      "inline": false,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--uploa=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--uploa",
+      "inline": true,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upload' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upload",
+      "inline": false,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upload=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upload",
+      "inline": true,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upload-' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upload-",
+      "inline": false,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upload-=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upload-",
+      "inline": true,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upload-p' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upload-p",
+      "inline": false,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upload-p=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upload-p",
+      "inline": true,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upload-pa' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upload-pa",
+      "inline": false,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upload-pa=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upload-pa",
+      "inline": true,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upload-pac' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upload-pac",
+      "inline": false,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upload-pac=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upload-pac",
+      "inline": true,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upload-pack' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upload-pack",
+      "inline": false,
+      "helperExecuted": true,
+      "exitCode": 128
+    },
+    {
+      "command": "git 'fetch' '--upload-pack=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+      "subcommand": "fetch",
+      "option": "--upload-pack",
+      "inline": true,
+      "helperExecuted": true,
+      "exitCode": 128
+    }
+  ]
+}

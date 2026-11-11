@@ -47,14 +47,16 @@ handling; this crate tests action facts and level rules, not a running provider 
   for `echo` and the supported `printf` formats; using it as a command or Git/gh argument is
   refused. `printf -v`, `%n` and opaque formats are refused because they can assign variables.
 - Recognized Git writes (`push`, `send-pack`, `subtree push`) and an explicit local-command
-  allowlist. Known global options and a literal inline `alias.name=push` are supported; unknown
-  aliases/configuration, shell aliases and execution-helper options are refused. Git subcommands
+  allowlist. Only three exact global switches are admitted. Every subcommand has an explicit switch/value
+  allowlist; unknown flags and abbreviations are refused. All global `-c`, `-C`, `--git-dir`,
+  `--work-tree`, `--namespace` and other configuration/root overrides are refused. There is no
+  repository trust capability that would authorize them. Shell `cd` is also refused. Git subcommands
   in the local allowlist remain subject to the trusted configuration precondition above.
 - Known `gh pr`/`issue`/`repo` operations, REST route/method/field classification and parsed
   GraphQL queries/mutations. GraphQL aliases are resolved by field name. Unknown mutation
   fields, fragments and opaque `updatePullRequest` input objects are refused.
 
-Only literal `true`, `false`, `:`, `pwd`, `cd`, `ls`, `cat`, `head`, `tail`, `wc`, `grep` and
+Only literal `true`, `false`, `:`, `pwd`, `ls`, `cat`, `head`, `tail`, `wc`, `grep` and
 `sleep` join the data-only `echo`/`printf` commands in the non-Git allowlist. This is intentionally
 small. In particular, an arbitrary executable is not classified safe based on its absence from
 the Node word scan. Arbitrary executable paths are refused; `/bin/` and `/usr/bin/` paths are
@@ -86,9 +88,9 @@ recorder's VM. No production source is modified. It adds the adversarial inputs 
 `tests/adversarial.json`, still through the real Node function. `--check` detects fixture drift.
 The recorder never executes any input command.
 
-Current fixtures contain **218 distinct inputs: 133 classified and 85 explicitly refused**.
+Current fixtures contain **325 distinct inputs: 126 classified and 199 explicitly refused**.
 `tests/outcomes.json` pins the exact accepted/refused surface so widening or reducing it requires
-review. For the 133 accepted inputs, 122 match Node's facts exactly. The 11 deviations are:
+review. For the 126 accepted inputs, 115 match Node's facts exactly. The 11 deviations are:
 
 1. Six opaque-stdin cases return an always-denied file/body fact. Node sometimes infers a body
    from unrelated text elsewhere on the line and even returns no action for bare GraphQL stdin.
@@ -100,9 +102,29 @@ review. For the 133 accepted inputs, 122 match Node's facts exactly. The 11 devi
    is refused because it may carry `state`; an explicit `state` field is conservatively `Close`
    even if its value is a variable.
 
-Tests also cover 60 adversarial cases, level rules, limits, static errors/Debug and 1,000
+Tests also cover 138 adversarial cases, level rules, limits, static errors/Debug and 1,000
 malformed Unicode/token combinations. This is a bounded checkpoint, not complete shell or
 GitHub API parity. Windows shells/process execution are unsupported.
+
+## Git abbreviation regression
+
+Review found that Git 2.54 accepts execution-helper abbreviations such as `rebase --exe` and
+`fetch --upload-p`. A prefix blocklist was insufficient. `git_options.rs` now admits only exact
+per-subcommand flags, so unknown abbreviations and arbitrary long flags fail closed.
+`tests/accepted-git-options.json` records all **458 admitted option forms**; tests compare the
+entire table to that independent saved corpus and pass every case through the shell parser.
+Every unrecognized proper prefix of an admitted long option is rejected too.
+
+`node scripts/git-abbreviations.cjs --check` repeats **30 real local Git probes**. On Apple Git
+2.54.0, **24 execute an inert marker helper**, including both reported abbreviations. Every
+probe is rejected by the classifier. This script creates fresh private repositories with a
+synthetic HOME, no ambient/global Git configuration, disabled hooks and file-only transport.
+Its helper only touches a marker in that private root; it runs no `gh`, network operation or
+production repository command. It removes that owned scratch root afterwards. These probes
+are separate from the pure Node action recorder.
+
+This classifier concerns remote actions, not confidentiality. Supported local read commands
+can read files; access controls remain an owner/sandbox responsibility.
 
 ## Validation
 
@@ -111,6 +133,7 @@ cargo test --manifest-path experiments/rust-command-policy/Cargo.toml
 cargo clippy --manifest-path experiments/rust-command-policy/Cargo.toml --all-targets -- -D warnings
 cargo fmt --manifest-path experiments/rust-command-policy/Cargo.toml -- --check
 node experiments/rust-command-policy/scripts/record.cjs --check
+node experiments/rust-command-policy/scripts/git-abbreviations.cjs --check
 ```
 
 Parser sources checked: [Tree-sitter Bash 0.25.1](https://docs.rs/tree-sitter-bash/0.25.1/tree_sitter_bash/),

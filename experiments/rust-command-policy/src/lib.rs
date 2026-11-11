@@ -1,4 +1,5 @@
 //! Bounded, fail-closed static Bash classification. This is policy analysis, not a sandbox.
+mod git_options;
 mod remote;
 use milagre_providers::codex::guard::{CommandClassifier, RemoteAction};
 use std::time::{Duration, Instant};
@@ -214,8 +215,8 @@ impl Context {
             "gh" => self.add(remote::gh(&args)?),
             // This deliberately excludes interpreters, package scripts, find/awk/sed execution
             // forms, xargs (stdin changes argv), network clients and arbitrary executables.
-            "true" | "false" | ":" | "pwd" | "cd" | "ls" | "cat" | "head" | "tail" | "wc"
-            | "grep" | "sleep" => Ok(()),
+            "true" | "false" | ":" | "pwd" | "ls" | "cat" | "head" | "tail" | "wc" | "grep"
+            | "sleep" => Ok(()),
             _ => Err(UNSUPPORTED),
         }
     }

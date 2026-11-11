@@ -6,75 +6,20 @@ use std::sync::LazyLock;
 
 pub(crate) fn git(args: &[&str]) -> Result<Vec<RemoteAction>> {
     let mut i = 0;
-    let mut alias = None;
-    while args.get(i).is_some_and(|a| a.starts_with('-')) {
+    while args.get(i).is_some_and(|arg| arg.starts_with('-')) {
         match args[i] {
             "--no-pager" | "--no-optional-locks" | "--literal-pathspecs" => i += 1,
-            "-C" | "--git-dir" | "--work-tree" | "--namespace" => {
-                args.get(i + 1).ok_or(UNSUPPORTED)?;
-                i += 2;
-            }
-            "-c" => {
-                let config = args.get(i + 1).ok_or(UNSUPPORTED)?;
-                if let Some((name, value)) = config
-                    .strip_prefix("alias.")
-                    .and_then(|x| x.split_once('='))
-                {
-                    // Only a literal alias of push is resolved; shell aliases and extra tokens fail closed.
-                    if value != "push" || name.is_empty() || alias.is_some() {
-                        return Err(UNSUPPORTED);
-                    }
-                    alias = Some(name);
-                } else if !config.starts_with("user.name=") && !config.starts_with("user.email=") {
-                    return Err(UNSUPPORTED);
-                }
-                i += 2;
-            }
             _ => return Err(UNSUPPORTED),
         }
     }
     let sub = *args.get(i).ok_or(UNSUPPORTED)?;
     let rest = &args[i + 1..];
-    if rest.iter().any(|a| {
-        [
-            "--exec",
-            "--upload-pack",
-            "--receive-pack",
-            "--config",
-            "--filter",
-            "--ext-diff",
-            "--textconv",
-            "--output",
-            "--open-files-in-pager",
-        ]
-        .iter()
-        .any(|p| a.starts_with(p))
-    }) {
-        return Err(UNSUPPORTED);
-    }
-    if rest.iter().any(|a| *a == "-x" || a.starts_with("ext::")) {
-        return Err(UNSUPPORTED);
-    }
-    if alias == Some(sub) || matches!(sub, "push" | "send-pack") {
-        return Ok(vec![Push]);
-    }
-    if alias.is_some() {
-        return Err(UNSUPPORTED);
-    }
-    if sub == "subtree" {
-        return if rest.first() == Some(&"push") {
-            Ok(vec![Push])
-        } else {
-            Err(UNSUPPORTED)
-        };
-    }
+    crate::git_options::validate(sub, rest)?;
     match sub {
-        "status" | "log" | "diff" | "show" | "rev-parse" | "ls-files" | "ls-tree" | "branch"
-        | "fetch" | "commit" | "add" | "restore" | "reset" | "checkout" | "switch" | "merge"
-        | "rebase" | "cherry-pick" | "stash" | "blame" | "rev-list" | "show-ref" | "tag" => {
-            Ok(vec![])
-        }
-        _ => Err(UNSUPPORTED),
+        "push" | "send-pack" => Ok(vec![Push]),
+        "subtree" if rest.first() == Some(&"push") => Ok(vec![Push]),
+        "subtree" => Err(UNSUPPORTED),
+        _ => Ok(vec![]),
     }
 }
 pub(crate) fn gh(args: &[&str]) -> Result<Vec<RemoteAction>> {

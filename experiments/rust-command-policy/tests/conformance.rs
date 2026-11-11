@@ -9,7 +9,7 @@ fn actions(value: &Value) -> Vec<RemoteAction> {
 fn replay_actual_node_guard_with_explicit_supported_surface() {
     let node: Vec<Value> = serde_json::from_str(include_str!("node-traces.json")).unwrap();
     let expected: Vec<Value> = serde_json::from_str(include_str!("outcomes.json")).unwrap();
-    assert_eq!(node.len(), 218);
+    assert_eq!(node.len(), 325);
     assert_eq!(node.len(), expected.len());
     let mut counts = (0, 0, 0);
     for (case, expect) in node.iter().zip(&expected) {
@@ -52,7 +52,7 @@ fn replay_actual_node_guard_with_explicit_supported_surface() {
             }
         }
     }
-    assert_eq!(counts, (133, 85, 11));
+    assert_eq!(counts, (126, 199, 11));
 }
 #[test]
 fn adversarial_cases_fail_closed_or_name_the_actual_action() {
@@ -137,5 +137,33 @@ fn malformed_unicode_and_shell_tokens_never_panic() {
             text.push_str(tokens[(seed >> 32) as usize % tokens.len()]);
         }
         assert!(std::panic::catch_unwind(|| ShellClassifier.actions(&text)).is_ok());
+    }
+}
+
+#[test]
+fn exact_git_flag_corpus_and_real_abbreviation_probes() {
+    let cases: Vec<Value> =
+        serde_json::from_str(include_str!("accepted-git-options.json")).unwrap();
+    assert_eq!(cases.len(), 458);
+    for case in cases {
+        let command = case["command"].as_str().unwrap();
+        assert!(ShellClassifier.actions(command).is_ok(), "{command}");
+    }
+    let probes: Value = serde_json::from_str(include_str!("git-abbreviations.json")).unwrap();
+    let probes = probes["cases"].as_array().unwrap();
+    assert_eq!(probes.len(), 30);
+    assert_eq!(
+        probes
+            .iter()
+            .filter(|case| case["helperExecuted"] == true)
+            .count(),
+        24
+    );
+    for case in probes {
+        let command = case["command"].as_str().unwrap();
+        assert!(
+            ShellClassifier.actions(command).is_err(),
+            "helper probe admitted: {command}"
+        );
     }
 }

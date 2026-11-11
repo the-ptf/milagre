@@ -1,0 +1,2750 @@
+[
+  {
+    "command": "git status --short",
+    "subcommand": "status",
+    "flag": "--short",
+    "kind": "switches"
+  },
+  {
+    "command": "git status -s",
+    "subcommand": "status",
+    "flag": "-s",
+    "kind": "switches"
+  },
+  {
+    "command": "git status --branch",
+    "subcommand": "status",
+    "flag": "--branch",
+    "kind": "switches"
+  },
+  {
+    "command": "git status -b",
+    "subcommand": "status",
+    "flag": "-b",
+    "kind": "switches"
+  },
+  {
+    "command": "git status --show-stash",
+    "subcommand": "status",
+    "flag": "--show-stash",
+    "kind": "switches"
+  },
+  {
+    "command": "git status --long",
+    "subcommand": "status",
+    "flag": "--long",
+    "kind": "switches"
+  },
+  {
+    "command": "git status --verbose",
+    "subcommand": "status",
+    "flag": "--verbose",
+    "kind": "switches"
+  },
+  {
+    "command": "git status -v",
+    "subcommand": "status",
+    "flag": "-v",
+    "kind": "switches"
+  },
+  {
+    "command": "git status --null",
+    "subcommand": "status",
+    "flag": "--null",
+    "kind": "switches"
+  },
+  {
+    "command": "git status -z",
+    "subcommand": "status",
+    "flag": "-z",
+    "kind": "switches"
+  },
+  {
+    "command": "git status --porcelain",
+    "subcommand": "status",
+    "flag": "--porcelain",
+    "kind": "optional"
+  },
+  {
+    "command": "git status --porcelain=value",
+    "subcommand": "status",
+    "flag": "--porcelain",
+    "kind": "optional-inline"
+  },
+  {
+    "command": "git status --untracked-files",
+    "subcommand": "status",
+    "flag": "--untracked-files",
+    "kind": "optional"
+  },
+  {
+    "command": "git status --untracked-files=value",
+    "subcommand": "status",
+    "flag": "--untracked-files",
+    "kind": "optional-inline"
+  },
+  {
+    "command": "git status --ignore-submodules",
+    "subcommand": "status",
+    "flag": "--ignore-submodules",
+    "kind": "optional"
+  },
+  {
+    "command": "git status --ignore-submodules=value",
+    "subcommand": "status",
+    "flag": "--ignore-submodules",
+    "kind": "optional-inline"
+  },
+  {
+    "command": "git log --oneline",
+    "subcommand": "log",
+    "flag": "--oneline",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --stat",
+    "subcommand": "log",
+    "flag": "--stat",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --numstat",
+    "subcommand": "log",
+    "flag": "--numstat",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --shortstat",
+    "subcommand": "log",
+    "flag": "--shortstat",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --name-only",
+    "subcommand": "log",
+    "flag": "--name-only",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --name-status",
+    "subcommand": "log",
+    "flag": "--name-status",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --patch",
+    "subcommand": "log",
+    "flag": "--patch",
+    "kind": "switches"
+  },
+  {
+    "command": "git log -p",
+    "subcommand": "log",
+    "flag": "-p",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --no-patch",
+    "subcommand": "log",
+    "flag": "--no-patch",
+    "kind": "switches"
+  },
+  {
+    "command": "git log -s",
+    "subcommand": "log",
+    "flag": "-s",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --no-decorate",
+    "subcommand": "log",
+    "flag": "--no-decorate",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --all",
+    "subcommand": "log",
+    "flag": "--all",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --reverse",
+    "subcommand": "log",
+    "flag": "--reverse",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --topo-order",
+    "subcommand": "log",
+    "flag": "--topo-order",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --graph",
+    "subcommand": "log",
+    "flag": "--graph",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --no-ext-diff",
+    "subcommand": "log",
+    "flag": "--no-ext-diff",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --no-textconv",
+    "subcommand": "log",
+    "flag": "--no-textconv",
+    "kind": "switches"
+  },
+  {
+    "command": "git log --format value",
+    "subcommand": "log",
+    "flag": "--format",
+    "kind": "values"
+  },
+  {
+    "command": "git log --format=value",
+    "subcommand": "log",
+    "flag": "--format",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git log --pretty value",
+    "subcommand": "log",
+    "flag": "--pretty",
+    "kind": "values"
+  },
+  {
+    "command": "git log --pretty=value",
+    "subcommand": "log",
+    "flag": "--pretty",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git log --date value",
+    "subcommand": "log",
+    "flag": "--date",
+    "kind": "values"
+  },
+  {
+    "command": "git log --date=value",
+    "subcommand": "log",
+    "flag": "--date",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git log --max-count value",
+    "subcommand": "log",
+    "flag": "--max-count",
+    "kind": "values"
+  },
+  {
+    "command": "git log --max-count=value",
+    "subcommand": "log",
+    "flag": "--max-count",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git log -n value",
+    "subcommand": "log",
+    "flag": "-n",
+    "kind": "values"
+  },
+  {
+    "command": "git log -n=value",
+    "subcommand": "log",
+    "flag": "-n",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git log --since value",
+    "subcommand": "log",
+    "flag": "--since",
+    "kind": "values"
+  },
+  {
+    "command": "git log --since=value",
+    "subcommand": "log",
+    "flag": "--since",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git log --until value",
+    "subcommand": "log",
+    "flag": "--until",
+    "kind": "values"
+  },
+  {
+    "command": "git log --until=value",
+    "subcommand": "log",
+    "flag": "--until",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git log --author value",
+    "subcommand": "log",
+    "flag": "--author",
+    "kind": "values"
+  },
+  {
+    "command": "git log --author=value",
+    "subcommand": "log",
+    "flag": "--author",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git log --grep value",
+    "subcommand": "log",
+    "flag": "--grep",
+    "kind": "values"
+  },
+  {
+    "command": "git log --grep=value",
+    "subcommand": "log",
+    "flag": "--grep",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git log --decorate",
+    "subcommand": "log",
+    "flag": "--decorate",
+    "kind": "optional"
+  },
+  {
+    "command": "git log --decorate=value",
+    "subcommand": "log",
+    "flag": "--decorate",
+    "kind": "optional-inline"
+  },
+  {
+    "command": "git log -3",
+    "subcommand": "log",
+    "flag": "-3",
+    "kind": "count"
+  },
+  {
+    "command": "git show --oneline",
+    "subcommand": "show",
+    "flag": "--oneline",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --stat",
+    "subcommand": "show",
+    "flag": "--stat",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --numstat",
+    "subcommand": "show",
+    "flag": "--numstat",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --shortstat",
+    "subcommand": "show",
+    "flag": "--shortstat",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --name-only",
+    "subcommand": "show",
+    "flag": "--name-only",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --name-status",
+    "subcommand": "show",
+    "flag": "--name-status",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --patch",
+    "subcommand": "show",
+    "flag": "--patch",
+    "kind": "switches"
+  },
+  {
+    "command": "git show -p",
+    "subcommand": "show",
+    "flag": "-p",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --no-patch",
+    "subcommand": "show",
+    "flag": "--no-patch",
+    "kind": "switches"
+  },
+  {
+    "command": "git show -s",
+    "subcommand": "show",
+    "flag": "-s",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --no-decorate",
+    "subcommand": "show",
+    "flag": "--no-decorate",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --all",
+    "subcommand": "show",
+    "flag": "--all",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --reverse",
+    "subcommand": "show",
+    "flag": "--reverse",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --topo-order",
+    "subcommand": "show",
+    "flag": "--topo-order",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --graph",
+    "subcommand": "show",
+    "flag": "--graph",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --no-ext-diff",
+    "subcommand": "show",
+    "flag": "--no-ext-diff",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --no-textconv",
+    "subcommand": "show",
+    "flag": "--no-textconv",
+    "kind": "switches"
+  },
+  {
+    "command": "git show --format value",
+    "subcommand": "show",
+    "flag": "--format",
+    "kind": "values"
+  },
+  {
+    "command": "git show --format=value",
+    "subcommand": "show",
+    "flag": "--format",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git show --pretty value",
+    "subcommand": "show",
+    "flag": "--pretty",
+    "kind": "values"
+  },
+  {
+    "command": "git show --pretty=value",
+    "subcommand": "show",
+    "flag": "--pretty",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git show --date value",
+    "subcommand": "show",
+    "flag": "--date",
+    "kind": "values"
+  },
+  {
+    "command": "git show --date=value",
+    "subcommand": "show",
+    "flag": "--date",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git show --max-count value",
+    "subcommand": "show",
+    "flag": "--max-count",
+    "kind": "values"
+  },
+  {
+    "command": "git show --max-count=value",
+    "subcommand": "show",
+    "flag": "--max-count",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git show -n value",
+    "subcommand": "show",
+    "flag": "-n",
+    "kind": "values"
+  },
+  {
+    "command": "git show -n=value",
+    "subcommand": "show",
+    "flag": "-n",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git show --since value",
+    "subcommand": "show",
+    "flag": "--since",
+    "kind": "values"
+  },
+  {
+    "command": "git show --since=value",
+    "subcommand": "show",
+    "flag": "--since",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git show --until value",
+    "subcommand": "show",
+    "flag": "--until",
+    "kind": "values"
+  },
+  {
+    "command": "git show --until=value",
+    "subcommand": "show",
+    "flag": "--until",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git show --author value",
+    "subcommand": "show",
+    "flag": "--author",
+    "kind": "values"
+  },
+  {
+    "command": "git show --author=value",
+    "subcommand": "show",
+    "flag": "--author",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git show --grep value",
+    "subcommand": "show",
+    "flag": "--grep",
+    "kind": "values"
+  },
+  {
+    "command": "git show --grep=value",
+    "subcommand": "show",
+    "flag": "--grep",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git show --decorate",
+    "subcommand": "show",
+    "flag": "--decorate",
+    "kind": "optional"
+  },
+  {
+    "command": "git show --decorate=value",
+    "subcommand": "show",
+    "flag": "--decorate",
+    "kind": "optional-inline"
+  },
+  {
+    "command": "git show -3",
+    "subcommand": "show",
+    "flag": "-3",
+    "kind": "count"
+  },
+  {
+    "command": "git diff --stat",
+    "subcommand": "diff",
+    "flag": "--stat",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --numstat",
+    "subcommand": "diff",
+    "flag": "--numstat",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --shortstat",
+    "subcommand": "diff",
+    "flag": "--shortstat",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --name-only",
+    "subcommand": "diff",
+    "flag": "--name-only",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --name-status",
+    "subcommand": "diff",
+    "flag": "--name-status",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --patch",
+    "subcommand": "diff",
+    "flag": "--patch",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff -p",
+    "subcommand": "diff",
+    "flag": "-p",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --no-patch",
+    "subcommand": "diff",
+    "flag": "--no-patch",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff -s",
+    "subcommand": "diff",
+    "flag": "-s",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --cached",
+    "subcommand": "diff",
+    "flag": "--cached",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --staged",
+    "subcommand": "diff",
+    "flag": "--staged",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --check",
+    "subcommand": "diff",
+    "flag": "--check",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --quiet",
+    "subcommand": "diff",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --exit-code",
+    "subcommand": "diff",
+    "flag": "--exit-code",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --no-ext-diff",
+    "subcommand": "diff",
+    "flag": "--no-ext-diff",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --no-textconv",
+    "subcommand": "diff",
+    "flag": "--no-textconv",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --no-renames",
+    "subcommand": "diff",
+    "flag": "--no-renames",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --minimal",
+    "subcommand": "diff",
+    "flag": "--minimal",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --word-diff",
+    "subcommand": "diff",
+    "flag": "--word-diff",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --ignore-all-space",
+    "subcommand": "diff",
+    "flag": "--ignore-all-space",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff -w",
+    "subcommand": "diff",
+    "flag": "-w",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --ignore-space-change",
+    "subcommand": "diff",
+    "flag": "--ignore-space-change",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff -b",
+    "subcommand": "diff",
+    "flag": "-b",
+    "kind": "switches"
+  },
+  {
+    "command": "git diff --unified value",
+    "subcommand": "diff",
+    "flag": "--unified",
+    "kind": "values"
+  },
+  {
+    "command": "git diff --unified=value",
+    "subcommand": "diff",
+    "flag": "--unified",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git diff -U value",
+    "subcommand": "diff",
+    "flag": "-U",
+    "kind": "values"
+  },
+  {
+    "command": "git diff -U=value",
+    "subcommand": "diff",
+    "flag": "-U",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git diff --diff-filter value",
+    "subcommand": "diff",
+    "flag": "--diff-filter",
+    "kind": "values"
+  },
+  {
+    "command": "git diff --diff-filter=value",
+    "subcommand": "diff",
+    "flag": "--diff-filter",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git rev-parse --verify",
+    "subcommand": "rev-parse",
+    "flag": "--verify",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-parse --quiet",
+    "subcommand": "rev-parse",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-parse -q",
+    "subcommand": "rev-parse",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-parse --show-toplevel",
+    "subcommand": "rev-parse",
+    "flag": "--show-toplevel",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-parse --show-prefix",
+    "subcommand": "rev-parse",
+    "flag": "--show-prefix",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-parse --show-cdup",
+    "subcommand": "rev-parse",
+    "flag": "--show-cdup",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-parse --git-dir",
+    "subcommand": "rev-parse",
+    "flag": "--git-dir",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-parse --is-inside-work-tree",
+    "subcommand": "rev-parse",
+    "flag": "--is-inside-work-tree",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-parse --is-bare-repository",
+    "subcommand": "rev-parse",
+    "flag": "--is-bare-repository",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-parse --symbolic-full-name",
+    "subcommand": "rev-parse",
+    "flag": "--symbolic-full-name",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-parse --short",
+    "subcommand": "rev-parse",
+    "flag": "--short",
+    "kind": "optional"
+  },
+  {
+    "command": "git rev-parse --short=value",
+    "subcommand": "rev-parse",
+    "flag": "--short",
+    "kind": "optional-inline"
+  },
+  {
+    "command": "git rev-parse --abbrev-ref",
+    "subcommand": "rev-parse",
+    "flag": "--abbrev-ref",
+    "kind": "optional"
+  },
+  {
+    "command": "git rev-parse --abbrev-ref=value",
+    "subcommand": "rev-parse",
+    "flag": "--abbrev-ref",
+    "kind": "optional-inline"
+  },
+  {
+    "command": "git ls-files -z",
+    "subcommand": "ls-files",
+    "flag": "-z",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-files --cached",
+    "subcommand": "ls-files",
+    "flag": "--cached",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-files --deleted",
+    "subcommand": "ls-files",
+    "flag": "--deleted",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-files --modified",
+    "subcommand": "ls-files",
+    "flag": "--modified",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-files --others",
+    "subcommand": "ls-files",
+    "flag": "--others",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-files --ignored",
+    "subcommand": "ls-files",
+    "flag": "--ignored",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-files --exclude-standard",
+    "subcommand": "ls-files",
+    "flag": "--exclude-standard",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-files --stage",
+    "subcommand": "ls-files",
+    "flag": "--stage",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-files --unmerged",
+    "subcommand": "ls-files",
+    "flag": "--unmerged",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-files --error-unmatch",
+    "subcommand": "ls-files",
+    "flag": "--error-unmatch",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-files --full-name",
+    "subcommand": "ls-files",
+    "flag": "--full-name",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-files --deduplicate",
+    "subcommand": "ls-files",
+    "flag": "--deduplicate",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-files --format value",
+    "subcommand": "ls-files",
+    "flag": "--format",
+    "kind": "values"
+  },
+  {
+    "command": "git ls-files --format=value",
+    "subcommand": "ls-files",
+    "flag": "--format",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git ls-tree -r",
+    "subcommand": "ls-tree",
+    "flag": "-r",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-tree -t",
+    "subcommand": "ls-tree",
+    "flag": "-t",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-tree -d",
+    "subcommand": "ls-tree",
+    "flag": "-d",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-tree -l",
+    "subcommand": "ls-tree",
+    "flag": "-l",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-tree -z",
+    "subcommand": "ls-tree",
+    "flag": "-z",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-tree --name-only",
+    "subcommand": "ls-tree",
+    "flag": "--name-only",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-tree --name-status",
+    "subcommand": "ls-tree",
+    "flag": "--name-status",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-tree --full-tree",
+    "subcommand": "ls-tree",
+    "flag": "--full-tree",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-tree --full-name",
+    "subcommand": "ls-tree",
+    "flag": "--full-name",
+    "kind": "switches"
+  },
+  {
+    "command": "git ls-tree --format value",
+    "subcommand": "ls-tree",
+    "flag": "--format",
+    "kind": "values"
+  },
+  {
+    "command": "git ls-tree --format=value",
+    "subcommand": "ls-tree",
+    "flag": "--format",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git branch --list",
+    "subcommand": "branch",
+    "flag": "--list",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch --show-current",
+    "subcommand": "branch",
+    "flag": "--show-current",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch --all",
+    "subcommand": "branch",
+    "flag": "--all",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch -a",
+    "subcommand": "branch",
+    "flag": "-a",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch --remotes",
+    "subcommand": "branch",
+    "flag": "--remotes",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch -r",
+    "subcommand": "branch",
+    "flag": "-r",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch --delete",
+    "subcommand": "branch",
+    "flag": "--delete",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch -d",
+    "subcommand": "branch",
+    "flag": "-d",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch -D",
+    "subcommand": "branch",
+    "flag": "-D",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch --move",
+    "subcommand": "branch",
+    "flag": "--move",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch -m",
+    "subcommand": "branch",
+    "flag": "-m",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch -M",
+    "subcommand": "branch",
+    "flag": "-M",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch --copy",
+    "subcommand": "branch",
+    "flag": "--copy",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch -c",
+    "subcommand": "branch",
+    "flag": "-c",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch -C",
+    "subcommand": "branch",
+    "flag": "-C",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch --verbose",
+    "subcommand": "branch",
+    "flag": "--verbose",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch -v",
+    "subcommand": "branch",
+    "flag": "-v",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch --no-track",
+    "subcommand": "branch",
+    "flag": "--no-track",
+    "kind": "switches"
+  },
+  {
+    "command": "git branch --format value",
+    "subcommand": "branch",
+    "flag": "--format",
+    "kind": "values"
+  },
+  {
+    "command": "git branch --format=value",
+    "subcommand": "branch",
+    "flag": "--format",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git branch --sort value",
+    "subcommand": "branch",
+    "flag": "--sort",
+    "kind": "values"
+  },
+  {
+    "command": "git branch --sort=value",
+    "subcommand": "branch",
+    "flag": "--sort",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git branch --set-upstream-to value",
+    "subcommand": "branch",
+    "flag": "--set-upstream-to",
+    "kind": "values"
+  },
+  {
+    "command": "git branch --set-upstream-to=value",
+    "subcommand": "branch",
+    "flag": "--set-upstream-to",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git fetch --quiet",
+    "subcommand": "fetch",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch -q",
+    "subcommand": "fetch",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch --verbose",
+    "subcommand": "fetch",
+    "flag": "--verbose",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch -v",
+    "subcommand": "fetch",
+    "flag": "-v",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch --prune",
+    "subcommand": "fetch",
+    "flag": "--prune",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch --prune-tags",
+    "subcommand": "fetch",
+    "flag": "--prune-tags",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch --tags",
+    "subcommand": "fetch",
+    "flag": "--tags",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch --no-tags",
+    "subcommand": "fetch",
+    "flag": "--no-tags",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch --force",
+    "subcommand": "fetch",
+    "flag": "--force",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch -f",
+    "subcommand": "fetch",
+    "flag": "-f",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch --dry-run",
+    "subcommand": "fetch",
+    "flag": "--dry-run",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch --atomic",
+    "subcommand": "fetch",
+    "flag": "--atomic",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch --no-write-fetch-head",
+    "subcommand": "fetch",
+    "flag": "--no-write-fetch-head",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch --no-recurse-submodules",
+    "subcommand": "fetch",
+    "flag": "--no-recurse-submodules",
+    "kind": "switches"
+  },
+  {
+    "command": "git fetch --depth value",
+    "subcommand": "fetch",
+    "flag": "--depth",
+    "kind": "values"
+  },
+  {
+    "command": "git fetch --depth=value",
+    "subcommand": "fetch",
+    "flag": "--depth",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git fetch --deepen value",
+    "subcommand": "fetch",
+    "flag": "--deepen",
+    "kind": "values"
+  },
+  {
+    "command": "git fetch --deepen=value",
+    "subcommand": "fetch",
+    "flag": "--deepen",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git fetch --shallow-since value",
+    "subcommand": "fetch",
+    "flag": "--shallow-since",
+    "kind": "values"
+  },
+  {
+    "command": "git fetch --shallow-since=value",
+    "subcommand": "fetch",
+    "flag": "--shallow-since",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git fetch --shallow-exclude value",
+    "subcommand": "fetch",
+    "flag": "--shallow-exclude",
+    "kind": "values"
+  },
+  {
+    "command": "git fetch --shallow-exclude=value",
+    "subcommand": "fetch",
+    "flag": "--shallow-exclude",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git commit --all",
+    "subcommand": "commit",
+    "flag": "--all",
+    "kind": "switches"
+  },
+  {
+    "command": "git commit -a",
+    "subcommand": "commit",
+    "flag": "-a",
+    "kind": "switches"
+  },
+  {
+    "command": "git commit --amend",
+    "subcommand": "commit",
+    "flag": "--amend",
+    "kind": "switches"
+  },
+  {
+    "command": "git commit --no-edit",
+    "subcommand": "commit",
+    "flag": "--no-edit",
+    "kind": "switches"
+  },
+  {
+    "command": "git commit --no-gpg-sign",
+    "subcommand": "commit",
+    "flag": "--no-gpg-sign",
+    "kind": "switches"
+  },
+  {
+    "command": "git commit --allow-empty",
+    "subcommand": "commit",
+    "flag": "--allow-empty",
+    "kind": "switches"
+  },
+  {
+    "command": "git commit --allow-empty-message",
+    "subcommand": "commit",
+    "flag": "--allow-empty-message",
+    "kind": "switches"
+  },
+  {
+    "command": "git commit --dry-run",
+    "subcommand": "commit",
+    "flag": "--dry-run",
+    "kind": "switches"
+  },
+  {
+    "command": "git commit --quiet",
+    "subcommand": "commit",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git commit -q",
+    "subcommand": "commit",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git commit --verbose",
+    "subcommand": "commit",
+    "flag": "--verbose",
+    "kind": "switches"
+  },
+  {
+    "command": "git commit -v",
+    "subcommand": "commit",
+    "flag": "-v",
+    "kind": "switches"
+  },
+  {
+    "command": "git commit --message value",
+    "subcommand": "commit",
+    "flag": "--message",
+    "kind": "values"
+  },
+  {
+    "command": "git commit --message=value",
+    "subcommand": "commit",
+    "flag": "--message",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git commit -m value",
+    "subcommand": "commit",
+    "flag": "-m",
+    "kind": "values"
+  },
+  {
+    "command": "git commit -m=value",
+    "subcommand": "commit",
+    "flag": "-m",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git commit --file value",
+    "subcommand": "commit",
+    "flag": "--file",
+    "kind": "values"
+  },
+  {
+    "command": "git commit --file=value",
+    "subcommand": "commit",
+    "flag": "--file",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git commit -F value",
+    "subcommand": "commit",
+    "flag": "-F",
+    "kind": "values"
+  },
+  {
+    "command": "git commit -F=value",
+    "subcommand": "commit",
+    "flag": "-F",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git add --all",
+    "subcommand": "add",
+    "flag": "--all",
+    "kind": "switches"
+  },
+  {
+    "command": "git add -A",
+    "subcommand": "add",
+    "flag": "-A",
+    "kind": "switches"
+  },
+  {
+    "command": "git add --update",
+    "subcommand": "add",
+    "flag": "--update",
+    "kind": "switches"
+  },
+  {
+    "command": "git add -u",
+    "subcommand": "add",
+    "flag": "-u",
+    "kind": "switches"
+  },
+  {
+    "command": "git add --force",
+    "subcommand": "add",
+    "flag": "--force",
+    "kind": "switches"
+  },
+  {
+    "command": "git add -f",
+    "subcommand": "add",
+    "flag": "-f",
+    "kind": "switches"
+  },
+  {
+    "command": "git add --intent-to-add",
+    "subcommand": "add",
+    "flag": "--intent-to-add",
+    "kind": "switches"
+  },
+  {
+    "command": "git add -N",
+    "subcommand": "add",
+    "flag": "-N",
+    "kind": "switches"
+  },
+  {
+    "command": "git add --dry-run",
+    "subcommand": "add",
+    "flag": "--dry-run",
+    "kind": "switches"
+  },
+  {
+    "command": "git add -n",
+    "subcommand": "add",
+    "flag": "-n",
+    "kind": "switches"
+  },
+  {
+    "command": "git add --verbose",
+    "subcommand": "add",
+    "flag": "--verbose",
+    "kind": "switches"
+  },
+  {
+    "command": "git add -v",
+    "subcommand": "add",
+    "flag": "-v",
+    "kind": "switches"
+  },
+  {
+    "command": "git restore --staged",
+    "subcommand": "restore",
+    "flag": "--staged",
+    "kind": "switches"
+  },
+  {
+    "command": "git restore --worktree",
+    "subcommand": "restore",
+    "flag": "--worktree",
+    "kind": "switches"
+  },
+  {
+    "command": "git restore --ours",
+    "subcommand": "restore",
+    "flag": "--ours",
+    "kind": "switches"
+  },
+  {
+    "command": "git restore --theirs",
+    "subcommand": "restore",
+    "flag": "--theirs",
+    "kind": "switches"
+  },
+  {
+    "command": "git restore --ignore-unmerged",
+    "subcommand": "restore",
+    "flag": "--ignore-unmerged",
+    "kind": "switches"
+  },
+  {
+    "command": "git restore --quiet",
+    "subcommand": "restore",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git restore -q",
+    "subcommand": "restore",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git restore --source value",
+    "subcommand": "restore",
+    "flag": "--source",
+    "kind": "values"
+  },
+  {
+    "command": "git restore --source=value",
+    "subcommand": "restore",
+    "flag": "--source",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git restore -s value",
+    "subcommand": "restore",
+    "flag": "-s",
+    "kind": "values"
+  },
+  {
+    "command": "git restore -s=value",
+    "subcommand": "restore",
+    "flag": "-s",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git reset --soft",
+    "subcommand": "reset",
+    "flag": "--soft",
+    "kind": "switches"
+  },
+  {
+    "command": "git reset --mixed",
+    "subcommand": "reset",
+    "flag": "--mixed",
+    "kind": "switches"
+  },
+  {
+    "command": "git reset --hard",
+    "subcommand": "reset",
+    "flag": "--hard",
+    "kind": "switches"
+  },
+  {
+    "command": "git reset --merge",
+    "subcommand": "reset",
+    "flag": "--merge",
+    "kind": "switches"
+  },
+  {
+    "command": "git reset --keep",
+    "subcommand": "reset",
+    "flag": "--keep",
+    "kind": "switches"
+  },
+  {
+    "command": "git reset --quiet",
+    "subcommand": "reset",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git reset -q",
+    "subcommand": "reset",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git checkout --detach",
+    "subcommand": "checkout",
+    "flag": "--detach",
+    "kind": "switches"
+  },
+  {
+    "command": "git checkout --force",
+    "subcommand": "checkout",
+    "flag": "--force",
+    "kind": "switches"
+  },
+  {
+    "command": "git checkout -f",
+    "subcommand": "checkout",
+    "flag": "-f",
+    "kind": "switches"
+  },
+  {
+    "command": "git checkout --quiet",
+    "subcommand": "checkout",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git checkout -q",
+    "subcommand": "checkout",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git checkout --ours",
+    "subcommand": "checkout",
+    "flag": "--ours",
+    "kind": "switches"
+  },
+  {
+    "command": "git checkout --theirs",
+    "subcommand": "checkout",
+    "flag": "--theirs",
+    "kind": "switches"
+  },
+  {
+    "command": "git checkout --no-track",
+    "subcommand": "checkout",
+    "flag": "--no-track",
+    "kind": "switches"
+  },
+  {
+    "command": "git checkout -b value",
+    "subcommand": "checkout",
+    "flag": "-b",
+    "kind": "values"
+  },
+  {
+    "command": "git checkout -b=value",
+    "subcommand": "checkout",
+    "flag": "-b",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git checkout -B value",
+    "subcommand": "checkout",
+    "flag": "-B",
+    "kind": "values"
+  },
+  {
+    "command": "git checkout -B=value",
+    "subcommand": "checkout",
+    "flag": "-B",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git checkout -c value",
+    "subcommand": "checkout",
+    "flag": "-c",
+    "kind": "values"
+  },
+  {
+    "command": "git checkout -c=value",
+    "subcommand": "checkout",
+    "flag": "-c",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git checkout -C value",
+    "subcommand": "checkout",
+    "flag": "-C",
+    "kind": "values"
+  },
+  {
+    "command": "git checkout -C=value",
+    "subcommand": "checkout",
+    "flag": "-C",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git checkout --orphan value",
+    "subcommand": "checkout",
+    "flag": "--orphan",
+    "kind": "values"
+  },
+  {
+    "command": "git checkout --orphan=value",
+    "subcommand": "checkout",
+    "flag": "--orphan",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git switch --detach",
+    "subcommand": "switch",
+    "flag": "--detach",
+    "kind": "switches"
+  },
+  {
+    "command": "git switch --force",
+    "subcommand": "switch",
+    "flag": "--force",
+    "kind": "switches"
+  },
+  {
+    "command": "git switch -f",
+    "subcommand": "switch",
+    "flag": "-f",
+    "kind": "switches"
+  },
+  {
+    "command": "git switch --quiet",
+    "subcommand": "switch",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git switch -q",
+    "subcommand": "switch",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git switch --ours",
+    "subcommand": "switch",
+    "flag": "--ours",
+    "kind": "switches"
+  },
+  {
+    "command": "git switch --theirs",
+    "subcommand": "switch",
+    "flag": "--theirs",
+    "kind": "switches"
+  },
+  {
+    "command": "git switch --no-track",
+    "subcommand": "switch",
+    "flag": "--no-track",
+    "kind": "switches"
+  },
+  {
+    "command": "git switch -b value",
+    "subcommand": "switch",
+    "flag": "-b",
+    "kind": "values"
+  },
+  {
+    "command": "git switch -b=value",
+    "subcommand": "switch",
+    "flag": "-b",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git switch -B value",
+    "subcommand": "switch",
+    "flag": "-B",
+    "kind": "values"
+  },
+  {
+    "command": "git switch -B=value",
+    "subcommand": "switch",
+    "flag": "-B",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git switch -c value",
+    "subcommand": "switch",
+    "flag": "-c",
+    "kind": "values"
+  },
+  {
+    "command": "git switch -c=value",
+    "subcommand": "switch",
+    "flag": "-c",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git switch -C value",
+    "subcommand": "switch",
+    "flag": "-C",
+    "kind": "values"
+  },
+  {
+    "command": "git switch -C=value",
+    "subcommand": "switch",
+    "flag": "-C",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git switch --orphan value",
+    "subcommand": "switch",
+    "flag": "--orphan",
+    "kind": "values"
+  },
+  {
+    "command": "git switch --orphan=value",
+    "subcommand": "switch",
+    "flag": "--orphan",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git merge --no-edit",
+    "subcommand": "merge",
+    "flag": "--no-edit",
+    "kind": "switches"
+  },
+  {
+    "command": "git merge --no-commit",
+    "subcommand": "merge",
+    "flag": "--no-commit",
+    "kind": "switches"
+  },
+  {
+    "command": "git merge --no-ff",
+    "subcommand": "merge",
+    "flag": "--no-ff",
+    "kind": "switches"
+  },
+  {
+    "command": "git merge --ff-only",
+    "subcommand": "merge",
+    "flag": "--ff-only",
+    "kind": "switches"
+  },
+  {
+    "command": "git merge --abort",
+    "subcommand": "merge",
+    "flag": "--abort",
+    "kind": "switches"
+  },
+  {
+    "command": "git merge --continue",
+    "subcommand": "merge",
+    "flag": "--continue",
+    "kind": "switches"
+  },
+  {
+    "command": "git merge --squash",
+    "subcommand": "merge",
+    "flag": "--squash",
+    "kind": "switches"
+  },
+  {
+    "command": "git merge --no-gpg-sign",
+    "subcommand": "merge",
+    "flag": "--no-gpg-sign",
+    "kind": "switches"
+  },
+  {
+    "command": "git merge --quiet",
+    "subcommand": "merge",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git merge -q",
+    "subcommand": "merge",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git merge --message value",
+    "subcommand": "merge",
+    "flag": "--message",
+    "kind": "values"
+  },
+  {
+    "command": "git merge --message=value",
+    "subcommand": "merge",
+    "flag": "--message",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git merge -m value",
+    "subcommand": "merge",
+    "flag": "-m",
+    "kind": "values"
+  },
+  {
+    "command": "git merge -m=value",
+    "subcommand": "merge",
+    "flag": "-m",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git rebase --abort",
+    "subcommand": "rebase",
+    "flag": "--abort",
+    "kind": "switches"
+  },
+  {
+    "command": "git rebase --continue",
+    "subcommand": "rebase",
+    "flag": "--continue",
+    "kind": "switches"
+  },
+  {
+    "command": "git rebase --skip",
+    "subcommand": "rebase",
+    "flag": "--skip",
+    "kind": "switches"
+  },
+  {
+    "command": "git rebase --quit",
+    "subcommand": "rebase",
+    "flag": "--quit",
+    "kind": "switches"
+  },
+  {
+    "command": "git rebase --autostash",
+    "subcommand": "rebase",
+    "flag": "--autostash",
+    "kind": "switches"
+  },
+  {
+    "command": "git rebase --no-autostash",
+    "subcommand": "rebase",
+    "flag": "--no-autostash",
+    "kind": "switches"
+  },
+  {
+    "command": "git rebase --keep-empty",
+    "subcommand": "rebase",
+    "flag": "--keep-empty",
+    "kind": "switches"
+  },
+  {
+    "command": "git rebase --no-gpg-sign",
+    "subcommand": "rebase",
+    "flag": "--no-gpg-sign",
+    "kind": "switches"
+  },
+  {
+    "command": "git rebase --quiet",
+    "subcommand": "rebase",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git rebase -q",
+    "subcommand": "rebase",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git rebase --onto value",
+    "subcommand": "rebase",
+    "flag": "--onto",
+    "kind": "values"
+  },
+  {
+    "command": "git rebase --onto=value",
+    "subcommand": "rebase",
+    "flag": "--onto",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git cherry-pick --abort",
+    "subcommand": "cherry-pick",
+    "flag": "--abort",
+    "kind": "switches"
+  },
+  {
+    "command": "git cherry-pick --continue",
+    "subcommand": "cherry-pick",
+    "flag": "--continue",
+    "kind": "switches"
+  },
+  {
+    "command": "git cherry-pick --skip",
+    "subcommand": "cherry-pick",
+    "flag": "--skip",
+    "kind": "switches"
+  },
+  {
+    "command": "git cherry-pick --quit",
+    "subcommand": "cherry-pick",
+    "flag": "--quit",
+    "kind": "switches"
+  },
+  {
+    "command": "git cherry-pick --no-commit",
+    "subcommand": "cherry-pick",
+    "flag": "--no-commit",
+    "kind": "switches"
+  },
+  {
+    "command": "git cherry-pick -n",
+    "subcommand": "cherry-pick",
+    "flag": "-n",
+    "kind": "switches"
+  },
+  {
+    "command": "git cherry-pick --no-edit",
+    "subcommand": "cherry-pick",
+    "flag": "--no-edit",
+    "kind": "switches"
+  },
+  {
+    "command": "git cherry-pick --ff",
+    "subcommand": "cherry-pick",
+    "flag": "--ff",
+    "kind": "switches"
+  },
+  {
+    "command": "git cherry-pick --allow-empty",
+    "subcommand": "cherry-pick",
+    "flag": "--allow-empty",
+    "kind": "switches"
+  },
+  {
+    "command": "git cherry-pick --keep-redundant-commits",
+    "subcommand": "cherry-pick",
+    "flag": "--keep-redundant-commits",
+    "kind": "switches"
+  },
+  {
+    "command": "git cherry-pick --no-gpg-sign",
+    "subcommand": "cherry-pick",
+    "flag": "--no-gpg-sign",
+    "kind": "switches"
+  },
+  {
+    "command": "git cherry-pick --mainline value",
+    "subcommand": "cherry-pick",
+    "flag": "--mainline",
+    "kind": "values"
+  },
+  {
+    "command": "git cherry-pick --mainline=value",
+    "subcommand": "cherry-pick",
+    "flag": "--mainline",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git cherry-pick -m value",
+    "subcommand": "cherry-pick",
+    "flag": "-m",
+    "kind": "values"
+  },
+  {
+    "command": "git cherry-pick -m=value",
+    "subcommand": "cherry-pick",
+    "flag": "-m",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git stash --include-untracked",
+    "subcommand": "stash",
+    "flag": "--include-untracked",
+    "kind": "switches"
+  },
+  {
+    "command": "git stash -u",
+    "subcommand": "stash",
+    "flag": "-u",
+    "kind": "switches"
+  },
+  {
+    "command": "git stash --all",
+    "subcommand": "stash",
+    "flag": "--all",
+    "kind": "switches"
+  },
+  {
+    "command": "git stash -a",
+    "subcommand": "stash",
+    "flag": "-a",
+    "kind": "switches"
+  },
+  {
+    "command": "git stash --keep-index",
+    "subcommand": "stash",
+    "flag": "--keep-index",
+    "kind": "switches"
+  },
+  {
+    "command": "git stash -k",
+    "subcommand": "stash",
+    "flag": "-k",
+    "kind": "switches"
+  },
+  {
+    "command": "git stash --no-keep-index",
+    "subcommand": "stash",
+    "flag": "--no-keep-index",
+    "kind": "switches"
+  },
+  {
+    "command": "git stash --index",
+    "subcommand": "stash",
+    "flag": "--index",
+    "kind": "switches"
+  },
+  {
+    "command": "git stash --quiet",
+    "subcommand": "stash",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git stash -q",
+    "subcommand": "stash",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git stash --message value",
+    "subcommand": "stash",
+    "flag": "--message",
+    "kind": "values"
+  },
+  {
+    "command": "git stash --message=value",
+    "subcommand": "stash",
+    "flag": "--message",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git stash -m value",
+    "subcommand": "stash",
+    "flag": "-m",
+    "kind": "values"
+  },
+  {
+    "command": "git stash -m=value",
+    "subcommand": "stash",
+    "flag": "-m",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git blame --line-porcelain",
+    "subcommand": "blame",
+    "flag": "--line-porcelain",
+    "kind": "switches"
+  },
+  {
+    "command": "git blame --porcelain",
+    "subcommand": "blame",
+    "flag": "--porcelain",
+    "kind": "switches"
+  },
+  {
+    "command": "git blame -p",
+    "subcommand": "blame",
+    "flag": "-p",
+    "kind": "switches"
+  },
+  {
+    "command": "git blame --incremental",
+    "subcommand": "blame",
+    "flag": "--incremental",
+    "kind": "switches"
+  },
+  {
+    "command": "git blame -w",
+    "subcommand": "blame",
+    "flag": "-w",
+    "kind": "switches"
+  },
+  {
+    "command": "git blame --root",
+    "subcommand": "blame",
+    "flag": "--root",
+    "kind": "switches"
+  },
+  {
+    "command": "git blame --show-email",
+    "subcommand": "blame",
+    "flag": "--show-email",
+    "kind": "switches"
+  },
+  {
+    "command": "git blame -e",
+    "subcommand": "blame",
+    "flag": "-e",
+    "kind": "switches"
+  },
+  {
+    "command": "git blame --show-number",
+    "subcommand": "blame",
+    "flag": "--show-number",
+    "kind": "switches"
+  },
+  {
+    "command": "git blame -n",
+    "subcommand": "blame",
+    "flag": "-n",
+    "kind": "switches"
+  },
+  {
+    "command": "git blame --show-name",
+    "subcommand": "blame",
+    "flag": "--show-name",
+    "kind": "switches"
+  },
+  {
+    "command": "git blame -f",
+    "subcommand": "blame",
+    "flag": "-f",
+    "kind": "switches"
+  },
+  {
+    "command": "git blame --date value",
+    "subcommand": "blame",
+    "flag": "--date",
+    "kind": "values"
+  },
+  {
+    "command": "git blame --date=value",
+    "subcommand": "blame",
+    "flag": "--date",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git blame -L value",
+    "subcommand": "blame",
+    "flag": "-L",
+    "kind": "values"
+  },
+  {
+    "command": "git blame -L=value",
+    "subcommand": "blame",
+    "flag": "-L",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git rev-list --objects",
+    "subcommand": "rev-list",
+    "flag": "--objects",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-list --count",
+    "subcommand": "rev-list",
+    "flag": "--count",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-list --parents",
+    "subcommand": "rev-list",
+    "flag": "--parents",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-list --children",
+    "subcommand": "rev-list",
+    "flag": "--children",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-list --boundary",
+    "subcommand": "rev-list",
+    "flag": "--boundary",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-list --left-right",
+    "subcommand": "rev-list",
+    "flag": "--left-right",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-list --cherry-pick",
+    "subcommand": "rev-list",
+    "flag": "--cherry-pick",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-list --reverse",
+    "subcommand": "rev-list",
+    "flag": "--reverse",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-list --topo-order",
+    "subcommand": "rev-list",
+    "flag": "--topo-order",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-list --all",
+    "subcommand": "rev-list",
+    "flag": "--all",
+    "kind": "switches"
+  },
+  {
+    "command": "git rev-list --max-count value",
+    "subcommand": "rev-list",
+    "flag": "--max-count",
+    "kind": "values"
+  },
+  {
+    "command": "git rev-list --max-count=value",
+    "subcommand": "rev-list",
+    "flag": "--max-count",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git rev-list -n value",
+    "subcommand": "rev-list",
+    "flag": "-n",
+    "kind": "values"
+  },
+  {
+    "command": "git rev-list -n=value",
+    "subcommand": "rev-list",
+    "flag": "-n",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git rev-list --format value",
+    "subcommand": "rev-list",
+    "flag": "--format",
+    "kind": "values"
+  },
+  {
+    "command": "git rev-list --format=value",
+    "subcommand": "rev-list",
+    "flag": "--format",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git rev-list --since value",
+    "subcommand": "rev-list",
+    "flag": "--since",
+    "kind": "values"
+  },
+  {
+    "command": "git rev-list --since=value",
+    "subcommand": "rev-list",
+    "flag": "--since",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git rev-list --until value",
+    "subcommand": "rev-list",
+    "flag": "--until",
+    "kind": "values"
+  },
+  {
+    "command": "git rev-list --until=value",
+    "subcommand": "rev-list",
+    "flag": "--until",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git rev-list -3",
+    "subcommand": "rev-list",
+    "flag": "-3",
+    "kind": "count"
+  },
+  {
+    "command": "git show-ref --head",
+    "subcommand": "show-ref",
+    "flag": "--head",
+    "kind": "switches"
+  },
+  {
+    "command": "git show-ref --heads",
+    "subcommand": "show-ref",
+    "flag": "--heads",
+    "kind": "switches"
+  },
+  {
+    "command": "git show-ref --tags",
+    "subcommand": "show-ref",
+    "flag": "--tags",
+    "kind": "switches"
+  },
+  {
+    "command": "git show-ref --verify",
+    "subcommand": "show-ref",
+    "flag": "--verify",
+    "kind": "switches"
+  },
+  {
+    "command": "git show-ref --quiet",
+    "subcommand": "show-ref",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git show-ref -q",
+    "subcommand": "show-ref",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git show-ref --dereference",
+    "subcommand": "show-ref",
+    "flag": "--dereference",
+    "kind": "switches"
+  },
+  {
+    "command": "git show-ref -d",
+    "subcommand": "show-ref",
+    "flag": "-d",
+    "kind": "switches"
+  },
+  {
+    "command": "git show-ref --hash",
+    "subcommand": "show-ref",
+    "flag": "--hash",
+    "kind": "optional"
+  },
+  {
+    "command": "git show-ref --hash=value",
+    "subcommand": "show-ref",
+    "flag": "--hash",
+    "kind": "optional-inline"
+  },
+  {
+    "command": "git tag --delete",
+    "subcommand": "tag",
+    "flag": "--delete",
+    "kind": "switches"
+  },
+  {
+    "command": "git tag -d",
+    "subcommand": "tag",
+    "flag": "-d",
+    "kind": "switches"
+  },
+  {
+    "command": "git tag --list",
+    "subcommand": "tag",
+    "flag": "--list",
+    "kind": "switches"
+  },
+  {
+    "command": "git tag -l",
+    "subcommand": "tag",
+    "flag": "-l",
+    "kind": "switches"
+  },
+  {
+    "command": "git tag --annotate",
+    "subcommand": "tag",
+    "flag": "--annotate",
+    "kind": "switches"
+  },
+  {
+    "command": "git tag -a",
+    "subcommand": "tag",
+    "flag": "-a",
+    "kind": "switches"
+  },
+  {
+    "command": "git tag --force",
+    "subcommand": "tag",
+    "flag": "--force",
+    "kind": "switches"
+  },
+  {
+    "command": "git tag -f",
+    "subcommand": "tag",
+    "flag": "-f",
+    "kind": "switches"
+  },
+  {
+    "command": "git tag --message value",
+    "subcommand": "tag",
+    "flag": "--message",
+    "kind": "values"
+  },
+  {
+    "command": "git tag --message=value",
+    "subcommand": "tag",
+    "flag": "--message",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git tag -m value",
+    "subcommand": "tag",
+    "flag": "-m",
+    "kind": "values"
+  },
+  {
+    "command": "git tag -m=value",
+    "subcommand": "tag",
+    "flag": "-m",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git tag --format value",
+    "subcommand": "tag",
+    "flag": "--format",
+    "kind": "values"
+  },
+  {
+    "command": "git tag --format=value",
+    "subcommand": "tag",
+    "flag": "--format",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git tag --sort value",
+    "subcommand": "tag",
+    "flag": "--sort",
+    "kind": "values"
+  },
+  {
+    "command": "git tag --sort=value",
+    "subcommand": "tag",
+    "flag": "--sort",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git push --force",
+    "subcommand": "push",
+    "flag": "--force",
+    "kind": "switches"
+  },
+  {
+    "command": "git push -f",
+    "subcommand": "push",
+    "flag": "-f",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --dry-run",
+    "subcommand": "push",
+    "flag": "--dry-run",
+    "kind": "switches"
+  },
+  {
+    "command": "git push -n",
+    "subcommand": "push",
+    "flag": "-n",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --delete",
+    "subcommand": "push",
+    "flag": "--delete",
+    "kind": "switches"
+  },
+  {
+    "command": "git push -d",
+    "subcommand": "push",
+    "flag": "-d",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --tags",
+    "subcommand": "push",
+    "flag": "--tags",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --all",
+    "subcommand": "push",
+    "flag": "--all",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --mirror",
+    "subcommand": "push",
+    "flag": "--mirror",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --atomic",
+    "subcommand": "push",
+    "flag": "--atomic",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --porcelain",
+    "subcommand": "push",
+    "flag": "--porcelain",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --set-upstream",
+    "subcommand": "push",
+    "flag": "--set-upstream",
+    "kind": "switches"
+  },
+  {
+    "command": "git push -u",
+    "subcommand": "push",
+    "flag": "-u",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --follow-tags",
+    "subcommand": "push",
+    "flag": "--follow-tags",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --no-verify",
+    "subcommand": "push",
+    "flag": "--no-verify",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --quiet",
+    "subcommand": "push",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git push -q",
+    "subcommand": "push",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --verbose",
+    "subcommand": "push",
+    "flag": "--verbose",
+    "kind": "switches"
+  },
+  {
+    "command": "git push -v",
+    "subcommand": "push",
+    "flag": "-v",
+    "kind": "switches"
+  },
+  {
+    "command": "git push --force-with-lease",
+    "subcommand": "push",
+    "flag": "--force-with-lease",
+    "kind": "optional"
+  },
+  {
+    "command": "git push --force-with-lease=value",
+    "subcommand": "push",
+    "flag": "--force-with-lease",
+    "kind": "optional-inline"
+  },
+  {
+    "command": "git send-pack --force",
+    "subcommand": "send-pack",
+    "flag": "--force",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack -f",
+    "subcommand": "send-pack",
+    "flag": "-f",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --dry-run",
+    "subcommand": "send-pack",
+    "flag": "--dry-run",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack -n",
+    "subcommand": "send-pack",
+    "flag": "-n",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --delete",
+    "subcommand": "send-pack",
+    "flag": "--delete",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack -d",
+    "subcommand": "send-pack",
+    "flag": "-d",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --tags",
+    "subcommand": "send-pack",
+    "flag": "--tags",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --all",
+    "subcommand": "send-pack",
+    "flag": "--all",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --mirror",
+    "subcommand": "send-pack",
+    "flag": "--mirror",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --atomic",
+    "subcommand": "send-pack",
+    "flag": "--atomic",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --porcelain",
+    "subcommand": "send-pack",
+    "flag": "--porcelain",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --set-upstream",
+    "subcommand": "send-pack",
+    "flag": "--set-upstream",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack -u",
+    "subcommand": "send-pack",
+    "flag": "-u",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --follow-tags",
+    "subcommand": "send-pack",
+    "flag": "--follow-tags",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --no-verify",
+    "subcommand": "send-pack",
+    "flag": "--no-verify",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --quiet",
+    "subcommand": "send-pack",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack -q",
+    "subcommand": "send-pack",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --verbose",
+    "subcommand": "send-pack",
+    "flag": "--verbose",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack -v",
+    "subcommand": "send-pack",
+    "flag": "-v",
+    "kind": "switches"
+  },
+  {
+    "command": "git send-pack --force-with-lease",
+    "subcommand": "send-pack",
+    "flag": "--force-with-lease",
+    "kind": "optional"
+  },
+  {
+    "command": "git send-pack --force-with-lease=value",
+    "subcommand": "send-pack",
+    "flag": "--force-with-lease",
+    "kind": "optional-inline"
+  },
+  {
+    "command": "git subtree push --quiet",
+    "subcommand": "subtree",
+    "flag": "--quiet",
+    "kind": "switches"
+  },
+  {
+    "command": "git subtree push -q",
+    "subcommand": "subtree",
+    "flag": "-q",
+    "kind": "switches"
+  },
+  {
+    "command": "git subtree push --prefix value",
+    "subcommand": "subtree",
+    "flag": "--prefix",
+    "kind": "values"
+  },
+  {
+    "command": "git subtree push --prefix=value",
+    "subcommand": "subtree",
+    "flag": "--prefix",
+    "kind": "values-inline"
+  },
+  {
+    "command": "git subtree push -P value",
+    "subcommand": "subtree",
+    "flag": "-P",
+    "kind": "values"
+  },
+  {
+    "command": "git subtree push -P=value",
+    "subcommand": "subtree",
+    "flag": "-P",
+    "kind": "values-inline"
+  }
+]

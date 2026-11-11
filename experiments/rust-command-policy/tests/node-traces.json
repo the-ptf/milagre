@@ -870,5 +870,433 @@
   {
     "command": "gh api -X PATCH 'repos/o/r/pulls/1?state=closed'",
     "actions": ["reply"]
+  },
+  {
+    "command": "git rebase --exe 'gh pr merge 1' HEAD~1",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload-p 'gh pr merge 1' /isolated/remote.git",
+    "actions": []
+  },
+  {
+    "command": "git -C /other status",
+    "actions": []
+  },
+  {
+    "command": "git --git-dir /other/.git status",
+    "actions": []
+  },
+  {
+    "command": "git --work-tree /other status",
+    "actions": []
+  },
+  {
+    "command": "git --git-dir=/other/.git status",
+    "actions": []
+  },
+  {
+    "command": "git -c user.name=x status",
+    "actions": []
+  },
+  {
+    "command": "git -c alias.ship=push -c alias.ship='!gh pr merge 1' ship",
+    "actions": ["push"]
+  },
+  {
+    "command": "cd /other && git status",
+    "actions": []
+  },
+  {
+    "command": "git log --future-option value",
+    "actions": []
+  },
+  {
+    "command": "git rebase --e 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git rebase --ex 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git rebase --exe 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git rebase --exec 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --u 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --up 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upl 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --uplo 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --uploa 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload- 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload-p 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload-pa 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload-pac 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload-pack 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git push --r 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --re 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --rec 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --rece 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --recei 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receiv 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receive 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receive- 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receive-p 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receive-pa 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receive-pac 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receive-pack 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git diff --e 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ex 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ext 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ext- 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ext-d 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ext-di 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ext-dif 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ext-diff 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --t 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --te 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --tex 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --text 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --textc 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --textco 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --textcon 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --textconv 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --o 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --ou 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --out 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --outp 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --outpu 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --output 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --op 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --ope 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open- 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-f 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-fi 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-fil 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-file 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files- 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-i 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in- 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in-p 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in-pa 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in-pag 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in-page 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in-pager 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--e' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--e=/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--ex' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--ex=/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--exe' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--exe=/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--exec' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--exec=/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--u' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--u=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--up' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--up=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upl' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upl=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--uplo' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--uplo=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--uploa' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--uploa=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-p' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-p=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-pa' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-pa=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-pac' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-pac=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-pack' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-pack=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
   }
 ]
