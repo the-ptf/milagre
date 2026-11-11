@@ -1,5 +1,7 @@
 //! Isolated read/PTY adapters. Optional ProjectStates ownership covers fresh fixture copies only.
 //! No live profile, provider execution, Project mutation, or arbitrary Project folder access.
+#[cfg(feature = "acp-fixture")]
+pub mod acp_fixture;
 pub mod actor;
 mod artifacts;
 mod claude_content;

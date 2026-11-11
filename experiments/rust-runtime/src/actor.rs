@@ -652,6 +652,25 @@ pub fn start_claude(
     )?;
     Ok((server, metadata, monitor))
 }
+#[cfg(feature = "acp-fixture")]
+pub fn start_acp(
+    scenario: crate::acp_fixture::Scenario,
+) -> Result<(Server, Value, crate::acp_fixture::Monitor), RpcError> {
+    let provider = crate::acp_fixture::AcpFixture::create(scenario)
+        .map_err(|_| RpcError::new("FIXTURE_FAILED", "Could not create isolated ACP fixture"))?;
+    let monitor = provider.monitor();
+    let (server, mut metadata) = start_provider(
+        IsolatedProfile::create()?,
+        provider.isolation(),
+        provider.project().to_path_buf(),
+        Box::new(provider),
+        "kiro",
+        None,
+    )?;
+    metadata["scriptedProvider"] = json!(false);
+    metadata["fakeAcp"] = json!(true);
+    Ok((server, metadata, monitor))
+}
 fn start_provider(
     profile: IsolatedProfile,
     isolation: Isolation,
