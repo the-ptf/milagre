@@ -205,6 +205,15 @@ agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the n
   the quit stays `QUIT_PENDING` until it goes; there is no force path that drops it. Two jobs may be out for one
   Chat (a newer handoff before the older job reported); only the one of the handoff's current turn is committed,
   the other is removed.
+- **Handover store lease and sweep.** `TranscriptJobs::new` takes `<handovers>/.lease` (no link followed, a plain
+  file with one link, its identity pinned) with a nonblocking exclusive `flock`: a second owner is refused at once.
+  Every job, outcome and temporary file still to remove holds a share, so the lease lasts until the last of them;
+  it is unlocked explicitly when the last share drops. A commit also checks the lease still names the file locked.
+  Only with the lease held, it removes what a previous owner provably left: exact temporary names
+  (`.<session>.<job>.<16 hex>.tmp`) in folders named as jobs name them (12 hex), plain files with one link owned by
+  the store's owner, through the folder's descriptor. Committed transcripts, unknown files, links, hard-linked
+  files and folders are never touched. Committed transcripts are kept (Node never deletes them either); any retention
+  rule comes later, explicit, and never deletes a transcript a divider still names.
 - **Notices after a quit.** Stranded locks and job failures are put in the notices before `shutdown` returns (also
   when it errs); the runtime takes the notices once more after the last `shutdown` call.
 - **Transcripts** go to `<copy>/.owner/handovers/<sha1(project)[..12]>/<session>.md` through `transcripts::TranscriptJob`

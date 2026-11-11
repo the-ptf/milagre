@@ -351,3 +351,90 @@ fn a_swap_during_the_commit_is_reported_as_an_unknown_location() {
         "the rename didn't stay in the folder held"
     );
 }
+
+/// The handover store's lease is exclusive and nonblocking, and every job, outcome and staged file holds a share: a
+/// second owner is refused while any of them lives, and gets it once the last goes.
+#[test]
+fn the_handover_store_lease_is_held_through_every_job_and_outcome() {
+    let mut s = setup();
+    let refused = TranscriptJobs::new(&s.isolation).err().unwrap();
+    assert!(refused.to_string().contains("another owner"), "{refused}");
+    s.jobs.job(&s.project, input(None)).unwrap().run();
+    let JobOutcome::Staged { staged, .. } = s.jobs.take_outcomes().remove(0) else {
+        panic!()
+    };
+    drop(s.jobs);
+    assert!(
+        TranscriptJobs::new(&s.isolation).is_err(),
+        "a staged file still holds the lease"
+    );
+    staged.discard().unwrap();
+    drop(staged);
+    let again = TranscriptJobs::new(&s.isolation).unwrap();
+    assert_eq!(again.swept(), 0);
+}
+
+/// Taking the lease removes only what a job provably left: the exact temporary name, a plain file with one link,
+/// owned by the store's owner, in a folder named as jobs name them. Committed transcripts, unknown files, links (and
+/// what they point at), hard-linked files, folders and other folders' files stay.
+#[test]
+fn the_sweep_removes_only_provable_leftovers() {
+    let s = setup();
+    let folder = s.jobs.folder().to_path_buf();
+    drop(s.jobs);
+    let project = folder.join("0123456789ab");
+    std::fs::create_dir(&project).unwrap();
+    let sentinel = s.base.path().join("sentinel");
+    std::fs::write(&sentinel, "keep").unwrap();
+    let leftover = ".7.3.0123456789abcdef.tmp";
+    std::fs::write(project.join(leftover), "old").unwrap();
+    for keep in [
+        "7.md",
+        ".7.03.0123456789abcdef.tmp",
+        ".7.3.0123456789ABCDEF.tmp",
+        ".0.3.0123456789abcdef.tmp",
+        ".7.3.0123456789abcde.tmp",
+        "notes.txt",
+    ] {
+        std::fs::write(project.join(keep), "keep").unwrap();
+    }
+    symlink(&sentinel, project.join(".8.3.0123456789abcdef.tmp")).unwrap();
+    std::fs::write(project.join(".9.3.0123456789abcdef.tmp"), "linked").unwrap();
+    std::fs::hard_link(
+        project.join(".9.3.0123456789abcdef.tmp"),
+        s.base.path().join("other-name"),
+    )
+    .unwrap();
+    std::fs::create_dir(project.join(".10.3.0123456789abcdef.tmp")).unwrap();
+    let elsewhere = folder.join("not-a-project");
+    std::fs::create_dir(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join(leftover), "keep").unwrap();
+    let before = tree(&folder);
+    let jobs = TranscriptJobs::new(&s.isolation).unwrap();
+    assert_eq!(jobs.swept(), 1);
+    let mut expected = before;
+    expected.remove(&PathBuf::from("0123456789ab").join(leftover));
+    let mut after = tree(&folder);
+    after.remove(&PathBuf::from(".lease"));
+    expected.remove(&PathBuf::from(".lease"));
+    assert_eq!(after, expected);
+    assert_eq!(std::fs::read_to_string(&sentinel).unwrap(), "keep");
+}
+
+/// A lease file replaced under the owner: commits are refused.
+#[test]
+fn a_replaced_lease_refuses_the_commit() {
+    let mut s = setup();
+    s.jobs.job(&s.project, input(None)).unwrap().run();
+    let JobOutcome::Staged { staged, .. } = s.jobs.take_outcomes().remove(0) else {
+        panic!()
+    };
+    let lease = s.jobs.folder().join(".lease");
+    std::fs::rename(&lease, s.base.path().join("old-lease")).unwrap();
+    std::fs::write(&lease, "").unwrap();
+    assert!(matches!(
+        staged.commit(),
+        Err(StoreError::OwnershipLost { .. })
+    ));
+    staged.discard().unwrap();
+}

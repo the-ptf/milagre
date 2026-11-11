@@ -1972,10 +1972,9 @@ fn a_cleanup_that_fails_is_retried_on_tick_and_holds_the_quit() {
     job.run();
     let folder = std::fs::read_dir(handovers(&copy))
         .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.is_dir())
+        .unwrap();
     std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o500)).unwrap();
     copy.host.take_notices();
     for _ in 0..3 {

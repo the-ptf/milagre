@@ -209,6 +209,10 @@ type Inbox = Arc<Mutex<VecDeque<JobOutcome>>>;
 pub struct TranscriptJobs {
     pin: RootPin,
     dir: Arc<OwnedFd>,
+    /// The handover store's lease, held from opening to the last job, outcome and cleanup (each holds a share).
+    lease: Arc<Lease>,
+    /// Temporary files a previous owner left, removed when the lease was taken.
+    swept: usize,
     inbox: Inbox,
     out: HashSet<JobId>,
     /// The input bytes each reserved job holds, charged against MAX_TRANSCRIPT_BUDGET_BYTES until it is finished.
@@ -223,6 +227,146 @@ fn io(error: rustix::io::Errno, what: &'static str, path: &Path) -> StoreError {
 fn identity(fd: &OwnedFd) -> std::io::Result<(u64, u64)> {
     let stat = rustix::fs::fstat(fd)?;
     Ok((stat.st_dev as u64, stat.st_ino as u64))
+}
+
+/// The handover store's lease: `<handovers>/.lease`, opened without following links and locked exclusively with
+/// `flock` (nonblocking: a second owner is refused at once, never waits). Held by the jobs' owner and shared by every
+/// job, outcome and temporary file still to remove, so it outlives them all. Its file identity is pinned: a commit
+/// checks the lease still names that file. Unlocked explicitly when the last share drops.
+pub(crate) struct Lease {
+    dir: Arc<OwnedFd>,
+    file: OwnedFd,
+    identity: (u64, u64),
+}
+
+const LEASE: &str = ".lease";
+
+impl Lease {
+    fn take(dir: &Arc<OwnedFd>, folder: &Path) -> Result<Arc<Lease>> {
+        let path = folder.join(LEASE);
+        let file = rustix::fs::openat(
+            &**dir,
+            LEASE,
+            OFlags::RDWR | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::from_raw_mode(0o600),
+        )
+        .map_err(|error| io(error, "open", &path))?;
+        match rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
+            Ok(()) => {}
+            Err(rustix::io::Errno::WOULDBLOCK) => {
+                return Err(StoreError::OwnershipLost {
+                    lock: path,
+                    why: "another owner holds the handover store".into(),
+                })
+            }
+            Err(error) => return Err(io(error, "flock", &path)),
+        }
+        let stat = rustix::fs::fstat(&file).map_err(|error| io(error, "fstat", &path))?;
+        if !rustix::fs::FileType::from_raw_mode(stat.st_mode).is_file() || stat.st_nlink != 1 {
+            return Err(StoreError::OwnershipLost {
+                lock: path,
+                why: "the handover store's lease isn't a plain file".into(),
+            });
+        }
+        Ok(Arc::new(Lease {
+            dir: dir.clone(),
+            file,
+            identity: (stat.st_dev as u64, stat.st_ino as u64),
+        }))
+    }
+
+    /// The lease's name still leads to the file locked.
+    fn holds(&self) -> std::result::Result<(), &'static str> {
+        let stat = rustix::fs::statat(&*self.dir, LEASE, AtFlags::SYMLINK_NOFOLLOW)
+            .map_err(|_| "the handover store's lease is gone")?;
+        if (stat.st_dev as u64, stat.st_ino as u64) != self.identity {
+            return Err("the handover store's lease was replaced");
+        }
+        Ok(())
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        // Explicit: a descriptor a child process inherited must not keep the store locked after this owner.
+        let _ = rustix::fs::flock(&self.file, rustix::fs::FlockOperation::Unlock);
+    }
+}
+
+/// Whether `name` is exactly a temporary name a job makes: `.<session>.<job>.<16 hex>.tmp`, numbers without leading
+/// zeros.
+fn temporary_name(name: &[u8]) -> bool {
+    let Some(inner) = name
+        .strip_prefix(b".")
+        .and_then(|rest| rest.strip_suffix(b".tmp"))
+    else {
+        return false;
+    };
+    let parts: Vec<&[u8]> = inner.split(|byte| *byte == b'.').collect();
+    let number = |part: &[u8]| {
+        !part.is_empty()
+            && part.len() <= 20
+            && part[0] != b'0'
+            && part.iter().all(u8::is_ascii_digit)
+    };
+    matches!(&parts[..], [session, job, random]
+        if number(session) && number(job) && random.len() == 16
+            && random.iter().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte)))
+}
+
+/// With the lease held (no other owner writes here), removes the temporary files a previous owner left: only in
+/// Project folders named as jobs name them (12 lowercase hex), only names of the exact temporary format, only plain
+/// files with one link owned by the store's owner, always through the folder's descriptor. Anything else (committed
+/// transcripts, unknown files, links, folders) is left alone.
+fn sweep(dir: &Arc<OwnedFd>, folder: &Path) -> Result<usize> {
+    let owner = rustix::fs::fstat(&**dir)
+        .map_err(|error| io(error, "fstat", folder))?
+        .st_uid;
+    let mut swept = 0;
+    let projects =
+        rustix::fs::Dir::read_from(&**dir).map_err(|error| io(error, "scandir", folder))?;
+    for entry in projects {
+        let entry = entry.map_err(|error| io(error, "scandir", folder))?;
+        let name = entry.file_name().to_bytes();
+        if name.len() != 12
+            || !name
+                .iter()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+        {
+            continue;
+        }
+        let Ok(project) = rustix::fs::openat(
+            &**dir,
+            entry.file_name(),
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        ) else {
+            continue;
+        };
+        let files =
+            rustix::fs::Dir::read_from(&project).map_err(|error| io(error, "scandir", folder))?;
+        for file in files {
+            let file = file.map_err(|error| io(error, "scandir", folder))?;
+            if !temporary_name(file.file_name().to_bytes()) {
+                continue;
+            }
+            let Ok(stat) =
+                rustix::fs::statat(&project, file.file_name(), AtFlags::SYMLINK_NOFOLLOW)
+            else {
+                continue;
+            };
+            if !rustix::fs::FileType::from_raw_mode(stat.st_mode).is_file()
+                || stat.st_nlink != 1
+                || stat.st_uid != owner
+            {
+                continue;
+            }
+            if rustix::fs::unlinkat(&project, file.file_name(), AtFlags::empty()).is_ok() {
+                swept += 1;
+            }
+        }
+    }
+    Ok(swept)
 }
 
 impl TranscriptJobs {
@@ -245,9 +389,14 @@ impl TranscriptJobs {
         if identity(&dir).ok() != Some(pin.identity()) {
             return Err(lost("the handovers folder changed while it was opened"));
         }
+        let dir = Arc::new(dir);
+        let lease = Lease::take(&dir, &path)?;
+        let swept = sweep(&dir, &path)?;
         Ok(TranscriptJobs {
             pin,
-            dir: Arc::new(dir),
+            dir,
+            lease,
+            swept,
             inbox: Arc::default(),
             out: HashSet::new(),
             charged: std::collections::HashMap::new(),
@@ -258,6 +407,11 @@ impl TranscriptJobs {
     /// The handovers folder.
     pub fn folder(&self) -> &Path {
         self.pin.path()
+    }
+
+    /// Temporary files a previous owner left that were removed when the lease was taken.
+    pub fn swept(&self) -> usize {
+        self.swept
     }
 
     /// Reservations out now: jobs not yet finished with [`TranscriptJobs::finish`].
@@ -285,6 +439,7 @@ impl TranscriptJobs {
         let digest = Sha1::digest(project.as_os_str().as_encoded_bytes());
         Ok(TranscriptJob {
             id,
+            lease: self.lease.clone(),
             folder: self.pin.clone(),
             dir: self.dir.clone(),
             project: hex::encode(digest)[..12].to_string(),
@@ -322,6 +477,7 @@ impl TranscriptJobs {
 /// One transcript to render and stage. Built only by [`TranscriptJobs::job`]; run it once on a blocking worker.
 pub struct TranscriptJob {
     id: JobId,
+    lease: Arc<Lease>,
     folder: RootPin,
     dir: Arc<OwnedFd>,
     project: String,
@@ -392,6 +548,7 @@ impl TranscriptJob {
         let temporary = format!(".{}.{}.{temporary_id:016x}.tmp", input.session, self.id.0);
         let staged = StagedTranscript {
             id: self.id,
+            lease: self.lease.clone(),
             folder: self.folder.clone(),
             project: self.project.clone(),
             dir: sub.clone(),
@@ -483,6 +640,7 @@ impl Drop for Completion {
 #[must_use = "a staged transcript must be committed or discarded"]
 pub struct StagedTranscript {
     id: JobId,
+    lease: Arc<Lease>,
     folder: RootPin,
     project: String,
     dir: Arc<OwnedFd>,
@@ -494,6 +652,7 @@ impl StagedTranscript {
     fn duplicate(&self) -> StagedTranscript {
         StagedTranscript {
             id: self.id,
+            lease: self.lease.clone(),
             folder: self.folder.clone(),
             project: self.project.clone(),
             dir: self.dir.clone(),
@@ -524,6 +683,7 @@ impl StagedTranscript {
         // The handovers folder still pinned, and its Project folder's path still the folder held.
         let holds = || -> std::result::Result<(), &'static str> {
             self.folder.check()?;
+            self.lease.holds()?;
             let meta =
                 std::fs::symlink_metadata(&sub).map_err(|_| "the transcript folder is gone")?;
             if meta.file_type().is_symlink()
