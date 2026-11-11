@@ -28,6 +28,7 @@ use std::{
 };
 
 const TICK: Duration = Duration::from_millis(20);
+const READINESS_CHECK: Duration = Duration::from_millis(250);
 const QUEUE: usize = 64;
 const BYTES: usize = 8 * 1024 * 1024;
 const METHODS: &[&str] = &[
@@ -346,6 +347,7 @@ struct State {
     version: u64,
     last: Value,
     run_seq: u64,
+    next_readiness_check: Instant,
     pending: VecDeque<(String, Value)>,
     answers: HashMap<AnswerId, SyncSender<RpcResult>>,
     settled_answers: Vec<(SyncSender<RpcResult>, RpcResult)>,
@@ -431,12 +433,14 @@ impl State {
                 }
                 if matches!(method, "project:open" | "project:switch") {
                     self.host.open_project(&self.project).map_err(convert)?;
+                }
+                let project = self.project()?;
+                if matches!(method, "project:open" | "project:switch") {
                     self.opened = true;
                     if let Some(content) = &self.content {
                         content.opened(true);
                     }
                 }
-                let project = self.project()?;
                 if method == "state:read" {
                     Ok(
                         json!({"state":project["state"],"version":self.version,"epoch":format!("isolated-actor:{}",self.project.display())}),
@@ -509,21 +513,39 @@ impl State {
         }
     }
     fn tick(&mut self, now: i64) -> Result<(), RpcError> {
+        // Live ownership/root/store checks are bounded independently of renderer traffic.
+        // A failure revokes grants before provider completions or preparation continuations.
+        let mut readiness_error = None;
+        if Instant::now() >= self.next_readiness_check {
+            self.next_readiness_check = Instant::now() + READINESS_CHECK;
+            if self.host.is_project_ready(&self.project) && !self.host.states.is_closed() {
+                readiness_error = self
+                    .host
+                    .require_project_ready(&self.project)
+                    .err()
+                    .map(convert);
+            }
+            self.sync_readiness();
+        }
         let errors = if self.host.states.is_closed() {
             self.host.pump()
         } else {
             self.host.tick(now)
         };
+        if let Some(error) = readiness_error {
+            return Err(error);
+        }
         if let Some(error) = errors.into_iter().next() {
             return Err(convert(error));
         }
         Ok(())
     }
     fn publish(&mut self, shared: &Shared, publication: &Publication<'_>) -> Result<(), RpcError> {
+        self.sync_readiness();
         if shared.delivery_failed.load(Ordering::Acquire) {
+            self.cache(shared);
             return Err(delivery_failed());
         }
-        self.sync_readiness();
         let notices = self.host.take_notices();
         for notice in &notices {
             if let Notice::ProjectReady { project } = notice {
@@ -536,13 +558,11 @@ impl State {
                     }
                 }
             }
-            if let Notice::Event { seq: Some(seq), .. } = notice {
-                self.run_seq = self.run_seq.max(*seq);
-            }
         }
         // Cache and events are committed under one publication lock. No state is
         // read via the actor from Handler::snapshot, including during shutdown.
         self.cache(shared);
+        let mut state_queued = false;
         for notice in notices {
             match notice {
                 Notice::Event {
@@ -567,7 +587,13 @@ impl State {
                     if project != self.project || !self.host.is_project_ready(&project) {
                         continue;
                     }
-                    self.queue_event("project:state", json!({"path":project,"state":self.last}))?;
+                    if !state_queued {
+                        self.queue_event(
+                            "project:state",
+                            json!({"path":project,"state":self.last}),
+                        )?;
+                        state_queued = true;
+                    }
                 }
                 Notice::SteerRequested { .. } => {
                     // This executable keeps SteeringMode::Gated. If that contract changes,
@@ -625,7 +651,13 @@ impl State {
                     if project != self.project || !self.host.is_project_ready(&project) {
                         continue;
                     }
-                    self.queue_event("project:state", json!({"path":project,"state":self.last}))?;
+                    if !state_queued {
+                        self.queue_event(
+                            "project:state",
+                            json!({"path":project,"state":self.last}),
+                        )?;
+                        state_queued = true;
+                    }
                 }
                 Event::SaveFailed { error, .. } => {
                     record_failure(shared, error);
@@ -634,9 +666,18 @@ impl State {
             }
         }
         while let Some((channel, payload)) = self.pending.front() {
-            publication.emit(channel, payload.clone())?;
+            if let Err(error) = publication.emit(channel, payload.clone()) {
+                self.cache(shared);
+                return Err(error);
+            }
+            if channel == "agent:event" {
+                if let Some(seq) = payload.get("seq").and_then(Value::as_u64) {
+                    self.run_seq = self.run_seq.max(seq);
+                }
+            }
             self.pending.pop_front();
         }
+        self.cache(shared);
         for (reply, result) in self.settled_answers.drain(..) {
             let _ = reply.send(result);
         }
@@ -955,6 +996,23 @@ fn start_provider(
         content: content.is_some(),
     });
     let profile_lease = profile.lease();
+    let mut state = State {
+        host,
+        jobs: crate::jobs::Workers::default(),
+        provider: provider_name,
+        content,
+        project,
+        opened: true,
+        version: 0,
+        last: Value::Null,
+        run_seq: 0,
+        next_readiness_check: Instant::now(),
+        pending: VecDeque::new(),
+        answers: HashMap::new(),
+        settled_answers: Vec::new(),
+        _profile: profile_lease,
+    };
+    state.cache(&shared);
     let server = Server::bind(
         profile,
         actor.clone(),
@@ -965,27 +1023,7 @@ fn start_provider(
     )?;
     *shared.events.lock().unwrap() = Some(server.events());
     *actor.thread.lock().unwrap() = Some(thread::spawn(move || {
-        run(
-            State {
-                host,
-                jobs: crate::jobs::Workers::default(),
-                provider: provider_name,
-                content,
-                project,
-                opened: true,
-                version: 0,
-                last: Value::Null,
-                run_seq: 0,
-                pending: VecDeque::new(),
-                answers: HashMap::new(),
-                settled_answers: Vec::new(),
-                _profile: profile_lease,
-            },
-            shared,
-            requests,
-            started,
-            epoch,
-        )
+        run(state, shared, requests, started, epoch)
     }));
     let metadata = json!({"project":actor.project,"scriptedProvider":provider_name == "kiro","provider":provider_name,"tickMs":20,"debounceMs":100,"idleMs":350,"interruptGraceMs":250});
     Ok((server, metadata))
@@ -1401,14 +1439,20 @@ mod publication_tests {
             version: 0,
             last: Value::Null,
             run_seq: 0,
+            next_readiness_check: Instant::now(),
             pending: VecDeque::new(),
             answers: HashMap::new(),
             settled_answers: Vec::new(),
             _profile: profile.lease(),
         };
-        state
-            .pending
-            .push_back(("agent:event".into(), json!({"text":"x".repeat(8192)})));
+        state.pending.push_back((
+            "agent:event".into(),
+            json!({"seq":7,"event":{"type":"text","text":"published"}}),
+        ));
+        state.pending.push_back((
+            "agent:event".into(),
+            json!({"seq":9,"text":"x".repeat(8192)}),
+        ));
         state
             .pending
             .push_back(("agent:event".into(), json!({"type":"turn-completed"})));
@@ -1426,6 +1470,11 @@ mod publication_tests {
             .transaction(|publication| state.publish_or_latch(&shared, publication))
             .unwrap_err();
         assert_eq!(failed.code, "FRAME_TOO_LARGE");
+        assert_eq!(
+            state.run_seq, 7,
+            "failed and unsent events do not advance the watermark"
+        );
+        assert_eq!(shared.snapshot.lock().unwrap()["runs"]["seq"], 7);
         assert_eq!(state.pending.len(), 2);
         assert!(shared.closing.load(Ordering::Acquire));
         assert!(shared.delivery_failed.load(Ordering::Acquire));
@@ -1600,9 +1649,7 @@ mod job_tests {
             content: content.is_some(),
         });
         let profile_lease = profile.lease();
-        let server = Arc::new(Server::bind(profile, actor.clone(), Config::default()).unwrap());
-        *shared.events.lock().unwrap() = Some(server.events());
-        let state = State {
+        let mut state = State {
             host,
             jobs: workers,
             provider: "kiro",
@@ -1612,11 +1659,15 @@ mod job_tests {
             version: 0,
             last: Value::Null,
             run_seq: 0,
+            next_readiness_check: Instant::now(),
             pending: VecDeque::new(),
             answers: HashMap::new(),
             settled_answers: vec![],
             _profile: profile_lease,
         };
+        state.cache(&shared);
+        let server = Arc::new(Server::bind(profile, actor.clone(), Config::default()).unwrap());
+        *shared.events.lock().unwrap() = Some(server.events());
         *actor.thread.lock().unwrap() = Some(thread::spawn(move || {
             run(state, shared, requests, Instant::now(), 0)
         }));
@@ -1903,6 +1954,35 @@ mod job_tests {
             );
         }
         assert_eq!(actor.call(Command::Call("chat:send".into(),vec![json!({"projectPath":project,"sessionId":1,"provider":"kiro","body":"refused"})])).unwrap_err().code,"PROJECT_NOT_READY");
+        let chat = format!("{}#1", project.display());
+        for (method, args) in [
+            ("chat:queue-send", vec![json!(chat), json!("missing")]),
+            ("chat:queue-remove", vec![json!(chat), json!("missing")]),
+            (
+                "agent:respond-permission",
+                vec![json!({"chatId":chat,"requestId":"missing","decision":"deny"})],
+            ),
+            (
+                "agent:answer-question",
+                vec![json!({"chatId":chat,"requestId":"missing","answers":{}})],
+            ),
+        ] {
+            assert_eq!(
+                actor
+                    .call(Command::Call(method.into(), args))
+                    .unwrap_err()
+                    .code,
+                "PROJECT_NOT_READY",
+                "{method}"
+            );
+        }
+        assert_eq!(
+            actor
+                .call(Command::Call("agent:interrupt".into(), vec![json!(chat)]))
+                .unwrap(),
+            Value::Null,
+            "trusted idle Stop remains available without reopening"
+        );
         drop(held);
         node_readiness(&server, &project, "recover");
         assert_eq!(
@@ -2004,7 +2084,13 @@ mod job_tests {
                 vec![json!(project)],
             ))
             .unwrap_err();
-        assert_eq!(refused.code, "COMMAND_FAILED");
+        assert!(
+            matches!(
+                refused.code.as_str(),
+                "COMMAND_FAILED" | "PROJECT_NOT_READY"
+            ),
+            "a tick may detect ownership loss before the command"
+        );
         assert_eq!(
             actor
                 .call(Command::Call("project:current".into(), vec![]))
@@ -2057,6 +2143,76 @@ mod job_tests {
         server.shutdown().unwrap();
         drop(actor);
         Server::finish(server).unwrap();
+    }
+    #[test]
+    fn tick_revokes_retained_content_without_commands_even_after_publication_failure() {
+        for failed_publication in [false, true] {
+            let (profile, project, host) = seeded();
+            let store = profile.path().join(".owner/handovers");
+            let held = profile.path().join(".owner/held-handovers");
+            let content = crate::claude_content::SharedContent::new(
+                host.states.isolation().clone(),
+                project.clone(),
+            )
+            .unwrap();
+            let (server, actor) = running_content(
+                profile,
+                &project,
+                host,
+                Default::default(),
+                Some(content.clone()),
+            );
+            assert_eq!(
+                actor.shared.snapshot.lock().unwrap()["projects"][0]["path"],
+                json!(project)
+            );
+            let chat = format!("{}#1", project.display());
+            let retained = content.dispatcher(&chat).unwrap();
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            assert_eq!(
+                runtime.block_on(retained.call("artifact_list", &json!({})))["isError"],
+                false
+            );
+            if failed_publication {
+                actor.shared.delivery_failed.store(true, Ordering::Release);
+            }
+            fs::rename(&store, &held).unwrap();
+            fs::create_dir(&store).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while content
+                .renderer("artifact:list", &json!({"chatId":chat}))
+                .is_ok()
+                || actor.shared.snapshot.lock().unwrap()["projects"] != json!([])
+            {
+                assert!(
+                    Instant::now() < deadline,
+                    "tick failed to revoke content within its bound"
+                );
+                thread::sleep(Duration::from_millis(5));
+            }
+            assert_eq!(
+                runtime.block_on(retained.call("artifact_list", &json!({})))["isError"],
+                true
+            );
+            // Inspect the cache directly: no renderer/actor command causes the revalidation.
+            assert_eq!(actor.shared.snapshot.lock().unwrap()["projects"], json!([]));
+            fs::remove_dir(&store).unwrap();
+            fs::rename(&held, &store).unwrap();
+            assert!(
+                content
+                    .renderer("artifact:list", &json!({"chatId":chat}))
+                    .is_err(),
+                "repair is not explicit recovery"
+            );
+            drop(retained);
+            drop(content);
+            // Publication failure is latched. Forced drop is a crash boundary, not a graceful stop claim.
+            drop(server);
+            drop(actor);
+        }
     }
     #[test]
     fn forced_server_drop_retains_profile_until_actor_joins_paused_job() {

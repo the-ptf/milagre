@@ -47,6 +47,7 @@ async function fixture(test) {
     client.on("event", (event) => events.push(event));
     runtime = await connectDesktopRuntime({ connect: () => connect({ dataDir: metadata.profile, timeoutMs: 5000 }) });
     const project = metadata.actor.project;
+    assert.equal((await client.call("daemon:snapshot")).projects[0].path, project, "startup cache is populated before socket admission");
     await client.call("project:open", [project]);
     await runtime.openProject(project);
     const send = (sessionId, body, clientMessageId) =>

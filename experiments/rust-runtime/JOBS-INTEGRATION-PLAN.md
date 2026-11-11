@@ -77,3 +77,18 @@ Verified through production Node clients and private fixture guards:
 - Forget followed by current/snapshot/state:read stays refused; late provider events and reads do not recreate its lock.
 
 Only the cfg(test) successful-restore fixture admits its own fresh Git repository. Release constructors still expose no Git admission or successful Restore.
+
+## Readiness publication follow-up
+
+The actor checks ownership, the Project root and the handover-store lease on its tick at most once per 250 ms. It checks before driving provider events and preparation continuations, then revokes content and hides cached state on failure. A failed Project stays not ready until explicit open. This bounds detection frequency; it does not retract a content operation that already passed its commit guard or eliminate the interval before detection. Owner-side event deferral and preparation launch guards remain separate unresolved review findings in this checkpoint.
+
+Readiness synchronization now runs even when publication has already failed. The content grant opens only after open_project and the following Project read/revalidation both succeed. Startup creates and populates State's cache before Server::bind. Ready, Broadcast and persistence notices share one latest state frame per publication. The run watermark advances only after the corresponding agent event is successfully emitted, and a partially failed publication caches only the successful watermark.
+
+Additional evidence:
+
+- A replaced handover folder revokes both direct renderer access and a retained MCP dispatcher without any actor/renderer command. The same test runs with publication failure already latched; the cached Project disappears in both cases. Restoring the directory alone never reopens grants.
+- The recovery Node client reads coordination.json and opens chats.db read-only immediately after open returns. Saved handoverPending is absent and the saved handoff divider is failed. Ready plus Broadcast produces exactly one project:state frame.
+- A failed first open leaves the connection without Project scope, so wire queue/answer/Stop requests remain ISOLATED_SCOPE_ONLY. At the trusted actor boundary, queue-send/remove and permission/question answers return PROJECT_NOT_READY; idle interrupt returns null without reopening state.
+- A publication regression emits seq 7 successfully, rejects oversized seq 9, and retains the remaining events. Both the actor and snapshot watermark stay at 7.
+
+The first failing identity read keeps the existing storage error code. If the periodic check already detected that loss, the command returns PROJECT_NOT_READY instead. No new error code or public owner API is introduced.
