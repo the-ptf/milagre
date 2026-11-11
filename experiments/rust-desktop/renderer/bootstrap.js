@@ -3,6 +3,7 @@ import { initializeBridge, installBrowserCompatibility, installWindowChrome } fr
 
 try {
   await initializeBridge();
+  window.__rustLaunchArguments = await window.__TAURI__.core.invoke("native_call", { method: "app:launch-arguments", args: [] });
   installBrowserCompatibility();
   installWindowChrome();
   await import("virtual:milagre-electron-preload");

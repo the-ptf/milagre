@@ -122,6 +122,11 @@ void (async () => {
   window.__rustSettleForCapture();
   const result = {
     content: await contentProbe,
+    workflows: window.__rustWorkflowSmoke
+      ? await window
+          .__rustWorkflowSmoke(checks.findLast((entry) => entry.chatKey)?.chatKey)
+          .catch((error) => ({ passed: false, error: error.message || String(error) }))
+      : { passed: false, error: "Workflow smoke was not loaded" },
     checks,
     diagnostics: window.__rustDiagnostics,
     html: document.getElementById("root")?.innerHTML.slice(0, 10000),
@@ -131,4 +136,5 @@ void (async () => {
   };
   window.__rustSmokeResult = result;
   await window.__TAURI__.core.invoke("smoke_result", { value: JSON.stringify(result) });
+  window.__rustOrdinarySmokeComplete = true;
 })();

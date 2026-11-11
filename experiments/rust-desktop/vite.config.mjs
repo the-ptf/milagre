@@ -26,12 +26,17 @@ export default defineConfig({
         if (id !== preloadId) return;
         // Build the same bridge methods and event subscriptions as Electron from its source.
         // Only the transport and the two launch flags belong to this shell.
-        return readFileSync(resolve(desktop, "electron/preload.cjs"), "utf8")
+        const source = readFileSync(resolve(desktop, "electron/preload.cjs"), "utf8");
+        const electronImport = 'const { contextBridge, ipcRenderer: electronIpc, webUtils } = require("electron");';
+        if (source.split(electronImport).length !== 2 || !source.includes("process.argv")) {
+          throw new Error("Production preload changed: review the Rust import and launch-flag adapter before building");
+        }
+        return source
           .replace(
-            'const { contextBridge, ipcRenderer: electronIpc, webUtils } = require("electron");',
+            electronImport,
             'import { contextBridge, ipcRenderer as electronIpc, webUtils } from "' + resolve(experiment, "renderer/electron-shim.js") + '";',
           )
-          .replaceAll("process.argv", '["--milagre-window-controls=leading", "--milagre-opened-projects-before=1"]');
+          .replaceAll("process.argv", "window.__rustLaunchArguments");
       },
     },
     {
@@ -52,7 +57,7 @@ export default defineConfig({
     outDir: resolve(experiment, "dist"),
     emptyOutDir: true,
     target: "safari16.4",
-    sourcemap: true,
+    sourcemap: false,
     chunkSizeWarningLimit: 1200,
   },
 });

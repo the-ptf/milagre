@@ -78,7 +78,7 @@ fn allowed(main: bool, address: &str) -> bool {
         return false;
     };
     if url.scheme() == "tauri" && url.host_str() == Some("localhost") {
-        return true;
+        return main;
     }
     if main {
         return false;
@@ -142,6 +142,7 @@ mod tests {
         assert!(allowed(false, "milagre-artifact://preview/abc"));
         assert!(allowed(false, "blob:tauri://localhost/abc"));
         for address in [
+            "tauri://localhost/index.html",
             "https://example.com",
             "file:///tmp/a.html",
             "milagre-artifact://evil/abc",

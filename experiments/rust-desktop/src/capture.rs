@@ -2,26 +2,70 @@
 //! Enabled only by MILAGRE_RUST_SMOKE=1. The callback writes a completion report separately.
 use tauri::Manager;
 
-pub fn snapshot(app: &tauri::AppHandle) -> Result<(), String> {
+#[derive(Clone, Copy)]
+pub enum Kind {
+    Default,
+    Chat,
+    Designs,
+    Artifacts,
+}
+impl Kind {
+    pub fn parse(label: Option<&str>) -> Result<Self, String> {
+        match label {
+            None => Ok(Self::Default),
+            Some("chat") => Ok(Self::Chat),
+            Some("designs") => Ok(Self::Designs),
+            Some("artifacts") => Ok(Self::Artifacts),
+            Some(_) => Err("Capture label must be chat, designs or artifacts".into()),
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Self::Default => "ui",
+            Self::Chat => "chat",
+            Self::Designs => "designs",
+            Self::Artifacts => "artifacts",
+        }
+    }
+    pub fn state_path(self) -> String {
+        match self {
+            Self::Default => "/tmp/milagre-rust-smoke.json".into(),
+            _ => format!("/tmp/milagre-rust-{}-state.json", self.label()),
+        }
+    }
+    fn image_path(self) -> String {
+        format!("/tmp/milagre-rust-{}.png", self.label())
+    }
+    fn report_path(self) -> String {
+        match self {
+            Self::Default => "/tmp/milagre-rust-capture.json".into(),
+            _ => format!("/tmp/milagre-rust-capture-{}.json", self.label()),
+        }
+    }
+}
+
+pub async fn snapshot(app: &tauri::AppHandle, kind: Kind) -> Result<serde_json::Value, String> {
     if std::env::var("MILAGRE_RUST_SMOKE").as_deref() != Ok("1") {
         return Err("UI capture is enabled only for local smoke checks".into());
     }
-    let _ = std::fs::write("/tmp/milagre-rust-capture.json", r#"{"pending":true}"#);
+    crate::evidence::write(kind.report_path(), br#"{"pending":true}"#)?;
     let window = app
         .get_webview_window("main")
         .ok_or("Main window is unavailable")?;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     window
-        .with_webview(|view| {
+        .with_webview(move |view| {
             use block2::RcBlock;
             use objc2::{AnyThread, MainThreadMarker};
             use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage};
-            use objc2_foundation::{NSDictionary, NSError, NSString};
+            use objc2_foundation::{NSDictionary, NSError};
             use objc2_web_kit::{WKSnapshotConfiguration, WKWebView};
             // Tauri guarantees with_webview runs on the platform UI thread, and `inner` is its
             // live WKWebView pointer. Completion owns its arguments for this callback only.
             unsafe {
                 let Some(mtm) = MainThreadMarker::new() else {
-                    report(Err("Capture callback did not run on the main thread".into()));
+                    let _ =
+                        sender.send(Err("Capture callback did not run on the main thread".into()));
                     return;
                 };
                 let webview: &WKWebView = &*view.inner().cast();
@@ -49,27 +93,33 @@ pub fn snapshot(app: &tauri::AppHandle) -> Result<(), String> {
                                 &NSDictionary::new(),
                             )
                             .ok_or("Could not encode snapshot PNG")?;
-                        if !png.writeToFile_atomically(
-                            &NSString::from_str("/tmp/milagre-rust-ui.png"),
-                            true,
-                        ) {
-                            return Err("Could not write snapshot PNG".into());
-                        }
-                        Ok(())
+                        crate::evidence::write(kind.image_path(), &png.to_vec())?;
+                        Ok(serde_json::json!({
+                            "ok":true,"label":kind.label(),"path":kind.image_path(),
+                            "source":"actual WKWebView content-area snapshot",
+                            "width":bitmap.pixelsWide(),"height":bitmap.pixelsHigh(),
+                            "bytes":png.len()
+                        }))
                     })();
-                    report(result);
+                    let _ = sender.send(result);
                 });
                 webview.takeSnapshotWithConfiguration_completionHandler(Some(&config), &completion);
             }
         })
-        .map_err(|error| error.to_string())
-}
-fn report(result: Result<(), String>) {
-    let value = match result {
-        Ok(()) => {
-            serde_json::json!({"ok":true,"path":"/tmp/milagre-rust-ui.png","source":"actual WKWebView snapshot"})
-        }
+        .map_err(|error| error.to_string())?;
+    // An invoke resolves only after WebKit encoded and privately wrote the real image.
+    // Waiting on a worker leaves the macOS main run loop free to invoke its callback.
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(25))
+            .map_err(|error| format!("WebKit capture did not complete: {error}"))?
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let report = match &result {
+        Ok(value) => value.clone(),
         Err(message) => serde_json::json!({"ok":false,"error":message}),
     };
-    let _ = std::fs::write("/tmp/milagre-rust-capture.json", value.to_string());
+    crate::evidence::write(kind.report_path(), report.to_string().as_bytes())?;
+    result
 }

@@ -1,9 +1,20 @@
 // oxlint-disable eslint/no-underscore-dangle -- Tauri globals and the explicit smoke diagnostic contract.
 // The production preload owns the renderer contract; this adapter replaces Electron IPC only.
+import { showToast } from "../../../apps/desktop/app/src/lib/toast.ts";
+import { installDownloads } from "./downloads.js";
+import { forwardedShortcuts } from "./shortcuts.js";
+
 const listeners = new Map();
 let preferences = Object.create(null);
 let preferenceWrites = Promise.resolve();
+let shortcutWrites = Promise.resolve();
 let ready;
+
+function syncShortcuts(rules) {
+  const compiled = forwardedShortcuts(rules);
+  shortcutWrites = shortcutWrites.catch(() => {}).then(() => window.__TAURI__.core.invoke("native_call", { method: "shortcuts:set", args: [compiled] }));
+  return shortcutWrites;
+}
 
 const diagnostics = (window.__rustDiagnostics = {
   ready: false,
@@ -78,6 +89,8 @@ export const nativeMethods = new Set([
   "image:copy",
   "image:save",
   "image:menu",
+  "download:save",
+  "shortcuts:set",
   "settings:notify-when-waiting",
   "settings:notification-chime",
   "settings:notification-schedule",
@@ -99,6 +112,7 @@ async function invoke(method, ...args) {
       nativeMethods.has(method) || nativePrefixes.some((prefix) => method.startsWith(prefix)) ? "native_call" : "daemon",
       { method, args },
     );
+    if (method === "keybindings:read" && Array.isArray(result?.rules)) await syncShortcuts(result.rules);
     call.ms = performance.now() - call.at;
     return result;
   } catch (value) {
@@ -189,12 +203,19 @@ async function followPreferences() {
 export function initializeBridge() {
   return (ready ??= (async () => {
     preferences = await window.__TAURI__.core.invoke("preferences_read");
+    await syncShortcuts();
     await window.__TAURI__.event.listen("daemon-event", ({ payload }) => {
       diagnostics.events++;
+      if (payload.channel === "keybindings:changed" && Array.isArray(payload.payload?.rules)) {
+        void syncShortcuts(payload.payload.rules).catch((error) => recordError(error, "shortcuts:set"));
+      }
       dispatch(payload.channel, payload.payload);
     });
     // Native window/preferences events use the same event envelope as the daemon.
-    await window.__TAURI__.event.listen("native-event", ({ payload }) => dispatch(payload.channel, payload.payload));
+    await window.__TAURI__.event.listen("native-event", ({ payload }) => {
+      dispatch(payload.channel, payload.payload);
+      if (payload.channel === "image:error") showToast(payload.payload?.message || "Couldn't complete the image action.");
+    });
     window.addEventListener("focus", () => void followPreferences());
     window.setInterval(() => {
       if (!document.hidden) void followPreferences();
@@ -203,6 +224,10 @@ export function initializeBridge() {
 }
 
 export function installBrowserCompatibility() {
+  installDownloads(invoke, (error) => {
+    recordError(error, "download:save");
+    showToast(errorOf(error).message);
+  });
   // External links leave the app through a validated native opener; WKWebView must
   // never navigate the privileged application document to agent-provided pages.
   const external = (value) => {

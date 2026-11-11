@@ -133,6 +133,17 @@ fn background() -> bool {
     })
 }
 
+fn electron_desktop_running() -> bool {
+    // Both shells receive the same owner events. During coexistence the installed
+    // Electron desktop keeps system-notification ownership, avoiding two chimes.
+    use objc2_app_kit::NSRunningApplication;
+    use objc2_foundation::NSString;
+    !NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(
+        "com.milagre.app",
+    ))
+    .is_empty()
+}
+
 #[derive(Clone)]
 struct Editor {
     id: &'static str,
@@ -713,9 +724,19 @@ mod notifications {
         let Ok(values) = app.state::<Preferences>().read() else {
             return false;
         };
+        hidden_by_preferences(&values, scope)
+    }
+    fn hidden_by_preferences(values: &Value, scope: &str) -> bool {
         let list = |key: &str| {
-            serde_json::from_str::<Vec<String>>(values[key].as_str().unwrap_or("[]"))
+            serde_json::from_str::<Value>(values[key].as_str().unwrap_or("[]"))
                 .unwrap_or_default()
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<String>>()
         };
         if list("milagre.hiddenRemoteScopes")
             .iter()
@@ -729,10 +750,24 @@ mod notifications {
         let settings: Value =
             serde_json::from_str(values["milagre-settings"].as_str().unwrap_or("{}"))
                 .unwrap_or(Value::Null);
+        // Match shared/chat-scopes.mjs: Links carry their computer after the
+        // prefix; ordinary local Projects and Links belong to "local".
+        let bare = scope.strip_prefix("milagre-link:").unwrap_or(scope);
+        let computer = bare
+            .split_once('|')
+            .map(|pair| pair.0)
+            .filter(|id| {
+                !id.is_empty()
+                    && id.len() <= 64
+                    && id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            })
+            .unwrap_or("local");
         settings["otherComputers"] == true
-            && scope
-                .split_once('|')
-                .is_some_and(|(id, _)| list("milagre.hiddenComputers").iter().any(|s| s == id))
+            && list("milagre.hiddenComputers")
+                .iter()
+                .any(|id| id == computer)
     }
     fn badge(app: &AppHandle) {
         if background() {
@@ -765,7 +800,7 @@ mod notifications {
         body: String,
         waiting: bool,
     ) -> Result<bool, Value> {
-        if background() {
+        if background() || electron_desktop_running() {
             return Ok(false);
         }
         let focused = app
@@ -1066,6 +1101,30 @@ mod notifications {
     mod tests {
         use super::*;
         #[test]
+        fn hidden_computers_include_local_and_qualified_links() {
+            let values = json!({
+                "milagre-settings": "{\"otherComputers\":true}",
+                "milagre.hiddenComputers": "[\"local\",\"peer-1\",7,null,\"\"]"
+            });
+            for scope in [
+                "/project",
+                "milagre-link:abc",
+                "peer-1|/project",
+                "milagre-link:peer-1|abc",
+                "invalid_computer|/project",
+            ] {
+                assert!(hidden_by_preferences(&values, scope), "not hidden: {scope}");
+            }
+            assert!(!hidden_by_preferences(&values, "peer-2|/project"));
+            assert!(!hidden_by_preferences(&values, "milagre-link:peer-2|abc"));
+            let mut disabled = values;
+            disabled["milagre-settings"] = json!("{\"otherComputers\":false}");
+            assert!(!hidden_by_preferences(&disabled, "/project"));
+            assert!(!hidden_by_preferences(&disabled, "peer-1|/project"));
+            disabled["milagre.hiddenRemoteScopes"] = json!("[null,\"peer-2|/hidden\",7]");
+            assert!(hidden_by_preferences(&disabled, "peer-2|/hidden"));
+        }
+        #[test]
         fn inherited_preferences_do_not_shadow_future_electron_changes() {
             let mut overrides = serde_json::from_value::<Map<String, Value>>(
                 json!({"milagre-theme":"dark","milagre-sidebar":"wide"}),
@@ -1155,6 +1214,12 @@ mod notifications {
 }
 
 pub async fn invoke(app: AppHandle, method: String, args: Value) -> Result<Value, Value> {
+    if let Some(result) = crate::images::invoke(&app, &method, &args).await {
+        return result;
+    }
+    if let Some(result) = crate::downloads::invoke(&app, &method, &args).await {
+        return result;
+    }
     if let Some(result) = notifications::invoke(&app, &method, &args).await {
         return result;
     }
@@ -1162,6 +1227,17 @@ pub async fn invoke(app: AppHandle, method: String, args: Value) -> Result<Value
         return result;
     }
     match method.as_str() {
+        "app:launch-arguments" => {
+            let opened = fs::read_to_string(profile()?.join("recent-projects.json"))
+                .ok()
+                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+                .is_some_and(|value| value.as_array().is_some_and(|list| !list.is_empty()));
+            Ok(json!([
+                "--milagre-window-controls=leading",
+                format!("--milagre-opened-projects-before={}", u8::from(opened))
+            ]))
+        }
+        "shortcuts:set" => crate::shortcuts::set(&app, &args[0]),
         "runtime:connection" => Ok(app
             .state::<crate::transport::Transport>()
             .connection_state()),
@@ -1219,9 +1295,15 @@ pub async fn invoke(app: AppHandle, method: String, args: Value) -> Result<Value
             Ok(Value::Null)
         }
         // These optional Electron surfaces are not started in this build.
-        "settings:floating-inbox" | "app:terminal-focused" | "browser-panel:pages" => {
-            Ok(json!(false))
+        "app:terminal-focused" => {
+            crate::lifecycle::terminal_focused(&app, args[0] == true);
+            Ok(Value::Null)
         }
+        "app:retry-quit" => {
+            app.exit(0);
+            Ok(Value::Null)
+        }
+        "settings:floating-inbox" | "browser-panel:pages" => Ok(json!(false)),
         "floating-inbox:is-open" => Ok(json!(false)),
         "floating-inbox:selected" => Ok(Value::Null),
         "app:dictation-status" => Ok(json!([])),

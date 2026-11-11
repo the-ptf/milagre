@@ -1,0 +1,351 @@
+{
+  "rules": [
+    {
+      "key": ",",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": false
+    },
+    {
+      "key": "t",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true
+    },
+    {
+      "key": "l",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true
+    },
+    {
+      "key": "u",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true
+    },
+    {
+      "key": "m",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true
+    },
+    {
+      "key": "d",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true
+    },
+    {
+      "key": "a",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true
+    },
+    {
+      "key": "e",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true
+    },
+    {
+      "key": "b",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true
+    },
+    {
+      "key": "s",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true
+    },
+    {
+      "key": "f5",
+      "meta": false,
+      "control": true,
+      "alt": true,
+      "shift": false
+    },
+    {
+      "key": "/",
+      "meta": false,
+      "control": false,
+      "alt": false,
+      "shift": true
+    },
+    {
+      "key": "q",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": false
+    },
+    {
+      "key": "w",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": false
+    },
+    {
+      "key": "q",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true
+    }
+  ],
+  "cases": [
+    {
+      "keyCode": 43,
+      "characters": ",",
+      "code": "Comma",
+      "key": ",",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": false,
+      "normalized": ",",
+      "matched": true
+    },
+    {
+      "keyCode": 17,
+      "characters": "T",
+      "code": "KeyT",
+      "key": "T",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true,
+      "normalized": "t",
+      "matched": true
+    },
+    {
+      "keyCode": 2,
+      "characters": "D",
+      "code": "KeyD",
+      "key": "D",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true,
+      "normalized": "d",
+      "matched": true
+    },
+    {
+      "keyCode": 0,
+      "characters": "A",
+      "code": "KeyA",
+      "key": "A",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true,
+      "normalized": "a",
+      "matched": true
+    },
+    {
+      "keyCode": 0,
+      "characters": "Q",
+      "code": "KeyA",
+      "key": "Q",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true,
+      "normalized": "q",
+      "matched": true
+    },
+    {
+      "keyCode": 2,
+      "characters": "∂",
+      "code": "KeyD",
+      "key": "∂",
+      "meta": true,
+      "control": false,
+      "alt": true,
+      "shift": false,
+      "normalized": "d",
+      "matched": false
+    },
+    {
+      "keyCode": 18,
+      "characters": "!",
+      "code": "Digit1",
+      "key": "!",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true,
+      "normalized": "1",
+      "matched": false
+    },
+    {
+      "keyCode": 44,
+      "characters": "?",
+      "code": "Slash",
+      "key": "?",
+      "meta": false,
+      "control": false,
+      "alt": false,
+      "shift": true,
+      "normalized": "/",
+      "matched": true
+    },
+    {
+      "keyCode": 96,
+      "characters": "",
+      "code": "F5",
+      "key": "F5",
+      "meta": false,
+      "control": true,
+      "alt": true,
+      "shift": false,
+      "normalized": "f5",
+      "matched": true
+    },
+    {
+      "keyCode": 123,
+      "characters": "",
+      "code": "ArrowLeft",
+      "key": "ArrowLeft",
+      "meta": true,
+      "control": false,
+      "alt": true,
+      "shift": false,
+      "normalized": "arrowleft",
+      "matched": false
+    },
+    {
+      "keyCode": 36,
+      "characters": "\r",
+      "code": "Enter",
+      "key": "Enter",
+      "meta": false,
+      "control": false,
+      "alt": false,
+      "shift": false,
+      "normalized": "enter",
+      "matched": false
+    },
+    {
+      "keyCode": 76,
+      "characters": "\u0003",
+      "code": "NumpadEnter",
+      "key": "Enter",
+      "meta": false,
+      "control": false,
+      "alt": false,
+      "shift": false,
+      "normalized": "enter",
+      "matched": false
+    },
+    {
+      "keyCode": 49,
+      "characters": " ",
+      "code": "Space",
+      "key": " ",
+      "meta": false,
+      "control": false,
+      "alt": true,
+      "shift": false,
+      "normalized": "space",
+      "matched": false
+    },
+    {
+      "keyCode": 12,
+      "characters": "q",
+      "code": "KeyQ",
+      "key": "q",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": false,
+      "normalized": "q",
+      "matched": false
+    },
+    {
+      "keyCode": 13,
+      "characters": "w",
+      "code": "KeyW",
+      "key": "w",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": false,
+      "normalized": "w",
+      "matched": false
+    },
+    {
+      "keyCode": 12,
+      "characters": "Q",
+      "code": "KeyQ",
+      "key": "Q",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": true,
+      "normalized": "q",
+      "matched": true
+    },
+    {
+      "keyCode": 35,
+      "characters": "p",
+      "code": "KeyP",
+      "key": "p",
+      "meta": true,
+      "control": false,
+      "alt": false,
+      "shift": false,
+      "normalized": "p",
+      "matched": false
+    },
+    {
+      "keyCode": 200,
+      "characters": "é",
+      "code": "",
+      "key": "é",
+      "meta": false,
+      "control": false,
+      "alt": false,
+      "shift": false,
+      "normalized": "é",
+      "matched": false
+    },
+    {
+      "keyCode": 200,
+      "characters": "😀",
+      "code": "",
+      "key": "😀",
+      "meta": false,
+      "control": false,
+      "alt": false,
+      "shift": false,
+      "normalized": "",
+      "matched": false
+    },
+    {
+      "keyCode": 43,
+      "characters": ",",
+      "code": "Comma",
+      "key": ",",
+      "meta": true,
+      "control": true,
+      "alt": false,
+      "shift": false,
+      "normalized": ",",
+      "matched": false
+    }
+  ]
+}

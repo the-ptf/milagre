@@ -1,7 +1,12 @@
 mod capture;
 mod content;
+mod downloads;
+mod evidence;
+mod images;
+mod lifecycle;
 mod native;
 mod navigation;
+mod shortcuts;
 mod transport;
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager};
@@ -31,23 +36,60 @@ fn preferences_write(
     prefs.write(key, value)
 }
 #[tauri::command]
-fn smoke_result(app: tauri::AppHandle, value: String) {
-    if std::env::var("MILAGRE_RUST_SMOKE").as_deref() == Ok("1") {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open("/tmp/milagre-rust-smoke.json")
-        {
-            let _ = file.write_all(value.as_bytes());
-        }
-        let _ = capture::snapshot(&app);
+async fn smoke_result(
+    app: tauri::AppHandle,
+    value: String,
+    label: Option<String>,
+) -> Result<Value, String> {
+    if std::env::var("MILAGRE_RUST_SMOKE").as_deref() != Ok("1") {
+        return Err("UI capture is enabled only for local smoke checks".into());
     }
+    let kind = capture::Kind::parse(label.as_deref())?;
+    evidence::write(kind.state_path(), value.as_bytes())?;
+    capture::snapshot(&app, kind).await
+}
+
+// Smoke inputs are task-owned local JSON, never JavaScript or a remote command.
+fn smoke_config(name: &str) -> Result<Option<Value>, String> {
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let Ok(path) = std::env::var(name) else {
+        return Ok(None);
+    };
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|error| format!("{name}: {error}"))?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if !metadata.is_file()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.nlink() != 1
+        || metadata.len() > 1024 * 1024
+    {
+        return Err(format!(
+            "{name} must be an owned regular JSON file with one link, at most 1 MiB"
+        ));
+    }
+    let mut text = String::new();
+    file.take(1024 * 1024 + 1)
+        .read_to_string(&mut text)
+        .map_err(|error| error.to_string())?;
+    if text.len() > 1024 * 1024 {
+        return Err(format!("{name} exceeds 1 MiB"));
+    }
+    serde_json::from_str(&text)
+        .map(Some)
+        .map_err(|error| format!("{name}: {error}"))
 }
 fn main() {
+    let shell = match lifecycle::acquire() {
+        Ok(shell) => shell,
+        Err(error) => {
+            eprintln!("{error}");
+            return;
+        }
+    };
     let background = std::env::var("MILAGRE_BACKGROUND").as_deref() == Ok("1");
     let flags = tauri_plugin_window_state::StateFlags::SIZE
         | tauri_plugin_window_state::StateFlags::POSITION
@@ -59,6 +101,7 @@ fn main() {
             .build(),
     );
     builder
+        .manage(shell)
         .on_page_load(|webview, payload| {
             if payload.url().scheme() == "tauri"
                 && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
@@ -89,20 +132,44 @@ fn main() {
                 .build()?;
             navigation::install(&app.get_webview_window("main").unwrap())
                 .map_err(std::io::Error::other)?;
+            lifecycle::install(app.handle())?;
+            shortcuts::install(app.handle()).map_err(std::io::Error::other)?;
             if !background {
                 app.get_webview_window("main").unwrap().show()?;
             }
             if std::env::var("MILAGRE_RUST_SMOKE").as_deref() == Ok("1") {
+                let live_config = smoke_config("MILAGRE_RUST_LIVE_CHAT_PROBE").map_err(std::io::Error::other)?;
+                let capture_plan = smoke_config("MILAGRE_RUST_CAPTURE_PLAN").map_err(std::io::Error::other)?;
                 let window = app.get_webview_window("main").unwrap();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(15));
+                    let _ = window.eval(format!("window.__rustWorkflowBackground={background};"));
                     let _ = window.eval(include_str!("../content-smoke.js"));
+                    let _ = window.eval(include_str!("../renderer/workflows-smoke.js"));
                     let _ = window.eval(include_str!("../renderer/smoke.js"));
+                    if let Some(config) = live_config {
+                        let script = format!(
+                            "window.__rustLiveChatProbe={};{}",
+                            config,
+                            include_str!("../renderer/live-chat-smoke.js")
+                        );
+                        let _ = window.eval(script);
+                    }
+                    if let Some(plan) = capture_plan {
+                        let script = format!(
+                            "window.__rustCapturePlan={};window.__rustPrepareComparison=()=>(\n{}\n);{}",
+                            plan,
+                            include_str!("../perf/prepare-capture.js").trim().trim_end_matches(';'),
+                            include_str!("../perf/capture-rust.js")
+                        );
+                        let _ = window.eval(script);
+                    }
                 });
             }
             Ok(())
         })
         .on_window_event(|window, event| {
+            lifecycle::window_event(window, event);
             if let tauri::WindowEvent::Focused(focused) = event {
                 let _ = window.emit(
                     "native-event",
@@ -119,6 +186,11 @@ fn main() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("Milagre Rust failed");
+        .build(tauri::generate_context!())
+        .expect("Milagre Rust failed")
+        .run(|app, event| {
+            if let tauri::RunEvent::Reopen { .. } = event {
+                lifecycle::reopen(app);
+            }
+        });
 }

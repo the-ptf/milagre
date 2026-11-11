@@ -17,6 +17,8 @@ test("production bridge adapter routes RPCs, preserves errors, events and prefer
         async invoke(command, args) {
           calls.push({ command, args });
           if (command === "preferences_read") return { "milagre-settings": '{"theme":"dark"}' };
+          if (command === "daemon" && args.method === "keybindings:read")
+            return { rules: [{ key: "ctrl+alt+f5", command: "settings.open", when: "!chatView" }] };
           if (command === "daemon" && args.method === "chat:send") throw { code: "OUTCOME_UNKNOWN", message: "Connection closed after send" };
           return { command, args };
         },
@@ -59,6 +61,14 @@ test("production bridge adapter routes RPCs, preserves errors, events and prefer
       ["one", "two"],
     );
     assert.equal(window.__rustDiagnostics.preferencesPending, 0);
+    await shim.ipcRenderer.invoke("keybindings:read");
+    assert.deepEqual(calls.at(-1), {
+      command: "native_call",
+      args: { method: "shortcuts:set", args: [[{ key: "f5", meta: false, control: true, alt: true, shift: false }]] },
+    });
+    subscriptions.get("daemon-event")({ payload: { channel: "keybindings:changed", payload: { rules: [] } } });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(calls.at(-1), { command: "native_call", args: { method: "shortcuts:set", args: [[]] } });
   } finally {
     globalThis.window = oldWindow;
   }

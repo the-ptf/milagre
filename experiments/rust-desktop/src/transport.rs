@@ -876,7 +876,12 @@ fn page_manifest(manifest: &Value, id_field: &str) -> Result<(Value, usize), Val
         .as_u64()
         .filter(|n| *n > 0 && *n <= MAX_PAGES as u64)
         .ok_or_else(|| error("INVALID_RESPONSE", "The daemon sent an invalid page count"))?;
-    if !manifest[id_field].is_string() {
+    // The production Node page store uses positive numeric IDs; paired/newer hosts may use opaque strings.
+    let valid_id = manifest[id_field].as_str().is_some_and(|id| !id.is_empty())
+        || manifest[id_field]
+            .as_u64()
+            .is_some_and(|id| id > 0 && id <= 9_007_199_254_740_991);
+    if !valid_id {
         return Err(error(
             "INVALID_RESPONSE",
             "The daemon sent an invalid page ID",
@@ -1499,11 +1504,11 @@ mod tests {
             (
                 "daemon:snapshot",
                 json!([{"paged":true}]),
-                json!({"snapshotId":"s","pageCount":1}),
+                json!({"snapshotId":29,"pageCount":1}),
             ),
             (
                 "daemon:snapshot-page",
-                json!(["s", 0]),
+                json!([29, 0]),
                 json!("{\"eventSeq\":9}"),
             ),
         ] {
@@ -1572,6 +1577,23 @@ mod tests {
     }
     #[test]
     fn page_manifests_and_contents_are_validated() {
+        for field in ["pageId", "snapshotId"] {
+            assert_eq!(
+                page_manifest(&json!({field:17,"pageCount":2}), field).unwrap(),
+                (json!(17), 2)
+            );
+            for id in [
+                json!(0),
+                json!(-1),
+                json!(1.5),
+                json!(9_007_199_254_740_992_u64),
+                json!(null),
+                json!(true),
+                json!(""),
+            ] {
+                assert!(page_manifest(&json!({field:id,"pageCount":1}), field).is_err());
+            }
+        }
         assert_eq!(
             page_manifest(&json!({"pageId":"x","pageCount":2}), "pageId")
                 .unwrap()
@@ -1617,13 +1639,13 @@ mod tests {
         writeln!(
             writer,
             "{}",
-            json!({"v":1,"id":aid,"pages":{"pageId":"p","pageCount":2}})
+            json!({"v":1,"id":aid,"pages":{"pageId":17,"pageCount":2}})
         )
         .unwrap();
         for (index, part) in ["{\"answer\":", "42}"].iter().enumerate() {
             let request = read_frame(&mut reader, MAX_FRAME).unwrap();
             assert_eq!(request["method"], "daemon:result-page");
-            assert_eq!(request["args"], json!(["p", index]));
+            assert_eq!(request["args"], json!([17, index]));
             writeln!(
                 writer,
                 "{}",
