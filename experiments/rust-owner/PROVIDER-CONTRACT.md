@@ -49,7 +49,7 @@ asynchronously, and nothing claims a delivery is undone:
 
 ```rust
 fn respond_permission(&mut self, chat: &str, turn: TurnId, answer: AnswerId, request_id: &str, decision: &str) -> Result<(), ProviderError>;
-fn answer_question(&mut self, chat: &str, turn: TurnId, answer: AnswerId, request_id: &str, answers: &Value) -> Result<(), ProviderError>;
+fn answer_question(&mut self, chat: &str, turn: TurnId, answer: AnswerId, request_id: &str, answers: &RawJson) -> Result<(), ProviderError>;
 
 ProviderEvent::AnswerSettled { chat, answer: AnswerId, outcome: AnswerOutcome }
 enum AnswerOutcome { Accepted, NotWaiting, Failed(ProviderError), Uncertain(ProviderError) }
@@ -67,7 +67,8 @@ Adapter side:
      process died or no confirmation came). Use this whenever non-delivery can't be proven.
 3. After an `Uncertain`, the adapter may still send one definitive settlement for the same `AnswerId` if it learns
    more (`Accepted`, `NotWaiting`, `Failed`); the host resolves the kept answer with it.
-4. `turn` is the Chat's latest turn (its session generation); answer within that session only.
+4. `turn` is the turn running in the Chat: a request lives in its turn's run (Node drops a run's approvals and
+   questions with it). With no turn running the host settles `false` at once and never calls the provider.
 5. The host validates first:
    - decision is one of `allow`, `allow-for-chat`, `deny`;
    - answers are `null` or at most 10 question ids with at most 20 strings of 10,000 code units;
@@ -94,6 +95,12 @@ Host side (`ChatHost::respond_permission` / `answer_question` return an `AnswerT
   - A session generation that closes with answers on its way settles them `Uncertain` too: forced end, `Exited`,
     `forget`, quit. Their messages stay, and that generation's kept answers stop blocking, since a new session has no
     such request.
+- **Lifetime.** An answer holds its slot (and blocks retries of its request) only while its turn runs. When that turn
+  ends, and when its session closes (forced end, `Exited` naming its latest turn, `forget`, quit, which release every
+  answer of the Chat up to that turn), answers still on their way settle `Uncertain` and uncertain ones are released.
+  Their messages stay shown. They move to a history (no slot, no block; `MAX_HISTORICAL_ANSWERS`, 1,024, oldest
+  dropped) where a late definitive settlement still resolves them (`AnswerResolved`; proven non-delivery takes the
+  message back). A retry after the turn ended is admitted and the provider says whether anything waits.
 - **Slots.** Answers on their way and kept uncertain answers share one capacity: `ChatHost::answer_capacity`
   (default `ANSWER_CAPACITY`, 256; the runtime may set it lower, e.g. 32).
   - A slot is checked before anything is shown or handed over and taken when the answer is handed over.
@@ -113,7 +120,13 @@ Runtime actor: keep the client's command reply for a `Pending` ticket and answer
 ## JSON boundary
 
 - Provider JSON is raw: `ProviderEvent::Agent { event: RawJson }` and `Started { result: RawJson }` carry plain
-  `serde_json` values, strings as the provider produced them. `ProviderError.message` is a plain string.
+  `serde_json` values, strings as the provider produced them. `ProviderError.message` and the `chat` keys of events
+  are plain strings. Each is encoded once where it enters the host (`deliver`, immediate `Err`s of `start_turn`,
+  `interrupt`, `close_chat`, the answer calls).
+- Outbound is raw too, and typed: `start_turn(turn, request: &RawJson)` and `answer_question(.., answers: &RawJson)`
+  get `RawJson::decode_lossy` of the owner's value (and request ids through `jsjson::decode_text_lossy`). A real
+  U+10FFFE comes back single; an unpaired surrogate from a JavaScript client (a truncated emoji) becomes U+FFFD,
+  which no plain string or CLI pipe carries. Adapters pass these on as they are and never decode again.
 - `ChatHost::deliver` encodes it once (`RawJson::encode`: every string and key through `jsjson::js_string`, a real
   U+10FFFE doubled). After that, a provider string can't read as the `undefined` marker or decode as a lone surrogate.
   Adapters must not jsjson-encode themselves: the runtime's conversion goes.

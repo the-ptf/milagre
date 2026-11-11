@@ -1258,3 +1258,119 @@ fn answer_errors_carry_their_codes() {
     assert_eq!(full.code(), Some(ANSWERS_AT_CAPACITY));
     assert_eq!(StoreError::Invalid("x".into()).code(), None);
 }
+
+/// Handlers-answers review P2-1: a request lives in its turn. Over more turns than slots in one reused session, with
+/// answers that never settle, each turn's end releases its slots (the answers stay shown, uncertain); a late
+/// settlement still resolves them; a retry is blocked while its turn runs and goes to the provider after.
+#[test]
+fn answer_slots_follow_their_turn_in_a_reused_session() {
+    let mut copy = Copy::plain();
+    copy.host.answer_capacity = 32;
+    let chat = copy.chat();
+    let mut first = None;
+    for round in 0..40 {
+        copy.send(&format!("turn {round}"), &format!("c{round}"), json!({}))
+            .unwrap();
+        copy.host.pump();
+        if round == 0 {
+            copy.native();
+        }
+        ask(&mut copy, "q");
+        copy.kiro.state.lock().unwrap().hold_answers = true;
+        let AnswerTicket::Pending(id) = answer(&mut copy, "q", &format!("answer {round}")) else {
+            panic!("round {round}: not admitted")
+        };
+        first.get_or_insert(id);
+        let retry = json!({ "chatId": chat, "requestId": "q", "answers": { "c": ["again"] }, "summary": "again" });
+        assert!(matches!(
+            copy.host.answer_question(&retry),
+            Err(StoreError::AnswerDeliveryUnknown(_))
+        ));
+        copy.end("turn-completed");
+        assert_eq!(
+            copy.host.answers_in_flight(),
+            0,
+            "round {round}: an ended turn kept its answer slot"
+        );
+    }
+    assert!(
+        user_bodies(&copy.messages()).contains(&"answer 0".to_string()),
+        "an uncertain answer was taken back"
+    );
+    // A late settlement of the first turn's answer still resolves it: proven undelivered, it goes.
+    copy.host.take_notices();
+    copy.kiro.push(ProviderEvent::AnswerSettled {
+        chat: chat.clone(),
+        answer: first.unwrap(),
+        outcome: AnswerOutcome::NotWaiting,
+    });
+    assert!(copy.host.pump().is_empty());
+    assert!(copy.host.take_notices().iter().any(|n| matches!(
+        n,
+        Notice::AnswerResolved {
+            result: AnswerResult::NotWaiting,
+            ..
+        }
+    )));
+    assert!(!user_bodies(&copy.messages()).contains(&"answer 0".to_string()));
+    // After its turn, a request can be answered again: the provider (not a stale slot) says whether anything waits.
+    copy.send("turn 40", "c40", json!({})).unwrap();
+    copy.host.pump();
+    copy.kiro.state.lock().unwrap().hold_answers = false;
+    let asked = handed(&copy);
+    let AnswerTicket::Pending(_) = answer(&mut copy, "q", "late retry") else {
+        panic!("not admitted")
+    };
+    assert_eq!(handed(&copy), asked + 1);
+    // An exit naming the session's latest turn releases what that session still held.
+    copy.kiro.state.lock().unwrap().hold_answers = true;
+    ask(&mut copy, "q2");
+    let AnswerTicket::Pending(_) = answer(&mut copy, "q2", "held") else {
+        panic!("not admitted")
+    };
+    let turn = copy.host.active_turn(&chat).unwrap();
+    copy.kiro.push(ProviderEvent::Exited {
+        chat: chat.clone(),
+        turn,
+        error: ProviderError::new(ProviderErrorKind::Exited, "exited"),
+    });
+    assert!(copy.host.pump().is_empty());
+    assert_eq!(copy.host.answers_in_flight(), 0);
+    // With no turn running, nothing waits: an answer settles false at once.
+    assert_eq!(
+        answer(&mut copy, "q2", "idle"),
+        AnswerTicket::Settled(false)
+    );
+}
+
+/// Handlers-answers review P3: provider error text enters the owner's encoding once (an immediate start refusal, an
+/// interrupt error), and what the owner hands a provider is plain text (a real U+10FFFE single, an unpaired
+/// surrogate from a JavaScript client as U+FFFD).
+#[test]
+fn provider_text_crosses_both_ways_once() {
+    let tricky = "a\u{10FFFE}\u{F0001}b";
+    let mut copy = Copy::plain();
+    copy.kiro.state.lock().unwrap().refuse_next_start = Some(format!("refused {tricky}"));
+    copy.send("one", "c1", json!({})).unwrap();
+    let last = copy.messages().last().cloned().unwrap();
+    assert_eq!(
+        RawJson::decode(&last["body"]).unwrap().0,
+        json!(format!("Agent error: refused {tricky}"))
+    );
+
+    let request = jsjson::parse(r#"{"body":"x","prompt":"cut \ud83d and 􏿾"}"#).unwrap();
+    let mut send = json!({ "projectPath": copy.path(), "sessionId": 1, "provider": "kiro", "model": "m", "clientMessageId": "c2" });
+    send["body"] = request["body"].clone();
+    send["prompt"] = request["prompt"].clone();
+    copy.host.send(&send).unwrap();
+    let handed_prompt = copy.kiro.state.lock().unwrap().turns.last().unwrap()["prompt"].clone();
+    assert_eq!(handed_prompt, json!("cut \u{FFFD} and \u{10FFFE}"));
+
+    copy.host.pump();
+    copy.kiro.state.lock().unwrap().fail_next_interrupt = Some(format!("no {tricky}"));
+    let error = copy.host.interrupt(&copy.chat()).unwrap_err().to_string();
+    assert_eq!(
+        RawJson::decode(&json!(error)).unwrap().0,
+        json!(format!("no {tricky}"))
+    );
+}

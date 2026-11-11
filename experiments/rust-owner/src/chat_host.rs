@@ -218,7 +218,7 @@ pub trait Provider: Send {
     fn start_turn(
         &mut self,
         turn: TurnId,
-        request: &Value,
+        request: &RawJson,
     ) -> std::result::Result<(), ProviderError>;
     fn interrupt(&mut self, chat: &str, turn: TurnId) -> std::result::Result<(), ProviderError>;
     fn respond_permission(
@@ -235,7 +235,7 @@ pub trait Provider: Send {
         turn: TurnId,
         answer: AnswerId,
         request_id: &str,
-        answers: &Value,
+        answers: &RawJson,
     ) -> std::result::Result<(), ProviderError>;
     fn close_chat(&mut self, chat: &str, turn: TurnId) -> std::result::Result<(), ProviderError>;
     fn shutdown(&mut self);
@@ -271,6 +271,8 @@ pub struct MockState {
     pub fail_next_answer: Option<String>,
     /// The next answer handed over ends with its delivery unknown.
     pub uncertain_next_answer: Option<String>,
+    /// The next start is refused at once (`Err` from `start_turn`).
+    pub refuse_next_start: Option<String>,
 }
 
 impl MockState {
@@ -366,10 +368,14 @@ impl Provider for MockProvider {
     fn start_turn(
         &mut self,
         turn: TurnId,
-        request: &Value,
+        request: &RawJson,
     ) -> std::result::Result<(), ProviderError> {
+        let request = &request.0;
         let mut state = self.state.lock().unwrap();
         state.turns.push(request.clone());
+        if let Some(message) = state.refuse_next_start.take() {
+            return Err(ProviderError::new(ProviderErrorKind::Refused, message));
+        }
         let chat = request
             .get("chatId")
             .and_then(Value::as_str)
@@ -425,12 +431,12 @@ impl Provider for MockProvider {
         _turn: TurnId,
         answer: AnswerId,
         request_id: &str,
-        answers: &Value,
+        answers: &RawJson,
     ) -> std::result::Result<(), ProviderError> {
         let mut state = self.state.lock().unwrap();
         state
             .answers
-            .push(json!({ "chat": chat, "requestId": request_id, "answers": answers }));
+            .push(json!({ "chat": chat, "requestId": request_id, "answers": answers.0 }));
         state.settle(chat, answer);
         Ok(())
     }
@@ -555,6 +561,8 @@ const FORMER_WORKTREE: &str = "This Run's Worktree was removed because the Run l
 const PERMISSION_MODES: [&str; 3] = ["ask", "auto", "full"];
 /// Longest answers summary (UTF-16 code units) shown as the user's message: 20 questions of 10,000 plus labels.
 pub const MAX_ANSWER_SUMMARY: usize = 210_000;
+/// Answers released from ended turns kept for a late definitive settlement (no slot); past this the oldest go.
+pub const MAX_HISTORICAL_ANSWERS: usize = 1_024;
 /// Default slots for answers on their way plus answers with an unknown delivery (`ChatHost::answer_capacity`).
 pub const ANSWER_CAPACITY: usize = 256;
 /// The error code a command rejects with when every answer slot is taken ([`StoreError::code`] of `AnswersAtCapacity`).
@@ -678,6 +686,9 @@ pub struct ChatHost {
     /// Answers told `Uncertain`, kept until a definitive settlement or their session generation closes; each blocks a
     /// retry of its request in that generation and holds a slot of `answer_capacity`.
     uncertain_answers: BTreeMap<AnswerId, PendingAnswer>,
+    /// Answers whose turn ended or session closed while their delivery was unknown: no slot, no retry block, kept
+    /// (bounded by `MAX_HISTORICAL_ANSWERS`, oldest dropped) only so a late definitive settlement can resolve them.
+    historical_answers: BTreeMap<AnswerId, PendingAnswer>,
     /// Slots for answers on their way plus answers with an unknown delivery (default `ANSWER_CAPACITY`); at capacity a
     /// new answer is refused before anything is shown or handed over.
     pub answer_capacity: usize,
@@ -720,6 +731,7 @@ impl ChatHost {
             next_answer: 0,
             pending_answers: BTreeMap::new(),
             uncertain_answers: BTreeMap::new(),
+            historical_answers: BTreeMap::new(),
             answer_capacity: ANSWER_CAPACITY,
             answer_grace_ms: ANSWER_GRACE_MS,
             queue_turns: HashMap::new(),
@@ -1549,7 +1561,7 @@ impl ChatHost {
             .insert(chat.to_string(), (turn, provider.to_string()));
         self.latest.insert(chat.to_string(), turn);
         let outcome = match self.providers.get_mut(provider) {
-            Some(adapter) => adapter.start_turn(turn, request),
+            Some(adapter) => adapter.start_turn(turn, &RawJson::decode_lossy(request)),
             None => Err(ProviderError::new(
                 ProviderErrorKind::Unavailable,
                 format!("No {provider} provider adapter is registered with the Rust owner."),
@@ -1558,7 +1570,12 @@ impl ChatHost {
         match outcome {
             Ok(()) => Some(turn),
             Err(error) => {
-                self.fail_turn(chat, turn, &error.message, "a turn that couldn't start");
+                self.fail_turn(
+                    chat,
+                    turn,
+                    &jsjson::js_string(&error.message),
+                    "a turn that couldn't start",
+                );
                 None
             }
         }
@@ -1712,6 +1729,38 @@ impl ChatHost {
 
     /// Handles one provider event (pushed by an adapter, or taken by `pump`).
     pub fn deliver(&mut self, event: ProviderEvent) -> Result<()> {
+        // Chat keys come back as the adapter got them (raw): into the owner's encoding too.
+        let event = match event {
+            ProviderEvent::Started { chat, turn, result } => ProviderEvent::Started {
+                chat: jsjson::js_string(&chat),
+                turn,
+                result,
+            },
+            ProviderEvent::StartFailed { chat, turn, error } => ProviderEvent::StartFailed {
+                chat: jsjson::js_string(&chat),
+                turn,
+                error,
+            },
+            ProviderEvent::Agent { chat, turn, event } => ProviderEvent::Agent {
+                chat: jsjson::js_string(&chat),
+                turn,
+                event,
+            },
+            ProviderEvent::Exited { chat, turn, error } => ProviderEvent::Exited {
+                chat: jsjson::js_string(&chat),
+                turn,
+                error,
+            },
+            ProviderEvent::AnswerSettled {
+                chat,
+                answer,
+                outcome,
+            } => ProviderEvent::AnswerSettled {
+                chat: jsjson::js_string(&chat),
+                answer,
+                outcome,
+            },
+        };
         match event {
             ProviderEvent::Started { chat, turn, result } => {
                 if self.active_turn(&chat) != Some(turn) {
@@ -1737,7 +1786,7 @@ impl ChatHost {
             }
             // The one place provider JSON enters the owner's encoding (see jsjson::RawJson).
             ProviderEvent::Agent { chat, turn, event } => {
-                self.receive(&chat, turn, &event.encode())
+                self.receive(&chat, turn, &event.into_encoded())
             }
             ProviderEvent::AnswerSettled {
                 chat,
@@ -1745,16 +1794,18 @@ impl ChatHost {
                 outcome,
             } => self.settle_answer(&chat, answer, outcome),
             ProviderEvent::Exited { chat, turn, error } => {
+                // That session is gone (whether it ran a turn or idled): its answers first (with its reason), then its
+                // turn; a newer turn is untouched.
+                self.fail_answers(&chat, Some(turn), &error.message);
+                let message = jsjson::js_string(&error.message);
                 let mut result = Ok(());
                 if self.active_turn(&chat) == Some(turn) {
-                    let event = json!({ "type": "turn-failed", "message": jsjson::js_string(&error.message) });
+                    let event = json!({ "type": "turn-failed", "message": message });
                     result = self.receive(&chat, turn, &event);
                 }
-                // That session is gone (whether it ran a turn or idled); a newer turn is untouched.
                 if self.latest.get(&chat) == Some(&turn) {
                     self.latest.remove(&chat);
                 }
-                self.fail_answers(&chat, Some(turn), &error.message);
                 result
             }
         }
@@ -1821,6 +1872,12 @@ impl ChatHost {
                 self.active.remove(chat);
                 self.deadlines.remove(chat);
                 self.queue_started(turn, Value::Null);
+                // Its requests ended with it: their answers stop holding slots.
+                self.fail_answers(
+                    chat,
+                    Some(turn),
+                    "The turn ended before the agent confirmed the answer.",
+                );
             }
             // Kept only while it is still the running turn's end: a stale one is dropped for good.
             Err(_) if terminal && running == Some(turn) => {
@@ -1888,7 +1945,7 @@ impl ChatHost {
                     self.notice(Notice::Failed {
                         chat: chat.into(),
                         what: "closing the agent's session".into(),
-                        error: error.message,
+                        error: jsjson::js_string(&error.message),
                     });
                 }
             }
@@ -2334,7 +2391,7 @@ impl ChatHost {
         match self.providers.get_mut(&provider) {
             Some(adapter) => adapter
                 .interrupt(chat, turn)
-                .map_err(|error| StoreError::Invalid(error.message))?,
+                .map_err(|error| StoreError::Invalid(jsjson::js_string(&error.message)))?,
             None => {
                 return Err(StoreError::Invalid(format!(
                     "No {provider} provider adapter is registered with the Rust owner."
@@ -2375,7 +2432,7 @@ impl ChatHost {
                     self.notice(Notice::Failed {
                         chat: chat.clone(),
                         what: "closing the agent's session".into(),
-                        error: error.message,
+                        error: jsjson::js_string(&error.message),
                     });
                 }
             }
@@ -2562,23 +2619,11 @@ impl ChatHost {
         self.states.send_status(project, client_message_id)
     }
 
-    /// The session a Chat has here (SessionManager's `sessions.get(chatId)`): its latest turn's generation and the
-    /// provider that ran it. None when no turn ran here, or that session was closed: answers to it settle `false` at
-    /// once, as Node's do.
+    /// The turn an answer belongs to: the one running in the Chat, and its provider. A request lives in its turn's
+    /// run (Node drops a run's approvals and questions with it), so with no turn running nothing waits on an answer:
+    /// it settles `false` at once, as Node's do.
     fn session_of(&self, chat: &str) -> Option<(TurnId, String)> {
-        let turn = *self.latest.get(chat)?;
-        let provider = self
-            .active
-            .get(chat)
-            .map(|(_, provider)| provider.clone())
-            .or_else(|| {
-                self.turns
-                    .get(chat)
-                    .and_then(|turn| turn.get("provider"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })?;
-        Some((turn, provider))
+        self.active.get(chat).cloned()
     }
 
     /// agent:respond-permission (runtime.cjs respondPermission, SessionManager.respondToPermission): the user's
@@ -2615,7 +2660,13 @@ impl ChatHost {
         self.admit_answer(&chat, turn, &id)?;
         let answer = self.next_answer_id();
         self.provider(&provider)?
-            .respond_permission(&chat, turn, answer, &id, decision)
+            .respond_permission(
+                &chat,
+                turn,
+                answer,
+                &jsjson::decode_text_lossy(&id),
+                decision,
+            )
             .map_err(|error| StoreError::Invalid(jsjson::js_string(&error.message)))?;
         self.hold_answer(answer, &chat, turn, &id, None);
         Ok(AnswerTicket::Pending(answer))
@@ -2683,16 +2734,18 @@ impl ChatHost {
             });
             return Ok(());
         }
-        if let Some(kept) = self
+        let kept = self
             .uncertain_answers
             .get(&answer)
+            .or_else(|| self.historical_answers.get(&answer))
             .filter(|kept| kept.chat == chat)
-            .cloned()
-        {
+            .cloned();
+        if let Some(kept) = kept {
             if matches!(result, AnswerResult::Uncertain(_)) {
                 return Ok(());
             }
             self.uncertain_answers.remove(&answer);
+            self.historical_answers.remove(&answer);
             if result != AnswerResult::Accepted {
                 self.take_back_or_tell(chat, kept.message);
             }
@@ -2709,8 +2762,8 @@ impl ChatHost {
         )))
     }
 
-    /// Kept until a definitive settlement or its generation closes; never evicted (eviction would let the same request
-    /// be answered twice while that session lives). Its slot stays taken (see `admit_answer`).
+    /// Kept until a definitive settlement or its turn ends (or its session closes); never evicted (eviction would let
+    /// the same request be answered twice while it lives). Its slot stays taken (see `admit_answer`).
     fn keep_uncertain(&mut self, answer: AnswerId, pending: PendingAnswer) {
         self.uncertain_answers.insert(answer, pending);
     }
@@ -2749,11 +2802,14 @@ impl ChatHost {
         None
     }
 
-    /// Settles the answers still waiting on a session generation that is gone (closed, exited, forced, quit): their
-    /// delivery is unknown, so they stay shown. Answers kept as uncertain for it stop blocking retries.
-    fn fail_answers(&mut self, chat: &str, turn: Option<TurnId>, message: &str) {
+    /// Releases the answers of a Chat's turns up to `upto` (all of them with None) once their requests can't be
+    /// waiting any more: the turn ended (its run, approvals and questions with it), or its session closed (forced end,
+    /// `Exited`, close, quit). Answers still on their way settle `Uncertain` (their messages stay); uncertain ones stop
+    /// holding a slot and blocking retries. Both move to a bounded history, where a late definitive settlement still
+    /// resolves them (taking the message back when it proves nothing was delivered).
+    fn fail_answers(&mut self, chat: &str, upto: Option<TurnId>, message: &str) {
         let in_scope = |pending: &PendingAnswer| {
-            pending.chat == chat && turn.is_none_or(|turn| pending.turn == turn)
+            pending.chat == chat && upto.is_none_or(|upto| pending.turn <= upto)
         };
         let doomed: Vec<AnswerId> = self
             .pending_answers
@@ -2765,7 +2821,19 @@ impl ChatHost {
             let error = ProviderError::new(ProviderErrorKind::Exited, message);
             let _ = self.settle_answer(chat, answer, AnswerOutcome::Uncertain(error));
         }
-        self.uncertain_answers.retain(|_, kept| !in_scope(kept));
+        let released: Vec<AnswerId> = self
+            .uncertain_answers
+            .iter()
+            .filter(|(_, kept)| in_scope(kept))
+            .map(|(answer, _)| *answer)
+            .collect();
+        for answer in released {
+            let kept = self.uncertain_answers.remove(&answer).expect("present");
+            self.historical_answers.insert(answer, kept);
+        }
+        while self.historical_answers.len() > MAX_HISTORICAL_ANSWERS {
+            self.historical_answers.pop_first();
+        }
     }
 
     fn provider(&mut self, name: &str) -> Result<&mut Box<dyn Provider>> {
@@ -2876,7 +2944,13 @@ impl ChatHost {
                     self.provider(&provider)
                         .and_then(|adapter| {
                             adapter
-                                .answer_question(&chat, turn, answer, &id, &given)
+                                .answer_question(
+                                    &chat,
+                                    turn,
+                                    answer,
+                                    &jsjson::decode_text_lossy(&id),
+                                    &RawJson::decode_lossy(&given),
+                                )
                                 .map_err(|error| {
                                     StoreError::Invalid(jsjson::js_string(&error.message))
                                 })
