@@ -153,6 +153,15 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       assert.ok(await evaluate('!!document.querySelector("[data-onboarding-intro][data-playing]")'), "the intro plays once the splash has gone");
       const simple = await evaluate('!!window.milagreLaunch.simpleIntro || matchMedia("(prefers-reduced-motion: reduce)").matches');
       if (args.includes("--disable-gpu") || reducedMotion) assert.ok(simple, "software rendering and reduced motion use the simple intro");
+      else if (process.platform === "darwin") assert.equal(simple, false, "a GPU Mac keeps the animated Dawn intro");
+      else if (process.platform === "linux") {
+        console.log(`Linux Dawn decision: simpleIntro=${simple}, DISPLAY=${process.env.DISPLAY ?? "none"}`);
+        // Package checks use xvfb with no GPU device; a physical GPU machine can keep the animation.
+        const devices = await fs.readdir("/dev/dri").catch(() => []);
+        if (process.env.DISPLAY && !devices.some((name) => /^(card|renderD)\d+$/.test(name))) {
+          assert.equal(simple, true, "xvfb without a GPU uses static Dawn");
+        }
+      }
       assert.equal(await evaluate('document.querySelector("[data-onboarding-intro]").hasAttribute("data-simple")'), simple);
       assert.equal(
         await evaluate('!!document.querySelector("[data-onboarding-intro] feTurbulence")'),

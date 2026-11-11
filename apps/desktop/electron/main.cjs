@@ -19,6 +19,7 @@ const {
 } = require("electron");
 const path = require("node:path");
 const { readFileSync } = require("node:fs");
+const decideSimpleIntro = require("./intro-motion.cjs").createIntroMotionDecision({ app, platform: process.platform });
 
 // Whether this computer had opened a Project before this launch: recent-projects.json lists one, even a folder deleted
 // since. Onboarding plays its first-launch intro only when it hadn't. Read once, the first time a window opens, which is
@@ -116,14 +117,6 @@ async function startDesktop() {
   const { createFloatingInbox } = require("./floating-inbox.cjs");
   background.start();
   await app.whenReady();
-  // Decide before the first renderer paint: Dawn's full-window SVG filters can stall software rasterization.
-  // "complete" waits for GPU initialization; "basic" can still report the initial software defaults on a GPU Mac.
-  const simpleIntro = await app.getGPUInfo("complete").then(
-    (info) =>
-      /** @type {{ auxAttributes?: { softwareRendering?: boolean } }} */ (info).auxAttributes?.softwareRendering === true ||
-      !app.getGPUFeatureStatus().gpu_compositing?.startsWith("enabled"),
-    () => true,
-  );
   const preferences = require("./preferences.cjs").createPreferencesStore(path.join(app.getPath("userData"), "preferences.json"));
   const hiddenChats = require("./hidden-chats.cjs").createHiddenChats(preferences);
   /** @type {(() => void) | null} */
@@ -508,6 +501,8 @@ async function startDesktop() {
     createMediaHandler((url, options) => net.fetch(url, options)),
   );
   app.setName("Milagre");
+  // Returning users never wait on GPU discovery. First launch waits at most 1.5 s, after preferences are ready.
+  const simpleIntro = await decideSimpleIntro(hasOpenedProjectsBefore());
   // Before the window: closing it only hides it, so a Dock click during the connect has to bring it back.
   app.on("activate", () => {
     if (floating.owns(BrowserWindow.getFocusedWindow())) return;
