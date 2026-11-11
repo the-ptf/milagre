@@ -952,3 +952,72 @@ fn retirement_io_faults_keep_exact_locks_and_never_claim_secret_erasure() {
         p.destroy().unwrap();
     }
 }
+
+#[test]
+fn quiescence_abort_and_drop_do_not_write_and_terminal_fault_keeps_both_locks() {
+    use crate::persistent::{OpenedAuthority, PersistentAuthority};
+    let _disk_test = testing_lock();
+    for mode in 0..4 {
+        let mut p = profile();
+        let mut a = match PersistentAuthority::resume(
+            p.acquire_writer().unwrap(),
+            Default::default(),
+            &mut OsRng,
+        ) {
+            OpenedAuthority::Ready(a) => a,
+            _ => panic!("ready"),
+        };
+        let running = saved(&p);
+        a.quiesce_for_join().unwrap();
+        assert_eq!(saved(&p), running);
+        both_locks_are_held(&p.core.root);
+        match mode {
+            0 => {
+                drop(a);
+                assert_eq!(saved(&p), running);
+            }
+            1 => {
+                let guard = a.abort_without_commit();
+                assert_eq!(saved(&p), running);
+                both_locks_are_held(&p.core.root);
+                guard.release();
+                assert_eq!(saved(&p), running);
+            }
+            2 => {
+                a.fail_next_terminal_for_test(IoStage::SyncDirectory);
+                let (fault, guard) = match a.close_for_restart() {
+                    Err(e) => e.into_parts(),
+                    _ => panic!("typed terminal fault"),
+                };
+                assert!(matches!(
+                    fault,
+                    StoreFault::Io {
+                        stage: IoStage::SyncDirectory,
+                        ..
+                    }
+                ));
+                both_locks_are_held(&p.core.root);
+                guard.release();
+            }
+            _ => {
+                let receipt = a.close_for_restart().unwrap_or_else(|_| panic!("clean"));
+                assert!(receipt.diagnostics().fault.is_none());
+                assert_ne!(saved(&p), running);
+            }
+        }
+        match PersistentAuthority::resume(
+            p.acquire_writer().unwrap(),
+            Default::default(),
+            &mut OsRng,
+        ) {
+            OpenedAuthority::Ready(a) if mode == 3 => {
+                a.close_for_restart().unwrap_or_else(|_| panic!("clean"));
+            }
+            OpenedAuthority::Quarantined(q) if mode != 3 => {
+                q.release();
+            }
+            _ => panic!("eligibility must follow explicit terminal acknowledgment only"),
+        }
+        p.destroy().unwrap();
+    }
+}

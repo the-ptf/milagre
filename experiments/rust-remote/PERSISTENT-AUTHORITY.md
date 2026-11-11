@@ -37,6 +37,6 @@ Run Cargo tests, strict all-target Clippy, formatting and the six existing Node 
 
 ## Remaining gates
 
-This synchronous API does not extend pending carrier deadlines while desktop approval waits; that bounded wait/lifecycle wiring remains a supervisor responsibility. Admission lockout diagnostics are exposed through `admission_status`; relay sources still have no invented per-phone IP identity.
+The crate-private composition hooks now bind approval tickets to exact carriers and derive protected approval deadlines; see [PERSISTENT-COMPOSITION.md](PERSISTENT-COMPOSITION.md). Public worker/queue lifecycle wiring remains a supervisor responsibility. Admission lockout diagnostics are exposed through `admission_status`; relay sources still have no invented per-phone IP identity.
 
 Persistent supervisor integration, public broker transport, broker-loss/reboot recovery, real HTTP Claim/cancellation, network carriers/listeners, relay/host lifecycle, live pairing and actual phone interoperability remain unimplemented. Owner queue reservation versus duplicate DrainWork, Disconnect saturation and fairness remain separate P3 gates. No existing keys/profile/data, mobile code/native fingerprint, production host, daemon writer or push is involved.

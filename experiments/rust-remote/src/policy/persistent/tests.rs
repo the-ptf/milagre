@@ -728,3 +728,6 @@ fn snapshot_dependent_record_limit_rejection_can_be_corrected() {
     assert_eq!(store(&mut a).state.devices.len(), 2);
     clean(a);
 }
+
+#[path = "composition_tests.rs"]
+mod composition_tests;

@@ -165,7 +165,7 @@ impl MemoryCarrier {
             .unwrap_or_else(|e| e.into_inner())
             .unknown_next = true;
     }
-    fn bind(&self) -> Result<()> {
+    pub(crate) fn bind(&self) -> Result<()> {
         let mut m = self.0.lock().unwrap_or_else(|e| e.into_inner());
         if m.bound || m.closed {
             return Err(Error::Stale);
@@ -173,14 +173,30 @@ impl MemoryCarrier {
         m.bound = true;
         Ok(())
     }
-    fn close(&self) {
+    /// Install once, before transferring replies. Epoch lock always precedes mailbox lock.
+    pub(crate) fn bind_access(&self, access: policy::Access) -> crate::Result<()> {
+        access.with(|| {
+            let mut m = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            if !m.bound || m.closed || m.access.is_some() {
+                return Err(crate::Error::Unauthorized);
+            }
+            m.access = Some(access.clone());
+            Ok(())
+        })
+    }
+    pub(crate) fn close(&self) {
         let mut m = self.0.lock().unwrap_or_else(|e| e.into_inner());
         m.closed = true;
         m.access = None;
         m.packets.clear();
         m.bytes = 0;
     }
-    fn deliver(&self, bytes: Vec<u8>, lease: Reservation, limits: Limits) -> crate::Result<()> {
+    pub(crate) fn deliver(
+        &self,
+        bytes: Vec<u8>,
+        lease: Reservation,
+        limits: Limits,
+    ) -> crate::Result<()> {
         let mut m = self.0.lock().unwrap_or_else(|e| e.into_inner());
         if m.closed {
             return Err(crate::Error::Unauthorized);
@@ -898,12 +914,7 @@ impl Actor {
             let access = session.access();
             self.registry.establish(h, session, self.clock.now())?;
             let carrier = self.carriers.get_mut(&h.carrier()).unwrap();
-            carrier
-                .memory
-                .0
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .access = Some(access);
+            carrier.memory.bind_access(access)?;
             Ok(())
         })();
         if result.is_err() {

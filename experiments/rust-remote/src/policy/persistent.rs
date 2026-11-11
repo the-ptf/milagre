@@ -1,5 +1,6 @@
 //! Fresh-capability restart under a retained synthetic broker. No existing-store
 //! constructor, worker launcher, network listener, or supervisor integration.
+pub(crate) mod composition;
 use super::*;
 use crate::{
     registry::{self, CloseReason, Handle, Registry, WorkCursor, WorkPage, WorkToken},
@@ -8,6 +9,7 @@ use crate::{
         Released, StoreDiagnostics, StoreFault, WriterLease,
     },
 };
+use composition::Phase;
 use std::collections::BTreeSet;
 
 #[derive(Clone, Copy, Default)]
@@ -304,6 +306,8 @@ fn decode_key(key: &str) -> Option<[u8; 32]> {
 /// Owns the shared policy and its bound registry. Neither can be extracted.
 /// All operations are synchronous and exclusive; this layer owns no thread/task.
 pub struct PersistentAuthority {
+    phase: Phase,
+    pending_carriers: BTreeMap<u64, composition::Binding>,
     core: Option<TemporaryAuthority>,
     registry: Option<Registry>,
     pid: u32,
@@ -407,6 +411,8 @@ impl PersistentAuthority {
             admission: Admission::new(l.admission),
         };
         OpenedAuthority::Ready(Self {
+            phase: Phase::Running,
+            pending_carriers: BTreeMap::new(),
             core: Some(core),
             registry: Some(registry),
             pid: std::process::id(),
@@ -416,11 +422,27 @@ impl PersistentAuthority {
         if self.pid != std::process::id() {
             return Err(StoreFault::WrongProcess.into());
         }
+        if self.phase != Phase::Running
+            || self
+                .core
+                .as_ref()
+                .is_none_or(|c| c.retired || c.revocations.is_poisoned())
+        {
+            return Err(PolicyError::Denied);
+        }
         Ok(())
     }
     fn check_registry(&self) -> registry::Result<()> {
         if self.pid != std::process::id() {
             return Err(crate::Error::Unauthorized.into());
+        }
+        if self.phase != Phase::Running
+            || self
+                .core
+                .as_ref()
+                .is_none_or(|c| c.retired || c.revocations.is_poisoned())
+        {
+            return Err(registry::RegistryError::Revoked);
         }
         Ok(())
     }
@@ -447,8 +469,9 @@ impl PersistentAuthority {
     }
     fn fail_closed<T>(&mut self, result: super::Result<T>) -> super::Result<T> {
         if self.core().retired {
-            self.registry.as_mut().unwrap().retire();
+            self.abort_in_place();
         }
+        self.reconcile_bound();
         result
     }
     pub fn host_public_key(&self) -> crate::PublicKey {
@@ -486,7 +509,9 @@ impl PersistentAuthority {
         rng: &mut (impl RngCore + CryptoRng),
     ) -> super::Result<Ticket> {
         self.check_policy()?;
-        self.core().begin(source, hello, now, rng)
+        let result = self.core().begin(source, hello, now, rng);
+        self.reconcile_bound();
+        result
     }
     /// Explicit trusted owner action; this run starts with desktop access disabled.
     pub fn enable_desktop(&mut self) -> super::Result<()> {
@@ -511,7 +536,9 @@ impl PersistentAuthority {
     }
     pub fn open_carrier(&mut self, id: u64, now: u64) -> registry::Result<Handle> {
         self.check_registry()?;
-        self.registry.as_mut().unwrap().open_carrier(id, now)
+        let result = self.registry.as_mut().unwrap().open_carrier(id, now);
+        self.reconcile_bound();
+        result
     }
     /// Ticket authorization and establishment stay inside the same owning boundary.
     /// Any failure closes this pending carrier; no reply or Session escapes.
@@ -519,8 +546,16 @@ impl PersistentAuthority {
         &mut self,
         handle: &Handle,
         ticket: Ticket,
-        mut now: impl FnMut() -> u64,
+        now: impl FnMut() -> u64,
     ) -> std::result::Result<(), PersistentError> {
+        self.complete_access(handle, ticket, now).map(|_| ())
+    }
+    fn complete_access(
+        &mut self,
+        handle: &Handle,
+        ticket: Ticket,
+        mut now: impl FnMut() -> u64,
+    ) -> std::result::Result<Access, PersistentError> {
         self.check_policy()?;
         if let Err(error) = self.registry.as_mut().unwrap().pending(handle, now()) {
             let _ = self.core().cancel(ticket);
@@ -532,11 +567,12 @@ impl PersistentAuthority {
         }
         let result = (|| {
             let session = self.core().complete(ticket, &mut now)?;
+            let access = session.access();
             self.registry
                 .as_mut()
                 .unwrap()
                 .establish(handle, session, now())?;
-            Ok(())
+            Ok(access)
         })();
         if result.is_err() {
             self.registry
@@ -545,7 +581,7 @@ impl PersistentAuthority {
                 .close(handle, CloseReason::Protocol);
         }
         if self.core().retired {
-            self.registry.as_mut().unwrap().retire();
+            self.abort_in_place();
         }
         result
     }
@@ -562,10 +598,13 @@ impl PersistentAuthority {
         if self.check_registry().is_err() {
             return false;
         }
-        self.registry
+        let closed = self
+            .registry
             .as_mut()
             .unwrap()
-            .close(handle, CloseReason::Disconnected)
+            .close(handle, CloseReason::Disconnected);
+        self.reconcile_bound();
+        closed
     }
     pub fn receive_request(
         &mut self,
@@ -626,8 +665,15 @@ impl PersistentAuthority {
     }
     pub fn tick(&mut self, now: u64) -> std::result::Result<Vec<WorkToken>, PersistentError> {
         self.check_policy()?;
-        self.core().expire(now)?;
-        Ok(self.registry.as_mut().unwrap().tick(now)?)
+        let result = (|| {
+            self.core().expire(now)?;
+            Ok(self.registry.as_mut().unwrap().tick(now)?)
+        })();
+        if result.is_err() {
+            self.abort_in_place();
+        }
+        self.reconcile_bound();
+        result
     }
     pub fn diagnostics(&self) -> StoreDiagnostics {
         match &self.core.as_ref().unwrap().storage {
@@ -646,10 +692,12 @@ impl PersistentAuthority {
                 stopped: self.abandon_inherited(),
             });
         }
-        // Revoke every externally retained Access first, then cancel/drop owned work.
-        let already_stopped = self.core().retired;
-        self.core().retire();
-        self.registry.as_mut().unwrap().retire();
+        if let Err(fault) = self.quiesce_for_join() {
+            return Err(CloseFailure {
+                fault,
+                stopped: self.abort_without_commit(),
+            });
+        }
         let mut core = self.core.take().unwrap();
         let RecordStore::Persistent(mut store) =
             std::mem::replace(&mut core.storage, RecordStore::Closed)
@@ -661,9 +709,6 @@ impl PersistentAuthority {
         let result = (|| {
             if let Some(fault) = store.fault {
                 return Err(fault);
-            }
-            if already_stopped {
-                return Err(StoreFault::DirtyRun);
             }
             let mut next = store.state.clone();
             increment(&mut next.revision)?;
