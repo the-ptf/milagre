@@ -573,12 +573,17 @@ impl Provider for ClaudeFixture {
         Ok(())
     }
     fn close_chat(&mut self, chat: &str, turn: TurnId) -> Result<(), ProviderError> {
-        let s = self
+        if self
             .slots
             .get(chat)
-            .filter(|s| s.latest.load(Ordering::Acquire) == turn.0)
-            .ok_or_else(|| refused("The fixture session generation is gone"))?;
-        s.close.send_replace(true);
+            .is_none_or(|slot| slot.latest.load(Ordering::Acquire) != turn.0)
+        {
+            return Err(refused("The fixture session generation is gone"));
+        }
+        // Detach the captured slot at admission. Its worker retains the profile and
+        // reaps independently; a new turn gets a fresh session and MCP registration.
+        let slot = self.slots.remove(chat).expect("generation checked");
+        slot.close.send_replace(true);
         Ok(())
     }
     fn respond_permission(

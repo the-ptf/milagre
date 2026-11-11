@@ -20,14 +20,16 @@ pub(crate) struct SharedContent {
     owner: Arc<ContentOwner>,
     project: String,
     active: Arc<AtomicBool>,
-    opened: Arc<AtomicBool>,
-    generation: Arc<AtomicU64>,
+    scope: Arc<AtomicU64>,
+    skills: PathBuf,
     feedback: Arc<Mutex<Vec<Value>>>,
 }
-fn guard(active: Arc<AtomicBool>, opened: Option<Arc<AtomicBool>>) -> ActiveCheck {
+fn guard(active: Arc<AtomicBool>, scope: Option<Arc<AtomicU64>>) -> ActiveCheck {
     Arc::new(move || {
         if active.load(Ordering::Acquire)
-            && opened.as_ref().is_none_or(|v| v.load(Ordering::Acquire))
+            && scope
+                .as_ref()
+                .is_none_or(|v| v.load(Ordering::Acquire) & 1 == 1)
         {
             Ok(())
         } else {
@@ -49,9 +51,32 @@ impl SharedContent {
     ) -> Result<Arc<Self>, Error> {
         let project = project.to_string_lossy().into_owned();
         let active = Arc::new(AtomicBool::new(true));
-        let opened = Arc::new(AtomicBool::new(false));
-        let resolver_guard = guard(active.clone(), Some(opened.clone()));
+        let scope = Arc::new(AtomicU64::new(0));
+        let resolver_guard = guard(active.clone(), Some(scope.clone()));
         let resolved = project.clone();
+        let skills = isolation
+            .project(std::path::Path::new("bundled-skills"))
+            .map_err(|_| {
+                Error::coded(
+                    "FIXTURE_SKILLS_FAILED",
+                    "Could not create the private empty skills directory",
+                )
+            })?;
+        if std::fs::read_dir(&skills)
+            .map_err(|_| {
+                Error::coded(
+                    "FIXTURE_SKILLS_FAILED",
+                    "Could not inspect the private skills directory",
+                )
+            })?
+            .next()
+            .is_some()
+        {
+            return Err(Error::coded(
+                "FIXTURE_SKILLS_FAILED",
+                "The fixture skills directory must be empty",
+            ));
+        }
         let owner = ContentOwner::open(
             isolation,
             PathBuf::from("artifacts"),
@@ -75,8 +100,8 @@ impl SharedContent {
             owner,
             project,
             active,
-            opened,
-            generation: Arc::new(AtomicU64::new(0)),
+            scope,
+            skills,
             feedback: Arc::new(Mutex::new(Vec::new())),
         }))
     }
@@ -85,18 +110,28 @@ impl SharedContent {
         self.feedback.lock().unwrap().clone()
     }
     pub(crate) fn opened(&self, value: bool) {
-        if !value {
-            self.generation.fetch_add(1, Ordering::AcqRel);
+        if value {
+            self.scope.fetch_or(1, Ordering::AcqRel);
+        } else if self
+            .scope
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+                state.checked_add(2).map(|next| next & !1)
+            })
+            .is_err()
+        {
+            // Generation exhaustion permanently revokes authority; never wrap to an old grant.
+            self.revoke();
         }
-        self.opened.store(value, Ordering::Release);
     }
     fn caller_guard(&self) -> ActiveCheck {
-        let check = guard(self.active.clone(), Some(self.opened.clone()));
-        let generation = self.generation.clone();
-        let expected = generation.load(Ordering::Acquire);
+        let active = self.active.clone();
+        let scope = self.scope.clone();
+        let expected = scope.load(Ordering::Acquire);
         Arc::new(move || {
-            check()?;
-            if generation.load(Ordering::Acquire) != expected {
+            if !active.load(Ordering::Acquire)
+                || expected & 1 == 0
+                || scope.load(Ordering::Acquire) != expected
+            {
                 return Err(Error::coded(
                     "FIXTURE_SCOPE_REVOKED",
                     "The fixture grant belongs to a closed Project generation",
@@ -133,7 +168,7 @@ impl SharedContent {
             designs: true,
             kits: true,
             design_scope: DesignScope::All,
-            bundled_skills: PathBuf::from(&self.project),
+            bundled_skills: self.skills.clone(),
             assert_active: self.caller_guard(),
         };
         self.owner.session(caller)
@@ -212,6 +247,8 @@ mod tests {
         let peer = format!("{}#2", project.display());
         assert!(content.dispatcher(&chat).is_err());
         content.opened(true);
+        assert_ne!(content.skills, project);
+        assert_eq!(std::fs::read_dir(&content.skills).unwrap().count(), 0);
         let old = content.dispatcher(&chat).unwrap();
         let other = content.dispatcher(&peer).unwrap();
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -264,6 +301,26 @@ mod tests {
         let mut installed = options.launch.allowed_tools.clone();
         installed.sort();
         assert_eq!(installed, expected);
+        let (send, receive) = std::sync::mpsc::sync_channel(0);
+        let (release, resume) = std::sync::mpsc::sync_channel(0);
+        let issuer = content.clone();
+        let issuing = std::thread::spawn(move || {
+            for _ in 0..64 {
+                send.send(issuer.caller_guard()).unwrap();
+                resume.recv().unwrap();
+            }
+        });
+        for _ in 0..64 {
+            let before_close = receive.recv().unwrap();
+            content.opened(false);
+            let while_closed = content.caller_guard();
+            content.opened(true);
+            assert!(before_close().is_err());
+            assert!(while_closed().is_err());
+            assert!(content.caller_guard()().is_ok());
+            release.send(()).unwrap();
+        }
+        issuing.join().unwrap();
         content.shutdown();
         assert_eq!(
             runtime.block_on(new.call("artifact_list", &json!({})))["isError"],

@@ -181,9 +181,6 @@ fn cancelled_receipt_after_callback_keeps_delivery_uncertain() {
         )
     });
     p.close_chat("fixture", TurnId(1)).unwrap();
-    assert!(p
-        .start_turn(TurnId(2), &RawJson((request(&p)).clone()))
-        .is_err());
     assert!(monitor.wait_stopped(Duration::from_secs(3)));
     let events = p.take_events();
     assert_eq!(

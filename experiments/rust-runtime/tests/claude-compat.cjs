@@ -1,6 +1,6 @@
 // Production Node clients against a Rust owner and checked-in native fake Claude only.
 const assert = require("node:assert/strict");
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync } = require("node:child_process");
 const { once } = require("node:events");
 const fs = require("node:fs");
 const { PNG } = require("pngjs");
@@ -114,7 +114,7 @@ async function scenario(name) {
       const saved = await client.call("chat:messages", [project, 1, { withDetails: true }]);
       const steps = saved.messages.flatMap((message) => message.steps || []);
       for (const tool of ["design_show", "design_apply"]) {
-        const step = steps.find((step) => step.tool === tool);
+        const step = steps.find((candidate) => candidate.tool === tool);
         assert.ok(step, JSON.stringify(saved));
         assert.equal(step.kind, "artifact");
         assert.equal(step.artifact.id, "native-screen");
@@ -128,8 +128,40 @@ async function scenario(name) {
       assert.ok(JSON.stringify(page).includes("Native shared content"));
       assert.deepEqual(await runtime.invoke("artifact:list", [{ chatId: project + "#2" }]), []);
       await assert.rejects(runtime.invoke("artifact:list", [{ chatId: project + "#999" }]));
+      const nativePid = () => Number(execFileSync("pgrep", ["-P", String(child.pid)], { encoding: "utf8" }).trim());
+      const beforeForget = nativePid();
+      assert.ok(Number.isSafeInteger(beforeForget) && beforeForget > 1);
       await client.call("project:forget", [project]);
       await assert.rejects(runtime.invoke("artifact:list", [{ chatId }]));
+      await client.call("project:open", [project]);
+      await runtime.openProject(project);
+      await client.call("chat:send", [
+        {
+          projectPath: project,
+          sessionId: 1,
+          body: "after reopen",
+          clientMessageId: "content-reopen",
+          provider: "claude",
+          model: "sonnet",
+          permissionMode: "ask",
+        },
+      ]);
+      await until("fresh native content session after reopen", () => events.filter((event) => event.type === "turn-completed").length === 2);
+      await until("old native process reaped", () => {
+        try {
+          process.kill(beforeForget, 0);
+          return false;
+        } catch (error) {
+          if (error.code !== "ESRCH") throw error;
+          return true;
+        }
+      });
+      const afterReopen = nativePid();
+      assert.ok(Number.isSafeInteger(afterReopen) && afterReopen > 1);
+      assert.notEqual(afterReopen, beforeForget, "reopen creates a new native process and registration");
+      const reopened = await runtime.invoke("artifact:list", [{ chatId }]);
+      const latest = await runtime.invoke("artifact:get", [{ chatId, id: reopened[0].id }]);
+      assert.equal(latest.version, 2, "new native MCP registration writes after reopen");
     }
     assert.equal((await client.call("daemon:snapshot")).runs.runs[chatId], undefined);
     await client.call("daemon:stop");
