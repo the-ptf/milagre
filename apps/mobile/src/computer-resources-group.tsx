@@ -125,7 +125,7 @@ export function ComputerResourcesGroup({ host, online }: { host: SavedHost; onli
   const note = resourcesNote({ online, read: gauges !== null, unreadable: resources !== null && online && gauges === null, error, name: host.name });
   const open = () => router.push({ pathname: "/computer-usage", params: { id: host.id } });
   return (
-    <Group title={resources?.platform ? computerPlatformLabel(resources.platform) : undefined}>
+    <Group title={resources ? computerPlatformLabel(resources.platform) : undefined}>
       {note !== null || !gauges
         ? [
             <Text key="note" style={{ color: colors.ink3, fontSize: type.subheadline, paddingVertical: 16 }}>
