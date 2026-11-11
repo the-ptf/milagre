@@ -336,6 +336,7 @@ dependencies = [
  "chrono",
  "hex",
  "libc",
+ "milagre-owner-store",
  "regex",
  "rusqlite",
  "serde_json",

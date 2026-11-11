@@ -90,6 +90,7 @@ struct Slot {
 /// The in-memory states of the Projects of one isolated copy, each owned (locked) by this process while open.
 pub struct ProjectStates {
     /// Tests only (see `fail_next_commit`).
+    #[cfg(feature = "test-fixtures")]
     fail_next_commit: Option<String>,
     isolation: Isolation,
     timing: Timing,
@@ -114,15 +115,17 @@ fn without_key(state: &ProjectState, key: &str) -> ProjectState {
 
 impl ProjectStates {
     /// States for the Projects of `isolation`, the clock starting at `now` (ms since the epoch).
-    /// Tests only: the next change that would be kept fails after its closure ran, where a failed load or settle of a
+    /// Tests only, compiled only with the `test-fixtures` feature (the crate's own tests enable it; no build of the
+    /// owner does): the next change that would be kept fails after its closure ran, where a failed load or settle of a
     /// real change lands (nothing is kept). For checking callers' rollback.
-    #[doc(hidden)]
+    #[cfg(feature = "test-fixtures")]
     pub fn fail_next_commit(&mut self, message: &str) {
         self.fail_next_commit = Some(message.into());
     }
 
     pub fn new(isolation: Isolation, timing: Timing, now: i64) -> Self {
         ProjectStates {
+            #[cfg(feature = "test-fixtures")]
             fail_next_commit: None,
             isolation,
             timing,
@@ -388,6 +391,7 @@ impl ProjectStates {
         let Some(changed) = change(&state)? else {
             return Ok((state, false));
         };
+        #[cfg(feature = "test-fixtures")]
         if let Some(message) = self.fail_next_commit.take() {
             return Err(StoreError::Invalid(message));
         }

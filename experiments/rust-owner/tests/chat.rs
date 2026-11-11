@@ -260,6 +260,7 @@ impl Run {
                 }
                 Notice::Gap { what, .. } => json!({ "gap": what }),
                 Notice::Failed { what, error, .. } => json!({ "failed": what, "error": error }),
+                Notice::AnswerForgotten { answer, .. } => json!({ "answerForgotten": answer.0 }),
                 Notice::Started { .. } | Notice::AnswerSettled { .. } | Notice::AnswerResolved { .. } | Notice::SteerRequested { .. } => {
                     unreachable!()
                 }

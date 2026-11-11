@@ -261,6 +261,7 @@ pub struct MockState {
     pub current: HashMap<String, TurnId>,
     pub closed: Vec<String>,
     pub shut_down: bool,
+    pub shutdowns: usize,
     /// Answers handed over (`{ chat, requestId, decision }` or `{ chat, requestId, answers }`), in order.
     pub answers: Vec<Value>,
     /// Answers settle `Accepted` unless this is set (then `NotWaiting`).
@@ -445,7 +446,9 @@ impl Provider for MockProvider {
         Ok(())
     }
     fn shutdown(&mut self) {
-        self.state.lock().unwrap().shut_down = true;
+        let mut state = self.state.lock().unwrap();
+        state.shut_down = true;
+        state.shutdowns += 1;
     }
     fn take_events(&mut self) -> Vec<ProviderEvent> {
         std::mem::take(&mut self.state.lock().unwrap().events)
@@ -491,6 +494,12 @@ pub enum Notice {
         chat: String,
         answer: AnswerId,
         result: AnswerResult,
+    },
+    /// An answer released from an ended turn dropped from the bounded history (the oldest first): a late settlement of
+    /// it is no longer taken; its answers message stays as shown. Its delivery stays unknown.
+    AnswerForgotten {
+        chat: String,
+        answer: AnswerId,
     },
     /// A later definitive settlement of an answer told `Uncertain` before: `Accepted` (it stays), or `NotWaiting` /
     /// `Failed` (its answers message was taken back). The command was answered already; this is for the Chat.
@@ -663,6 +672,8 @@ pub struct ChatHost {
     next_turn: u64,
     /// Steering: gated unless a conformance run records it (see [`SteeringMode`]).
     pub steering: SteeringMode,
+    /// The providers were shut down by `shutdown`: a later call only retries closing the states.
+    providers_shut_down: bool,
     /// Completed turns whose queue waited on a quit or close, replayed if the quit is refused.
     deferred: Vec<(String, Value)>,
     /// Set from the start of `shutdown`: no queued message starts and no send is taken.
@@ -687,8 +698,11 @@ pub struct ChatHost {
     /// retry of its request in that generation and holds a slot of `answer_capacity`.
     uncertain_answers: BTreeMap<AnswerId, PendingAnswer>,
     /// Answers whose turn ended or session closed while their delivery was unknown: no slot, no retry block, kept
-    /// (bounded by `MAX_HISTORICAL_ANSWERS`, oldest dropped) only so a late definitive settlement can resolve them.
+    /// (bounded by `answer_history`, oldest dropped and told as `Notice::AnswerForgotten`) only so a late definitive
+    /// settlement can resolve them.
     historical_answers: BTreeMap<AnswerId, PendingAnswer>,
+    /// How many released answers are kept for a late settlement (default `MAX_HISTORICAL_ANSWERS`), across Chats.
+    pub answer_history: usize,
     /// Slots for answers on their way plus answers with an unknown delivery (default `ANSWER_CAPACITY`); at capacity a
     /// new answer is refused before anything is shown or handed over.
     pub answer_capacity: usize,
@@ -720,6 +734,7 @@ impl ChatHost {
             next_turn: 0,
             steering: SteeringMode::Gated,
             deferred: Vec::new(),
+            providers_shut_down: false,
             quitting: false,
             closing: HashSet::new(),
             stuck: BTreeMap::new(),
@@ -732,6 +747,7 @@ impl ChatHost {
             pending_answers: BTreeMap::new(),
             uncertain_answers: BTreeMap::new(),
             historical_answers: BTreeMap::new(),
+            answer_history: MAX_HISTORICAL_ANSWERS,
             answer_capacity: ANSWER_CAPACITY,
             answer_grace_ms: ANSWER_GRACE_MS,
             queue_turns: HashMap::new(),
@@ -813,6 +829,12 @@ impl ChatHost {
             self.canonical_project(agent_runs::project_of_key(chat))?,
             session,
         ))
+    }
+
+    /// Whether a quit has begun and wasn't refused: sends and starts are refused. Stays true after a failed close (see
+    /// `shutdown`).
+    pub fn is_quitting(&self) -> bool {
+        self.quitting
     }
 
     /// The turn running in a Chat, if any.
@@ -2590,9 +2612,16 @@ impl ChatHost {
 
     /// Ends the host. Providers' waiting events are handled first. Refused while a turn runs (quit-time suspend and
     /// resume aren't ported) unless `force`, which ends those turns as failed (their replies so far saved). Then every
-    /// provider shuts down (nonblocking by the trait's contract) and the states close (a failed close keeps them, see
-    /// ProjectStates::close).
+    /// provider shuts down (nonblocking by the trait's contract) and the states close.
+    ///
+    /// A close that fails (a save failing) returns its error and leaves the host quitting for good: sends and starts
+    /// stay refused, the providers stay shut down (a host never runs again after that; start a new one), and the
+    /// states keep their unsaved changes and locks (`ProjectStates::close`). Calling `shutdown` again is the recovery:
+    /// it only retries the save and the close, and the quit is complete once it returns `Ok`.
     pub fn shutdown(&mut self, force: bool) -> Result<()> {
+        if self.providers_shut_down {
+            return self.states.close();
+        }
         // From here no queued message starts and no send is taken, not even from the events handled below.
         self.quitting = true;
         let errors = self.pump();
@@ -2639,6 +2668,7 @@ impl ChatHost {
         for provider in self.providers.values_mut() {
             provider.shutdown();
         }
+        self.providers_shut_down = true;
         let waiting: Vec<String> = self
             .pending_answers
             .values()
@@ -2870,8 +2900,13 @@ impl ChatHost {
             let kept = self.uncertain_answers.remove(&answer).expect("present");
             self.historical_answers.insert(answer, kept);
         }
-        while self.historical_answers.len() > MAX_HISTORICAL_ANSWERS {
-            self.historical_answers.pop_first();
+        while self.historical_answers.len() > self.answer_history {
+            if let Some((answer, forgotten)) = self.historical_answers.pop_first() {
+                self.notice(Notice::AnswerForgotten {
+                    chat: forgotten.chat,
+                    answer,
+                });
+            }
         }
     }
 

@@ -1562,3 +1562,147 @@ fn a_mixed_fold_that_fails_leaves_the_run_as_it_was() {
     );
     assert_eq!(copy.messages().len(), messages);
 }
+
+/// A quit whose final save fails: `shutdown` returns the error and the host stays quitting (sends refused, providers
+/// shut down once); the change and the lock are kept; calling `shutdown` again retries the save and the close only.
+#[test]
+fn a_failed_close_keeps_the_host_quitting_until_a_retry_saves() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    copy.kiro.emit(
+        &copy.chat(),
+        json!({ "type": "text-delta", "text": "unsaved reply" }),
+    );
+    copy.end("turn-completed");
+    let milagre = copy.project.join(".milagre");
+    std::fs::set_permissions(&milagre, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let failed = copy.host.shutdown(false);
+    std::fs::set_permissions(&milagre, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(failed.is_err(), "the save should have failed");
+    assert!(copy.host.is_quitting());
+    let error = copy.send("two", "c2", json!({})).unwrap_err().to_string();
+    assert!(error.contains("quitting"), "{error}");
+    assert_eq!(copy.kiro.state.lock().unwrap().shutdowns, 1);
+    assert!(
+        ownership::project_lock(&copy.project).exists(),
+        "the lock went before the save"
+    );
+    // The retry saves and closes; providers aren't shut down twice.
+    copy.host.shutdown(false).unwrap();
+    assert_eq!(copy.kiro.state.lock().unwrap().shutdowns, 1);
+    assert!(!ownership::project_lock(&copy.project).exists());
+    let saved = std::fs::read(copy.project.join(".milagre/chats.db")).unwrap_or_default();
+    let coordination =
+        std::fs::read_to_string(copy.project.join(".milagre/coordination.json")).unwrap();
+    assert!(
+        String::from_utf8_lossy(&saved).contains("unsaved reply")
+            || coordination.contains("unsaved reply"),
+        "the retried close didn't save the reply"
+    );
+}
+
+/// The history of released answers is bounded and its eviction is told: the oldest goes first, as
+/// `Notice::AnswerForgotten`; a late settlement of it is no longer taken and its message stays.
+#[test]
+fn answer_history_eviction_is_told() {
+    let mut copy = Copy::plain();
+    copy.host.answer_history = 2;
+    let chat = copy.chat();
+    let mut ids = Vec::new();
+    for round in 0..3 {
+        copy.send(&format!("turn {round}"), &format!("c{round}"), json!({}))
+            .unwrap();
+        copy.host.pump();
+        if round == 0 {
+            copy.native();
+        }
+        ask(&mut copy, "q");
+        copy.kiro.state.lock().unwrap().hold_answers = true;
+        let AnswerTicket::Pending(id) = answer(&mut copy, "q", &format!("answer {round}")) else {
+            panic!("not admitted")
+        };
+        ids.push(id);
+        copy.host.take_notices();
+        copy.end("turn-completed");
+        let forgotten: Vec<AnswerId> = copy
+            .host
+            .take_notices()
+            .into_iter()
+            .filter_map(|n| match n {
+                Notice::AnswerForgotten { answer, .. } => Some(answer),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            forgotten,
+            if round == 2 { vec![ids[0]] } else { vec![] },
+            "round {round}"
+        );
+    }
+    copy.kiro.push(ProviderEvent::AnswerSettled {
+        chat: chat.clone(),
+        answer: ids[0],
+        outcome: AnswerOutcome::NotWaiting,
+    });
+    assert_eq!(
+        copy.host.pump().len(),
+        1,
+        "a forgotten answer's settlement was taken"
+    );
+    assert!(user_bodies(&copy.messages()).contains(&"answer 0".to_string()));
+    // The two kept ones still resolve.
+    copy.kiro.push(ProviderEvent::AnswerSettled {
+        chat,
+        answer: ids[1],
+        outcome: AnswerOutcome::NotWaiting,
+    });
+    assert!(copy.host.pump().is_empty());
+    assert!(!user_bodies(&copy.messages()).contains(&"answer 1".to_string()));
+}
+
+/// An answer still on its way when its turn ends is told `Uncertain` then; the provider's acceptance a moment later is
+/// told as `AnswerResolved { Accepted }`, after it, and the answers stay shown.
+#[test]
+fn uncertain_at_turn_end_then_late_accepted_is_told_in_order() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    ask(&mut copy, "q");
+    copy.kiro.state.lock().unwrap().hold_answers = true;
+    let AnswerTicket::Pending(id) = answer(&mut copy, "q", "Red") else {
+        panic!("not admitted")
+    };
+    copy.host.take_notices();
+    let chat = copy.chat();
+    copy.kiro.emit(&chat, json!({ "type": "turn-completed" }));
+    copy.kiro.push(ProviderEvent::AnswerSettled {
+        chat,
+        answer: id,
+        outcome: AnswerOutcome::Accepted,
+    });
+    assert!(copy.host.pump().is_empty());
+    let told: Vec<String> = copy
+        .host
+        .take_notices()
+        .into_iter()
+        .filter_map(|n| match n {
+            Notice::AnswerSettled { answer, result, .. } if answer == id => {
+                Some(format!("settled {result:?}"))
+            }
+            Notice::AnswerResolved { answer, result, .. } if answer == id => {
+                Some(format!("resolved {result:?}"))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        told,
+        [
+            "settled Uncertain(\"The turn ended before the agent confirmed the answer.\")"
+                .to_string(),
+            "resolved Accepted".to_string()
+        ]
+    );
+    assert!(user_bodies(&copy.messages()).contains(&"Red".to_string()));
+}

@@ -22,7 +22,13 @@ regex = "1"
 libc = "0.2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
+[features]
+# Hooks for tests only (ProjectStates::fail_next_commit). Never enabled by a build of the owner; the crate's own tests
+# turn it on through the dev-dependency below.
+test-fixtures = []
+
 [dev-dependencies]
 tempfile = "3"
+milagre-owner-store = { path = ".", features = ["test-fixtures"] }
 
 [workspace]
