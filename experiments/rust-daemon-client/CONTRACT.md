@@ -68,14 +68,14 @@ Actions use the same ordered Notifications stream and snapshot barrier as reads.
 The fixed Scripted provider's normal turn produces these `agent:event` types in order:
 
 1. `message-sent` from owner admission, with state.
-2. `session-started`, with state.
+2. `session-started`, with state only when that event changes owner state. A populated Chat with the same native session ID omits it.
 3. A second `message-sent` from the Scripted provider's explicit scheduled event, without state.
 4. `text-delta` containing `Scripted isolated reply`, without state.
 5. `turn-completed`, with state.
 
 The repeated `message-sent` is fixture behavior, not a second persisted user message or a claim of real-provider parity. A `fixture:blocked-start` send produces owner `message-sent` and `session-started`; explicit interrupt produces `turn-cancelled`. This preset does not produce `turn-started`. The actual public-API test asserts these filtered sequences exactly, the same-connection view refusals, increasing global wire sequence, transcript bodies/client IDs/outcomes and all cleanup flags. The normal and blocked sends plus interrupt produced run sequences 1 through 8 and global sequences 2 through 9 in the recorded run. Those absolute numbers are evidence, not fixed identifiers.
 
-`project:open` publishes `project:state` before its reply; the initial accepted snapshot covers it. Persistence, unload and other Project broadcasts may add `project:state` among later events, so their count is not a per-send contract. The test retains their order but filters them when comparing the agent sequence. A `stateTooLarge` marker is hydrated under the existing bounded current-state contract; it is not a historical state at that event's sequence. The fixture evidence records event order and receipts separately. Physical reply/event interleaving is source-derived above, not measured by timestamps in the evidence log.
+`project:open` on a newly ready Project can publish `project:state` before its reply; an already-ready Project may return without a new notice. The initial accepted snapshot covers any earlier publication. Persistence, unload and other Project broadcasts may add `project:state` among later events, so their count is not a per-send contract. The test retains their order but filters them when comparing the agent sequence. A `stateTooLarge` marker is hydrated under the existing bounded current-state contract; it is not a historical state at that event's sequence. The fixture evidence records event order and receipts separately. Physical reply/event interleaving is source-derived above, not measured by timestamps in the evidence log.
 
 ## Ordering, resync and failures
 
