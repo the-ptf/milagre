@@ -87,6 +87,8 @@ struct Capability {
     leased: AtomicBool,
     retained: Mutex<BTreeMap<Key, Arc<Value>>>,
     diagnostics: Mutex<Vec<CacheDiagnostic>>,
+    #[cfg(test)]
+    fail_stage: AtomicBool,
 }
 /// Created only by fresh(). Clones name the same temporary cache and cannot create a second writer.
 /// Keep this capability to reopen an owner. Dropping its final reference deletes only its own temp directory.
@@ -104,20 +106,33 @@ impl TempCache {
         *lock(&self.0.disk.load_gate) = Some((tx, rx));
         (entered, resume)
     }
+    #[cfg(all(test, unix))]
+    pub(crate) fn test_fail_stage(&self, fail: bool) {
+        self.0.fail_stage.store(fail, Ordering::SeqCst);
+    }
+    #[cfg(all(test, unix))]
+    pub(crate) fn test_write_attempts(&self) -> usize {
+        self.0.disk.attempts.load(Ordering::SeqCst)
+    }
     pub fn fresh() -> io::Result<Self> {
         Ok(Self(Arc::new(Capability {
             disk: disk::Directory::fresh()?,
             leased: AtomicBool::new(false),
             retained: Mutex::new(BTreeMap::new()),
             diagnostics: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            fail_stage: AtomicBool::new(false),
         })))
     }
     pub fn open(&self) -> io::Result<CacheOwner> {
         if self.0.leased.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
             return Err(io::Error::new(io::ErrorKind::AlreadyExists, "temporary cache already has a writer"));
         }
-        let pending = lock(&self.0.retained).iter().map(|(k, v)| (k.clone(), Pending { version: 0, value: v.clone() })).collect();
-        let shared = Arc::new(Shared { state: Mutex::new(State { pending, ..State::default() }), wake: Condvar::new() });
+        let pending = lock(&self.0.retained).iter().map(|(k, v)| (k.clone(), Pending { version: 1, value: v.clone() })).collect();
+        let state = State { pending, version: 1, ..State::default() };
+        let (changes, _) =
+            watch::channel(CacheStatus { dirty: state.pending.len(), failed: !state.pending.is_empty(), ..CacheStatus::default() });
+        let shared = Arc::new(Shared { state: Mutex::new(state), wake: Condvar::new(), changes });
         let (closed, closed_rx) = watch::channel(None);
         let cap = self.0.clone();
         let thread_shared = shared.clone();
@@ -127,6 +142,7 @@ impl TempCache {
             let mut state = lock(&thread_shared.state);
             *lock(&cap.retained) = state.pending.iter().map(|(k, v)| (k.clone(), v.value.clone())).collect();
             state.closing = true;
+            thread_shared.publish(&state);
             for reply in state.waiters.drain(..) {
                 reply.send_replace(Some(outcome.clone()));
             }
@@ -147,6 +163,8 @@ struct Pending {
 }
 #[derive(Default)]
 struct State {
+    failed: bool,
+    pricing_committed: u64,
     pending: BTreeMap<Key, Pending>,
     version: u64,
     requested: bool,
@@ -154,9 +172,17 @@ struct State {
     closing: bool,
     waiters: Vec<Reply>,
 }
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CacheStatus {
+    pub dirty: usize,
+    pub failed: bool,
+    pub pricing_committed: u64,
+    pub closing: bool,
+}
 struct Shared {
     state: Mutex<State>,
     wake: Condvar,
+    changes: watch::Sender<CacheStatus>,
 }
 /// Saves are synchronous staging operations. flush/shutdown futures only observe a dedicated worker;
 /// dropping them never cancels disk operations. shutdown seals writes and attempts a final save.
@@ -165,8 +191,25 @@ pub struct CacheOwner {
     shared: Arc<Shared>,
     closed: watch::Receiver<Option<Outcome>>,
 }
+impl Shared {
+    fn publish(&self, state: &State) {
+        self.changes.send_replace(CacheStatus {
+            dirty: state.pending.len(),
+            failed: state.failed,
+            pricing_committed: state.pricing_committed,
+            closing: state.closing,
+        });
+    }
+}
 impl CacheOwner {
+    pub fn changes(&self) -> watch::Receiver<CacheStatus> {
+        self.shared.changes.subscribe()
+    }
     fn stage(&self, key: Key, value: Value) -> io::Result<()> {
+        #[cfg(test)]
+        if self.cap.fail_stage.load(Ordering::SeqCst) {
+            return Err(io::Error::other("fixture staging failure"));
+        }
         validate_size(&value)?;
         let mut state = lock(&self.shared.state);
         if state.closing {
@@ -176,6 +219,7 @@ impl CacheOwner {
         let version = state.version;
         state.pending.insert(key, Pending { version, value: Arc::new(value) });
         state.requested = true;
+        self.shared.publish(&state);
         self.shared.wake.notify_one();
         Ok(())
     }
@@ -184,6 +228,10 @@ impl CacheOwner {
     }
     /// Accepts exports from UsageAccounts::stores(); each cache is sanitized as a UsageStore.
     pub fn save_accounts(&self, stores: &[(Selection, Value)]) -> io::Result<()> {
+        #[cfg(test)]
+        if self.cap.fail_stage.load(Ordering::SeqCst) {
+            return Err(io::Error::other("fixture staging failure"));
+        }
         // Validate every filename before staging anything.
         let entries =
             stores.iter().map(|(s, v)| Ok((Key::quota(s)?, UsageStore::from_json(v).to_json()))).collect::<io::Result<Vec<_>>>()?;
@@ -200,6 +248,7 @@ impl CacheOwner {
             state.pending.insert(key, Pending { version, value: Arc::new(value) });
         }
         state.requested = true;
+        self.shared.publish(&state);
         self.shared.wake.notify_one();
         Ok(())
     }
@@ -210,7 +259,10 @@ impl CacheOwner {
         self.stage(Key::Pricing, prices.current().cloned().unwrap_or(Value::Null))
     }
     fn diagnostic(&self, key: &Key, issue: &str) {
-        let diagnostic = CacheDiagnostic { slot: key.name().into(), issue: issue.into() };
+        self.record_diagnostic(key.name(), issue);
+    }
+    pub fn record_diagnostic(&self, slot: &str, issue: &str) {
+        let diagnostic = CacheDiagnostic { slot: slot.into(), issue: issue.into() };
         let mut diagnostics = lock(&self.cap.diagnostics);
         if diagnostics.contains(&diagnostic) {
             return;
@@ -391,12 +443,20 @@ fn run(cap: &Capability, shared: &Shared) -> Outcome {
             match cap.disk.save(key.name(), &pending.value) {
                 Ok(()) => {
                     let mut state = lock(&shared.state);
+                    if key == Key::Pricing {
+                        state.pricing_committed = state.pricing_committed.max(pending.version);
+                    }
                     if state.pending.get(&key).is_some_and(|v| v.version == pending.version) {
                         state.pending.remove(&key);
                     }
                 }
                 Err(error) => outcome = Err(format!("could not save {}: {error}", key.name())),
             }
+        }
+        {
+            let mut state = lock(&shared.state);
+            state.failed = outcome.is_err();
+            shared.publish(&state);
         }
         for reply in replies {
             reply.send_replace(Some(outcome.clone()));

@@ -494,3 +494,72 @@ async fn service_aggregate_load_budget_is_shared_across_account_selections() {
     assert!(!service.cache_diagnostics().is_empty());
     stop(&service).await;
 }
+
+#[tokio::test]
+async fn successful_provider_result_survives_staging_failure_with_diagnostic() {
+    let cap = TempCache::fresh().unwrap();
+    let h = Harness::new();
+    let service = UsageService::open(&cap, h.options()).await.unwrap();
+    cap.test_fail_stage(true);
+    let result = service.handle("usage:read", &Value::Null).await.unwrap();
+    assert_eq!(result["providers"][0]["status"], "ok");
+    assert!(service.cache_diagnostics().iter().any(|d| d.slot == "accounts" && d.issue.contains("staging failure")));
+    cap.test_fail_stage(false);
+    stop(&service).await;
+    let reopened = UsageService::open(&cap, h.options()).await.unwrap();
+    assert_eq!(reopened.handle("usage:cached", &Value::Null).await.unwrap()["providers"].as_array().unwrap().len(), 4);
+    stop(&reopened).await;
+}
+#[tokio::test]
+async fn pricing_event_arrives_once_after_failed_flush_is_retried() {
+    let cap = TempCache::fresh().unwrap();
+    let h = Harness::new();
+    let service = UsageService::open(&cap, h.options()).await.unwrap();
+    let obstruction = cap.test_directory().join("token-prices.json");
+    fs::create_dir(&obstruction).unwrap();
+    assert!(service.refresh_prices().await.unwrap());
+    assert!(h.events.lock().unwrap().is_empty());
+    assert_eq!(h.fetches.load(Ordering::SeqCst), 1);
+    fs::remove_dir(obstruction).unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while h.events.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(*h.events.lock().unwrap(), vec![json!(["token-usage:changed", {}])]);
+    service.flush().await.unwrap();
+    tokio::task::yield_now().await;
+    assert_eq!(h.events.lock().unwrap().len(), 1);
+    assert_eq!(h.fetches.load(Ordering::SeqCst), 1);
+    stop(&service).await;
+}
+#[tokio::test]
+async fn retry_is_idle_when_clean_and_bounds_failed_write_attempts_over_sixty_seconds() {
+    let cap = TempCache::fresh().unwrap();
+    let h = Harness::new();
+    let service = UsageService::open(&cap, h.options()).await.unwrap();
+    tokio::task::yield_now().await;
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(60)).await;
+    assert_eq!(cap.test_write_attempts(), 0);
+    tokio::time::resume();
+    let obstruction = cap.test_directory().join("token-prices.json");
+    fs::create_dir(&obstruction).unwrap();
+    service.refresh_prices().await.unwrap();
+    let before = cap.test_write_attempts();
+    tokio::time::pause();
+    for _ in 0..60 {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        std::thread::sleep(Duration::from_millis(2));
+        for _ in 0..5 {
+            tokio::task::yield_now().await;
+        }
+    }
+    let attempts = cap.test_write_attempts() - before;
+    assert!((1..=8).contains(&attempts), "{attempts} writes in 60 seconds");
+    tokio::time::resume();
+    fs::remove_dir(obstruction).unwrap();
+    stop(&service).await;
+}

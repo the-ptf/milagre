@@ -189,25 +189,11 @@ impl UsageService {
         });
         let retry_cache = service.cache.clone();
         let retry_closed = service.closing.clone();
+        let retry_emit = service.prices.emit.clone();
         service
             .retry
             .spawn(async move {
-                let mut delay = std::time::Duration::from_millis(100);
-                loop {
-                    tokio::time::sleep(delay).await;
-                    if retry_closed.load(Ordering::Acquire) {
-                        break;
-                    }
-                    if retry_cache.dirty_count() == 0 {
-                        delay = std::time::Duration::from_millis(100);
-                        continue;
-                    }
-                    delay = if retry_cache.flush().await.is_ok() {
-                        std::time::Duration::from_millis(100)
-                    } else {
-                        (delay * 2).min(std::time::Duration::from_secs(5))
-                    };
-                }
+                retry_cache_changes(retry_cache, retry_closed, retry_emit).await;
             })
             .map_err(|_| "Cache retry owner stopped".to_owned())?;
         Ok(service)
@@ -229,13 +215,18 @@ impl UsageService {
                     let result = this.accounts.handle(&command, &argument).await;
                     // Also preserve any completed provider reads when a later metadata callback failed.
                     if command.ends_with(":read") {
-                        this.cache.save_accounts(&this.accounts.stores()).map_err(|e| e.to_string())?;
+                        let cache = this.cache.clone();
+                        let accounts = this.accounts.clone();
+                        if let Err(error) = this.jobs.run(move || cache.save_accounts(&accounts.stores()).map_err(|e| e.to_string())).await
+                        {
+                            this.cache.record_diagnostic("accounts", &error);
+                        }
                     }
                     result
                 }
             })
             .await
-            .map_err(|_| "Usage service stopped or callback panicked".to_owned())?
+            .map_err(service_error)?
     }
     /// Uses the existing refresh/backoff policy. A failed fetch/panic is retryable after the normal backoff.
     pub async fn refresh_prices(self: &Arc<Self>) -> ResultValue<bool> {
@@ -249,7 +240,7 @@ impl UsageService {
                 }
             })
             .await
-            .map_err(|_| "Usage service stopped or callback panicked".to_owned())?
+            .map_err(service_error)?
     }
     pub fn flush(&self) -> impl std::future::Future<Output = ResultValue<()>> + Send + 'static {
         self.cache.flush()
@@ -319,6 +310,63 @@ impl UsageService {
         }
     }
 }
+fn service_error(error: supervisor::TaskError) -> String {
+    match error {
+        supervisor::TaskError::Stopped => "Usage service stopped",
+        supervisor::TaskError::Panicked => "Usage service callback panicked",
+    }
+    .into()
+}
+struct RetryBackoff {
+    base: u64,
+    seed: u64,
+}
+impl RetryBackoff {
+    fn new(seed: u64) -> Self {
+        Self { base: 1000, seed: seed.max(1) }
+    }
+    fn reset(&mut self) {
+        self.base = 1000;
+    }
+    fn next(&mut self) -> std::time::Duration {
+        self.seed ^= self.seed << 13;
+        self.seed ^= self.seed >> 7;
+        self.seed ^= self.seed << 17;
+        let millis = (self.base * (80 + self.seed % 41) / 100).min(60_000);
+        self.base = (self.base * 2).min(60_000);
+        std::time::Duration::from_millis(millis)
+    }
+}
+async fn retry_cache_changes(cache: Arc<CacheOwner>, closing: Arc<AtomicBool>, emit: accounts::Emit) {
+    let mut changes = cache.changes();
+    let mut committed = 0;
+    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().subsec_nanos() as u64;
+    let mut backoff = RetryBackoff::new(seed);
+    let mut retry_at = None;
+    loop {
+        let status = *changes.borrow_and_update();
+        if closing.load(Ordering::Acquire) || status.closing {
+            return;
+        }
+        if status.pricing_committed > committed {
+            committed = status.pricing_committed;
+            let _ = guarded_sync(|| emit(owner::CHANGED, json!({})));
+        }
+        if status.dirty == 0 {
+            retry_at = None;
+            backoff.reset();
+        } else if status.failed && retry_at.is_none() {
+            retry_at = Some(tokio::time::Instant::now() + backoff.next());
+        }
+        tokio::select! {
+            result=changes.changed()=>if result.is_err(){return;},
+            _=async {if let Some(at)=retry_at {tokio::time::sleep_until(at).await;}else{std::future::pending::<()>().await;}}=>{
+                if closing.load(Ordering::Acquire){return;}
+                let _=cache.flush().await;retry_at=None;
+            }
+        }
+    }
+}
 async fn wait<T: Clone>(mut rx: Signal<T>) -> ResultValue<T> {
     loop {
         if let Some(value) = rx.borrow().clone() {
@@ -367,7 +415,9 @@ impl ScanOwner {
                     let mut scanner = scanner.lock().unwrap();
                     let changed = scanner.scan(now).map_err(|e| e.to_string())?;
                     if changed {
-                        cache.save_scan(scanner.cache()).map_err(|e| e.to_string())?;
+                        if let Err(error) = cache.save_scan(scanner.cache()) {
+                            cache.record_diagnostic("scanner", &error.to_string());
+                        }
                     }
                     Ok((scanner.rows(), changed))
                 })
@@ -437,13 +487,16 @@ impl PriceOwner {
                     let changed = pricing.complete(catalog.as_ref(), now);
                     reset.finish();
                     if changed {
-                        this.cache.save_pricing(&pricing).map_err(|e| e.to_string())?;
+                        if let Err(error) = this.cache.save_pricing(&pricing) {
+                            this.cache.record_diagnostic("pricing", &error.to_string());
+                        }
                     }
                     changed
                 };
                 if changed {
-                    this.cache.flush().await?;
-                    let _ = guarded_sync(|| (this.emit)(owner::CHANGED, json!({})));
+                    if let Err(error) = this.cache.flush().await {
+                        this.cache.record_diagnostic("pricing", &error);
+                    }
                 }
                 Ok(changed)
             })

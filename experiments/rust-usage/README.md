@@ -137,13 +137,17 @@ Use a Tokio runtime with timers; this crate enables the `time` feature.
   Global environment readiness still uses Node's once-only catch behavior. Preparation is never treated as login.
 - Token reads use `TokenUsage`'s existing 30-second scan/attribution behavior. A dedicated scanner thread coalesces
   scans over only the supplied copied roots and stages changed cache exports. It is not aborted mid-file. Pricing
-  starts from supplied `fetch_catalog` on demand and stages successful refreshes. Price-change events wait for cache
-  flush success, as Node does. `refresh_prices().await -> Result<bool, String>` explicitly waits for the same refresh
+  starts from supplied `fetch_catalog` on demand and stages successful refreshes. Price-change events follow
+  committed pricing versions, including a later successful retry after the original flush failed; each observed
+  committed version is notified once. No new catalog fetch is required for that event. `refresh_prices().await -> Result<bool, String>` explicitly waits for the same refresh
   and backoff policy; callback failure/panic clears refresh state, keeps old prices, and allows a later retry.
 - `flush().await` waits for snapshots already staged, not arbitrary active provider/scan/catalog work.
-  `dirty_count()` and `cache_diagnostics()` expose persistence state. A supervised retry task starts at 100 ms and
-  doubles after failed flushes to a 5-second maximum; success/idle resets it. It retries while the service is open,
-  without restarting any provider callback. Cached quota commands do not stage new writes.
+  `dirty_count()` and `cache_diagnostics()` expose persistence state. Staging failures are diagnostic and never
+  replace a successful usage result. `CacheOwner::changes()` reports dirty/failure state and pricing commit versions.
+  A supervised watcher sleeps on cache notifications when clean. Failed saves use exponential backoff from one
+  second with 20% jitter and a 60-second cap; success resets it. It retries while the service is open without
+  restarting provider callbacks. Cached quota commands do not stage new writes. Stopped and panicked commands
+  return distinct errors.
 - **Await `shutdown()` before releasing the service or stopping Tokio.** Calling it seals commands and suppresses
   new event delivery immediately, even if its returned future is never polled. The retained shutdown task stops
   retries, cancels/awaits command, account, token and pricing callbacks, waits for the scanner thread, exports every
@@ -243,8 +247,8 @@ Preserved Node behavior:
 
 ## Verification
 
-On macOS arm64: **58 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
-command traces**, account isolation, callback lifecycle and **14 persistence tests**, plus **13 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
+On macOS arm64: **61 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
+command traces**, account isolation, callback lifecycle and **14 persistence tests**, plus **16 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
 from Rust output. Codex is an EventEmitter fixture; Claude uses supplied synthetic credential text and a fake fetch.
 No provider process, keychain access or network transport is available to the fixture sandbox.
 
