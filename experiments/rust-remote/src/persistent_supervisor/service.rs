@@ -167,10 +167,16 @@ pub(super) struct Envelope {
 }
 impl Envelope {
     pub(super) fn reject(self) {
+        self.reject_after(|| {});
+    }
+    fn reject_after(self, after: impl FnOnce()) {
         if let Queued::Command(PersistentCommand::Attach { carrier, .. }) = &self.command {
             carrier.close();
         }
+        drop(self.command);
+        drop(self.lease);
         let _ = self.reply.try_send(Err(Error::NotExecuted));
+        after();
     }
 }
 pub(super) struct Notification {
@@ -853,5 +859,48 @@ impl Runtime {
                 let _ = envelope.reply.try_send(result);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod rejection_tests {
+    use super::*;
+    #[test]
+    fn rejected_receipt_releases_ingress_before_envelope_scope_ends() {
+        let global = crate::budget::GlobalBudget::new(1024).unwrap();
+        let budget = global.connection(1024).unwrap();
+        let memory = MemoryCarrier::new();
+        let (reply, receipt) = mpsc::sync_channel(1);
+        let envelope = Envelope {
+            origin: None,
+            cost: 1024,
+            command: Queued::Command(PersistentCommand::Attach {
+                id: 1,
+                carrier: memory.clone(),
+            }),
+            reply,
+            lease: Some(budget.reserve(1024).unwrap()),
+        };
+        let (published, observed) = mpsc::sync_channel(1);
+        let (resume, paused) = mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            envelope.reject_after(|| {
+                published.send(()).unwrap();
+                let _ = paused.recv_timeout(Duration::from_secs(3));
+            })
+        });
+        let result = receipt.recv_timeout(Duration::from_secs(3)).unwrap();
+        observed.recv_timeout(Duration::from_secs(3)).unwrap();
+        let used = budget.used();
+        let reusable = budget.reserve(1024);
+        let closed = memory.is_closed();
+        resume.send(()).unwrap();
+        worker.join().unwrap();
+        assert!(matches!(result, Err(Error::NotExecuted)));
+        assert!(closed);
+        assert_eq!(used, 0);
+        assert!(reusable.is_ok());
+        drop(reusable);
+        assert_eq!(global.used(), 0);
     }
 }
