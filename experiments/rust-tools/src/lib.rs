@@ -1,6 +1,10 @@
 //! Native retained-content MCP tools. No listener, credentials, live-profile discovery or provider launch.
 mod accepted;
-pub use accepted::{AcceptedCall, CallPhase, CallReceipt, CallStatus, MutationOutcome};
+pub use accepted::{
+    AcceptedCall, CallPhase, CallReceipt, CallStatus, ExternalCompletion, MutationOutcome,
+};
+mod external_health;
+pub use external_health::ExternalHealth;
 mod feedback;
 pub mod policy;
 mod registry;
@@ -94,6 +98,7 @@ pub struct ContentOwner {
     wakes: Mutex<u64>,
     calls: Arc<tokio::sync::Semaphore>,
     external_calls: Arc<tokio::sync::Semaphore>,
+    external_health: Arc<external_health::Health>,
 }
 /// Renderer authority minted only by its owning ContentOwner. MCP Caller values
 /// and session handles cannot be converted into this capability.
@@ -150,7 +155,14 @@ impl ContentOwner {
             wakes: Mutex::new(0),
             calls: Arc::new(tokio::sync::Semaphore::new(16)),
             external_calls: Arc::new(tokio::sync::Semaphore::new(8)),
+            external_health: Arc::new(external_health::Health::default()),
         }))
+    }
+    pub fn external_health(&self) -> ExternalHealth {
+        self.external_health.snapshot()
+    }
+    pub fn external_in_flight(&self) -> usize {
+        self.external_health().in_flight
     }
     fn lock_fault(&self) -> MutexGuard<'_, Option<String>> {
         match self.fault.lock() {
@@ -856,7 +868,12 @@ impl Dispatcher {
             let check_owner = owner.clone();
             let check_caller = caller.clone();
             let check_receipt = receipt.clone();
+            let confirmed = Arc::new(AtomicBool::new(false));
+            let confirmation = confirmed.clone();
+            let ticket = self.owner.external_health.start();
+            let worker_ticket = ticket.clone();
             let context = HostContext {
+                confirmed,
                 chat_id: caller.chat_id.clone(),
                 project_id: caller.project_id.clone(),
                 check: Arc::new(move || {
@@ -880,27 +897,45 @@ impl Dispatcher {
                 .name("milagre-host-tool".into())
                 .spawn(move || {
                     let _permit = permit;
+                    observed.external_started();
                     let result = owner.isolated(|| {
                         context.assert_active()?;
                         observed.begin(tool.effect != ToolEffect::Read)?;
                         let result = (tool.handler)(&context, &args);
-                        context.assert_active()?;
+                        context
+                            .assert_active()
+                            .map_err(|error| post_call_error(error, effect, &observed))?;
                         result
                     });
+                    let outcome = if effect == ToolEffect::Read
+                        || observed.status().mutation == MutationOutcome::NotAttempted
+                    {
+                        MutationOutcome::NotAttempted
+                    } else if confirmation.load(Ordering::Acquire)
+                        || result.as_ref().is_ok_and(|value| value["isError"] != true)
+                    {
+                        MutationOutcome::Committed
+                    } else {
+                        MutationOutcome::Uncertain
+                    };
+                    observed.external_finished(outcome);
+                    worker_ticket.finish();
+                    drop(_permit);
                     let _ = send.send(result);
                 });
             let result = if spawned.is_err() {
+                ticket.finish();
                 Err(Error::new("External host worker could not start."))
             } else {
                 tokio::select! {
                     value=receive=>value.unwrap_or_else(|_|Err(Error::new("External host worker stopped; mutation outcome is uncertain. Do not replay."))),
-                    _=tokio::time::sleep_until(tokio::time::Instant::from_std(deadline))=>Err(Error::coded("HOST_CALL_EXPIRED","External host handler timed out; mutation may have committed. Do not replay.")),
-                    _=receipt.cancelled()=>Err(Error::coded("HOST_CALL_EXPIRED","External host handler cancelled; mutation may have committed. Do not replay.")),
+                    _=tokio::time::sleep_until(tokio::time::Instant::from_std(deadline))=>{ticket.unobserved();Err(Error::coded("HOST_CALL_EXPIRED","External host handler timed out; mutation may have committed. Do not replay."))},
+                    _=receipt.cancelled()=>{ticket.unobserved();Err(Error::coded("HOST_CALL_EXPIRED","External host handler cancelled; mutation may have committed. Do not replay."))},
                 }
             };
             open.store(false, Ordering::Release);
             if let Err(error) = self.active() {
-                return tool_error(error.message);
+                return tool_error(post_call_error(error, effect, receipt).message);
             }
             if effect != ToolEffect::Read
                 && result.as_ref().is_ok_and(|value| value["isError"] != true)
@@ -976,6 +1011,13 @@ impl Dispatcher {
                 e.message
             }),
         }
+    }
+}
+fn post_call_error(error: Error, effect: ToolEffect, receipt: &CallReceipt) -> Error {
+    if effect != ToolEffect::Read && receipt.status().mutation != MutationOutcome::NotAttempted {
+        Error::coded("HOST_CALL_EXPIRED","External host scope ended after a mutation began; mutation may have committed. Do not replay.")
+    } else {
+        error
     }
 }
 struct Execution<'a> {

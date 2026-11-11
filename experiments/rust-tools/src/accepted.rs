@@ -16,10 +16,18 @@ pub enum MutationOutcome {
     Uncertain,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExternalCompletion {
+    NotStarted,
+    Running,
+    Finished(MutationOutcome),
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CallStatus {
     pub phase: CallPhase,
     pub mutation: MutationOutcome,
     pub cancelled: bool,
+    /// Actual external worker lifetime/outcome, independently of an earlier reply.
+    pub external: ExternalCompletion,
 }
 /// Retain this before awaiting when the owner needs cancellation evidence. It
 /// contains no request arguments, content, reply, credentials or caller identity.
@@ -32,6 +40,7 @@ impl CallReceipt {
                 phase: CallPhase::Queued,
                 mutation: MutationOutcome::NotAttempted,
                 cancelled: false,
+                external: ExternalCompletion::NotStarted,
             })),
             Arc::new(tokio::sync::Notify::new()),
         )
@@ -69,6 +78,13 @@ impl CallReceipt {
             state.mutation = MutationOutcome::Uncertain;
         }
         Ok(())
+    }
+    pub(crate) fn external_started(&self) {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).external = ExternalCompletion::Running;
+    }
+    pub(crate) fn external_finished(&self, outcome: MutationOutcome) {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).external =
+            ExternalCompletion::Finished(outcome);
     }
     pub(crate) fn committed(&self) {
         self.0.lock().unwrap_or_else(|p| p.into_inner()).mutation = MutationOutcome::Committed;

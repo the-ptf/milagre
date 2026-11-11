@@ -824,6 +824,13 @@ async fn external_timeouts_keep_worker_slots_and_refuse_late_commit_without_bloc
         assert_eq!(call.wait().await["isError"], true);
         assert_eq!(receipt.status().mutation, MutationOutcome::Uncertain);
     }
+    assert_eq!(
+        shared.external_health(),
+        milagre_tools::ExternalHealth {
+            in_flight: 8,
+            unobserved: 8
+        }
+    );
     let denied = session.call("chat_write", &json!({})).await;
     assert_eq!(denied["isError"], true);
     assert!(text(&denied).contains("capacity"));
@@ -879,4 +886,159 @@ async fn registered_schema_rejects_unvalidated_payloads_before_callbacks() {
         Arc::new(|_, _| panic!("must not register"))
     )
     .is_err());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn late_worker_completion_preserves_timeout_reply_and_distinguishes_confirmed_commit() {
+    use milagre_tools::{
+        ExternalCompletion, ExternalHealth, MutationOutcome, RegisteredTool, ToolEffect,
+    };
+    use std::sync::{Condvar, Mutex};
+    use std::time::Duration;
+    for confirm in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let shared = owner(temp.path());
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let entered = Arc::new(AtomicUsize::new(0));
+        let writes = Arc::new(AtomicUsize::new(0));
+        let tool = RegisteredTool::new(
+            external_schema("chat_write", ToolEffect::Write),
+            ToolEffect::Write,
+            Arc::new({
+                let gate = gate.clone();
+                let entered = entered.clone();
+                let writes = writes.clone();
+                move |context, _| {
+                    context.assert_active()?;
+                    writes.fetch_add(1, Ordering::SeqCst); // Fixture commit, before its response stalls.
+                    if confirm {
+                        context.confirm_committed()?;
+                    }
+                    entered.store(1, Ordering::SeqCst);
+                    let (_lock, timeout) = gate
+                        .1
+                        .wait_timeout_while(
+                            gate.0.lock().unwrap(),
+                            Duration::from_secs(2),
+                            |open| !*open,
+                        )
+                        .unwrap();
+                    assert!(!timeout.timed_out());
+                    assert!(
+                        context.confirm_committed().is_err(),
+                        "Expired scope cannot newly confirm a commit"
+                    );
+                    Ok(json!({"content":[],"isError":false}))
+                }
+            }),
+        )
+        .unwrap()
+        .with_timeout(Duration::from_millis(80))
+        .unwrap();
+        let session = shared
+            .host_session(caller(), PolicyOptions::default(), vec![tool])
+            .unwrap();
+        let call = session.start_call("chat_write", &json!({})).unwrap();
+        let receipt = call.receipt();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while entered.load(Ordering::SeqCst) == 0 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let reply = call.wait().await;
+        assert_eq!(reply["isError"], true);
+        assert!(text(&reply).contains("may have committed"));
+        assert!(text(&reply).contains("Do not replay"));
+        assert_eq!(receipt.status().mutation, MutationOutcome::Uncertain);
+        assert_eq!(receipt.status().external, ExternalCompletion::Running);
+        assert_eq!(
+            shared.external_health(),
+            ExternalHealth {
+                in_flight: 1,
+                unobserved: 1
+            }
+        );
+        *gate.0.lock().unwrap() = true;
+        gate.1.notify_all();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while matches!(receipt.status().external, ExternalCompletion::Running)
+                || shared.external_in_flight() != 0
+            {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            receipt.status().external,
+            ExternalCompletion::Finished(if confirm {
+                MutationOutcome::Committed
+            } else {
+                MutationOutcome::Uncertain
+            })
+        );
+        assert_eq!(
+            receipt.status().mutation,
+            MutationOutcome::Uncertain,
+            "The earlier caller uncertainty is not rewritten"
+        );
+        assert_eq!(shared.external_health(), ExternalHealth::default());
+        assert_eq!(writes.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[tokio::test]
+async fn post_commit_scope_failure_keeps_uncertainty_in_the_reply() {
+    use milagre_tools::{ExternalCompletion, MutationOutcome, RegisteredTool, ToolEffect};
+    use std::sync::atomic::AtomicBool;
+    let temp = tempfile::tempdir().unwrap();
+    let shared = owner(temp.path());
+    let active = Arc::new(AtomicBool::new(true));
+    let writes = Arc::new(AtomicUsize::new(0));
+    let mut scoped = caller();
+    scoped.assert_active = Arc::new({
+        let active = active.clone();
+        move || {
+            if active.load(Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err(milagre_content_store::Error::new(
+                    "Fixture caller lease revoked",
+                ))
+            }
+        }
+    });
+    let tool = RegisteredTool::new(
+        external_schema("chat_write", ToolEffect::Write),
+        ToolEffect::Write,
+        Arc::new({
+            let active = active.clone();
+            let writes = writes.clone();
+            move |context, _| {
+                context.assert_active()?;
+                writes.fetch_add(1, Ordering::SeqCst);
+                active.store(false, Ordering::SeqCst);
+                Ok(json!({"content":[],"isError":false}))
+            }
+        }),
+    )
+    .unwrap();
+    let session = shared
+        .host_session(scoped, PolicyOptions::default(), vec![tool])
+        .unwrap();
+    let call = session.start_call("chat_write", &json!({})).unwrap();
+    let receipt = call.receipt();
+    let reply = call.wait().await;
+    assert_eq!(reply["isError"], true);
+    assert!(text(&reply).contains("may have committed"));
+    assert!(text(&reply).contains("Do not replay"));
+    assert_eq!(receipt.status().mutation, MutationOutcome::Uncertain);
+    assert_eq!(
+        receipt.status().external,
+        ExternalCompletion::Finished(MutationOutcome::Uncertain)
+    );
+    assert_eq!(writes.load(Ordering::SeqCst), 1);
+    assert!(shared.storage_fault().is_none());
 }

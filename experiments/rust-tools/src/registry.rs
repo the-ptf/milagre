@@ -11,8 +11,17 @@ pub struct HostContext {
     pub chat_id: String,
     pub project_id: String,
     pub(crate) check: ActiveCheck,
+    pub(crate) confirmed: Arc<AtomicBool>,
 }
 impl HostContext {
+    /// Call only after the handler's mutation durably commits. This records
+    /// evidence for a late receipt; it neither authorizes a write nor retries it.
+    /// An expired/revoked scope cannot newly confirm a commit.
+    pub fn confirm_committed(&self) -> Result<()> {
+        self.assert_active()?;
+        self.confirmed.store(true, Ordering::Release);
+        Ok(())
+    }
     pub fn assert_active(&self) -> Result<()> {
         (self.check)()
     }
