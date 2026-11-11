@@ -90,6 +90,12 @@ struct Shared {
     parked_events: AtomicUsize,
     #[cfg(test)]
     observed_ticks: AtomicUsize,
+    #[cfg(test)]
+    fail_commits: AtomicBool,
+    #[cfg(test)]
+    injected_commits: AtomicUsize,
+    #[cfg(test)]
+    stuck_ends: AtomicUsize,
 }
 struct Actor {
     send: SyncSender<Request>,
@@ -391,6 +397,10 @@ impl State {
         shared
             .parked_events
             .store(self.host.parked_for_tests().0, Ordering::Release);
+        #[cfg(test)]
+        shared
+            .stuck_ends
+            .store(self.host.stuck_ends().len(), Ordering::Release);
         self.sync_readiness();
         let ready = self.host.is_project_ready(&self.project);
         let state = if ready {
@@ -784,6 +794,17 @@ impl State {
         Ok(Value::Null)
     }
 }
+#[cfg(test)]
+fn inject_commit_fault(state: &mut State, shared: &Shared) {
+    let fail = shared.fail_commits.load(Ordering::Acquire);
+    state
+        .host
+        .states
+        .set_commit_failure_for_tests(fail.then_some("fixed retained-completion fold failure"));
+    if fail {
+        shared.injected_commits.fetch_add(1, Ordering::AcqRel);
+    }
+}
 fn run(
     mut state: State,
     shared: Arc<Shared>,
@@ -824,6 +845,10 @@ fn run(
             let result = sink.transaction(|publication| {
                 let mut result = match request.command {
                     Command::Call(method, args) => {
+                        #[cfg(test)]
+                        if matches!(method.as_str(), "project:open" | "project:switch") {
+                            inject_commit_fault(&mut state, &shared);
+                        }
                         if shared.closing.load(Ordering::Acquire) {
                             Err(closed())
                         } else {
@@ -877,6 +902,10 @@ fn run(
                 // Closed admission does not stop asynchronous cancellation/event
                 // settlement. A failed states.close only stops persistence timers.
                 let result = sink.transaction(|publication| {
+                    #[cfg(test)]
+                    if state.host.is_project_ready(&state.project) {
+                        inject_commit_fault(&mut state, &shared);
+                    }
                     let result =
                         state.tick(epoch.saturating_add(
                             started.elapsed().as_millis().min(i64::MAX as u128) as i64,
@@ -1006,6 +1035,12 @@ fn start_provider(
         parked_events: AtomicUsize::new(0),
         #[cfg(test)]
         observed_ticks: AtomicUsize::new(0),
+        #[cfg(test)]
+        fail_commits: AtomicBool::new(false),
+        #[cfg(test)]
+        injected_commits: AtomicUsize::new(0),
+        #[cfg(test)]
+        stuck_ends: AtomicUsize::new(0),
     });
     let (send, requests) = mpsc::sync_channel(QUEUE);
     let actor = Arc::new(Actor {
@@ -1272,6 +1307,12 @@ mod tests {
             parked_events: AtomicUsize::new(0),
             #[cfg(test)]
             observed_ticks: AtomicUsize::new(0),
+            #[cfg(test)]
+            fail_commits: AtomicBool::new(false),
+            #[cfg(test)]
+            injected_commits: AtomicUsize::new(0),
+            #[cfg(test)]
+            stuck_ends: AtomicUsize::new(0),
         });
         (
             Actor {
@@ -1459,6 +1500,12 @@ mod publication_tests {
             parked_events: AtomicUsize::new(0),
             #[cfg(test)]
             observed_ticks: AtomicUsize::new(0),
+            #[cfg(test)]
+            fail_commits: AtomicBool::new(false),
+            #[cfg(test)]
+            injected_commits: AtomicUsize::new(0),
+            #[cfg(test)]
+            stuck_ends: AtomicUsize::new(0),
         };
         let mut state = State {
             host: ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0)),
@@ -1674,6 +1721,12 @@ mod job_tests {
             parked_events: AtomicUsize::new(0),
             #[cfg(test)]
             observed_ticks: AtomicUsize::new(0),
+            #[cfg(test)]
+            fail_commits: AtomicBool::new(false),
+            #[cfg(test)]
+            injected_commits: AtomicUsize::new(0),
+            #[cfg(test)]
+            stuck_ends: AtomicUsize::new(0),
         });
         let (send, requests) = mpsc::sync_channel(QUEUE);
         let actor = Arc::new(Actor {

@@ -661,4 +661,137 @@ mod successful_restore {
         drop(actor);
         Server::finish(server).unwrap();
     }
+    #[test]
+    fn retained_completion_precedes_parked_exit_after_repeated_retry_failure_and_starts_queue_once()
+    {
+        use milagre_owner_store::chat_host::MockProvider;
+        let (profile, project, mut host) = seeded();
+        let store = profile.path().join(".owner/handovers");
+        let provider = MockProvider::new("kiro");
+        host.register(Box::new(provider.clone()));
+        let (server, actor) = running(profile, &project, host, Default::default());
+        let mut child = ChildGuard(
+            Command::new("node")
+                .arg(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/retained-completion-compat.cjs"
+                ))
+                .arg(server.profile_path())
+                .arg(&project)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let (lines, receive) = mpsc::sync_channel(8);
+        let stdout = child.0.stdout.take().unwrap();
+        let reader = thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                if lines.send(line.unwrap()).is_err() {
+                    break;
+                }
+            }
+        });
+        assert_eq!(child.line(&receive), "sent");
+        let chat = format!("{}#2", project.display());
+        let first = provider.current(&chat).unwrap();
+        provider.emit(
+            &chat,
+            json!({"type":"session-started","nativeId":"fixed-resumable-mock"}),
+        );
+        provider.emit(&chat, json!({"type":"message-sent"}));
+        provider.emit(
+            &chat,
+            json!({"type":"text-delta","text":"Retained first reply"}),
+        );
+        child
+            .0
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(b"stream\n")
+            .unwrap();
+        assert_eq!(child.line(&receive), "queued");
+        actor.shared.fail_commits.store(true, Ordering::Release);
+        provider.emit(&chat, json!({"type":"turn-completed"}));
+        until("retained completion", || {
+            actor.shared.stuck_ends.load(Ordering::Acquire) == 1
+        });
+        lose_readiness(&store, &actor);
+        let exited = || ProviderEvent::Exited {
+            chat: chat.clone(),
+            turn: first,
+            error: ProviderError::new(ProviderErrorKind::Exited, "Fixed old process exited"),
+        };
+        provider.push(exited());
+        until("parked old exit", || {
+            actor.shared.parked_events.load(Ordering::Acquire) == 1
+        });
+        child
+            .0
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(b"hidden\n")
+            .unwrap();
+        assert_eq!(child.line(&receive), "retry-held");
+        assert_eq!(actor.shared.stuck_ends.load(Ordering::Acquire), 1);
+        provider.push(exited()); // a newer arrival must stay behind the retained terminal too
+        until("two old exits held", || {
+            actor.shared.parked_events.load(Ordering::Acquire) == 2
+        });
+        let attempts = actor.shared.injected_commits.load(Ordering::Acquire);
+        until("repeated retained-end fold failures", || {
+            actor.shared.injected_commits.load(Ordering::Acquire) >= attempts + 2
+        });
+        assert_eq!(actor.shared.stuck_ends.load(Ordering::Acquire), 1);
+        assert_eq!(actor.shared.parked_events.load(Ordering::Acquire), 2);
+        assert_eq!(provider.state.lock().unwrap().turns.len(), 1);
+        actor.shared.fail_commits.store(false, Ordering::Release);
+        child
+            .0
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(b"release\n")
+            .unwrap();
+        assert_eq!(child.line(&receive), "successor");
+        assert_eq!(provider.state.lock().unwrap().turns.len(), 2);
+        assert_eq!(
+            provider.state.lock().unwrap().turns[1]["prompt"],
+            "Queued successor prompt"
+        );
+        assert_ne!(provider.current(&chat).unwrap(), first);
+        assert_eq!(actor.shared.stuck_ends.load(Ordering::Acquire), 0);
+        assert_eq!(actor.shared.parked_events.load(Ordering::Acquire), 0);
+        provider.emit(&chat, json!({"type":"message-sent"}));
+        provider.emit(&chat, json!({"type":"text-delta","text":"Queued reply"}));
+        provider.emit(&chat, json!({"type":"turn-completed"}));
+        child
+            .0
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(b"finish\n")
+            .unwrap();
+        assert_eq!(child.line(&receive), "completed");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(status) = child.0.try_wait().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(5));
+        }
+        reader.join().unwrap();
+        assert_eq!(provider.state.lock().unwrap().turns.len(), 2);
+        assert_eq!(
+            *actor.shared.observed_quit.lock().unwrap(),
+            Some(QuitState::Done)
+        );
+        drop(actor);
+        Server::finish(server).unwrap();
+    }
 }
