@@ -5,15 +5,20 @@
 //!
 //! - [`map`]: the client's raw JSON bodies decoded into GPUI domain types (the GPUI edge).
 //! - [`DaemonAdapter`]: the six reads; every other `DataSource` method answers [`NotAvailable`].
-//! - [`events`]: connect, snapshot, apply, accept, then released events; a closed stream is an error.
+//! - [`events`]: connect, snapshot, apply, accept, then released events applied by [`live`]; a closed stream is an
+//!   error. [`LiveStore`] is the version-and-read seam a view subscribes to.
+//! - [`view`]: the explicit open-on-select seam and the page-to-transcript-items mapping.
 #![cfg(unix)]
 
 mod adapter;
 pub mod events;
+pub mod live;
 pub mod map;
+pub mod view;
 
 pub use adapter::{DaemonAdapter, NotAvailable};
-pub use events::{Applied, Reducer, Released, ReleasedEvent, SyncError, Synced, connect_and_sync};
+pub use events::{Applied, LiveStore, Reducer, Released, ReleasedEvent, SyncError, Synced, connect_and_sync};
+pub use live::{Counts, Effect, Ignored, LiveBounds};
 
 #[cfg(test)]
 mod real;

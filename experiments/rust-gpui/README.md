@@ -541,12 +541,23 @@ removes the stage; the log is `daemon-check/target/check-gpui-adapter.log`.
   `computers:list`, `project:recent`, `pull-requests:snapshot`, `usage:cached` and any other computer answer a typed
   `NotAvailable`. `chat:messages` needs `project:open` on the connection first (the owner refuses with
   `ISOLATED_SCOPE_ONLY`); the adapter does not open on its own, since opening may persist owner state.
-- `src/events.rs`: connect, `runtime_snapshot()`, apply to a `Reducer`, `accept_snapshot`, then released events, which
-  are recorded, not applied: a count plus a tail bounded like the client's queue (1,024 events, 16 MiB of payload).
-  A closed stream (`StateTooLarge` included) is an error, never an empty state.
+- `src/events.rs`: connect, `runtime_snapshot()`, apply to a `Reducer`, `accept_snapshot`, then released events in
+  `wire_seq` order (a stale or regressing one is refused with a typed error). Each is kept in a count plus a tail with
+  hard caps like the client's queue (1,024 events, 16 MiB of payload; an event over the byte cap is counted, not
+  kept). A closed stream (`StateTooLarge` included) is an error, never an empty state. `LiveStore` is the seam a view
+  subscribes to: a version counter, coalescing change signals and a read accessor; the app is not wired to it yet.
+- `src/live.rs`: the live fold. `project:state {path, state}` replaces the scope's state; `agent:event {chatId, event,
+  seq?, state?}` replaces it when it carries `state` and folds `event` into the Chat's run as `applyRunEvent` does
+  (skipped when `seq` is at or below the runs' `seq`). Hydrated events apply their current catch-up state the same
+  way. A stamp comes only from the payload. Other channels (`link:state`, ...), foreign scopes and event types the
+  run fold leaves alone are counted, never interpreted. Every live collection has a hard bound (`LiveBounds`).
+- `src/view.rs`: `open_on_select` (explicit `project:open`, then the Chat's first page) and `transcript_items`.
+  The GPUI test swaps the Chat column's public `transcript` entity, because the base crate has no seam to give
+  `ChatView` a Chat (title and Project label are private fixture text) and `Workspace` routes a selection only to
+  the panel.
 
-Not done in this stage: live streaming into the UI, state patches, hydration of oversized states, sends or any
-write, Links, other computers. Not decoded yet: subagent transcripts and progress (a non-empty one is an error),
+Not done in this stage: wiring the live state into the app's views, state patches, `applyAgentEvent`'s own state
+folding for events that carry no `state`, the viewed-image step cap, sends or any write, Links, other computers. Not decoded yet: subagent transcripts and progress (a non-empty one is an error),
 typed message contexts other than `reload`, `git-action`, `limit-reset` and `handover` (the rest stay whole in
 `ChatContext::Other`), `native_sessions`, `plan`, `limitResume`, `limitTurn`, `openSuggestions`, queued messages'
 images and context. The default fixture's two Chats have no messages, so the sidebar mounted from it lists no row

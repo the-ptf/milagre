@@ -155,3 +155,129 @@ fn the_sidebar_shows_the_two_real_rows(cx: &mut TestAppContext) {
     cx.foreground_executor().block_test(shut_down(&guard));
     println!("GPUI_ADAPTER_EVIDENCE populated_sidebar rows={rows:?}");
 }
+
+#[gpui::test]
+#[ignore = "real fixture: run through scripts/check-gpui-adapter.py"]
+fn selecting_a_real_row_renders_its_transcript(cx: &mut TestAppContext) {
+    use gpui::Modifiers;
+    use milagre_gpui_spike::workspace::Workspace;
+    use milagre_gpui_spike::workspace::chat::transcript::{Item, Transcript};
+
+    cx.executor().allow_parking();
+    let (guard, adapter) = cx.foreground_executor().block_test(async {
+        let guard = FixtureGuard::launch_populated().await.expect("launch_populated");
+        let synced = connect_and_sync(guard.endpoint()).await.expect("sync");
+        (guard, synced.adapter)
+    });
+    let fed = cx.foreground_executor().block_test(async {
+        let current = adapter.current_project().await.unwrap().expect("current");
+        let state = adapter.read_state(current.project.scope()).await.unwrap();
+        let runs = adapter.chat_runs(LOCAL.into()).await.unwrap();
+        AdapterFed { project: current.project, state, runs }
+    });
+    let path = fed.project.path.clone();
+    cx.update(|cx| {
+        cx.set_global(milagre_gpui_spike::theme::Theme::dark());
+        cx.set_global(SidebarSeed::default());
+        cx.set_global(milagre_gpui_spike::data::Data(Arc::new(fed)));
+        gpui_component::init(cx);
+        milagre_gpui_spike::theme::component_bridge::init(cx);
+    });
+    // The window as the app builds it: sidebar, Chat column and panel, under Root.
+    let (root, vcx) = cx.add_window_view(|window, cx| {
+        let workspace = cx.new(|cx| Workspace::new(window, cx));
+        Root::new(AnyView::from(workspace), window, cx)
+    });
+    let workspace = root.read_with(vcx, |root, _| root.view().clone().downcast::<Workspace>().expect("the workspace"));
+    vcx.run_until_parked();
+    let (sidebar, chat) = workspace.read_with(vcx, |w, _| (w.sidebar.clone(), w.chat.clone()));
+
+    // Select the real row "Fixture history: first turn" (row 1) with a click.
+    assert_eq!(sidebar.read_with(vcx, |s, _| s.row(1).map(|row| row.title.to_string())).as_deref(), Some(FIRST));
+    let row = vcx.debug_bounds("chat-row-1").expect("row 1 is drawn");
+    vcx.simulate_click(row.center(), Modifiers::none());
+    let key = sidebar.read_with(vcx, |s, _| s.selected().and_then(|ix| s.row(ix)).map(|row| row.key.to_string())).expect("selected");
+    assert_eq!(key, ScopeKey::project(LOCAL, &path).chat_key(1));
+
+    // The explicit open-on-select seam: project:open on this connection, then the Chat's first page.
+    let page = vcx.foreground_executor().block_test(crate::view::open_on_select(&adapter, &key)).expect("the transcript");
+    assert_eq!(ids(&page), vec![10, 11, 12, 13]);
+    let items = crate::view::transcript_items(&page).expect("plain user and reply messages");
+    chat.update(vcx, |chat, cx| {
+        chat.transcript = cx.new(|cx| Transcript::with_items(items, cx));
+        chat.running = None;
+        cx.notify();
+    });
+    vcx.run_until_parked();
+
+    // The transcript view holds and draws those four messages, oldest first, top to bottom.
+    let transcript = chat.read_with(vcx, |chat, _| chat.transcript.clone());
+    let shown = transcript.read_with(vcx, |t, _| {
+        t.items()
+            .iter()
+            .map(|item| match item {
+                Item::User(text) => format!("user: {text}"),
+                Item::Prose(prose) => format!("reply: {}", prose.text),
+                other => format!("other: {other:?}"),
+            })
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        shown,
+        [
+            "user: Fixture history: first turn",
+            "reply: Scripted isolated reply",
+            "user: Fixture history: second turn",
+            "reply: Scripted isolated reply"
+        ]
+    );
+    let tops: Vec<_> = ["transcript-item-0", "transcript-item-1", "transcript-item-2", "transcript-item-3"]
+        .into_iter()
+        .map(|item| vcx.debug_bounds(item).expect("item drawn").origin.y)
+        .collect();
+    assert!(tops.windows(2).all(|pair| pair[0] < pair[1]), "drawn in order: {tops:?}");
+    assert!(vcx.debug_bounds("transcript-item-4").is_none(), "nothing else drawn");
+
+    adapter.client().disconnect();
+    drop(adapter);
+    cx.foreground_executor().block_test(shut_down(&guard));
+    println!("GPUI_ADAPTER_EVIDENCE populated_transcript_view key={key:?} items={shown:?} tops={tops:?}");
+}
+
+/// Collects every event the client releases for a while after the accepted snapshot and applies it. Neither fixture
+/// is expected to emit any (the populated preset completes its turns before bind); the count is the evidence.
+#[test]
+#[ignore = "real fixture: run through scripts/check-gpui-adapter.py"]
+fn post_snapshot_events() {
+    use futures::FutureExt as _;
+    for populated in [false, true] {
+        block_on(async {
+            let guard = if populated { FixtureGuard::launch_populated().await } else { FixtureGuard::launch().await }.expect("launch");
+            let mut synced = connect_and_sync(guard.endpoint()).await.expect("sync");
+            let path = guard.project().to_owned();
+            // Reads that do not write: they must not produce events either.
+            synced.adapter.open_project(LOCAL.into(), path.clone().into()).await.unwrap();
+            synced.adapter.chat_messages(ScopeKey::project(LOCAL, &path), 1, PageRequest::OPEN).await.unwrap();
+            let store = crate::LiveStore::new(std::mem::take(&mut synced.reducer));
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            let mut channels = Vec::new();
+            while std::time::Instant::now() < until {
+                match synced.notifications.next().now_or_never() {
+                    Some(Some(notice)) => {
+                        if let milagre_daemon_client::Notice::Event { channel, payload, .. } = &notice {
+                            body(&format!("live_{channel}"), payload);
+                            channels.push(channel.clone());
+                        }
+                        store.apply_notice(notice).expect("applied");
+                    }
+                    Some(None) => panic!("stream ended"),
+                    None => std::thread::sleep(std::time::Duration::from_millis(20)),
+                }
+            }
+            synced.adapter.client().disconnect();
+            drop(synced);
+            shut_down(&guard).await;
+            println!("GPUI_ADAPTER_EVIDENCE post_snapshot populated={populated} events={} channels={channels:?}", channels.len());
+        });
+    }
+}

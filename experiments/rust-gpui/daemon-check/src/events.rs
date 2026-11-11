@@ -1,8 +1,9 @@
 //! The snapshot barrier at the GPUI edge: connect, take `runtime_snapshot()`, apply it to a [`Reducer`], then
 //! `accept_snapshot(&snapshot)`, and only then read released events.
 //!
-//! The reducer holds the applied snapshot decoded into GPUI types and records each released event in order; it does
-//! not apply `project:state` patches or `agent:event`s (live streaming is not adopted into the UI in this stage).
+//! The reducer holds the applied snapshot decoded into GPUI types, then applies each released event in `wire_seq`
+//! order (`crate::live`: `project:state`, `agent:event`) and records it in a bounded tail. [`LiveStore`] is the seam a
+//! view subscribes to (a version counter and a read accessor); nothing in the GPUI app is wired to it yet.
 //! A closed stream is an error, never an empty state: once `Notice::Closed` arrives, [`Reducer::state`] answers that
 //! error (`StateTooLarge` with its required `project:read`, or the client's reason).
 
@@ -12,6 +13,7 @@ use std::collections::VecDeque;
 
 use serde_json::Value;
 
+use crate::live::{Counts, Effect, Live, LiveBounds};
 use crate::{DaemonAdapter, map};
 
 /// The snapshot as applied: every open Project with its state, and the runs, in GPUI types.
@@ -40,6 +42,12 @@ pub enum SyncError {
     NotApplied,
     /// The client released an event at or below the accepted watermark (it must have discarded it).
     StaleEvent { wire_seq: u64, watermark: u64 },
+    /// An event at or below the last applied one, above the watermark: a regression. Refused, not applied.
+    OutOfOrder { wire_seq: u64, last: u64 },
+    /// A known channel whose payload does not have the shape the owner sends. Closes the live state.
+    InvalidEvent { channel: String, message: String },
+    /// The live state would cross one of its bounds (`live::LiveBounds`). Closes the live state.
+    Bound { what: &'static str, limit: usize },
     /// An oversized Project event closed the connection: the scope must be read again with `method`.
     StateTooLarge { scope: Option<String>, method: Option<String> },
     /// The connection closed for another reason.
@@ -75,20 +83,24 @@ pub struct Released {
 }
 
 impl Released {
+    /// Hard caps: the tail never holds more than `max_events` events or `max_bytes` payload bytes. An event larger
+    /// than `max_bytes` on its own is counted but not kept (the tail is left as it was); zero capacity keeps nothing.
     pub fn with_bounds(max_events: usize, max_bytes: usize) -> Self {
-        Self { count: 0, tail: VecDeque::new(), bytes: 0, max_events: max_events.max(1), max_bytes }
+        Self { count: 0, tail: VecDeque::new(), bytes: 0, max_events, max_bytes }
     }
 
-    fn push(&mut self, event: ReleasedEvent) -> &ReleasedEvent {
-        let size = event.payload.to_string().len();
+    fn push(&mut self, event: ReleasedEvent) {
         self.count += 1;
-        self.bytes += size;
-        self.tail.push_back((event, size));
-        while self.tail.len() > self.max_events || (self.bytes > self.max_bytes && self.tail.len() > 1) {
-            let (_, dropped) = self.tail.pop_front().expect("non-empty");
+        let size = event.payload.to_string().len();
+        if self.max_events == 0 || size > self.max_bytes {
+            return;
+        }
+        while self.tail.len() >= self.max_events || self.bytes + size > self.max_bytes {
+            let (_, dropped) = self.tail.pop_front().expect("a non-empty tail while over a bound");
             self.bytes -= dropped;
         }
-        &self.tail.back().expect("just pushed").0
+        self.bytes += size;
+        self.tail.push_back((event, size));
     }
 
     fn clear(&mut self) {
@@ -125,6 +137,12 @@ pub struct Reducer {
     applied: Option<Applied>,
     released: Released,
     closed: Option<SyncError>,
+    /// The last applied `wire_seq` (the watermark right after a snapshot).
+    last_seq: u64,
+    counts: Counts,
+    bounds: LiveBounds,
+    /// +1 for every change a view would show: a snapshot, an applied event, a close.
+    version: u64,
 }
 
 impl Reducer {
@@ -146,21 +164,45 @@ impl Reducer {
         let links = body["links"].as_array().ok_or_else(|| anyhow::anyhow!("snapshot.links: expected an array"))?.len();
         self.released.clear();
         self.closed = None;
+        self.last_seq = event_seq;
+        self.counts = Counts::default();
+        self.version += 1;
         Ok(self.applied.insert(Applied { event_seq, projects, runs, links }))
     }
 
-    /// Takes one notice the client released. An event is recorded; `Closed` latches its error.
-    pub fn apply_notice(&mut self, notice: Notice) -> Result<&ReleasedEvent, SyncError> {
+    /// Takes one notice the client released. An event above the last applied one is recorded in the bounded tail and
+    /// applied to the live state; `Closed`, an invalid payload or a crossed bound latches its error.
+    pub fn apply_notice(&mut self, notice: Notice) -> Result<Effect, SyncError> {
         if let Some(closed) = &self.closed {
             return Err(closed.clone());
         }
         match notice {
             Notice::Event { wire_seq, scope, channel, payload } => {
-                let Some(applied) = &self.applied else { return Err(SyncError::NotApplied) };
+                let Some(applied) = &mut self.applied else { return Err(SyncError::NotApplied) };
                 if wire_seq <= applied.event_seq {
                     return Err(SyncError::StaleEvent { wire_seq, watermark: applied.event_seq });
                 }
-                Ok(self.released.push(ReleasedEvent { wire_seq, scope, channel, payload }))
+                if wire_seq <= self.last_seq {
+                    return Err(SyncError::OutOfOrder { wire_seq, last: self.last_seq });
+                }
+                let mut live =
+                    Live { projects: &mut applied.projects, runs: &mut applied.runs, counts: &mut self.counts, bounds: self.bounds };
+                let result = live.apply(&channel, &payload);
+                self.last_seq = wire_seq;
+                self.released.push(ReleasedEvent { wire_seq, scope, channel, payload });
+                match result {
+                    Ok(effect) => {
+                        if effect.state.is_some() || effect.run.is_some() {
+                            self.version += 1;
+                        }
+                        Ok(effect)
+                    }
+                    Err(error) => {
+                        self.closed = Some(error.clone());
+                        self.version += 1;
+                        Err(error)
+                    }
+                }
             }
             Notice::Closed(error) => {
                 let error = match error {
@@ -170,9 +212,29 @@ impl Reducer {
                     other => SyncError::Closed(other),
                 };
                 self.closed = Some(error.clone());
+                self.version += 1;
                 Err(error)
             }
         }
+    }
+
+    /// +1 for every change a view would show.
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+
+    pub fn counts(&self) -> &Counts {
+        &self.counts
+    }
+
+    /// The last applied `wire_seq`.
+    pub fn last_seq(&self) -> u64 {
+        self.last_seq
+    }
+
+    /// A reducer with other live-state bounds (tests).
+    pub fn with_live_bounds(bounds: LiveBounds) -> Self {
+        Self { bounds, ..Self::default() }
     }
 
     /// The applied snapshot, or the error that closed the stream. Never an empty stand-in.
@@ -212,4 +274,79 @@ pub async fn connect_and_sync(endpoint: FixtureEndpoint) -> anyhow::Result<Synce
     reducer.apply_snapshot(&snapshot)?;
     client.accept_snapshot(&snapshot).await?;
     Ok(Synced { adapter: DaemonAdapter::new(client), hello, reducer, snapshot, notifications })
+}
+
+/// The reducer → UI seam: the reducer behind a lock, a version a view compares, and bounded change signals.
+///
+/// A GPUI view subscribes once and, for each signal, reads what it shows through [`LiveStore::read`]. Signals
+/// coalesce (a subscriber's channel holds one), so a slow view skips intermediate versions and never queues them.
+#[derive(Clone)]
+pub struct LiveStore {
+    inner: std::sync::Arc<std::sync::Mutex<StoreInner>>,
+}
+
+struct StoreInner {
+    reducer: Reducer,
+    subscribers: Vec<futures::channel::mpsc::Sender<u64>>,
+}
+
+/// At most this many live subscribers at once (closed ones are pruned first).
+pub const MAX_SUBSCRIBERS: usize = 64;
+
+impl LiveStore {
+    pub fn new(reducer: Reducer) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(StoreInner { reducer, subscribers: Vec::new() })) }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, StoreInner> {
+        self.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn version(&self) -> u64 {
+        self.lock().reducer.version()
+    }
+
+    /// Reads the reducer under the lock: keep `read` short and copy out what a view draws.
+    pub fn read<R>(&self, read: impl FnOnce(&Reducer) -> R) -> R {
+        read(&self.lock().reducer)
+    }
+
+    /// A stream of versions; `None` when [`MAX_SUBSCRIBERS`] are already listening.
+    pub fn subscribe(&self) -> Option<futures::channel::mpsc::Receiver<u64>> {
+        let mut inner = self.lock();
+        inner.subscribers.retain(|sender| !sender.is_closed());
+        if inner.subscribers.len() >= MAX_SUBSCRIBERS {
+            return None;
+        }
+        let (sender, receiver) = futures::channel::mpsc::channel(0);
+        inner.subscribers.push(sender);
+        Some(receiver)
+    }
+
+    /// Applies one notice and signals subscribers when the version moved.
+    pub fn apply_notice(&self, notice: Notice) -> Result<Effect, SyncError> {
+        let mut inner = self.lock();
+        let before = inner.reducer.version();
+        let result = inner.reducer.apply_notice(notice);
+        let version = inner.reducer.version();
+        if version != before {
+            // A full channel already holds a signal: the subscriber will read the latest version anyway.
+            inner.subscribers.retain_mut(|sender| match sender.try_send(version) {
+                Ok(()) => true,
+                Err(error) => error.is_full(),
+            });
+        }
+        result
+    }
+
+    /// Applies released notices until the stream closes, and returns the error that closed it.
+    pub async fn pump(&self, notifications: &mut Notifications) -> SyncError {
+        loop {
+            let Some(notice) = notifications.next().await else { return SyncError::Closed(Error::Disconnected) };
+            match self.apply_notice(notice) {
+                Ok(_) | Err(SyncError::StaleEvent { .. } | SyncError::OutOfOrder { .. }) => {}
+                Err(error) => return error,
+            }
+        }
+    }
 }

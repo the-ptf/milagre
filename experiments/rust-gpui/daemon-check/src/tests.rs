@@ -153,6 +153,23 @@ fn released_events_are_counted_but_only_a_bounded_tail_is_kept() {
     // An event at or below the watermark is refused, not recorded.
     assert_eq!(reducer.apply_notice(event(1, "")).unwrap_err(), SyncError::StaleEvent { wire_seq: 1, watermark: 1 });
     assert_eq!(reducer.released().count(), 6);
+
+    // An event larger than the byte cap on its own is counted, not kept, and leaves the tail as it was.
+    reducer.apply_notice(event(8, &"x".repeat(30))).unwrap();
+    assert_eq!(reducer.released().tail().map(|e| e.wire_seq).collect::<Vec<_>>(), vec![7]);
+    assert_eq!((reducer.released().count(), reducer.released().bytes()), (7, 18));
+    // Zero capacity keeps nothing (events or bytes), and still counts.
+    for (events, bytes) in [(0, 1024), (8, 0)] {
+        let mut reducer = Reducer::with_bounds(events, bytes);
+        reducer.apply_body(&body("snapshot"), 1).unwrap();
+        reducer.apply_notice(event(2, "")).unwrap();
+        reducer.apply_notice(event(3, "ab")).unwrap();
+        assert_eq!(
+            (reducer.released().count(), reducer.released().tail().len(), reducer.released().bytes()),
+            (2, 0, 0),
+            "{events} events, {bytes} bytes"
+        );
+    }
 }
 
 #[test]
@@ -204,4 +221,277 @@ fn populated_transcripts_and_a_one_turn_page_map_in_order() {
     assert_eq!((ids(&chat2), chat2.total, chat2.has_more), (vec![14, 15], 2, false));
     let last = map::message_page(&body("populated_chat1_last_turn")).unwrap();
     assert_eq!((ids(&last), last.total, last.has_more), (vec![12, 13], 4, true));
+}
+
+// ---- Live events ----
+//
+// DERIVED, not captured: neither fixture emits an event after the accepted snapshot (see `real::populated::
+// post_snapshot_events`), and the client has no public write. Envelopes follow what the owner emits
+// (`experiments/rust-runtime/src/actor.rs`: `agent:event {chatId, event, seq?, state?}`, `project:state {path,
+// state}`), event bodies follow `packages/shared/src/agent-runs.mjs`, and every `state` is the real populated state
+// captured from the wire (`tests/bodies/populated_state_read.json`).
+
+mod live {
+    use milagre_daemon_client::{Error, Hydration, Notice};
+    use milagre_gpui_spike::data::{StateStamp, StepStatus};
+    use serde_json::{Value, json};
+
+    use super::{PATH, body};
+    use crate::{Ignored, LiveBounds, LiveStore, Reducer, SyncError, live::cap_output};
+
+    fn reducer() -> Reducer {
+        let mut reducer = Reducer::default();
+        reducer.apply_body(&body("snapshot"), 1).unwrap();
+        reducer
+    }
+    fn agent(seq: u64, event: Value) -> Value {
+        json!({"chatId": format!("{PATH}#1"), "event": event, "seq": seq})
+    }
+    fn notice(wire_seq: u64, channel: &str, payload: Value) -> Notice {
+        Notice::Event { wire_seq, scope: Some(PATH.into()), channel: channel.into(), payload }
+    }
+    fn populated() -> Value {
+        body("populated_state_read")["state"].clone()
+    }
+
+    #[test]
+    fn a_turn_folds_into_the_run_then_its_end_replaces_the_state() {
+        let mut r = reducer();
+        let key = format!("{PATH}#1");
+        let mut wire = 1;
+        let mut send = |r: &mut Reducer, channel: &str, payload: Value| {
+            wire += 1;
+            r.apply_notice(notice(wire, channel, payload))
+        };
+        let effect =
+            send(&mut r, "agent:event", agent(1, json!({"type": "message-sent", "model": "scripted", "permissionMode": "ask"}))).unwrap();
+        assert_eq!(effect.run.as_deref(), Some(key.as_str()));
+        send(&mut r, "agent:event", agent(2, json!({"type": "turn-started", "turnId": "t1"}))).unwrap();
+        send(&mut r, "agent:event", agent(3, json!({"type": "text-delta", "text": "Hello "}))).unwrap();
+        let step = json!({"type": "step-started", "step": {"id": "s1", "kind": "shell", "title": "Ran `ls`", "detail": "$ ls\n"}});
+        send(&mut r, "agent:event", agent(4, step)).unwrap();
+        send(&mut r, "agent:event", agent(5, json!({"type": "step-output", "id": "s1", "text": "a.txt\n"}))).unwrap();
+        send(&mut r, "agent:event", agent(6, json!({"type": "text-delta", "text": "world"}))).unwrap();
+        let run = r.state().unwrap().runs.get(&key).unwrap().clone();
+        assert_eq!((run.text.as_ref(), run.model.as_ref(), run.turn_id.as_deref()), ("Hello world", "scripted", Some("t1")));
+        assert_eq!(run.steps[0].offset, Some(6), "where the step started in the text (UTF-16 units)");
+        assert_eq!(run.steps[0].detail.as_deref(), Some("$ ls\na.txt\n"));
+        assert_eq!(run.steps[0].status, StepStatus::Running);
+        send(&mut r, "agent:event", agent(7, json!({"type": "step-completed", "id": "s1", "status": "done", "durationMs": 5}))).unwrap();
+        let step = r.state().unwrap().runs.get(&key).unwrap().steps[0].clone();
+        assert_eq!(
+            (step.status, step.duration_ms, step.detail.clone()),
+            (StepStatus::Done, Some(5), None),
+            "a tool's end replaces its output"
+        );
+        let request = json!({"type": "permission-request", "requestId": "r1", "kind": "command", "tool": "Bash", "title": "Run ls", "allowForChat": true});
+        send(&mut r, "agent:event", agent(8, request)).unwrap();
+        assert_eq!(r.state().unwrap().runs.get(&key).unwrap().approvals.len(), 1);
+        send(&mut r, "agent:event", agent(9, json!({"type": "permission-resolved", "requestId": "r1"}))).unwrap();
+        assert!(r.state().unwrap().runs.get(&key).unwrap().approvals.is_empty());
+
+        // The turn ends carrying the scope's state: the run goes, the state (and its message summaries) is replaced.
+        let mut end = agent(10, json!({"type": "turn-completed"}));
+        end["state"] = populated();
+        let effect = send(&mut r, "agent:event", end).unwrap();
+        assert_eq!((effect.state.as_deref(), effect.run.as_deref()), (Some(PATH), Some(key.as_str())));
+        let applied = r.state().unwrap();
+        assert!(applied.runs.runs.is_empty());
+        assert_eq!(applied.runs.seq, 10);
+        let state = applied.projects[0].state.as_ref().unwrap();
+        assert_eq!(state.sessions[&1].summary.as_ref().unwrap().count, 4);
+        assert_eq!(applied.projects[0].stamp, StateStamp::default(), "no version/epoch in the payload: none invented");
+
+        // Already in the runs: its run part is skipped.
+        let effect = send(&mut r, "agent:event", agent(5, json!({"type": "text-delta", "text": "late"}))).unwrap();
+        assert!(effect.already_in_runs && effect.run.is_none());
+        assert!(r.state().unwrap().runs.runs.is_empty());
+        assert_eq!(r.counts().run_changes, 10);
+        assert_eq!(r.counts().state_replacements, 1);
+    }
+
+    #[test]
+    fn project_state_replaces_the_scope_and_takes_only_the_payloads_stamp() {
+        let mut r = reducer();
+        let before = r.version();
+        let effect =
+            r.apply_notice(notice(2, "project:state", json!({"path": PATH, "state": populated(), "version": 7, "epoch": "e1"}))).unwrap();
+        assert_eq!(effect.state.as_deref(), Some(PATH));
+        assert_eq!(r.version(), before + 1);
+        let open = &r.state().unwrap().projects[0];
+        assert_eq!(open.stamp, StateStamp { version: Some(7), epoch: Some("e1".into()) });
+        assert_eq!(open.state.as_ref().unwrap().sessions[&2].summary.as_ref().unwrap().count, 2);
+        // A hydrated event (current catch-up state, `stateTooLarge` removed by the client) applies the same way.
+        let hydrated = json!({"path": PATH, "state": populated(), "extra": "retained"});
+        r.apply_notice(notice(3, "project:state", hydrated)).unwrap();
+        assert_eq!(r.state().unwrap().projects[0].stamp, StateStamp::default());
+    }
+
+    #[test]
+    fn unknown_channels_foreign_scopes_and_unreduced_types_are_counted_not_guessed() {
+        let mut r = reducer();
+        let version = r.version();
+        let effect = r.apply_notice(notice(2, "link:state", json!({"linkId": "x", "state": {}}))).unwrap();
+        assert_eq!(effect.ignored, Some(Ignored::Channel("link:state".into())));
+        r.apply_notice(notice(3, "agent:done", json!({"chatId": format!("{PATH}#1")}))).unwrap();
+        let foreign = r.apply_notice(notice(4, "project:state", json!({"path": "/foreign", "state": {}}))).unwrap();
+        assert_eq!(foreign.ignored, Some(Ignored::ForeignScope("/foreign".into())));
+        let foreign = json!({"chatId": "/foreign#9", "event": {"type": "text-delta", "text": "x"}});
+        assert_eq!(r.apply_notice(notice(5, "agent:event", foreign)).unwrap().ignored, Some(Ignored::ForeignScope("/foreign".into())));
+        let suggestion = r.apply_notice(notice(6, "agent:event", agent(1, json!({"type": "prompt-suggestion", "text": "x"})))).unwrap();
+        assert_eq!(suggestion.ignored, Some(Ignored::AgentEventType("prompt-suggestion".into())));
+        let counts = r.counts();
+        assert_eq!(
+            counts.unknown_channels.iter().map(|(k, v)| (k.as_str(), *v)).collect::<Vec<_>>(),
+            [("agent:done", 1), ("link:state", 1)]
+        );
+        assert_eq!((counts.foreign_scope, counts.unreduced_agent_types["prompt-suggestion"]), (2, 1));
+        assert_eq!(r.version(), version, "nothing a view shows changed");
+        assert_eq!(r.released().count(), 5);
+        // Names are bounded too.
+        let mut r = Reducer::with_live_bounds(LiveBounds { names: 2, ..LiveBounds::default() });
+        r.apply_body(&body("snapshot"), 1).unwrap();
+        for (seq, channel) in [(2, "a"), (3, "b"), (4, "c"), (5, "d")] {
+            r.apply_notice(notice(seq, channel, json!({}))).unwrap();
+        }
+        assert_eq!(
+            r.counts().unknown_channels.iter().map(|(k, v)| (k.as_str(), *v)).collect::<Vec<_>>(),
+            [("(other)", 2), ("a", 1), ("b", 1)]
+        );
+    }
+
+    #[test]
+    fn stale_and_regressing_events_are_refused_with_typed_errors() {
+        let mut r = reducer();
+        r.apply_notice(notice(5, "x", json!({}))).unwrap();
+        assert_eq!(r.apply_notice(notice(1, "x", json!({}))).unwrap_err(), SyncError::StaleEvent { wire_seq: 1, watermark: 1 });
+        assert_eq!(r.apply_notice(notice(5, "x", json!({}))).unwrap_err(), SyncError::OutOfOrder { wire_seq: 5, last: 5 });
+        assert_eq!(r.apply_notice(notice(3, "x", json!({}))).unwrap_err(), SyncError::OutOfOrder { wire_seq: 3, last: 5 });
+        r.apply_notice(notice(6, "x", json!({}))).expect("refusals are not latched");
+        assert_eq!((r.last_seq(), r.released().count()), (6, 2));
+    }
+
+    #[test]
+    fn oversized_invalid_and_unbounded_events_close_the_live_state_visibly() {
+        // An oversized marker that reached the reducer unhydrated is StateTooLarge, never an empty state.
+        let mut r = reducer();
+        let marker = notice(2, "project:state", json!({"path": PATH, "stateTooLarge": true}));
+        let expected = SyncError::StateTooLarge { scope: Some(PATH.into()), method: None };
+        assert_eq!(r.apply_notice(marker).unwrap_err(), expected);
+        assert_eq!(r.state().unwrap_err(), expected);
+        // A failed hydration closes with the client's StateTooLarge (or its actual error), as before.
+        let mut r = reducer();
+        let closed =
+            Notice::Closed(Error::StateTooLarge { hydration: Some(Hydration { scope: "/foreign".into(), method: "project:read".into() }) });
+        assert!(matches!(r.apply_notice(closed).unwrap_err(), SyncError::StateTooLarge { .. }));
+        assert!(r.state().is_err());
+        // A known channel with the wrong shape.
+        let mut r = reducer();
+        let error = r.apply_notice(notice(2, "project:state", json!({"path": PATH, "state": {"sessions": {}}}))).unwrap_err();
+        assert!(
+            matches!(&error, SyncError::InvalidEvent { channel, message } if channel == "project:state" && message.contains("next_id"))
+        );
+        assert_eq!(r.state().unwrap_err(), error);
+        // A bound.
+        let mut r = Reducer::with_live_bounds(LiveBounds { runs: 1, ..LiveBounds::default() });
+        r.apply_body(&body("snapshot"), 1).unwrap();
+        r.apply_notice(notice(2, "agent:event", agent(1, json!({"type": "message-sent", "model": "m"})))).unwrap();
+        let second = json!({"chatId": format!("{PATH}#2"), "event": {"type": "message-sent", "model": "m"}});
+        assert_eq!(r.apply_notice(notice(3, "agent:event", second)).unwrap_err(), SyncError::Bound { what: "runs", limit: 1 });
+        assert!(r.state().is_err());
+        // Zero is a hard bound too: no run, no step, no text, no request is admitted.
+        for (bounds, what, event) in [
+            (LiveBounds { runs: 0, ..LiveBounds::default() }, "runs", json!({"type": "message-sent", "model": "m"})),
+            (LiveBounds { steps: 0, ..LiveBounds::default() }, "steps", json!({"type": "step-started", "step": {"id": "s", "title": "t"}})),
+            (LiveBounds { run_text: 0, ..LiveBounds::default() }, "run text bytes", json!({"type": "text-delta", "text": "x"})),
+            (
+                LiveBounds { requests: 0, ..LiveBounds::default() },
+                "approvals",
+                json!({"type": "permission-request", "requestId": "r", "kind": "edit", "tool": "Edit", "title": "t"}),
+            ),
+        ] {
+            let mut r = Reducer::with_live_bounds(bounds);
+            r.apply_body(&body("snapshot"), 1).unwrap();
+            let mut seq = 2;
+            if what != "runs" {
+                let start = LiveBounds { runs: 1, ..bounds };
+                r = Reducer::with_live_bounds(start);
+                r.apply_body(&body("snapshot"), 1).unwrap();
+                r.apply_notice(notice(seq, "agent:event", agent(1, json!({"type": "message-sent", "model": "m"})))).unwrap();
+                seq += 1;
+            }
+            assert_eq!(
+                r.apply_notice(notice(seq, "agent:event", agent(2, event))).unwrap_err(),
+                SyncError::Bound { what, limit: 0 },
+                "{what}"
+            );
+        }
+        // With no names allowed, every unknown channel is counted under the one overflow entry.
+        let mut r = Reducer::with_live_bounds(LiveBounds { names: 0, ..LiveBounds::default() });
+        r.apply_body(&body("snapshot"), 1).unwrap();
+        r.apply_notice(notice(2, "a", json!({}))).unwrap();
+        assert_eq!(r.counts().unknown_channels.iter().map(|(k, v)| (k.as_str(), *v)).collect::<Vec<_>>(), [("(other)", 1)]);
+    }
+
+    #[test]
+    fn step_output_keeps_its_last_20000_utf16_units() {
+        let long = "é".repeat(20_005);
+        let capped = cap_output(&long);
+        assert!(capped.starts_with("… truncated\n"));
+        assert_eq!(capped.trim_start_matches("… truncated\n").encode_utf16().count(), 20_000);
+        assert_eq!(cap_output("short"), "short");
+    }
+
+    /// The seam a view uses: subscribe, and on each signal read the version and what it draws.
+    #[gpui::test]
+    fn a_gpui_view_follows_the_live_store(cx: &mut gpui::TestAppContext) {
+        use futures::StreamExt as _;
+        use gpui::AppContext as _;
+        struct Follower {
+            version: u64,
+            runs: usize,
+        }
+        let store = LiveStore::new(reducer());
+        let follower = cx.new(|_| Follower { version: 0, runs: 0 });
+        let mut signals = store.subscribe().expect("a subscriber slot");
+        let (watched, view) = (store.clone(), follower.clone());
+        cx.spawn(async move |mut cx| {
+            while signals.next().await.is_some() {
+                let (version, runs) = watched.read(|r| (r.version(), r.state().map(|s| s.runs.runs.len()).unwrap_or(0)));
+                view.update(&mut cx, |view, _| *view = Follower { version, runs });
+            }
+        })
+        .detach();
+        store.apply_notice(notice(2, "agent:event", agent(1, json!({"type": "message-sent", "model": "m"})))).unwrap();
+        store.apply_notice(notice(3, "agent:event", agent(2, json!({"type": "text-delta", "text": "hi"})))).unwrap();
+        cx.run_until_parked();
+        assert_eq!(follower.read_with(cx, |f, _| (f.version, f.runs)), (store.version(), 1));
+        // An ignored event moves nothing and signals nothing.
+        let version = store.version();
+        store.apply_notice(notice(4, "link:state", json!({}))).unwrap();
+        cx.run_until_parked();
+        assert_eq!((store.version(), follower.read_with(cx, |f, _| f.version)), (version, version));
+    }
+}
+
+/// CAPTURED from the real wire: the `project:state` event the populated fixture released after the accepted snapshot
+/// (`real::populated::post_snapshot_events`), applied to the captured default snapshot (same placeholder path).
+#[test]
+fn a_captured_live_project_state_replaces_the_scope() {
+    let mut reducer = Reducer::default();
+    reducer.apply_body(&body("snapshot"), 1).unwrap();
+    assert_eq!(reducer.state().unwrap().projects[0].state.as_ref().unwrap().sessions[&1].summary.as_ref().unwrap().count, 0);
+    let event = body("live_project_state");
+    for wire_seq in [2, 3] {
+        let effect = reducer
+            .apply_notice(Notice::Event { wire_seq, scope: Some(PATH.into()), channel: "project:state".into(), payload: event.clone() })
+            .unwrap();
+        assert_eq!(effect.state.as_deref(), Some(PATH));
+    }
+    let open = &reducer.state().unwrap().projects[0];
+    let sessions = &open.state.as_ref().unwrap().sessions;
+    assert_eq!((sessions[&1].summary.as_ref().unwrap().count, sessions[&2].summary.as_ref().unwrap().count), (4, 2));
+    assert_eq!(sessions[&1].summary.as_ref().unwrap().title_line.as_deref(), Some("Fixture history: first turn"));
+    assert_eq!(open.stamp, StateStamp::default(), "the real event carries no version/epoch; none is invented");
+    assert_eq!((reducer.counts().state_replacements, reducer.version()), (2, 3));
 }
