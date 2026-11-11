@@ -198,28 +198,16 @@
     "kind": "switches"
   },
   {
-    "command": "git log --format value",
-    "subcommand": "log",
-    "flag": "--format",
-    "kind": "values"
-  },
-  {
     "command": "git log --format=value",
     "subcommand": "log",
     "flag": "--format",
-    "kind": "values-inline"
-  },
-  {
-    "command": "git log --pretty value",
-    "subcommand": "log",
-    "flag": "--pretty",
-    "kind": "values"
+    "kind": "inline-only"
   },
   {
     "command": "git log --pretty=value",
     "subcommand": "log",
     "flag": "--pretty",
-    "kind": "values-inline"
+    "kind": "inline-only"
   },
   {
     "command": "git log --date value",
@@ -426,28 +414,16 @@
     "kind": "switches"
   },
   {
-    "command": "git show --format value",
-    "subcommand": "show",
-    "flag": "--format",
-    "kind": "values"
-  },
-  {
     "command": "git show --format=value",
     "subcommand": "show",
     "flag": "--format",
-    "kind": "values-inline"
-  },
-  {
-    "command": "git show --pretty value",
-    "subcommand": "show",
-    "flag": "--pretty",
-    "kind": "values"
+    "kind": "inline-only"
   },
   {
     "command": "git show --pretty=value",
     "subcommand": "show",
     "flag": "--pretty",
-    "kind": "values-inline"
+    "kind": "inline-only"
   },
   {
     "command": "git show --date value",
@@ -690,30 +666,6 @@
     "kind": "switches"
   },
   {
-    "command": "git diff --unified value",
-    "subcommand": "diff",
-    "flag": "--unified",
-    "kind": "values"
-  },
-  {
-    "command": "git diff --unified=value",
-    "subcommand": "diff",
-    "flag": "--unified",
-    "kind": "values-inline"
-  },
-  {
-    "command": "git diff -U value",
-    "subcommand": "diff",
-    "flag": "-U",
-    "kind": "values"
-  },
-  {
-    "command": "git diff -U=value",
-    "subcommand": "diff",
-    "flag": "-U",
-    "kind": "values-inline"
-  },
-  {
     "command": "git diff --diff-filter value",
     "subcommand": "diff",
     "flag": "--diff-filter",
@@ -724,6 +676,18 @@
     "subcommand": "diff",
     "flag": "--diff-filter",
     "kind": "values-inline"
+  },
+  {
+    "command": "git diff --unified=value",
+    "subcommand": "diff",
+    "flag": "--unified",
+    "kind": "inline-only"
+  },
+  {
+    "command": "git diff -U3",
+    "subcommand": "diff",
+    "flag": "-U3",
+    "kind": "attached-count"
   },
   {
     "command": "git rev-parse --verify",
@@ -1608,30 +1572,6 @@
     "kind": "values-inline"
   },
   {
-    "command": "git checkout -c value",
-    "subcommand": "checkout",
-    "flag": "-c",
-    "kind": "values"
-  },
-  {
-    "command": "git checkout -c=value",
-    "subcommand": "checkout",
-    "flag": "-c",
-    "kind": "values-inline"
-  },
-  {
-    "command": "git checkout -C value",
-    "subcommand": "checkout",
-    "flag": "-C",
-    "kind": "values"
-  },
-  {
-    "command": "git checkout -C=value",
-    "subcommand": "checkout",
-    "flag": "-C",
-    "kind": "values-inline"
-  },
-  {
     "command": "git checkout --orphan value",
     "subcommand": "checkout",
     "flag": "--orphan",
@@ -1674,46 +1614,10 @@
     "kind": "switches"
   },
   {
-    "command": "git switch --ours",
-    "subcommand": "switch",
-    "flag": "--ours",
-    "kind": "switches"
-  },
-  {
-    "command": "git switch --theirs",
-    "subcommand": "switch",
-    "flag": "--theirs",
-    "kind": "switches"
-  },
-  {
     "command": "git switch --no-track",
     "subcommand": "switch",
     "flag": "--no-track",
     "kind": "switches"
-  },
-  {
-    "command": "git switch -b value",
-    "subcommand": "switch",
-    "flag": "-b",
-    "kind": "values"
-  },
-  {
-    "command": "git switch -b=value",
-    "subcommand": "switch",
-    "flag": "-b",
-    "kind": "values-inline"
-  },
-  {
-    "command": "git switch -B value",
-    "subcommand": "switch",
-    "flag": "-B",
-    "kind": "values"
-  },
-  {
-    "command": "git switch -B=value",
-    "subcommand": "switch",
-    "flag": "-B",
-    "kind": "values-inline"
   },
   {
     "command": "git switch -c value",
@@ -2262,18 +2166,6 @@
     "kind": "values-inline"
   },
   {
-    "command": "git rev-list --format value",
-    "subcommand": "rev-list",
-    "flag": "--format",
-    "kind": "values"
-  },
-  {
-    "command": "git rev-list --format=value",
-    "subcommand": "rev-list",
-    "flag": "--format",
-    "kind": "values-inline"
-  },
-  {
     "command": "git rev-list --since value",
     "subcommand": "rev-list",
     "flag": "--since",
@@ -2296,6 +2188,12 @@
     "subcommand": "rev-list",
     "flag": "--until",
     "kind": "values-inline"
+  },
+  {
+    "command": "git rev-list --format=value",
+    "subcommand": "rev-list",
+    "flag": "--format",
+    "kind": "inline-only"
   },
   {
     "command": "git rev-list -3",

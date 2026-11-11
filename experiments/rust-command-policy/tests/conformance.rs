@@ -9,7 +9,7 @@ fn actions(value: &Value) -> Vec<RemoteAction> {
 fn replay_actual_node_guard_with_explicit_supported_surface() {
     let node: Vec<Value> = serde_json::from_str(include_str!("node-traces.json")).unwrap();
     let expected: Vec<Value> = serde_json::from_str(include_str!("outcomes.json")).unwrap();
-    assert_eq!(node.len(), 325);
+    assert_eq!(node.len(), 405);
     assert_eq!(node.len(), expected.len());
     let mut counts = (0, 0, 0);
     for (case, expect) in node.iter().zip(&expected) {
@@ -52,7 +52,7 @@ fn replay_actual_node_guard_with_explicit_supported_surface() {
             }
         }
     }
-    assert_eq!(counts, (126, 199, 11));
+    assert_eq!(counts, (131, 274, 11));
 }
 #[test]
 fn adversarial_cases_fail_closed_or_name_the_actual_action() {
@@ -144,7 +144,7 @@ fn malformed_unicode_and_shell_tokens_never_panic() {
 fn exact_git_flag_corpus_and_real_abbreviation_probes() {
     let cases: Vec<Value> =
         serde_json::from_str(include_str!("accepted-git-options.json")).unwrap();
-    assert_eq!(cases.len(), 458);
+    assert_eq!(cases.len(), 441);
     for case in cases {
         let command = case["command"].as_str().unwrap();
         assert!(ShellClassifier.actions(command).is_ok(), "{command}");
@@ -166,4 +166,54 @@ fn exact_git_flag_corpus_and_real_abbreviation_probes() {
             "helper probe admitted: {command}"
         );
     }
+}
+
+#[test]
+fn every_value_option_matches_real_git_arity_and_cannot_swallow_another_flag() {
+    use std::collections::BTreeSet;
+    let forms: Vec<Value> =
+        serde_json::from_str(include_str!("accepted-git-options.json")).unwrap();
+    let expected: BTreeSet<_> = forms
+        .iter()
+        .filter(|row| row["kind"] == "values")
+        .map(|row| {
+            (
+                row["subcommand"].as_str().unwrap().to_owned(),
+                row["flag"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    let fixture: Value = serde_json::from_str(include_str!("git-value-arity.json")).unwrap();
+    let cases = fixture["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 62);
+    let mut replayed = BTreeSet::new();
+    for case in cases {
+        let command = case["command"].as_str().unwrap();
+        assert!(
+            ShellClassifier.actions(command).is_err(),
+            "smuggled flag admitted: {command}"
+        );
+        if case["mode"] == "values" {
+            assert_eq!(
+                case["probeConsumed"], true,
+                "Git did not consume the value: {command}"
+            );
+            replayed.insert((
+                case["subcommand"].as_str().unwrap().to_owned(),
+                case["flag"].as_str().unwrap().to_owned(),
+            ));
+        } else {
+            assert_eq!(case["probeConsumed"], false);
+        }
+    }
+    assert_eq!(expected.len(), 55);
+    assert_eq!(
+        replayed, expected,
+        "every admitted next-token value flag must have a real Git probe"
+    );
+    assert_eq!(fixture["chain"]["configWritten"], true);
+    assert_eq!(fixture["chain"]["helperExecuted"], true);
+    assert!(ShellClassifier
+        .actions(fixture["chain"]["command"].as_str().unwrap())
+        .is_err());
 }

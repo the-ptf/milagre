@@ -4,12 +4,14 @@ struct Options {
     switches: &'static [&'static str],
     values: &'static [&'static str],
     optional: &'static [&'static str],
+    inline: &'static [&'static str],
     counts: bool,
 }
 const NONE: Options = Options {
     switches: &[],
     values: &[],
     optional: &[],
+    inline: &[],
     counts: false,
 };
 fn options(command: &str) -> Option<Options> {
@@ -50,9 +52,8 @@ fn options(command: &str) -> Option<Options> {
                 "--no-ext-diff",
                 "--no-textconv",
             ],
+            inline: &["--format", "--pretty"],
             values: &[
-                "--format",
-                "--pretty",
                 "--date",
                 "--max-count",
                 "-n",
@@ -90,7 +91,8 @@ fn options(command: &str) -> Option<Options> {
                 "--ignore-space-change",
                 "-b",
             ],
-            values: &["--unified", "-U", "--diff-filter"],
+            values: &["--diff-filter"],
+            inline: &["--unified"],
             ..NONE
         },
         "rev-parse" => Options {
@@ -245,7 +247,7 @@ fn options(command: &str) -> Option<Options> {
             ],
             ..NONE
         },
-        "checkout" | "switch" => Options {
+        "checkout" => Options {
             switches: &[
                 "--detach",
                 "--force",
@@ -256,7 +258,12 @@ fn options(command: &str) -> Option<Options> {
                 "--theirs",
                 "--no-track",
             ],
-            values: &["-b", "-B", "-c", "-C", "--orphan"],
+            values: &["-b", "-B", "--orphan"],
+            ..NONE
+        },
+        "switch" => Options {
+            switches: &["--detach", "--force", "-f", "--quiet", "-q", "--no-track"],
+            values: &["-c", "-C", "--orphan"],
             ..NONE
         },
         "merge" => Options {
@@ -355,7 +362,8 @@ fn options(command: &str) -> Option<Options> {
                 "--topo-order",
                 "--all",
             ],
-            values: &["--max-count", "-n", "--format", "--since", "--until"],
+            values: &["--max-count", "-n", "--since", "--until"],
+            inline: &["--format"],
             counts: true,
             ..NONE
         },
@@ -466,9 +474,27 @@ pub(crate) fn validate(command: &str, args: &[&str]) -> Result<()> {
         if spec.optional.contains(&flag) {
             continue;
         }
+        if spec.inline.contains(&flag) {
+            if inline.is_none() {
+                return Err(UNSUPPORTED);
+            }
+            continue;
+        }
+        if command == "diff"
+            && arg.starts_with("-U")
+            && arg.len() > 2
+            && arg[2..].bytes().all(|b| b.is_ascii_digit())
+        {
+            continue;
+        }
         if spec.values.contains(&flag) {
             if inline.is_none() {
-                args.get(i).ok_or(UNSUPPORTED)?;
+                let value = args.get(i).ok_or(UNSUPPORTED)?;
+                // Defense in depth: a future arity-table mistake cannot hide another option.
+                // Use inline syntax for a legitimate literal value beginning with a dash.
+                if value.starts_with('-') {
+                    return Err(UNSUPPORTED);
+                }
                 i += 1;
             }
             continue;
@@ -531,6 +557,23 @@ mod tests {
                     }
                 }
             }
+            for flag in spec.inline {
+                accepted.insert((
+                    command.to_owned(),
+                    (*flag).to_owned(),
+                    "inline-only".to_owned(),
+                ));
+                assert!(validate(command, &[flag]).is_err());
+                assert!(validate(command, &[flag, "--zz-probe-flag"]).is_err());
+                assert!(validate(command, &[&format!("{flag}=value")]).is_ok());
+            }
+            if command == "diff" {
+                accepted.insert((
+                    command.to_owned(),
+                    "-U3".to_owned(),
+                    "attached-count".to_owned(),
+                ));
+            }
             if spec.counts {
                 accepted.insert((command.to_owned(), "-3".to_owned(), "count".to_owned()));
             }
@@ -542,18 +585,26 @@ mod tests {
                 assert!(validate(command, &[flag, "value"]).is_ok());
                 assert!(validate(command, &[&format!("{flag}=value")]).is_ok());
                 assert!(validate(command, &[flag]).is_err());
+                assert!(validate(command, &[flag, "--zz-probe-flag"]).is_err());
             }
             for flag in spec.optional {
                 assert!(validate(command, &[flag]).is_ok());
                 assert!(validate(command, &[&format!("{flag}=value")]).is_ok());
             }
-            for flag in spec.switches.iter().chain(spec.values).chain(spec.optional) {
+            for flag in spec
+                .switches
+                .iter()
+                .chain(spec.values)
+                .chain(spec.optional)
+                .chain(spec.inline)
+            {
                 if flag.starts_with("--") {
                     for end in 3..flag.len() {
                         let prefix = &flag[..end];
                         if !spec.switches.contains(&prefix)
                             && !spec.values.contains(&prefix)
                             && !spec.optional.contains(&prefix)
+                            && !spec.inline.contains(&prefix)
                         {
                             assert!(
                                 validate(command, &[prefix, "value"]).is_err(),

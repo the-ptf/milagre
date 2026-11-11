@@ -88,9 +88,9 @@ recorder's VM. No production source is modified. It adds the adversarial inputs 
 `tests/adversarial.json`, still through the real Node function. `--check` detects fixture drift.
 The recorder never executes any input command.
 
-Current fixtures contain **325 distinct inputs: 126 classified and 199 explicitly refused**.
+Current fixtures contain **405 distinct inputs: 131 classified and 274 explicitly refused**.
 `tests/outcomes.json` pins the exact accepted/refused surface so widening or reducing it requires
-review. For the 126 accepted inputs, 115 match Node's facts exactly. The 11 deviations are:
+review. For the 131 accepted inputs, 120 match Node's facts exactly. The 11 deviations are:
 
 1. Six opaque-stdin cases return an always-denied file/body fact. Node sometimes infers a body
    from unrelated text elsewhere on the line and even returns no action for bare GraphQL stdin.
@@ -102,7 +102,7 @@ review. For the 126 accepted inputs, 115 match Node's facts exactly. The 11 devi
    is refused because it may carry `state`; an explicit `state` field is conservatively `Close`
    even if its value is a variable.
 
-Tests also cover 138 adversarial cases, level rules, limits, static errors/Debug and 1,000
+Tests also cover 155 adversarial cases, level rules, limits, static errors/Debug and 1,000
 malformed Unicode/token combinations. This is a bounded checkpoint, not complete shell or
 GitHub API parity. Windows shells/process execution are unsupported.
 
@@ -111,7 +111,7 @@ GitHub API parity. Windows shells/process execution are unsupported.
 Review found that Git 2.54 accepts execution-helper abbreviations such as `rebase --exe` and
 `fetch --upload-p`. A prefix blocklist was insufficient. `git_options.rs` now admits only exact
 per-subcommand flags, so unknown abbreviations and arbitrary long flags fail closed.
-`tests/accepted-git-options.json` records all **458 admitted option forms**; tests compare the
+`tests/accepted-git-options.json` records all **441 admitted option forms**; tests compare the
 entire table to that independent saved corpus and pass every case through the shell parser.
 Every unrecognized proper prefix of an admitted long option is rejected too.
 
@@ -123,6 +123,29 @@ Its helper only touches a marker in that private root; it runs no `gh`, network 
 production repository command. It removes that owned scratch root afterwards. These probes
 are separate from the pure Node action recorder.
 
+A second review found that exact flag names alone did not establish correct arity. Git's
+`log`/`show` `--pretty`/`--format`, `rev-list --format`, and `diff --unified`/`-U` do not consume
+a separated next token. The long forms now require `=value`; `-U` requires attached digits.
+All remaining separated-value options reject a next token beginning with `-`. Legitimate
+literal dash-leading values can use inline syntax. This prevents another arity-table mistake
+from hiding a dangerous option such as `--output`.
+
+`git-value-arity.cjs --check` probes every next-token value entry with `--zz-probe-flag` against
+real Git in a fresh private repo. **62 probes cover all 55 admitted consumers and the seven
+corrected forms**. Each consumer is compared to a no-value-flag control invocation; unknown
+option diagnostics or unchanged control results cannot count as successful consumption. The
+recorded output and control diagnostic remain in the fixture. Tests require the consumer set
+to equal the entire admitted value table, so adding a flag without a real probe fails.
+
+The same script reproduces the complete `log --pretty --output=.git/config` chain, whose
+format string writes an `fsmonitor` entry and whose following `git status` executes an inert
+marker helper. The helper and configuration exist only in that new private fixture repo;
+there is no network, real profile or production repository access. The classifier rejects the
+whole chain. Invalid mixed `checkout -c/-C` and `switch -b/-B` entries found by these probes
+were also removed.
+
+Local Git operations may be destructive (`reset --hard`, branch/tag deletion, forced checkout).
+An empty action vector means no classified remote action, not permission to discard local data.
 This classifier concerns remote actions, not confidentiality. Supported local read commands
 can read files; access controls remain an owner/sandbox responsibility.
 
@@ -134,6 +157,7 @@ cargo clippy --manifest-path experiments/rust-command-policy/Cargo.toml --all-ta
 cargo fmt --manifest-path experiments/rust-command-policy/Cargo.toml -- --check
 node experiments/rust-command-policy/scripts/record.cjs --check
 node experiments/rust-command-policy/scripts/git-abbreviations.cjs --check
+node experiments/rust-command-policy/scripts/git-value-arity.cjs --check
 ```
 
 Parser sources checked: [Tree-sitter Bash 0.25.1](https://docs.rs/tree-sitter-bash/0.25.1/tree_sitter_bash/),

@@ -1180,6 +1180,74 @@
     "actions": []
   },
   {
+    "command": "git log --pretty --output=F",
+    "actions": []
+  },
+  {
+    "command": "git show --pretty --output=F",
+    "actions": []
+  },
+  {
+    "command": "git show --format --output=F",
+    "actions": []
+  },
+  {
+    "command": "git rev-list --format --output=F",
+    "actions": []
+  },
+  {
+    "command": "git diff -U --output=F",
+    "actions": []
+  },
+  {
+    "command": "git diff --unified --output=F",
+    "actions": []
+  },
+  {
+    "command": "git log -1 --pretty --output=.git/config '--format=[core]%n%x09fsmonitor = /isolated/marker-helper' && git status --short",
+    "actions": []
+  },
+  {
+    "command": "git log --pretty value",
+    "actions": []
+  },
+  {
+    "command": "git diff --unified 3",
+    "actions": []
+  },
+  {
+    "command": "git diff -U 3",
+    "actions": []
+  },
+  {
+    "command": "git log --format --output=.git/config",
+    "actions": []
+  },
+  {
+    "command": "git log --date --output=F",
+    "actions": []
+  },
+  {
+    "command": "git log --pretty=oneline",
+    "actions": []
+  },
+  {
+    "command": "git show '--format=%s'",
+    "actions": []
+  },
+  {
+    "command": "git rev-list --format=oneline HEAD",
+    "actions": []
+  },
+  {
+    "command": "git diff --unified=3",
+    "actions": []
+  },
+  {
+    "command": "git diff -U3",
+    "actions": []
+  },
+  {
     "command": "git 'rebase' '--e' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
     "actions": []
   },
@@ -1297,6 +1365,258 @@
   },
   {
     "command": "git 'fetch' '--upload-pack=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--format' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--pretty' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--date' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--max-count' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '-n' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--since' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--until' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--author' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--grep' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--format' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--pretty' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--date' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--max-count' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '-n' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--since' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--until' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--author' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--grep' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'diff' '--diff-filter' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'diff' '--unified' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'ls-files' '--format' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'ls-tree' '--format' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'branch' '--format' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'branch' '--sort' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'branch' '--set-upstream-to' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--depth' '--zz-probe-flag' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--deepen' '--zz-probe-flag' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--shallow-since' '--zz-probe-flag' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--shallow-exclude' '--zz-probe-flag' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'commit' '--message' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'commit' '-m' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'commit' '--file' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'commit' '-F' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'restore' '--source' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'restore' '-s' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'checkout' '-b' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'checkout' '-B' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'checkout' '--orphan' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'switch' '-c' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'switch' '-C' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'switch' '--orphan' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'merge' '--message' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'merge' '-m' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--onto' '--zz-probe-flag' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'cherry-pick' '--mainline' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'cherry-pick' '-m' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'stash' '--message' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'stash' '-m' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'blame' '--date' '--zz-probe-flag' 'file'",
+    "actions": []
+  },
+  {
+    "command": "git 'blame' '-L' '--zz-probe-flag' 'file'",
+    "actions": []
+  },
+  {
+    "command": "git 'rev-list' '--max-count' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'rev-list' '-n' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'rev-list' '--since' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'rev-list' '--until' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'rev-list' '--format' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'tag' '--message' '--zz-probe-flag' 'fixture-tag'",
+    "actions": []
+  },
+  {
+    "command": "git 'tag' '-m' '--zz-probe-flag' 'fixture-tag'",
+    "actions": []
+  },
+  {
+    "command": "git 'tag' '--format' '--zz-probe-flag' 'fixture-tag'",
+    "actions": []
+  },
+  {
+    "command": "git 'tag' '--sort' '--zz-probe-flag' 'fixture-tag'",
+    "actions": []
+  },
+  {
+    "command": "git 'subtree' 'push' '--prefix' '--zz-probe-flag'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git 'subtree' 'push' '-P' '--zz-probe-flag'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git 'diff' '-U' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '-1' '--pretty' '--output=.git/config' '--format=[core]%n%x09fsmonitor = /isolated/marker-helper' && git status --short",
     "actions": []
   }
 ]

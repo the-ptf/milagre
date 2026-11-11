@@ -550,5 +550,73 @@
   {
     "command": "git log --open-files-in-pager 'gh pr merge 1'",
     "error": true
+  },
+  {
+    "command": "git log --pretty --output=F",
+    "error": true
+  },
+  {
+    "command": "git show --pretty --output=F",
+    "error": true
+  },
+  {
+    "command": "git show --format --output=F",
+    "error": true
+  },
+  {
+    "command": "git rev-list --format --output=F",
+    "error": true
+  },
+  {
+    "command": "git diff -U --output=F",
+    "error": true
+  },
+  {
+    "command": "git diff --unified --output=F",
+    "error": true
+  },
+  {
+    "command": "git log -1 --pretty --output=.git/config '--format=[core]%n%x09fsmonitor = /isolated/marker-helper' && git status --short",
+    "error": true
+  },
+  {
+    "command": "git log --pretty value",
+    "error": true
+  },
+  {
+    "command": "git diff --unified 3",
+    "error": true
+  },
+  {
+    "command": "git diff -U 3",
+    "error": true
+  },
+  {
+    "command": "git log --format --output=.git/config",
+    "error": true
+  },
+  {
+    "command": "git log --date --output=F",
+    "error": true
+  },
+  {
+    "command": "git log --pretty=oneline",
+    "actions": []
+  },
+  {
+    "command": "git show '--format=%s'",
+    "actions": []
+  },
+  {
+    "command": "git rev-list --format=oneline HEAD",
+    "actions": []
+  },
+  {
+    "command": "git diff --unified=3",
+    "actions": []
+  },
+  {
+    "command": "git diff -U3",
+    "actions": []
   }
 ]

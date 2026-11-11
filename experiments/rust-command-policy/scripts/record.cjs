@@ -34,6 +34,8 @@ vm.runInNewContext(
 );
 const extras = JSON.parse(fs.readFileSync(path.join(__dirname, "../tests/adversarial.json"), "utf8"));
 extras.push(...JSON.parse(fs.readFileSync(path.join(__dirname, "../tests/git-abbreviations.json"), "utf8")).cases);
+const arity = JSON.parse(fs.readFileSync(path.join(__dirname, "../tests/git-value-arity.json"), "utf8"));
+extras.push(...arity.cases, arity.chain);
 for (const { command } of extras) record(command, { level: 1 });
 const target = path.join(__dirname, "../tests/node-traces.json");
 const output = execFileSync(path.join(root, "node_modules/.bin/oxfmt"), ["--stdin-filepath", target], {

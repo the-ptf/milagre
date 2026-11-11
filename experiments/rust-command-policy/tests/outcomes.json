@@ -1180,6 +1180,74 @@
     "error": "Command policy cannot classify this shell syntax or executable."
   },
   {
+    "command": "git log --pretty --output=F",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git show --pretty --output=F",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git show --format --output=F",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git rev-list --format --output=F",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git diff -U --output=F",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git diff --unified --output=F",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git log -1 --pretty --output=.git/config '--format=[core]%n%x09fsmonitor = /isolated/marker-helper' && git status --short",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git log --pretty value",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git diff --unified 3",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git diff -U 3",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git log --format --output=.git/config",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git log --date --output=F",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git log --pretty=oneline",
+    "actions": []
+  },
+  {
+    "command": "git show '--format=%s'",
+    "actions": []
+  },
+  {
+    "command": "git rev-list --format=oneline HEAD",
+    "actions": []
+  },
+  {
+    "command": "git diff --unified=3",
+    "actions": []
+  },
+  {
+    "command": "git diff -U3",
+    "actions": []
+  },
+  {
     "command": "git 'rebase' '--e' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
     "error": "Command policy cannot classify this shell syntax or executable."
   },
@@ -1297,6 +1365,258 @@
   },
   {
     "command": "git 'fetch' '--upload-pack=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'log' '--format' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'log' '--pretty' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'log' '--date' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'log' '--max-count' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'log' '-n' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'log' '--since' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'log' '--until' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'log' '--author' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'log' '--grep' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'show' '--format' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'show' '--pretty' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'show' '--date' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'show' '--max-count' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'show' '-n' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'show' '--since' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'show' '--until' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'show' '--author' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'show' '--grep' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'diff' '--diff-filter' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'diff' '--unified' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'ls-files' '--format' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'ls-tree' '--format' '--zz-probe-flag' 'HEAD'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'branch' '--format' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'branch' '--sort' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'branch' '--set-upstream-to' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'fetch' '--depth' '--zz-probe-flag' '/isolated/remote.git'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'fetch' '--deepen' '--zz-probe-flag' '/isolated/remote.git'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'fetch' '--shallow-since' '--zz-probe-flag' '/isolated/remote.git'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'fetch' '--shallow-exclude' '--zz-probe-flag' '/isolated/remote.git'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'commit' '--message' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'commit' '-m' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'commit' '--file' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'commit' '-F' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'restore' '--source' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'restore' '-s' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'checkout' '-b' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'checkout' '-B' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'checkout' '--orphan' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'switch' '-c' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'switch' '-C' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'switch' '--orphan' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'merge' '--message' '--zz-probe-flag' 'HEAD'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'merge' '-m' '--zz-probe-flag' 'HEAD'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'rebase' '--onto' '--zz-probe-flag' 'HEAD~1'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'cherry-pick' '--mainline' '--zz-probe-flag' 'HEAD'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'cherry-pick' '-m' '--zz-probe-flag' 'HEAD'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'stash' '--message' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'stash' '-m' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'blame' '--date' '--zz-probe-flag' 'file'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'blame' '-L' '--zz-probe-flag' 'file'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'rev-list' '--max-count' '--zz-probe-flag' 'HEAD'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'rev-list' '-n' '--zz-probe-flag' 'HEAD'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'rev-list' '--since' '--zz-probe-flag' 'HEAD'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'rev-list' '--until' '--zz-probe-flag' 'HEAD'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'rev-list' '--format' '--zz-probe-flag' 'HEAD'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'tag' '--message' '--zz-probe-flag' 'fixture-tag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'tag' '-m' '--zz-probe-flag' 'fixture-tag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'tag' '--format' '--zz-probe-flag' 'fixture-tag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'tag' '--sort' '--zz-probe-flag' 'fixture-tag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'subtree' 'push' '--prefix' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'subtree' 'push' '-P' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'diff' '-U' '--zz-probe-flag'",
+    "error": "Command policy cannot classify this shell syntax or executable."
+  },
+  {
+    "command": "git 'log' '-1' '--pretty' '--output=.git/config' '--format=[core]%n%x09fsmonitor = /isolated/marker-helper' && git status --short",
     "error": "Command policy cannot classify this shell syntax or executable."
   }
 ]
