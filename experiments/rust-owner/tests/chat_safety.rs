@@ -1491,3 +1491,74 @@ fn outbound_identities_are_strict_and_free_text_lossy() {
         .unwrap()
         .contains("unpaired UTF-16 surrogate"));
 }
+
+/// Rollback of folds that change the state and the run together: when the change can't be kept (a load or settle
+/// failing after the fold ran), the run is byte-for-byte what it was, nothing is told, and the turn end is kept to fold
+/// again. Covers the three turn ends and a steered step split; run-only events can't fail after changing the run.
+#[test]
+fn a_mixed_fold_that_fails_leaves_the_run_as_it_was() {
+    for end in ["turn-completed", "turn-cancelled", "turn-failed"] {
+        let mut copy = Copy::plain();
+        copy.send("one", "c1", json!({})).unwrap();
+        copy.host.pump();
+        let chat = copy.chat();
+        copy.kiro
+            .emit(&chat, json!({ "type": "text-delta", "text": "partial" }));
+        copy.kiro.emit(&chat, json!({ "type": "step-started", "step": { "id": "s1", "kind": "shell", "title": "Run", "detail": "$ x\n" } }));
+        copy.kiro.emit(
+            &chat,
+            json!({ "type": "step-completed", "id": "s1", "status": "done" }),
+        );
+        assert!(copy.host.pump().is_empty());
+        copy.host.take_notices();
+        let runs = jsjson::to_string(&Value::Object(copy.host.runs().clone()));
+        let state = copy.host.states.current(&copy.project).unwrap().to_value();
+        copy.host.states.fail_next_commit("injected");
+        copy.kiro
+            .emit(&chat, json!({ "type": end, "message": "x" }));
+        assert_eq!(copy.host.pump().len(), 1, "{end}");
+        assert_eq!(
+            jsjson::to_string(&Value::Object(copy.host.runs().clone())),
+            runs,
+            "{end}: the run changed"
+        );
+        assert_eq!(
+            copy.host.states.current(&copy.project).unwrap().to_value(),
+            state,
+            "{end}: the state changed"
+        );
+        assert!(
+            copy.host.take_notices().is_empty(),
+            "{end}: a failed fold was told"
+        );
+        assert_eq!(copy.host.stuck_ends(), std::slice::from_ref(&chat), "{end}");
+        // The kept end folds once the change can be kept.
+        assert!(copy.host.pump().is_empty(), "{end}");
+        assert!(
+            copy.host.runs().is_empty() && copy.host.stuck_ends().is_empty(),
+            "{end}"
+        );
+    }
+
+    // A steered step split (the reply so far saved as its own message, the run split).
+    let (mut copy, claude) = claude_copy(SteeringMode::Recorded);
+    let chat = copy.chat();
+    copy.send("steer", "c2", json!({ "provider": "claude" }))
+        .unwrap();
+    claude.emit(&chat, json!({ "type": "text-delta", "text": "Sure." }));
+    assert!(copy.host.pump().is_empty());
+    let runs = jsjson::to_string(&Value::Object(copy.host.runs().clone()));
+    let messages = copy.messages().len();
+    copy.host.states.fail_next_commit("injected");
+    claude.emit(
+        &chat,
+        json!({ "type": "step-started", "step": { "id": "s2", "kind": "read", "title": "Read" } }),
+    );
+    assert_eq!(copy.host.pump().len(), 1);
+    assert_eq!(
+        jsjson::to_string(&Value::Object(copy.host.runs().clone())),
+        runs,
+        "the steered run changed"
+    );
+    assert_eq!(copy.messages().len(), messages);
+}

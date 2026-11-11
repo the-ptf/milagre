@@ -89,6 +89,8 @@ struct Slot {
 
 /// The in-memory states of the Projects of one isolated copy, each owned (locked) by this process while open.
 pub struct ProjectStates {
+    /// Tests only (see `fail_next_commit`).
+    fail_next_commit: Option<String>,
     isolation: Isolation,
     timing: Timing,
     now: i64,
@@ -112,8 +114,16 @@ fn without_key(state: &ProjectState, key: &str) -> ProjectState {
 
 impl ProjectStates {
     /// States for the Projects of `isolation`, the clock starting at `now` (ms since the epoch).
+    /// Tests only: the next change that would be kept fails after its closure ran, where a failed load or settle of a
+    /// real change lands (nothing is kept). For checking callers' rollback.
+    #[doc(hidden)]
+    pub fn fail_next_commit(&mut self, message: &str) {
+        self.fail_next_commit = Some(message.into());
+    }
+
     pub fn new(isolation: Isolation, timing: Timing, now: i64) -> Self {
         ProjectStates {
+            fail_next_commit: None,
             isolation,
             timing,
             now,
@@ -378,6 +388,9 @@ impl ProjectStates {
         let Some(changed) = change(&state)? else {
             return Ok((state, false));
         };
+        if let Some(message) = self.fail_next_commit.take() {
+            return Err(StoreError::Invalid(message));
+        }
         let mut next = changed;
         let mut unloaded = None;
         if self.timing.lazy {
