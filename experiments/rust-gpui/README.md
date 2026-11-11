@@ -29,6 +29,27 @@ an animation or a later change never shows in a snapshot.
 Needs Xcode's command line tools (for `bindgen`'s libclang). It does **not** need the Metal Toolchain (`runtime_shaders`).
 `node tools/gen-icons.mjs` (run by hand when icons change) needs the repository's `node_modules`.
 
+## Package and install (macOS)
+
+```sh
+scripts/bundle-macos.sh                 # builds /tmp/milagre-gpui-bundle/"Milagre GPUI.app"
+scripts/bundle-macos.sh --install       # also quits a running copy (by bundle id) and replaces ~/Applications/"Milagre GPUI.app"
+scripts/bundle-macos.sh --out ~/Desktop # write the bundle somewhere else
+```
+
+The script builds a release binary from a clean `git archive` of **HEAD** (uncommitted changes are not in the bundle, and a
+HEAD that does not build fails the script), then writes the bundle from `packaging/`: `Info.plist.in` (bundle id
+`com.milagre.gpui-poc`, display name "Milagre GPUI", `CFBundleShortVersionString` from `Cargo.toml`, `CFBundleVersion` the
+short commit SHA, `LSMinimumSystemVersion` 13.0, `NSHighResolutionCapable`) and `icon.icns`, and signs it ad hoc
+(`codesign --force --deep -s -`). The build cache is `~/.cache/milagre-gpui-bundle/target` (override with
+`CARGO_TARGET_DIR`), so only the first run compiles the dependencies. The same SHA is compiled in as `MILAGRE_GPUI_SHA`
+and shown by `platform::updates::AppVersion` (`app:version`). Check a bundle with `codesign -dv --deep "<app>"` and
+`plutil -p "<app>/Contents/Info.plist"`.
+
+App updates (`src/platform/updates.rs`) are a fixture: `UpdateMachine` holds the `update:*` state (check, found, progress,
+downloaded, install, fail, retry) and hands `UpdateNotice::set_state` its `AppUpdate`. There is no update feed and no
+network; the mechanism is still an open decision.
+
 ## GPUI version decision
 
 **Decision (2026-11-11): `gpui-pre =0.3.12` (GPUI itself) with `gpui-pre-platform` (`font-kit`, `runtime_shaders`), plus
