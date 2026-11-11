@@ -1592,6 +1592,10 @@ fn a_failed_close_keeps_the_host_quitting_until_a_retry_saves() {
     // The retry saves and closes; providers aren't shut down twice.
     copy.host.shutdown(false).unwrap();
     assert!(!copy.host.close_pending());
+    assert!(
+        copy.host.states.take_stranded().locks.is_empty(),
+        "the quit returned with a stranded lock not yet told"
+    );
     assert_eq!(copy.kiro.state.lock().unwrap().shutdowns, 1);
     assert!(!ownership::project_lock(&copy.project).exists());
     let saved = std::fs::read(copy.project.join(".milagre/chats.db")).unwrap_or_default();
@@ -1746,6 +1750,13 @@ fn a_lock_left_by_a_replaced_root_is_told() {
     std::os::unix::fs::symlink(&moved, &copy.project).unwrap();
     let token = std::fs::read_to_string(moved.join(".milagre/runtime.lock/owner.json")).unwrap();
     assert!(copy.host.shutdown(false).is_err());
+    // The second quit finds nothing left to close; the lock left behind was already told before the first returned.
+    copy.host.shutdown(false).unwrap();
+    assert!(!copy.host.close_pending());
+    assert!(
+        copy.host.states.take_stranded().locks.is_empty(),
+        "the quit returned with a stranded lock not yet told"
+    );
     let stranded: Vec<(String, String)> = copy
         .host
         .take_notices()

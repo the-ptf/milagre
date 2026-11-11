@@ -221,7 +221,7 @@ fn run() -> Result<(), String> {
             let isolation = Isolation::open(&PathBuf::from(&args[1]), &Policy::system())
                 .map_err(|e| e.to_string())?;
             let state = jsjson::parse_bytes(&std::fs::read(&args[3]).map_err(|e| e.to_string())?)?;
-            let mut owner = OwnedProject::open(&isolation, std::path::Path::new(&args[2]))
+            let mut owner = OwnedProject::open(&isolation, std::path::Path::new(&args[2]), None)
                 .map_err(|e| e.to_string())?;
             let options = SaveOptions {
                 durable,
@@ -238,7 +238,7 @@ fn run() -> Result<(), String> {
         Some("rewrite") if args.len() == 3 => {
             let isolation = Isolation::open(&PathBuf::from(&args[1]), &Policy::system())
                 .map_err(|e| e.to_string())?;
-            let mut owner = OwnedProject::open(&isolation, std::path::Path::new(&args[2]))
+            let mut owner = OwnedProject::open(&isolation, std::path::Path::new(&args[2]), None)
                 .map_err(|e| e.to_string())?;
             let report = owner
                 .load()

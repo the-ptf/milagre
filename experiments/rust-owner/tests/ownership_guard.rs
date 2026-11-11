@@ -104,7 +104,7 @@ fn verify_follows_the_lock_and_never_shows_its_token() {
 fn a_lost_lock_stops_every_write() {
     let base = tempfile::tempdir().unwrap();
     let isolation = Isolation::create(&base.path().join("copies"), &Policy::default()).unwrap();
-    let mut owner = OwnedProject::open(&isolation, Path::new("project")).unwrap();
+    let mut owner = OwnedProject::open(&isolation, Path::new("project"), None).unwrap();
     let state = json!({ "next_id": 2, "sessions": { "1": { "id": 1 } }, "messages": [{ "id": 1, "session_id": 1, "role": "user", "body": "first" }] });
     owner
         .save_project_state(&state, &SaveOptions::default())

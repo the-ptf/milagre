@@ -230,7 +230,8 @@ impl RustRun {
             }
             "restart" => {
                 self.owner.take().unwrap().release().unwrap();
-                self.owner = Some(OwnedProject::open(&self.isolation, &self.project).unwrap());
+                self.owner =
+                    Some(OwnedProject::open(&self.isolation, &self.project, None).unwrap());
                 Value::Null
             }
             "blockState" => {
@@ -304,7 +305,7 @@ fn rust_writes_what_node_writes() {
             node_lines.len(),
             steps.len()
         );
-        let owner = OwnedProject::open(&isolation, &project).unwrap();
+        let owner = OwnedProject::open(&isolation, &project, None).unwrap();
         let mut run = RustRun {
             isolation: isolation.clone(),
             project: project.clone(),

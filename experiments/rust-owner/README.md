@@ -175,8 +175,9 @@ crate that depends on the owner and enables `test-fixtures` gets both, so only t
 path); a guard without a pin can't be built. After the record is written the root is pinned again and the lock path
 checked to lead to the folder just made; a root that changed in that gap fails the open with `OwnershipLost` and the
 lock is left for an operator. Release (also on drop) removes nothing unless the pin holds. A guard dropped without
-releasing records a `StrandedLock` (path and why, never the token), drained by `ProjectStates::take_stranded` and told
-by the host as `Notice::LockStranded` on the next `take_notices`.
+releasing records a `StrandedLock` (path and why, never the token) in a bounded list (`MAX_STRANDED`, 64; the rest
+counted), drained by `ProjectStates::take_stranded` and told by the host as `Notice::LockStranded` on the next
+`take_notices` and before `shutdown` returns. `OwnedProject::open` takes the sink (`None` drops the diagnostic).
 
 ## Unpaired surrogates
 

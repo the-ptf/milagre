@@ -263,10 +263,13 @@ fn a_lock_a_drop_could_not_release_is_recorded() {
     let mut open = open();
     let moved = swap_for_link(&open);
     refused(open.states.close());
-    let stranded = open.states.take_stranded();
+    let stranded = open.states.take_stranded().locks;
     assert_eq!(stranded.len(), 1, "{stranded:?}");
     assert!(stranded[0].why.contains("Project folder"), "{stranded:?}");
-    assert!(open.states.take_stranded().is_empty(), "recorded once");
+    assert!(
+        open.states.take_stranded().locks.is_empty(),
+        "recorded once"
+    );
     assert!(lock_record(&moved).exists());
 }
 
@@ -305,7 +308,7 @@ fn a_root_swapped_while_its_lock_is_taken_fails_closed() {
         std::fs::rename(&from, &to).unwrap();
         symlink(&to, &from).unwrap();
     });
-    let error = match OwnedProject::open(&isolation, Path::new("p")) {
+    let error = match OwnedProject::open(&isolation, Path::new("p"), None) {
         Err(error) => error.to_string(),
         Ok(_) => panic!("a lock taken across a swap was kept"),
     };
@@ -332,7 +335,30 @@ fn a_root_replaced_by_a_folder_while_its_lock_is_taken_fails_closed() {
         std::fs::rename(&from, &to).unwrap();
         std::fs::create_dir_all(from.join(".milagre")).unwrap();
     });
-    assert!(OwnedProject::open(&isolation, Path::new("p")).is_err());
+    assert!(OwnedProject::open(&isolation, Path::new("p"), None).is_err());
     assert!(lock_record(&moved).exists());
     assert!(!project.join(".milagre/runtime.lock").exists());
+}
+
+/// A lock whose record another owner replaced isn't removed on drop, and its stranded diagnostic never shows either
+/// token.
+#[test]
+fn a_stranded_lock_never_shows_a_token() {
+    let mut open = open();
+    let record_file = lock_record(&open.project);
+    let record = std::fs::read_to_string(&record_file).unwrap();
+    let ours = serde_json::from_str::<serde_json::Value>(&record).unwrap()["token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    std::fs::write(&record_file, record.replace(&ours, "another-owners-token")).unwrap();
+    assert!(open.states.forget(&open.project).is_err());
+    let stranded = open.states.take_stranded().locks;
+    assert_eq!(stranded.len(), 1, "{stranded:?}");
+    let shown = format!("{stranded:?}");
+    assert!(
+        !shown.contains(&ours) && !shown.contains("another-owners-token"),
+        "{shown}"
+    );
+    assert!(record_file.exists(), "another owner's lock was removed");
 }

@@ -788,12 +788,7 @@ impl ChatHost {
     /// What the clients would hear since the last take. Notices past `MAX_NOTICES` drop the oldest, and the take
     /// ends with a `Failed` notice that counts them.
     pub fn take_notices(&mut self) -> Vec<Notice> {
-        for stranded in self.states.take_stranded() {
-            self.notice(Notice::LockStranded {
-                lock: jsjson::js_string(&stranded.lock.to_string_lossy()),
-                why: jsjson::js_string(&stranded.why),
-            });
-        }
+        self.tell_stranded();
         let mut notices: Vec<Notice> = std::mem::take(&mut self.notices).into();
         if self.dropped_notices > 0 {
             notices.push(Notice::Failed {
@@ -804,6 +799,27 @@ impl ChatHost {
             self.dropped_notices = 0;
         }
         notices
+    }
+
+    /// Moves the locks left on disk by dropped Projects into the notices (and a count of those past the bound).
+    fn tell_stranded(&mut self) {
+        let stranded = self.states.take_stranded();
+        for lock in stranded.locks {
+            self.notice(Notice::LockStranded {
+                lock: jsjson::js_string(&lock.lock.to_string_lossy()),
+                why: jsjson::js_string(&lock.why),
+            });
+        }
+        if stranded.dropped > 0 {
+            self.notice(Notice::Failed {
+                chat: String::new(),
+                what: "releasing Project locks".into(),
+                error: format!(
+                    "{} more locks were left on disk and not listed",
+                    stranded.dropped
+                ),
+            });
+        }
     }
 
     fn notice(&mut self, notice: Notice) {
@@ -2641,7 +2657,11 @@ impl ChatHost {
     /// it only retries the save and the close, and the quit is complete once it returns `Ok`.
     pub fn shutdown(&mut self, force: bool) -> Result<()> {
         if self.providers_shut_down {
-            self.states.close()?;
+            let closed = self.states.close();
+            // A release refused during the close leaves its lock on disk: told before returning, so a host that quits
+            // now still hears it with one last take of the notices.
+            self.tell_stranded();
+            closed?;
             self.closed = true;
             return Ok(());
         }
@@ -2707,7 +2727,9 @@ impl ChatHost {
         self.release_waiters(None);
         self.latest.clear();
         self.sync_busy();
-        self.states.close()?;
+        let closed = self.states.close();
+        self.tell_stranded();
+        closed?;
         self.closed = true;
         Ok(())
     }

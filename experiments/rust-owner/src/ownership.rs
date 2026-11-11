@@ -233,8 +233,42 @@ pub struct StrandedLock {
     pub why: String,
 }
 
-/// Shared list of [`StrandedLock`]s, filled by guards as they drop and drained by their owner.
-pub type StrandedLocks = std::sync::Arc<std::sync::Mutex<Vec<StrandedLock>>>;
+/// At most this many [`StrandedLock`]s wait to be taken; past it they are counted, not kept.
+pub const MAX_STRANDED: usize = 64;
+
+/// What [`StrandedLocks::take`] drains: the kept locks and how many more were dropped past [`MAX_STRANDED`].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Stranded {
+    pub locks: Vec<StrandedLock>,
+    pub dropped: usize,
+}
+
+/// A bounded, shared list of [`StrandedLock`]s, filled by guards as they drop and drained by their owner.
+#[derive(Clone, Debug, Default)]
+pub struct StrandedLocks(std::sync::Arc<std::sync::Mutex<Stranded>>);
+
+impl StrandedLocks {
+    pub fn push(&self, lock: StrandedLock) {
+        let mut list = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if list.locks.len() < MAX_STRANDED {
+            list.locks.push(lock);
+        } else {
+            list.dropped += 1;
+        }
+    }
+
+    pub fn take(&self) -> Stranded {
+        std::mem::take(
+            &mut *self
+                .0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+}
 
 /// A folder as it was opened: its path and its device and inode. It still holds while the path is a real folder (not a
 /// link) with that identity and its canonical path is still its own (no link on it or above it).
@@ -392,12 +426,10 @@ impl Drop for OwnerGuard {
                 other => other.to_string(),
             };
             if let Some(sink) = &self.stranded {
-                if let Ok(mut list) = sink.lock() {
-                    list.push(StrandedLock {
-                        lock: self.lock.clone(),
-                        why,
-                    });
-                }
+                sink.push(StrandedLock {
+                    lock: self.lock.clone(),
+                    why,
+                });
             }
         }
     }
@@ -531,6 +563,20 @@ impl crate::write::OwnerLock for RustOwnerLock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_stranded_list_is_bounded_and_counts_the_rest() {
+        let list = StrandedLocks::default();
+        for n in 0..MAX_STRANDED + 6 {
+            list.push(StrandedLock {
+                lock: PathBuf::from(format!("/l{n}")),
+                why: "gone".into(),
+            });
+        }
+        let taken = list.take();
+        assert_eq!((taken.locks.len(), taken.dropped), (MAX_STRANDED, 6));
+        assert_eq!(list.take(), Stranded::default());
+    }
     use serde_json::json;
 
     struct Fake {

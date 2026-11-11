@@ -145,11 +145,8 @@ impl ProjectStates {
 
     /// Locks left on disk since the last take because a Project was dropped while its root no longer held (moved,
     /// replaced, a link on or above it). Nothing was removed; an operator removes them.
-    pub fn take_stranded(&self) -> Vec<crate::ownership::StrandedLock> {
-        self.stranded
-            .lock()
-            .map(|mut list| std::mem::take(&mut *list))
-            .unwrap_or_default()
+    pub fn take_stranded(&self) -> crate::ownership::Stranded {
+        self.stranded.take()
     }
 
     /// Node's saveProjectState sweep age (a minute); tests that save from a fixed clock may shorten it.
@@ -256,8 +253,7 @@ impl ProjectStates {
         if self.slots.contains_key(key) {
             return Ok(());
         }
-        let mut owner = OwnedProject::open(&self.isolation, key)?;
-        owner.report_stranded_to(self.stranded.clone());
+        let mut owner = OwnedProject::open(&self.isolation, key, Some(self.stranded.clone()))?;
         let (state, _) = match owner.load_shared() {
             Ok(read) => read,
             Err(error) => {

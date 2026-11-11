@@ -85,7 +85,7 @@ fn paths_outside_are_refused_before_anything_is_created() {
         let error = assert_refused(s.isolation.project(attempt), &attempt.display().to_string());
         assert!(error.contains("isolated copy"), "{attempt:?}: {error}");
         assert!(assert_refused(
-            OwnedProject::open(&s.isolation, attempt).map(|_| ()),
+            OwnedProject::open(&s.isolation, attempt, None).map(|_| ()),
             "open"
         )
         .contains("isolated copy"));
@@ -113,7 +113,7 @@ fn symlinks_along_the_project_path_are_refused() {
             error.contains("symbolic link") || error.contains("goes through a file"),
             "{attempt}: {error}"
         );
-        assert!(OwnedProject::open(&s.isolation, Path::new(attempt)).is_err());
+        assert!(OwnedProject::open(&s.isolation, Path::new(attempt), None).is_err());
     }
     assert_eq!(tree(&s.outside), before);
     assert!(!s.outside.join("project").exists());
@@ -184,7 +184,7 @@ fn links_inside_milagre_are_refused_before_the_lock() {
         std::fs::create_dir_all(&project).unwrap();
         make(&project);
         let error = assert_refused(
-            OwnedProject::open(&s.isolation, Path::new(&name)).map(|_| ()),
+            OwnedProject::open(&s.isolation, Path::new(&name), None).map(|_| ()),
             label,
         );
         assert!(error.contains("doesn't follow it"), "{label}: {error}");
@@ -222,7 +222,7 @@ fn an_isolation_root_given_as_a_link_is_refused() {
 #[test]
 fn a_clean_project_still_works() {
     let s = setup();
-    let mut owner = OwnedProject::open(&s.isolation, Path::new("nested/project")).unwrap();
+    let mut owner = OwnedProject::open(&s.isolation, Path::new("nested/project"), None).unwrap();
     owner
         .save_project_state(
             &serde_json::json!({ "sessions": {}, "messages": [] }),
@@ -236,7 +236,7 @@ fn a_clean_project_still_works() {
         .join("nested/project/.milagre/chats.db")
         .is_file());
     // A second open re-checks what the first one wrote (no links, single links): accepted.
-    OwnedProject::open(&s.isolation, Path::new("nested/project"))
+    OwnedProject::open(&s.isolation, Path::new("nested/project"), None)
         .unwrap()
         .release()
         .unwrap();

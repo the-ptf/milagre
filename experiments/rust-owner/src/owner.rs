@@ -78,11 +78,21 @@ pub struct OwnedProject {
 
 impl OwnedProject {
     /// Takes the owner lock of `project` (a folder inside `isolation`). Refused when any lock is already there.
-    pub fn open(isolation: &Isolation, project: &Path) -> Result<Self> {
+    ///
+    /// `stranded` is where the lock is recorded if dropping this Project can't release it (its root no longer holds;
+    /// see [`crate::ownership::StrandedLock`]). `None` drops that diagnostic: pass a sink unless nobody could show it.
+    pub fn open(
+        isolation: &Isolation,
+        project: &Path,
+        stranded: Option<StrandedLocks>,
+    ) -> Result<Self> {
         let root = isolation.project(project)?;
         // The lock pins the root folder (device and inode) as it is taken. Every write checks it is still that folder
         // at that canonical path, and releasing the lock (also on drop) removes nothing unless it is.
-        let guard = RustOwnerLock.acquire(&root, &ownership::project_lock(&root))?;
+        let mut guard = RustOwnerLock.acquire(&root, &ownership::project_lock(&root))?;
+        if let Some(sink) = stranded {
+            guard.report_stranded_to(sink);
+        }
         Ok(OwnedProject {
             store: ProjectStore::owned(&root),
             guard,
@@ -98,12 +108,6 @@ impl OwnedProject {
 
     pub fn lock(&self) -> &OwnerGuard {
         &self.guard
-    }
-
-    /// Records the lock in `sink` if it can't be released when this Project is dropped (see
-    /// [`crate::ownership::StrandedLock`]).
-    pub fn report_stranded_to(&mut self, sink: StrandedLocks) {
-        self.guard.report_stranded_to(sink);
     }
 
     /// What chats.db holds for the Chats in memory, as the next save will use it.

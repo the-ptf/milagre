@@ -38,7 +38,7 @@ fn a_rust_owner_blocks_node_and_releases_cleanly() {
         return;
     }
     let (_base, isolation, project) = isolated();
-    let owner = OwnedProject::open(&isolation, &project).unwrap();
+    let owner = OwnedProject::open(&isolation, &project, None).unwrap();
     let lock = ownership::project_lock(&project);
     // Node's own format: 0700 directory, 0600 owner.json written like JSON.stringify(owner, null, 2).
     assert_eq!(
@@ -76,7 +76,11 @@ fn a_rust_owner_blocks_node_and_releases_cleanly() {
     );
     // A second Rust owner refuses too.
     assert_eq!(
-        refusal(OwnedProject::open(&isolation, &project).err().unwrap()),
+        refusal(
+            OwnedProject::open(&isolation, &project, None)
+                .err()
+                .unwrap()
+        ),
         "live"
     );
     owner.release().unwrap();
@@ -101,7 +105,11 @@ fn a_node_owner_blocks_rust() {
     let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
     assert_eq!(lines.next().unwrap().unwrap(), "held");
     assert_eq!(
-        refusal(OwnedProject::open(&isolation, &project).err().unwrap()),
+        refusal(
+            OwnedProject::open(&isolation, &project, None)
+                .err()
+                .unwrap()
+        ),
         "live"
     );
     let error = Isolation::open(isolation.root(), &Policy::system())
@@ -111,7 +119,7 @@ fn a_node_owner_blocks_rust() {
     drop(child.stdin.take());
     assert_eq!(lines.next().unwrap().unwrap(), "released");
     child.wait().unwrap();
-    OwnedProject::open(&isolation, &project)
+    OwnedProject::open(&isolation, &project, None)
         .unwrap()
         .release()
         .unwrap();
@@ -140,7 +148,9 @@ fn a_dead_owners_lock_is_refused_not_taken_over() {
         jsjson::to_string(&Value::String(hostname))
     );
     std::fs::write(lock.join("owner.json"), &record).unwrap();
-    let error = OwnedProject::open(&isolation, &project).err().unwrap();
+    let error = OwnedProject::open(&isolation, &project, None)
+        .err()
+        .unwrap();
     assert!(
         error.to_string().contains("never takes a lock over"),
         "{error}"
@@ -166,7 +176,11 @@ fn an_abandoned_empty_lock_is_refused() {
         .set_modified(old)
         .unwrap();
     assert_eq!(
-        refusal(OwnedProject::open(&isolation, &project).err().unwrap()),
+        refusal(
+            OwnedProject::open(&isolation, &project, None)
+                .err()
+                .unwrap()
+        ),
         "abandoned"
     );
     assert!(lock.is_dir());
@@ -203,7 +217,7 @@ fn writes_outside_an_isolated_copy_are_impossible() {
     std::fs::create_dir_all(plain.join("p/.milagre")).unwrap();
     assert!(Isolation::open(&plain, &Policy::system()).is_err());
     let (_other, isolation, _) = isolated();
-    let error = OwnedProject::open(&isolation, &plain.join("p"))
+    let error = OwnedProject::open(&isolation, &plain.join("p"), None)
         .err()
         .unwrap();
     assert!(
