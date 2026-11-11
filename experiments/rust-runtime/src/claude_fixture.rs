@@ -187,6 +187,7 @@ struct Slot {
     active: Arc<AtomicBool>,
     done: Arc<AtomicBool>,
     latest: Arc<AtomicU64>,
+    native_id: Arc<Mutex<Option<String>>>,
 }
 struct Worker {
     shared: Arc<Shared>,
@@ -198,6 +199,7 @@ struct Worker {
     scenario: Scenario,
     active: Arc<AtomicBool>,
     done: Arc<AtomicBool>,
+    native_id: Arc<Mutex<Option<String>>>,
 }
 impl Drop for Worker {
     fn drop(&mut self) {
@@ -429,6 +431,7 @@ impl Provider for ClaudeFixture {
             let active = Arc::new(AtomicBool::new(false));
             let done = Arc::new(AtomicBool::new(false));
             let latest = Arc::new(AtomicU64::new(0));
+            let native_id = Arc::new(Mutex::new(None));
             let worker = Worker {
                 shared: self.shared.clone(),
                 _profile: self.profile.clone(),
@@ -439,6 +442,7 @@ impl Provider for ClaudeFixture {
                 scenario: self.scenario,
                 active: active.clone(),
                 done: done.clone(),
+                native_id: native_id.clone(),
             };
             *self.shared.workers.lock().unwrap() += 1;
             std::thread::Builder::new()
@@ -486,10 +490,24 @@ impl Provider for ClaudeFixture {
                     active,
                     done,
                     latest,
+                    native_id,
                 },
             );
         }
         let slot = self.slots.get(&chat).unwrap();
+        if let Some(resume) = native["resumeId"].as_str() {
+            if slot
+                .native_id
+                .lock()
+                .unwrap()
+                .as_deref()
+                .is_some_and(|current| current != resume)
+            {
+                return Err(refused(
+                    "Close the previous fixture session before resuming another native session",
+                ));
+            }
+        }
         if *slot.close.borrow() {
             return Err(refused("The fixture session is closing"));
         }
@@ -702,6 +720,7 @@ impl Worker {
                         .unwrap()
                         .insert(self.chat.clone(), pid);
                 }
+                *self.native_id.lock().unwrap() = session.native_id();
                 match result {
                     Some(Ok(start)) if !start.cancelled && !start.steered => {
                         running = true;
@@ -732,7 +751,7 @@ impl Worker {
              _=close.changed()=>break,
              _=interrupt.changed()=>{if running&&*interrupt.borrow()==latest.0 {session.interrupt().await;}},
              event=events.recv()=>match event {
-              Some(event)=>{let is_end=terminal(&event);if is_end{if !running{continue;}running=false;self.active.store(false,Ordering::Release);}else if event["type"]=="turn-started"&&!running{break;}
+              Some(event)=>{*self.native_id.lock().unwrap() = session.native_id();let is_end=terminal(&event);if is_end{if !running{continue;}running=false;self.active.store(false,Ordering::Release);}else if event["type"]=="turn-started"&&!running{break;}
                // Forward compact subagent deltas unchanged. The owner merges transcript rows by id.
                if !self.agent(latest,event,is_end){break;}
               },None=>break

@@ -275,3 +275,37 @@ fn compact_subagent_close_patch_keeps_the_prior_transcript() {
         .iter()
         .any(|row| row["text"] == "retained child result"));
 }
+
+#[test]
+fn initial_resume_reaches_native_argv_and_reused_session_refuses_a_different_identity() {
+    let mut p = ClaudeFixture::create(Scenario::Stop).unwrap();
+    let m = p.monitor();
+    let mut req = request(&p);
+    req["resumeId"] = json!("resumed-fixture");
+    p.start_turn(TurnId(1), &req).unwrap();
+    collect(&mut p, |e| {
+        e.iter().any(|e|matches!(e,ProviderEvent::Agent{event:RawJson(v),..} if v["type"]=="session-started"))
+    });
+    let pid = m.pid("fixture").unwrap();
+    let output = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("--resume=resumed-fixture"));
+    p.shutdown();
+    assert!(m.wait_stopped(Duration::from_secs(3)));
+
+    let mut p = ClaudeFixture::create(Scenario::Reply).unwrap();
+    let m = p.monitor();
+    p.start_turn(TurnId(1), &request(&p)).unwrap();
+    collect(&mut p, |e| e.iter().any(terminal));
+    let mut changed = request(&p);
+    changed["resumeId"] = json!("another-session");
+    assert!(p.start_turn(TurnId(2), &changed).is_err());
+    changed["resumeId"] = json!("fixture-session");
+    p.start_turn(TurnId(2), &changed).unwrap();
+    collect(&mut p, |e| e.iter().any(terminal));
+    p.shutdown();
+    assert!(m.wait_stopped(Duration::from_secs(3)));
+}
