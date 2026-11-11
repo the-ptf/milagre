@@ -698,8 +698,18 @@ fn window(id: &str, label: &str, short: &str, used: f64, resets_in_hours: Option
         label: label.to_owned(),
         short_label: short.to_owned(),
         used_percent: used,
-        resets_at: resets_in_hours.map(|hours| iso(NOW + hours * 60 * MINUTE)),
+        resets_at: resets_in_hours.map(|hours| iso(usage_clock() + hours * 60 * MINUTE)),
         detail: None,
+    }
+}
+
+/// The usage fixture's "now": the fixture clock in tests, the real one in the app, so "Updated 4m ago" and "Resets in 2d 2h"
+/// read right whenever the app runs.
+fn usage_clock() -> Millis {
+    if cfg!(test) {
+        NOW
+    } else {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(NOW, |d| d.as_millis() as Millis)
     }
 }
 
@@ -711,23 +721,27 @@ fn iso(at: Millis) -> String {
 /// This Mac's usage: Claude's read failed (last-known numbers and why), Codex past the warning line, Antigravity's
 /// week past the critical line, Kiro with no numbers (left out of the sidebar).
 fn usage() -> UsageSnapshot {
-    let updated = iso(NOW - 4 * MINUTE);
+    let updated = iso(usage_clock() - 4 * MINUTE);
     let provider =
         |provider: Provider, status: UsageStatus, windows: Vec<WindowUsage>, message: Option<&str>, banked: Option<u32>| ProviderUsage {
             usage: AccountUsage {
-                account: Some(AccountRef { id: format!("{}-default", provider.id()), label: "Personal".into(), email: None }),
+                account: Some(AccountRef {
+                    id: format!("{}-default", provider.id()),
+                    label: "Personal".into(),
+                    email: Some(format!("victor@{}.example", provider.id())),
+                }),
                 provider,
                 status,
                 windows,
                 updated_at: updated.clone(),
                 banked_resets: banked,
             },
-            checked_at: Some(iso(NOW - MINUTE).into()),
+            checked_at: Some(iso(usage_clock() - MINUTE).into()),
             message: message.map(Into::into),
         };
     UsageSnapshot {
         account_key: Some("default".into()),
-        generated_at: Some(iso(NOW).into()),
+        generated_at: Some(iso(usage_clock()).into()),
         providers: vec![
             provider(
                 Provider::Claude,

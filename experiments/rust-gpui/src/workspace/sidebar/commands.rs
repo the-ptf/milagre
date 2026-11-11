@@ -715,6 +715,7 @@ impl Sidebar {
                 card.update(cx, |this, cx| this.rail_card_pointer(on, cx))
             }));
         }
+        out.extend(self.usage_overlay(window, cx));
         out.extend(self.drop_indicator(cx));
         out.extend(self.link_overlays());
         out
@@ -765,6 +766,12 @@ impl Sidebar {
             "rename" => {
                 let key = self.rows[2].key.to_string();
                 self.start_rename(&key, window, cx);
+            }
+            "usage-card" => self.open_usage_demo(crate::data::Provider::Codex, cx),
+            "usage-card-claude" => self.open_usage_demo(crate::data::Provider::Claude, cx),
+            "usage-rail" => {
+                self.collapsed = true;
+                self.open_usage_demo(crate::data::Provider::Codex, cx);
             }
             "rail" => {
                 self.collapsed = true;

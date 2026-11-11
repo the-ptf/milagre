@@ -39,6 +39,7 @@ pub mod rail;
 pub mod rename;
 mod row;
 pub mod undo;
+mod usage;
 
 #[cfg(test)]
 mod tests;
@@ -127,6 +128,10 @@ pub struct Sidebar {
     /// The rail icon whose card is open (row index) and where the pointer was.
     rail_card: Option<(usize, Pixels)>,
     rail_task: Option<gpui::Task<()>>,
+    /// The provider whose usage card is open, where each usage row was painted, and the open or close timer.
+    usage_card: Option<crate::data::Provider>,
+    usage_bounds: usage::RowBounds,
+    usage_task: Option<gpui::Task<()>>,
     /// Snapshot seed (never in tests): a state to open on the first frame, from `MILAGRE_GPUI_SIDEBAR_DEMO`.
     demo: Option<String>,
     /// The row being dragged and where it would land (`drag.rs`), and what the keyboard drag last announced.
@@ -190,6 +195,9 @@ impl Sidebar {
             collapsed: false,
             rail_card: None,
             rail_task: None,
+            usage_card: None,
+            usage_bounds: Rc::default(),
+            usage_task: None,
             demo: if cfg!(test) { None } else { std::env::var("MILAGRE_GPUI_SIDEBAR_DEMO").ok() },
             drag: None,
             announcement: String::new(),
@@ -596,6 +604,7 @@ impl Sidebar {
         let dot = footer.filters_dot;
         let footer_bounds = footer.button_bounds.clone();
         let toast = self.toast_slot(cx);
+        let marks = usage::rail_marks(&self.data.usage, &self.usage_hooks(cx), &theme);
         div()
             .id("sidebar")
             .key_context("Sidebar")
@@ -626,6 +635,8 @@ impl Sidebar {
                     .py(px(6.0))
                     .border_t_1()
                     .border_color(theme.line)
+                    // Under the footer's icons (the column is reversed, so first is lowest): each provider's mark.
+                    .child(div().id("rail-usage").debug_selector(|| "rail-usage".into()).flex().flex_col().items_center().children(marks))
                     .child(
                         button("settings", IconName::Settings01)
                             .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::settings::ToggleSettings), cx)),
@@ -728,7 +739,7 @@ impl Render for Sidebar {
                     .flex_1()
                     .min_h_0(),
             )
-            .child(bottom::bottom_group(done, &self.data.usage, toast, footer, &theme))
+            .child(bottom::bottom_group(done, usage::rows(&self.data.usage, &self.usage_hooks(cx), &theme), toast, footer, &theme))
             .children(self.overlays(window, cx))
             .into_any_element()
     }

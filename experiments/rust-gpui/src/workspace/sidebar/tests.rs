@@ -99,7 +99,7 @@ fn the_bottom_group_is_pinned_under_the_list(cx: &mut TestAppContext) {
     let footer = cx.debug_bounds("sidebar-footer").expect("footer is drawn");
     let window = cx.update(|window, _| window.viewport_size());
     assert_eq!(done.size.height, px(40.0));
-    assert_eq!(usage.size.height, px(112.0), "8 + 3 x 32 + 8: Kiro has no numbers and is left out");
+    assert_eq!(usage.size.height, px(116.0), "8 + 3 x 32 + 2 x 2 + 8: Kiro has no numbers and is left out");
     assert_eq!(footer.size.height, px(44.0));
     assert!(done.bottom() <= usage.top(), "Done above usage");
     assert!(usage.bottom() <= footer.top(), "usage above footer");
@@ -127,11 +127,14 @@ fn usage_rows_are_32px_with_meters(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("usage-meter-Codex-0").is_some() && cx.debug_bounds("usage-meter-Codex-1").is_none());
     let a = cx.debug_bounds("usage-track-Claude-0").unwrap();
     let b = cx.debug_bounds("usage-track-Claude-1").unwrap();
-    assert_eq!(a.size.width, px(68.0));
-    assert_eq!(b.origin.x - a.origin.x, px(76.0), "meters at x 132 and 208");
+    assert_eq!(a.size.width, b.size.width, "two columns share the meters' width");
+    assert_eq!(b.origin.x - a.origin.x, a.size.width + px(8.0), "columns 8px apart");
+    assert_eq!(a.size.height, px(2.0));
+    let label = cx.debug_bounds("usage-meter-Claude-0").unwrap();
+    assert!(label.size.width <= a.size.width, "the bar is the column's width, under the label");
     let track = cx.debug_bounds("usage-track-Codex-0").unwrap();
     let fill = cx.debug_bounds("usage-fill-Codex-0").expect("Codex fill is drawn");
-    assert_eq!(track.size.width, px(144.0));
+    assert_eq!(track.size.width, a.size.width * 2.0 + px(8.0), "one window spans both columns");
     assert!((fill.size.width - track.size.width * 0.86).abs() <= px(1.0), "fill is 86% of the track");
     assert!(cx.debug_bounds("usage-fill-Antigravity-0").is_none(), "no fill at 0%");
     assert!(cx.debug_bounds("usage-fill-Antigravity-1").is_some());
