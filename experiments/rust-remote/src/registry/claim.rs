@@ -217,15 +217,73 @@ impl Registry {
                 job.claimed && job.token.serial == permit.token.serial && now < job.deadline
             })
     }
+    /// Preserve this claim's actual timeout cause after its job or carrier is gone.
+    /// Other stale generations and removed sessions do not acquire a timeout cause.
+    pub(crate) fn claim_expired(&self, permit: &Permit, now: u64) -> bool {
+        let token = &permit.token;
+        if token.handle.owner != self.owner || token.handle.binding != self.binding {
+            return false;
+        }
+        if token.status() == WorkStatus::TimedOut
+            || matches!(
+                token.handle.status(),
+                CarrierStatus::Closed(CloseReason::IdleTimeout | CloseReason::FragmentTimeout)
+            )
+        {
+            return true;
+        }
+        if !self.current(&token.handle) {
+            return false;
+        }
+        let State::Active(active) = &self.entries[&token.handle.carrier].state else {
+            return false;
+        };
+        !active.session.is_revoked()
+            && active.jobs.get(&token.id).is_some_and(|job| {
+                job.claimed
+                    && job.token.serial == token.serial
+                    && job.token.status() == WorkStatus::InFlight
+                    && now >= effective_claim_deadline(active, permit)
+            })
+    }
     pub(crate) fn claim_barrier<T>(
         &mut self,
         permit: &Permit,
         now: u64,
         action: impl FnOnce() -> crate::Result<T>,
     ) -> Result<T> {
-        self.claimed(permit, now)?
-            .session
-            .with_access(action)
+        self.claim_deadline_barrier(permit, now, |_| action())
+    }
+    /// Keeps exact claim/session authorization through the caller's bounded commit.
+    /// The caller checks a fresh clock after acquiring its commit lock against this
+    /// fixed deadline, captured while Registry remains exclusively borrowed.
+    pub(crate) fn claim_deadline_barrier<T>(
+        &mut self,
+        permit: &Permit,
+        now: u64,
+        consume: impl FnOnce(u64) -> crate::Result<T>,
+    ) -> Result<T> {
+        let a = self.claimed(permit, now)?;
+        let deadline = effective_claim_deadline(a, permit);
+        a.session
+            .with_access(|| consume(deadline))
+            .map_err(Into::into)
+    }
+    /// Synthetic Registry-state injection for deadline races only. Phone requests
+    /// use RequestAssembler and cannot populate this desktop reader on the wire.
+    #[cfg(test)]
+    pub(crate) fn inject_claim_reader_fragment_for_test(
+        &mut self,
+        permit: &Permit,
+        now: u64,
+    ) -> Result<u64> {
+        let a = self.claimed(permit, now)?;
+        a.session
+            .with_access(|| {
+                a.reader
+                    .read(br#"{"t":"part","id":1,"i":0,"n":2,"data":"eA=="}"#, now)?;
+                a.reader.deadline_ms().ok_or(Error::BadPart)
+            })
             .map_err(Into::into)
     }
     pub(crate) fn emit_claim(
@@ -373,7 +431,7 @@ impl Registry {
         lease: Reservation,
         returned: crate::tracked_output::ReturnSender,
         now: u64,
-        may_send: impl FnOnce() -> crate::Result<()>,
+        may_send: impl FnOnce(u64) -> crate::Result<()>,
     ) -> Result<()> {
         if plain.len() > FIXTURE_FRAME - 25 {
             return Err(Error::TooLarge.into());
@@ -389,7 +447,8 @@ impl Registry {
         {
             return Err(Error::Budget.into());
         }
-        let bytes = a.session.seal_after(plain, may_send)?;
+        let deadline = effective_claim_deadline(a, permit);
+        let bytes = a.session.seal_after(plain, || may_send(deadline))?;
         if bytes.capacity() > FIXTURE_FRAME {
             return Err(Error::TooLarge.into());
         }
@@ -418,6 +477,17 @@ impl Registry {
             .map_err(Into::into)
     }
 }
+
+fn effective_claim_deadline(active: &Active, permit: &Permit) -> u64 {
+    active.jobs[&permit.token.id]
+        .deadline
+        .min(active.idle_deadline)
+        .min(active.reader.deadline_ms().unwrap_or(u64::MAX))
+}
+
+#[cfg(test)]
+#[path = "claim_deadline_tests.rs"]
+mod claim_deadline_tests;
 
 impl Registry {
     pub(crate) fn fixed_registration_empty(

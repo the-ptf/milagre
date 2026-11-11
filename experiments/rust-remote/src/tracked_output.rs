@@ -82,9 +82,9 @@ impl Packet {
         peer: &mut Channel,
         expected: &[u8],
         clock: &Clock,
-        deadline: u64,
+        acceptance: &mut crate::persistent::fixed_executor::Acceptance<'_>,
     ) -> crate::Result<()> {
-        if clock.now() >= deadline {
+        if clock.now() >= acceptance.deadline() {
             return Err(crate::Error::Timeout);
         }
         let plain = peer.open_encoded(self.bytes.as_ref().unwrap())?;
@@ -93,10 +93,10 @@ impl Packet {
         if !matches {
             return Err(crate::Error::Authentication);
         }
-        if clock.now() >= deadline {
+        if clock.now() >= acceptance.deadline() {
             return Err(crate::Error::Timeout);
         }
-        self.accepted = Some(PeerAccepted(()));
+        acceptance.commit(|| self.accepted = Some(PeerAccepted(())))?;
         Ok(())
     }
 }

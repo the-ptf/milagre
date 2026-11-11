@@ -1,5 +1,7 @@
 # Checkpoint 2: private tracked fixed output
 
+This document records its original checkpoint boundary. [Increment 2B.2 delivery evidence](FIXED-OWNER-DELIVERY.md) describes the later private actor integration; peerless Ready and public-service boundaries remain intact.
+
 Status: agreed refinement of checkpoint 2 in [FIXED-CLAIM-SUPERVISOR-PROPOSAL.md](FIXED-CLAIM-SUPERVISOR-PROPOSAL.md). Checkpoint 1 and its failed-Begin fix remain the baseline. The [reservation/fence implementation boundary](TRACKED-OUTPUT-RESERVATIONS.md) and subsequent [packet/verifier/physical-close composition](TRACKED-FIXED-OUTPUT.md) are implemented and tested separately. Independent review remains a gate before checkpoint 3. This contract does not enable a public admission gate. Only fixed 200/502/504 responses, synthetic keys and fresh marked profiles are in scope. No owner queue, automatic scheduler, public client API, HTTP or network adapter is added. Existing scoped Claim behavior remains independently tested.
 
 ## 1. Internal ownership and API

@@ -1,5 +1,7 @@
 # Private owner delivery, wakes and fair turns
 
+[Increment 2B.2 implementation evidence](FIXED-OWNER-DELIVERY.md) records the shared commits, returned-credit completion and current validation boundary. Increment 2B.3 remains separately gated.
+
 [Increment 2B.1 implementation evidence](FIXED-OWNER-PEER-SETUP.md) records charged peer setup and fixed requests. It leaves Ready retained without response delivery; 2B.2 and 2B.3 remain separate.
 
 Status: increment 2B.1 is implemented and validated at `fd467e61` (346 Rust tests, nine doctests, strict Clippy/fmt, examples and seven Node checks). Root and independent source review now agree increment 2B.2 under the five obligations below. Increment 2B.3 wake/fairness code still waits for separate review. Baseline is stage 2A at `18229be6`: 335 Rust tests, 9 doctests, strict Clippy/fmt and seven Node checks; independent source review found no P1/P2. This makes the remaining [owner-pump proposal](FIXED-OWNER-PUMP-PROPOSAL.md) concrete while preserving [lifecycle ownership](FIXED-OWNER-LIFECYCLE.md) and the [tracked-output contract](TRACKED-OUTPUT-CONTRACT.md).

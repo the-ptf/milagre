@@ -1,5 +1,7 @@
 # Private fixed owner lifecycle
 
+This document records its original checkpoint boundary. [Increment 2B.2 delivery evidence](FIXED-OWNER-DELIVERY.md) describes the later private actor integration; peerless Ready and public-service boundaries remain intact.
+
 Checkpoint 3 stage 2A implements [the agreed lifecycle plan](FIXED-OWNER-LIFECYCLE-PLAN.md) on top of [stage 1 admission](FIXED-OWNER-ADMISSION.md). The private fresh-fixture `PersistentSupervisor` now consumes queued attempts, starts the tracked core, polls actual worker joins, applies cancellation and disposes retained entries. Real Attach/HELLO/Request/DrainWork commands supply the work. Ordinary public start exposes no fixed execution capability.
 
 **Joined fixed 200/502/504 results stop at retained Ready.** The actor does not emit or consume a tracked packet, adopt a peer Channel, or produce Completed. Stage 2B still needs separate agreement for delivery, checked completion wakes and the complete cross-carrier fairness guarantee. Remote has no dependency on either frontend and adds no HTTP, network, provider, host adapter, real phone or production/existing-profile authority.

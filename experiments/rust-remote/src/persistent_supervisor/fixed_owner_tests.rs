@@ -139,6 +139,7 @@ fn fixed_full_returns_exact_unqueued_permit_and_explicit_retry_consumes_once() {
                 phase: Phase::Terminal(Terminal::NotClaimed(NotClaimed::Cancelled)),
                 cancel_requested: true,
                 execution: crate::persistent::fixed_executor::Execution::NotStarted,
+                delivery: crate::persistent::fixed_executor::Delivery::None,
                 status: None,
                 cleanup_pending: false,
             }
@@ -156,6 +157,7 @@ fn fixed_full_returns_exact_unqueued_permit_and_explicit_retry_consumes_once() {
             phase: Phase::Queued,
             cancel_requested: false,
             execution: crate::persistent::fixed_executor::Execution::NotStarted,
+            delivery: crate::persistent::fixed_executor::Delivery::None,
             status: None,
             cleanup_pending: false,
         }
@@ -492,6 +494,7 @@ fn fixed_queued_expiry_progresses_on_tick_without_another_command() {
                 phase: Phase::Terminal(Terminal::NotClaimed(NotClaimed::Expired)),
                 cancel_requested: false,
                 execution: crate::persistent::fixed_executor::Execution::NotStarted,
+                delivery: crate::persistent::fixed_executor::Delivery::None,
                 status: None,
                 cleanup_pending: false,
             }
@@ -653,5 +656,105 @@ fn fixed_saturated_admission_keeps_control_and_stop_lanes_and_drains_forgotten_h
         s.profile.as_mut().unwrap().acquire_writer(),
         Err(StoreFault::Busy)
     ));
+    finish(s);
+}
+
+#[test]
+fn fixed_owner_expiry_waits_for_registry_tick_and_publishes_actual_promotion() {
+    use crate::persistent::fixed_executor::ExitGate;
+    struct Release([Arc<ExitGate>; 2]);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            for gate in &self.0 {
+                gate.release();
+            }
+        }
+    }
+    let _disk = crate::synthetic_store::testing_lock();
+    let clock = ManualClock::default();
+    clock.advance_to(1).unwrap();
+    let s = PersistentSupervisor::start_fixed_fixture(
+        profile(),
+        Limits {
+            registry: crate::registry::Limits {
+                inflight: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        Clock::Manual(clock.clone()),
+        FixedFixture,
+    )
+    .unwrap_or_else(|_| panic!("expiry fixture"));
+    let owner = s.owner();
+    let fixed = s.fixed_owner().unwrap();
+    fixed.pause_dispatch(true);
+    run(&owner, C::OpenPairing);
+    let (h, memory, mut peer) = phone(&owner, 1, 4);
+    adopted(&fixed, &h);
+    work(&owner, &h, &mut peer, 1);
+    let first = tokens(&owner).remove(0);
+    let attempt = prepared(&fixed, &first);
+    let id = attempt.id();
+    clock.advance_to(19_000).unwrap();
+    work(&owner, &h, &mut peer, 2);
+    assert!(owner.next_event(Duration::ZERO).is_none());
+    let after_tick = Arc::new(ExitGate::default());
+    let after_rows = Arc::new(ExitGate::default());
+    let release = Release([after_tick.clone(), after_rows.clone()]);
+    fixed.configure(
+        id,
+        fixed::TestHooks {
+            output: Some(Arc::new(fixed::OutputHooks {
+                maintenance: [Some(after_tick.clone()), Some(after_rows.clone())],
+                ..Default::default()
+            })),
+            ..Default::default()
+        },
+    );
+    fixed.submit(attempt, FixedOutcome::Success).unwrap();
+    wait(|| after_tick.entered()); // Registry has ticked at 19000; owner has not inspected rows.
+    clock.advance_to(20_001).unwrap();
+    after_tick.release();
+    wait(|| after_rows.entered());
+    assert_eq!(first.status(), WorkStatus::InFlight);
+    assert!(matches!(
+        fixed.observe(id),
+        Observation::Present {
+            phase: Phase::Queued,
+            cleanup_pending: false,
+            ..
+        }
+    ));
+    assert_eq!(fixed.counts().1, 1);
+    assert_eq!(memory.delivery_attempts(), 1);
+    assert!(owner.next_event(Duration::ZERO).is_none());
+    drop(release); // Only the next real Registry tick may expire A and promote B.
+    wait(|| {
+        matches!(
+            fixed.observe(id),
+            Observation::Present {
+                phase: Phase::Terminal(Terminal::NotClaimed(NotClaimed::Expired)),
+                cleanup_pending: false,
+                ..
+            }
+        )
+    });
+    assert_eq!(first.status(), WorkStatus::TimedOut);
+    assert_eq!(fixed.counts().1, 0);
+    assert!(matches!(owner.next_event(WAIT), Some(Event::WorkAvailable)));
+    let promoted = tokens(&owner);
+    assert_eq!(promoted.len(), 1);
+    assert_eq!(promoted[0].id(), 2);
+    assert_eq!(promoted[0].status(), WorkStatus::InFlight);
+    assert!(owner.next_event(Duration::ZERO).is_none());
+    let next = prepared(&fixed, &promoted[0]);
+    clock.advance_to(39_000).unwrap();
+    wait(|| promoted[0].status() == WorkStatus::TimedOut);
+    assert_eq!(memory.delivery_attempts(), 1);
+    assert!(memory.receive().is_none());
+    assert!(!memory.is_closed());
+    drop(next);
+    fixed.ack_terminal(id).unwrap();
     finish(s);
 }

@@ -37,6 +37,7 @@ pub(super) struct Tracked {
     returned: Option<crate::tracked_output::ReturnedCredit>,
     may_send: bool,
     packet_issued: bool,
+    consume_attempted: bool,
     #[cfg(test)]
     fail_seal: bool,
     #[cfg(test)]
@@ -294,6 +295,7 @@ impl PersistentAuthority {
             returned: None,
             may_send: false,
             packet_issued: false,
+            consume_attempted: false,
             #[cfg(test)]
             fail_seal: false,
             #[cfg(test)]
@@ -344,6 +346,55 @@ pub(crate) struct Accepted {
     pub(crate) request_id: i64,
     pub(crate) status: u16,
 }
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum OutputProgress {
+    AwaitingReturn,
+    Completed(Accepted),
+}
+fn registry_fault(
+    registry: &registry::Registry,
+    permit: &Permit,
+    at: u64,
+    error: registry::RegistryError,
+) -> Fault {
+    if matches!(error, registry::RegistryError::Revoked) && registry.claim_expired(permit, at) {
+        return Fault::Expired;
+    }
+
+    match error {
+        registry::RegistryError::Protocol(crate::Error::Timeout) => Fault::Expired,
+        registry::RegistryError::Revoked => Fault::Stale,
+        registry::RegistryError::Time => Fault::Clock,
+        _ => Fault::Delivery,
+    }
+}
+fn wire_fault(fault: Fault) -> crate::Error {
+    if fault == Fault::Expired {
+        crate::Error::Timeout
+    } else {
+        crate::Error::Unauthorized
+    }
+}
+fn fail_output(observation: &mut Observation, signal: &Signal, fault: Fault) {
+    if observation.state == State::Completed {
+        return;
+    }
+    signal.cancel();
+    if !matches!(
+        observation.state,
+        State::Cancelled | State::TimedOut | State::Failed
+    ) {
+        observation.state = match fault {
+            Fault::Expired => State::TimedOut,
+            Fault::Worker | Fault::Clock | Fault::State => State::Failed,
+            _ => State::Cancelled,
+        };
+        observation.failure = Some(fault);
+    }
+    if observation.delivery == Delivery::MaySend {
+        observation.delivery = Delivery::Unknown;
+    }
+}
 impl PersistentAuthority {
     pub(super) fn reconcile_fixed_output(&mut self, now: u64) {
         let Some(registry) = self.registry.as_mut() else {
@@ -357,11 +408,87 @@ impl PersistentAuthority {
                 continue;
             }
             let at = now.max(t.clock.now());
-            let terminal = matches!(
+            if !matches!(
                 entry.observation.state,
                 State::Cancelled | State::TimedOut | State::Failed
-            );
-            if terminal {
+            ) {
+                #[cfg(test)]
+                let delayed = entry
+                    .owner
+                    .as_ref()
+                    .and_then(OwnerBinding::output_hooks)
+                    .is_some_and(|h| h.delay_return.load(Ordering::SeqCst));
+                #[cfg(not(test))]
+                let delayed = false;
+                if !delayed {
+                    t.collect_return(false);
+                }
+                if let Some(receipt) = &t.returned {
+                    let mut precise = None;
+                    let result = if receipt.accepted()
+                        && entry.joined.is_some()
+                        && entry.observation.state == State::Ready
+                    {
+                        registry
+                            .claim_deadline_barrier(&entry.permit, at, |deadline| {
+                                let deadline = deadline.min(entry.completion_deadline);
+                                let mut commit = || {
+                                    entry.observation.state = State::Completed;
+                                    entry.observation.delivery = Delivery::Returned;
+                                };
+                                if let Some(owner) = &entry.owner {
+                                    owner
+                                        .commit_output(
+                                            entry.id,
+                                            at,
+                                            deadline,
+                                            crate::persistent_supervisor::fixed::OutputCommit::Completed,
+                                            entry.observation.status,
+                                            commit,
+                                        )
+                                        .map_err(|fault| {
+                                            precise = Some(fault);
+                                            wire_fault(fault)
+                                        })
+                                } else if t.clock.now() >= deadline {
+                                    Err(crate::Error::Timeout)
+                                } else {
+                                    commit();
+                                    Ok(())
+                                }
+                            })
+                            .map_err(|error| registry_fault(registry, &entry.permit, t.clock.now(), error))
+                    } else {
+                        Err(Fault::Delivery)
+                    };
+                    match result {
+                        Ok(()) => {
+                            registry.end_claim(
+                                &entry.permit,
+                                registry::WorkStatus::Completed,
+                                t.clock.now(),
+                            );
+                            t.release_output();
+                            continue;
+                        }
+                        Err(fault) => fail_output(
+                            &mut entry.observation,
+                            &entry.worker.signal,
+                            precise.unwrap_or(fault),
+                        ),
+                    }
+                }
+            }
+            if matches!(
+                entry.observation.state,
+                State::Cancelled | State::TimedOut | State::Failed
+            ) {
+                if matches!(
+                    entry.observation.failure,
+                    Some(Fault::Worker | Fault::Clock | Fault::State)
+                ) {
+                    self.fixed.failed = true;
+                }
                 if t.may_send {
                     registry.discard_claim_output(
                         &entry.permit,
@@ -375,42 +502,40 @@ impl PersistentAuthority {
                 if !t.cancel_output() {
                     self.fixed.failed = true;
                 }
-                continue;
-            }
-            t.collect_return(false);
-            let Some(receipt) = &t.returned else {
-                continue;
-            };
-            if receipt.accepted()
-                && entry.joined.is_some()
-                && entry.observation.state == State::Ready
-                && at < entry.completion_deadline
-                && registry.claim_barrier(&entry.permit, at, || Ok(())).is_ok()
-            {
-                entry.observation.state = State::Completed;
-                entry.observation.delivery = Delivery::Returned;
-                registry.end_claim(&entry.permit, registry::WorkStatus::Completed, at);
-                t.release_output();
-            } else {
-                entry.observation.state = if at >= entry.completion_deadline {
-                    State::TimedOut
-                } else {
-                    State::Cancelled
-                };
-                registry.discard_claim_output(
-                    &entry.permit,
-                    if entry.observation.state == State::TimedOut {
-                        registry::WorkStatus::TimedOut
-                    } else {
-                        registry::WorkStatus::Cancelled
-                    },
-                );
-                if !t.cancel_output() {
-                    self.fixed.failed = true;
-                }
             }
         }
         self.fixed.cancel_closed();
+    }
+    pub(crate) fn fixed_delivery_entries(&self) -> [Option<(Id, TargetId)>; 2] {
+        std::array::from_fn(|i| {
+            self.fixed.entries[i].as_ref().and_then(|e| {
+                let t = e.tracked.as_ref()?;
+                (e.owner.is_some() && e.observation.state == State::Ready)
+                    .then(|| (e.id, t.grant.as_ref().unwrap().0.target))
+            })
+        })
+    }
+    #[cfg(test)]
+    pub(crate) fn fixed_output_held(&self, id: Id, consume: bool) -> bool {
+        self.fixed
+            .entry(id)
+            .and_then(|e| e.owner.as_ref())
+            .and_then(OwnerBinding::output_hooks)
+            .is_some_and(|h| {
+                if consume {
+                    h.hold_consume.load(Ordering::SeqCst)
+                } else {
+                    h.hold_emit.load(Ordering::SeqCst)
+                }
+            })
+    }
+    #[cfg(test)]
+    pub(crate) fn fixed_test_peer(&self, id: Id) -> Option<crate::channel::Channel> {
+        self.fixed
+            .entry(id)
+            .and_then(|e| e.owner.as_ref())
+            .and_then(OwnerBinding::output_hooks)
+            .and_then(|h| h.verification_peer.lock().unwrap().take())
     }
     pub(crate) fn emit_fixed(&mut self, id: Id) -> std::result::Result<(), Fault> {
         let now = self
@@ -421,6 +546,13 @@ impl PersistentAuthority {
             .clock
             .now();
         self.poll_fixed(now)?;
+        let now = self
+            .fixed
+            .entry(id)
+            .and_then(|e| e.tracked.as_ref())
+            .ok_or(Fault::Stale)?
+            .clock
+            .now();
         let entry = self.fixed.entry_mut(id).ok_or(Fault::Stale)?;
         if entry.joined.is_none() || entry.observation.state != State::Ready {
             return Err(Fault::State);
@@ -430,6 +562,7 @@ impl PersistentAuthority {
             return Err(Fault::State);
         }
         let registry = self.registry.as_mut().unwrap();
+        let mut precise = None;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let grant = &t.grant.as_ref().unwrap().0;
             let plain = &t.encoded[Tracked::plain_index(entry.observation.status.unwrap())];
@@ -440,11 +573,39 @@ impl PersistentAuthority {
                 t.packet.take().unwrap(),
                 t.sender.take().unwrap(),
                 now,
-                || {
-                    t.may_send = true;
-                    entry.observation.delivery = Delivery::MaySend;
+                |deadline| {
+                    let deadline = deadline.min(entry.completion_deadline);
+                    let mut commit = || {
+                        t.may_send = true;
+                        entry.observation.delivery = Delivery::MaySend;
+                    };
+                    if let Some(owner) = &entry.owner {
+                        owner
+                            .commit_output(
+                                entry.id,
+                                now,
+                                deadline,
+                                crate::persistent_supervisor::fixed::OutputCommit::MaySend,
+                                entry.observation.status,
+                                commit,
+                            )
+                            .map_err(|fault| {
+                                precise = Some(fault);
+                                wire_fault(fault)
+                            })?;
+                    } else if t.clock.now() >= deadline {
+                        return Err(crate::Error::Timeout);
+                    } else {
+                        commit();
+                    }
                     #[cfg(test)]
-                    if t.fail_seal {
+                    if t.fail_seal
+                        || entry
+                            .owner
+                            .as_ref()
+                            .and_then(OwnerBinding::output_hooks)
+                            .is_some_and(|h| h.fail_seal)
+                    {
                         return Err(crate::Error::Authentication);
                     }
                     Ok(())
@@ -453,22 +614,35 @@ impl PersistentAuthority {
             t.packet_issued = true;
             registry.transfer_fixed_claim(&entry.permit, grant, &t.memory, t.clock.now())
         }));
-        if !matches!(result, Ok(Ok(()))) {
-            entry.cancel(State::Cancelled);
-            self.reconcile_fixed_output(now);
-            if self.fixed.failed {
-                self.abort_in_place();
-                return Err(Fault::Worker);
+        let fault = match result {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(error)) => precise
+                .unwrap_or_else(|| registry_fault(registry, &entry.permit, t.clock.now(), error)),
+            Err(_) => {
+                if entry.owner.is_some() {
+                    Fault::Worker
+                } else {
+                    Fault::Delivery
+                }
             }
-            return Err(Fault::State);
+        };
+        fail_output(&mut entry.observation, &entry.worker.signal, fault);
+        self.reconcile_fixed_output(now);
+        if self.fixed.failed {
+            self.abort_in_place();
+            return Err(Fault::Worker);
         }
-        Ok(())
+        Err(if fault == Fault::Delivery {
+            Fault::State
+        } else {
+            fault
+        })
     }
-    pub(crate) fn consume_fixed(
+    pub(crate) fn consume_fixed_progress(
         &mut self,
         id: Id,
         peer: &mut crate::channel::Channel,
-    ) -> std::result::Result<Accepted, Fault> {
+    ) -> std::result::Result<OutputProgress, Fault> {
         let now = self
             .fixed
             .entry(id)
@@ -477,30 +651,73 @@ impl PersistentAuthority {
             .clock
             .now();
         self.poll_fixed(now)?;
+        let now = self
+            .fixed
+            .entry(id)
+            .and_then(|e| e.tracked.as_ref())
+            .ok_or(Fault::Stale)?
+            .clock
+            .now();
         let entry = self.fixed.entry_mut(id).ok_or(Fault::Stale)?;
+        if entry.observation.state == State::Completed {
+            return Ok(OutputProgress::Completed(Accepted {
+                request_id: entry.permit.id(),
+                status: entry.observation.status.unwrap(),
+            }));
+        }
         if entry.joined.is_none() || entry.observation.state != State::Ready {
             return Err(Fault::State);
         }
         let t = entry.tracked.as_mut().ok_or(Fault::State)?;
-        if !t.packet_issued || t.returned.is_some() || t.grant.is_none() {
+        if t.consume_attempted {
+            return Ok(OutputProgress::AwaitingReturn);
+        }
+        if !t.packet_issued || t.grant.is_none() {
             return Err(Fault::State);
         }
+        // This prepaid bit is consumed before taking/decrypting the one packet.
+        t.consume_attempted = true;
+        let mut precise = None;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.registry
                 .as_mut()
                 .unwrap()
-                .claim_barrier(&entry.permit, now, || {
-                    t.memory.consume_fixed(
+                .claim_deadline_barrier(&entry.permit, now, |deadline| {
+                    let mut acceptance = Acceptance::new(
+                        entry.owner.as_ref(),
+                        entry.id,
+                        now,
+                        deadline.min(entry.completion_deadline),
+                    );
+                    let result = t.memory.consume_fixed(
                         &t.grant.as_ref().unwrap().0,
                         peer,
                         &t.encoded[Tracked::plain_index(entry.observation.status.unwrap())],
                         &t.clock,
-                        entry.completion_deadline,
-                    )
+                        &mut acceptance,
+                    );
+                    precise = acceptance.fault();
+                    result
                 })
         }));
-        if !matches!(result, Ok(Ok(()))) {
-            entry.cancel(State::Cancelled);
+        let fault = match result {
+            Ok(Ok(())) => None,
+            Ok(Err(error)) => Some(precise.unwrap_or_else(|| {
+                registry_fault(
+                    self.registry.as_ref().unwrap(),
+                    &entry.permit,
+                    t.clock.now(),
+                    error,
+                )
+            })),
+            Err(_) => Some(if entry.owner.is_some() {
+                Fault::Worker
+            } else {
+                Fault::Delivery
+            }),
+        };
+        if let Some(fault) = fault {
+            fail_output(&mut entry.observation, &entry.worker.signal, fault);
         }
         self.reconcile_fixed_output(now);
         if self.fixed.failed {
@@ -508,13 +725,35 @@ impl PersistentAuthority {
             return Err(Fault::Worker);
         }
         let entry = self.fixed.entry(id).unwrap();
-        if entry.observation.state != State::Completed {
+        if entry.observation.state == State::Completed {
+            Ok(OutputProgress::Completed(Accepted {
+                request_id: entry.permit.id(),
+                status: entry.observation.status.unwrap(),
+            }))
+        } else if entry.observation.state == State::Ready {
+            Ok(OutputProgress::AwaitingReturn)
+        } else {
+            Err(fault
+                .filter(|f| *f != Fault::Delivery)
+                .unwrap_or(Fault::State))
+        }
+    }
+    pub(crate) fn consume_fixed(
+        &mut self,
+        id: Id,
+        peer: &mut crate::channel::Channel,
+    ) -> std::result::Result<Accepted, Fault> {
+        if self
+            .fixed
+            .entry(id)
+            .is_some_and(|e| e.observation.state == State::Completed)
+        {
             return Err(Fault::State);
         }
-        Ok(Accepted {
-            request_id: entry.permit.id(),
-            status: entry.observation.status.unwrap(),
-        })
+        match self.consume_fixed_progress(id, peer)? {
+            OutputProgress::Completed(accepted) => Ok(accepted),
+            OutputProgress::AwaitingReturn => Err(Fault::State),
+        }
     }
 }
 

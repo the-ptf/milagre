@@ -2,6 +2,61 @@
 use super::*;
 use crate::persistent_supervisor::fixed::{FixedId, OwnerBinding};
 
+/// Constructed only by the core under the actual Registry claim barrier.
+pub(crate) struct Acceptance<'a> {
+    owner: Option<&'a OwnerBinding>,
+    core: Id,
+    sampled_at: u64,
+    deadline: u64,
+    fault: Option<Fault>,
+}
+impl<'a> Acceptance<'a> {
+    pub(super) fn new(
+        owner: Option<&'a OwnerBinding>,
+        core: Id,
+        sampled_at: u64,
+        deadline: u64,
+    ) -> Self {
+        Self {
+            owner,
+            core,
+            sampled_at,
+            deadline,
+            fault: None,
+        }
+    }
+    pub(crate) fn deadline(&self) -> u64 {
+        self.deadline
+    }
+    pub(super) fn fault(&self) -> Option<Fault> {
+        self.fault
+    }
+    pub(crate) fn commit(&mut self, commit: impl FnOnce()) -> crate::Result<()> {
+        if let Some(owner) = self.owner {
+            owner
+                .commit_output(
+                    self.core,
+                    self.sampled_at,
+                    self.deadline,
+                    crate::persistent_supervisor::fixed::OutputCommit::Acceptance,
+                    None,
+                    commit,
+                )
+                .map_err(|fault| {
+                    self.fault = Some(fault);
+                    if fault == Fault::Expired {
+                        crate::Error::Timeout
+                    } else {
+                        crate::Error::Unauthorized
+                    }
+                })
+        } else {
+            commit();
+            Ok(())
+        }
+    }
+}
+
 pub(crate) struct Disposed {
     owner: FixedId,
     core: Id,

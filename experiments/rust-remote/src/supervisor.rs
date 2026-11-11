@@ -1332,7 +1332,7 @@ impl MemoryCarrier {
         peer: &mut crate::channel::Channel,
         expected: &[u8],
         clock: &Clock,
-        deadline: u64,
+        acceptance: &mut crate::persistent::fixed_executor::Acceptance<'_>,
     ) -> crate::Result<()> {
         let mut m = self.0.lock().map_err(|_| crate::Error::Unauthorized)?;
         if m.closed
@@ -1353,7 +1353,7 @@ impl MemoryCarrier {
         if unwind == 1 {
             panic!("synthetic unwind before verification");
         }
-        packet.verify(peer, expected, clock, deadline)?;
+        packet.verify(peer, expected, clock, acceptance)?;
         #[cfg(test)]
         if unwind == 2 {
             panic!("synthetic unwind after verification");

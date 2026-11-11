@@ -461,6 +461,67 @@ impl Runtime {
         }
     }
 }
+impl Runtime {
+    // Existing bounded ticks only: up to two retained entries, with no new scheduler or wake.
+    pub(in crate::persistent_supervisor) fn fixed_deliver(
+        &mut self,
+        shared: &Shared,
+    ) -> crate::supervisor::Result<()> {
+        for (core, target) in self
+            .authority
+            .fixed_delivery_entries()
+            .into_iter()
+            .flatten()
+        {
+            if shared.stop.load(Ordering::SeqCst) != RUNNING {
+                break;
+            }
+            let Some(peer) = self
+                .fixed
+                .as_mut()
+                .and_then(|f| f.peers.iter_mut().flatten().find(|p| p.id.target == target))
+            else {
+                continue;
+            };
+            #[cfg(test)]
+            if self.authority.fixed_output_held(core, false) {
+                continue;
+            }
+            let observation = self.authority.observe_fixed(core).unwrap();
+            let mut result = Ok(());
+            if observation.delivery == executor::Delivery::None {
+                result = self.authority.emit_fixed(core);
+            }
+            #[cfg(test)]
+            let held = self.authority.fixed_output_held(core, true);
+            #[cfg(not(test))]
+            let held = false;
+            if result.is_ok() && !held {
+                #[cfg(test)]
+                if let Some(wrong) = self.authority.fixed_test_peer(core) {
+                    peer.peer = wrong;
+                }
+                result = self
+                    .authority
+                    .consume_fixed_progress(core, &mut peer.peer)
+                    .map(|_| ());
+            }
+            self.publish_fixed_readiness(shared);
+            if matches!(
+                result,
+                Err(executor::Fault::Worker | executor::Fault::Clock)
+            ) {
+                self.authority.abort_in_place();
+                shared.fail(WorkerFault::InvalidExit);
+                return Err(crate::supervisor::Error::NotExecuted);
+            }
+        }
+        self.reconcile(shared);
+        self.fixed_maintain(shared);
+        self.fixed_copy_progress(shared)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

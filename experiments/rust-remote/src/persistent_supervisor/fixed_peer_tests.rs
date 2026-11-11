@@ -46,10 +46,18 @@ fn actor_owned_peer_sends_actual_consecutive_requests_and_preserves_ready_withou
         let work = tokens(&owner);
         assert_eq!(work.len(), 1);
         assert_eq!(work[0].id(), id);
-        let attempt = fixed
-            .submit(prepared(&fixed, &work[0]), outcome)
-            .unwrap()
-            .id();
+        let permit = prepared(&fixed, &work[0]);
+        fixed.configure(
+            permit.id(),
+            fixed::TestHooks {
+                output: Some(Arc::new(fixed::OutputHooks {
+                    hold_emit: AtomicBool::new(true),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            },
+        );
+        let attempt = fixed.submit(permit, outcome).unwrap().id();
         wait(
             || matches!(fixed.observe(attempt),Observation::Present {phase:Phase::Ready,status:Some(s),cleanup_pending:true,..} if s==status),
         );
@@ -497,3 +505,6 @@ fn peer_setup_refuses_active_claim_and_poison_keeps_the_original_writer() {
         }
     }
 }
+
+#[path = "fixed_delivery_tests.rs"]
+mod fixed_delivery_tests;

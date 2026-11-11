@@ -6,7 +6,7 @@ use crate::persistent_supervisor::fixed::OwnerBinding;
 use crate::{budget::Reservation, registry::claim::Permit, supervisor::Clock};
 pub(crate) use output::TargetId;
 use output::{Target, Tracked, TRACKED_BYTES};
-pub(crate) use owner::{Disposal, Disposed};
+pub(crate) use owner::{Acceptance, Disposal, Disposed};
 use std::sync::{atomic::AtomicBool, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -27,6 +27,7 @@ pub(crate) enum Fault {
     Spawn,
     Worker,
     State,
+    Delivery,
 }
 /// Provenance from the real start transition, never reconstructed from token status.
 /// No API accepts these values as a caller-supplied cleanup assertion.
@@ -88,6 +89,7 @@ pub(crate) enum Delivery {
     None,
     MaySend,
     Returned,
+    Unknown,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Observation {
@@ -96,6 +98,7 @@ pub(crate) struct Observation {
     pub execution: Execution,
     pub status: Option<u16>,
     pub joined: bool,
+    pub failure: Option<Fault>,
 }
 #[derive(Default)]
 struct Gate {
@@ -185,6 +188,14 @@ impl Entry {
             State::Cancelled | State::TimedOut | State::Failed
         ) {
             self.observation.state = state;
+            self.observation.failure = Some(match state {
+                State::TimedOut => Fault::Expired,
+                State::Failed => Fault::Worker,
+                _ => Fault::Stale,
+            });
+        }
+        if self.observation.delivery == Delivery::MaySend {
+            self.observation.delivery = Delivery::Unknown;
         }
     }
     fn join(&mut self) -> bool {
@@ -246,7 +257,17 @@ impl Core {
                 e.permit.handle().status(),
                 registry::CarrierStatus::Closed(_)
             ) {
-                e.cancel(State::Cancelled);
+                let expired = matches!(
+                    e.permit.handle().status(),
+                    registry::CarrierStatus::Closed(
+                        registry::CloseReason::IdleTimeout | registry::CloseReason::FragmentTimeout
+                    )
+                );
+                e.cancel(if expired {
+                    State::TimedOut
+                } else {
+                    State::Cancelled
+                });
                 if e.tracked.as_mut().is_some_and(|t| !t.cancel_output()) {
                     self.failed = true;
                 }
@@ -569,6 +590,7 @@ impl PersistentAuthority {
                 execution: Execution::NotStarted,
                 status: None,
                 joined: false,
+                failure: None,
             },
         });
         if self.fixed.entries[index]
@@ -583,6 +605,14 @@ impl PersistentAuthority {
         }
         #[cfg(test)]
         if let Some(owner) = self.fixed.entries[index].as_ref().unwrap().owner.clone() {
+            if owner.output_hooks().is_some_and(|h| h.fragment) {
+                let permit = &self.fixed.entry(id).unwrap().permit;
+                self.registry
+                    .as_mut()
+                    .unwrap()
+                    .inject_claim_reader_fragment_for_test(permit, clock.now())
+                    .unwrap();
+            }
             owner.record_probe(self.fixed_probe(id));
             owner.wait_before_begin();
         }
@@ -687,11 +717,10 @@ impl PersistentAuthority {
         }
         let owner = entry.owner.clone();
         let mut owner_failure = None;
-        let result = self
-            .registry
-            .as_mut()
-            .unwrap()
-            .claim_barrier(&entry.permit, now, || {
+        let result = self.registry.as_mut().unwrap().claim_deadline_barrier(
+            &entry.permit,
+            now,
+            |deadline| {
                 let mut gate = entry
                     .worker
                     .signal
@@ -709,7 +738,7 @@ impl PersistentAuthority {
                 };
                 if let Some(owner) = owner {
                     owner
-                        .commit_begin(id, now, entry.http_deadline, commit)
+                        .commit_begin(id, now, entry.http_deadline.min(deadline), commit)
                         .map_err(|fault| {
                             owner_failure = Some(fault);
                             crate::Error::Unauthorized
@@ -718,7 +747,8 @@ impl PersistentAuthority {
                     commit();
                 }
                 Ok(())
-            });
+            },
+        );
         if result.is_err() {
             entry.cancel(if owner_failure == Some(Fault::Expired) {
                 State::TimedOut
@@ -784,7 +814,7 @@ impl PersistentAuthority {
                 self.fixed.failed = true;
                 entry.cancel(State::Failed);
             }
-            if now >= entry.completion_deadline {
+            if now >= entry.completion_deadline || registry.claim_expired(&entry.permit, now) {
                 entry.cancel(State::TimedOut);
             } else if !registry.claim_read_allowed(&entry.permit, now) {
                 entry.cancel(State::Cancelled);

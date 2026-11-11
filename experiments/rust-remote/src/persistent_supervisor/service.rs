@@ -577,6 +577,7 @@ impl Runtime {
         self.reconcile(shared);
         self.fixed_maintain(shared);
         self.fixed_copy_progress(shared)?;
+        self.fixed_deliver(shared)?;
         shared.ticks.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }

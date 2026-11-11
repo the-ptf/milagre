@@ -1,26 +1,44 @@
 //! Concrete owner identity and short queue-synchronized core commits.
 use super::*;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OutputCommit {
+    MaySend,
+    Acceptance,
+    Completed,
+}
+
 #[derive(Clone)]
 pub(crate) struct OwnerBinding {
     id: FixedId,
     shared: Weak<Shared>,
     #[cfg(test)]
     before: Option<Arc<executor::ExitGate>>,
+    #[cfg(test)]
+    output: Option<Arc<OutputHooks>>,
 }
 impl OwnerBinding {
     fn new(id: FixedId, shared: &Arc<Shared>) -> Self {
+        #[cfg(test)]
+        let (before, output) = {
+            let q = shared.queues();
+            let test = q
+                .fixed
+                .as_ref()
+                .and_then(|f| f.row(id))
+                .and_then(|r| r.test.as_ref());
+            (
+                test.and_then(|t| t.before_begin.clone()),
+                test.and_then(|t| t.output.clone()),
+            )
+        };
         Self {
             id,
             shared: Arc::downgrade(shared),
             #[cfg(test)]
-            before: shared
-                .queues()
-                .fixed
-                .as_ref()
-                .and_then(|f| f.row(id))
-                .and_then(|r| r.test.as_ref())
-                .and_then(|t| t.before_begin.clone()),
+            before,
+            #[cfg(test)]
+            output,
         }
     }
     pub(crate) fn id(&self) -> FixedId {
@@ -90,6 +108,82 @@ impl OwnerBinding {
         };
         settle(&shared, self.id, proof)
     }
+    /// Registry holds exact session access; only bounded evidence changes run here.
+    pub(crate) fn commit_output(
+        &self,
+        core: executor::Id,
+        sampled_at: u64,
+        deadline: u64,
+        kind: OutputCommit,
+        status: Option<u16>,
+        commit: impl FnOnce(),
+    ) -> Result<(), executor::Fault> {
+        #[cfg(test)]
+        if let Some(gate) = self
+            .output
+            .as_ref()
+            .and_then(|h| h.before[kind as usize].as_ref())
+        {
+            gate.wait();
+        }
+        let shared = self.shared.upgrade().ok_or(executor::Fault::State)?;
+        let mut q = shared.queues();
+        if shared.fault().is_some() {
+            return Err(executor::Fault::Worker);
+        }
+        if shared.stop.load(Ordering::SeqCst) != RUNNING {
+            return Err(executor::Fault::Stale);
+        }
+        let now = shared.clock.now();
+        if now < sampled_at {
+            return Err(executor::Fault::Clock);
+        }
+        if now >= deadline {
+            return Err(executor::Fault::Expired);
+        }
+        let row = q
+            .fixed
+            .as_mut()
+            .and_then(|f| f.row_mut(self.id))
+            .ok_or(executor::Fault::State)?;
+        if !matches!(row.ownership,RowOwnership::Retained(id) if id==core)
+            || row.execution != executor::Execution::MayHaveRun
+            || matches!(row.phase, Phase::Terminal(_))
+        {
+            return Err(executor::Fault::State);
+        }
+        if row.cancel {
+            return Err(executor::Fault::Stale);
+        }
+        if kind != OutputCommit::MaySend && row.delivery != executor::Delivery::MaySend {
+            return Err(executor::Fault::State);
+        }
+        match kind {
+            OutputCommit::MaySend => {
+                row.phase = Phase::MaySend;
+                row.delivery = executor::Delivery::MaySend;
+                row.status = status;
+            }
+            OutputCommit::Acceptance => (),
+            OutputCommit::Completed => {
+                row.phase = Phase::Terminal(Terminal::Completed);
+                row.delivery = executor::Delivery::Returned;
+                row.status = status;
+            }
+        }
+        commit();
+        shared.changed.notify_all();
+        drop(q);
+        #[cfg(test)]
+        if let Some(gate) = self
+            .output
+            .as_ref()
+            .and_then(|h| h.after[kind as usize].as_ref())
+        {
+            gate.wait();
+        }
+        Ok(())
+    }
 }
 fn settle(shared: &Shared, id: FixedId, proof: executor::Disposed) -> bool {
     let mut q = shared.queues();
@@ -114,14 +208,28 @@ fn settle(shared: &Shared, id: FixedId, proof: executor::Disposed) -> bool {
 
 fn record(row: &mut Row, observation: executor::Observation) {
     row.execution = observation.execution;
+    row.delivery = observation.delivery;
     row.status = observation.status;
     row.phase = match observation.state {
         executor::State::Claimed => Phase::Claimed,
         executor::State::Running => Phase::Running,
-        executor::State::Ready => Phase::Ready,
-        executor::State::Cancelled => Phase::Terminal(Terminal::Cancelled),
+        executor::State::Ready => {
+            if observation.delivery == executor::Delivery::MaySend {
+                Phase::MaySend
+            } else {
+                Phase::Ready
+            }
+        }
+        executor::State::Cancelled => {
+            Phase::Terminal(if observation.failure == Some(executor::Fault::Delivery) {
+                Terminal::DeliveryUnknown
+            } else {
+                Terminal::Cancelled
+            })
+        }
         executor::State::TimedOut => Phase::Terminal(Terminal::TimedOut),
-        executor::State::Failed | executor::State::Completed => Phase::Terminal(Terminal::Failed),
+        executor::State::Failed => Phase::Terminal(Terminal::Failed),
+        executor::State::Completed => Phase::Terminal(Terminal::Completed),
     };
 }
 
@@ -216,7 +324,10 @@ impl Runtime {
             }
             if matches!(
                 observation.state,
-                executor::State::Cancelled | executor::State::TimedOut | executor::State::Failed
+                executor::State::Cancelled
+                    | executor::State::TimedOut
+                    | executor::State::Failed
+                    | executor::State::Completed
             ) {
                 let result = self.authority.dispose_fixed_owned(core, self.clock.now());
                 self.publish_fixed_readiness(shared);
@@ -353,9 +464,27 @@ pub(crate) struct TestHooks {
     pub core: executor::Hooks,
     pub before_begin: Option<Arc<executor::ExitGate>>,
     pub outcome: Option<executor::Outcome>,
+    pub output: Option<Arc<OutputHooks>>,
+}
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct OutputHooks {
+    pub before: [Option<Arc<executor::ExitGate>>; 3],
+    pub after: [Option<Arc<executor::ExitGate>>; 3],
+    pub hold_emit: AtomicBool,
+    pub hold_consume: AtomicBool,
+    pub delay_return: AtomicBool,
+    pub fail_seal: bool,
+    pub fragment: bool,
+    pub verification_peer: Mutex<Option<crate::channel::Channel>>,
+    pub maintenance: [Option<Arc<executor::ExitGate>>; 2],
 }
 #[cfg(test)]
 impl OwnerBinding {
+    pub(crate) fn output_hooks(&self) -> Option<&OutputHooks> {
+        self.output.as_deref()
+    }
+
     pub(crate) fn wait_before_begin(&self) {
         if let Some(gate) = &self.before {
             gate.wait();

@@ -7,9 +7,9 @@ use crate::{
     registry::{self, Handle, WorkStatus, WorkToken},
     supervisor::MemoryCarrier,
 };
-pub(crate) use lifecycle::OwnerBinding;
+pub(crate) use lifecycle::{OutputCommit, OwnerBinding};
 #[cfg(test)]
-pub(crate) use lifecycle::TestHooks;
+pub(crate) use lifecycle::{OutputHooks, TestHooks};
 use std::sync::Weak;
 
 pub(crate) const STATUS_SLOTS: usize = 512;
@@ -78,6 +78,8 @@ pub(crate) enum Terminal {
     Cancelled,
     TimedOut,
     Failed,
+    Completed,
+    DeliveryUnknown,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Phase {
@@ -87,6 +89,7 @@ pub(crate) enum Phase {
     Claimed,
     Running,
     Ready,
+    MaySend,
     Terminal(Terminal),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,6 +100,7 @@ pub(crate) enum Observation {
         phase: Phase,
         cancel_requested: bool,
         execution: executor::Execution,
+        delivery: executor::Delivery,
         status: Option<u16>,
         cleanup_pending: bool,
     },
@@ -156,6 +160,7 @@ struct Row {
     cancel_applied: bool,
     hidden: bool,
     execution: executor::Execution,
+    delivery: executor::Delivery,
     status: Option<u16>,
     ownership: RowOwnership,
     #[cfg(test)]
@@ -461,6 +466,7 @@ impl FixedOwnerClient {
             phase: row.phase,
             cancel_requested: row.cancel,
             execution: row.execution,
+            delivery: row.delivery,
             status: row.status,
             cleanup_pending: !row.ownership.disposed(),
         }
@@ -622,7 +628,25 @@ impl PersistentSupervisor {
 impl Runtime {
     pub(super) fn fixed_maintain(&mut self, shared: &Shared) {
         self.fixed_peer_maintain(shared);
-        let now = self.clock.now();
+        #[cfg(test)]
+        let maintenance = {
+            let q = shared.queues();
+            q.fixed.as_ref().and_then(|fixed| {
+                fixed.rows.iter().flatten().find_map(|row| {
+                    row.test
+                        .as_ref()
+                        .and_then(|test| test.output.clone())
+                        .filter(|hooks| hooks.maintenance.iter().any(Option::is_some))
+                })
+            })
+        };
+        #[cfg(test)]
+        if let Some(gate) = maintenance
+            .as_ref()
+            .and_then(|hooks| hooks.maintenance[0].as_ref())
+        {
+            gate.wait();
+        }
         let mut q = shared.queues();
         let Some(fixed) = q.fixed.as_mut() else {
             return;
@@ -633,7 +657,9 @@ impl Runtime {
             }
             let terminal = if row.cancel {
                 Some(NotClaimed::Cancelled)
-            } else if now >= row.deadline {
+            } else if row.token.status() == WorkStatus::TimedOut {
+                // Registry owns expiry and promotion. A fresh clock here may be newer
+                // than the preceding tick; do not publish terminal evidence ahead of it.
                 Some(NotClaimed::Expired)
             } else if row.token.handle().status() != registry::CarrierStatus::Active
                 || row.token.status() != WorkStatus::InFlight
@@ -665,6 +691,14 @@ impl Runtime {
             {
                 *target = None;
             }
+        }
+        drop(q);
+        #[cfg(test)]
+        if let Some(gate) = maintenance
+            .as_ref()
+            .and_then(|hooks| hooks.maintenance[1].as_ref())
+        {
+            gate.wait();
         }
     }
     pub(super) fn fixed_prepare_one(&mut self, shared: &Shared) {
@@ -843,6 +877,7 @@ impl Runtime {
             cancel_applied: false,
             hidden: false,
             execution: executor::Execution::NotStarted,
+            delivery: executor::Delivery::None,
             status: None,
             ownership: RowOwnership::Unclaimed(Unclaimed),
             #[cfg(test)]
@@ -917,8 +952,8 @@ mod layout_tests {
         ];
         #[cfg(target_pointer_width = "64")]
         {
-            assert_eq!(sizes, [227_568, 5760, 424, 56, 248, 40]);
-            assert_eq!(backing_bytes(), Some(237_424));
+            assert_eq!(sizes, [235_760, 5760, 440, 56, 248, 40]);
+            assert_eq!(backing_bytes(), Some(245_616));
         }
         assert!(sizes[2] <= STATUS_BYTES);
     }

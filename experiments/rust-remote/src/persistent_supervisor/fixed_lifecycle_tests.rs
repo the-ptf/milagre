@@ -38,6 +38,7 @@ fn ready(fixed: &FixedOwnerClient, id: fixed::FixedId, status: u16) {
                 phase: Phase::Ready,
                 cancel_requested: false,
                 execution: Execution::MayHaveRun,
+                delivery: crate::persistent::fixed_executor::Delivery::None,
                 status: Some(status),
                 cleanup_pending: true,
             }
@@ -838,6 +839,7 @@ fn owner_worker_panic_gate_and_queue_poison_keep_abort_and_joined_writer_ownersh
                 },
                 outcome: (fault == 0)
                     .then_some(crate::persistent::fixed_executor::Outcome::PanicAfterBegin),
+                output: None,
             },
         );
         fixed.submit(attempt, FixedOutcome::Success).unwrap();

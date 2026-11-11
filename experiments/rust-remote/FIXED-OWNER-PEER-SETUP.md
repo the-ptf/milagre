@@ -1,5 +1,7 @@
 # Private actor-owned peer setup
 
+This document records its original checkpoint boundary. [Increment 2B.2 delivery evidence](FIXED-OWNER-DELIVERY.md) describes the later private actor integration; peerless Ready and public-service boundaries remain intact.
+
 Checkpoint 3 increment 2B.1 implements only the peer setup/request portion of [the agreed delivery plan](FIXED-OWNER-DELIVERY-PLAN.md), on top of stage 2A at `18229be6`. A fresh private fixture can move its real synthetic Channel into the existing owner actor, then request an empty GET `/rpc` through the real Registry receive path. Public start and carrier clients gain no fixed capability.
 
 **Results still stop at joined Ready.** The actor does not emit/consume a response, construct acceptance evidence or report Completed. No completion wake or fairness behavior changes. Increments 2B.2 and 2B.3 remain separately gated; remote has no dependency on either frontend, network, HTTP client, production/existing profile, provider, real phone or mobile/GUI work.
