@@ -137,7 +137,7 @@ pub fn column(chat: impl IntoElement, drawer: &Entity<TerminalDrawer>, window: &
         (d.is_open(), d.height, d.chat.to_string())
     };
     // It rises from the bottom edge and goes back down (`TerminalSlide.tsx`); a closing drawer stays under its cover.
-    let slide = super::slide::track("terminal", &key, open, super::slide::Edge::Bottom, DRAWER_SLIDE, cx);
+    let slide = super::slide::track("terminal", &key, open, DRAWER_SLIDE, cx);
     let open = open || slide.held;
     let room = f32::from(window.viewport_size().height) * HEIGHT_MAX_SHARE;
     let slot = GAP + height.min(room).max(HEIGHT_MIN) + INSET;

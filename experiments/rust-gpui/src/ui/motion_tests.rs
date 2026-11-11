@@ -58,57 +58,22 @@ fn a_turning_spinner_rebuilds_only_its_row(cx: &mut TestAppContext) {
     set_test_motion(false);
 }
 
-/// Closing and opening the panel: the cover over its slot renders every frame, the panel and the transcript's items
-/// never; a closing panel stays on screen until its slide is done, and with Motion off nothing slides.
+/// The side panel opens and closes at once, even with Motion on: no cover, no frames held.
 #[gpui::test]
-fn the_panel_slides_without_rebuilding_the_panel_or_the_transcript(cx: &mut TestAppContext) {
-    use crate::theme::live::{LiveStyle, set_live};
-    use crate::workspace::panel::slide::cover_renders;
-
+fn the_panel_opens_and_closes_at_once(cx: &mut TestAppContext) {
     set_test_motion(true);
     let (workspace, cx) = testing::mount_workspace(cx);
-    // After mounting: the Workspace applies the stored Appearance, Normal speed.
     slow_motion();
-    let (chat, panel) = workspace.read_with(cx, |w, _| (w.chat.clone(), w.panel.clone()));
-    let transcript = chat.read_with(cx, |c, _| c.transcript.clone());
-    assert!(panel.read_with(cx, |p, _| p.is_open()), "the fixture opens with the Changes panel");
+    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
+    assert!(panel.read_with(cx, |p, _| p.is_open()), "the fixture opens with the panel");
     frame(cx);
-
     for opening in [false, true] {
-        panel.update(cx, |p, cx| p.toggle_tab(crate::workspace::panel::PanelTab::Changes, cx));
+        panel.update(cx, |p, cx| if opening { p.activate(crate::workspace::panel::PanelTab::Changes, cx) } else { p.close(cx) });
         cx.run_until_parked();
         assert_eq!(panel.read_with(cx, |p, _| p.is_open()), opening);
-        assert!(cx.debug_bounds("slide-cover").is_some(), "a cover runs the slide");
-        assert!(cx.debug_bounds("panel-header").is_some(), "the panel stays on screen while it slides");
-        let before = (transcript.read_with(cx, |t, _| t.item_renders()), panel.read_with(cx, |p, _| p.renders()));
-        let covers = cx.update(|_, cx| cover_renders("panel", cx)).expect("a slide runs");
-        for _ in 0..5 {
-            frame(cx);
-        }
-        let after = (transcript.read_with(cx, |t, _| t.item_renders()), panel.read_with(cx, |p, _| p.renders()));
-        assert_eq!(after, before, "no transcript item and no panel render in 5 frames of the slide (opening: {opening})");
-        assert!(cx.update(|_, cx| cover_renders("panel", cx)).is_some_and(|n| n >= covers + 5), "the cover drew each frame");
+        assert!(cx.debug_bounds("slide-cover").is_none(), "no cover runs a slide");
+        assert_eq!(cx.debug_bounds("panel-header").is_some(), opening, "the panel is on screen exactly while it is open");
     }
-
-    // Motion Off: the panel goes and comes back at once.
-    set_live(LiveStyle { motion_scale: 0.0, ..LiveStyle::default() });
-    panel.update(cx, |p, cx| p.close(cx));
-    cx.run_until_parked();
-    assert!(cx.debug_bounds("slide-cover").is_none() && cx.debug_bounds("panel-header").is_none(), "closed at once");
-
-    // A fast slide ends: the closing panel leaves the window once its cover is done.
-    set_live(LiveStyle { motion_scale: 0.5, ..LiveStyle::default() });
-    panel.update(cx, |p, cx| p.toggle_tab(crate::workspace::panel::PanelTab::Changes, cx));
-    cx.run_until_parked();
-    panel.update(cx, |p, cx| p.close(cx));
-    cx.run_until_parked();
-    assert!(cx.debug_bounds("panel-header").is_some(), "held while it slides");
-    std::thread::sleep(std::time::Duration::from_millis(200));
-    frame(cx);
-    frame(cx);
-    assert!(cx.debug_bounds("panel-header").is_none(), "gone after the slide");
-    assert!(cx.debug_bounds("slide-cover").is_none());
-    set_live(LiveStyle::default());
     set_test_motion(false);
 }
 
