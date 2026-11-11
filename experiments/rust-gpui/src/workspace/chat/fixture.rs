@@ -486,7 +486,7 @@ fn demo_question(
 
 /// One of every non-prose item kind, built from messages through `cards::build::items_for` where a message makes
 /// them (`MILAGRE_GPUI_TRANSCRIPT_CARDS=1`): dividers of every kind, attachments, viewed and generated images, a
-/// question card, an answered one, the PR action, Linear and usage-limit cards, delegation reports, queued
+/// question card, an answered one, the PR action, Linear and usage-limit cards, delegation reports,
 /// messages and a context kind nothing knows.
 pub fn cards_demo() -> Vec<Item> {
     use crate::data::{ChatContext, DividerStatus, ImageAttachment, Provider, QuestionRequest, Role, StepKind, StepStatus};
@@ -768,20 +768,5 @@ pub fn cards_demo() -> Vec<Item> {
     }
     items.extend(built);
 
-    let queued = |id: &str, body: &str, files: usize| crate::data::QueuedMessage {
-        id: id.into(),
-        body: body.into(),
-        files: (0..files).map(|n| format!("/tmp/file-{n}.txt").into()).collect(),
-        model: "opus".into(),
-        provider: Provider::Claude,
-        queued_at: NOW,
-        client_message_id: None,
-    };
-    items.push(Item::Card(Card::Queued(crate::workspace::chat::transcript::cards::QueuedCard {
-        items: vec![queued("m1", "Also run the Linux smoke check", 0), queued("m2", "", 2)],
-        held: false,
-        running: true,
-        can_steer: false,
-    })));
     items
 }

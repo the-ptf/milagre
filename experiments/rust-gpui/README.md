@@ -519,7 +519,7 @@ WP-22 (2026-11-11): the activity fold and the tool rows, in `workspace/chat/tran
 ## Daemon adapter
 
 `daemon-check/` is the first real-data stage, off by default: `DaemonAdapter` implements `DataSource` on the
-backend's shared daemon client (`milagre-daemon-client`, used exactly as committed at 5eb6d63f) and is checked
+backend's shared daemon client (`milagre-daemon-client`, used exactly as committed at 9aa5deb3) and is checked
 headless against the backend's owned `app-fixture`. It is its own crate with its own `[workspace]` and lock; this
 crate's manifest, lock and build do not know it exists, and the app never constructs the adapter.
 
@@ -530,7 +530,7 @@ cargo test --offline --locked                                                # m
 python3 scripts/check-gpui-adapter.py run --backend <backend worktree>      # real fixture, staged in /tmp
 ```
 
-`export` unpacks `git archive 5eb6d63f experiments/rust-daemon-client` into `target/daemon-client-5eb6d63f/` and
+`export` unpacks `git archive 9aa5deb3 experiments/rust-daemon-client` into `target/daemon-client-9aa5deb3/` and
 checks every file against the commit's blobs. `run` also checks the fixture's SHA-256, stages the test runner beside
 a copy of that exact binary in a private /tmp directory (the client's `FixtureGuard::launch()` only launches its
 sibling `app-fixture`), runs each ignored `real::` test in its own process, records both hashes and HEADs, and
@@ -589,9 +589,33 @@ context kind nothing knows (`ChatContext::Other`) draws as the ordinary bubble o
 | Usage-limit card                      | `UsageLimitCard.tsx`                                                                                      | partial  | headline, resume toggle, switch rows, result line; choices are given, no live accounts or schedule                                                                                                                                                                                                        |
 | Delegation report line                | `DelegationReportLine.tsx`                                                                                | partial  | report text opens as plain text (no markdown), no open-Chat link                                                                                                                                                                                                                                          |
 | Subchat note                          | `SubchatMessages.tsx` `NoteLine`                                                                          | partial  | "Answered by"; escalation line and suggestion card not built                                                                                                                                                                                                                                              |
-| Queued messages                       | `QueuedMessages.tsx`                                                                                      | partial  | as a transcript card (the app docks it above the composer); Send now and Remove both drop the row                                                                                                                                                                                                         |
+| Queued messages                       | `QueuedMessages.tsx`                                                                                      | moved    | docked above the composer now (see Composer bar notes); the transcript card is gone                                                                                                                                                                                                                       |
 | Not built                             | secret, bug report, advisor, recommendation, Heartbeat, next check, remote delegation, computer use cards | not done |                                                                                                                                                                                                                                                                                                           |
 
 Snapshot: `MILAGRE_GPUI_TRANSCRIPT_CARDS=1` (add `MILAGRE_GPUI_TRANSCRIPT_TOP=<item>`) shows `fixture::cards_demo()`, built from
 messages. Test images are generated PNGs in `tests/assets/images/`. Item re-measure: a card that changes is replaced with
 `set_card`, which splices its item.
+
+## Composer bar notes
+
+WP-25 (2026-11-11): the composer's bottom row, attachments tray, queue and the outgoing message, in
+`workspace/chat/composer/{bar,send,attachments,queue}.rs` (`bar_tests.rs` beside them).
+
+| Feature (React source)                                            | Status   | Notes                                                                                                                                                                                             |
+| ----------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Attach button + picker (`PromptComposer.tsx`)                     | done     | `cx.prompt_for_paths`; tests answer it with `simulate_path_prompt_response` or call `attach_paths`                                                                                                |
+| Permission and model trigger chips                                | partial  | `ui::Chip` triggers, Full shows the orange shield; click opens a placeholder popover naming WP-26. Popover opens below the chip (the `ui::Popover` has no upward anchor)                          |
+| Context ring slot                                                 | partial  | slot shows the percentage when `set_context_percent` gives one; ring and card are WP-26                                                                                                           |
+| Mic                                                               | partial  | drawn, inert (dictation is later)                                                                                                                                                                 |
+| Send / Stop / Send now / Queue message (`canSend`, `canStop`)     | done     | `send::SendState` table with tests; Stop is a 10px rounded square; disabled at 40%; Enter never stops; running placeholder ("Steer the agent…" / "Queue a message…")                              |
+| Attachments tray (`Attachments.tsx`)                              | partial  | image (80px) and file tiles, `#n` badges, remove buttons, tooltip path, in-memory; no upload progress/cancel, no offline placeholder, no preview dialog (tile click emits `OpenImage`/`OpenFile`) |
+| Image numbering and chips                                         | done     | add inserts `[Image #N]` at the caret/paste/drop point; tile remove and chip delete both drop the image and renumber                                                                              |
+| Limits and errors (`limits.mjs`, `usePastedImages.ts`)            | done     | PNG/JPEG/WebP/GIF pasted images, 50 MiB, React's three error texts; non-image paths become file tiles                                                                                             |
+| Queued messages (`QueuedMessages.tsx`)                            | done     | docked above the box, Send now (Stop and send when the provider cannot steer), Remove; Edit is new (needs an empty composer)                                                                      |
+| Steering                                                          | done     | idle sends; running + steering provider sends into the turn (`Steer`); Queue setting, compacting or a non-steering provider queues                                                                |
+| Outgoing message + sink (`send::{OutgoingMessage, MessageSink}`)  | done     | prompt, text, quotes, files, images, delivery; `FixtureSink` records calls; `set_sink`                                                                                                            |
+| Draft persistence, offline tray and outbox, quote chips' redesign | not done | later                                                                                                                                                                                             |
+
+- The Chat's `ChatView` subscribes to `ComposerEvent::{Send, Queued, Stop}`: Stop ends the fixture's turn. Empty sends are not echoed.
+- The textarea's own placeholder is empty; the composer draws the placeholder (it changes while a turn runs).
+- Snapshot env: `MILAGRE_GPUI_COMPOSER_BAR=1` (running, queue setting, tray with two images and a file, two queued messages) or `=stop` (nothing typed, the Stop button).

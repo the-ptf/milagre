@@ -54,8 +54,19 @@ impl ChatView {
         // The fixture Chat is mid-turn: 2m 18s in.
         let running = Some(cx.new(|_| RunningRow::new("2m 18s")));
         transcript.update(cx, |transcript, cx| transcript.set_running_row(running.is_some(), cx));
-        let send = cx.subscribe(&composer, |this, _, event: &ComposerEvent, cx| match event {
-            ComposerEvent::Send(text) => this.transcript.update(cx, |transcript, cx| transcript.push_user(text.clone(), cx)),
+        composer.update(cx, |composer, cx| composer.set_running(running.is_some(), cx));
+        let send = cx.subscribe(&composer, |this, composer, event: &ComposerEvent, cx| match event {
+            ComposerEvent::Send(text) if !text.is_empty() => {
+                this.transcript.update(cx, |transcript, cx| transcript.push_user(text.clone(), cx))
+            }
+            ComposerEvent::Send(_) | ComposerEvent::Queued(_) => {}
+            // Stop ends the fixture's turn: the running row goes and the send button is Send again.
+            ComposerEvent::Stop => {
+                this.running = None;
+                this.transcript.update(cx, |transcript, cx| transcript.set_running_row(false, cx));
+                composer.update(cx, |composer, cx| composer.set_running(false, cx));
+                cx.notify();
+            }
         });
         Self {
             title: "Fix Linux onboarding intro hang".into(),

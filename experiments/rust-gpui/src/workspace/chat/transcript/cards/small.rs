@@ -1,7 +1,7 @@
 //! The small cards: the answer card (`AnswerCard.tsx`), a PR action (`PullRequestActionCard.tsx`), a Linear issue
 //! (`LinearIssueCard.tsx`), the usage-limit card (`UsageLimitCard.tsx`), a delegation report line
-//! (`DelegationReportLine.tsx`, the Subchat report's one line), a Subchat note (`SubchatMessages.tsx` `NoteLine`) and
-//! the queued messages (`QueuedMessages.tsx`).
+//! (`DelegationReportLine.tsx`, the Subchat report's one line), and a Subchat note (`SubchatMessages.tsx` `NoteLine`).
+//! The queued messages moved to the composer's dock (`composer/queue.rs`).
 //!
 //! The ones a person wrote (answers, PR action, Linear issue) sit on the right with the user's messages, at most
 //! 448px wide (`max-w-md`, `pl-12`). Card colours: `surface` with a `line` border at `rounded-card`.
@@ -13,13 +13,12 @@
 use gpui::{AnyElement, ClickEvent, Context, ElementId, FontWeight, Rgba, SharedString, div, prelude::*, px};
 
 use super::super::Transcript;
-use crate::data::{AnsweredQuestion, QueuedMessage};
-use crate::logic::activity::queued::queue_status;
+use crate::data::AnsweredQuestion;
 use crate::logic::activity::subchat_states::SubchatKind;
 use crate::logic::prs::blockers::{Blocker, BlockerTone, PrState, pull_request_state_pill};
 use crate::logic::usage::limit::{LimitChoice, UsageLimit, limit_headline, limit_resume_label, switched_text};
 use crate::logic::usage::time::FixedZone;
-use crate::theme::{CONTROL_XS, RADIUS_CARD, RADIUS_CONTROL, RADIUS_INLINE, TEXT_11, TEXT_12, TEXT_13, TextStepExt, Theme};
+use crate::theme::{RADIUS_CARD, RADIUS_CONTROL, RADIUS_INLINE, TEXT_11, TEXT_12, TEXT_13, TextStepExt, Theme};
 use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconButton, IconButtonSize, IconName, IconSize};
 
 /// `max-w-md`.
@@ -418,95 +417,4 @@ pub fn note_line(ix: usize, note: &NoteLine, theme: &Theme) -> AnyElement {
         .child(Icon::new(IconName::CornerDownRight).size(IconSize::S12).color(theme.ink3))
         .child(div().min_w_0().truncate().child(note.text.clone()))
         .into_any_element()
-}
-
-/// Messages waiting for the running turn, oldest first.
-#[derive(Clone, Debug)]
-pub struct QueuedCard {
-    pub items: Vec<QueuedMessage>,
-    pub held: bool,
-    pub running: bool,
-    pub can_steer: bool,
-}
-
-/// " · 1 image, 2 files" after a queued message's text.
-fn attachment_note(item: &QueuedMessage) -> Option<String> {
-    let files = item.files.len();
-    (files > 0).then(|| format!("{files} file{}", if files == 1 { "" } else { "s" }))
-}
-
-impl Transcript {
-    pub(super) fn queued_card(&mut self, ix: usize, card: &QueuedCard, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        if card.items.is_empty() {
-            return div().into_any_element();
-        }
-        let mut list = div().flex().flex_col();
-        for (n, item) in card.items.iter().enumerate() {
-            let id = item.id.clone();
-            let remove = {
-                let id = id.clone();
-                cx.listener(move |this, _: &ClickEvent, _window, cx| this.drop_queued(ix, &id, cx))
-            };
-            let send = cx.listener(move |this, _: &ClickEvent, _window, cx| this.drop_queued(ix, &id, cx));
-            let body = if item.body.trim().is_empty() { SharedString::from("Attachments") } else { item.body.clone() };
-            let group: SharedString = format!("queued-{ix}-{n}").into();
-            list = list.child(
-                div()
-                    .debug_selector(move || format!("queued-message-{ix}-{n}"))
-                    .group(group)
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_2()
-                    .py_1()
-                    .rounded(RADIUS_CONTROL)
-                    .hover(|s| s.bg(theme.hover))
-                    .child(div().min_w_0().flex_1().flex().child(div().min_w_0().truncate().child(body)).children(
-                        attachment_note(item).map(|note| div().flex_none().text_color(theme.ink3).child(format!(" \u{b7} {note}"))),
-                    ))
-                    .child(
-                        Button::new(
-                            ElementId::from((SharedString::from("queued-send"), ix * 100 + n)),
-                            if card.running && !card.can_steer { "Stop and send" } else { "Send now" },
-                        )
-                        .variant(ButtonVariant::Quiet)
-                        .size(ButtonSize::S24)
-                        .on_click(send),
-                    )
-                    .child(
-                        IconButton::new(ElementId::from((SharedString::from("queued-remove"), ix * 100 + n)), IconName::Cancel01)
-                            .size(IconButtonSize::S24)
-                            .on_click(remove),
-                    ),
-            );
-        }
-        div()
-            .debug_selector(move || format!("queued-card-{ix}"))
-            .w_full()
-            .rounded(RADIUS_CARD)
-            .bg(theme.surface)
-            .shadow(theme.shadow_raised())
-            .px(px(6.0))
-            .py(px(6.0))
-            .text_step(TEXT_13)
-            .text_color(theme.ink)
-            .child(
-                div().px_2().pt(px(2.0)).pb_1().h(CONTROL_XS).text_step(TEXT_12).text_color(theme.ink3).child(
-                    div()
-                        .flex()
-                        .child(div().font_weight(FontWeight::MEDIUM).text_color(theme.ink2).child("Queued"))
-                        .child(format!(" \u{b7} {}", queue_status(card.items.len(), card.held, card.running))),
-                ),
-            )
-            .child(list)
-            .into_any_element()
-    }
-
-    /// Send now and Remove both take a message off the queue (the host sends or drops it).
-    fn drop_queued(&mut self, ix: usize, id: &SharedString, cx: &mut Context<Self>) {
-        if let Some(super::Card::Queued(mut card)) = self.card_at(ix) {
-            card.items.retain(|item| item.id != *id);
-            self.set_card(ix, super::Card::Queued(card), cx);
-        }
-    }
 }

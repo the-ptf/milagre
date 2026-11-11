@@ -7,7 +7,7 @@
 //! - `question.rs`, `answers.rs`: the question card, its answered state, and the draft rules of `question-answers.ts`.
 //! - `dividers.rs`: every `TranscriptDivider`.
 //! - `images.rs`: attachment tiles, viewed images, generated images, and the simple in-window viewer.
-//! - `small.rs`: PR action, Linear issue, usage limit, delegation report line, queued messages.
+//! - `small.rs`: PR action, Linear issue, usage limit, delegation report line (the queued messages are docked above the composer now).
 //!
 //! Each card is one list item. The state a card changes (a pick, a tab, an open report) lives in the item, and the
 //! transcript re-measures that item with `ListState::splice` when its height can change.
@@ -28,7 +28,7 @@ use crate::theme::Theme;
 pub use dividers::Divider;
 pub use images::{GeneratedImage, ImageStrip};
 pub use question::QuestionCard;
-pub use small::{LimitCard, LinearCard, NoteLine, PrActionCard, QueuedCard, ReportCard};
+pub use small::{LimitCard, LinearCard, NoteLine, PrActionCard, ReportCard};
 
 /// One card. Cloned with its item. The variants differ in size (a generated image holds its whole step); boxing them
 /// would only move the allocation, since items are built once and kept in a `Vec`.
@@ -45,7 +45,6 @@ pub enum Card {
     Linear(LinearCard),
     Limit(LimitCard),
     Report(ReportCard),
-    Queued(QueuedCard),
     Note(NoteLine),
 }
 
@@ -62,7 +61,6 @@ impl Transcript {
             Card::Linear(card) => small::linear_issue(ix, card, theme),
             Card::Limit(card) => self.limit_card(ix, card, theme, cx),
             Card::Report(card) => self.report_line(ix, card, theme, cx),
-            Card::Queued(card) => self.queued_card(ix, card, theme, cx),
             Card::Note(note) => small::note_line(ix, note, theme),
         }
     }
@@ -93,6 +91,6 @@ pub fn top_gap(card: &Card) -> f32 {
         Card::Images(strip) if strip.kind == images::StripKind::Attachments => 24.0,
         Card::Images(_) | Card::Generated(_) => 8.0,
         Card::Limit(_) => 0.0,
-        Card::Question(_) | Card::Divider(_) | Card::Report(_) | Card::Queued(_) | Card::Note(_) => 12.0,
+        Card::Question(_) | Card::Divider(_) | Card::Report(_) | Card::Note(_) => 12.0,
     }
 }

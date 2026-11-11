@@ -22,7 +22,6 @@ use super::chips::token_for;
 use super::history::{EditHistory, EditKind, Snapshot};
 use super::mentions::MentionSource;
 use super::{Composer, MAX_ROWS};
-use crate::logic::prompts::mentions::PROMPT_PLACEHOLDER;
 use crate::logic::prompts::parts::{Images, PromptPart, PromptPartsOptions, prompt_parts};
 use crate::logic::prompts::text::utf16_to_byte;
 
@@ -110,8 +109,7 @@ pub struct PromptEditor {
 impl PromptEditor {
     /// One row at rest, growing to [`MAX_ROWS`] (the composer sizes the box around it); Enter is the composer's.
     pub fn new(window: &mut Window, cx: &mut Context<Composer>) -> Self {
-        let state =
-            cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, MAX_ROWS).placeholder(PROMPT_PLACEHOLDER).submit_on_enter(true));
+        let state = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, MAX_ROWS).placeholder("").submit_on_enter(true));
         Self { state, history: EditHistory::default(), last: Snapshot::new("", 0), selection: 0..0, marked: None, pending_kind: None }
     }
 

@@ -40,7 +40,7 @@ fn click(cx: &mut VisualTestContext, selector: String) {
 fn every_card_kind_draws_and_the_unknown_kind_is_a_bubble(cx: &mut TestAppContext) {
     let (transcript, cx) = mount(cx);
     type Pick = fn(&Card) -> bool;
-    let kinds: [(&str, Pick); 10] = [
+    let kinds: [(&str, Pick); 9] = [
         ("divider", |c| matches!(c, Card::Divider(_))),
         ("image-strip", |c| matches!(c, Card::Images(_))),
         ("generated-image", |c| matches!(c, Card::Generated(_))),
@@ -50,7 +50,6 @@ fn every_card_kind_draws_and_the_unknown_kind_is_a_bubble(cx: &mut TestAppContex
         ("linear-issue", |c| matches!(c, Card::Linear(_))),
         ("usage-limit", |c| matches!(c, Card::Limit(_))),
         ("report-line", |c| matches!(c, Card::Report(_))),
-        ("queued-card", |c| matches!(c, Card::Queued(_))),
     ];
     for (name, pick) in kinds {
         let ix = find(cx, &transcript, pick);
@@ -108,15 +107,12 @@ fn an_image_opens_in_the_viewer_and_a_click_closes_it(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_usage_limit_switch_and_the_queue_remove_change_their_cards(cx: &mut TestAppContext) {
+fn the_usage_limit_switch_changes_its_card(cx: &mut TestAppContext) {
     let (transcript, cx) = mount(cx);
     let limit = find(cx, &transcript, |c| matches!(c, Card::Limit(_)));
     click(cx, format!("limit-account-{limit}-0"));
     let result = transcript.read_with(cx, |t, _| matches!(&t.items()[limit], Item::Card(Card::Limit(c)) if c.result.is_some()));
     assert!(result);
-    let queued = find(cx, &transcript, |c| matches!(c, Card::Queued(_)));
-    let before = transcript.read_with(cx, |t, _| matches!(&t.items()[queued], Item::Card(Card::Queued(q)) if q.items.len() == 2));
-    assert!(before);
     let report = find(cx, &transcript, |c| matches!(c, Card::Report(r) if !r.open));
     assert!(testing::bounds(cx, testing::leak(format!("report-line-{report}"))).size.height > px(0.0));
 }
