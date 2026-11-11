@@ -97,6 +97,7 @@ struct Shared {
     observations: Mutex<VecDeque<NativeObservation>>,
     input_probe: Mutex<Option<Value>>,
     drained: Condvar,
+    cleanup_failed: AtomicBool,
 }
 impl Shared {
     fn emit(&self, event: ProviderEvent, terminal: bool) -> bool {
@@ -139,7 +140,9 @@ impl FixtureMonitor {
         *self
             .shared
             .drained
-            .wait_timeout_while(count, timeout, |n| *n != 0)
+            .wait_timeout_while(count, timeout, |n| {
+                *n != 0 && !self.shared.cleanup_failed.load(Ordering::Acquire)
+            })
             .unwrap()
             .0
             == 0
@@ -159,6 +162,11 @@ impl FixtureMonitor {
     /// At most one snapshot, capped at 4 MiB, is retained. Never enabled for a real provider.
     pub fn native_input_probe(&self) -> Option<Value> {
         self.shared.input_probe.lock().unwrap().clone()
+    }
+    /// A cleanup deadline was exceeded. Resources remain owned until reaping completes.
+    /// This latch is distinct from `workers() == 0`; a timeout never means stopped.
+    pub fn cleanup_failed(&self) -> bool {
+        self.shared.cleanup_failed.load(Ordering::Acquire)
     }
     pub fn workers(&self) -> usize {
         *self.shared.workers.lock().unwrap()
@@ -298,6 +306,7 @@ impl CodexFixture {
                 observations: Mutex::new(VecDeque::new()),
                 input_probe: Mutex::new(None),
                 drained: Condvar::new(),
+                cleanup_failed: AtomicBool::new(false),
             }),
             slots: HashMap::new(),
             closed: false,
@@ -510,9 +519,13 @@ impl Provider for CodexFixture {
                                 // Dropping a cancelled startup signals its process, but the
                                 // detached supervisor still owns wait/reaping. Keep this private
                                 // executor and profile alive until its tasks really drain.
-                                while runtime.metrics().num_alive_tasks() != 0 {
-                                    tokio::time::sleep(Duration::from_millis(2)).await;
-                                }
+                                crate::executor::drain(&runtime, Duration::from_secs(3), || {
+                                    worker.shared.failed.store(true, Ordering::Release);
+                                    let _count = worker.shared.workers.lock().unwrap();
+                                    worker.shared.cleanup_failed.store(true, Ordering::Release);
+                                    worker.shared.drained.notify_all();
+                                })
+                                .await;
                             });
                         }
                         Err(_) => {

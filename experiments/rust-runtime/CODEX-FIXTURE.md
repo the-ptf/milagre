@@ -107,3 +107,5 @@ prompt and the answer. It retains only the selected latest native input/reply sn
 at 4 MiB, and is never a production-provider option. The integration test compares both actual
 received payloads for U+10FFFE, plane-15/BMP private-use text, emoji and half-surrogates, then
 closes and reopens the Project to prove saved prompt/answer UTF-16 units were not rewritten.
+
+The private executor has a three-second cleanup deadline. If its process supervisors still have work, `FixtureMonitor::cleanup_failed()` latches true, ordinary admission closes, and `wait_stopped` returns false promptly. The thread, worker permit and profile remain retained while the executor continues reaping. A timeout never reports successful cleanup; `workers() == 0` is the separate eventual completion condition. A deterministic blocked-supervisor regression proves the timeout notification precedes resource release.

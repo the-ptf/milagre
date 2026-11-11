@@ -5,6 +5,7 @@ mod artifacts;
 pub mod codex_fixture;
 pub mod content_fixture;
 mod copies;
+mod executor;
 mod git;
 mod inbox;
 mod owned;
