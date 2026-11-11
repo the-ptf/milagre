@@ -261,7 +261,7 @@ struct Frame {
 impl Render for Frame {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let over = crate::workspace::panel::diff::over_chat::OverChat { label: "Chat".into(), leading: px(16.0), trailing: px(16.0) };
-        let diff = self.pr.read(cx).diff_over_chat().then(|| self.pr.update(cx, |pr, cx| pr.diff_over_chat_pane(over, window, cx)));
+        let diff = self.pr.read(cx).diff_over_chat().then(|| self.pr.update(cx, |pr, cx| pr.diff_over_chat_pane(Some(over), window, cx)));
         div().flex().child(div().w(px(340.0)).h(px(760.0)).child(self.pr.clone())).child(div().w(px(700.0)).h(px(760.0)).children(diff))
     }
 }

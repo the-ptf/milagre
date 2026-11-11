@@ -229,6 +229,9 @@ impl Panel {
         {
             self.state_mut().tab = tab;
         }
+        if std::env::var("MILAGRE_GPUI_PANEL_EXPANDED").is_ok_and(|v| v == "1") {
+            self.state_mut().expanded = true;
+        }
         if let Ok(path) = std::env::var("MILAGRE_GPUI_CHANGES_FILE") {
             self.changes
                 .update(cx, |changes, cx| changes.select_file(changes::Source::Section(changes::data::Section::Uncommitted), path, cx));
@@ -278,10 +281,9 @@ impl Panel {
         &self.changes
     }
 
-    /// The diff the window draws over the Chat column: the shown tab's (Changes, or the PR's Files), while the panel
-    /// is open beside the Chat.
-    pub fn diff_over_chat(&self, cx: &gpui::App) -> Option<diff::over_chat::OpenDiff> {
-        if !self.is_open() || self.is_expanded() {
+    /// The diff the shown tab has open (Changes, or the PR's Files), while the panel is open.
+    fn open_diff(&self, cx: &gpui::App) -> Option<diff::over_chat::OpenDiff> {
+        if !self.is_open() {
             return None;
         }
         match self.active() {
@@ -289,6 +291,23 @@ impl Panel {
             PanelTab::Pr => self.pr.read(cx).diff_over_chat().then(|| diff::over_chat::OpenDiff::Pr(self.pr.clone())),
             _ => None,
         }
+    }
+
+    /// The diff the window draws over the Chat column: the shown tab's, while the panel is open beside the Chat.
+    pub fn diff_over_chat(&self, cx: &gpui::App) -> Option<diff::over_chat::OpenDiff> {
+        if self.is_expanded() {
+            return None;
+        }
+        self.open_diff(cx)
+    }
+
+    /// The diff the panel draws itself: the shown tab's while the panel is expanded to the full width, where nothing
+    /// else could show it (collapsing moves it back over the Chat column).
+    fn diff_in_panel(&self, cx: &gpui::App) -> Option<diff::over_chat::OpenDiff> {
+        if !self.is_expanded() {
+            return None;
+        }
+        self.open_diff(cx)
     }
 
     pub fn body_view(&self, tab: PanelTab) -> Option<AnyView> {
@@ -439,12 +458,23 @@ impl Panel {
 }
 
 impl Render for Panel {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.renders += 1;
         let theme = *cx.theme();
         let header = self.header(cx);
-        // Each body is a cached view with a fixed size, so what changes inside it never rebuilds the panel.
-        let body = self.body_view(self.active()).map(|view| view.cached(StyleRefinement::default().size_full()));
+        // Each body is a cached view with a fixed size, so what changes inside it never rebuilds the panel. An open
+        // diff takes the body's place while the panel is expanded (`diff_in_panel`); Back returns to the list.
+        let body = match self.diff_in_panel(cx) {
+            Some(diff::over_chat::OpenDiff::Changes(view)) => {
+                view.update(cx, |diff, cx| diff.set_over_chat(None, cx));
+                Some(AnyView::from(view).cached(StyleRefinement::default().size_full()).into_any_element())
+            }
+            Some(diff::over_chat::OpenDiff::Pr(pr)) => {
+                let pane = pr.update(cx, |pr, cx| pr.diff_over_chat_pane(None, window, cx));
+                Some(div().id("panel-diff").size_full().child(pane).into_any_element())
+            }
+            None => self.body_view(self.active()).map(|view| view.cached(StyleRefinement::default().size_full()).into_any_element()),
+        };
         div()
             .flex()
             .flex_col()

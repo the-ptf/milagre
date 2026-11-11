@@ -224,15 +224,16 @@ impl PrView {
     }
 
     /// The picked file's diff (the diff view, its own cached view) and the review bar over its bottom.
-    /// The open diff and the review bar, as the window draws them over the Chat column.
+    /// The open diff and the review bar, as the window draws them over the Chat column (`Some(over)`), or inside the
+    /// expanded panel (`None`).
     pub fn diff_over_chat_pane(
         &mut self,
-        over: crate::workspace::panel::diff::over_chat::OverChat,
+        over: Option<crate::workspace::panel::diff::over_chat::OverChat>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let (Some(pr), Some(diff)) = (self.detail.clone(), self.diff_view()) else { return div().into_any_element() };
-        diff.update(cx, |diff, cx| diff.set_over_chat(Some(over), cx));
+        diff.update(cx, |diff, cx| diff.set_over_chat(over, cx));
         self.sync_diff_threads(cx);
         self.diff_pane(&pr, window, cx)
     }

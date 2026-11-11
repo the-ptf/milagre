@@ -58,7 +58,7 @@ impl Workspace {
                 diff.update(cx, |diff, cx| diff.set_over_chat(Some(over), cx));
                 AnyView::from(diff).cached(StyleRefinement::default().size_full()).into_any_element()
             }
-            OpenDiff::Pr(pr) => pr.update(cx, |pr, cx| pr.diff_over_chat_pane(over, window, cx)),
+            OpenDiff::Pr(pr) => pr.update(cx, |pr, cx| pr.diff_over_chat_pane(Some(over), window, cx)),
         };
         let theme = *cx.theme();
         div()
