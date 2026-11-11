@@ -14,6 +14,11 @@ pub(super) struct Directory {
     identity: (u64, u64, u32),
 }
 impl Directory {
+    #[allow(dead_code)]
+    pub(super) fn duplicate(&self) -> Result<File> {
+        self.check()?;
+        self.file.try_clone().map_err(|_| Error::Identity)
+    }
     pub(super) fn open(path: &Path) -> Result<Self> {
         let file = OpenOptions::new()
             .read(true)

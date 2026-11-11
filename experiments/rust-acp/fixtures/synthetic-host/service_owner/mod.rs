@@ -1,4 +1,5 @@
-//! Private single-thread owner of actual copied services. Native execution is absent.
+//! Private single-thread owner of actual copied services. The composed target alone connects its native flight.
+mod native_api;
 mod provider;
 mod storage;
 use milagre_accounts::{AccountSandbox, AccountService, IdentityState, Readiness, Selection};
@@ -21,7 +22,7 @@ use std::{
         mpsc, Arc, Mutex,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use storage::{Directory, Root};
 
@@ -40,6 +41,7 @@ pub(super) enum Error {
     Closed,
     Worker,
     CleanupUncertain,
+    Deadline,
 }
 type Result<T> = std::result::Result<T, Error>;
 #[derive(Clone, Copy)]
@@ -99,6 +101,33 @@ pub(super) struct Closed {
 pub(super) struct Locks {
     pub(super) account_busy: bool,
     pub(super) project_busy: Option<bool>,
+}
+#[allow(dead_code)]
+pub(super) struct BoundStart {
+    pub(super) prompt: String,
+    pub(super) directories: [std::fs::File; 3],
+    pub(super) evidence: Evidence,
+}
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(super) enum DeliveryError {
+    Rejected(Error),
+    Retained(Error),
+}
+impl From<Error> for DeliveryError {
+    fn from(error: Error) -> Self {
+        Self::Rejected(error)
+    }
+}
+#[allow(dead_code)]
+pub(super) enum Signal {
+    Started(String),
+    TurnStarted,
+    Completed,
+    Cancelled,
+    Failed,
+    Exited,
+    StartFailed,
 }
 struct Gate {
     scope: Arc<()>,
@@ -288,6 +317,7 @@ struct Captured {
     snapshot: Snapshot,
     _grant: ProjectGrant,
     descriptor: Directory,
+    prompt: Option<String>,
 }
 #[derive(Default)]
 struct Staging {
@@ -347,7 +377,7 @@ impl Drop for Staging {
         }
     }
 }
-struct ServiceOwner {
+pub(super) struct ServiceOwner {
     arena: Option<Root>,
     account_root: Option<Root>,
     sandbox: Option<AccountSandbox>,
@@ -373,6 +403,7 @@ struct ServiceOwner {
     accounts_closed: bool,
     cleaned: bool,
     cleanup_uncertain: bool,
+    native_connection: bool,
 }
 impl ServiceOwner {
     fn create(scenario: Scenario, gate: Arc<Gate>) -> Result<Self> {
@@ -469,6 +500,7 @@ impl ServiceOwner {
                 accounts_closed: false,
                 cleaned: false,
                 cleanup_uncertain: false,
+                native_connection: false,
             };
             owner.observe(match scenario {
                 Scenario::SignedOut => IdentityState::SignedOut,
@@ -537,15 +569,21 @@ impl ServiceOwner {
         Ok(())
     }
     fn send(&mut self, text: String) -> Result<AdmissionId> {
+        self.send_until(text, Instant::now() + Duration::from_secs(5))
+    }
+    pub(super) fn send_until(&mut self, text: String, deadline: Instant) -> Result<AdmissionId> {
         let already_pending = self.pending.is_some();
-        let result = self.send_inner(text);
+        let result = self.send_inner(text, deadline);
         if result.is_err() && !already_pending && self.pending.is_some() {
             self.gate.cancel();
             self.reject_capture()?;
         }
         result
     }
-    fn send_inner(&mut self, text: String) -> Result<AdmissionId> {
+    fn send_inner(&mut self, text: String, deadline: Instant) -> Result<AdmissionId> {
+        if Instant::now() >= deadline {
+            return Err(Error::Deadline);
+        }
         self.observe_cancel()?;
         if !self.gate.active.load(Ordering::Acquire) || self.project_closed {
             return Err(Error::Closed);
@@ -591,7 +629,7 @@ impl ServiceOwner {
         let prepared_snapshot = snapshot.clone();
         let prepared_path = project.clone();
         let grant = self.runtime.block_on(async move {
-            tokio::time::timeout(Duration::from_secs(5), async move {
+            tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), async move {
                 let grant = prepared_snapshot.project(&prepared_path).await.map_err(|_| Error::Registry)?;
                 if !grant.contains_folder(&prepared_path).await.map_err(|_| Error::Registry)? {
                     return Err(Error::Registry);
@@ -599,7 +637,7 @@ impl ServiceOwner {
                 Ok(grant)
             })
             .await
-            .map_err(|_| Error::Registry)?
+            .map_err(|_| Error::Deadline)?
         })?;
         let descriptor = Directory::open(&project)?;
         if !descriptor.descriptor_is_directory() {
@@ -619,11 +657,12 @@ impl ServiceOwner {
             snapshot,
             _grant: grant,
             descriptor,
+            prompt: Some(start.request.0["prompt"].as_str().ok_or(Error::Request)?.to_owned()),
         });
         self.validate(&id)?;
         Ok(id)
     }
-    fn validate(&mut self, id: &AdmissionId) -> Result<Evidence> {
+    pub(super) fn validate(&mut self, id: &AdmissionId) -> Result<Evidence> {
         // An unrelated observation ID cannot revoke the current admission.
         if !Arc::ptr_eq(&id.scope, &self.gate.scope) || self.capture.as_ref().is_none_or(|c| c.id.serial != id.serial) {
             return Err(Error::Revoked);
@@ -674,7 +713,7 @@ impl ServiceOwner {
         }
         Ok(evidence)
     }
-    fn mutate(&mut self, mutation: Mutation) -> Result<()> {
+    pub(super) fn mutate(&mut self, mutation: Mutation) -> Result<()> {
         if self.cleanup_uncertain {
             return Err(Error::CleanupUncertain);
         }
@@ -722,7 +761,7 @@ impl ServiceOwner {
             Mutation::Panic => panic!("synthetic service owner panic"),
         }
     }
-    fn close(&mut self, target: Close, force: bool) -> Result<Closed> {
+    pub(super) fn close(&mut self, target: Close, force: bool) -> Result<Closed> {
         if self.cleanup_uncertain {
             return Err(Error::CleanupUncertain);
         }
@@ -734,7 +773,8 @@ impl ServiceOwner {
         self.gate.revoke();
         self.bump()?;
         self.reject_capture()?;
-        // No ACP driver is connected. Copied owner services retain their ps helper.
+        // The composed actor must establish native disposal before calling close.
+        // The admission-only target has no native flight. Copied services retain their ps helper.
         let project = self.project.clone();
         if !self.project_closed {
             let had_slot = self.host()?.states.has(&project);
@@ -762,13 +802,13 @@ impl ServiceOwner {
             self.accounts_closed = true;
         }
         Ok(Closed {
-            no_native_connection: true,
+            no_native_connection: !self.native_connection,
             host_closed: self.project_closed,
             accounts_closed: self.accounts_closed,
             resources_removed: false,
         })
     }
-    fn finish(mut self) -> Result<Closed> {
+    pub(super) fn finish(mut self) -> Result<Closed> {
         let mut report = match self.close(Close::All, true) {
             Ok(report) => report,
             Err(error) => {

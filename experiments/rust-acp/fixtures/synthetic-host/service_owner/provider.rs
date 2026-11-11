@@ -20,7 +20,7 @@ pub(super) struct CaptureProvider {
     pub(super) mailbox: SharedMailbox,
 }
 fn refused() -> ProviderError {
-    ProviderError::new(ProviderErrorKind::Refused, "The synthetic admission fixture has no native execution connection.")
+    ProviderError::new(ProviderErrorKind::Refused, "The fixed synthetic fixture refused this provider operation.")
 }
 impl Provider for CaptureProvider {
     fn name(&self) -> &str {

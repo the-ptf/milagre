@@ -1,12 +1,11 @@
 # Smallest service-to-native composition checkpoint
 
-Status: root agreed the private reservation, registered-workspace and joined cleanup-acknowledgment
-seam for implementation. Native success-event wiring waits for review of that seam. This file is
-documentation only. Baseline is copied-service admission
-`3ab4a9e7`, with native terminal-control revocation accepted as `2a5ea049`. Neither baseline
-connects a host-created turn to the native worker. This plan implements that connection for one
-fixed synthetic empty turn, then proves cancellation and retained close. It does not complete a
-production ACP session or authorize a real provider.
+Status: the reservation/workspace/joined-ack seam was accepted as `ea5e57fe`, following
+copied-service admission `3ab4a9e7`. The next bounded implementation now connects those layers
+in the separate `service_native_composition` fixture target. Its source and evidence are under
+review; see [SERVICE-NATIVE-COMPOSITION.md](SERVICE-NATIVE-COMPOSITION.md). This remains one
+fixed synthetic empty turn, with actual host-created identity, native frame consumption and
+retained cleanup. It does not complete a production ACP session or authorize a real provider.
 
 ## Exact deliverable
 
@@ -22,8 +21,11 @@ send. The actor calls the real ChatHost send, captures the callback's original c
 actual prompt, validates real copied-service authority, and sends that exact captured prompt
 once to the fixed native sibling. Native receipt validation must identify the registered
 Project inode. The owner receives an empty fixture turn through actual ProviderEvent handling.
-No fabricated TurnId, direct state delivery, seeded transcript, parent-written assistant text,
+No fabricated TurnId, direct state delivery, seeded transcript, parent-generated model reply,
 initialize/session negotiation, tool operation or credential/profile probe substitutes for it.
+"Empty" means no child/model-generated assistant content. The unchanged real owner persists its
+fallback assistant body `The agent finished without a reply.` with outcome `completed`; the
+composed success test pins that exact body and outcome. The adapter must not strip or replace it.
 
 Execution remains B06-Mac: fixed native artifact, private copy, cooperative same-UID pathname
 boundary, exact child only. Malicious same-UID mutation after final validation remains excluded.
@@ -105,8 +107,16 @@ the case where receipt and final cleanup arrive in the same cumulative update.
 | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Refusal/failure before validated consumption                              | One StartFailed for the captured host turn. No Started or success terminal. Native disposal remains separate even if a failed child existed.                                                                                             |
 | Validated compiled identity, PID, nonce, registered cwd and input digests | Retain a separate parsing receipt; emit Started and Agent turn-started using the original host identity. These mean fixed fixture protocol admission, not ACP initialization or model execution.                                         |
-| Receipt, EOF, natural zero exit, exact reap and native scratch removal    | Emit one Agent turn-completed for the empty turn, then Exited. Check real owner state/notices for the completed turn and absence of assistant content.                                                                                   |
+| Receipt, EOF, natural zero exit, exact reap and native scratch removal    | Emit one Agent turn-completed for the empty turn, then Exited. Check real owner state/notices for the completed turn and exact existing empty-reply fallback; no child/model-generated text.                                             |
 | Cancellation or error after consumption                                   | Emit one cancelled/failed terminal from observed lifecycle facts; Exited requires known reap. The first terminal failure remains fixed even if cleanup later recovers. Never infer native cleanup from an owner terminal or SQLite save. |
+
+The terminal decision is one-way under the same route mutex as cancellation. Once completion
+wins that decision, a late Cancel returns false; cancellation winning first prevents completion.
+The actor releases the mutex before folding provider events. A fixed test pause between decision
+and fold pins this race. Event delivery distinguishes rejection before enqueue from an enqueued
+event whose owner fold/save remains retained. Only accepted enqueue makes its delivery flag
+one-way; rejected enqueue remains retryable. A completed terminal also requires the actual
+owner turn to be inactive and its state flush to succeed. Native acknowledgment remains separate.
 
 Phase-one close revokes admission, latches Closing and cancels the flight. A non-force busy
 close refuses before changing either gate or services. Keep host/account/registry owners and
@@ -169,8 +179,10 @@ and final commitment. Registry timeout uses only its remaining duration; native 
 resets it. Stamp/commit refuse expiration, including time spent waiting for the gate. An expired
 prelaunch deadline requires zero child spawn. Then use a five-second first-receipt limit and
 thirty-second total turn deadline. Retain a ten-second read-idle limit and two-second initial cleanup reporting
-budget. These require explicit composed checks; the current core's thirty-second execute
-deadline alone does not provide all of them. Blocking filesystem/spawn operations remain
+budget. Registered execution now enforces these separately: total is the immutable prelaunch
+deadline plus 25 seconds, receipt time is sampled before spawn, successful data renews only idle,
+and validation checks the receipt deadline before publishing consumption. The legacy wrapper
+retains its existing thirty-second execute budget. Blocking filesystem/spawn operations remain
 cooperative, not hard wall-clock deadlines. No timeout permits dropping owned resources.
 
 ## First evidence and acceptance order
@@ -180,7 +192,7 @@ cooperative, not hard wall-clock deadlines. No timeout permits dropping owned re
    and authorize only after Prepared/service revalidation. Assert exactly one child, native
    cwd equals the registered Project descriptor, and receipt text/frame digests match the
    captured callback and written frame. Observe natural zero exit, reap/removal acknowledgment,
-   actual host turn completion and no assistant text. All-close must then release the real
+   actual host turn completion and the exact existing owner fallback body/outcome, with no child/model-generated text. All-close must then release the real
    account/Project writers and remove the known copies. Independent native or service-only
    evidence cannot satisfy this test.
 2. **Consumed then stalled.** Use the existing IgnoreCancel fake. Observe genuine parsing before
@@ -207,13 +219,13 @@ cooperative, not hard wall-clock deadlines. No timeout permits dropping owned re
    completed host turn. Permanently lost/uncertain paths and consumed-owner-slot close failure
    must withhold success and retain ownership; no reset of ACTIVE or cleanup state is allowed.
 5. **Preserve both accepted layers.** Run offline default/all-feature ACP tests, all standalone
-   targets, strict Clippy/fmt, the existing six staged core cases and the new composed cases.
+   targets, strict Clippy/fmt, the existing seven staged core/context cases and the new composed cases.
    The checker records actual native/runner digests, captured-input digest, cwd/PID evidence,
    terminal/reap facts and exact teardown. Verify one core/ACTIVE per composed process and
    automatic versus composed Busy behavior. Report this as an empty synthetic host turn with
    native input consumption, never full ACP, real model output or production launch authority.
 
-Review the reservation/workspace/cleanup-ack seam before wiring provider success events. Then
-implement the two genuine composed tests before expanding failure coverage. Any need for an
+The reservation/workspace/cleanup-ack seam was reviewed before provider wiring, and genuine
+Ready/IgnoreCancel composed cases passed before failure coverage expanded. Any need for an
 account lease, owner API changes, arbitrary executable support, descendants, real provider
 negotiation or a generic cleanup scheduler is a separate checkpoint decision.

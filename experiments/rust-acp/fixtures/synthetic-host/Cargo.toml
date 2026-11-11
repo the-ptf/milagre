@@ -3,7 +3,7 @@ name = "milagre-acp-native-core-context"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Standalone native-core and copied-service admission fixtures; native host execution remains disconnected"
+description = "Standalone native-core, copied-service admission and fixed synthetic native composition fixtures"
 
 [workspace]
 
@@ -14,6 +14,10 @@ path = "native_core_context.rs"
 [[test]]
 name = "service_admission"
 path = "service_admission.rs"
+
+[[test]]
+name = "service_native_composition"
+path = "service_native_composition.rs"
 
 [dev-dependencies]
 libc = "0.2"

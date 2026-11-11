@@ -21,6 +21,8 @@ pub(super) enum Fault {
     PartialPreparation,
     #[cfg(test)]
     ThreadSpawnFailure,
+    #[cfg(test)]
+    MalformedFrame,
 }
 fn nonblocking(fd: i32) -> Result<(), Error> {
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
@@ -39,6 +41,54 @@ fn check(shared: &Shared, until: Instant) -> Result<(), Error> {
 fn pause() {
     std::thread::sleep(Duration::from_millis(5));
 }
+// Registered turns include the five-second prelaunch window in their total budget.
+// These limits are internal policy, never coordinator-supplied durations.
+const REGISTERED_AFTER_PRELAUNCH: Duration = Duration::from_secs(25);
+const FIRST_RECEIPT: Duration = Duration::from_secs(5);
+const READ_IDLE: Duration = Duration::from_secs(10);
+struct Timing {
+    until: Instant,
+    receipt: Option<Instant>,
+    idle: Option<Instant>,
+}
+impl Timing {
+    fn registered(prelaunch: Instant, spawn: Instant) -> Result<Self, Error> {
+        let until = prelaunch.checked_add(REGISTERED_AFTER_PRELAUNCH).ok_or(Error::Deadline)?;
+        Ok(Self {
+            until,
+            receipt: Some(spawn.checked_add(FIRST_RECEIPT).unwrap_or(until).min(until)),
+            idle: Some(spawn.checked_add(READ_IDLE).unwrap_or(until).min(until)),
+        })
+    }
+    fn wrapper(start: Instant) -> Self {
+        Self { until: start + Duration::from_secs(30), receipt: None, idle: None }
+    }
+    fn read_until(&self) -> Instant {
+        self.until.min(self.receipt.unwrap_or(self.until)).min(self.idle.unwrap_or(self.until))
+    }
+    fn read_completed(&self, now: Instant) -> Result<(), Error> {
+        if self.idle.is_some() && now >= self.read_until() {
+            return Err(Error::Deadline);
+        }
+        Ok(())
+    }
+    fn received(&mut self, now: Instant) -> Result<(), Error> {
+        // A read that returns late cannot revive its idle or receipt budget.
+        self.read_completed(now)?;
+        if self.idle.is_some() {
+            self.idle = Some(now.checked_add(READ_IDLE).unwrap_or(self.until).min(self.until));
+        }
+        Ok(())
+    }
+    fn validated(&mut self, shared: &Shared, now: Instant) -> Result<(), Error> {
+        if self.receipt.is_some() {
+            shared.active()?;
+            self.read_completed(now)?;
+            self.receipt = None;
+        }
+        Ok(())
+    }
+}
 fn write(out: &mut impl Write, bytes: &[u8], shared: &Shared, until: Instant) -> Result<(), Error> {
     let mut offset = 0;
     while offset < bytes.len() {
@@ -53,14 +103,15 @@ fn write(out: &mut impl Write, bytes: &[u8], shared: &Shared, until: Instant) ->
     }
     Ok(())
 }
-fn receipt(input: &mut impl Read, shared: &Shared, until: Instant) -> Result<Vec<u8>, Error> {
+fn receipt(input: &mut impl Read, shared: &Shared, timing: &mut Timing) -> Result<Vec<u8>, Error> {
     let mut bytes = Vec::new();
     let mut chunk = [0; 1024];
     loop {
-        check(shared, until)?;
+        check(shared, timing.read_until())?;
         match input.read(&mut chunk) {
             Ok(0) => return Err(Error::Protocol),
             Ok(count) => {
+                timing.received(Instant::now())?;
                 bytes.extend_from_slice(&chunk[..count]);
                 if bytes.len() > wire::RECEIPT_LIMIT + 1 {
                     return Err(Error::Bounds);
@@ -79,14 +130,14 @@ fn receipt(input: &mut impl Read, shared: &Shared, until: Instant) -> Result<Vec
         }
     }
 }
-fn execute(owned: &mut Owned, prepared: &Prepared, shared: &Shared, text: &str, fault: Fault) -> Result<Execution, Error> {
+fn execute(owned: &mut Owned, prepared: &Prepared, shared: &Shared, text: &str, fault: Fault, spawn: Instant) -> Result<Execution, Error> {
     #[cfg(test)]
     if matches!(fault, Fault::PanicAfterSpawn) {
         panic!("injected private fixture worker panic");
     }
     let _ = fault;
-    let until = Instant::now() + Duration::from_secs(30);
-    check(shared, until)?;
+    let mut timing = if prepared.is_registered() { Timing::registered(shared.deadline, spawn)? } else { Timing::wrapper(Instant::now()) };
+    check(shared, timing.read_until())?;
     let child = owned.child();
     let pid = child.id();
     let mut input = child.stdin.take().ok_or(Error::Protocol)?;
@@ -108,11 +159,15 @@ fn execute(owned: &mut Owned, prepared: &Prepared, shared: &Shared, text: &str, 
     if frame.len() > wire::FRAME_LIMIT {
         return Err(Error::Bounds);
     }
+    #[cfg(test)]
+    if matches!(fault, Fault::MalformedFrame) {
+        frame = b"{}".to_vec();
+    }
     let frame_bytes = frame.len();
     let frame_digest = format!("{:x}", Sha256::digest(&frame));
     frame.push(b'\n');
-    write(&mut input, &frame, shared, until)?;
-    let raw = receipt(&mut output, shared, until)?;
+    write(&mut input, &frame, shared, timing.read_until())?;
+    let raw = receipt(&mut output, shared, &mut timing)?;
     let receipt: wire::NativeReceipt = serde_json::from_slice(&raw).map_err(|_| Error::Protocol)?;
     let cwd = prepared.cwd().dev_ino();
     if receipt.identity != wire::IDENTITY
@@ -139,15 +194,20 @@ fn execute(owned: &mut Owned, prepared: &Prepared, shared: &Shared, text: &str, 
         text_sha256: receipt.text_sha256,
         parent_artifact_sha256: prepared.digest(),
     };
+    // Parsing and identity/digest validation must finish within the receipt limit.
+    timing.validated(shared, Instant::now())?;
     shared.parsed.store(true, Ordering::Release);
     shared.consumed(execution.clone());
     // A natural success requires EOF after the single closed receipt. IgnoreCancel
     // holds its pipes until cancellation, which drives the retained cleanup below.
     let mut extra = [0u8; 1];
     loop {
-        check(shared, until)?;
+        check(shared, timing.read_until())?;
         match output.read(&mut extra) {
-            Ok(0) => break,
+            Ok(0) => {
+                timing.read_completed(Instant::now())?;
+                break;
+            }
             Ok(_) => return Err(Error::Protocol),
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => pause(),
@@ -157,7 +217,7 @@ fn execute(owned: &mut Owned, prepared: &Prepared, shared: &Shared, text: &str, 
     // EOF alone does not prove normal exit. Reap through this exact retained Child,
     // without signalling; an error/cancellation falls through to cleanup below.
     loop {
-        check(shared, until)?;
+        check(shared, timing.until)?;
         if let Some(status) = owned.natural_exit()? {
             if status.code() != Some(0) {
                 return Err(Error::Protocol);
@@ -250,12 +310,16 @@ pub(super) fn run_in(
             barrier.wait();
             barrier.wait();
         }
+        #[cfg(test)]
+        shared.pause_at(super::TestPoint::BeforeCommit);
         shared.commit()?;
         #[cfg(test)]
         if let Some(barrier) = shared.after_commit.lock().unwrap().take() {
             barrier.wait();
             barrier.wait();
         }
+        #[cfg(test)]
+        shared.pause_at(super::TestPoint::AfterCommit);
         let cwd = pins.cwd().file.as_raw_fd();
         let mut command = Command::new(pins.executable());
         command
@@ -288,11 +352,13 @@ pub(super) fn run_in(
                 Ok(())
             });
         }
+        // Include a cooperative slow spawn in the registered first-receipt budget.
+        let spawn = Instant::now();
         let child = command.spawn().map_err(|_| Error::Spawn)?;
         let pid = child.id();
         resources.owned = Some(Owned::new(child));
         shared.pid.store(pid, Ordering::Release);
-        execute(resources.owned.as_mut().ok_or(Error::Spawn)?, pins, &shared, &text, fault)
+        execute(resources.owned.as_mut().ok_or(Error::Spawn)?, pins, &shared, &text, fault, spawn)
     }))
     .unwrap_or(Err(Error::WorkerPanic));
     let natural_zero = result.is_ok();
@@ -304,6 +370,14 @@ pub(super) fn run_in(
         return None;
     }
     if let Some(child) = resources.owned.as_mut() {
+        #[cfg(test)]
+        if shared.has_pause(super::TestPoint::Cleanup) {
+            // Deliberately withhold disposal of this exact still-owned Child. The
+            // actor must fail the turn yet retain every service until actual join.
+            report.result = Err(Error::CleanupUncertain);
+            shared.publish(report.clone(), false);
+            shared.pause_at(super::TestPoint::Cleanup);
+        }
         loop {
             match child.finish(Instant::now() + Duration::from_secs(2)) {
                 Ok(status) => {
@@ -355,6 +429,8 @@ pub(super) fn run_in(
         barrier.wait();
         barrier.wait();
     }
+    #[cfg(test)]
+    shared.pause_at(super::TestPoint::BeforeReturn);
     // Registered directories belong to the service owner; only descriptor copies
     // are dropped here. No joined acknowledgment exists until these drops finish.
     resources.workspace.take();
@@ -363,3 +439,7 @@ pub(super) fn run_in(
     drop(automatic);
     Some(disposition)
 }
+
+#[cfg(test)]
+#[path = "worker_timing_tests.rs"]
+mod timing_tests;

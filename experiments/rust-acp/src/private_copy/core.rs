@@ -24,6 +24,13 @@ mod wire;
 #[path = "worker.rs"]
 mod worker;
 
+#[cfg(all(test, target_os = "macos"))]
+#[path = "test_support.rs"]
+mod test_support;
+#[cfg(all(test, target_os = "macos"))]
+#[allow(unused_imports)]
+pub(super) use test_support::{TestFault, TestPause, TestPoint, TestWait};
+
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 struct Slot;
 impl Drop for Slot {
@@ -118,6 +125,8 @@ pub(super) struct Shared {
     after_commit: Mutex<Option<Arc<std::sync::Barrier>>>,
     #[cfg(test)]
     before_return: Mutex<Option<Arc<std::sync::Barrier>>>,
+    #[cfg(all(test, target_os = "macos"))]
+    pause: Mutex<Option<(TestPoint, Arc<test_support::PauseState>)>>,
 }
 impl Shared {
     #[cfg(test)]
@@ -142,6 +151,8 @@ impl Shared {
             after_commit: Mutex::new(None),
             #[cfg(test)]
             before_return: Mutex::new(None),
+            #[cfg(all(test, target_os = "macos"))]
+            pause: Mutex::new(None),
         })
     }
     fn before_deadline(&self) -> Result<(), Error> {

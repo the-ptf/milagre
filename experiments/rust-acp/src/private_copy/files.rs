@@ -314,6 +314,9 @@ impl Prepared {
     pub(super) fn take_registered(&mut self) -> Option<super::RegisteredWorkspace> {
         self.registered.take()
     }
+    pub(super) fn is_registered(&self) -> bool {
+        self.registered.is_some()
+    }
     pub(super) fn populate(&mut self, until: Instant) -> Result<(), Error> {
         self.populate_with(until, |_, _| {})
     }

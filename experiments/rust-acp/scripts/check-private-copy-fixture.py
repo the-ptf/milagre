@@ -75,6 +75,33 @@ def retained_cleanup(stdout):
         print("PRIVATE_COPY_RETAINED_REMOVED_AFTER_TEST_EXIT " + str(root), flush=True)
 
 
+def retained_service_cleanup(stdout):
+    records = [json.loads(line.split("SERVICE_NATIVE_RETAINED_ROOTS ", 1)[1]) for line in stdout.splitlines()
+               if "SERVICE_NATIVE_RETAINED_ROOTS " in line]
+    for roots in records:
+        if len(roots) != 2:
+            raise SystemExit("Unexpected retained service roots")
+        for record, prefix in zip(roots, ["milagre-acp-service-", "milagre-account-copy-"]):
+            root = Path(record["path"])
+            if root.parent != Path("/tmp").resolve() or not root.name.startswith(prefix):
+                raise SystemExit("Unexpected retained service root")
+            meta = root.lstat()
+            if (meta.st_dev, meta.st_ino, meta.st_uid, stat.S_IMODE(meta.st_mode)) != (record["device"], record["inode"], os.getuid(), 0o700) or not stat.S_ISDIR(meta.st_mode):
+                raise SystemExit("Retained service identity changed")
+            count = 0
+            for directory, names, files in os.walk(root, followlinks=False):
+                if len(Path(directory).relative_to(root).parts) > 12:
+                    raise SystemExit("Retained service depth bound")
+                for name in names + files:
+                    count += 1
+                    item = (Path(directory) / name).lstat()
+                    if count > 2048 or item.st_dev != record["device"] or item.st_uid != os.getuid() or not (stat.S_ISDIR(item.st_mode) or stat.S_ISREG(item.st_mode) and item.st_nlink == 1):
+                        raise SystemExit("Unexpected retained service entry")
+            # Cooperative fixed test roots, checked only after their owning process exits.
+            shutil.rmtree(root)
+            print("SERVICE_NATIVE_RETAINED_REMOVED_AFTER_TEST_EXIT " + str(root), flush=True)
+
+
 def run_staged(runner, stage, environment, test, evidence):
     result = subprocess.run(
         [str(runner), "--ignored", "--exact", test, "--nocapture", "--test-threads=1"],
@@ -85,6 +112,7 @@ def run_staged(runner, stage, environment, test, evidence):
     # Only this fixed test emits the private identity manifest, and only its parent
     # removes the two known entries after the intentionally retaining process exits.
     retained_cleanup(result.stdout)
+    retained_service_cleanup(result.stdout)
     if result.returncode:
         raise SystemExit(result.returncode)
     if evidence not in result.stdout:
@@ -139,6 +167,29 @@ def main():
         staged_context.chmod(0o700)
         print("PRIVATE_COPY_CONTEXT_MANIFEST " + json.dumps({"runnerSha256": digest(staged_context), "acpDependency": False}), flush=True)
         run_staged(staged_context, stage, environment, "independent_runtime_progress_wait_and_cancel", "PRIVATE_COPY_STANDALONE_EVIDENCE ")
+        composed_artifacts = build(["test", "--test", "service_native_composition", "--no-run"], CONTEXT)
+        composed = [Path(item["executable"]) for item in composed_artifacts if item.get("reason") == "compiler-artifact"
+                    and item.get("executable") and item["profile"]["test"]]
+        if len(composed) != 1:
+            raise SystemExit("Expected one standalone composed-service test runner")
+        staged_composed = stage / "composed-tests"
+        shutil.copyfile(composed[0], staged_composed)
+        staged_composed.chmod(0o700)
+        print("SERVICE_NATIVE_CONTEXT_MANIFEST " + json.dumps({"runnerSha256": digest(staged_composed), "acpDependency": False}), flush=True)
+        for test, evidence in [
+            ("composed_tests::real_ready_turn_consumes_captured_prompt_and_joins_before_close", "SERVICE_NATIVE_READY_EVIDENCE "),
+            ("composed_tests::real_ignore_cancel_holds_services_until_joined_cleanup", "SERVICE_NATIVE_IGNORE_CANCEL_EVIDENCE "),
+            ("composed_tests::cancellation_commit_races_and_authority_round_trip_never_complete", "SERVICE_NATIVE_CANCEL_RACES_EVIDENCE "),
+            ("composed_tests::final_report_does_not_release_registered_workspace_before_join", "SERVICE_NATIVE_JOIN_BARRIER_EVIDENCE "),
+            ("composed_tests::uncertain_native_cleanup_recovers_ack_without_rewriting_failed_turn", "SERVICE_NATIVE_CLEANUP_RECOVERY_EVIDENCE "),
+            ("composed_tests::native_failures_actor_panic_and_facade_drop_keep_cleanup_ownership", "SERVICE_NATIVE_FAILURES_EVIDENCE "),
+            ("composed_tests::native_ack_does_not_override_failed_service_close", "SERVICE_NATIVE_OWNER_RETRY_EVIDENCE "),
+            ("composed_tests::native_ack_cannot_clear_consumed_service_release_uncertainty", "SERVICE_NATIVE_OWNER_UNCERTAIN_EVIDENCE "),
+            ("composed_tests::completion_decision_linearizes_before_host_fold_and_rejects_late_cancel", "SERVICE_NATIVE_TERMINAL_RACE_EVIDENCE "),
+            ("composed_tests::native_partial_preparation_withholds_ack_and_retains_all_service_owners", "SERVICE_NATIVE_PREPARATION_RETAINED_EVIDENCE "),
+            ("composed_tests::cancellation_between_validation_and_stamp_and_absolute_activation_deadline", "SERVICE_NATIVE_ADMISSION_GAPS_EVIDENCE "),
+        ]:
+            run_staged(staged_composed, stage, environment, test, evidence)
         if canary.read_bytes() != before:
             raise SystemExit("Synthetic ambient HOME canary changed")
     if stage.exists():
