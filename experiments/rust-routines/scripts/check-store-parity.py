@@ -350,12 +350,14 @@ def node_control(name, trace, rows):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--node-only", action="store_true", help="Validate only the real oracle/corpus, not Rust parity")
+    parser.add_argument("--rust-example", choices=("store_fixture", "copied_store_fixture"),
+                        default="store_fixture", help="Compare the in-memory model or actual copied-store writer")
     args = parser.parse_args()
     oracle = CRATE / "scripts/store-node-oracle.cjs"
     subprocess.run(["node", "--check", str(oracle)], check=True)
-    binary = CRATE / "target/debug/examples/store_fixture"
+    binary = CRATE / "target/debug/examples" / args.rust_example
     if not args.node_only:
-        subprocess.run(["cargo", "build", "--offline", "--locked", "--manifest-path", str(CRATE / "Cargo.toml"), "--example", "store_fixture"], check=True)
+        subprocess.run(["cargo", "build", "--offline", "--locked", "--manifest-path", str(CRATE / "Cargo.toml"), "--example", args.rust_example], check=True)
     traces = corpus()
     steps = 0
     for name, trace in traces.items():
@@ -370,7 +372,9 @@ def main():
                     raise AssertionError(detail[:20000])
         steps += len(trace)
         print(json.dumps({"trace": name, "steps": len(trace), "nodeControl": True, "rustCompared": not args.node_only}), flush=True)
-    print(json.dumps({"traces": len(traces), "steps": steps, "realNode": True, "rustParity": not args.node_only}), flush=True)
+    print(json.dumps({"traces": len(traces), "steps": steps, "realNode": True,
+                      "rustParity": not args.node_only,
+                      "rustExample": None if args.node_only else args.rust_example}), flush=True)
     refusals = refusal_corpus()
     for name, trace, reason in refusals:
         node = execute(["node", str(oracle)], trace)

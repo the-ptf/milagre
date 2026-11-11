@@ -3,9 +3,11 @@
 Standalone, `publish = false`, and unregistered with any production service. The public library
 ports only the pure helpers in `packages/core/src/routines/cron.cjs`: `parseCron`, `everyToCron`
 and `nextRun`. A separate private schedule/heartbeat state fixture is described in
-[STORE-CHECKPOINT.md](STORE-CHECKPOINT.md); it is compiled only for tests and the explicit
-`store_fixture` example, with no public store or commit API. Neither checkpoint has a timer,
-scheduler, filesystem writer, host access, provider launch, network operation or Node fallback.
+[STORE-CHECKPOINT.md](STORE-CHECKPOINT.md); it is compiled only for tests and explicit fixture
+targets, with no public store or commit API. The private Unix `copied_store_fixture` adds
+fresh-copy file ownership and publication as described in
+[COPIED-WRITER-CHECKPOINT.md](COPIED-WRITER-CHECKPOINT.md). The public library remains pure.
+There is no timer, scheduler, host access, provider launch, network operation or Node fallback.
 Test scripts invoke the real Node source as an oracle.
 This is a bounded IANA-timezone checkpoint, not complete cron parity or a full routines port.
 

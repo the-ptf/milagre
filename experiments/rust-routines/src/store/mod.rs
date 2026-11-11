@@ -2,6 +2,8 @@
 //! JSON values are encoded once through the pinned owner's pure codec copy.
 #![allow(dead_code)]
 mod check;
+#[cfg(unix)]
+pub mod copied;
 pub mod jsjson;
 pub mod limits;
 mod mutations;
