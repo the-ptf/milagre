@@ -1,5 +1,8 @@
-//! Isolated synthetic service model. Owns its records, approval state and attempts.
+//! Isolated synthetic service model. Owns its records, approval state and admission.
 //! No live-profile loading, daemon writer, listener, or caller-supplied Allow booleans.
+use crate::admission::{
+    Admission, AdmissionError, Limits as AdmissionLimits, Source, Status as AdmissionStatus,
+};
 use crate::budget::{ConnectionBudget, DeviceBudget, GlobalBudget};
 use crate::channel::{
     self, Accepted, DesktopAccess, DeviceKind, IdentityStatus, OwnerApproval, Persistence,
@@ -7,6 +10,7 @@ use crate::channel::{
 };
 use crate::peer::{Direction, FrameReader, FrameWriter, FRAME_TIMEOUT_MS, MAX_FRAME_BYTES};
 use crate::SecretKey;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand_core::{CryptoRng, RngCore};
 use serde::Serialize;
 use std::sync::{
@@ -22,9 +26,11 @@ use std::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum PolicyError {
+    #[error(transparent)]
+    Admission(#[from] AdmissionError),
     #[error("policy denied or ticket stale")]
     Denied,
-    #[error("attempt or state limit reached")]
+    #[error("state limit reached")]
     Limited,
     #[error("time moved backwards or overflowed")]
     Time,
@@ -39,10 +45,7 @@ pub struct Limits {
     pub records: usize,
     pub pending: usize,
     pub pending_desktops: usize,
-    pub sources: usize,
-    pub attempts_per_source: u32,
-    pub attempts_global: u32,
-    pub attempt_window_ms: u64,
+    pub admission: AdmissionLimits,
     pub pairing_window_ms: u64,
     pub known_ticket_ms: u64,
 }
@@ -52,10 +55,7 @@ impl Default for Limits {
             records: 64,
             pending: 16,
             pending_desktops: 4,
-            sources: 64,
-            attempts_per_source: 8,
-            attempts_global: 32,
-            attempt_window_ms: 60_000,
+            admission: AdmissionLimits::default(),
             pairing_window_ms: 600_000,
             known_ticket_ms: 15_000,
         }
@@ -82,7 +82,6 @@ struct Grant {
     generation: u64,
     opened: u64,
     until: u64,
-    spent: bool,
 }
 
 /// Creates a NEW marked temporary directory only. Cannot open/import an existing
@@ -277,9 +276,7 @@ pub struct TemporaryAuthority {
     pending: BTreeMap<u64, Pending>,
     next: u64,
     last_time: u64,
-    attempt_until: u64,
-    global_attempts: u32,
-    sources: BTreeMap<u64, u32>,
+    admission: Admission,
 }
 impl TemporaryAuthority {
     pub fn create_synthetic(
@@ -296,11 +293,7 @@ impl TemporaryAuthority {
             || limits.pending == 0
             || limits.pending > 64
             || limits.pending_desktops > limits.pending
-            || limits.sources == 0
-            || limits.sources > 4096
-            || limits.attempts_per_source == 0
-            || limits.attempts_global == 0
-            || limits.attempt_window_ms == 0
+            || !limits.admission.valid()
             || limits.pairing_window_ms == 0
             || limits.known_ticket_ms == 0
         {
@@ -327,14 +320,11 @@ impl TemporaryAuthority {
                 generation: 0,
                 opened: 0,
                 until: 0,
-                spent: true,
             },
             pending: BTreeMap::new(),
             next: 0,
             last_time: 0,
-            attempt_until: 0,
-            global_attempts: 0,
-            sources: BTreeMap::new(),
+            admission: Admission::new(limits.admission),
         })
     }
     /// Public test artifacts only; no token or private key is written here.
@@ -354,8 +344,8 @@ impl TemporaryAuthority {
         self.clock(now)?;
         Ok(before - self.pending.len())
     }
-    /// One fresh pairing grant per trusted owner action. The wire token is unchanged
-    /// for known-device reconnects. New grants invalidate all older new-device tickets.
+    /// A fresh multi-device pairing window per trusted owner action, matching Node.
+    /// Each pending ticket is single-use; a new window invalidates older new-device tickets.
     pub fn open_pairing(&mut self, now: u64) -> Result<()> {
         self.clock(now)?;
         if self.retired {
@@ -373,7 +363,6 @@ impl TemporaryAuthority {
             generation,
             opened: now,
             until,
-            spent: false,
         };
         self.pending
             .retain(|_, p| !p.accepted.device().first_pairing);
@@ -381,41 +370,24 @@ impl TemporaryAuthority {
     }
     fn may_pair(&self, key: &str, now: u64) -> bool {
         !self.retired
-            && !self.grant.spent
             && now < self.grant.until
             && match self.records.get(key) {
                 Some(Record::Removed { at }) => *at < self.grant.opened,
                 _ => true,
             }
     }
-    fn attempt(&mut self, source: u64, now: u64) -> Result<()> {
-        if now >= self.attempt_until {
-            self.attempt_until = now
-                .checked_add(self.limits.attempt_window_ms)
-                .ok_or(PolicyError::Time)?;
-            self.global_attempts = 0;
-            self.sources.clear();
-        }
-        if self.global_attempts >= self.limits.attempts_global {
-            return Err(PolicyError::Limited);
-        }
-        // Even a rejected source costs a global attempt; source churn cannot evade it.
-        self.global_attempts += 1;
-        if !self.sources.contains_key(&source) && self.sources.len() >= self.limits.sources {
-            return Err(PolicyError::Limited);
-        }
-        let attempts = self.sources.entry(source).or_default();
-        if *attempts >= self.limits.attempts_per_source {
-            return Err(PolicyError::Limited);
-        }
-        *attempts += 1;
-        Ok(())
+    /// Owner-facing diagnostic state, not a wire error or proof of a remote IP.
+    pub fn admission_status(&mut self, source: Source, now: u64) -> Result<AdmissionStatus> {
+        self.clock(now)?;
+        self.admission.refresh(now)?;
+        Ok(self.admission.status(source))
     }
-    /// source is a stable carrier-assigned origin, never a peer-provided ID. Limits run
-    /// before cryptography, and count malformed, bad-token, known and new attempts.
+    /// The clear HELLO key routes RESERVED WORK CAPACITY only. It is untrusted and
+    /// must still pass host_accept and the authoritative stored-kind/persistence checks.
+    /// Source::Relay deliberately carries no invented per-phone/per-IP identity.
     pub fn begin(
         &mut self,
-        source: u64,
+        source: Source,
         hello: &[u8],
         now: u64,
         rng: &mut (impl RngCore + CryptoRng),
@@ -424,10 +396,30 @@ impl TemporaryAuthority {
         if self.retired {
             return Err(PolicyError::Denied);
         }
-        self.attempt(source, now)?;
+        self.admission.refresh(now)?;
         if self.pending.len() >= self.limits.pending {
             return Err(PolicyError::Limited);
         }
+        // Cheap shape/length rejection does not spend either cryptographic lane.
+        let shaped = hello.len() >= 105
+            && hello.len() <= channel::MAX_HELLO_BYTES
+            && hello.first() == Some(&1);
+        let known_candidate = shaped
+            && matches!(
+                self.records.get(&URL_SAFE_NO_PAD.encode(&hello[33..65])),
+                Some(Record::Active { .. })
+            );
+        self.admission.check(source, known_candidate)?;
+        if !shaped {
+            let error = if hello.len() > channel::MAX_HELLO_BYTES {
+                crate::Error::TooLarge
+            } else {
+                crate::Error::BadHello
+            };
+            self.admission.failed(source, false, error);
+            return Err(error.into());
+        }
+        self.admission.crypto(known_candidate, hello.len())?;
         let accepted = channel::host_accept(
             &self.host,
             hello,
@@ -435,12 +427,21 @@ impl TemporaryAuthority {
             |key| matches!(self.records.get(key), Some(Record::Active { .. })),
             |key| self.may_pair(key, now),
             rng,
-        )?;
+        );
+        let accepted = match accepted {
+            Ok(value) => value,
+            Err(error) => {
+                self.admission.failed(source, known_candidate, error);
+                return Err(error.into());
+            }
+        };
         let device = accepted.device();
         let record = self.records.get(&device.key).copied();
         if device.kind == DeviceKind::Desktop && self.desktop != DesktopAccess::Enabled
             || matches!(record, Some(Record::Active { kind }) if kind != device.kind)
         {
+            self.admission
+                .failed(source, known_candidate, crate::Error::Unauthorized);
             return Err(PolicyError::Denied);
         }
         // A replacement for this key cancels only its older ticket.
@@ -514,7 +515,6 @@ impl TemporaryAuthority {
     }
     pub fn retire(&mut self) {
         self.retired = true;
-        self.grant.spent = true;
         self.pending.clear();
     }
     pub fn remove(&mut self, key: &str, now: u64) -> Result<()> {
@@ -532,7 +532,7 @@ impl TemporaryAuthority {
         }
         Ok(())
     }
-    /// Consumes the ticket, commits new records, spends the grant, then derives and
+    /// Consumes the ticket, commits new records, then derives and
     /// consumes ServiceDecision internally. No caller can assert "persisted" here.
     pub fn complete(&mut self, ticket: Ticket, mut now: impl FnMut() -> u64) -> Result<Session> {
         self.clock(now())?;
@@ -562,14 +562,13 @@ impl TemporaryAuthority {
             }
             let mut next = self.records.clone();
             next.insert(d.key.clone(), Record::Active { kind: d.kind });
-            // Ambiguous IO failure also retires the model; it cannot retry a spent
-            // grant after a rename that succeeded but a directory sync that failed.
+            // Ambiguous IO failure retires the model; it cannot retry after a rename
+            // that succeeded but a directory sync that failed.
             if let Err(e) = self.storage.commit(&next) {
                 self.retire();
                 return Err(e);
             }
             self.records = next;
-            self.grant.spent = true;
             (StoredDevice::New, Persistence::Committed)
         } else {
             match p.record {

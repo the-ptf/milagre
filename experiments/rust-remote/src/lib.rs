@@ -1,5 +1,6 @@
 //! No sockets, live profiles, credentials, or service ownership. Synthetic policy records use a new marked temporary directory only. See README for integration gates.
 #![forbid(unsafe_code)]
+pub mod admission;
 pub mod budget;
 pub mod channel;
 pub mod envelope;

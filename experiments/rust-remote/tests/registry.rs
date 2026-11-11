@@ -1,4 +1,5 @@
 use milagre_remote::{
+    admission::{Limits as AdmissionLimits, Source},
     budget::ConnectionBudget,
     channel::{self, Channel, DesktopAccess, DeviceKind, HelloOptions, PendingHello},
     peer::{Direction, FrameWriter, FRAME_TIMEOUT_MS, PART_THRESHOLD},
@@ -17,8 +18,11 @@ fn authority() -> TemporaryAuthority {
         TOKEN.into(),
         DesktopAccess::Enabled,
         policy::Limits {
-            attempts_per_source: 100,
-            attempts_global: 100,
+            admission: AdmissionLimits {
+                failures_global: 100,
+                failures_per_source: 100,
+                ..Default::default()
+            },
             ..Default::default()
         },
         &mut OsRng,
@@ -43,7 +47,7 @@ fn session(
         &mut OsRng,
     )
     .unwrap();
-    let ticket = a.begin(1, &bytes, now, &mut OsRng).unwrap();
+    let ticket = a.begin(Source::Direct(1), &bytes, now, &mut OsRng).unwrap();
     if kind == DeviceKind::Desktop && a.pending_device(&ticket).unwrap().first_pairing {
         a.approve_desktop(&ticket, now).unwrap();
     }

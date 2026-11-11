@@ -1,0 +1,9 @@
+{
+  "sourceSha256": "9d111a95f94b234234bf349ff92d8cfe2029ff120d2bf063c0ae2a656df2ef8d",
+  "cryptoSha256": "e2784a03de90fd159f3a1c7372d65d3dc712bb9965404220b43b725138188797",
+  "tweetnaclVersion": "1.0.3",
+  "firstPairing": [true, true, true, true],
+  "removedSameWindow": false,
+  "removedNextWindow": true,
+  "knownAfterWindow": false
+}
