@@ -5,6 +5,7 @@ use std::{fmt, io};
 pub struct Error {
     pub code: String,
     pub message: String,
+    pub issues: Option<Value>,
 }
 impl Error {
     pub fn new(message: impl Into<String>) -> Self {
@@ -14,10 +15,20 @@ impl Error {
         Self {
             code: code.into(),
             message: message.into(),
+            issues: None,
         }
     }
+    pub fn at(message: impl Into<String>, path: &[Value]) -> Self {
+        let mut error = Self::new(message);
+        error.issues = Some(json!([{"path":path,"message":error.message}]));
+        error
+    }
     pub fn value(&self) -> Value {
-        json!({"code":self.code,"message":self.message})
+        let mut value = json!({"code":self.code,"message":self.message});
+        if let Some(issues) = &self.issues {
+            value["issues"] = issues.clone();
+        }
+        value
     }
     pub fn missing(&self) -> bool {
         self.code == "ENOENT"

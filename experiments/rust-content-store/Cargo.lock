@@ -350,6 +350,7 @@ dependencies = [
  "chrono",
  "hex",
  "libc",
+ "regex",
  "rusqlite",
  "serde_json",
  "sha2",

@@ -1,6 +1,7 @@
-//! Node-compatible Artifact persistence, restricted to explicit isolated copies.
+//! Node-compatible Artifact and Design source persistence in explicit isolated copies.
 //! No production profile constructor or daemon registration is provided.
 mod comments;
+pub mod design;
 pub mod error;
 mod files;
 mod validation;
@@ -243,7 +244,14 @@ impl ArtifactStore {
         let version = positive_version(&entry["version"])?;
         let directory = folder.child(validation::id(&meta["id"])?, false)?;
         let html = directory
-            .read(&format!("v{version}.html"), 4 * MAX_HTML)
+            .read(
+                &format!("v{version}.html"),
+                if format_of(entry) == "design" {
+                    64 * 1024 * 1024
+                } else {
+                    4 * MAX_HTML
+                },
+            )
             .map_err(|error| {
                 if error.missing() {
                     Error::new("This design is no longer available.")

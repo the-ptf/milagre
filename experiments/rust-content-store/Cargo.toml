@@ -3,7 +3,7 @@ name = "milagre-content-store"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Isolated Rust Artifact store with Node-compatible live pages, assets and comments"
+description = "Isolated Rust content store with Node-compatible Artifacts and structured Design source edits"
 
 [dependencies]
 milagre-owner-store = { path = "../rust-owner" }
