@@ -143,8 +143,8 @@ fn a_right_press_opens_the_menu_at_the_pointer_and_escape_closes_it(cx: &mut Tes
     assert_eq!(menu.size.width, px(240.0));
     let row = cx.debug_bounds("chat-row-3").unwrap();
     assert!(menu.left() <= row.center().x + px(1.0) && menu.top() >= row.top());
-    for id in ["menu-rename", "menu-reload", "menu-pin", "menu-done", "menu-detach"] {
-        assert!(cx.debug_bounds(id).is_some(), "{id} is in a Subchat's menu");
+    for id in ["menu-rename", "menu-reload", "menu-pin", "menu-done"] {
+        assert!(cx.debug_bounds(id).is_some(), "{id} is in the row's menu");
     }
     cx.simulate_keystrokes("escape");
     assert!(!sidebar.read_with(cx, |s, _| s.menu_open()));
@@ -205,14 +205,25 @@ fn copy_branch_puts_the_branch_on_the_clipboard(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn detach_makes_a_subchat_a_chat_of_its_own(cx: &mut TestAppContext) {
+fn detach_patches_a_subchat_that_has_no_row(cx: &mut TestAppContext) {
     let (sidebar, cx) = mount(cx);
-    let child = key(&sidebar, cx, 3);
-    assert_eq!(sidebar.read_with(cx, |s, _| s.row(3).unwrap().depth), 1);
-    run(&sidebar, cx, 3, MenuAction::Detach);
+    let child = sidebar
+        .read_with(cx, |s, _| s.family_chats())
+        .into_iter()
+        .find(|chat| chat.title == "Port the sidebar to GPUI")
+        .expect("the data has it")
+        .key;
+    assert!(!sidebar.read_with(cx, |s, _| s.row_keys().contains(&child)), "Subchats are not listed");
+    let offered = sidebar.read_with(cx, |s, _| s.menu_context(&child)).map(|context| labels(&context)).expect("a menu");
+    assert!(offered.contains(&"Detach from parent".to_owned()));
+    cx.update(|window, cx| {
+        sidebar.update(cx, |s, cx| {
+            s.open_menu_key(&child, point(px(100.0), px(100.0)), window, cx);
+            s.run_menu(MenuAction::Detach, window, cx);
+        })
+    });
     assert_eq!(calls(&sidebar, cx), [SidebarCall::Patch { chat: child.clone(), patch: ChatPatch::Detach }]);
-    let depth = sidebar.read_with(cx, |s, _| s.row_keys().iter().position(|k| *k == child).and_then(|ix| s.row(ix).map(|row| row.depth)));
-    assert_eq!(depth, Some(0));
+    assert!(sidebar.read_with(cx, |s, _| s.row_keys().contains(&child)), "detached, it is a top-level Chat in the list");
 }
 
 #[gpui::test]

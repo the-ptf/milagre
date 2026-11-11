@@ -140,18 +140,18 @@ fn each_chat_keeps_its_tab_and_the_panel_comes_back_to_it(cx: &mut TestAppContex
     cx.simulate_click(designs, Modifiers::none());
     settle(cx);
     assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Designs);
-    let row = cx.debug_bounds("chat-row-7").expect("row 7");
+    let row = cx.debug_bounds("chat-row-4").expect("row 4");
     cx.simulate_click(row.center(), Modifiers::none());
     settle(cx);
     let second = panel.read_with(cx, |p, _| p.chat().to_string());
     assert_ne!(first, second, "the panel follows the sidebar's selection");
     assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Changes, "another Chat starts on Changes");
-    let row = cx.debug_bounds("chat-row-6").expect("row 6");
+    let row = cx.debug_bounds("chat-row-3").expect("row 3");
     cx.simulate_click(row.center(), Modifiers::none());
     settle(cx);
     assert_eq!(panel.read_with(cx, |p, _| p.chat().to_string()), first);
     assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Designs, "the first Chat's tab is restored");
-    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), Some(6));
+    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), Some(3));
 }
 
 /// Tabs a Chat has no content for are hidden (Designs, Artifact and PR); the rest stay.

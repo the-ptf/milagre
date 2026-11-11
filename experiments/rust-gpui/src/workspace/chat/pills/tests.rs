@@ -355,13 +355,15 @@ fn the_family_menu_lists_the_chats_above_then_the_family() {
 fn a_subchat_shows_its_bookmark_and_the_family_menu_opens_it(cx: &mut TestAppContext) {
     let (workspace, cx) = testing::mount_workspace(cx);
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
-    // The fixture's Subchat of a Subchat, "Sidebar snapshot check", is row 5.
-    let row = workspace.read_with(cx, |w, cx| {
-        let sidebar = w.sidebar.read(cx);
-        (0..sidebar.row_count()).find(|ix| sidebar.row(*ix).unwrap().title.as_ref() == "Sidebar snapshot check").expect("the row")
-    });
-    let bounds = cx.debug_bounds(testing::leak(format!("chat-row-{row}"))).expect("row drawn");
-    cx.simulate_click(bounds.center(), Modifiers::none());
+    // The fixture's Subchat of a Subchat, "Sidebar snapshot check", has no sidebar row: the Details panel opens it.
+    let key = workspace
+        .read_with(cx, |w, cx| w.sidebar.read(cx).family_chats())
+        .into_iter()
+        .find(|chat| chat.title == "Sidebar snapshot check")
+        .expect("the data has it")
+        .key;
+    cx.update(|_, cx| workspace.update(cx, |w, cx| w.open_chat_key(&key, cx)));
+    cx.run_until_parked();
     let b = chat.read_with(cx, |c, _| c.bookmark().cloned()).expect("a Subchat has a bookmark");
     assert_eq!(b.parent.title, "Port the sidebar to GPUI");
     assert_eq!(b.above, 1, "the top Chat collapses into the dots");
