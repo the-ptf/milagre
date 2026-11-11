@@ -2216,7 +2216,10 @@ function createRuntime(options) {
     tell: (chatId, text) => agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), text]),
   });
 
-  commands.handle("chat:send", (_event, request) => sendAsUser(request));
+  commands.handle("chat:send", (_event, request) => {
+    turnDefaults.remember(request ?? {});
+    return sendAsUser(request);
+  });
   /** A message the user sends to a Chat: from a composer (desktop or phone), a pill, or a comment on a page. */
   async function sendAsUser(request) {
     if (isLinkScopeKey(request?.projectPath) || !scopeStates.has(request?.projectPath)) throw new Error("Open the project before sending to its chats.");
@@ -3126,6 +3129,7 @@ function createRuntime(options) {
     workspaces: linkWorkspaces,
     chats,
     sentFromNotes,
+    rememberTurnDefaults: (request) => turnDefaults.remember(request),
     broadcast: broadcastProjectState,
     titles: chatTitles,
     issues: { message: linearIssueMessage, started: markIssueStarted },

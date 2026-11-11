@@ -14,6 +14,7 @@ function registerLinkRuntime({
   workspaces,
   chats,
   sentFromNotes = createSentFromNotes(),
+  rememberTurnDefaults = () => {},
   broadcast,
   titles,
   retire = async () => {},
@@ -178,6 +179,7 @@ function registerLinkRuntime({
   commands.handle("link:open", (_event, id) => open(id));
   commands.handle("link:snapshot", async (_event, id) => ({ link: await definition(id), state: await store.get(id) }));
   commands.handle("link:send", (_event, request) => {
+    rememberTurnDefaults(request ?? {});
     const run = (queues.get(request.linkId) ?? Promise.resolve())
       .catch(() => {})
       .then(async () => {
