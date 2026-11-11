@@ -2138,7 +2138,15 @@
       "parameters": []
     },
     "project:choose-folder": {
-      "parameters": []
+      "parameters": [
+        {
+          "name": "title",
+          "optional": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
     },
     "project:open-at": {
       "parameters": [
@@ -2185,6 +2193,17 @@
     },
     "project:recent": {
       "parameters": []
+    },
+    "project:scan-children": {
+      "parameters": [
+        {
+          "name": "folder",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
     },
     "project:known": {
       "parameters": []
@@ -4025,6 +4044,20 @@
           "optional": false,
           "schema": {
             "type": "string"
+          }
+        }
+      ]
+    },
+    "folder-repos:detect:read": {
+      "parameters": []
+    },
+    "folder-repos:detect:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
           }
         }
       ]
