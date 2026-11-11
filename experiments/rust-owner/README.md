@@ -61,8 +61,8 @@ pub trait Provider: Send {                      // every method returns at once;
     fn name(&self) -> &str;                                              // "claude", "codex", "kiro", …
     fn start_turn(&mut self, turn: TurnId, request: &Value) -> Result<(), ProviderError>; // Err = refused at once
     fn interrupt(&mut self, chat: &str, turn: TurnId) -> Result<(), ProviderError>;       // its turn-cancelled follows
-    fn respond_permission(&mut self, chat: &str, request_id: &str, decision: &str) -> Result<bool, ProviderError>;
-    fn answer_question(&mut self, chat: &str, request_id: &str, answers: &Value) -> Result<bool, ProviderError>;
+    fn respond_permission(&mut self, chat: &str, turn: TurnId, answer: AnswerId, request_id: &str, decision: &str) -> Result<(), ProviderError>;
+    fn answer_question(&mut self, chat: &str, turn: TurnId, answer: AnswerId, request_id: &str, answers: &Value) -> Result<(), ProviderError>;
     fn close_chat(&mut self, chat: &str, turn: TurnId) -> Result<(), ProviderError>; // only that turn's session generation
     fn shutdown(&mut self);
     fn take_events(&mut self) -> Vec<ProviderEvent>;                     // or push them with ChatHost::deliver
@@ -72,6 +72,7 @@ pub enum ProviderEvent {
     StartFailed { chat, turn, error },          // it rejected: the host folds turn-failed
     Agent { chat, turn: TurnId, event },        // a Node agent event, tagged with the turn whose session sent it
     Exited { chat, turn: TurnId, error },       // that session's process ended (turn = the last turn it ran)
+    AnswerSettled { chat, answer, outcome },    // Accepted | NotWaiting | Failed(error), exactly one per AnswerId
 }
 pub struct ProviderError { pub kind: ProviderErrorKind, pub message: String } // Unavailable, Refused, Timeout, Exited, Other; no credentials
 ```
@@ -99,7 +100,7 @@ pub struct ProviderError { pub kind: ProviderErrorKind, pub message: String } //
   - A queued entry outlives a crash and starts after the next completed turn.
   - Send now while a turn runs keeps its pick only once the interrupt was asked for; a failed interrupt leaves no pick behind.
   - A queued entry whose `clientMessageId` is already in the Chat leaves the queue and the next one starts (Node would retry it on every turn end).
-- **Events folded:** `session-started`, `session-reset`, `turn-started`, `text-delta`, `context-usage`, `subagents-waiting`, permission and question requests and resolutions (shown in the run), and the turn ends. A turn end saves the reply (`replyBody`, outcome, credits), marks the Chat unread unless it is `open_chat`, archives finished subagents and moves the queue on.
+- **Events folded:** `session-started`, `session-reset`, `turn-started`, `text-delta`, `context-usage`, `subagents-waiting`, permission and question requests and resolutions, tool steps (`step-started` with the host's start time and command input, `step-output`, `step-completed` with end, duration and `summarizeStep`'s summary and error; `tool_activity.rs`), `subagent-update` (merged as Node merges, kept in memory until another change saves, published with the merged agent), `background-tasks`, `plan-updated`, `tasks-updated` (`nativePlan`), `prompt-suggestion`, `answers-sent`, and the turn ends. A turn end saves the reply (`replyBody`, outcome, credits), marks the Chat unread unless it is `open_chat`, archives finished subagents and moves the queue on.
 - **Receipts.** `chat:send-status` answers from the saved message or queued entry. A resend after a crash with the same `clientMessageId` is a duplicate, because the message was flushed before its turn started.
 - **Notices.** What clients would hear comes back from `take_notices()`: events with their sequence numbers and whether they changed the state, broadcasts, title requests, and queue starts and removals.
 
@@ -111,10 +112,14 @@ pub struct ProviderError { pub kind: ProviderErrorKind, pub message: String } //
 - usage-limit continuations and account routing (`limitResumeId`, `expectedAccountId`, …);
 - Routines' messages, a wake's guarded turn, `canStart`, `delivery: "now"`;
 - images, and a handed-over Chat's brief;
-- answering permissions and questions (`respond`, `agent:respond-permission`, `agent:answer-question`; the trait has the methods, the host doesn't call them yet);
-- the agent events listed in `agent_runs::UNSUPPORTED`: tool steps, subagent updates, plans and tasks, suggestions, compaction progress, answers.
+- answers that need unported policy: chat secrets, bug-report approvals, Worktree setup reviews, images attached to answers, a Subchat suggestion card's answer (Subchat escalation bookkeeping isn't ported);
+- compaction progress (`context-compacting`, `context-compacted`, `agent_runs::UNSUPPORTED`) and malformed step, subagent and task events.
 
 Automatic compaction stays off (Node's default) and can't be turned on.
+
+- **Answers** (`agent:respond-permission`, `agent:answer-question`): validated as SessionManager does, the answers shown as the user's message after the reply so far (`recordAnswers`), handed to the provider and settled asynchronously; anything but acceptance takes the message back. See `PROVIDER-CONTRACT.md`.
+
+Steering and handoffs: what Node does and what each needs is in `STEERING-HANDOFF.md`.
 
 Two things are only reported, not done:
 
@@ -135,7 +140,7 @@ What remains different:
 
 ```sh
 cd experiments/rust-owner
-cargo test        # unit, reads (620 Node cases), writer (93 steps), runtime (109 steps), ChatHost (73 steps + 17 safety), locks, ownership, containment, CLI
+cargo test        # unit, reads (620 Node cases), writer (93 steps), runtime (109 steps), ChatHost (161 steps + 20 safety), summarizeStep (43 Node cases), locks, ownership, containment, CLI
 node fixtures/generate.cjs --check           # do the committed read fixtures still match current Node?
 node fixtures/generate.cjs                   # regenerate after a deliberate format change, then cargo test
 
@@ -178,16 +183,17 @@ The writer, lock and CLI tests run the real Node writers (`fixtures/writer-node.
 
   The traces cover shed-on-read, settle loading a touched Chat, idle sweeps with a busy Chat kept, debounced saves coalescing, a failed save with a transient change, retry, close flushing transients, and a crash that loses the unsaved change and is followed by a resend with the same clientMessageId. They also cover a removed session dropping its unloaded rows, and search over accents, `İ`, CJK, emoji, typos, phrases and a body with an unpaired surrogate.
 
-- **ChatHost** (`tests/chat.rs`, `fixtures/chat-traces.json`, regenerated by `fixtures/make-chat-traces.py`). There are 3 traces, 73 steps. Each runs through Node's real ChatHost over its real ProjectStates, with the provider mocked where SessionManager.startTurn sits (`fixtures/chat-node.cjs`: mock timers, queued-message ids from a counter, `markdown-it` read from the main checkout or `MILAGRE_NODE_MODULES`), and through the Rust ChatHost with `MockProvider`. Every step compares:
+- **ChatHost** (`tests/chat.rs`, `fixtures/chat-traces.json`, regenerated by `fixtures/make-chat-traces.py`). There are 6 traces, 161 steps. Each runs through Node's real ChatHost over its real ProjectStates, with the provider mocked where SessionManager.startTurn sits (`fixtures/chat-node.cjs`: mock timers, queued-message ids from a counter, `markdown-it` read from the main checkout or `MILAGRE_NODE_MODULES`), and through the Rust ChatHost with `MockProvider`. Every step compares:
   - the answer;
   - every notice with its sequence number;
   - each turn request sent to the provider, and interrupts;
   - message ids, a hash of the whole state, the runs;
   - disk snapshots.
 
-  The traces cover a send with settings, provider session id, streamed text, context usage, a permission request and its resolution, duplicates of a saved and of a queued message, receipts, a completed turn starting the queue, a failed turn, a new Chat in the Worktree, Stop, a provider that fails to start, an empty-body prompt, a crash then a duplicate resend, queue hold and Remove, Send now while idle and while busy (stopping the turn), a queued message started after a crash with no sender, and an idle sweep keeping the running Chat in memory. `unsupported_features_are_refused_not_approximated` checks every gate and that a refused send saves nothing.
+  The traces cover a send with settings, provider session id, streamed text, context usage, a permission request and its resolution, duplicates of a saved and of a queued message, receipts, a completed turn starting the queue, a failed turn, a new Chat in the Worktree, Stop, a provider that fails to start, an empty-body prompt, a crash then a duplicate resend, queue hold and Remove, Send now while idle and while busy (stopping the turn), a queued message started after a crash with no sender, an idle sweep keeping the running Chat in memory, tool steps of every kind (failed tests, edits, thinking, result counts, vitest totals, a step updated while running, one left running at the end), plans and native task lists (same list again, Milagre-owned plans, clearing), background tasks, subagent merges (stale, the session's own, a transcript tail, three updates then archived: this one needs jsjson's `undefined` marker to keep Node's key order), permission answers (unknown decision, no session), question answers taken, refused, invalid and dismissed (the answers message shown, then taken back), a crash, and Claude's prompt suggestions (wrong turn, blank, cleared by the next send). Each notice compares its whole payload, and the provider's answers are compared too. `unsupported_features_are_refused_not_approximated` checks every gate and that a refused send saves nothing.
 
 - **ChatHost safety** (`tests/chat_safety.rs`, Rust only: Node has these bugs). Two spellings of one Project, a lost lock and a failed flush during a send (nothing staged or left busy, the same client id goes through afterwards), duplicate client ids while a start is in flight and while queued, a late `turn-cancelled`, text, `session-reset` and exit of the interrupted turn after Send now (dropped, the new turn untouched), the running session's exit failing its turn and closing its generation, a duplicate turn end while idle (dropped, nothing told, queue not held; Node publishes it, so the Node trace leaves it out), an interrupt that never ends (forced after its grace, session closed, its late events dropped) and a forced quit, a closed Project staying closed (sessions closed, late events dropped, lock not taken; a forced close ending a running turn), Send now with a failed interrupt (no pick left), a turn end whose fold fails (kept through failing retries, folded once the Project is open), a queued entry already in the Chat, a large message saved once, bounded notices, Send now whose interrupt is ignored (the forced end starts the pick, whose session keeps its generation), a forced quit and a forced close with a Send-now pick waiting (no provider turn starts, the sender hears `null`), a tick handling an in-time end before forcing, a late `Started` dropped, and `ChatHost: Send`.
+- **summarizeStep** (`tests/summary.rs`): Node's `summarizeStep` and `capOutput` (`fixtures/summary-node.mjs`) against the Rust port on 43 cases: TAP and vitest counts, failure reasons, `FAIL` forms, edits, result counts, terminal escapes and carriage returns, U+2028/U+2029 line ends, JavaScript whitespace, ASCII-only case folding (`ſ`, Kelvin sign) and UTF-16 slicing of emoji.
 - **Ownership** (`tests/ownership_guard.rs`). A replaced token, a changed pid, a removed record or lock, or a lock swapped for a symbolic link stops every write, surfaces as `OwnershipLost` (never showing a token) and leaves the files byte-identical. In ProjectStates the failure stays as save status until a retry saves.
 - **Containment** (`tests/containment.rs`). `..` and absolute escapes, the root itself, symlinked path parts, a symlinked or hard-linked `.milagre`, chats.db, lock, details folder or sidecar, and a symlinked isolation root are all refused before anything is created or locked. A sentinel folder outside stays byte-identical.
 - **Locks** (`tests/locks.rs`, real Node `ownership.cjs`): Node refuses a Rust-held lock; Rust refuses a Node-held lock and Isolation refuses while it is held; a dead owner's lock and an old empty lock are refused and left as they were (Node itself takes the dead owner's over); release checks the token; nothing outside an Isolation can be opened.

@@ -12,8 +12,11 @@
 //!   `session.queued` (saved before it is answered). A completed turn starts the oldest; a cancelled or failed one
 //!   holds the queue. Send now (`chat:queue-send`) and Remove (`chat:queue-remove`).
 //! - **Events.** `session-started`, `session-reset`, `turn-started`, `text-delta`, `context-usage`,
-//!   permission/question requests (shown, see gates), `subagents-waiting` and the three turn ends, which save the
-//!   reply, mark the Chat unread unless it is the open one, archive finished subagents and move the queue on.
+//!   permission/question requests and resolutions, `subagents-waiting`, tool steps (stamped and summarized as
+//!   ChatHost.fold does), subagent updates (in memory until another change saves), background tasks, plans, native
+//!   task lists, prompt suggestions, `answers-sent` and the three turn ends, which save the reply, mark the Chat unread
+//!   unless it is the open one, archive finished subagents and move the queue on.
+//! - **Answers.** `agent:respond-permission` and `agent:answer-question` through the provider, settled asynchronously.
 //! - **Cancel.** `agent:interrupt` asks the provider to stop the running turn; its `turn-cancelled` ends it.
 //!
 //! Safer than Node where Node can lose a turn: every provider event names the [`TurnId`] whose session sent it, and
@@ -23,8 +26,11 @@
 //!
 //! Explicit gates (refused with [`gate`] errors, never approximated): steering a running turn, provider handoffs,
 //! compaction, usage-limit continuations and account routing, Routines' messages, wake turns, `canStart`, images,
-//! handover briefs, Send now that would steer, answering permissions and questions, a turn the agent started by
-//! itself, quitting or closing a Project with turns running unless forced, and the agent events listed in [`crate::agent_runs::UNSUPPORTED`].
+//! handover briefs, Send now that would steer, answers that need unported policy (secrets, bug reports, setup reviews,
+//! images, Subchat cards), a turn the agent started by itself, quitting or closing a Project with turns running unless
+//! forced, and the agent events listed in [`crate::agent_runs::UNSUPPORTED`] (compaction progress).
+//!
+//! Answers settle asynchronously ([`AnswerTicket`], [`ProviderEvent::AnswerSettled`]); see PROVIDER-CONTRACT.md.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -126,6 +132,45 @@ pub enum ProviderEvent {
         turn: TurnId,
         error: ProviderError,
     },
+    /// How an answer the host handed over (`respond_permission`, `answer_question`) settled. Exactly one per answer;
+    /// one the host already settled (deadline, closed session) or never issued is dropped.
+    AnswerSettled {
+        chat: String,
+        answer: AnswerId,
+        outcome: AnswerOutcome,
+    },
+}
+
+/// The host's name for one answer it handed to a provider.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct AnswerId(pub u64);
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum AnswerOutcome {
+    /// The session took it.
+    Accepted,
+    /// Nothing waited on that request (answered already, withdrawn, or another session).
+    NotWaiting,
+    /// Handing it over failed after it was queued (a broken pipe, the process gone).
+    Failed(ProviderError),
+}
+
+/// What answering returned at once: settled already (`false` when no session could take it), or waiting for its
+/// [`Notice::AnswerSettled`]. A wire server keeps the client's reply until then (Node's command awaits the same).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnswerTicket {
+    Settled(bool),
+    Pending(AnswerId),
+}
+
+/// An answer handed over and not settled yet.
+#[derive(Clone, Debug)]
+struct PendingAnswer {
+    chat: String,
+    turn: TurnId,
+    /// The answers message to take back unless the session takes them.
+    message: Option<f64>,
+    due: i64,
 }
 
 /// An agent provider adapter: SessionManager for one provider. Every method returns at once (an adapter does its work on
@@ -136,9 +181,11 @@ pub enum ProviderEvent {
 ///   ultracode, fastMode, replies, tldrEnabled, prompt, chatId, cwd, images, resumeId }`, undefined fields left out).
 ///   `Err` only for a refusal known at once; otherwise `Started` or `StartFailed` follows, then the turn's events.
 /// - `interrupt(chat, turn)`: ask that turn to stop; its `turn-cancelled` follows.
-/// - `respond_permission` / `answer_question`: hand the user's answer to the session waiting on it (decision is one
-///   of `allow`, `allow-for-chat`, `deny`; answers are null or question id -> strings, already validated). `Ok(false)`
-///   when nothing waits on that request.
+/// - `respond_permission` / `answer_question`: hand the user's answer to the session of `turn` (the Chat's latest
+///   turn), named `answer` by the host. Enqueue only: `Err` for a refusal known at once (that session is gone), and
+///   otherwise exactly one `AnswerSettled { answer }` follows: `Accepted` once the session took it, `NotWaiting` when
+///   nothing waited on that request (Node's `false`), `Failed` when handing it over failed after it was queued.
+///   Decision is one of `allow`, `allow-for-chat`, `deny`; answers are null or question id -> strings, validated.
 /// - `close_chat(chat, turn)`: end the Chat's session of that generation (the one that ran `turn`), and only that one:
 ///   a newer session started since (Send now) stays. `shutdown()`: end every session.
 pub trait Provider: Send {
@@ -152,15 +199,19 @@ pub trait Provider: Send {
     fn respond_permission(
         &mut self,
         chat: &str,
+        turn: TurnId,
+        answer: AnswerId,
         request_id: &str,
         decision: &str,
-    ) -> std::result::Result<bool, ProviderError>;
+    ) -> std::result::Result<(), ProviderError>;
     fn answer_question(
         &mut self,
         chat: &str,
+        turn: TurnId,
+        answer: AnswerId,
         request_id: &str,
         answers: &Value,
-    ) -> std::result::Result<bool, ProviderError>;
+    ) -> std::result::Result<(), ProviderError>;
     fn close_chat(&mut self, chat: &str, turn: TurnId) -> std::result::Result<(), ProviderError>;
     fn shutdown(&mut self);
     fn take_events(&mut self) -> Vec<ProviderEvent>;
@@ -185,6 +236,34 @@ pub struct MockState {
     pub current: HashMap<String, TurnId>,
     pub closed: Vec<String>,
     pub shut_down: bool,
+    /// Answers handed over (`{ chat, requestId, decision }` or `{ chat, requestId, answers }`), in order.
+    pub answers: Vec<Value>,
+    /// Answers settle `Accepted` unless this is set (then `NotWaiting`).
+    pub refuse_answers: bool,
+    /// Answers are queued but not settled (for deadline tests).
+    pub hold_answers: bool,
+    /// The next answer handed over fails after queueing.
+    pub fail_next_answer: Option<String>,
+}
+
+impl MockState {
+    fn settle(&mut self, chat: &str, answer: AnswerId) {
+        if self.hold_answers {
+            return;
+        }
+        let outcome = match self.fail_next_answer.take() {
+            Some(message) => {
+                AnswerOutcome::Failed(ProviderError::new(ProviderErrorKind::Exited, message))
+            }
+            None if self.refuse_answers => AnswerOutcome::NotWaiting,
+            None => AnswerOutcome::Accepted,
+        };
+        self.events.push(ProviderEvent::AnswerSettled {
+            chat: chat.into(),
+            answer,
+            outcome,
+        });
+    }
 }
 
 #[derive(Clone)]
@@ -198,6 +277,14 @@ impl MockProvider {
         MockProvider {
             name: name.into(),
             state: Arc::new(Mutex::new(MockState::default())),
+        }
+    }
+
+    /// Another provider name over the same script and records (turn ids keep counting across both).
+    pub fn sharing(name: &str, other: &MockProvider) -> Self {
+        MockProvider {
+            name: name.into(),
+            state: other.state.clone(),
         }
     }
 
@@ -278,19 +365,33 @@ impl Provider for MockProvider {
     }
     fn respond_permission(
         &mut self,
-        _chat: &str,
-        _request_id: &str,
-        _decision: &str,
-    ) -> std::result::Result<bool, ProviderError> {
-        Ok(false)
+        chat: &str,
+        _turn: TurnId,
+        answer: AnswerId,
+        request_id: &str,
+        decision: &str,
+    ) -> std::result::Result<(), ProviderError> {
+        let mut state = self.state.lock().unwrap();
+        state
+            .answers
+            .push(json!({ "chat": chat, "requestId": request_id, "decision": decision }));
+        state.settle(chat, answer);
+        Ok(())
     }
     fn answer_question(
         &mut self,
-        _chat: &str,
-        _request_id: &str,
-        _answers: &Value,
-    ) -> std::result::Result<bool, ProviderError> {
-        Ok(false)
+        chat: &str,
+        _turn: TurnId,
+        answer: AnswerId,
+        request_id: &str,
+        answers: &Value,
+    ) -> std::result::Result<(), ProviderError> {
+        let mut state = self.state.lock().unwrap();
+        state
+            .answers
+            .push(json!({ "chat": chat, "requestId": request_id, "answers": answers }));
+        state.settle(chat, answer);
+        Ok(())
     }
     fn close_chat(&mut self, chat: &str, _turn: TurnId) -> std::result::Result<(), ProviderError> {
         self.state.lock().unwrap().closed.push(chat.into());
@@ -337,6 +438,13 @@ pub enum Notice {
         chat: String,
         what: String,
     },
+    /// An answer settled: `Ok(true)` taken, `Ok(false)` nothing waited (its message taken back), `Err` it failed
+    /// (taken back too). What Node's `agent:respond-permission` / `agent:answer-question` resolve or reject with.
+    AnswerSettled {
+        chat: String,
+        answer: AnswerId,
+        result: std::result::Result<bool, String>,
+    },
     /// A turn's start resolved: what Node's `sent.started` resolves with.
     Started {
         chat: String,
@@ -375,12 +483,38 @@ pub struct Sent {
 
 const FORMER_WORKTREE: &str = "This Run's Worktree was removed because the Run left nothing in it. Start a new Chat to continue.";
 const PERMISSION_MODES: [&str; 3] = ["ask", "auto", "full"];
+/// How long a handed-over answer may wait for its settlement before the host fails it.
+pub const ANSWER_GRACE_MS: i64 = 30_000;
 /// How long an interrupted turn gets to end by itself before the host forces it.
 pub const INTERRUPT_GRACE_MS: i64 = 15_000;
 /// Notices kept for a client that doesn't take them; past this the oldest are dropped (and counted).
 pub const MAX_NOTICES: usize = 10_000;
 /// Rounds of events one pump handles before leaving the rest for the next.
 pub const MAX_PUMP_ROUNDS: usize = 1_000;
+/// permissions.cjs USER_DECISIONS: the only decisions a user's answer may carry.
+const USER_DECISIONS: [&str; 3] = ["allow", "allow-for-chat", "deny"];
+
+/// questions.cjs validAnswers: null, or at most 10 question ids each mapped to at most 20 strings of 10,000 code units.
+fn valid_answers(answers: Option<&Value>) -> bool {
+    match answers {
+        Some(Value::Null) => true,
+        Some(Value::Object(map)) => {
+            map.len() <= 10
+                && map.values().all(|values| match values {
+                    Value::Array(values) => {
+                        values.len() <= 20
+                            && values.iter().all(|value| {
+                                value
+                                    .as_str()
+                                    .is_some_and(|text| jsjson::utf16_len(text) <= 10_000)
+                            })
+                    }
+                    _ => false,
+                })
+        }
+        _ => false,
+    }
+}
 
 fn field<'a>(request: &'a Value, key: &str) -> Option<&'a Value> {
     request.get(key).filter(|value| !value.is_null())
@@ -459,6 +593,10 @@ pub struct ChatHost {
     held_events: Vec<ProviderEvent>,
     /// Notices dropped because nobody took them (the oldest go first past `MAX_NOTICES`).
     dropped_notices: u64,
+    next_answer: u64,
+    pending_answers: BTreeMap<AnswerId, PendingAnswer>,
+    /// How long a handed-over answer may wait for its settlement before `tick` fails it (ms of the states clock).
+    pub answer_grace_ms: i64,
     /// Queued messages whose start is still in flight, by turn: told as `QueueStarted` once it resolves.
     queue_turns: HashMap<TurnId, (String, String)>,
     seq: u64,
@@ -490,6 +628,9 @@ impl ChatHost {
             interrupt_grace_ms: INTERRUPT_GRACE_MS,
             held_events: Vec::new(),
             dropped_notices: 0,
+            next_answer: 0,
+            pending_answers: BTreeMap::new(),
+            answer_grace_ms: ANSWER_GRACE_MS,
             queue_turns: HashMap::new(),
             seq: 0,
             starting: HashMap::new(),
@@ -1394,6 +1535,19 @@ impl ChatHost {
             }
         }
         errors.extend(self.pump());
+        let late: Vec<(AnswerId, String)> = self
+            .pending_answers
+            .iter()
+            .filter(|(_, pending)| pending.due <= now)
+            .map(|(answer, pending)| (*answer, pending.chat.clone()))
+            .collect();
+        for (answer, chat) in late {
+            let error = ProviderError::new(
+                ProviderErrorKind::Timeout,
+                "The agent didn't take the answer in time.",
+            );
+            let _ = self.settle_answer(&chat, answer, AnswerOutcome::Failed(error));
+        }
         errors
     }
 
@@ -1439,6 +1593,11 @@ impl ChatHost {
                 self.receive(&chat, turn, &event)
             }
             ProviderEvent::Agent { chat, turn, event } => self.receive(&chat, turn, &event),
+            ProviderEvent::AnswerSettled {
+                chat,
+                answer,
+                outcome,
+            } => self.settle_answer(&chat, answer, outcome),
             ProviderEvent::Exited { chat, turn, error } => {
                 let mut result = Ok(());
                 if self.active_turn(&chat) == Some(turn) {
@@ -1449,6 +1608,7 @@ impl ChatHost {
                 if self.latest.get(&chat) == Some(&turn) {
                     self.latest.remove(&chat);
                 }
+                self.fail_answers(&chat, Some(turn), &error.message);
                 result
             }
         }
@@ -1604,6 +1764,11 @@ impl ChatHost {
         if self.latest.get(chat) == Some(&turn) {
             self.latest.remove(chat);
         }
+        self.fail_answers(
+            chat,
+            Some(turn),
+            "The agent's session was closed before it took the answer.",
+        );
         self.sync_busy();
     }
 
@@ -1621,9 +1786,17 @@ impl ChatHost {
         let open = self.open_chat.clone();
         let turn = self.turns.get(chat).cloned();
         let mut limit_gap = false;
+        let kind = event
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        // A subagent's progress stays in memory until something else saves (Node's `persist: false`).
+        let persist = kind != "subagent-update";
         let folded = self
             .states
-            .try_update(&project, Some(&[session_id]), true, |state| {
+            .try_update(&project, Some(&[session_id]), persist, |state| {
+                enrich_step_event(&mut event, &runs, chat, now);
                 let session_value_id = json!(session_id);
                 let last = session_messages(state, &session_value_id)
                     .filter(|m| m.get("role").and_then(Value::as_str) == Some("user"))
@@ -1688,11 +1861,33 @@ impl ChatHost {
         let (state, changed) = folded?;
         self.runs = runs;
         self.seq = seq;
+        // A subagent update goes out with the merged agent, and without the state.
+        let published = if kind == "subagent-update" && changed {
+            let mut merged = event.clone();
+            let agent = session_value(&state, &json!(session_id))
+                .and_then(|session| session.get("subagents").and_then(Value::as_array).cloned())
+                .and_then(|agents| {
+                    agents.into_iter().find(|agent| {
+                        match (
+                            agent.get("id"),
+                            event.get("agent").and_then(|a| a.get("id")),
+                        ) {
+                            (Some(a), Some(b)) => jsjson::strict_equals(a, b),
+                            (None, None) => true,
+                            _ => false,
+                        }
+                    })
+                });
+            merged["agent"] = agent.unwrap_or_else(jsjson::undefined);
+            merged
+        } else {
+            event.clone()
+        };
         self.notice(Notice::Event {
             chat: chat.into(),
-            event: event.clone(),
+            event: jsjson::strip_undefined(&published),
             seq: Some(self.seq),
-            with_state: changed,
+            with_state: changed && kind != "subagent-update",
         });
         if limit_gap {
             self.notice(Notice::Gap {
@@ -2035,6 +2230,11 @@ impl ChatHost {
             self.latest.remove(&chat);
             self.turns.remove(&chat);
             self.send_next.remove(&chat);
+            self.fail_answers(
+                &chat,
+                None,
+                "The agent's session was closed before it took the answer.",
+            );
         }
     }
 
@@ -2176,6 +2376,18 @@ impl ChatHost {
         for provider in self.providers.values_mut() {
             provider.shutdown();
         }
+        let waiting: Vec<String> = self
+            .pending_answers
+            .values()
+            .map(|pending| pending.chat.clone())
+            .collect();
+        for chat in waiting {
+            self.fail_answers(
+                &chat,
+                None,
+                "Milagre quit before the agent took the answer.",
+            );
+        }
         self.release_waiters(None);
         self.latest.clear();
         self.sync_busy();
@@ -2187,9 +2399,372 @@ impl ChatHost {
         self.states.send_status(project, client_message_id)
     }
 
-    /// Answering a permission or a question: not ported. The request stays shown in the run until the provider ends it.
-    pub fn respond(&mut self, _chat: &str, _request_id: &str, _answer: &Value) -> Result<()> {
-        Err(gate("Answering permission requests and questions"))
+    /// The session a Chat has here (SessionManager's `sessions.get(chatId)`): its latest turn's generation and the
+    /// provider that ran it. None when no turn ran here, or that session was closed: answers to it settle `false` at
+    /// once, as Node's do.
+    fn session_of(&self, chat: &str) -> Option<(TurnId, String)> {
+        let turn = *self.latest.get(chat)?;
+        let provider = self
+            .active
+            .get(chat)
+            .map(|(_, provider)| provider.clone())
+            .or_else(|| {
+                self.turns
+                    .get(chat)
+                    .and_then(|turn| turn.get("provider"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })?;
+        Some((turn, provider))
+    }
+
+    /// agent:respond-permission (runtime.cjs respondPermission, SessionManager.respondToPermission): the user's
+    /// decision handed to the session waiting on it, settling later as [`Notice::AnswerSettled`]; its
+    /// `permission-resolved` follows as an agent event. Setup reviews (`setup-review-*`) are refused: Worktree setup
+    /// isn't ported.
+    pub fn respond_permission(&mut self, request: &Value) -> Result<AnswerTicket> {
+        let request_id = request.get("requestId");
+        if request_id
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.starts_with("setup-review-"))
+        {
+            return Err(gate("Answering a Worktree setup review"));
+        }
+        let decision = request.get("decision");
+        let Some(decision) = decision
+            .and_then(Value::as_str)
+            .filter(|d| USER_DECISIONS.contains(d))
+        else {
+            return Err(StoreError::Invalid(format!(
+                "Unknown permission decision: {}",
+                jsjson::property_key(decision)
+            )));
+        };
+        let chat = request
+            .get("chatId")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let Some((turn, provider)) = self.session_of(&chat) else {
+            return Ok(AnswerTicket::Settled(false));
+        };
+        let answer = self.next_answer_id();
+        let id = jsjson::property_key(request_id);
+        self.provider(&provider)?
+            .respond_permission(&chat, turn, answer, &id, decision)
+            .map_err(|error| StoreError::Invalid(error.message))?;
+        self.hold_answer(answer, &chat, turn, None);
+        Ok(AnswerTicket::Pending(answer))
+    }
+
+    fn next_answer_id(&mut self) -> AnswerId {
+        self.next_answer += 1;
+        AnswerId(self.next_answer)
+    }
+
+    fn hold_answer(&mut self, answer: AnswerId, chat: &str, turn: TurnId, message: Option<f64>) {
+        let due = self.states.now() + self.answer_grace_ms;
+        self.pending_answers.insert(
+            answer,
+            PendingAnswer {
+                chat: chat.into(),
+                turn,
+                message,
+                due,
+            },
+        );
+    }
+
+    /// Settles a handed-over answer: told as `Notice::AnswerSettled`; anything but `Accepted` takes its answers
+    /// message back (Node's takeBack). Unknown, already settled, or another Chat's: dropped.
+    fn settle_answer(
+        &mut self,
+        chat: &str,
+        answer: AnswerId,
+        outcome: AnswerOutcome,
+    ) -> Result<()> {
+        let pending = match self.pending_answers.get(&answer) {
+            Some(pending) if pending.chat == chat => {
+                self.pending_answers.remove(&answer).expect("present")
+            }
+            _ => {
+                return Err(StoreError::Invalid(format!(
+                    "A settlement of answer {} for {chat} was dropped: no such answer waits.",
+                    answer.0
+                )))
+            }
+        };
+        let result = match outcome {
+            AnswerOutcome::Accepted => Ok(true),
+            AnswerOutcome::NotWaiting => Ok(false),
+            AnswerOutcome::Failed(error) => Err(error.message),
+        };
+        if result != Ok(true) {
+            if let Some(message) = pending.message {
+                if let Err(error) = self.take_back(chat, message) {
+                    self.notice(Notice::Failed {
+                        chat: chat.into(),
+                        what: "taking the answers back".into(),
+                        error: error.to_string(),
+                    });
+                }
+            }
+        }
+        self.notice(Notice::AnswerSettled {
+            chat: chat.into(),
+            answer,
+            result,
+        });
+        Ok(())
+    }
+
+    /// Fails the answers still waiting on a session that is gone (closed, exited, forced), or past their grace.
+    fn fail_answers(&mut self, chat: &str, turn: Option<TurnId>, message: &str) {
+        let doomed: Vec<AnswerId> = self
+            .pending_answers
+            .iter()
+            .filter(|(_, pending)| {
+                pending.chat == chat && turn.is_none_or(|turn| pending.turn == turn)
+            })
+            .map(|(answer, _)| *answer)
+            .collect();
+        for answer in doomed {
+            let error = ProviderError::new(ProviderErrorKind::Exited, message);
+            let _ = self.settle_answer(chat, answer, AnswerOutcome::Failed(error));
+        }
+    }
+
+    fn provider(&mut self, name: &str) -> Result<&mut Box<dyn Provider>> {
+        self.providers.get_mut(name).ok_or_else(|| {
+            StoreError::Invalid(format!(
+                "No {name} provider adapter is registered with the Rust owner."
+            ))
+        })
+    }
+
+    /// agent:answer-question (runtime.cjs answerQuestion): the answers show in the Chat as the user's message
+    /// (`summary`, after the reply so far) before they go to the agent, and are taken back if the agent doesn't take
+    /// them. Refused: chat secrets and bug reports (their requests never reach a Chat), images attached to answers,
+    /// and a Subchat suggestion card's answer. Subchat escalation bookkeeping isn't ported.
+    pub fn answer_question(&mut self, request: &Value) -> Result<AnswerTicket> {
+        let request_id = request.get("requestId");
+        let id_text = request_id.and_then(Value::as_str);
+        if id_text.is_some_and(|id| id.starts_with("milagre-secret-")) {
+            return Err(gate("Answering a secret request (chat secrets)"));
+        }
+        if id_text.is_some_and(|id| id.starts_with("milagre-bug-report-")) {
+            return Err(gate("Approving a Milagre bug report"));
+        }
+        let answers = request.get("answers").cloned();
+        if jsjson::truthy(answers.as_ref()) {
+            match jsjson::nullish(request.get("images"), None) {
+                None => {}
+                Some(Value::Object(images)) => {
+                    if images.values().any(|attached| !attached.is_array()) {
+                        return Err(StoreError::Invalid(
+                            "Invalid images for an agent question.".into(),
+                        ));
+                    }
+                    let count: usize = images
+                        .values()
+                        .filter_map(Value::as_array)
+                        .map(Vec::len)
+                        .sum();
+                    if count > 10 {
+                        return Err(StoreError::Invalid(
+                            "Attach at most 10 images to your answers.".into(),
+                        ));
+                    }
+                    if count > 0 {
+                        return Err(gate("Images attached to answers"));
+                    }
+                }
+                Some(_) => {
+                    return Err(StoreError::Invalid(
+                        "Invalid images for an agent question.".into(),
+                    ))
+                }
+            }
+        }
+        if matches!(request.get("suggestionId"), Some(Value::String(_))) {
+            return Err(gate("Answering through a Subchat's suggestion card"));
+        }
+        let chat_value = request.get("chatId");
+        let chat = chat_value.and_then(Value::as_str).unwrap_or("").to_string();
+        let summary = request
+            .get("summary")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty());
+        let open = chat_value.is_some_and(Value::is_string)
+            && self
+                .states
+                .has(Path::new(agent_runs::project_of_key(&chat)));
+        let recorded = match (jsjson::truthy(answers.as_ref()), summary) {
+            (true, Some(summary)) if open => {
+                match self.record_answers(&chat, summary, request_id, answers.as_ref().unwrap()) {
+                    Ok(id) => id,
+                    Err(error) => {
+                        self.notice(Notice::Failed {
+                            chat: chat.clone(),
+                            what: "showing the answers".into(),
+                            error: error.to_string(),
+                        });
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+        // SessionManager.answerQuestion: only null or a few short strings per question reach a session.
+        let given = answers.unwrap_or(Value::Null);
+        let handed = if !valid_answers(Some(&given)) || request.get("answers").is_none() {
+            Err(StoreError::Invalid(
+                "Invalid answers to an agent question.".into(),
+            ))
+        } else {
+            match self.session_of(&chat) {
+                None => Ok(None),
+                Some((turn, provider)) => {
+                    let answer = self.next_answer_id();
+                    let id = jsjson::property_key(request_id);
+                    self.provider(&provider)
+                        .and_then(|adapter| {
+                            adapter
+                                .answer_question(&chat, turn, answer, &id, &given)
+                                .map_err(|error| StoreError::Invalid(error.message))
+                        })
+                        .map(|_| Some((answer, turn)))
+                }
+            }
+        };
+        match handed {
+            Ok(Some((answer, turn))) => {
+                self.hold_answer(answer, &chat, turn, recorded);
+                Ok(AnswerTicket::Pending(answer))
+            }
+            Ok(None) => {
+                if let Some(id) = recorded {
+                    self.take_back(&chat, id)?;
+                }
+                Ok(AnswerTicket::Settled(false))
+            }
+            Err(error) => {
+                if let Some(id) = recorded {
+                    self.take_back(&chat, id)?;
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// ChatHost.recordAnswers: the answers message saved after the reply so far, `answers-sent` told before anything
+    /// is written, then a flush whose failure stays as save status (tried again). The new message's id.
+    fn record_answers(
+        &mut self,
+        chat: &str,
+        body: &str,
+        request_id: Option<&Value>,
+        answers: &Value,
+    ) -> Result<Option<f64>> {
+        let (project, session_id) = self.canonical_chat(chat)?;
+        let project_text = project.display().to_string();
+        let now = self.states.now();
+        let mut runs = self.runs.clone();
+        let mut seq = self.seq;
+        let mut message_id = None;
+        let mut added: Vec<MsgRef> = Vec::new();
+        let (state, changed) =
+            self.states
+                .update(&project, Some(&[session_id]), true, |latest| {
+                    let request = runs
+                        .get(chat)
+                        .and_then(|run| run.get("questions"))
+                        .and_then(Value::as_array)
+                        .and_then(|questions| {
+                            questions.iter().find(|item| {
+                                match (item.get("requestId"), request_id) {
+                                    (Some(a), Some(b)) => jsjson::strict_equals(a, b),
+                                    (None, None) => true,
+                                    _ => false,
+                                }
+                            })
+                        })
+                        .cloned();
+                    let answered = agent_runs::answered_questions(request.as_ref(), answers);
+                    let (next, next_runs, id) = agent_runs::record_answers(
+                        latest,
+                        &runs,
+                        &project_text,
+                        chat,
+                        body,
+                        answered,
+                        now,
+                    )?;
+                    let before = latest.message_list().len();
+                    added = next.message_list()[before..]
+                        .iter()
+                        .filter(|m| m.get("role").and_then(Value::as_str) == Some("assistant"))
+                        .cloned()
+                        .collect();
+                    runs = next_runs;
+                    message_id = Some(id);
+                    seq += 1;
+                    Some(next)
+                })?;
+        if !changed || message_id.is_none() {
+            return Ok(None);
+        }
+        self.runs = runs;
+        self.seq = seq;
+        self.notice(Notice::Event {
+            chat: chat.into(),
+            event: json!({ "type": "answers-sent" }),
+            seq: Some(seq),
+            with_state: true,
+        });
+        if let Err(error) = self.states.flush(Some(&project)) {
+            self.notice(Notice::Failed {
+                chat: chat.into(),
+                what: "saving the answers".into(),
+                error: error.to_string(),
+            });
+        }
+        if added.iter().any(|m| {
+            m.get("body")
+                .and_then(Value::as_str)
+                .is_some_and(|body| body.contains("!["))
+        }) {
+            self.notice(Notice::Gap {
+                chat: chat.into(),
+                what: "reply image capture".into(),
+            });
+        }
+        let _ = state;
+        Ok(message_id)
+    }
+
+    /// ChatHost.takeBack: removes a message again, such as answers that never reached the agent.
+    fn take_back(&mut self, chat: &str, id: f64) -> Result<()> {
+        let (project, session_id) = self.canonical_chat(chat)?;
+        let (_, changed) = self
+            .states
+            .update(&project, Some(&[session_id]), true, |latest| {
+                let same = |m: &MsgRef| m.get("id").and_then(Value::as_f64) == Some(id);
+                latest.message_list().iter().any(same).then(|| {
+                    latest.with_messages(
+                        latest
+                            .message_list()
+                            .iter()
+                            .filter(|m| !same(m))
+                            .cloned()
+                            .collect(),
+                    )
+                })
+            })?;
+        if changed {
+            self.broadcast(&project);
+        }
+        Ok(())
     }
 
     /// The command boundary for a wire server, with the daemon's arguments.
@@ -2242,9 +2817,9 @@ impl ChatHost {
                     self.remove_queued(&chat, &id).map(Value::Bool)
                 }
             }
-            "agent:respond-permission" | "agent:answer-question" => {
-                Err(gate("Answering permission requests and questions"))
-            }
+            // Pending: the wire server keeps the client's reply until `Notice::AnswerSettled { answer }`.
+            "agent:respond-permission" => self.respond_permission(&arg(0)).map(ticket_value),
+            "agent:answer-question" => self.answer_question(&arg(0)).map(ticket_value),
             other => self.states.call(other, args),
         }
     }
@@ -2252,4 +2827,107 @@ impl ChatHost {
 
 fn agent_runs_session(state: &ProjectState, session: i64) -> Option<Map<String, Value>> {
     session_value(state, &json!(session))
+}
+
+/// ChatHost.fold's stamps on step events, from the run as it stands: a started step keeps the start of an earlier copy
+/// of itself (a title update while it waits for approval) and gets its command as `input`; a completed one gets its
+/// end, duration and summarizeStep's facts.
+fn enrich_step_event(event: &mut Value, runs: &Runs, chat: &str, now: i64) {
+    let steps = runs
+        .get(chat)
+        .and_then(|run| run.get("steps"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let same = |a: Option<&Value>, b: Option<&Value>| match (jsjson::defined(a), jsjson::defined(b))
+    {
+        (Some(a), Some(b)) => jsjson::strict_equals(a, b),
+        (None, None) => true,
+        _ => false,
+    };
+    match event.get("type").and_then(Value::as_str) {
+        Some("step-started") => {
+            let Some(step) = event.get("step").and_then(Value::as_object).cloned() else {
+                return;
+            };
+            let started_at = steps
+                .iter()
+                .find(|known| same(known.get("id"), step.get("id")))
+                .and_then(|known| jsjson::nullish(known.get("startedAt"), None).cloned())
+                .unwrap_or_else(|| json!(now));
+            let kind = step.get("kind").and_then(Value::as_str);
+            let command = match step.get("detail") {
+                Some(Value::String(detail))
+                    if matches!(kind, Some("shell" | "setup"))
+                        && detail.starts_with("$ ")
+                        && detail.ends_with('\n') =>
+                {
+                    Some(detail[2..detail.len() - 1].to_string())
+                }
+                _ => None,
+            };
+            let input = match command {
+                Some(command) if !command.is_empty() && jsjson::utf16_len(&command) <= 4000 => {
+                    Some(Value::String(command))
+                }
+                _ => step.get("input").cloned(),
+            };
+            let mut stamped = step;
+            if let Some(input) = input.filter(|input| jsjson::truthy(Some(input))) {
+                stamped.insert("input".into(), input);
+            }
+            stamped.insert("startedAt".into(), started_at);
+            event["step"] = Value::Object(stamped);
+        }
+        Some("step-completed") => {
+            let Some(step) = steps
+                .iter()
+                .find(|known| same(known.get("id"), event.get("id")))
+            else {
+                return;
+            };
+            let mut merged = step.as_object().cloned().unwrap_or_default();
+            for (key, value) in event.as_object().into_iter().flatten() {
+                merged.insert(key.clone(), value.clone());
+            }
+            let facts = crate::tool_activity::summarize_step(&merged);
+            let duration = match jsjson::nullish(event.get("durationMs"), None) {
+                Some(duration) => Some(duration.clone()),
+                None => match jsjson::defined(step.get("startedAt")) {
+                    None | Some(Value::Null) => None,
+                    Some(started) => {
+                        let started = match started {
+                            Value::Number(number) => jsjson::as_f64(number),
+                            Value::Bool(flag) => f64::from(u8::from(*flag)),
+                            Value::String(text) => text.trim().parse().unwrap_or(f64::NAN),
+                            _ => f64::NAN,
+                        };
+                        let elapsed = now as f64 - started;
+                        Some(jsjson::number(if elapsed.is_nan() {
+                            f64::NAN
+                        } else {
+                            elapsed.max(0.0)
+                        }))
+                    }
+                },
+            };
+            let object = event.as_object_mut().expect("an event is an object");
+            for (key, value) in facts {
+                object.insert(key, value);
+            }
+            object.insert("endedAt".into(), json!(now));
+            if let Some(duration) = duration {
+                object.insert("durationMs".into(), duration);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// An answer ticket as the command boundary returns it: the boolean once settled, `{ "pendingAnswer": id }` before.
+fn ticket_value(ticket: AnswerTicket) -> Value {
+    match ticket {
+        AnswerTicket::Settled(accepted) => Value::Bool(accepted),
+        AnswerTicket::Pending(answer) => json!({ "pendingAnswer": answer.0 }),
+    }
 }

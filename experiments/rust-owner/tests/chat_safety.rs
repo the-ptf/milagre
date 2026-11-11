@@ -6,7 +6,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use milagre_owner_store::chat_host::{
-    ChatHost, MockProvider, Notice, ProviderError, ProviderErrorKind, ProviderEvent, TurnId,
+    AnswerId, AnswerOutcome, AnswerTicket, ChatHost, MockProvider, Notice, ProviderError,
+    ProviderErrorKind, ProviderEvent, TurnId,
 };
 use milagre_owner_store::isolation::{Isolation, Policy};
 use milagre_owner_store::ownership;
@@ -747,4 +748,142 @@ fn a_tick_handles_events_before_forcing() {
     });
     assert_eq!(copy.host.pump().len(), 1);
     assert!(copy.host.take_notices().is_empty());
+}
+
+fn ask(copy: &mut Copy, request: &str) {
+    let chat = copy.chat();
+    copy.kiro.emit(
+        &chat,
+        json!({ "type": "question-request", "requestId": request, "questions": [{ "id": "c", "header": "C", "question": "Which?", "options": [] }] }),
+    );
+    assert!(copy.host.pump().is_empty());
+}
+
+fn answer(copy: &mut Copy, request: &str, body: &str) -> AnswerTicket {
+    let request = json!({ "chatId": copy.chat(), "requestId": request, "answers": { "c": [body] }, "summary": body });
+    copy.host.answer_question(&request).unwrap()
+}
+
+fn settlement(copy: &mut Copy, answer: AnswerId) -> Option<Result<bool, String>> {
+    copy.host
+        .take_notices()
+        .into_iter()
+        .find_map(|notice| match notice {
+            Notice::AnswerSettled {
+                answer: settled,
+                result,
+                ..
+            } if settled == answer => Some(result),
+            _ => None,
+        })
+}
+
+/// Answers settle asynchronously (the provider queues them and reports back): a failure after queueing takes the
+/// answers message back and is told as an error, never as success.
+#[test]
+fn an_answer_that_fails_after_queueing_is_taken_back() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    ask(&mut copy, "q1");
+    copy.kiro.state.lock().unwrap().fail_next_answer = Some("broken pipe".into());
+    let AnswerTicket::Pending(id) = answer(&mut copy, "q1", "Red") else {
+        panic!("settled at once")
+    };
+    assert!(
+        user_bodies(&copy.messages()).contains(&"Red".to_string()),
+        "the answers weren't shown first"
+    );
+    copy.host.take_notices();
+    assert!(copy.host.pump().is_empty());
+    assert_eq!(settlement(&mut copy, id), Some(Err("broken pipe".into())));
+    assert!(
+        !user_bodies(&copy.messages()).contains(&"Red".to_string()),
+        "a failed answer stayed"
+    );
+    // A second settlement of the same answer is dropped.
+    let chat = copy.chat();
+    copy.kiro.push(ProviderEvent::AnswerSettled {
+        chat,
+        answer: id,
+        outcome: AnswerOutcome::Accepted,
+    });
+    assert_eq!(copy.host.pump().len(), 1);
+}
+
+/// An answer that never settles fails after its grace (taken back); its late settlement is dropped. Answers waiting
+/// on a session that is forced closed fail too.
+#[test]
+fn unsettled_answers_fail_after_their_grace_or_when_the_session_closes() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    ask(&mut copy, "q1");
+    copy.kiro.state.lock().unwrap().hold_answers = true;
+    let AnswerTicket::Pending(id) = answer(&mut copy, "q1", "Red") else {
+        panic!("settled at once")
+    };
+    copy.host.take_notices();
+    let start = copy.host.states.now();
+    copy.host.tick(start + copy.host.answer_grace_ms - 1);
+    assert_eq!(settlement(&mut copy, id), None);
+    copy.host.tick(start + copy.host.answer_grace_ms);
+    assert_eq!(
+        settlement(&mut copy, id),
+        Some(Err("The agent didn't take the answer in time.".into()))
+    );
+    assert!(!user_bodies(&copy.messages()).contains(&"Red".to_string()));
+    let chat = copy.chat();
+    copy.kiro.push(ProviderEvent::AnswerSettled {
+        chat: chat.clone(),
+        answer: id,
+        outcome: AnswerOutcome::Accepted,
+    });
+    assert_eq!(copy.host.pump().len(), 1, "a late settlement was taken");
+
+    let AnswerTicket::Pending(second) = answer(&mut copy, "q1", "Blue") else {
+        panic!("settled at once")
+    };
+    copy.host.take_notices();
+    copy.host.interrupt(&chat).unwrap();
+    let now = copy.host.states.now();
+    copy.host.tick(now + copy.host.interrupt_grace_ms);
+    assert_eq!(
+        settlement(&mut copy, second),
+        Some(Err(
+            "The agent's session was closed before it took the answer.".into()
+        ))
+    );
+    assert!(!user_bodies(&copy.messages()).contains(&"Blue".to_string()));
+    // With no session left, an answer settles `false` at once.
+    assert_eq!(
+        answer(&mut copy, "q1", "Green"),
+        AnswerTicket::Settled(false)
+    );
+}
+
+/// The running session's exit fails the answers waiting on it.
+#[test]
+fn an_exit_fails_waiting_answers() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    ask(&mut copy, "q1");
+    copy.kiro.state.lock().unwrap().hold_answers = true;
+    let AnswerTicket::Pending(id) = answer(&mut copy, "q1", "Red") else {
+        panic!("settled at once")
+    };
+    copy.host.take_notices();
+    let chat = copy.chat();
+    let turn = copy.host.active_turn(&chat).unwrap();
+    copy.kiro.push(ProviderEvent::Exited {
+        chat,
+        turn,
+        error: ProviderError::new(ProviderErrorKind::Exited, "kiro-cli exited"),
+    });
+    assert!(copy.host.pump().is_empty());
+    assert_eq!(
+        settlement(&mut copy, id),
+        Some(Err("kiro-cli exited".into()))
+    );
 }

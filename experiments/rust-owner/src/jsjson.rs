@@ -36,6 +36,7 @@ pub fn to_string(value: &Value) -> String {
 
 fn write_value(out: &mut String, value: &Value) {
     match value {
+        _ if is_undefined(value) => out.push_str("null"),
         Value::Null => out.push_str("null"),
         Value::Bool(true) => out.push_str("true"),
         Value::Bool(false) => out.push_str("false"),
@@ -53,7 +54,10 @@ fn write_value(out: &mut String, value: &Value) {
         }
         Value::Object(map) => {
             out.push('{');
-            for (index, (key, item)) in js_entries(map).into_iter().enumerate() {
+            let entries = js_entries(map)
+                .into_iter()
+                .filter(|(_, item)| !is_undefined(item));
+            for (index, (key, item)) in entries.enumerate() {
                 if index > 0 {
                     out.push(',');
                 }
@@ -531,9 +535,63 @@ impl Parser<'_> {
     }
 }
 
+/// A property whose value is JavaScript `undefined`: `{ ...previous, title: event.title }` keeps the key, in its place,
+/// with no value. `JSON.stringify` leaves it out (and writes `null` for it in an array), but it holds the key's position
+/// in memory, so a later assignment lands where Node's would. Never parsed from JSON: an [`ESC`] followed by U+0000 is
+/// not a valid escape of the unpaired-surrogate encoding. Strip it with [`strip_undefined`] before handing a value to
+/// anything that serializes with serde_json.
+pub fn undefined() -> Value {
+    Value::String(UNDEFINED.into())
+}
+
+const UNDEFINED: &str = "\u{10FFFE}\u{0}undefined";
+
+pub fn is_undefined(value: &Value) -> bool {
+    matches!(value, Value::String(text) if text == UNDEFINED)
+}
+
+/// The value of a property unless it is missing or `undefined`: JavaScript's `value !== undefined`.
+pub fn defined(value: Option<&Value>) -> Option<&Value> {
+    value.filter(|value| !is_undefined(value))
+}
+
+/// `value ?? fallback`: the first that is neither missing, `undefined` nor `null`.
+pub fn nullish<'a>(value: Option<&'a Value>, fallback: Option<&'a Value>) -> Option<&'a Value> {
+    match defined(value) {
+        Some(Value::Null) | None => fallback,
+        some => some,
+    }
+}
+
+/// `value` as JSON would carry it: `undefined` properties dropped, `undefined` array items as `null`.
+pub fn strip_undefined(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .filter(|(_, item)| !is_undefined(item))
+                .map(|(key, item)| (key.clone(), strip_undefined(item)))
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| {
+                    if is_undefined(item) {
+                        Value::Null
+                    } else {
+                        strip_undefined(item)
+                    }
+                })
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 /// JavaScript `a === b` for values `JSON.parse` returns: objects and arrays are never equal (distinct references).
 pub fn strict_equals(a: &Value, b: &Value) -> bool {
     match (a, b) {
+        _ if is_undefined(a) || is_undefined(b) => is_undefined(a) && is_undefined(b),
         (Value::Null, Value::Null) => true,
         (Value::Bool(x), Value::Bool(y)) => x == y,
         (Value::Number(x), Value::Number(y)) => as_f64(x) == as_f64(y),
@@ -544,7 +602,7 @@ pub fn strict_equals(a: &Value, b: &Value) -> bool {
 
 /// JavaScript truthiness of a parsed value; `None` stands for `undefined`.
 pub fn truthy(value: Option<&Value>) -> bool {
-    match value {
+    match defined(value) {
         None | Some(Value::Null) => false,
         Some(Value::Bool(flag)) => *flag,
         Some(Value::Number(number)) => {
@@ -558,7 +616,7 @@ pub fn truthy(value: Option<&Value>) -> bool {
 
 /// `String(value)` as a property key, for lookups like `details[step.id]`; `None` is `undefined`.
 pub fn property_key(value: Option<&Value>) -> String {
-    match value {
+    match defined(value) {
         None => "undefined".into(),
         Some(Value::Null) => "null".into(),
         Some(Value::Bool(flag)) => flag.to_string(),
@@ -575,6 +633,7 @@ pub fn property_key(value: Option<&Value>) -> String {
             .iter()
             .map(|item| match item {
                 Value::Null => String::new(),
+                _ if is_undefined(item) => String::new(),
                 other => property_key(Some(other)),
             })
             .collect::<Vec<_>>()

@@ -34,6 +34,8 @@ Module._resolveFilename = function (request, parent, ...rest) {
 const source = (name) => path.join(repo, "packages/core/src", name);
 const MODULES = ["project-states.cjs", "project-store.cjs", "message-store.cjs", "chat-db.cjs", "project-content.cjs"].map(source);
 const { snapshot, placeholders } = require("./writer-node.cjs");
+const { USER_DECISIONS } = require(source("agents/permissions.cjs"));
+const { validAnswers } = require(source("agents/questions.cjs"));
 
 const sha = (text) => createHash("sha256").update(text).digest("hex");
 let uuids = 0;
@@ -69,6 +71,10 @@ async function run(tracesFile, name, dir) {
   let turns = [];
   let interrupts = [];
   let failNextStart = null;
+  // SessionManager's side of answers: the Chats with a session (a turn started this run), what was handed over.
+  let answers = [];
+  let refuseAnswers = false;
+  const sessions = new Set();
   // Turn ids count successful starts over the whole trace, as the Rust mock provider does.
   let startedTurns = 0;
   let m;
@@ -87,6 +93,7 @@ async function run(tracesFile, name, dir) {
       states,
       startTurn: async (request) => {
         turns.push(cleanValue(request));
+        sessions.add(request.chatId);
         if (failNextStart) {
           const message = failNextStart;
           failNextStart = null;
@@ -95,7 +102,7 @@ async function run(tracesFile, name, dir) {
         return { turnId: `turn-${++startedTurns}`, steered: false };
       },
       interrupt: async (id) => interrupts.push(clean(id)),
-      publish: (_chatId, event, state, seq) => notices.push({ event: event.type, seq: seq ?? null, state: Boolean(state) }),
+      publish: (_chatId, event, state, seq) => notices.push({ event: event.type, seq: seq ?? null, state: Boolean(state), payload: cleanValue(event) }),
       broadcast: () => notices.push({ broadcast: true }),
       nameChat: async (_path, sessionId) => notices.push({ nameChat: sessionId }),
       onQueuedStart: (_chatId, entry) => notices.push({ queueStartedWithoutSender: entry.id }),
@@ -170,6 +177,48 @@ async function run(tracesFile, name, dir) {
       case "queueRemove":
         result = await attempt(async () => host.removeQueued(chat(step.session), step.id));
         break;
+      case "refuseAnswers":
+        refuseAnswers = step.refuse;
+        break;
+      case "respondPermission":
+        // runtime.cjs respondPermission -> SessionManager.respondToPermission.
+        result = await attempt(async () => {
+          if (!USER_DECISIONS.has(step.decision)) throw new Error(`Unknown permission decision: ${step.decision}`);
+          const chatId = chat(step.session);
+          if (!sessions.has(chatId)) return false;
+          answers.push({ chat: clean(chatId), requestId: step.requestId, decision: step.decision });
+          return !refuseAnswers;
+        });
+        break;
+      case "answerQuestion":
+        // runtime.cjs answerQuestion without images, secrets, bug reports or Subchat cards, over the real ChatHost.
+        result = await attempt(async () => {
+          const chatId = chat(step.session);
+          const given = step.answers;
+          const recorded =
+            given && typeof step.summary === "string" && step.summary && states.states.has(dir)
+              ? host.recordAnswers(chatId, step.summary, { requestId: step.requestId, answers: { ...given }, images: [] }).catch(() => null)
+              : Promise.resolve(null);
+          const handOver = async () => {
+            const sent = given && { ...given };
+            if (!validAnswers(sent)) throw new Error("Invalid answers to an agent question.");
+            if (!sessions.has(chatId)) return false;
+            answers.push({ chat: clean(chatId), requestId: step.requestId, answers: sent ?? null });
+            return !refuseAnswers;
+          };
+          let accepted;
+          try {
+            accepted = await handOver();
+          } catch (error) {
+            const messageId = await recorded;
+            if (messageId !== null) await host.takeBack(chatId, messageId);
+            throw error;
+          }
+          const messageId = await recorded;
+          if (!accepted && messageId !== null) await host.takeBack(chatId, messageId);
+          return accepted;
+        });
+        break;
       case "sendStatus":
         result = await attempt(async () => host.sendStatus(dir, step.id));
         break;
@@ -186,6 +235,7 @@ async function run(tracesFile, name, dir) {
         });
         break;
       case "crash":
+        sessions.clear();
         for (const timer of states.timers.values()) clearTimeout(timer);
         clearInterval(states.sweep);
         states.closed = true;
@@ -199,10 +249,11 @@ async function run(tracesFile, name, dir) {
         throw new Error(`unknown step ${step.op}`);
     }
     await settle();
-    const line = { op: step.op, result, notices, turns, interrupts, ...view() };
+    const line = { op: step.op, result, notices, turns, interrupts, answers, ...view() };
     notices = [];
     turns = [];
     interrupts = [];
+    answers = [];
     process.stdout.write(`${JSON.stringify({ op: step.op, line: JSON.stringify(line) })}\n`);
   }
 }

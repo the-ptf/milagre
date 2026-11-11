@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use milagre_owner_store::chat_host::{ChatHost, MockProvider, Notice, TurnId};
+use milagre_owner_store::chat_host::{AnswerTicket, ChatHost, MockProvider, Notice, TurnId};
 use milagre_owner_store::isolation::{Isolation, Policy};
 use milagre_owner_store::jsjson;
 use milagre_owner_store::states::{ProjectStates, Timing};
@@ -40,6 +40,7 @@ fn host_for(
         now,
     ));
     host.register(Box::new(mock.clone()));
+    host.register(Box::new(MockProvider::sharing("claude", mock)));
     let counter = counter.clone();
     host.set_ids(move || {
         let next = counter.fetch_add(1, Ordering::SeqCst) + 1;
@@ -137,6 +138,23 @@ impl Run {
                     .map(Value::Bool);
                 self.attempt(result)
             }
+            "refuseAnswers" => {
+                self.mock.state.lock().unwrap().refuse_answers = step["refuse"].as_bool().unwrap();
+                Value::Null
+            }
+            "respondPermission" => {
+                let request = json!({ "chatId": self.chat(&step["session"]), "requestId": step["requestId"], "decision": step["decision"] });
+                let ticket = self.host.respond_permission(&request);
+                self.settled(ticket)
+            }
+            "answerQuestion" => {
+                let mut request = json!({ "chatId": self.chat(&step["session"]), "requestId": step["requestId"], "answers": step["answers"] });
+                if let Some(summary) = step.get("summary") {
+                    request["summary"] = summary.clone();
+                }
+                let ticket = self.host.answer_question(&request);
+                self.settled(ticket)
+            }
             "sendStatus" => {
                 let result = self.host.send_status(&p, &step["id"]);
                 self.attempt(result)
@@ -162,6 +180,32 @@ impl Run {
         }
     }
 
+    /// What Node's awaited answer command gives: a pending ticket waits for its settlement through the provider's
+    /// events.
+    fn settled(&mut self, ticket: milagre_owner_store::Result<AnswerTicket>) -> Value {
+        let answer = match ticket {
+            Err(error) => return json!({ "error": self.clean(&error.to_string()) }),
+            Ok(AnswerTicket::Settled(accepted)) => return Value::Bool(accepted),
+            Ok(AnswerTicket::Pending(answer)) => answer,
+        };
+        self.host.pump();
+        let notices = self.host.take_notices();
+        let result = notices.iter().find_map(|notice| match notice {
+            Notice::AnswerSettled {
+                answer: settled,
+                result,
+                ..
+            } if *settled == answer => Some(result.clone()),
+            _ => None,
+        });
+        self.held.extend(notices);
+        match result {
+            Some(Ok(accepted)) => Value::Bool(accepted),
+            Some(Err(error)) => json!({ "error": self.clean(&error) }),
+            None => json!("unsettled"),
+        }
+    }
+
     fn line(&mut self, op: &str, result: Value) -> String {
         // Starts the step asked for answer through the provider's events, as Node's settle waits for them.
         let late: Vec<Value> = self
@@ -174,14 +218,14 @@ impl Run {
         taken.extend(self.host.take_notices());
         let notices: Vec<Value> = taken
             .into_iter()
-            .filter(|notice| !matches!(notice, Notice::Started { .. }))
+            .filter(|notice| !matches!(notice, Notice::Started { .. } | Notice::AnswerSettled { .. }))
             .map(|notice| match notice {
                 Notice::Event {
                     event,
                     seq,
                     with_state,
                     ..
-                } => json!({ "event": event["type"], "seq": seq, "state": with_state }),
+                } => json!({ "event": event["type"], "seq": seq, "state": with_state, "payload": self.clean_value(&event) }),
                 Notice::Broadcast { .. } => json!({ "broadcast": true }),
                 Notice::NameChat { session, .. } => json!({ "nameChat": session }),
                 Notice::QueueStarted { result, .. } => json!({ "queuedStarted": result }),
@@ -193,15 +237,17 @@ impl Run {
                 }
                 Notice::Gap { what, .. } => json!({ "gap": what }),
                 Notice::Failed { what, error, .. } => json!({ "failed": what, "error": error }),
-                Notice::Started { .. } => unreachable!(),
+                Notice::Started { .. } | Notice::AnswerSettled { .. } => unreachable!(),
             })
             .chain(late)
             .collect();
-        let (turns, interrupts) = {
-            let state = self.mock.state.lock().unwrap();
+        let (turns, interrupts, answers) = {
+            let mut state = self.mock.state.lock().unwrap();
+            let answers = std::mem::take(&mut state.answers);
             (
                 state.turns[self.turns_seen..].to_vec(),
                 state.interrupts[self.interrupts_seen..].to_vec(),
+                answers,
             )
         };
         self.turns_seen += turns.len();
@@ -221,6 +267,15 @@ impl Run {
                 interrupts
                     .iter()
                     .map(|chat| json!(self.clean(chat)))
+                    .collect(),
+            ),
+        );
+        line.insert(
+            "answers".into(),
+            Value::Array(
+                answers
+                    .iter()
+                    .map(|answer| self.clean_value(answer))
                     .collect(),
             ),
         );
@@ -430,27 +485,71 @@ fn unsupported_features_are_refused_not_approximated() {
     // Events whose folding isn't ported are refused, the run left as it was.
     host.send(&json!({ "projectPath": path, "sessionId": 1, "provider": "claude", "model": "m", "body": "steps" })).unwrap();
     let runs_before = host.runs().clone();
-    for kind in [
-        "step-started",
-        "subagent-update",
-        "plan-updated",
-        "context-compacted",
+    for (kind, event, expected) in [
+        ("context-compacting", json!({}), "context-compacting"),
+        ("context-compacted", json!({}), "context-compacted"),
+        (
+            "step-started",
+            json!({ "step": "not a step" }),
+            "without a step",
+        ),
+        ("subagent-update", json!({}), "without an agent"),
+        ("tasks-updated", json!({ "tasks": "x" }), "without tasks"),
     ] {
+        let mut event = event;
+        event["type"] = json!(kind);
+        let turn = host.active_turn(&format!("{path}#1")).unwrap_or(TurnId(0));
         let error = host
-            .receive(
-                &format!("{path}#1"),
-                host.active_turn(&format!("{path}#1")).unwrap_or(TurnId(0)),
-                &json!({ "type": kind, "step": { "id": "s" } }),
-            )
+            .receive(&format!("{path}#1"), turn, &event)
             .unwrap_err()
             .to_string();
-        assert!(error.contains(kind), "{kind}: {error}");
+        assert!(error.contains(expected), "{kind}: {error}");
     }
     assert_eq!(host.runs(), &runs_before);
-    assert!(host
-        .respond(&format!("{path}#1"), "p1", &json!("allow"))
-        .unwrap_err()
-        .to_string()
-        .contains("Answering permission"));
+    // Answers whose policy isn't ported are refused before anything is shown or handed over.
+    let chat = format!("{path}#1");
+    for (request, expected) in [
+        (
+            json!({ "chatId": chat, "requestId": "setup-review-1", "decision": "allow" }),
+            "setup review",
+        ),
+        (
+            json!({ "chatId": chat, "requestId": "p1", "decision": "yes" }),
+            "Unknown permission decision: yes",
+        ),
+    ] {
+        let error = host.respond_permission(&request).unwrap_err().to_string();
+        assert!(error.contains(expected), "{request}: {error}");
+    }
+    for (request, expected) in [
+        (
+            json!({ "chatId": chat, "requestId": "milagre-secret-1", "answers": { "q": ["x"] } }),
+            "secret",
+        ),
+        (
+            json!({ "chatId": chat, "requestId": "milagre-bug-report-1", "answers": null }),
+            "bug report",
+        ),
+        (
+            json!({ "chatId": chat, "requestId": "q1", "answers": { "q": ["x"] }, "summary": "x", "images": { "q": [{ "dataUrl": "data:," }] } }),
+            "Images attached",
+        ),
+        (
+            json!({ "chatId": chat, "requestId": "q1", "answers": { "q": ["x"] }, "images": [] }),
+            "Invalid images",
+        ),
+        (
+            json!({ "chatId": chat, "requestId": "q1", "answers": { "q": ["x"] }, "suggestionId": "s" }),
+            "suggestion card",
+        ),
+    ] {
+        let error = host.answer_question(&request).unwrap_err().to_string();
+        assert!(error.contains(expected), "{request}: {error}");
+    }
+    assert!(
+        claude.state.lock().unwrap().answers.is_empty(),
+        "a refused answer reached the provider"
+    );
+    assert_eq!(host.runs(), &runs_before);
     host.states.close().unwrap();
 }

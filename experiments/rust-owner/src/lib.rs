@@ -13,9 +13,10 @@
 //! - [`states`]: project-states.cjs: write-behind, sweeps, the read commands and the `call` command boundary.
 //! - [`search`]: message-search.mjs and chatSearch.
 //! - [`agent_runs`]: agent-runs.mjs: runs and the agent events folded into the state (unported ones refused).
+//! - [`tool_activity`]: summarizeStep and capOutput, the facts a finished tool step keeps.
 //! - [`chat_host`]: chat-host.cjs sends, receipts, queue and turns, with agents behind the `Provider` trait.
 //! - [`audit`]: the read-only audit behind the `milagre-owner-store audit` command.
-//! - [`jsjson`]: `JSON.parse`/`JSON.stringify`-exact JSON, unpaired surrogates included.
+//! - [`jsjson`]: `JSON.parse`/`JSON.stringify`-exact JSON, unpaired surrogates and `undefined`-valued keys included.
 
 pub mod agent_runs;
 pub mod audit;
@@ -31,6 +32,7 @@ pub mod ownership;
 pub mod project;
 pub mod search;
 pub mod states;
+pub mod tool_activity;
 pub mod write;
 
 pub use chat_db::{ChatDb, ChatId, LookupField, MessageRepository, Preview, Row};
