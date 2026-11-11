@@ -13,11 +13,13 @@ pub mod appearance;
 pub mod browser;
 pub mod chat;
 pub mod church;
+pub mod devices;
 pub mod general;
 pub mod group;
 pub mod models;
 pub mod nav;
 pub mod notifications;
+pub mod projects;
 pub mod search;
 pub mod store;
 
@@ -53,6 +55,8 @@ pub fn init(cx: &mut App) {
     }
     appearance::init(cx);
     accounts::init(cx);
+    devices::init(cx);
+    projects::init(cx);
     cx.bind_keys([KeyBinding::new("cmd-,", ToggleSettings, None), KeyBinding::new("cmd-f", FindInSettings, Some("SettingsModal"))]);
 }
 
@@ -74,6 +78,8 @@ pub struct SettingsModal {
     appearance: Entity<appearance::AppearanceView>,
     accounts: Entity<accounts::AccountsView>,
     usage: Entity<accounts::UsageView>,
+    devices: Entity<devices::DevicesView>,
+    project: Entity<projects::ProjectView>,
 }
 
 impl SettingsModal {
@@ -90,6 +96,7 @@ impl SettingsModal {
                 true,
                 SettingsSectionId::parse(name)
                     .map(SelectedSection::Section)
+                    .or_else(|| devices::snapshot_selection(name, &computers, &projects))
                     .unwrap_or(SelectedSection::Section(SettingsSectionId::General)),
             ),
             None => (false, SelectedSection::Section(SettingsSectionId::General)),
@@ -117,7 +124,9 @@ impl SettingsModal {
             projects,
             appearance: cx.new(appearance::AppearanceView::new),
             accounts: cx.new(accounts::AccountsView::new),
-            usage: cx.new(|cx| accounts::UsageView::new(weak, cx)),
+            usage: cx.new(|cx| accounts::UsageView::new(weak.clone(), cx)),
+            devices: cx.new(devices::DevicesView::new),
+            project: cx.new(|cx| projects::ProjectView::new(weak, cx)),
         }
     }
 
@@ -379,7 +388,12 @@ impl Render for SettingsModal {
         }
         let section_body = match accounts::section_body(&selected, highlighted.as_deref(), &self.accounts, &self.usage, cx) {
             Some(body) => body,
-            None => render_section_body(&selected, highlighted.as_deref(), &this_mac_name, &computers, &appearance_view, cx),
+            None => match devices::section_body(&selected, highlighted.as_deref(), &self.devices, cx)
+                .or_else(|| projects::section_body(&selected, highlighted.as_deref(), &self.project, cx))
+            {
+                Some(body) => body,
+                None => render_section_body(&selected, highlighted.as_deref(), &this_mac_name, &computers, &appearance_view, cx),
+            },
         };
 
         let theme = *cx.theme();

@@ -144,6 +144,8 @@ pub enum IconName {
     View,
     PlusMinus01,
     SidebarRight01,
+    RamMemory,
+    HardDrive,
 }
 
 /// Each icon, its Hugeicons name, and its asset path per stroke: 1.6 (12px), 1.8 (14 and 16px), 2 (18px).
@@ -288,4 +290,6 @@ pub(crate) const ICONS: &[(IconName, &str, [&str; 3])] = &[
     (IconName::View, "View", ["hugeicons/view.svg@1.6", "hugeicons/view.svg", "hugeicons/view.svg@2"]),
     (IconName::PlusMinus01, "PlusMinus01", ["hugeicons/plus-minus-01.svg@1.6", "hugeicons/plus-minus-01.svg", "hugeicons/plus-minus-01.svg@2"]),
     (IconName::SidebarRight01, "SidebarRight01", ["hugeicons/sidebar-right-01.svg@1.6", "hugeicons/sidebar-right-01.svg", "hugeicons/sidebar-right-01.svg@2"]),
+    (IconName::RamMemory, "RamMemory", ["hugeicons/ram-memory.svg@1.6", "hugeicons/ram-memory.svg", "hugeicons/ram-memory.svg@2"]),
+    (IconName::HardDrive, "HardDrive", ["hugeicons/hard-drive.svg@1.6", "hugeicons/hard-drive.svg", "hugeicons/hard-drive.svg@2"]),
 ];

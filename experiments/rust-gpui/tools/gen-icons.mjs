@@ -177,6 +177,10 @@ const ICONS = [
   "View",
   "PlusMinus01",
   "SidebarRight01",
+  // WP-44 Devices, This Mac and Projects settings (resource gauges). Loading03, Computer, Laptop, Smartphone,
+  // ArrowDown01, ArrowRight01, ArrowLeft01, AlertCircle and CheckmarkCircle02 are in other blocks.
+  "RamMemory",
+  "HardDrive",
 ];
 
 /** The stroke written into every icon file; `src/assets` replaces it for the 12px (1.6) and 18px (2) sizes. */
