@@ -1,0 +1,40 @@
+offline Hyper 1.12.0; requested allocator layouts, not RSS; response capacity=67108864; stack requested=2097152
+fixed-0: Success body=0 prepared=67118025 peak=67374324 realloc_overlap=67117489 live_after_join=67117768 final=0 total=67374464 calls=1060 executing=256403 largest=98304 turns=2 raw=57 frame=0 headers=2 trailers=0 infos=0
+fixed-1: Success body=1 prepared=67118025 peak=67382793 realloc_overlap=67117489 live_after_join=67117768 final=0 total=67382992 calls=1064 executing=264931 largest=98304 turns=4 raw=58 frame=1 headers=2 trailers=0 infos=0
+fixed-65535: Success body=65535 prepared=67118025 peak=67488441 realloc_overlap=67545785 live_after_join=67117768 final=0 total=67587792 calls=1067 executing=469731 largest=122880 turns=8 raw=65596 frame=32768 headers=2 trailers=0 infos=0
+fixed-65536: Success body=65536 prepared=67118025 peak=67488441 realloc_overlap=67545785 live_after_join=67117768 final=0 total=67587792 calls=1067 executing=469731 largest=122880 turns=8 raw=65597 frame=32768 headers=2 trailers=0 infos=0
+fixed-65537: Success body=65537 prepared=67118025 peak=67488441 realloc_overlap=67545785 live_after_join=67117768 final=0 total=67587792 calls=1067 executing=469731 largest=122880 turns=8 raw=65598 frame=32768 headers=2 trailers=0 infos=0
+fixed-262145: Success body=262145 prepared=67118025 peak=67488441 realloc_overlap=67545785 live_after_join=67117768 final=0 total=67587792 calls=1067 executing=469731 largest=122880 turns=11 raw=262207 frame=65536 headers=2 trailers=0 infos=0
+fixed-67108864: Success body=67108864 prepared=67118025 peak=67488441 realloc_overlap=67545785 live_after_join=67117768 final=0 total=67587792 calls=1067 executing=469731 largest=122880 turns=1031 raw=67108928 frame=65536 headers=2 trailers=0 infos=0
+oversize: TooLarge body=67108800 prepared=67118025 peak=67488441 realloc_overlap=67545785 live_after_join=67117768 final=0 total=67587792 calls=1067 executing=469731 largest=122880 turns=1030 raw=67108929 frame=65536 headers=2 trailers=0 infos=0
+upload-8MiB: Success body=1 prepared=75506633 peak=75771689 realloc_overlap=75506097 live_after_join=75506376 final=0 total=75771932 calls=1068 executing=265263 largest=8388608 turns=132 raw=58 frame=1 headers=2 trailers=0 infos=0
+full-upload-body-trailer: Success body=67108864 prepared=75506633 peak=76009090 realloc_overlap=75975641 live_after_join=75506376 final=0 total=76173957 calls=1087 executing=667288 largest=8388608 turns=1160 raw=67174460 frame=65536 headers=1 trailers=1 infos=0
+fragment-one: Success body=1024 prepared=67118042 peak=67383098 realloc_overlap=67117506 live_after_join=67117785 final=0 total=67383341 calls=1068 executing=265263 largest=98304 turns=1087 raw=1084 frame=1 headers=2 trailers=0 infos=0
+headers-100: Success body=0 prepared=67118025 peak=67403744 realloc_overlap=67117489 live_after_join=67117768 final=0 total=67404599 calls=1170 executing=286538 largest=98304 turns=3 raw=1328 frame=0 headers=100 trailers=0 infos=0
+headers-101: Invalid body=0 prepared=67118025 peak=67374383 realloc_overlap=67117489 live_after_join=67117768 final=0 total=67374542 calls=1064 executing=256481 largest=98304 turns=2 raw=1342 frame=0 headers=0 trailers=0 infos=0
+duplicates-100: Success body=0 prepared=67118025 peak=67412573 realloc_overlap=67408492 live_after_join=67117768 final=0 total=67422653 calls=1176 executing=304592 largest=98304 turns=3 raw=1238 frame=0 headers=100 trailers=0 infos=0
+head-65536: Success body=0 prepared=67118025 peak=67480806 realloc_overlap=67538105 live_after_join=67117768 final=0 total=67571077 calls=1064 executing=453016 largest=114688 turns=5 raw=65536 frame=0 headers=2 trailers=0 infos=0
+head-65537: Invalid body=0 prepared=67118025 peak=67374379 realloc_overlap=67117489 live_after_join=67117768 final=0 total=67374538 calls=1064 executing=256477 largest=98304 turns=2 raw=65536 frame=0 headers=0 trailers=0 infos=0
+trailer-11: Success body=4 prepared=67118025 peak=67382793 realloc_overlap=67117489 live_after_join=67117768 final=0 total=67383749 calls=1069 executing=265688 largest=98304 turns=5 raw=70 frame=4 headers=1 trailers=1 infos=0
+trailer-65535: Success body=4 prepared=67118025 peak=67620194 realloc_overlap=67611321 live_after_join=67117768 final=0 total=67785017 calls=1083 executing=666956 largest=122880 turns=8 raw=65594 frame=4 headers=1 trailers=1 infos=0
+trailer-65536: Invalid body=4 prepared=67118025 peak=67554072 realloc_overlap=67611321 live_after_join=67117768 final=0 total=67718927 calls=1083 executing=600866 largest=122880 turns=7 raw=65595 frame=4 headers=1 trailers=0 infos=0
+trailer-count-100: Success body=0 prepared=67118025 peak=67399956 realloc_overlap=67409940 live_after_join=67117768 final=0 total=67429994 calls=1282 executing=311933 largest=98304 turns=4 raw=942 frame=0 headers=1 trailers=100 infos=0
+trailer-count-101: Invalid body=0 prepared=67118025 peak=67382793 realloc_overlap=67375289 live_after_join=67117768 final=0 total=67385101 calls=1074 executing=267040 largest=98304 turns=3 raw=952 frame=0 headers=1 trailers=0 infos=0
+chunk-extension-16383: Success body=1 prepared=67118025 peak=67390137 realloc_overlap=67398329 live_after_join=67117768 final=0 total=67407568 calls=1065 executing=289507 largest=98304 turns=5 raw=16442 frame=1 headers=1 trailers=0 infos=0
+chunk-extension-16384: Invalid body=0 prepared=67118025 peak=67390260 realloc_overlap=67398329 live_after_join=67117768 final=0 total=67407691 calls=1070 executing=289630 largest=98304 turns=4 raw=16443 frame=0 headers=1 trailers=0 infos=0
+bad-chunk: Invalid body=0 prepared=67118025 peak=67382793 realloc_overlap=67117489 live_after_join=67117768 final=0 total=67383131 calls=1069 executing=265070 largest=98304 turns=3 raw=56 frame=0 headers=1 trailers=0 infos=0
+data-then-eof-error: Invalid body=65536 prepared=67118025 peak=67488513 realloc_overlap=67545785 live_after_join=67117768 final=0 total=67587864 calls=1070 executing=469803 largest=122880 turns=8 raw=65578 frame=32768 headers=1 trailers=0 infos=0
+info-8: Success body=0 prepared=67118025 peak=67374324 realloc_overlap=67117489 live_after_join=67117768 final=0 total=67374572 calls=1062 executing=256511 largest=98304 turns=10 raw=262 frame=0 headers=1 trailers=0 infos=8
+info-9: Invalid body=0 prepared=67118025 peak=67374324 realloc_overlap=67117489 live_after_join=67117768 final=0 total=67374587 calls=1065 executing=256526 largest=98304 turns=10 raw=290 frame=0 headers=0 trailers=0 infos=9
+info-bytes-65536: Success body=0 prepared=67118025 peak=67390146 realloc_overlap=67398225 live_after_join=67117768 final=0 total=67399944 calls=1085 executing=281883 largest=98304 turns=10 raw=65574 frame=0 headers=1 trailers=0 infos=8
+info-bytes-65537: Invalid body=0 prepared=67118025 peak=67390156 realloc_overlap=67398225 live_after_join=67117768 final=0 total=67399846 calls=1085 executing=281785 largest=98304 turns=9 raw=65575 frame=0 headers=0 trailers=0 infos=8
+upgrade: Invalid body=0 prepared=67118025 peak=67374384 realloc_overlap=67117489 live_after_join=67117768 final=0 total=67374543 calls=1064 executing=256482 largest=98304 turns=2 raw=36 frame=0 headers=0 trailers=0 infos=0
+ownership: ready=67118106 exited_before_join=67117974 joined=67117785 stale_handles=472 final=0
+cancel-0: Cancelled final=0 peak=67366068
+cancel-1: Cancelled final=0 peak=67366068
+cancel-2: Cancelled final=0 peak=67374260
+cancel-3: Cancelled final=0 peak=67488441
+worker-unwind: Panic final=0
+owner-drop-unwind-false: final=0
+owner-drop-unwind-true: final=0
+post-spawn-unwind: final=0
