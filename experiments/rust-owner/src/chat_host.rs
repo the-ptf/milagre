@@ -2140,11 +2140,17 @@ impl ChatHost {
         for chat in saving {
             self.start_prepared(&chat);
         }
-        // A Project that isn't ready folds nothing: its deadlines and answers wait until it is ready again.
+        // A Project that isn't ready folds nothing: its deadlines and answers wait until it is ready again. A Chat whose
+        // turn end is kept already ended its turn: forcing it would replace that end (or, with saves still failing,
+        // drop it); the kept end folds on a later pump and clears the deadline.
         let overdue: Vec<(String, TurnId)> = self
             .deadlines
             .iter()
-            .filter(|(chat, (_, at))| *at <= now && self.require_ready_chat(chat).is_ok())
+            .filter(|(chat, (_, at))| {
+                *at <= now
+                    && self.require_ready_chat(chat).is_ok()
+                    && !self.stuck.contains_key(*chat)
+            })
             .map(|(chat, (turn, _))| (chat.clone(), *turn))
             .collect();
         for (chat, turn) in overdue {

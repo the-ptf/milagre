@@ -286,7 +286,8 @@ loading keeps its locks and state and leaves it not ready; calling `open_project
   and again between pumps), the rest counted in one summary error. Never opened, or forgotten: dropped (`PROJECT_NOT_READY`), never loading or reopening it.
 - A turn end kept after a failed fold comes before anything that arrived after it: the open retries the Project's kept
   ends first; a Chat's parked events, and its later events, wait in order behind its kept end until that end folds
-  (retried on every `pump`), so a later `Exited` can't turn a completion into a failure. Waiting events count
+  (retried on every `pump`), so a later `Exited` can't turn a completion into a failure. An interrupt's deadline
+  never forces a turn whose end is kept (forcing would replace or drop it). Waiting events count
   against the parked budget; past it a ready Project's new one is dropped and refused.
 - Past the budget the Project whose event didn't fit fails closed (another Project's kept events stay): what was kept for it is dropped (nothing is replayed), the provider
   sessions of its running turns are closed at once, later events for it are dropped, and once `open_project` succeeds

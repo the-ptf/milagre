@@ -963,3 +963,105 @@ fn a_persistent_commit_fault_holds_a_turn_end_until_cleared() {
     assert_eq!(c.starts(), 2);
     assert!(c.host.pump().is_empty());
 }
+
+/// Stop asked, then the completion's fold keeps failing: the interrupt's deadline passes many times but nothing is
+/// forced (forcing would replace the kept completion or, with saves failing, drop it). Once saves hold, the completion
+/// folds once and the queue moves on.
+#[test]
+fn an_overdue_stop_never_replaces_a_kept_completion() {
+    let mut c = copy(false);
+    c.send("one").unwrap();
+    assert!(c.host.pump().is_empty());
+    let chat = c.chat();
+    c.kiro.emit(
+        &chat,
+        json!({ "type": "session-started", "nativeId": "native" }),
+    );
+    c.kiro
+        .emit(&chat, json!({ "type": "text-delta", "text": "done" }));
+    assert!(c.host.pump().is_empty());
+    assert!(c.send("two").unwrap().queued);
+    c.host.interrupt(&chat).unwrap();
+    c.host
+        .states
+        .set_commit_failure_for_tests(Some("disk full"));
+    c.kiro.emit(&chat, json!({ "type": "turn-completed" }));
+    assert_eq!(c.host.pump().len(), 1);
+    c.host.take_notices();
+    for step in 1..=4 {
+        let now = c.host.states.now() + c.host.interrupt_grace_ms + step;
+        c.host.tick(now);
+        assert_eq!(
+            c.host.stuck_ends(),
+            vec![chat.clone()],
+            "tick {step}: the kept end went"
+        );
+        assert!(c.host.is_busy(&chat), "tick {step}: forced");
+    }
+    assert!(
+        c.kiro.state.lock().unwrap().closed.is_empty(),
+        "the session was force-closed"
+    );
+    assert!(Copy::end_types(&c.host.take_notices()).is_empty());
+    c.host.states.set_commit_failure_for_tests(None);
+    assert!(c.host.pump().is_empty());
+    let notices = c.host.take_notices();
+    assert_eq!(Copy::end_types(&notices), vec!["turn-completed"]);
+    assert_eq!(c.last_reply()["outcome"], json!("completed"));
+    assert_eq!(c.last_reply()["body"], json!("done"));
+    assert_eq!(c.starts(), 2);
+    // The new turn has no deadline of the old one: a later tick forces nothing.
+    c.host
+        .tick(c.host.states.now() + c.host.interrupt_grace_ms + 10);
+    assert!(c.host.is_busy(&chat));
+    assert!(Copy::end_types(&c.host.take_notices()).is_empty());
+}
+
+/// A ready Project whose Chat waits behind a kept end: its later events wait too, within the budget; past it they are
+/// dropped and refused while the Project stays ready and other Chats go on. Once saves hold the kept end folds first,
+/// then the waiting events in order.
+#[test]
+fn events_waiting_behind_a_kept_end_are_bounded_while_ready() {
+    let mut c = copy(false);
+    c.send("one").unwrap();
+    assert!(c.host.pump().is_empty());
+    let chat = c.chat();
+    let turn = c.kiro.current(&chat).unwrap();
+    c.host
+        .states
+        .set_commit_failure_for_tests(Some("disk full"));
+    c.kiro.emit(&chat, json!({ "type": "turn-completed" }));
+    assert_eq!(c.host.pump().len(), 1);
+    c.host.set_parked_budget_for_tests(2, usize::MAX);
+    c.exited(turn);
+    c.exited(turn);
+    let errors = c.host.pump();
+    assert!(
+        errors.iter().all(|e| e.to_string().contains("disk full")),
+        "{errors:?}"
+    );
+    assert_eq!(c.host.parked_for_tests().0, 2);
+    c.exited(turn);
+    let errors = c.host.pump();
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.to_string().contains("too many wait")),
+        "{errors:?}"
+    );
+    assert_eq!(
+        c.host.parked_for_tests().0,
+        2,
+        "past the budget something was kept"
+    );
+    assert!(c.host.is_project_ready(&c.project));
+    c.host.take_notices();
+    c.host.states.set_commit_failure_for_tests(None);
+    assert!(c.host.pump().is_empty());
+    assert_eq!(
+        Copy::end_types(&c.host.take_notices()),
+        vec!["turn-completed"]
+    );
+    assert_eq!(c.last_reply()["outcome"], json!("completed"));
+    assert_eq!(c.host.parked_for_tests(), (0, 0));
+}
