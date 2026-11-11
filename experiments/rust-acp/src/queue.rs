@@ -60,7 +60,9 @@ impl<T> EventSender<T> {
         state.bytes += bytes;
         Ok(())
     }
-    /// Reserved for exactly one terminal event. Does not count against the normal budget.
+    /// Reserved terminal delivery outside the normal budget. Transport uses exactly one exit;
+    /// the fake session seals admission first and uses at most admitted turns + open permissions +
+    /// one closed event. Never use this for ordinary data or an unbounded producer.
     pub(crate) fn force(&self, event: T, bytes: usize) {
         let mut state = self.shared.lock().unwrap();
         if self.tx.send((event, bytes)).is_ok() {

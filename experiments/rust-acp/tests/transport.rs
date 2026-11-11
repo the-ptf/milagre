@@ -670,3 +670,32 @@ async fn unowned_server_methods_get_exact_id_method_not_found_without_consumer()
     }
     rpc.close().await;
 }
+
+#[tokio::test]
+async fn response_boundaries_preserve_wire_order_without_copying_results_into_events() {
+    let mut spec = fake("reply");
+    spec.response_boundaries = true;
+    let (rpc, mut events) = AcpRpc::spawn(spec).unwrap();
+    rpc.request("fake/notify", json!({"method":"session/update","params":{"opaque":true}})).await.unwrap();
+    assert!(matches!(events.recv().await.unwrap(), ServerEvent::Notification(_)));
+    assert!(matches!(events.recv().await.unwrap(),ServerEvent::ResponseBoundary{method} if method=="fake/notify"));
+    assert!(events.try_recv().is_err());
+    rpc.close().await;
+}
+#[tokio::test]
+async fn unowned_request_diagnostics_are_bounded() {
+    let mut spec = fake("reply");
+    spec.owned_server_methods.clear();
+    spec.limits.event_queue = milagre_acp::queue::QueueLimits { max_events: 4, max_bytes: 4096 };
+    let (rpc, mut events) = AcpRpc::spawn(spec).unwrap();
+    let _ = rpc.request("fake/requests", json!({"count":20})).await;
+    assert_eq!(rpc.wait_exit().await.reason, ExitReason::ConsumerStalled);
+    let mut diagnostics = 0;
+    while let Ok(event) = events.try_recv() {
+        if let ServerEvent::Diagnostic(Diagnostic::UnsupportedRequest { method, .. }) = event {
+            assert_eq!(method, "session/request_permission");
+            diagnostics += 1;
+        }
+    }
+    assert!((1..=4).contains(&diagnostics));
+}

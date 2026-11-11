@@ -61,11 +61,24 @@ throwing as Node does; malformed non-object rawInput string spread is scalar-bas
 not UTF-16-based. JS presentation-number coercion is separate from lossless RPC IDs. This
 checkpoint does not claim exhaustive ECMAScript coercion parity for malformed vendor payloads.
 
-Mapper state has no independent lifetime/size bound. The future session layer must bound calls,
-diffs and accumulated thinking, reset the appropriate turn fields, suppress loaded history and
-reject stale/session-mismatched/child updates before calling it. Draining the bounded transport
+The pure mapper has no independent lifetime/size bound. The opt-in fake session now bounds calls,
+diffs and accumulated thinking, resets turn fields and suppresses loaded history. Vendor child
+routing and same-session late-update attribution remain integration gaps. Draining the bounded transport
 into an unbounded mapper or owner queue would remove the transport's memory protection. Native
 session IDs are not owner `TurnId`s. No runtime dispatch is implemented or enabled here.
+
+## Fake session lifecycle
+
+The opt-in `fake-session` feature adds `session::FakeSession`, with a fixed repository fake
+launcher, bounded turn admission/streaming, create/load/resume, response-order boundaries,
+explicit permission answers/cleanup, cancellation, watchdogs and process-exit handling. It has
+no generic vendor launch constructor. Every policy except the fake Ask flow is refused before
+spawn. Twenty-one lifecycle tests include twelve actual Node session traces, forty-turn retention,
+stale/reused request IDs, abandoned answers, output/state budgets and timeout/exit races.
+
+[SESSION-CONTRACT.md](SESSION-CONTRACT.md) is the API proposal for parent/owner review before
+wiring. It describes local turn ownership, delivery uncertainty, budgets, Node differences and
+remaining gates. No owner/provider trait or runtime crate was edited.
 
 ## Bounds, cancellation and cleanup
 
@@ -86,7 +99,14 @@ capacities, vector capacity and conservative per-node/map overhead. No mapper me
 The reader temporarily holds one bounded parsed frame and classification copy; pending results
 have a separate request-count bound. Callers can retain events or create their own tasks.
 Zero/tighter limits fail closed. Extremely large writer limits are clamped to semaphore limits.
-An exact final exit event may exceed the event count budget by one.
+An exact final exit event may exceed the transport event count budget by one.
+
+The frame cap is only a framing ceiling, not a promise that every smaller frame fits the event
+queue. Both raw and params copies remain available. A nearly 8 MiB inline string exceeds the
+16 MiB retained-event budget after overhead and is refused. The fake lifecycle uses a 512 KiB
+frame ceiling and text-only input. Real inline-image handling must define a compatible frame/
+heap budget or remove duplicate storage before integration; no image-size compatibility is
+claimed here.
 
 Only the writer touches stdin. Dropping or timing out a queued request removes its ID and skips
 its frame if writing has not begun. A partially written frame finishes intact; stalled writes
@@ -141,13 +161,15 @@ produce cancellation rather than a malformed selected outcome.
 
 ```text
 cargo test --offline --manifest-path experiments/rust-acp/Cargo.toml
+cargo test --offline --manifest-path experiments/rust-acp/Cargo.toml --features fake-session
 cargo clippy --offline --manifest-path experiments/rust-acp/Cargo.toml --all-targets -- -D warnings
 cargo fmt --manifest-path experiments/rust-acp/Cargo.toml --check
 node experiments/rust-acp/scripts/record-traces.cjs --check
 node experiments/rust-acp/scripts/record-events.cjs --check
+node experiments/rust-acp/scripts/record-session.cjs --check
 ```
 
-This checkpoint passes 56 Rust tests. The recorder executes repository Node ACP helpers and fake agents only. It captures 11 outgoing
+This checkpoint passes 58 default Rust tests, or 79 with `--features fake-session`. The recorder executes repository Node ACP helpers and fake agents only. It captures 11 outgoing
 frames, 12 envelope cases, 128 permission outcomes, 3 environment cases and 10 full fake-session
 traces (including Kiro tool shapes, load history, edits, questions, thought chunks and plans).
 Checkout-root path prefixes alone normalize to `/fixture`; source hashes detect drift. Rust

@@ -1,0 +1,1450 @@
+{
+  "sources": {
+    "packages/shared/src/agent-runs.mjs": "bfda8a66cd891f1b0469431af9c78669a8db064c8cea5c3a60e818cdc8e0adb9",
+    "packages/shared/src/tool-activity.mjs": "c220e638418391fce7e13b8440a91bbe3a088175ef27cfb750095cc2c716a0da",
+    "packages/core/src/agents/acp-rpc.cjs": "702769b847ea03a30c557204eea1c9730da3c0635d825bf666808465ce0e04cf",
+    "packages/core/src/agents/fixtures/fake-acp-agent.cjs": "cbcc552f1b622e664ca6c208c6c4f21ac187c7fc7c35c5b93acc4b2ed3464882",
+    "packages/core/src/agents/acp-session.cjs": "363bed1ff5ef78dc999ace20664199d81fe130a471aea05864b1508d1c966418",
+    "packages/core/src/agents/acp-events.cjs": "e282c657b609c934d02a59993be3ccf4816c5bdb7b970e7c3ca1c8dce1049a60",
+    "packages/core/src/agents/permissions.cjs": "b26d0da47f19465af7ee53f04064adc72eb1a3c493b5582e3e688a714f570e94",
+    "packages/core/src/agents/steps.cjs": "64c56979bba5d24df75fda1d9c6f03e4785077542415d5344f0406cadb3ed5c9",
+    "packages/core/src/agents/tasks.cjs": "d613588383532268c95377b97046e918a1f745847531348746dd2f04b33ab94a",
+    "packages/core/src/agents/questions.cjs": "88480e14edcf42ecedd9573ea52b80d3dea007e4e3b94479fad367681020afdd"
+  },
+  "cases": [
+    {
+      "scenario": "reply",
+      "events": [
+        {
+          "type": "session-started",
+          "nativeId": "sess-1"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "Hel"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "lo"
+        },
+        {
+          "type": "turn-completed"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-2"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-2",
+          "text": "Hel"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-2",
+          "text": "lo"
+        },
+        {
+          "type": "turn-completed"
+        }
+      ],
+      "permissionRequests": [],
+      "permissionCards": [],
+      "replies": [],
+      "state": {
+        "turnId": "turn-2",
+        "hasText": true,
+        "textBreak": false,
+        "steps": [],
+        "calls": [],
+        "editDiffs": [],
+        "mode": "default",
+        "model": "gemini-3.8-flash-high",
+        "models": [
+          {
+            "value": "gemini-3.8-flash-high",
+            "name": "Gemini 3.8 Flash (High)",
+            "description": "gemini-3.8-flash-high"
+          },
+          {
+            "value": "flash-lite-agent",
+            "name": "Gemini 3.8 Flash (Low)",
+            "description": "flash-lite-agent"
+          },
+          {
+            "value": "gemini-pro-agent",
+            "name": "Gemini 3.1 Pro (High)",
+            "description": "gemini-pro-agent"
+          }
+        ],
+        "thinking": null
+      },
+      "frames": [
+        {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "milagre",
+              "title": "Milagre",
+              "version": "fake-session"
+            }
+          }
+        },
+        {
+          "method": "session/new",
+          "params": {
+            "cwd": "/fixture",
+            "mcpServers": []
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "thinking",
+      "events": [
+        {
+          "type": "session-started",
+          "nativeId": "sess-1"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "step-started",
+          "step": {
+            "id": "thinking-1",
+            "kind": "thinking",
+            "title": "Thinking"
+          }
+        },
+        {
+          "type": "step-output",
+          "id": "thinking-1",
+          "text": "Pondering"
+        },
+        {
+          "type": "step-output",
+          "id": "thinking-1",
+          "text": " more"
+        },
+        {
+          "type": "step-completed",
+          "id": "thinking-1",
+          "status": "done",
+          "title": "Thought for 1s",
+          "detail": "Pondering more",
+          "durationMs": 0
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "Done"
+        },
+        {
+          "type": "turn-completed"
+        }
+      ],
+      "permissionRequests": [],
+      "permissionCards": [],
+      "replies": [],
+      "state": {
+        "turnId": "turn-1",
+        "hasText": true,
+        "textBreak": false,
+        "steps": [],
+        "calls": [],
+        "editDiffs": [],
+        "mode": "default",
+        "model": "gemini-3.8-flash-high",
+        "models": [
+          {
+            "value": "gemini-3.8-flash-high",
+            "name": "Gemini 3.8 Flash (High)",
+            "description": "gemini-3.8-flash-high"
+          },
+          {
+            "value": "flash-lite-agent",
+            "name": "Gemini 3.8 Flash (Low)",
+            "description": "flash-lite-agent"
+          },
+          {
+            "value": "gemini-pro-agent",
+            "name": "Gemini 3.1 Pro (High)",
+            "description": "gemini-pro-agent"
+          }
+        ],
+        "thinkingCount": 1,
+        "thinking": null
+      },
+      "frames": [
+        {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "milagre",
+              "title": "Milagre",
+              "version": "fake-session"
+            }
+          }
+        },
+        {
+          "method": "session/new",
+          "params": {
+            "cwd": "/fixture",
+            "mcpServers": []
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "command",
+      "events": [
+        {
+          "type": "session-started",
+          "nativeId": "sess-1"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "step-started",
+          "step": {
+            "id": "cmd-1",
+            "kind": "shell",
+            "title": "Ran `ls`",
+            "detail": "$ ls\n"
+          }
+        },
+        {
+          "type": "context-usage",
+          "used": 1200,
+          "size": 1048576
+        },
+        {
+          "type": "step-completed",
+          "id": "cmd-1",
+          "status": "done",
+          "detail": "$ ls\na.txt\nb.txt\n"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "Two files."
+        },
+        {
+          "type": "turn-completed"
+        }
+      ],
+      "permissionRequests": [],
+      "permissionCards": [],
+      "replies": [],
+      "state": {
+        "turnId": "turn-1",
+        "hasText": true,
+        "textBreak": false,
+        "steps": [],
+        "calls": [],
+        "editDiffs": [],
+        "mode": "default",
+        "model": "gemini-3.8-flash-high",
+        "models": [
+          {
+            "value": "gemini-3.8-flash-high",
+            "name": "Gemini 3.8 Flash (High)",
+            "description": "gemini-3.8-flash-high"
+          },
+          {
+            "value": "flash-lite-agent",
+            "name": "Gemini 3.8 Flash (Low)",
+            "description": "flash-lite-agent"
+          },
+          {
+            "value": "gemini-pro-agent",
+            "name": "Gemini 3.1 Pro (High)",
+            "description": "gemini-pro-agent"
+          }
+        ],
+        "thinking": null
+      },
+      "frames": [
+        {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "milagre",
+              "title": "Milagre",
+              "version": "fake-session"
+            }
+          }
+        },
+        {
+          "method": "session/new",
+          "params": {
+            "cwd": "/fixture",
+            "mcpServers": []
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "failing-command",
+      "events": [
+        {
+          "type": "session-started",
+          "nativeId": "sess-1"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "step-started",
+          "step": {
+            "id": "cmd-1",
+            "kind": "shell",
+            "title": "Ran `ls`",
+            "detail": "$ ls\n"
+          }
+        },
+        {
+          "type": "context-usage",
+          "used": 1200,
+          "size": 1048576
+        },
+        {
+          "type": "step-completed",
+          "id": "cmd-1",
+          "status": "failed",
+          "detail": "$ ls\na.txt\nb.txt\n"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "Two files."
+        },
+        {
+          "type": "turn-completed"
+        }
+      ],
+      "permissionRequests": [],
+      "permissionCards": [],
+      "replies": [],
+      "state": {
+        "turnId": "turn-1",
+        "hasText": true,
+        "textBreak": false,
+        "steps": [],
+        "calls": [],
+        "editDiffs": [],
+        "mode": "default",
+        "model": "gemini-3.8-flash-high",
+        "models": [
+          {
+            "value": "gemini-3.8-flash-high",
+            "name": "Gemini 3.8 Flash (High)",
+            "description": "gemini-3.8-flash-high"
+          },
+          {
+            "value": "flash-lite-agent",
+            "name": "Gemini 3.8 Flash (Low)",
+            "description": "flash-lite-agent"
+          },
+          {
+            "value": "gemini-pro-agent",
+            "name": "Gemini 3.1 Pro (High)",
+            "description": "gemini-pro-agent"
+          }
+        ],
+        "thinking": null
+      },
+      "frames": [
+        {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "milagre",
+              "title": "Milagre",
+              "version": "fake-session"
+            }
+          }
+        },
+        {
+          "method": "session/new",
+          "params": {
+            "cwd": "/fixture",
+            "mcpServers": []
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "permission",
+      "events": [
+        {
+          "type": "session-started",
+          "nativeId": "sess-1"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "picked:deny"
+        },
+        {
+          "type": "turn-completed"
+        }
+      ],
+      "permissionRequests": [
+        {
+          "id": 0,
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "sess-1",
+            "toolCall": {
+              "toolCallId": "cmd-1",
+              "title": "rm -rf build",
+              "kind": "execute",
+              "status": "pending",
+              "rawInput": {
+                "CommandLine": "rm -rf build",
+                "Cwd": "/w"
+              }
+            },
+            "options": [
+              {
+                "optionId": "allow_always",
+                "name": "Allow Always (risky)",
+                "kind": "allow_always"
+              },
+              {
+                "optionId": "allow",
+                "name": "Allow",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "deny",
+                "name": "Deny",
+                "kind": "reject_once"
+              }
+            ]
+          }
+        }
+      ],
+      "permissionCards": [
+        {
+          "type": "permission-request",
+          "requestId": "1:0",
+          "allowForChat": true,
+          "stepId": "cmd-1",
+          "kind": "command",
+          "tool": "Shell",
+          "title": "Run this command?",
+          "command": "rm -rf build",
+          "cwd": "/w"
+        }
+      ],
+      "replies": [
+        {
+          "id": 0,
+          "result": {
+            "outcome": {
+              "outcome": "selected",
+              "optionId": "deny"
+            }
+          }
+        }
+      ],
+      "state": {
+        "turnId": "turn-1",
+        "hasText": true,
+        "textBreak": false,
+        "steps": [],
+        "calls": [],
+        "editDiffs": [],
+        "mode": "default",
+        "model": "gemini-3.8-flash-high",
+        "models": [
+          {
+            "value": "gemini-3.8-flash-high",
+            "name": "Gemini 3.8 Flash (High)",
+            "description": "gemini-3.8-flash-high"
+          },
+          {
+            "value": "flash-lite-agent",
+            "name": "Gemini 3.8 Flash (Low)",
+            "description": "flash-lite-agent"
+          },
+          {
+            "value": "gemini-pro-agent",
+            "name": "Gemini 3.1 Pro (High)",
+            "description": "gemini-pro-agent"
+          }
+        ],
+        "thinking": null
+      },
+      "frames": [
+        {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "milagre",
+              "title": "Milagre",
+              "version": "fake-session"
+            }
+          }
+        },
+        {
+          "method": "session/new",
+          "params": {
+            "cwd": "/fixture",
+            "mcpServers": []
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "edit",
+      "events": [
+        {
+          "type": "session-started",
+          "nativeId": "sess-1"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "step-started",
+          "step": {
+            "id": "run-1",
+            "kind": "edit",
+            "title": "Edited `notes.txt`",
+            "file": "/checkout/notes.txt"
+          }
+        },
+        {
+          "type": "step-completed",
+          "id": "run-1",
+          "status": "done",
+          "title": "Edited `notes.txt`",
+          "detail": "--- /checkout/notes.txt\n+++ /checkout/notes.txt\n@@ -2,1 +2,1 @@\n-b\n+c"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "picked:allow"
+        },
+        {
+          "type": "turn-completed"
+        }
+      ],
+      "permissionRequests": [
+        {
+          "id": 0,
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "sess-1",
+            "toolCall": {
+              "toolCallId": "ask-1",
+              "title": "Run create_file?",
+              "kind": "edit",
+              "status": "pending",
+              "content": [
+                {
+                  "type": "diff",
+                  "path": "/checkout/notes.txt",
+                  "oldText": "a\nb\n",
+                  "newText": "a\nc\n",
+                  "_meta": {
+                    "kind": "modify"
+                  }
+                }
+              ],
+              "locations": [
+                {
+                  "path": "/checkout/notes.txt"
+                }
+              ]
+            },
+            "options": [
+              {
+                "optionId": "allow_always",
+                "name": "Allow Always (risky)",
+                "kind": "allow_always"
+              },
+              {
+                "optionId": "allow",
+                "name": "Allow",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "deny",
+                "name": "Deny",
+                "kind": "reject_once"
+              }
+            ]
+          }
+        }
+      ],
+      "permissionCards": [
+        {
+          "type": "permission-request",
+          "requestId": "1:0",
+          "allowForChat": true,
+          "stepId": "ask-1",
+          "kind": "edit",
+          "tool": "Edit files",
+          "title": "Edit notes.txt?",
+          "files": ["/checkout/notes.txt"],
+          "diff": "--- /checkout/notes.txt\n+++ /checkout/notes.txt\n@@ -2,1 +2,1 @@\n-b\n+c"
+        }
+      ],
+      "replies": [
+        {
+          "id": 0,
+          "result": {
+            "outcome": {
+              "outcome": "selected",
+              "optionId": "allow"
+            }
+          }
+        }
+      ],
+      "state": {
+        "turnId": "turn-1",
+        "hasText": true,
+        "textBreak": true,
+        "steps": [],
+        "calls": [],
+        "editDiffs": [],
+        "mode": "default",
+        "model": "gemini-3.8-flash-high",
+        "models": [
+          {
+            "value": "gemini-3.8-flash-high",
+            "name": "Gemini 3.8 Flash (High)",
+            "description": "gemini-3.8-flash-high"
+          },
+          {
+            "value": "flash-lite-agent",
+            "name": "Gemini 3.8 Flash (Low)",
+            "description": "flash-lite-agent"
+          },
+          {
+            "value": "gemini-pro-agent",
+            "name": "Gemini 3.1 Pro (High)",
+            "description": "gemini-pro-agent"
+          }
+        ],
+        "thinking": null
+      },
+      "frames": [
+        {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "milagre",
+              "title": "Milagre",
+              "version": "fake-session"
+            }
+          }
+        },
+        {
+          "method": "session/new",
+          "params": {
+            "cwd": "/fixture",
+            "mcpServers": []
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "question",
+      "events": [
+        {
+          "type": "session-started",
+          "nativeId": "sess-1"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "picked:red"
+        },
+        {
+          "type": "turn-completed"
+        }
+      ],
+      "permissionRequests": [
+        {
+          "id": 0,
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "sess-1",
+            "toolCall": {
+              "toolCallId": "interaction_7",
+              "title": "Which color?",
+              "kind": "other",
+              "status": "pending"
+            },
+            "options": [
+              {
+                "optionId": "red",
+                "name": "Red",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "green",
+                "name": "Green",
+                "kind": "allow_once"
+              }
+            ]
+          }
+        }
+      ],
+      "permissionCards": [
+        {
+          "type": "question-request",
+          "requestId": "1:0",
+          "questions": [
+            {
+              "id": "0",
+              "header": "",
+              "question": "Which color?",
+              "options": [
+                {
+                  "label": "Red"
+                },
+                {
+                  "label": "Green"
+                }
+              ],
+              "multiSelect": false,
+              "allowOther": false,
+              "secret": false
+            }
+          ]
+        }
+      ],
+      "replies": [
+        {
+          "id": 0,
+          "result": {
+            "outcome": {
+              "outcome": "selected",
+              "optionId": "red"
+            }
+          }
+        }
+      ],
+      "state": {
+        "turnId": "turn-1",
+        "hasText": true,
+        "textBreak": false,
+        "steps": [],
+        "calls": [],
+        "editDiffs": [],
+        "mode": "default",
+        "model": "gemini-3.8-flash-high",
+        "models": [
+          {
+            "value": "gemini-3.8-flash-high",
+            "name": "Gemini 3.8 Flash (High)",
+            "description": "gemini-3.8-flash-high"
+          },
+          {
+            "value": "flash-lite-agent",
+            "name": "Gemini 3.8 Flash (Low)",
+            "description": "flash-lite-agent"
+          },
+          {
+            "value": "gemini-pro-agent",
+            "name": "Gemini 3.1 Pro (High)",
+            "description": "gemini-pro-agent"
+          }
+        ],
+        "thinking": null
+      },
+      "frames": [
+        {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "milagre",
+              "title": "Milagre",
+              "version": "fake-session"
+            }
+          }
+        },
+        {
+          "method": "session/new",
+          "params": {
+            "cwd": "/fixture",
+            "mcpServers": []
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "plan",
+      "events": [
+        {
+          "type": "session-started",
+          "nativeId": "sess-1"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "tasks-updated",
+          "tasks": [
+            {
+              "id": "0",
+              "content": "Read",
+              "status": "completed"
+            },
+            {
+              "id": "1",
+              "content": "Write",
+              "status": "in_progress"
+            },
+            {
+              "id": "2",
+              "content": "Test",
+              "status": "pending"
+            }
+          ]
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "Planned"
+        },
+        {
+          "type": "turn-completed"
+        }
+      ],
+      "permissionRequests": [],
+      "permissionCards": [],
+      "replies": [],
+      "state": {
+        "turnId": "turn-1",
+        "hasText": true,
+        "textBreak": false,
+        "steps": [],
+        "calls": [],
+        "editDiffs": [],
+        "mode": "default",
+        "model": "gemini-3.8-flash-high",
+        "models": [
+          {
+            "value": "gemini-3.8-flash-high",
+            "name": "Gemini 3.8 Flash (High)",
+            "description": "gemini-3.8-flash-high"
+          },
+          {
+            "value": "flash-lite-agent",
+            "name": "Gemini 3.8 Flash (Low)",
+            "description": "flash-lite-agent"
+          },
+          {
+            "value": "gemini-pro-agent",
+            "name": "Gemini 3.1 Pro (High)",
+            "description": "gemini-pro-agent"
+          }
+        ],
+        "thinking": null
+      },
+      "frames": [
+        {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "milagre",
+              "title": "Milagre",
+              "version": "fake-session"
+            }
+          }
+        },
+        {
+          "method": "session/new",
+          "params": {
+            "cwd": "/fixture",
+            "mcpServers": []
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "kiro",
+      "events": [
+        {
+          "type": "session-started",
+          "nativeId": "sess-1"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "Hel"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "lo"
+        },
+        {
+          "type": "turn-completed",
+          "credits": 0.04
+        }
+      ],
+      "permissionRequests": [],
+      "permissionCards": [],
+      "replies": [],
+      "state": {
+        "turnId": "turn-1",
+        "hasText": true,
+        "textBreak": false,
+        "steps": [],
+        "calls": [],
+        "editDiffs": [],
+        "turnCredits": 0.04,
+        "mode": "vibe",
+        "model": "auto",
+        "models": [
+          {
+            "value": "auto",
+            "name": "Auto",
+            "description": "Models chosen by task",
+            "_meta": {
+              "kiro": {
+                "rateMultiplier": 1,
+                "rateUnit": "Credit"
+              }
+            }
+          },
+          {
+            "value": "claude-opus-5.5",
+            "name": "Claude Opus 5.5",
+            "description": "Claude Opus 5.5 model with 1M context window",
+            "_meta": {
+              "kiro": {
+                "rateMultiplier": 2,
+                "rateUnit": "Credit",
+                "effortLevels": ["low", "medium", "high", "xhigh", "max"],
+                "defaultEffortLevel": "medium"
+              }
+            }
+          }
+        ],
+        "autopilot": "off",
+        "thinking": null
+      },
+      "frames": [
+        {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "milagre",
+              "title": "Milagre",
+              "version": "fake-session"
+            }
+          }
+        },
+        {
+          "method": "session/new",
+          "params": {
+            "cwd": "/fixture",
+            "mcpServers": []
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "kiro-tools",
+      "events": [
+        {
+          "type": "session-started",
+          "nativeId": "sess-1"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "picked:deny,deny,deny"
+        },
+        {
+          "type": "turn-completed"
+        }
+      ],
+      "permissionRequests": [
+        {
+          "id": 0,
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "sess-1",
+            "toolCall": {
+              "toolCallId": "edit-1",
+              "title": "Edit notes.txt"
+            },
+            "options": [
+              {
+                "optionId": "allow_always",
+                "name": "Allow Always (risky)",
+                "kind": "allow_always"
+              },
+              {
+                "optionId": "allow",
+                "name": "Allow",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "deny",
+                "name": "Deny",
+                "kind": "reject_once"
+              }
+            ]
+          }
+        },
+        {
+          "id": 1,
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "sess-1",
+            "toolCall": {
+              "toolCallId": "run-1",
+              "title": "git status --short"
+            },
+            "options": [
+              {
+                "optionId": "allow_always",
+                "name": "Allow Always (risky)",
+                "kind": "allow_always"
+              },
+              {
+                "optionId": "allow",
+                "name": "Allow",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "deny",
+                "name": "Deny",
+                "kind": "reject_once"
+              }
+            ]
+          }
+        },
+        {
+          "id": 2,
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "sess-1",
+            "toolCall": {
+              "toolCallId": "run-2",
+              "title": "git push origin main"
+            },
+            "options": [
+              {
+                "optionId": "allow_always",
+                "name": "Allow Always (risky)",
+                "kind": "allow_always"
+              },
+              {
+                "optionId": "allow",
+                "name": "Allow",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "deny",
+                "name": "Deny",
+                "kind": "reject_once"
+              }
+            ]
+          }
+        }
+      ],
+      "permissionCards": [
+        {
+          "type": "permission-request",
+          "requestId": "1:0",
+          "allowForChat": true,
+          "stepId": "edit-1",
+          "kind": "edit",
+          "tool": "Edit files",
+          "title": "Create notes.txt?",
+          "files": ["/checkout/notes.txt"],
+          "diff": "--- /checkout/notes.txt\n+++ /checkout/notes.txt\n@@ -0,0 +1,1 @@\n+hello"
+        },
+        {
+          "type": "permission-request",
+          "requestId": "1:1",
+          "allowForChat": true,
+          "stepId": "run-1",
+          "kind": "command",
+          "tool": "Shell",
+          "title": "Run this command?",
+          "command": "git status --short",
+          "cwd": "/checkout"
+        },
+        {
+          "type": "permission-request",
+          "requestId": "1:2",
+          "allowForChat": true,
+          "stepId": "run-2",
+          "kind": "command",
+          "tool": "Shell",
+          "title": "Run this command?",
+          "command": "git push origin main",
+          "cwd": "/checkout"
+        }
+      ],
+      "replies": [
+        {
+          "id": 0,
+          "result": {
+            "outcome": {
+              "outcome": "selected",
+              "optionId": "deny"
+            }
+          }
+        },
+        {
+          "id": 1,
+          "result": {
+            "outcome": {
+              "outcome": "selected",
+              "optionId": "deny"
+            }
+          }
+        },
+        {
+          "id": 2,
+          "result": {
+            "outcome": {
+              "outcome": "selected",
+              "optionId": "deny"
+            }
+          }
+        }
+      ],
+      "state": {
+        "turnId": "turn-1",
+        "hasText": true,
+        "textBreak": false,
+        "steps": [],
+        "calls": [],
+        "editDiffs": [],
+        "mode": "vibe",
+        "model": "auto",
+        "models": [
+          {
+            "value": "auto",
+            "name": "Auto",
+            "description": "Models chosen by task",
+            "_meta": {
+              "kiro": {
+                "rateMultiplier": 1,
+                "rateUnit": "Credit"
+              }
+            }
+          },
+          {
+            "value": "claude-opus-5.5",
+            "name": "Claude Opus 5.5",
+            "description": "Claude Opus 5.5 model with 1M context window",
+            "_meta": {
+              "kiro": {
+                "rateMultiplier": 2,
+                "rateUnit": "Credit",
+                "effortLevels": ["low", "medium", "high", "xhigh", "max"],
+                "defaultEffortLevel": "medium"
+              }
+            }
+          }
+        ],
+        "autopilot": "off",
+        "thinking": null
+      },
+      "frames": [
+        {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "milagre",
+              "title": "Milagre",
+              "version": "fake-session"
+            }
+          }
+        },
+        {
+          "method": "session/new",
+          "params": {
+            "cwd": "/fixture",
+            "mcpServers": []
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "no-resume",
+      "events": [
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "Hel"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "lo"
+        },
+        {
+          "type": "turn-completed"
+        }
+      ],
+      "permissionRequests": [],
+      "permissionCards": [],
+      "replies": [],
+      "state": {
+        "turnId": "turn-1",
+        "hasText": true,
+        "textBreak": false,
+        "steps": [],
+        "calls": [],
+        "editDiffs": [],
+        "mode": "default",
+        "model": "gemini-3.8-flash-high",
+        "models": [
+          {
+            "value": "gemini-3.8-flash-high",
+            "name": "Gemini 3.8 Flash (High)",
+            "description": "gemini-3.8-flash-high"
+          },
+          {
+            "value": "flash-lite-agent",
+            "name": "Gemini 3.8 Flash (Low)",
+            "description": "flash-lite-agent"
+          },
+          {
+            "value": "gemini-pro-agent",
+            "name": "Gemini 3.1 Pro (High)",
+            "description": "gemini-pro-agent"
+          }
+        ],
+        "thinking": null
+      },
+      "frames": [
+        {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "milagre",
+              "title": "Milagre",
+              "version": "fake-session"
+            }
+          }
+        },
+        {
+          "method": "session/load",
+          "params": {
+            "sessionId": "saved",
+            "cwd": "/fixture",
+            "mcpServers": []
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "slow",
+      "events": [
+        {
+          "type": "session-started",
+          "nativeId": "sess-1"
+        },
+        {
+          "type": "turn-started",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "text-delta",
+          "messageId": "turn-1",
+          "text": "Working"
+        },
+        {
+          "type": "turn-cancelled"
+        }
+      ],
+      "permissionRequests": [],
+      "permissionCards": [],
+      "replies": [],
+      "state": {
+        "turnId": "turn-1",
+        "hasText": true,
+        "textBreak": false,
+        "steps": [],
+        "calls": [],
+        "editDiffs": [],
+        "mode": "default",
+        "model": "gemini-3.8-flash-high",
+        "models": [
+          {
+            "value": "gemini-3.8-flash-high",
+            "name": "Gemini 3.8 Flash (High)",
+            "description": "gemini-3.8-flash-high"
+          },
+          {
+            "value": "flash-lite-agent",
+            "name": "Gemini 3.8 Flash (Low)",
+            "description": "flash-lite-agent"
+          },
+          {
+            "value": "gemini-pro-agent",
+            "name": "Gemini 3.1 Pro (High)",
+            "description": "gemini-pro-agent"
+          }
+        ],
+        "thinking": null
+      },
+      "frames": [
+        {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "milagre",
+              "title": "Milagre",
+              "version": "fake-session"
+            }
+          }
+        },
+        {
+          "method": "session/new",
+          "params": {
+            "cwd": "/fixture",
+            "mcpServers": []
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -6,6 +6,10 @@ publish = false
 license = "MIT"
 description = "Isolated bounded ACP process/protocol checkpoint for Milagre"
 
+[features]
+default = []
+fake-session = []
+
 [workspace]
 
 [[bin]]

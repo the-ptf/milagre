@@ -1,16 +1,16 @@
 # ACP integration inventory
 
-Source review: 2026-11-11. This crate implements process/protocol transport and pure event mapping. Codex runtime
+Source review: 2026-11-11. This crate implements process/protocol transport, pure event mapping and an opt-in fake-only lifecycle. Codex runtime
 bridge ownership stays with its existing agent. No owner/runtime/provider crate was edited.
 No proprietary SDK implementation was copied; only repository-owned Node and Rust code was used.
 
-## Session and event checkpoint still required
+## Fake lifecycle implemented; real session integration still blocked
 
 Node [acp-session.cjs](../../packages/core/src/agents/acp-session.cjs) owns lazy startup, session
 identity, prompt queueing, instruction injection, resume/load fallback, history suppression,
 model/effort/mode selection, pending permission/question lifetimes, turn terminal events, restart
-and throwaway-session deletion. The new Rust client supplies explicit wire calls only. Loaded
-history is forwarded raw, not suppressed. Native session IDs are not owner logical `TurnId`s.
+and throwaway-session deletion. The raw Rust client supplies explicit wire calls only. Its loaded
+history remains raw. The opt-in fake session suppresses replay through an ordered response boundary. Native session IDs are not owner logical `TurnId`s.
 
 The pure [acp-events.cjs](../../packages/core/src/agents/acp-events.cjs) mapper is now ported in
 `events`: text/thinking, ordered tool-call merging, edits/approval diff reuse, plans, usage,
@@ -18,12 +18,14 @@ model/config updates, Kiro credits, heartbeat references and stop reasons. It ha
 Node parity traces plus three explicit surrogate-boundary deviation fixtures. The recorder calls
 actual Node functions and checks source hashes. See README for schema/Unicode/POSIX boundaries.
 
-Still outside the mapper: session/update session/turn validation, replay suppression, subagent
-routing, permission lifecycle, tool images, refusal overlays and turn settlement. A pure
+The fake session now handles bounded turn admission/settlement, replay suppression, session ID
+filtering, raw permission lifecycle, deadlines and process exit. Subagent routing, tool images,
+refusal overlays and attribution of untagged same-session late updates remain gaps. A pure
 `stop_reason_event` is not owner terminal attribution. The mapper retains tool metadata and raw
 call inputs; owner policy must consume the original request, not presentation/redacted output.
-State is caller-owned and unbounded across updates; the session layer must enforce retained
-call/diff/thinking budgets as well as the existing transport budget before runtime use.
+The pure mapper remains caller-owned. The fake session enforces retained call/diff/thinking
+budgets, accounts for indexes and clears turn state. These bounds are not yet owner runtime wiring.
+See [SESSION-CONTRACT.md](SESSION-CONTRACT.md) for the proposed API and integration decisions.
 
 Owner adapters must bind every Agent/Exited event to a logical `TurnId` before consuming updates,
 respect `tick(now)`, `shutdown(force)` and `forget(project, force)`, and coordinate prompt/cancel
@@ -73,7 +75,8 @@ Do not enable constrained roles by assigning a provider mode. Do not treat Kiro 
 Antigravity Auto mode as isolation. The parent classifier's existence proves none of these
 execution preconditions or dispatch checks.
 
-Port permission extraction/question mapping and merge tool-call state before decisions. Require
+The fake session merges tool-call context and requires explicit once-only answers. Port permission
+card/question UI mapping and host policy before real decisions. Require
 raw/canonical path checks, exact host manifest and wake scope, command classification before Full
 mode and shortcut answers, and independent MCP dispatch enforcement. Once-only remote writes
 must never select `allow_always` when the provider omits an `allow_once` option.
@@ -88,8 +91,8 @@ instructions all remain owner or later-checkpoint responsibilities.
 
 ## Next bounded work
 
-1. Build a fake-only session state machine for load replay, prompt queueing and cancellation,
-   with explicit immutable policy inputs and fail-closed unsupported roles.
+1. Review `SESSION-CONTRACT.md` with parent/owner10960: owner TurnId, tick/shutdown/forget,
+   event backpressure, permission lifecycle and same-session late-update attribution.
 2. Finish vendor process-tree/profile isolation and host guard contracts before proposing any
    real provider or owner-runtime integration.
 
@@ -98,12 +101,20 @@ instructions all remain owner or later-checkpoint responsibilities.
 The 65,536-token parser cap is intentionally stricter than Node. Dense valid updates or large
 inline media may exceed it even below the 8 MiB frame cap. Validate real vendor payload shapes
 before adjusting the cap; retain the parsed-allocation queue budget and dense-frame regression.
-No startup/prompt progress watchdog exists beyond explicit request timeouts and client cancellation
-grace. Prompt requests deliberately have no automatic deadline. The session owner must define
-idle/progress watchdog policy and logical turn attribution before runtime integration.
+The raw RPC/client still have only request timeouts and cancellation grace. The fake lifecycle
+adds startup, absolute turn, idle progress, permission-age and cleanup deadlines. The owner must
+choose production watchdog policy and integrate its clock/turn attribution before runtime use.
 
 Server methods default to unowned and receive `-32601`. A future permission/question/filesystem/
 terminal dispatcher must explicitly claim methods it implements. Claimed requests have count
-bounds but no answer-age watchdog; failing to settle them is an owner lifecycle gap. Permission
+bounds at the raw layer. The fake session adds answer-age deadlines and closed-request cleanup;
+real host dispatch and policy remain owner integration gaps. Permission
 reply cancellation or failure has uncertain delivery: even process kill cannot prove a completed
 reply was not delivered or a tool did not run. No automatic retry or definitive non-execution claim.
+
+Provider `_meta` and mapper Routine/heartbeat references remain untrusted display data. The owner
+must validate identity/ownership before associating records; these fields never authorize actions.
+Raw transport's 8 MiB frame ceiling and 16 MiB parsed-event budget are independent. Near-ceiling
+inline images exceed the latter because raw+params are both retained. The fake session caps frames
+at 512 KiB and accepts text-only input; real image transport still needs a compatible limit/copy
+design. Unowned methods now emit a bounded rejection diagnostic as well as a queued `-32601`.

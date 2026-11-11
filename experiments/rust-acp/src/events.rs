@@ -7,6 +7,8 @@ use serde_json::{json, Map, Value};
 #[derive(Debug, Clone, Default)]
 pub struct AcpEventState {
     fields: Map<String, Value>,
+    calls_index: std::collections::HashMap<String, usize>,
+    diffs_index: std::collections::HashMap<String, usize>,
 }
 impl AcpEventState {
     pub fn new(turn_id: Value) -> Self {
@@ -44,10 +46,66 @@ impl AcpEventState {
                 return Err("ACP thinking snapshot requires id, text and numeric startedAt");
             }
         }
-        Ok(Self { fields })
+        let index = |key: &str| {
+            fields
+                .get(key)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .map(|(i, row)| (row[0].as_str().unwrap().to_owned(), i))
+                .collect()
+        };
+        Ok(Self { calls_index: index("calls"), diffs_index: index("editDiffs"), fields })
     }
     pub fn snapshot(&self) -> Value {
         Value::Object(self.fields.clone())
+    }
+    /// Conservative retained-allocation charge, shared with the process event budget.
+    pub fn retained_weight(&self) -> usize {
+        self.fields
+            .iter()
+            .fold(self.index_weight(), |sum, (k, v)| sum.saturating_add(256 + k.capacity()).saturating_add(crate::rpc::value_weight(v)))
+    }
+    fn index_weight(&self) -> usize {
+        [&self.calls_index, &self.diffs_index].iter().fold(64usize, |sum, index| {
+            index.keys().fold(sum.saturating_add(index.capacity().saturating_mul(128)), |sum, k| sum.saturating_add(k.capacity()))
+        })
+    }
+    #[cfg(feature = "fake-session")]
+    pub(crate) fn field(&self, key: &str) -> Option<&Value> {
+        self.get(key)
+    }
+    #[cfg(feature = "fake-session")]
+    pub(crate) fn begin_turn(&mut self, id: &str) {
+        self.put("turnId", id.into());
+        self.put("hasText", false.into());
+        self.put("textBreak", false.into());
+        self.fields.remove("turnCredits");
+    }
+    #[cfg(feature = "fake-session")]
+    pub(crate) fn clear_turn(&mut self) {
+        for key in ["calls", "steps", "editDiffs"] {
+            self.put(key, json!([]));
+        }
+        self.calls_index.clear();
+        self.diffs_index.clear();
+        self.put("thinking", Value::Null);
+    }
+    #[cfg(feature = "fake-session")]
+    pub(crate) fn merged_call(&self, call: &Value) -> Value {
+        let id = js::string(call.get("toolCallId"));
+        let known = self.map_get("calls", &id);
+        let mut merged = known.map(js::entries).unwrap_or_default();
+        merged.extend(js::entries(call));
+        if js::truthy(known.and_then(|v| v.get("rawInput"))) || js::truthy(call.get("rawInput")) {
+            let mut input = known.and_then(|v| v.get("rawInput")).map(js::entries).unwrap_or_default();
+            if let Some(input_update) = call.get("rawInput") {
+                input.extend(js::entries(input_update));
+            }
+            merged.insert("rawInput".into(), Value::Object(input));
+        }
+        Value::Object(merged)
     }
     fn get(&self, key: &str) -> Option<&Value> {
         self.fields.get(key)
@@ -61,19 +119,42 @@ impl AcpEventState {
         }
         self.fields.get_mut(key).unwrap().as_array_mut().expect("validated state array")
     }
+    fn index(&self, key: &str) -> &std::collections::HashMap<String, usize> {
+        if key == "calls" {
+            &self.calls_index
+        } else {
+            &self.diffs_index
+        }
+    }
+    fn index_mut(&mut self, key: &str) -> &mut std::collections::HashMap<String, usize> {
+        if key == "calls" {
+            &mut self.calls_index
+        } else {
+            &mut self.diffs_index
+        }
+    }
     fn map_get(&self, key: &str, id: &str) -> Option<&Value> {
-        self.get(key)?.as_array()?.iter().find(|v| v[0] == id).map(|v| &v[1])
+        let i = *self.index(key).get(id)?;
+        self.get(key)?.as_array()?.get(i).map(|row| &row[1])
     }
     fn map_set(&mut self, key: &str, id: &str, value: Value) {
-        let rows = self.array(key);
-        if let Some(row) = rows.iter_mut().find(|v| v[0] == id) {
-            row[1] = value;
+        if let Some(&i) = self.index(key).get(id) {
+            self.array(key)[i][1] = value;
         } else {
-            rows.push(json!([id, value]));
+            let i = self.array(key).len();
+            self.array(key).push(json!([id, value]));
+            self.index_mut(key).insert(id.to_owned(), i);
         }
     }
     fn map_remove(&mut self, key: &str, id: &str) {
-        self.array(key).retain(|v| v[0] != id);
+        if let Some(i) = self.index_mut(key).remove(id) {
+            self.array(key).remove(i);
+            for at in self.index_mut(key).values_mut() {
+                if *at > i {
+                    *at -= 1;
+                }
+            }
+        }
     }
 }
 fn first<'a>(v: &'a Value, keys: &[&str]) -> Option<&'a str> {
@@ -444,9 +525,9 @@ pub fn map_acp_update(update: &Value, state: &mut AcpEventState, now_ms: i64) ->
                 events.push(json!({"type":"step-started","step":{"id":id,"kind":"thinking","title":"Thinking"}}));
             }
             let thinking = state.fields.get_mut("thinking").unwrap();
-            let mut text = js::string(thinking.get("text"));
-            text.push_str(value);
-            thinking["text"] = text.into();
+            if let Value::String(text) = &mut thinking["text"] {
+                text.push_str(value);
+            }
             events.push(json!({"type":"step-output","id":thinking["id"],"text":value}));
             events
         }
@@ -512,8 +593,9 @@ fn tool_events(update: &Value, state: &mut AcpEventState, now_ms: i64) -> Vec<Va
     for key in ["calls", "steps", "editDiffs"] {
         state.array(key);
     }
-    let previous = state.map_get("calls", &id).cloned().unwrap_or(json!({}));
-    let mut call = js::entries(&previous);
+    let empty = json!({});
+    let previous = state.map_get("calls", &id).unwrap_or(&empty);
+    let mut call = js::entries(previous);
     for (key, value) in js::entries(update) {
         if key != "sessionUpdate" {
             call.insert(key, value);
@@ -525,14 +607,23 @@ fn tool_events(update: &Value, state: &mut AcpEventState, now_ms: i64) -> Vec<Va
         call.insert("rawInput".into(), Value::Object(input));
     }
     let call = Value::Object(call);
-    state.map_set("calls", &id, call.clone());
     let status = call.get("status").filter(|v| !v.is_null()).cloned().unwrap_or(json!("in_progress"));
     let own = diffs_of(&call);
     if status == "pending" {
-        for diff in &own {
-            let path = diff["path"].as_str().unwrap();
-            state.map_set("editDiffs", path, Value::Array(own.iter().filter(|v| v["path"] == path).cloned().collect()));
+        let mut groups: Vec<(String, Vec<Value>)> = Vec::new();
+        let mut positions = std::collections::HashMap::new();
+        for diff in own {
+            let path = diff["path"].as_str().unwrap().to_owned();
+            let i = *positions.entry(path.clone()).or_insert_with(|| {
+                groups.push((path, Vec::new()));
+                groups.len() - 1
+            });
+            groups[i].1.push(diff);
         }
+        for (path, diffs) in groups {
+            state.map_set("editDiffs", &path, Value::Array(diffs));
+        }
+        state.map_set("calls", &id, call);
         return vec![];
     }
     let file = file_of(&call);
@@ -565,9 +656,12 @@ fn tool_events(update: &Value, state: &mut AcpEventState, now_ms: i64) -> Vec<Va
         let mut end = json!({"type":"step-completed"});
         end.as_object_mut().unwrap().extend(acp_step_result(&call, Some(&diffs)).as_object().unwrap().clone());
         events.push(end);
-    } else if !started {
-        state.array("steps").push(id.into());
-        events.push(json!({"type":"step-started","step":acp_step(&call,Some(&diffs))}));
+    } else {
+        if !started {
+            state.array("steps").push(id.clone().into());
+            events.push(json!({"type":"step-started","step":acp_step(&call,Some(&diffs))}));
+        }
+        state.map_set("calls", &id, call);
     }
     events
 }

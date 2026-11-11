@@ -38,8 +38,8 @@ pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 pub struct Limits {
-    /// Largest frame accepted in either direction, newline excluded. ACP agent inlines generated images
-    /// as base64 in `item/completed`, so this is generous.
+    /// Frame ceiling in either direction, newline excluded. Inline base64 content also has to fit
+    /// the independent parsed event heap budget, which charges both raw and params copies.
     pub max_frame_bytes: usize,
     /// Structural tokens before JSON allocation; strings remain bounded by frame bytes.
     pub max_json_tokens: usize,
@@ -91,6 +91,8 @@ pub struct SpawnOptions {
     pub limits: Limits,
     /// Exact server methods deliberately handled by the event consumer. Others get -32601.
     pub owned_server_methods: Vec<String>,
+    /// Emit ordered response boundaries before completing client request futures.
+    pub response_boundaries: bool,
 }
 
 /// Never prints the environment: it holds API keys and tokens.
@@ -115,6 +117,7 @@ impl SpawnOptions {
             env: Some(Vec::new()),
             limits: Limits::default(),
             owned_server_methods: Vec::new(),
+            response_boundaries: false,
         }
     }
 
@@ -249,6 +252,8 @@ pub struct ExitInfo {
 pub enum Diagnostic {
     /// An answer to an id nobody waits on any more (timed out, cancelled) or never sent.
     UnmatchedResponse { id: RequestId },
+    /// The method was not claimed by the consumer; a -32601 answer was queued.
+    UnsupportedRequest { id: RequestId, method: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -256,6 +261,10 @@ pub enum ServerEvent {
     Notification(Notification),
     Request(ServerRequest),
     Diagnostic(Diagnostic),
+    /// Opt-in wire-order marker for a matched response; its future resolves after this is queued.
+    ResponseBoundary {
+        method: String,
+    },
     /// Nonblank stdout/stderr lines, including sign-in URLs. Sensitive diagnostic data.
     Line {
         stream: Stream,
@@ -268,7 +277,7 @@ pub enum ServerEvent {
 // Retained-allocation charge, not wire size or an RSS measurement. Saturating arithmetic
 // fails closed. Arrays use allocated capacity; the map allowance covers indexmap buckets,
 // growth slack and allocation headers. Every node includes a generous fixed allowance.
-fn value_weight(value: &Value) -> usize {
+pub(crate) fn value_weight(value: &Value) -> usize {
     let dynamic = match value {
         Value::String(s) => s.capacity(),
         Value::Number(n) => n.to_string().len().saturating_mul(4),
@@ -292,6 +301,10 @@ fn event_weight(event: &ServerEvent) -> usize {
             .saturating_add(value_weight(&r.params))
             .saturating_add(value_weight(&r.raw)),
         ServerEvent::Diagnostic(Diagnostic::UnmatchedResponse { id }) => value_weight(&id.to_value()),
+        ServerEvent::Diagnostic(Diagnostic::UnsupportedRequest { id, method }) => {
+            value_weight(&id.to_value()).saturating_add(method.capacity())
+        }
+        ServerEvent::ResponseBoundary { method } => method.capacity(),
         ServerEvent::Line { line, .. } => line.capacity(),
         ServerEvent::Exit(info) => info.detail.capacity(),
     };
@@ -352,6 +365,7 @@ struct Shared {
     counters: Counters,
     command_name: String,
     owned_server_methods: Vec<String>,
+    response_boundaries: bool,
     writer: mpsc::UnboundedSender<WriterMsg>,
     writer_slots: Arc<tokio::sync::Semaphore>,
     writer_bytes: Arc<tokio::sync::Semaphore>,
@@ -445,8 +459,10 @@ impl Shared {
                 if !self.owned_server_methods.contains(&method) {
                     // No task per request and no wait in the reader. Refusals share the bounded
                     // single writer; saturation stops the peer instead of leaving it hanging.
-                    if self.reject_unsupported(id).is_err() {
+                    if self.reject_unsupported(id.clone()).is_err() {
                         self.stop(StopCause::InputStalled);
+                    } else {
+                        self.emit(ServerEvent::Diagnostic(Diagnostic::UnsupportedRequest { id, method }), 0);
                     }
                     return;
                 }
@@ -463,6 +479,9 @@ impl Shared {
                     return self.emit(ServerEvent::Diagnostic(Diagnostic::UnmatchedResponse { id }), 64);
                 };
                 self.counters.responses_matched.fetch_add(1, Ordering::Relaxed);
+                if self.response_boundaries {
+                    self.emit(ServerEvent::ResponseBoundary { method: waiter.method.clone() }, 0);
+                }
                 let result = outcome.map_err(|error| RpcError::Server {
                     message: if error.message.is_empty() { format!("ACP agent {} failed.", waiter.method) } else { error.message },
                     method: waiter.method,
@@ -784,6 +803,7 @@ impl AcpRpc {
             counters: Counters::default(),
             command_name,
             owned_server_methods: options.owned_server_methods,
+            response_boundaries: options.response_boundaries,
             writer: writer.clone(),
             writer_slots: writer_slots.clone(),
             writer_bytes: writer_bytes.clone(),
