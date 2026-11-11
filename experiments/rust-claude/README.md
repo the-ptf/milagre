@@ -221,7 +221,7 @@ cargo fmt --check
   commands, login/rate-limit errors and suggestions; child tasks/transcripts/status/progress and
   background sets. Its generator uses a deterministic clock. The transcript-tail case feeds 105
   messages and compares the final 100-row snapshots and cumulative progress.
-- `tests/session.rs` covers 24 integration cases, including eight Node `ClaudeSession` traces:
+- `tests/session.rs` covers 26 integration cases, including eight Node `ClaudeSession` traces:
   starts/steering, implicit turns, notification-only turns, suggestions, permissions/questions,
   settings ordering, can-start, resume/login/crashes, backpressure, oversize sends, dropped startup,
   dropped steering, dropped close, session drop and interrupt grace. Fake processes only. Existing
@@ -259,7 +259,8 @@ Owner integration and remaining mapping:
 4. Owner policy/config assembly: real `WorkspaceAccess` root tracking/learning, babysit and wake
    guard rules, `advisorPolicy`, QA agents, `sessionInstructions`, linked tools and settings discovery
    are not implemented. Access and pre-tool guard interfaces accept owner-supplied decisions, but
-   do not supply safe analysis/advisor policies on their own. Execution-advisor disallowed tools,
+   do not supply safe analysis/advisor policies on their own. `analysis_only` sessions now fail
+   before spawn with `SessionError::UnsupportedAnalysis`, regardless of mode or launch allow rules. Execution-advisor disallowed tools,
    question denial, SubagentStart context, MCP off toggles, prompt-suggestion gating, reply style,
    effort/ultracode/fast mode ordering and task output are implemented. `prompt_suggestions` is an
    explicit option; the owner must read the user's setting. Per-turn wake/babysit guard replacement
@@ -297,3 +298,29 @@ Protocol and process:
     20,000-unit cap.
 16. Process-group helpers duplicate `experiments/rust-providers`; sharing them is left for the owner
     integration.
+
+## Session safety review checkpoint
+
+Analysis-only sessions are refused before spawn until the full advisor tools/settings/MCP policy
+exists. Setting `analysis_only` cannot enable a partially protected CLI.
+
+Auto mode resolves pending edits only after checking their raw string paths against an absolute,
+existing cwd, canonicalized as supplied. New files use their nearest existing ancestor; symlink
+escapes, dangling/looping links, empty paths, `..` in requested paths and missing/relative cwd fail
+closed. A mode switch rechecks every waiting edit, so a path authorized when a card was created is
+not cached through a later symlink replacement. The check and pending-mode resolution hold the same
+session lock. This deliberately tightens Node's lexical `insideRoot`, matching rust-providers
+40425d7a's canonical rules. Filesystem changes after authorization still need OS/CLI enforcement;
+this is not a filesystem sandbox.
+
+Dropping an initial turn start still closes its owned process. Dropping a steer before queue
+acceptance discards only that message; it does not dismiss questions, mark the turn steered or end
+the session. A mode change already applied by that request remains applied; an interrupted control
+reply leaves the native mode unknown so a later mode request reapplies it. Accepted user frames
+remain owned by the transport even if their caller goes away. Acceptance is enqueue, not CLI
+execution acknowledgement. `can_start` also gates steers after pending mode changes.
+
+The owner's event consumer must drain concurrently with start and mode calls. Those operations
+remain serialized, so public mode updates can wait behind startup or a full event queue. First-turn
+cancellation, mode-update responsiveness, CLI delivery acknowledgement and per-turn policy injection
+must be accounted for when adapting to the owner's nonblocking `Provider`/`TurnId` API.

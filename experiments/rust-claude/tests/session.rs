@@ -370,27 +370,43 @@ async fn session_traces_match_node_claude_session() {
 }
 
 #[tokio::test]
-async fn dropped_steer_during_mode_change_cannot_send_later() {
+async fn dropped_steer_during_mode_change_preserves_running_turn() {
     let mut script = handshake();
     script.extend([
         json!({"expect":{"type":"user"}}),
         init(),
+        question("q1"),
         json!({"expect":{"subtype":"set_permission_mode"}}),
-        json!({"sleep_ms":10000}),
+        text("mode pending"),
+        json!({"expect":{"type":"control_cancel_request"}}),
+        text("still running"),
+        json!({"expect":{"subtype":"set_permission_mode"}}),
+        json!({"reply":{}}),
+        json!({"expect_pair":[{"/type":"user","/message/content/0/text":"delivered"},
+            {"/type":"control_response","/response/request_id":"q1"}]}),
+        result(),
     ]);
     let (session, mut events) = session(script);
-    session.start_turn(request("one")).await.unwrap();
-    until(&mut events, "session-started").await;
+    let first = session.start_turn(request("one")).await.unwrap();
+    until(&mut events, "question-request").await;
     let pid = session.pid().unwrap();
     let mut r = request("never sent");
     r.permission_mode = Some("full".into());
-    let mut steer = Box::pin(session.start_turn(r));
-    tokio::select! { _=&mut steer=>panic!("unexpected steer"), _=tokio::time::sleep(Duration::from_millis(30))=>{} }
+    let mut steer = Box::pin(session.start_turn(r.clone()));
+    tokio::select! { _=&mut steer=>panic!("unexpected steer"), e=next(&mut events)=>assert_eq!(e["text"], "mode pending") }
     drop(steer);
-    assert!(session.is_closed());
-    assert_eq!(next(&mut events).await["type"], "turn-cancelled");
-    assert!(events.recv().await.is_none());
-    assert!(wait_dead(pid as i32).await);
+    assert!(!session.is_closed());
+    assert!(session.turn_active());
+    assert_eq!(session.pid(), Some(pid));
+    assert_eq!(next(&mut events).await["text"], "still running");
+    assert!(events.try_recv().is_none()); // No cancellation or question dismissal.
+    r.content = request("delivered").content;
+    let second = session.start_turn(r).await.unwrap();
+    assert_eq!(first.turn_id, second.turn_id);
+    assert!(second.steered);
+    let trace = until(&mut events, "turn-completed").await;
+    assert_eq!(kinds(&trace), ["question-resolved", "turn-completed"]);
+    session.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -570,4 +586,83 @@ async fn process_crash_settles_children_and_background_before_turn_failure() {
     assert_eq!(trace[trace.len() - 3]["agent"]["status"], "failed");
     assert_eq!(trace[trace.len() - 2]["tasks"], json!([]));
     assert!(events.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn analysis_sessions_refuse_before_spawn_even_with_preapproved_writes_and_full_mode() {
+    for mode in ["ask", "auto", "full"] {
+        let (session, mut events) = configured(vec![json!({"exit":99})], |o| {
+            o.analysis_only = true;
+            o.launch.setting_sources = Some(vec!["user".into(), "project".into()]);
+            o.launch.settings = Some(json!({"permissions":{"allow":["Write", "Bash(*)"]}}));
+            o.launch.allowed_tools = vec!["Write".into()];
+            o.launch.allow_dangerously_skip_permissions = true;
+        });
+        let mut r = request("write a file");
+        r.permission_mode = Some(mode.into());
+        assert!(matches!(session.start_turn(r).await, Err(milagre_claude::session::SessionError::UnsupportedAnalysis)));
+        assert!(session.pid().is_none());
+        assert!(!session.turn_active());
+        assert!(events.try_recv().is_none());
+        session.close().await;
+    }
+}
+
+#[tokio::test]
+async fn auto_mode_rechecks_pending_edit_paths_and_fails_closed() {
+    for case in ["inside", "missing-cwd", "relative-cwd", "empty", "nonstring", "parent", "outside", "blocked", "swapped-link"] {
+        let root = scratch("auto-path");
+        let cwd = root.join("workspace");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(cwd.join("nested")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let path = match case {
+            "empty" => String::new(),
+            "parent" => "nested/../new.txt".into(),
+            "outside" => outside.join("new.txt").to_string_lossy().into_owned(),
+            _ => "nested/new.txt".into(),
+        };
+        let mut permission = json!({"request":{"id":"edit", "request":{"subtype":"can_use_tool", "tool_name":"Write", "input":{"file_path":path, "content":"hello"}, "tool_use_id":"write"}}});
+        if case == "nonstring" {
+            permission["request"]["request"]["input"]["file_path"] = json!(123);
+        }
+        if case == "blocked" {
+            permission["request"]["request"]["blocked_path"] = json!("nested/new.txt");
+        }
+        let mut script = handshake();
+        script.extend([json!({"expect":{"type":"user"}}), permission]);
+        if case == "inside" {
+            script.push(json!({"expect_pair":[{"/type":"control_request","/request/subtype":"set_permission_mode"}, {"/type":"control_response","/response/response/behavior":"allow"}]}));
+        } else {
+            script.extend([
+                json!({"expect":{"subtype":"set_permission_mode"}}),
+                json!({"reply":{}}),
+                json!({"expect":{"type":"control_response","fields":{"/response/response/behavior":"deny"}}}),
+            ]);
+        }
+        script.push(result());
+        let (session, mut events) = configured(script, |o| {
+            o.launch.cwd = match case {
+                "missing-cwd" => None,
+                "relative-cwd" => Some(".".into()),
+                _ => Some(cwd.clone()),
+            }
+        });
+        session.start_turn(request("one")).await.unwrap();
+        until(&mut events, "permission-request").await;
+        #[cfg(unix)]
+        if case == "swapped-link" {
+            std::fs::remove_dir(cwd.join("nested")).unwrap();
+            std::os::unix::fs::symlink(&outside, cwd.join("nested")).unwrap();
+        }
+        session.set_permission_mode("auto").await;
+        if case != "inside" {
+            assert!(events.try_recv().is_none(), "unexpected authorization for {case}");
+            assert!(session.respond_to_permission("edit", "deny"), "lost card for {case}");
+        }
+        let trace = until(&mut events, "turn-completed").await;
+        assert_eq!(trace[0]["decision"], if case == "inside" { "allow" } else { "deny" }, "{case}");
+        session.close().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

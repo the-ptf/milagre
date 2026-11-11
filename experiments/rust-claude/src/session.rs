@@ -58,6 +58,7 @@ pub struct SessionOptions {
     /// SDK MCP server names.
     pub init: InitializeOptions,
     pub resume_id: Option<String>,
+    /// Unsupported until the full advisor tool/settings/MCP policy is available. Start fails before spawn.
     pub analysis_only: bool,
     pub execution_advisor: bool,
     pub prompt_suggestions: bool,
@@ -123,6 +124,8 @@ pub struct TurnStart {
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum SessionError {
+    #[error("Analysis-only Claude sessions require an advisor policy that is not implemented.")]
+    UnsupportedAnalysis,
     #[error("This Claude session is closed.")]
     Closed,
     #[error("The agent session closed before this message was sent.")]
@@ -232,7 +235,8 @@ struct PendingPermission {
     token: String,
     tx: Option<oneshot::Sender<String>>,
     allow_for_chat: bool,
-    in_workspace: bool,
+    /// Recheck at resolution: an ancestor may become a symlink while the card is pending.
+    auto_files: Vec<String>,
 }
 
 struct PendingQuestion {
@@ -367,27 +371,36 @@ fn files_of(card: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// `insideRoot(cwd, files)`: every path inside `root` (lexically, as Node's path.relative does).
-fn inside_root(root: &std::path::Path, files: &[String]) -> bool {
+/// Auto authorization uses the same canonical ancestor check as rust-providers 40425d7a.
+/// Missing/relative cwd, malformed paths, parent components and resolution errors fail closed.
+fn inside_root(root: Option<&std::path::Path>, files: &[String]) -> bool {
     use std::path::{Component, Path, PathBuf};
-    let normalize = |path: &Path| {
-        let mut out = PathBuf::new();
-        for component in path.components() {
-            match component {
-                Component::ParentDir => {
-                    out.pop();
+    fn resolve(path: &Path) -> std::io::Result<PathBuf> {
+        match std::fs::canonicalize(path) {
+            Ok(real) => Ok(real),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if std::fs::symlink_metadata(path).is_ok() {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "unresolvable link"));
                 }
-                Component::CurDir => {}
-                other => out.push(other.as_os_str()),
+                let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else { return Err(error) };
+                Ok(resolve(parent)?.join(name))
             }
+            Err(error) => Err(error),
         }
-        out
-    };
-    let root = normalize(root);
+    }
+    let Some(root) = root.filter(|root| root.is_absolute()) else { return false };
+    #[cfg(windows)]
+    if root.components().any(|c| c == Component::ParentDir) {
+        return false;
+    }
+    // Canonicalize the supplied cwd before any folding, including symlink/.. pairs.
+    let Ok(root) = std::fs::canonicalize(root) else { return false };
     !files.is_empty()
         && files.iter().all(|file| {
-            let path = normalize(&root.join(file));
-            path != root && path.starts_with(&root)
+            let file = Path::new(file);
+            !file.as_os_str().is_empty()
+                && !file.components().any(|c| c == Component::ParentDir)
+                && resolve(&root.join(file)).is_ok_and(|path| path != root && path.starts_with(&root))
         })
 }
 
@@ -459,8 +472,13 @@ impl ClaudeSession {
     }
 
     /// Start a turn, or steer the running one. A future dropped while the CLI is still starting closes
-    /// the session (and its process) rather than leaving a turn that never ends.
+    /// the session (and its process) rather than leaving a turn that never ends. A dropped steer
+    /// only withdraws its unsent message. An already applied mode change remains in effect.
+    /// Acceptance means queued to stdin, not acknowledged or executed by the CLI.
     pub async fn start_turn(&self, request: TurnRequest) -> Result<TurnStart, SessionError> {
+        if self.inner.options.analysis_only {
+            return Err(SessionError::UnsupportedAnalysis);
+        }
         let _operation = self.inner.operations.lock().await;
         self.inner.queue.wait_room().await;
         Inner::start_turn(self.inner.clone(), request).await
@@ -806,19 +824,13 @@ impl Inner {
             Steer(ClaudeClient, Option<String>),
         }
         let next = {
-            let mut state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap();
             if state.cancel_requested {
                 // A turn asked to stop takes no more messages; this one starts the next turn.
                 Next::AfterEnd(state.turn_ended.clone())
             } else if !state.turn_active || state.client.is_none() || state.closed {
                 Next::Start
             } else {
-                // The message is the user's reply: a question waiting on it is dismissed.
-                let ids: Vec<String> = state.questions.iter().map(|q| q.id.clone()).collect();
-                for id in ids {
-                    self.settle_question(&mut state, &id, QuestionOutcome::Dismissed, Map::new());
-                }
-                state.steered_turn = true;
                 Next::Steer(state.client.clone().unwrap(), state.mapper.turn_id.clone())
             }
         };
@@ -833,7 +845,6 @@ impl Inner {
             Next::Start => return self.clone().start_turn(request).await,
             Next::Steer(client, turn_id) => (client, turn_id),
         };
-        let mut guard = AbandonGuard { weak: Arc::downgrade(self), ready: Gate::open_now(), armed: true };
         if let Some(mode) = &request.permission_mode {
             self.set_permission_mode(mode).await;
         }
@@ -843,12 +854,22 @@ impl Inner {
             state.closed || state.cancel_requested || !state.turn_active || state.mapper.turn_id != turn_id
         };
         if retry {
-            guard.armed = false;
             return self.clone().start_turn(request).await;
         }
-        let sent = client.send_user_message(request.content).await;
-        guard.armed = false;
-        sent.map_err(SessionError::Send)?;
+        if request.can_start.as_ref().is_some_and(|check| !check()) {
+            return Ok(TurnStart { turn_id: None, steered: false, cancelled: true });
+        }
+        // send_user_message reserves queue capacity before sending. Dropping while it waits
+        // cannot enqueue later. After acceptance there is no await before recording the steer.
+        client.send_user_message(request.content).await.map_err(SessionError::Send)?;
+        let mut state = self.state.lock().unwrap();
+        if state.turn_active && state.mapper.turn_id == turn_id {
+            let ids: Vec<String> = state.questions.iter().map(|q| q.id.clone()).collect();
+            for id in ids {
+                self.settle_question(&mut state, &id, QuestionOutcome::Dismissed, Map::new());
+            }
+            state.steered_turn = true;
+        }
         Ok(TurnStart { turn_id, steered: true, cancelled: false })
     }
 
@@ -957,8 +978,12 @@ impl Inner {
     /// inside the Chat's folder.
     fn set_pending_mode(&self, state: &mut State, mode: &str) {
         state.permission_mode = mode.into();
-        let ids: Vec<String> =
-            state.permissions.iter().filter(|p| mode == "full" || (mode == "auto" && p.in_workspace)).map(|p| p.id.clone()).collect();
+        let ids: Vec<String> = state
+            .permissions
+            .iter()
+            .filter(|p| mode == "full" || (mode == "auto" && inside_root(self.options.launch.cwd.as_deref(), &p.auto_files)))
+            .map(|p| p.id.clone())
+            .collect();
         for id in ids {
             self.resolve_permission(state, &id, "allow");
         }
@@ -1247,8 +1272,6 @@ impl PermissionHandler for SessionHandler {
                         },
                     });
                 }
-                let cwd = inner.options.launch.cwd.clone().unwrap_or_default();
-                let in_workspace = request.blocked_path.is_none() && inside_root(&cwd, &files_of(&card));
                 let (tx, rx) = oneshot::channel();
                 let token = uuid();
                 let id = card["requestId"].as_str().unwrap_or_default().to_owned();
@@ -1261,7 +1284,17 @@ impl PermissionHandler for SessionHandler {
                         token: token.clone(),
                         tx: Some(tx),
                         allow_for_chat,
-                        in_workspace: card["kind"] == "edit" && in_workspace,
+                        auto_files: if card["kind"] == "edit" && request.blocked_path.is_none() {
+                            // Display cards coerce malformed JSON; authorization uses the raw path.
+                            input
+                                .get("file_path")
+                                .or_else(|| input.get("notebook_path"))
+                                .and_then(Value::as_str)
+                                .map(|file| vec![file.to_owned()])
+                                .unwrap_or_default()
+                        } else {
+                            vec![]
+                        },
                     });
                     let mut event = Map::new();
                     event.insert("type".into(), "permission-request".into());
@@ -1355,5 +1388,55 @@ impl HookHandler for SessionHandler {
                 other => Err(format!("No hook callback found for ID: {other}")),
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::inside_root;
+    use std::path::Path;
+
+    #[test]
+    fn invalid_or_unresolved_paths_never_authorize() {
+        let root = std::env::temp_dir().join(format!("claude-paths-{}-{}", std::process::id(), super::uuid()));
+        std::fs::create_dir_all(root.join("nested")).unwrap();
+        let check = |file: &str| inside_root(Some(&root), &[file.into()]);
+        assert!(check("nested/missing/leaf"));
+        assert!(!inside_root(None, &["a".into()]));
+        assert!(!inside_root(Some(Path::new(".")), &["a".into()]));
+        assert!(!inside_root(Some(&root.join("missing")), &["a".into()]));
+        assert!(!inside_root(Some(&root), &[]));
+        for file in ["", ".", "..", "nested/../leaf", "a\0b"] {
+            assert!(!check(file), "{file:?}");
+        }
+        std::fs::write(root.join("file"), b"x").unwrap();
+        assert!(!check("file/child"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_and_raw_cwd_parent_components_follow_filesystem_semantics() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("claude-links-{}-{}", std::process::id(), super::uuid()));
+        let workspace = root.join("workspace");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(workspace.join("dir")).unwrap();
+        std::fs::create_dir_all(outside.join("dir")).unwrap();
+        symlink(&outside, workspace.join("escape")).unwrap();
+        symlink(workspace.join("dir"), workspace.join("inside")).unwrap();
+        symlink(outside.join("missing"), workspace.join("dangling")).unwrap();
+        symlink("loop", workspace.join("loop")).unwrap();
+        let check = |file: &str| inside_root(Some(&workspace), &[file.into()]);
+        for file in ["escape/new", "escape/../new", "dangling/new", "loop/new"] {
+            assert!(!check(file), "{file}");
+        }
+        assert!(check("inside/new"));
+        symlink(outside.join("dir"), workspace.join("cwd-link")).unwrap();
+        let raw_cwd = workspace.join("cwd-link/.."); // Kernel cwd is outside, not workspace.
+        assert!(inside_root(Some(&raw_cwd), &[outside.join("new").to_string_lossy().into_owned()]));
+        assert!(!inside_root(Some(&raw_cwd), &[workspace.join("new").to_string_lossy().into_owned()]));
+        assert!(!inside_root(Some(&workspace.join("missing/..")), &["new".into()]));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
