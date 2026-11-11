@@ -38,6 +38,10 @@ pub enum Scenario {
     PanicActive,
     #[cfg(test)]
     PanicAnswer,
+    #[cfg(test)]
+    PanicDrain,
+    #[cfg(test)]
+    PanicBeforePublication,
 }
 impl Scenario {
     fn name(self) -> &'static str {
@@ -55,6 +59,8 @@ impl Scenario {
             Self::PanicActive => "slow",
             #[cfg(test)]
             Self::PanicAnswer => "permission",
+            #[cfg(test)]
+            Self::PanicDrain | Self::PanicBeforePublication => "reply",
         }
     }
 }
@@ -107,7 +113,10 @@ impl Shared {
             ProviderEvent::Agent { event, .. } => event.0.to_string().len() + 512,
             _ => 1024,
         };
-        let mut output = self.output.lock().unwrap();
+        let mut output = self
+            .output
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         if !reserved && (output.events.len() >= 256 || output.bytes + bytes > 4 * 1024 * 1024) {
             self.failed.store(true, Ordering::Release);
             return false;
@@ -124,21 +133,33 @@ impl Monitor {
         self.0.answers_entered.load(Ordering::Acquire)
     }
     pub fn workers(&self) -> usize {
-        *self.0.workers.lock().unwrap()
+        *self
+            .0
+            .workers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
     }
     pub fn pids(&self) -> Vec<(u64, u32)> {
-        self.0.pids.lock().unwrap().clone()
+        self.0
+            .pids
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
     }
     pub fn cleanup_failed(&self) -> bool {
         self.0.cleanup_failed.load(Ordering::Acquire)
     }
     pub fn wait_stopped(&self, timeout: Duration) -> bool {
-        let count = self.0.workers.lock().unwrap();
+        let count = self
+            .0
+            .workers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let (count, _) = self
             .0
             .drained
             .wait_timeout_while(count, timeout, |n| *n != 0 && !self.cleanup_failed())
-            .unwrap();
+            .unwrap_or_else(|error| error.into_inner());
         *count == 0 && !self.cleanup_failed()
     }
 }
@@ -279,7 +300,14 @@ impl Provider for AcpFixture {
             .ok_or_else(stopped)?
             .to_owned();
         self.slots.retain(|_, s| !s.done.load(Ordering::Acquire));
-        if self.slots.contains_key(&chat) || *self.shared.workers.lock().unwrap() >= 16 {
+        if self.slots.contains_key(&chat)
+            || *self
+                .shared
+                .workers
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                >= 16
+        {
             return Err(error("An ACP fixture turn is active or capacity is full"));
         }
         if self
@@ -306,59 +334,40 @@ impl Provider for AcpFixture {
             done: done.clone(),
             scenario: self.scenario,
         };
-        *self.shared.workers.lock().unwrap() += 1;
+        *self
+            .shared
+            .workers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) += 1;
         std::thread::Builder::new()
             .name("acp-fixture".into())
             .spawn(move || {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
-                    .build();
-                let (mut started, mut end) = (
-                    false,
-                    json!({"type":"turn-failed","error":"The ACP fixture executor failed"}),
-                );
-                if let Ok(runtime) = runtime {
-                    let outcome=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||{
-                        runtime.block_on(worker.run(prompt,answers_rx,stop_rx))
+                    .build()
+                    .ok();
+                // Created before the caught work. Drop owns cleanup and completion, including
+                // unwinds after run returns. The runtime is dropped only after this guard.
+                let mut completion = Completion {
+                    worker: &worker,
+                    runtime: runtime.as_ref(),
+                    end: json!({"type":"turn-failed","error":"The isolated ACP executor failed"}),
+                };
+                if let Some(runtime) = runtime.as_ref() {
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let result = runtime.block_on(worker.run(prompt, answers_rx, stop_rx));
+                        #[cfg(test)]
+                        if matches!(worker.scenario, Scenario::PanicBeforePublication) {
+                            panic!("fixed ACP pre-publication panic");
+                        }
+                        result
                     }));
                     match outcome {
-                        Ok(result)=>(started,end)=result,
-                        Err(_)=>{
-                            started=worker.started.load(Ordering::Acquire);
-                            worker.shared.failed.store(true,Ordering::Release);
-                            end=json!({"type":"turn-failed","error":"The isolated ACP worker panicked; its process was stopped"});
-                        }
+                        Ok((_, end)) => completion.end = end,
+                        Err(_) => completion.panicked(),
                     }
-                    // Unwinding drops FakeSession and requests shutdown. Keep driving its
-                    // supervisors and retaining the profile before publishing any terminal.
-                    runtime.block_on(crate::executor::drain(&runtime,Duration::from_secs(3),||{
-                        worker.shared.failed.store(true,Ordering::Release);
-                        worker.shared.cleanup_failed.store(true,Ordering::Release);
-                        worker.shared.drained.notify_all();
-                    }));
                 }
-                // Only after every session/transport supervisor is gone can a successor be admitted.
-                worker.done.store(true, Ordering::Release);
-                if started {
-                    worker.emit(end, true);
-                } else {
-                    worker.shared.emit(
-                        ProviderEvent::StartFailed {
-                            chat: worker.chat.clone(),
-                            turn,
-                            error: stopped(),
-                        },
-                        true,
-                    );
-                }
-                worker.shared.emit(
-                    ProviderEvent::Exited {
-                        chat: worker.chat.clone(),
-                        turn,
-                        error: stopped(),
-                    },
-                    true,
-                );
+                drop(completion);
             })
             .map_err(|_| {
                 self.shared.turns.fetch_sub(1, Ordering::AcqRel);
@@ -398,7 +407,11 @@ impl Provider for AcpFixture {
         };
         let slot = self.slot(chat, turn)?;
         {
-            let mut pending = self.shared.answers.lock().unwrap();
+            let mut pending = self
+                .shared
+                .answers
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
             if request.len() > 4096 || pending.len() >= 32 || !pending.insert((chat.into(), id.0)) {
                 return Err(error(
                     "ACP fixture answer capacity exceeded or duplicate receipt",
@@ -422,7 +435,7 @@ impl Provider for AcpFixture {
             self.shared
                 .answers
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|error| error.into_inner())
                 .remove(&(chat.into(), id.0));
             return Err(error("ACP fixture answer lane is full or closed"));
         }
@@ -445,7 +458,11 @@ impl Provider for AcpFixture {
         }
     }
     fn take_events(&mut self) -> Vec<ProviderEvent> {
-        let mut output = self.shared.output.lock().unwrap();
+        let mut output = self
+            .shared
+            .output
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         output.bytes = 0;
         let events: Vec<_> = output.events.drain(..).collect();
         for e in &events {
@@ -456,7 +473,7 @@ impl Provider for AcpFixture {
                 self.shared
                     .answers
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(|error| error.into_inner())
                     .remove(&(chat.clone(), answer.0));
             }
         }
@@ -468,6 +485,84 @@ impl Drop for AcpFixture {
         self.shutdown();
     }
 }
+struct Completion<'a> {
+    worker: &'a Worker,
+    runtime: Option<&'a tokio::runtime::Runtime>,
+    end: Value,
+}
+impl Completion<'_> {
+    fn panicked(&mut self) {
+        self.worker.shared.failed.store(true, Ordering::Release);
+        self.end = json!({"type":"turn-failed","error":"The isolated ACP supervisor panicked; its process was stopped"});
+    }
+}
+impl Drop for Completion<'_> {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.runtime {
+            #[cfg(test)]
+            let mut inject = matches!(self.worker.scenario, Scenario::PanicDrain);
+            let mut retry_delay = Duration::from_millis(10);
+            loop {
+                let cleanup = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    #[cfg(test)]
+                    if std::mem::take(&mut inject) {
+                        panic!("fixed ACP drain panic");
+                    }
+                    runtime.block_on(crate::executor::drain(
+                        runtime,
+                        Duration::from_secs(3),
+                        || {
+                            self.worker.shared.failed.store(true, Ordering::Release);
+                            self.worker
+                                .shared
+                                .cleanup_failed
+                                .store(true, Ordering::Release);
+                            self.worker.shared.drained.notify_all();
+                        },
+                    ));
+                }));
+                if cleanup.is_ok() {
+                    break;
+                }
+                // Keep this thread, executor, worker and profile alive. A failed cleanup
+                // attempt is not evidence of process exit; drive supervisors again.
+                self.panicked();
+                if !self
+                    .worker
+                    .shared
+                    .cleanup_failed
+                    .swap(true, Ordering::AcqRel)
+                {
+                    self.worker.shared.drained.notify_all();
+                }
+                std::thread::sleep(retry_delay);
+                retry_delay = (retry_delay * 2).min(Duration::from_secs(1));
+            }
+        }
+        self.worker.done.store(true, Ordering::Release);
+        if self.worker.started.load(Ordering::Acquire) {
+            self.worker.emit(std::mem::take(&mut self.end), true);
+        } else {
+            self.worker.shared.emit(
+                ProviderEvent::StartFailed {
+                    chat: self.worker.chat.clone(),
+                    turn: self.worker.turn,
+                    error: stopped(),
+                },
+                true,
+            );
+        }
+        self.worker.shared.emit(
+            ProviderEvent::Exited {
+                chat: self.worker.chat.clone(),
+                turn: self.worker.turn,
+                error: stopped(),
+            },
+            true,
+        );
+    }
+}
+
 struct Worker {
     started: AtomicBool,
     shared: Arc<Shared>,
@@ -479,7 +574,11 @@ struct Worker {
 }
 impl Drop for Worker {
     fn drop(&mut self) {
-        *self.shared.workers.lock().unwrap() -= 1;
+        *self
+            .shared
+            .workers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) -= 1;
         self.shared.drained.notify_all();
     }
 }
@@ -540,7 +639,7 @@ impl Worker {
                if turn_id!=local{break;}
                if event["type"]=="session-started"{
                 if !started{started=true;self.started.store(true,Ordering::Release);self.shared.emit(ProviderEvent::Started{chat:self.chat.clone(),turn:self.turn,result:RawJson(json!({}))},true);
-                 if let Ok(Ok(info))=tokio::time::timeout(Duration::from_millis(100),session.inspect()).await{if let Some(pid)=info["pid"].as_u64(){let mut pids=self.shared.pids.lock().unwrap();if pids.len()==16{pids.remove(0);}pids.push((self.turn.0,pid as u32));}}
+                 if let Ok(Ok(info))=tokio::time::timeout(Duration::from_millis(100),session.inspect()).await{if let Some(pid)=info["pid"].as_u64(){let mut pids=self.shared.pids.lock().unwrap_or_else(|error|error.into_inner());if pids.len()==16{pids.remove(0);}pids.push((self.turn.0,pid as u32));}}
                 }
                 // Native ids cannot be persisted as resumable state: this fixture never reuses a process.
                 continue;
@@ -603,6 +702,8 @@ mod panic_tests {
             Scenario::PanicBeforeSpawn,
             Scenario::PanicActive,
             Scenario::PanicAnswer,
+            Scenario::PanicDrain,
+            Scenario::PanicBeforePublication,
         ] {
             let mut provider = AcpFixture::create(scenario).unwrap();
             let monitor = provider.monitor();
@@ -693,7 +794,20 @@ mod panic_tests {
                     Some(libc::ESRCH)
                 );
             }
-            assert!(monitor.wait_stopped(Duration::from_secs(2)));
+            if matches!(scenario, Scenario::PanicDrain) {
+                assert!(monitor.cleanup_failed());
+                let until = std::time::Instant::now() + Duration::from_secs(2);
+                while monitor.workers() != 0 {
+                    assert!(std::time::Instant::now() < until);
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                assert!(
+                    !monitor.wait_stopped(Duration::from_secs(2)),
+                    "cleanup failure remains visible after eventual reaping"
+                );
+            } else {
+                assert!(monitor.wait_stopped(Duration::from_secs(2)));
+            }
             assert_eq!(monitor.workers(), 0);
             assert!(
                 provider.start_turn(TurnId(2), &request).is_err(),
@@ -773,5 +887,107 @@ mod delivery_tests {
                 ));
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod poison_tests {
+    use super::*;
+    #[test]
+    fn poisoned_shared_locks_preserve_owner_and_worker_cleanup() {
+        let mut provider = AcpFixture::create(Scenario::Permission).unwrap();
+        for which in 0..4 {
+            let shared = provider.shared.clone();
+            assert!(std::thread::spawn(move || {
+                match which {
+                    0 => {
+                        let _guard = shared
+                            .output
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner());
+                        panic!("fixed output poison");
+                    }
+                    1 => {
+                        let _guard = shared
+                            .answers
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner());
+                        panic!("fixed answers poison");
+                    }
+                    2 => {
+                        let _guard = shared
+                            .workers
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner());
+                        panic!("fixed workers poison");
+                    }
+                    _ => {
+                        let _guard = shared
+                            .pids
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner());
+                        panic!("fixed pids poison");
+                    }
+                }
+            })
+            .join()
+            .is_err());
+        }
+        let monitor = provider.monitor();
+        let request = RawJson(
+            json!({"provider":"kiro","chatId":"fixture","cwd":provider.project(),"prompt":"fixture","permissionMode":"ask"}),
+        );
+        provider.start_turn(TurnId(1), &request).unwrap();
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        let mut events = vec![];
+        let mut answered = false;
+        loop {
+            events.extend(provider.take_events());
+            if !answered {
+                if let Some(id) = events.iter().find_map(|event| match event {
+                    ProviderEvent::Agent {
+                        event: RawJson(v), ..
+                    } if v["type"] == "permission-request" => v["requestId"].as_str(),
+                    _ => None,
+                }) {
+                    provider
+                        .respond_permission("fixture", TurnId(1), AnswerId(1), id, "deny")
+                        .unwrap();
+                    answered = true;
+                }
+            }
+            if events
+                .iter()
+                .any(|event| matches!(event, ProviderEvent::Exited { .. }))
+            {
+                break;
+            }
+            assert!(std::time::Instant::now() < until, "{events:?}");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, ProviderEvent::AnswerSettled { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(
+                    |event| matches!(event,ProviderEvent::Agent{event:RawJson(v),..}if terminal(v))
+                )
+                .count(),
+            1
+        );
+        assert!(monitor.wait_stopped(Duration::from_secs(2)));
+        for (_, pid) in monitor.pids() {
+            assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::ESRCH)
+            );
+        }
     }
 }
