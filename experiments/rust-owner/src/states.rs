@@ -89,9 +89,11 @@ struct Slot {
 
 /// The in-memory states of the Projects of one isolated copy, each owned (locked) by this process while open.
 pub struct ProjectStates {
-    /// Tests only (see `fail_next_commit`).
+    /// Tests only (see `fail_next_commit` and `set_commit_failure_for_tests`).
     #[cfg(feature = "test-fixtures")]
     fail_next_commit: Option<String>,
+    #[cfg(feature = "test-fixtures")]
+    commit_failure: Option<String>,
     isolation: Isolation,
     timing: Timing,
     now: i64,
@@ -128,10 +130,19 @@ impl ProjectStates {
         self.fail_next_commit = Some(message.into());
     }
 
+    /// Tests only (`test-fixtures`): every change that would be kept fails with `message`, at the same point as
+    /// [`ProjectStates::fail_next_commit`], until cleared with `None`. A pending one-shot failure is used first.
+    #[cfg(feature = "test-fixtures")]
+    pub fn set_commit_failure_for_tests(&mut self, message: Option<&str>) {
+        self.commit_failure = message.map(str::to_string);
+    }
+
     pub fn new(isolation: Isolation, timing: Timing, now: i64) -> Self {
         ProjectStates {
             #[cfg(feature = "test-fixtures")]
             fail_next_commit: None,
+            #[cfg(feature = "test-fixtures")]
+            commit_failure: None,
             isolation,
             timing,
             now,
@@ -410,7 +421,11 @@ impl ProjectStates {
             return Ok((state, false));
         };
         #[cfg(feature = "test-fixtures")]
-        if let Some(message) = self.fail_next_commit.take() {
+        if let Some(message) = self
+            .fail_next_commit
+            .take()
+            .or_else(|| self.commit_failure.clone())
+        {
             return Err(StoreError::Invalid(message));
         }
         let mut next = changed;

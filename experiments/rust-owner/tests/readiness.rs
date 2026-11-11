@@ -914,3 +914,52 @@ fn a_kept_completion_folds_before_events_parked_after_it() {
         assert_eq!(Copy::end_types(&c.host.take_notices()).len(), 0);
     }
 }
+
+/// The persistent commit fault (tests only): a turn end keeps failing across real ticks (each pumps twice) until it is
+/// cleared, then folds once and the queue moves on; a one-shot failure set alongside is used first, once.
+#[test]
+fn a_persistent_commit_fault_holds_a_turn_end_until_cleared() {
+    let mut c = copy(false);
+    c.send("one").unwrap();
+    assert!(c.host.pump().is_empty());
+    let chat = c.chat();
+    c.kiro.emit(
+        &chat,
+        json!({ "type": "session-started", "nativeId": "native" }),
+    );
+    assert!(c.host.pump().is_empty());
+    assert!(c.send("two").unwrap().queued);
+    c.host.take_notices();
+    c.host
+        .states
+        .set_commit_failure_for_tests(Some("disk full"));
+    c.host.states.fail_next_commit("once");
+    c.kiro.emit(&chat, json!({ "type": "turn-completed" }));
+    let first = c.host.pump();
+    assert_eq!(first.len(), 1);
+    assert!(first[0].to_string().contains("once"), "{first:?}");
+    for step in 1..=5 {
+        let errors = c.host.tick(c.host.states.now() + step);
+        assert!(
+            !errors.is_empty(),
+            "tick {step}: the fault didn't refuse again"
+        );
+        assert!(
+            errors.iter().all(|e| e.to_string().contains("disk full")),
+            "{errors:?}"
+        );
+        assert_eq!(c.host.stuck_ends(), vec![chat.clone()], "tick {step}");
+        assert!(c.host.is_busy(&chat));
+    }
+    assert_eq!(c.starts(), 1);
+    assert!(Copy::end_types(&c.host.take_notices()).is_empty());
+    c.host.states.set_commit_failure_for_tests(None);
+    assert!(c.host.pump().is_empty());
+    assert!(c.host.stuck_ends().is_empty());
+    assert_eq!(
+        Copy::end_types(&c.host.take_notices()),
+        vec!["turn-completed"]
+    );
+    assert_eq!(c.starts(), 2);
+    assert!(c.host.pump().is_empty());
+}
