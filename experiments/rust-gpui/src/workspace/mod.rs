@@ -20,9 +20,10 @@ pub mod sidebar;
 #[cfg(test)]
 mod tests;
 
-use gpui::{Context, Entity, Subscription, Window, div, prelude::*, px};
+use gpui::{Context, Entity, KeyBinding, Subscription, Window, div, prelude::*, px};
 
-use crate::overlays::OpenGitActions;
+use crate::overlays::palette::{PaletteEvent, PaletteView};
+use crate::overlays::{OpenGitActions, TogglePalette};
 use crate::routines::RoutinesView;
 use crate::settings::{self, SettingsModal, ToggleSettings};
 use crate::theme::{ActiveTheme, Theme};
@@ -37,6 +38,12 @@ pub struct Workspace {
     pub chat: Entity<ChatView>,
     pub panel: Entity<Panel>,
     pub settings: Entity<SettingsModal>,
+    /// ⌘K (WP-50), above everything else.
+    pub palette: Entity<PaletteView>,
+    dialog_host: crate::overlays::dialogs::Host,
+    /// The window's own focus, where it falls back to when a modal closes over a column that is gone.
+    focus: gpui::FocusHandle,
+    allow_prompt: Entity<crate::overlays::dialogs::allow_prompt::ComputerAllowPrompt>,
     /// Each Chat's Terminals, in a drawer under the Chat column.
     pub terminals: Entity<TerminalDrawer>,
     /// The Routines page, in place of the Chat column while the sidebar's Routines button is on (WP-45).
@@ -51,6 +58,7 @@ impl Workspace {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         dock::install_keys(cx);
         settings::init(cx);
+        cx.bind_keys([KeyBinding::new("cmd-k", TogglePalette, None)]);
         let (sidebar, chat, panel, settings) =
             (cx.new(Sidebar::new), cx.new(ChatView::new), cx.new(Panel::new), cx.new(SettingsModal::new));
         // The panel's place in the window changed: lay the columns out again.
@@ -58,6 +66,11 @@ impl Workspace {
             PanelEvent::Layout => cx.notify(),
             PanelEvent::FixInChat(text) => this.fix_in_chat(text, window, cx),
         });
+        let palette = cx.new(PaletteView::new);
+        let dialog_host: crate::overlays::dialogs::Host = std::rc::Rc::new(crate::overlays::dialogs::FixtureHost::new());
+        let allow_prompt = crate::overlays::dialogs::allow_prompt::new(dialog_host.clone(), "this computer", cx);
+        let palette_events =
+            cx.subscribe_in(&palette, window, |this, _, event: &PaletteEvent, window, cx| this.on_palette_event(event, window, cx));
         let new_chat = cx.subscribe(&sidebar, |this, _, event: &SidebarEvent, cx| match event {
             SidebarEvent::NewChat => {
                 this.routines_open = false;
@@ -82,11 +95,15 @@ impl Workspace {
             chat,
             panel,
             settings,
+            palette,
+            dialog_host,
+            focus: cx.focus_handle(),
+            allow_prompt,
             terminals: cx.new(TerminalDrawer::new),
             routines,
             routines_open,
             routines_at,
-            _subscriptions: vec![layout, follow, web, new_chat, open_chat],
+            _subscriptions: vec![layout, follow, web, new_chat, open_chat, palette_events],
         }
     }
 
@@ -123,6 +140,7 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.follow_sidebar(Some(window), cx);
+        Self::open_overlay_from_env(window, cx);
         let theme = *cx.theme();
         if self.routines_open {
             // The first row picked after the sidebar loads is not a different pick.
@@ -139,10 +157,14 @@ impl Render for Workspace {
             dock::layout(&self.panel, terminal::column(self.chat.clone(), &self.terminals, window, cx), cx)
         };
         let settings = self.settings.clone();
+        let palette = self.palette.clone();
         terminal::on_actions(dock::on_actions(div(), &self.panel), &self.terminals)
+            .id("workspace")
+            .track_focus(&self.focus)
             .on_action(move |_: &ToggleSettings, window, cx| {
                 settings.update(cx, |modal, cx| modal.toggle(window, cx));
             })
+            .on_action(cx.listener(|this, _: &TogglePalette, window, cx| this.toggle_palette(window, cx)))
             .on_action(cx.listener(|this, _: &OpenGitActions, window, cx| this.open_git_actions(window, cx)))
             .relative()
             .flex()
@@ -154,6 +176,7 @@ impl Render for Workspace {
             .child(hairline(&theme))
             .child(columns)
             .child(self.settings.clone())
+            .child(palette)
     }
 }
 
