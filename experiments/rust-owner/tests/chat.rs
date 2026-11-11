@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use milagre_owner_store::chat_host::{ChatHost, MockProvider, Notice};
+use milagre_owner_store::chat_host::{ChatHost, MockProvider, Notice, TurnId};
 use milagre_owner_store::isolation::{Isolation, Policy};
 use milagre_owner_store::jsjson;
 use milagre_owner_store::states::{ProjectStates, Timing};
@@ -439,7 +439,7 @@ fn unsupported_features_are_refused_not_approximated() {
         let error = host
             .receive(
                 &format!("{path}#1"),
-                None,
+                host.active_turn(&format!("{path}#1")).unwrap_or(TurnId(0)),
                 &json!({ "type": kind, "step": { "id": "s" } }),
             )
             .unwrap_err()

@@ -97,6 +97,16 @@ impl Copy {
         self.kiro.state.lock().unwrap().turns.len()
     }
 
+    /// The provider names its session, so a later send resumes it (no handoff restore).
+    fn native(&mut self) {
+        let chat = self.chat();
+        self.kiro.emit(
+            &chat,
+            json!({ "type": "session-started", "nativeId": "native" }),
+        );
+        assert!(self.host.pump().is_empty());
+    }
+
     fn end(&mut self, kind: &str) {
         let chat = self.chat();
         self.kiro.emit(&chat, json!({ "type": kind }));
@@ -139,7 +149,7 @@ fn a_project_spelled_another_way_is_refused() {
             .host
             .receive(
                 &chat,
-                None,
+                TurnId(1),
                 &json!({ "type": "session-started", "nativeId": "n" })
             )
             .is_err());
@@ -230,10 +240,10 @@ fn duplicate_client_ids_start_one_turn() {
     assert!(first.turn.is_some());
 }
 
-/// Review P2.4: a late `turn-cancelled` of the interrupted turn must not end the turn Send now started; a turn end
-/// without its turn is refused; a provider that exits fails the running turn.
+/// Review P2.4 / re-review P2-2: a late `turn-cancelled` or text of the interrupted turn must not touch the turn Send
+/// now started, nor may the old session's exit; the running session's exit fails its turn.
 #[test]
-fn late_and_unnamed_turn_ends_are_dropped() {
+fn late_events_and_exits_of_an_earlier_turn_are_dropped() {
     let mut copy = Copy::plain();
     let first = copy.send("one", "c1", json!({})).unwrap().turn.unwrap();
     copy.host.pump();
@@ -255,18 +265,23 @@ fn late_and_unnamed_turn_ends_are_dropped() {
 
     let chat = copy.chat();
     copy.kiro
-        .emit_for(&chat, Some(first), json!({ "type": "turn-cancelled" }));
+        .emit_for(&chat, first, json!({ "type": "turn-cancelled" }));
     copy.kiro.emit_for(
         &chat,
-        Some(first),
+        first,
         json!({ "type": "text-delta", "text": "late" }),
     );
     copy.kiro
-        .emit_for(&chat, None, json!({ "type": "turn-completed" }));
+        .emit_for(&chat, first, json!({ "type": "session-reset" }));
+    copy.kiro.push(ProviderEvent::Exited {
+        chat: chat.clone(),
+        turn: first,
+        error: ProviderError::new(ProviderErrorKind::Exited, "old process exited"),
+    });
     let errors: Vec<String> = copy.host.pump().iter().map(ToString::to_string).collect();
     assert_eq!(errors.len(), 3, "{errors:?}");
     assert!(errors[0].contains("late \"turn-cancelled\""), "{errors:?}");
-    assert!(errors[2].contains("must name its turn"), "{errors:?}");
+    assert!(errors[2].contains("older session"), "{errors:?}");
     assert_eq!(
         copy.host.runs(),
         &runs,
@@ -278,9 +293,10 @@ fn late_and_unnamed_turn_ends_are_dropped() {
     );
     assert_eq!(copy.host.active_turn(&chat), Some(second));
 
-    // The provider's process ends: the running turn fails, and the Chat is free.
+    // The running session's process ends: its turn fails, and the Chat is free.
     copy.kiro.push(ProviderEvent::Exited {
         chat: chat.clone(),
+        turn: second,
         error: ProviderError::new(ProviderErrorKind::Exited, "kiro-cli exited"),
     });
     assert!(copy.host.pump().is_empty());
@@ -288,6 +304,170 @@ fn late_and_unnamed_turn_ends_are_dropped() {
     let last = copy.messages().last().cloned().unwrap();
     assert_eq!(last["outcome"], "failed");
     assert_eq!(last["body"], "Agent error: kiro-cli exited");
+    // That session's late Chat-level events are dropped too.
+    copy.kiro.emit_for(
+        &chat,
+        second,
+        json!({ "type": "session-started", "nativeId": "late" }),
+    );
+    assert_eq!(copy.host.pump().len(), 1);
+}
+
+/// Re-review P2-1: a duplicate turn end of a finished turn, with nothing running, is dropped: no phantom end, no
+/// queue hold, no sequence number.
+#[test]
+fn a_duplicate_turn_end_while_idle_is_dropped() {
+    let mut copy = Copy::plain();
+    let turn = copy.send("one", "c1", json!({})).unwrap().turn.unwrap();
+    copy.host.pump();
+    copy.native();
+    copy.end("turn-completed");
+    copy.host.take_notices();
+    let state = copy.host.states.current(&copy.project).unwrap().to_value();
+    let chat = copy.chat();
+    copy.kiro
+        .emit_for(&chat, turn, json!({ "type": "turn-cancelled" }));
+    let errors: Vec<String> = copy.host.pump().iter().map(ToString::to_string).collect();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("nothing runs"), "{errors:?}");
+    assert!(
+        copy.host.take_notices().is_empty(),
+        "a phantom end was told"
+    );
+    assert_eq!(
+        copy.host.states.current(&copy.project).unwrap().to_value(),
+        state
+    );
+    // The next turn still starts at once (the queue wasn't held).
+    copy.send("two", "c2", json!({})).unwrap();
+    copy.host.pump();
+    assert_eq!(copy.started(), 2);
+    assert!(copy.session().get("queueHeld").is_none());
+}
+
+/// Re-review P2-3: a turn whose provider never ends it after Stop is forced once its grace is over: the session is
+/// closed, the turn fails, and that session's late events are dropped. Forced quit ends running turns too.
+#[test]
+fn an_interrupt_that_never_ends_is_forced_and_quit_can_be_forced() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    let chat = copy.chat();
+    let turn = copy.host.active_turn(&chat).unwrap();
+    copy.kiro.emit(
+        &chat,
+        json!({ "type": "session-started", "nativeId": "native-1" }),
+    );
+    copy.kiro
+        .emit(&chat, json!({ "type": "text-delta", "text": "partial" }));
+    copy.host.pump();
+    copy.host.interrupt(&chat).unwrap();
+    let start = copy.host.states.now();
+    assert!(copy
+        .host
+        .tick(start + copy.host.interrupt_grace_ms - 1)
+        .is_empty());
+    assert!(copy.host.is_busy(&chat), "forced before its grace");
+    assert!(copy
+        .host
+        .tick(start + copy.host.interrupt_grace_ms)
+        .is_empty());
+    assert!(!copy.host.is_busy(&chat));
+    assert_eq!(
+        copy.kiro.state.lock().unwrap().closed,
+        std::slice::from_ref(&chat)
+    );
+    let last = copy.messages().last().cloned().unwrap();
+    assert_eq!(last["outcome"], "failed");
+    assert_eq!(
+        last["body"],
+        "partial\n\nThe agent didn't stop in time, so Milagre ended its turn."
+    );
+    copy.kiro
+        .emit_for(&chat, turn, json!({ "type": "turn-cancelled" }));
+    copy.kiro
+        .emit_for(&chat, turn, json!({ "type": "session-reset" }));
+    assert_eq!(copy.host.pump().len(), 2);
+    assert_eq!(
+        copy.session()["native_session_id"],
+        "native-1",
+        "a closed session's reset was folded"
+    );
+
+    // A turn that never ends blocks a plain quit, not a forced one.
+    copy.send("two", "c2", json!({})).unwrap();
+    copy.host.pump();
+    assert!(copy
+        .host
+        .shutdown(false)
+        .unwrap_err()
+        .to_string()
+        .contains("suspend and resume"));
+    copy.host.shutdown(true).unwrap();
+    assert!(copy.kiro.state.lock().unwrap().shut_down);
+    let project = copy.project.clone();
+    assert!(
+        !ownership::project_lock(&project).exists(),
+        "the lock outlived a forced quit"
+    );
+}
+
+/// Re-review P2-4: closing a Project closes its Chats' sessions first; a late Chat-level event of one is dropped and
+/// doesn't open (or lock) the Project again. A forced close ends a running turn.
+#[test]
+fn a_closed_project_stays_closed() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    let chat = copy.chat();
+    let project = copy.project.clone();
+    assert!(copy
+        .host
+        .forget(&project, false)
+        .unwrap_err()
+        .to_string()
+        .contains("has a turn running"));
+    copy.native();
+    copy.end("turn-completed");
+    let turn = copy.kiro.current(&chat).unwrap();
+    copy.host.forget(&project, false).unwrap();
+    assert_eq!(
+        copy.kiro.state.lock().unwrap().closed,
+        std::slice::from_ref(&chat)
+    );
+    copy.kiro.emit_for(
+        &chat,
+        turn,
+        json!({ "type": "context-usage", "used": 1, "size": 2 }),
+    );
+    copy.kiro.emit_for(
+        &chat,
+        turn,
+        json!({ "type": "session-started", "nativeId": "late" }),
+    );
+    let errors: Vec<String> = copy.host.pump().iter().map(ToString::to_string).collect();
+    assert_eq!(errors.len(), 2, "{errors:?}");
+    assert!(errors[0].contains("isn't open here"), "{errors:?}");
+    assert!(!copy.host.states.has(&project));
+    assert!(
+        !ownership::project_lock(&project).exists(),
+        "a late event took the lock again"
+    );
+
+    // Opened again, a running turn is ended by a forced close.
+    copy.send("two", "c2", json!({})).unwrap();
+    copy.host.pump();
+    copy.host.forget(&project, true).unwrap();
+    assert!(!copy.host.is_busy(&chat));
+    assert!(!copy.host.states.has(&project));
+    // What was saved: the turn ended as failed, said so.
+    copy.host.states.get(&project).unwrap();
+    let last = copy.messages().last().cloned().unwrap();
+    assert_eq!(last["outcome"], "failed");
+    assert_eq!(
+        last["body"],
+        "Milagre closed this Project before the turn ended."
+    );
 }
 
 /// Review P3.2: Send now whose interrupt fails keeps no pick: the next turn end doesn't start that message.
@@ -315,40 +495,64 @@ fn send_now_with_a_failed_interrupt_keeps_no_pick() {
     assert_eq!(copy.session()["queueHeld"], true);
 }
 
-/// Review P2.2: a turn end whose fold fails (here its Project can't be opened again) is kept, the Chat stays busy,
-/// and it is folded once it can be.
+/// Review P2.2 / re-review P3-3: a turn end that can't be folded (its Project was closed under the host and is
+/// locked by someone else) is kept while its turn runs, through retries that fail before the fold, and folded once
+/// the Project is open again.
 #[test]
 fn a_turn_end_whose_fold_fails_is_kept_and_retried() {
     let mut copy = Copy::plain();
     copy.send("one", "c1", json!({})).unwrap();
     copy.host.pump();
     let chat = copy.chat();
-    assert!(copy
-        .host
-        .forget(&copy.project.clone())
-        .unwrap_err()
-        .to_string()
-        .contains("has a turn running"));
-    // The states lose the Project under the host (as a failed close would), and someone else holds its lock.
-    copy.host.states.forget(&copy.project.clone()).unwrap();
-    let lock = ownership::project_lock(&copy.project);
-    std::fs::create_dir_all(&lock).unwrap();
-    std::fs::write(lock.join("owner.json"), r#"{"token":"other","pid":1}"#).unwrap();
     copy.kiro
         .emit(&chat, json!({ "type": "text-delta", "text": "done" }));
+    copy.host.pump();
+    let project = copy.project.clone();
+    copy.host.states.forget(&project).unwrap();
+    let lock = ownership::project_lock(&project);
+    std::fs::create_dir_all(&lock).unwrap();
+    std::fs::write(lock.join("owner.json"), r#"{"token":"other","pid":1}"#).unwrap();
     copy.kiro.emit(&chat, json!({ "type": "turn-completed" }));
-    let errors = copy.host.pump();
-    assert_eq!(errors.len(), 2, "{errors:?}");
+    assert_eq!(copy.host.pump().len(), 1);
     assert_eq!(copy.host.stuck_ends(), std::slice::from_ref(&chat));
     assert!(copy.host.is_busy(&chat), "a lost turn end freed the Chat");
-    // A pump with the lock still held tries again and keeps it.
+    // Retries that fail before the fold keep it.
     assert_eq!(copy.host.pump().len(), 1);
+    assert_eq!(copy.host.stuck_ends(), std::slice::from_ref(&chat));
+    assert!(
+        copy.host.states.get(&project).is_err(),
+        "someone else's lock was taken over"
+    );
     std::fs::remove_dir_all(&lock).unwrap();
+    copy.host.states.get(&project).unwrap();
     assert!(copy.host.pump().is_empty());
     assert!(copy.host.stuck_ends().is_empty());
     assert!(!copy.host.is_busy(&chat));
     let last = copy.messages().last().cloned().unwrap();
     assert_eq!(last["outcome"], "completed");
+    assert_eq!(last["body"], "done");
+}
+
+/// Re-review P3-2: notices nobody takes are bounded, and the take says how many were dropped.
+#[test]
+fn notices_are_bounded() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    let chat = copy.chat();
+    for _ in 0..(milagre_owner_store::chat_host::MAX_NOTICES + 5) {
+        copy.kiro
+            .emit(&chat, json!({ "type": "text-delta", "text": "x" }));
+    }
+    copy.host.pump();
+    let notices = copy.host.take_notices();
+    assert_eq!(
+        notices.len(),
+        milagre_owner_store::chat_host::MAX_NOTICES + 1
+    );
+    assert!(
+        matches!(notices.last(), Some(Notice::Failed { error, .. }) if error.contains("notices were dropped"))
+    );
 }
 
 /// Review P3.2: a queued message whose client id is already in the Chat leaves the queue; the next one starts.
@@ -400,12 +604,12 @@ fn the_host_and_its_providers_can_move_between_threads() {
     copy.host.pump();
     assert!(copy
         .host
-        .shutdown()
+        .shutdown(false)
         .unwrap_err()
         .to_string()
         .contains("suspend and resume"));
     copy.end("turn-completed");
-    copy.host.shutdown().unwrap();
+    copy.host.shutdown(false).unwrap();
     assert!(copy.kiro.state.lock().unwrap().shut_down);
 }
 

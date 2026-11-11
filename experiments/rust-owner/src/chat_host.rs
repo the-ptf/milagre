@@ -16,14 +16,15 @@
 //!   reply, mark the Chat unread unless it is the open one, archive finished subagents and move the queue on.
 //! - **Cancel.** `agent:interrupt` asks the provider to stop the running turn; its `turn-cancelled` ends it.
 //!
-//! Safer than Node where Node can lose a turn: events carry the [`TurnId`] the host gave the turn and one of another
-//! turn is refused; Projects must be named by their states key; runs change only with a kept fold, a failed turn end
-//! is kept and retried, and failures of the host's own work come back as [`Notice::Failed`].
+//! Safer than Node where Node can lose a turn: every provider event names the [`TurnId`] whose session sent it, and
+//! one of another turn, an older session or a closed Project is dropped; Projects must be named by their states key;
+//! runs change only with a kept fold, a failed turn end is kept and retried, interrupts that never end are forced by
+//! [`ChatHost::tick`], and failures of the host's own work come back as [`Notice::Failed`].
 //!
 //! Explicit gates (refused with [`gate`] errors, never approximated): steering a running turn, provider handoffs,
 //! compaction, usage-limit continuations and account routing, Routines' messages, wake turns, `canStart`, images,
 //! handover briefs, Send now that would steer, answering permissions and questions, a turn the agent started by
-//! itself, quitting with turns running, and the agent events listed in [`crate::agent_runs::UNSUPPORTED`].
+//! itself, quitting or closing a Project with turns running unless forced, and the agent events listed in [`crate::agent_runs::UNSUPPORTED`].
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -109,16 +110,22 @@ pub enum ProviderEvent {
         turn: TurnId,
         error: ProviderError,
     },
-    /// One Node agent event (`{ type, … }`). `turn` names the host turn it belongs to; it is required on the three turn
-    /// ends and on everything streamed inside a turn, and may be None only for Chat-level events (`session-started`,
-    /// `session-reset`, `context-usage` between turns).
+    /// One Node agent event (`{ type, … }`). `turn` is the host turn whose session sent it: the turn running for
+    /// anything inside a turn (and its end); for Chat-level events between turns (`session-started`, `session-reset`,
+    /// `context-usage`, …) the last turn that session ran, which stands for the session's generation. An event of
+    /// another turn or an older session is dropped.
     Agent {
         chat: String,
-        turn: Option<TurnId>,
+        turn: TurnId,
         event: Value,
     },
-    /// The provider's process for this Chat ended. A turn still running in it fails with `error`.
-    Exited { chat: String, error: ProviderError },
+    /// The provider's process for this Chat ended, after running `turn` (the last turn it ran). Fails that turn if
+    /// it still runs; otherwise closes that session, so its late events are dropped. Never touches a newer turn.
+    Exited {
+        chat: String,
+        turn: TurnId,
+        error: ProviderError,
+    },
 }
 
 /// An agent provider adapter: SessionManager for one provider. Every method returns at once (an adapter does its work on
@@ -193,10 +200,10 @@ impl MockProvider {
         }
     }
 
-    /// An agent event of the Chat's latest turn.
+    /// An agent event of the Chat's latest turn (`TurnId(0)`, which no host turn has, before any).
     pub fn emit(&self, chat: &str, event: Value) {
         let mut state = self.state.lock().unwrap();
-        let turn = state.current.get(chat).copied();
+        let turn = state.current.get(chat).copied().unwrap_or(TurnId(0));
         state.events.push(ProviderEvent::Agent {
             chat: chat.into(),
             turn,
@@ -204,8 +211,8 @@ impl MockProvider {
         });
     }
 
-    /// An agent event tagged with a given turn (or none), such as a late one.
-    pub fn emit_for(&self, chat: &str, turn: Option<TurnId>, event: Value) {
+    /// An agent event tagged with a given turn, such as a late one.
+    pub fn emit_for(&self, chat: &str, turn: TurnId, event: Value) {
         self.state
             .lock()
             .unwrap()
@@ -215,6 +222,11 @@ impl MockProvider {
                 turn,
                 event,
             });
+    }
+
+    /// The last turn started for a Chat.
+    pub fn current(&self, chat: &str) -> Option<TurnId> {
+        self.state.lock().unwrap().current.get(chat).copied()
     }
 
     pub fn push(&self, event: ProviderEvent) {
@@ -362,6 +374,12 @@ pub struct Sent {
 
 const FORMER_WORKTREE: &str = "This Run's Worktree was removed because the Run left nothing in it. Start a new Chat to continue.";
 const PERMISSION_MODES: [&str; 3] = ["ask", "auto", "full"];
+/// How long an interrupted turn gets to end by itself before the host forces it.
+pub const INTERRUPT_GRACE_MS: i64 = 15_000;
+/// Notices kept for a client that doesn't take them; past this the oldest are dropped (and counted).
+pub const MAX_NOTICES: usize = 10_000;
+/// Rounds of events one pump handles before leaving the rest for the next.
+pub const MAX_PUMP_ROUNDS: usize = 1_000;
 
 fn field<'a>(request: &'a Value, key: &str) -> Option<&'a Value> {
     request.get(key).filter(|value| !value.is_null())
@@ -425,7 +443,17 @@ pub struct ChatHost {
     active: HashMap<String, (TurnId, String)>,
     next_turn: u64,
     /// Turn ends whose fold failed (the save or load behind it): kept and tried again, so the run doesn't stay open.
-    stuck: BTreeMap<String, (Option<TurnId>, Value)>,
+    stuck: BTreeMap<String, (TurnId, Value)>,
+    /// Each Chat's latest turn: its session's generation. Chat-level events must name it.
+    latest: HashMap<String, TurnId>,
+    /// Interrupted turns and when they are forced to end if they haven't (see `tick`).
+    deadlines: HashMap<String, (TurnId, i64)>,
+    /// How long an interrupted turn may take to end before `tick` forces it (ms of the states clock).
+    pub interrupt_grace_ms: i64,
+    /// Events a bounded pump left for the next one.
+    held_events: Vec<ProviderEvent>,
+    /// Notices dropped because nobody took them (the oldest go first past `MAX_NOTICES`).
+    dropped_notices: u64,
     /// Queued messages whose start is still in flight, by turn: told as `QueueStarted` once it resolves.
     queue_turns: HashMap<TurnId, (String, String)>,
     seq: u64,
@@ -450,6 +478,11 @@ impl ChatHost {
             active: HashMap::new(),
             next_turn: 0,
             stuck: BTreeMap::new(),
+            latest: HashMap::new(),
+            deadlines: HashMap::new(),
+            interrupt_grace_ms: INTERRUPT_GRACE_MS,
+            held_events: Vec::new(),
+            dropped_notices: 0,
             queue_turns: HashMap::new(),
             seq: 0,
             starting: HashMap::new(),
@@ -476,8 +509,27 @@ impl ChatHost {
         &self.runs
     }
 
+    /// What the clients would hear since the last take. Notices past `MAX_NOTICES` drop the oldest, and the take
+    /// ends with a `Failed` notice that counts them.
     pub fn take_notices(&mut self) -> Vec<Notice> {
-        std::mem::take(&mut self.notices)
+        let mut notices = std::mem::take(&mut self.notices);
+        if self.dropped_notices > 0 {
+            notices.push(Notice::Failed {
+                chat: String::new(),
+                what: "telling clients (nobody took the oldest notices)".into(),
+                error: format!("{} notices were dropped", self.dropped_notices),
+            });
+            self.dropped_notices = 0;
+        }
+        notices
+    }
+
+    fn notice(&mut self, notice: Notice) {
+        if self.notices.len() >= MAX_NOTICES {
+            self.notices.remove(0);
+            self.dropped_notices += 1;
+        }
+        self.notices.push(notice);
     }
 
     /// Whether a Chat's turn runs or is about to start.
@@ -536,7 +588,7 @@ impl ChatHost {
     }
 
     fn broadcast(&mut self, project: &Path) {
-        self.notices.push(Notice::Broadcast {
+        self.notice(Notice::Broadcast {
             project: project.to_path_buf(),
         });
     }
@@ -1135,7 +1187,7 @@ impl ChatHost {
         }
         self.sync_busy();
         let (state, _) = folded?;
-        self.notices.push(Notice::Event {
+        self.notice(Notice::Event {
             chat: chat.clone(),
             event: event.clone(),
             seq: Some(self.seq),
@@ -1144,7 +1196,7 @@ impl ChatHost {
         if session_value(&state, &json!(session_id))
             .is_some_and(|s| jsjson::truthy(s.get("titlePending")))
         {
-            self.notices.push(Notice::NameChat {
+            self.notice(Notice::NameChat {
                 project: project.clone(),
                 session: session_id,
             });
@@ -1198,6 +1250,7 @@ impl ChatHost {
         let turn = TurnId(self.next_turn);
         self.active
             .insert(chat.to_string(), (turn, provider.to_string()));
+        self.latest.insert(chat.to_string(), turn);
         let outcome = match self.providers.get_mut(provider) {
             Some(adapter) => adapter.start_turn(turn, request),
             None => Err(ProviderError::new(
@@ -1217,8 +1270,8 @@ impl ChatHost {
     /// Ends a turn with `turn-failed` (a start that failed, a provider that exited); a fold that fails is kept.
     fn fail_turn(&mut self, chat: &str, turn: TurnId, message: &str, what: &str) {
         let event = json!({ "type": "turn-failed", "message": message });
-        if let Err(error) = self.receive(chat, Some(turn), &event) {
-            self.notices.push(Notice::Failed {
+        if let Err(error) = self.receive(chat, turn, &event) {
+            self.notice(Notice::Failed {
                 chat: chat.into(),
                 what: format!("ending {what}"),
                 error: error.to_string(),
@@ -1251,7 +1304,7 @@ impl ChatHost {
         self.queue_waiters.insert(id);
         if !self.is_busy(chat) {
             if let Err(error) = self.after_turn(chat, &json!({ "type": "turn-completed" })) {
-                self.notices.push(Notice::Failed {
+                self.notice(Notice::Failed {
                     chat: chat.into(),
                     what: "starting the queued message".into(),
                     error: error.to_string(),
@@ -1273,7 +1326,7 @@ impl ChatHost {
     /// failed; each is also left as it was (a refused event folds nothing).
     pub fn pump(&mut self) -> Vec<StoreError> {
         let mut errors = self.retry_stuck();
-        for _ in 0..10_000 {
+        for round in 0.. {
             let mut events = Vec::new();
             for provider in self.providers.values_mut() {
                 events.extend(provider.take_events());
@@ -1281,7 +1334,16 @@ impl ChatHost {
             if events.is_empty() {
                 break;
             }
-            for event in events {
+            if round == MAX_PUMP_ROUNDS {
+                // Events keep coming (an adapter looping on its own output): stop here, keep them for the next pump.
+                self.held_events.extend(events);
+                errors.push(StoreError::Invalid(format!(
+                    "Providers kept sending events for {MAX_PUMP_ROUNDS} rounds; the rest wait for the next pump."
+                )));
+                break;
+            }
+            let held: Vec<ProviderEvent> = std::mem::take(&mut self.held_events);
+            for event in held.into_iter().chain(events) {
                 if let Err(error) = self.deliver(event) {
                     errors.push(error);
                 }
@@ -1290,9 +1352,36 @@ impl ChatHost {
         errors
     }
 
-    /// Folds the turn ends kept after a failed fold again; the ones that still fail stay kept.
+    /// The runtime's tick, from the one task that owns the host: the clock moves (debounced saves, sweeps), interrupts
+    /// past their grace are forced, kept turn ends are tried again, and providers' events are handled.
+    pub fn tick(&mut self, now: i64) -> Vec<StoreError> {
+        let mut errors = Vec::new();
+        if now > self.states.now() {
+            self.states.advance(now);
+        }
+        let overdue: Vec<(String, TurnId)> = self
+            .deadlines
+            .iter()
+            .filter(|(_, (_, at))| *at <= now)
+            .map(|(chat, (turn, _))| (chat.clone(), *turn))
+            .collect();
+        for (chat, turn) in overdue {
+            self.deadlines.remove(&chat);
+            if self.active_turn(&chat) == Some(turn) {
+                self.force_end(
+                    &chat,
+                    turn,
+                    "The agent didn't stop in time, so Milagre ended its turn.",
+                );
+            }
+        }
+        errors.extend(self.pump());
+        errors
+    }
+
+    /// Folds the turn ends kept after a failed fold again; one that fails again stays kept while its turn runs.
     pub fn retry_stuck(&mut self) -> Vec<StoreError> {
-        let stuck: Vec<(String, (Option<TurnId>, Value))> =
+        let stuck: Vec<(String, (TurnId, Value))> =
             std::mem::take(&mut self.stuck).into_iter().collect();
         let mut errors = Vec::new();
         for (chat, (turn, event)) in stuck {
@@ -1312,7 +1401,7 @@ impl ChatHost {
     pub fn deliver(&mut self, event: ProviderEvent) -> Result<()> {
         match event {
             ProviderEvent::Started { chat, turn, result } => {
-                self.notices.push(Notice::Started {
+                self.notice(Notice::Started {
                     chat,
                     turn,
                     result: result.clone(),
@@ -1323,20 +1412,26 @@ impl ChatHost {
             ProviderEvent::StartFailed { chat, turn, error } => {
                 self.queue_started(turn, Value::Null);
                 let event = json!({ "type": "turn-failed", "message": error.message });
-                self.receive(&chat, Some(turn), &event)
+                self.receive(&chat, turn, &event)
             }
             ProviderEvent::Agent { chat, turn, event } => self.receive(&chat, turn, &event),
-            ProviderEvent::Exited { chat, error } => {
-                if let Some((turn, _)) = self.active.get(&chat).cloned() {
+            ProviderEvent::Exited { chat, turn, error } => {
+                let mut result = Ok(());
+                if self.active_turn(&chat) == Some(turn) {
                     let event = json!({ "type": "turn-failed", "message": error.message });
-                    return self.receive(&chat, Some(turn), &event);
+                    result = self.receive(&chat, turn, &event);
                 }
-                Ok(())
+                // That session is gone (whether it ran a turn or idled); a newer turn is untouched.
+                if self.latest.get(&chat) == Some(&turn) {
+                    self.latest.remove(&chat);
+                }
+                result
             }
         }
     }
 
-    /// A queued message's start resolved (`null` when it failed): its sender hears it, or its Chat does.
+    /// A queued message's start resolved (`null` when it failed or its turn ended first): its sender hears it, or its
+    /// Chat does.
     fn queue_started(&mut self, turn: TurnId, result: Value) {
         if let Some((id, chat)) = self.queue_turns.remove(&turn) {
             self.tell_queue_started(&chat, &id, result);
@@ -1345,19 +1440,19 @@ impl ChatHost {
 
     fn tell_queue_started(&mut self, chat: &str, id: &str, result: Value) {
         if self.queue_waiters.remove(id) {
-            self.notices.push(Notice::QueueStarted {
+            self.notice(Notice::QueueStarted {
                 id: id.into(),
                 result,
             });
         } else {
-            self.notices.push(Notice::QueueStartedWithoutSender {
+            self.notice(Notice::QueueStartedWithoutSender {
                 chat: chat.into(),
                 id: id.into(),
             });
         }
     }
 
-    /// Events Node folds outside a turn too, which may come without a turn.
+    /// Events Node folds outside a turn too: they must come from the Chat's latest session (its latest turn).
     const CHAT_LEVEL: [&'static str; 8] = [
         "session-started",
         "session-reset",
@@ -1369,54 +1464,45 @@ impl ChatHost {
         "prompt-suggestion",
     ];
 
-    /// receive: folds one agent event into its Chat's Project, then tells the clients. Refused, folding nothing: an
-    /// event type this checkpoint doesn't fold, an event of another turn than the one running (a late
-    /// `turn-cancelled` must not end the turn Send now started), a turn event without its turn, a turn the agent
-    /// started by itself, and a Chat key that doesn't spell its Project canonically. A turn end whose fold fails is
-    /// kept and folded again by `pump`/`retry_stuck`, so its run never stays open for good.
-    pub fn receive(&mut self, chat: &str, turn: Option<TurnId>, event: &Value) -> Result<()> {
+    /// receive: folds one agent event into its Chat's Project, then tells the clients. Refused, folding nothing:
+    /// - an event type this checkpoint doesn't fold;
+    /// - a Chat key that doesn't spell its Project canonically, or a Project that isn't open here (a late event must
+    ///   not open, and lock, a Project that was closed);
+    /// - a turn event (and a turn end) of any turn but the one running, including when nothing runs (a duplicate
+    ///   `turn-cancelled` after `turn-completed` must not hold the queue);
+    /// - a Chat-level event of an older session than the Chat's latest turn;
+    /// - a turn the agent started by itself.
+    ///
+    /// A turn end of the running turn whose fold fails is kept and folded again (`pump`, `tick`, `retry_stuck`), so
+    /// its run never stays open for good; the queue moves on only when a turn end actually ended a run.
+    pub fn receive(&mut self, chat: &str, turn: TurnId, event: &Value) -> Result<()> {
         let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
-        if agent_runs::UNSUPPORTED.contains(&kind) {
-            return Err(gate(&format!("The agent event \"{kind}\"")));
-        }
-        self.canonical_chat(chat)?;
-        let running = self.active.get(chat).map(|(running, _)| *running);
-        match (turn, running) {
-            (Some(turn), Some(running)) if turn != running => {
-                return Err(StoreError::Invalid(format!(
-                    "A late \"{kind}\" of an earlier turn ({}) was dropped: turn {} runs in {chat}.",
-                    turn.0, running.0
-                )));
-            }
-            (None, _) if !Self::CHAT_LEVEL.contains(&kind) => {
-                if kind == "turn-started" && running.is_none() && !self.runs.contains_key(chat) {
-                    return Err(gate("A turn the agent started by itself"));
-                }
-                return Err(StoreError::Invalid(format!(
-                    "The agent event \"{kind}\" must name its turn."
-                )));
-            }
-            _ => {}
-        }
         let terminal = is_turn_end(event);
-        let folded = self.fold(chat, event);
+        let running = self.active_turn(chat);
+        let checked = self.admit(chat, turn, kind, running);
+        let folded = checked.and_then(|_| {
+            let had_run = self.runs.contains_key(chat);
+            self.fold(chat, event)
+                .map(|_| had_run && !self.runs.contains_key(chat))
+        });
         match &folded {
-            Ok(()) if terminal => {
+            Ok(_) if terminal => {
                 self.stuck.remove(chat);
-                if running.is_some() && running == turn {
-                    self.active.remove(chat);
-                }
+                self.active.remove(chat);
+                self.deadlines.remove(chat);
+                self.queue_started(turn, Value::Null);
             }
-            Err(_) if terminal => {
+            // Kept only while it is still the running turn's end: a stale one is dropped for good.
+            Err(_) if terminal && running == Some(turn) => {
                 self.stuck.insert(chat.to_string(), (turn, event.clone()));
             }
             _ => {}
         }
         self.sync_busy();
-        folded?;
-        if terminal {
+        let ended = folded?;
+        if terminal && ended {
             if let Err(error) = self.after_turn(chat, event) {
-                self.notices.push(Notice::Failed {
+                self.notice(Notice::Failed {
                     chat: chat.into(),
                     what: "starting the next queued message".into(),
                     error: error.to_string(),
@@ -1424,6 +1510,74 @@ impl ChatHost {
             }
         }
         Ok(())
+    }
+
+    /// receive's checks, before anything is folded.
+    fn admit(&self, chat: &str, turn: TurnId, kind: &str, running: Option<TurnId>) -> Result<()> {
+        if agent_runs::UNSUPPORTED.contains(&kind) {
+            return Err(gate(&format!("The agent event \"{kind}\"")));
+        }
+        let (project, _) = self.canonical_chat(chat)?;
+        if !self.states.has(&project) {
+            return Err(StoreError::Invalid(format!(
+                "A \"{kind}\" for {chat} was dropped: its Project isn't open here."
+            )));
+        }
+        if Self::CHAT_LEVEL.contains(&kind) {
+            if self.latest.get(chat) != Some(&turn) {
+                return Err(StoreError::Invalid(format!(
+                    "A late \"{kind}\" of an older session (turn {}) was dropped for {chat}.",
+                    turn.0
+                )));
+            }
+            return Ok(());
+        }
+        match running {
+            Some(running) if running == turn => Ok(()),
+            Some(running) => Err(StoreError::Invalid(format!(
+                "A late \"{kind}\" of an earlier turn ({}) was dropped: turn {} runs in {chat}.",
+                turn.0, running.0
+            ))),
+            None if kind == "turn-started" && self.latest.get(chat) == Some(&turn) => {
+                Err(gate("A turn the agent started by itself"))
+            }
+            None => Err(StoreError::Invalid(format!(
+                "A late \"{kind}\" of turn {} was dropped: nothing runs in {chat}.",
+                turn.0
+            ))),
+        }
+    }
+
+    /// Ends a turn whose provider won't (an interrupt past its grace, a forced quit or close): its session is closed
+    /// (nonblocking), its turn fails with `message`, and anything that session still sends is dropped. If even the
+    /// fold fails, the run is let go in memory (the user message stays saved) and that is told.
+    fn force_end(&mut self, chat: &str, turn: TurnId, message: &str) {
+        if let Some((_, provider)) = self.active.get(chat).cloned() {
+            if let Some(adapter) = self.providers.get_mut(&provider) {
+                if let Err(error) = adapter.close_chat(chat) {
+                    self.notice(Notice::Failed {
+                        chat: chat.into(),
+                        what: "closing the agent's session".into(),
+                        error: error.message,
+                    });
+                }
+            }
+        }
+        let event = json!({ "type": "turn-failed", "message": message, "notice": true });
+        if let Err(error) = self.receive(chat, turn, &event) {
+            self.stuck.remove(chat);
+            self.active.remove(chat);
+            self.deadlines.remove(chat);
+            self.runs.shift_remove(chat);
+            self.queue_started(turn, Value::Null);
+            self.notice(Notice::Failed {
+                chat: chat.into(),
+                what: "saving the end of a turn Milagre stopped".into(),
+                error: error.to_string(),
+            });
+        }
+        self.latest.remove(chat);
+        self.sync_busy();
     }
 
     /// The fold of `receive`: the state and runs change together, or not at all.
@@ -1507,14 +1661,14 @@ impl ChatHost {
         let (state, changed) = folded?;
         self.runs = runs;
         self.seq = seq;
-        self.notices.push(Notice::Event {
+        self.notice(Notice::Event {
             chat: chat.into(),
             event: event.clone(),
             seq: Some(self.seq),
             with_state: changed,
         });
         if limit_gap {
-            self.notices.push(Notice::Gap {
+            self.notice(Notice::Gap {
                 chat: chat.into(),
                 what: "usage-limit continuation (limitTurn)".into(),
             });
@@ -1525,7 +1679,7 @@ impl ChatHost {
                 .and_then(Value::as_str)
                 .is_some_and(|body| body.contains("!["))
             {
-                self.notices.push(Notice::Gap {
+                self.notice(Notice::Gap {
                     chat: chat.into(),
                     what: "reply image capture".into(),
                 });
@@ -1716,7 +1870,7 @@ impl ChatHost {
 
     /// chat:queue-send: Send now. A running turn that can't take it is stopped, and it starts once that turn ends.
     pub fn send_queued_now(&mut self, chat: &str, id: &str) -> Result<()> {
-        let project = Self::project_path(agent_runs::project_of_key(chat));
+        let (project, _) = self.canonical_chat(chat)?;
         let session_id = session_of_key(chat).unwrap_or(-1);
         let state = self.states.get(&project)?;
         let session = session_value(&state, &json!(session_id));
@@ -1759,7 +1913,7 @@ impl ChatHost {
 
     /// chat:queue-remove: takes a message out of the queue without sending it. False when it was already gone.
     pub fn remove_queued(&mut self, chat: &str, id: &str) -> Result<bool> {
-        let project = Self::project_path(agent_runs::project_of_key(chat));
+        let (project, _) = self.canonical_chat(chat)?;
         let session_id = session_of_key(chat).unwrap_or(-1);
         let (_, changed) = self.states.update(&project, Some(&[]), true, |latest| {
             let session = agent_runs_session(latest, session_id)?;
@@ -1782,9 +1936,9 @@ impl ChatHost {
             self.send_next.remove(chat);
         }
         if self.queue_waiters.remove(id) {
-            self.notices.push(Notice::QueueStarted { id: id.into(), result: json!({ "turnId": null, "steered": false, "cancelled": true, "removed": true }) });
+            self.notice(Notice::QueueStarted { id: id.into(), result: json!({ "turnId": null, "steered": false, "cancelled": true, "removed": true }) });
         } else {
-            self.notices.push(Notice::QueueRemovedWithoutSender {
+            self.notice(Notice::QueueRemovedWithoutSender {
                 chat: chat.into(),
                 id: id.into(),
             });
@@ -1802,44 +1956,132 @@ impl ChatHost {
         match self.providers.get_mut(&provider) {
             Some(adapter) => adapter
                 .interrupt(chat, turn)
-                .map_err(|error| StoreError::Invalid(error.message)),
-            None => Err(StoreError::Invalid(format!(
-                "No {provider} provider adapter is registered with the Rust owner."
-            ))),
+                .map_err(|error| StoreError::Invalid(error.message))?,
+            None => {
+                return Err(StoreError::Invalid(format!(
+                    "No {provider} provider adapter is registered with the Rust owner."
+                )))
+            }
+        }
+        // The turn has `interrupt_grace_ms` to end; `tick` forces it past that.
+        let due = self.states.now() + self.interrupt_grace_ms;
+        self.deadlines
+            .entry(chat.to_string())
+            .or_insert((turn, due));
+        Ok(())
+    }
+
+    /// Ends the provider sessions of a Project's Chats (nonblocking), forgetting their generations so whatever they
+    /// still send is dropped.
+    fn close_sessions(&mut self, key: &Path) {
+        let chats: Vec<String> = self
+            .latest
+            .keys()
+            .chain(self.turns.keys())
+            .filter(|chat| Path::new(agent_runs::project_of_key(chat)) == key)
+            .cloned()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        for chat in chats {
+            let provider = self
+                .turns
+                .get(&chat)
+                .and_then(|turn| turn.get("provider"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            if let Some(adapter) = provider.and_then(|name| self.providers.get_mut(&name)) {
+                if let Err(error) = adapter.close_chat(&chat) {
+                    self.notice(Notice::Failed {
+                        chat: chat.clone(),
+                        what: "closing the agent's session".into(),
+                        error: error.message,
+                    });
+                }
+            }
+            self.latest.remove(&chat);
+            self.turns.remove(&chat);
+            self.send_next.remove(&chat);
         }
     }
 
-    /// Closes one Project here: refused while a turn runs or starts in it, or a turn end waits to be folded again
-    /// (a late provider event would otherwise open it, and take its lock, again).
-    pub fn forget(&mut self, project: &Path) -> Result<()> {
+    /// Closes one Project here: its Chats' provider sessions are closed first, so a late event can't open it (and take
+    /// its lock) again. Refused while a turn runs or starts in it, or a turn end waits to be folded again, unless
+    /// `force`, which ends those turns as failed first (see `tick` for the same path after an interrupt).
+    pub fn forget(&mut self, project: &Path, force: bool) -> Result<()> {
         let key = self.canonical_project(&project.display().to_string())?;
-        let busy = self
+        let in_project = |chat: &String| Path::new(agent_runs::project_of_key(chat)) == key;
+        let busy: Vec<String> = self
             .runs
             .keys()
             .chain(self.starting.keys())
             .chain(self.stuck.keys())
             .chain(self.active.keys())
-            .find(|chat| Path::new(agent_runs::project_of_key(chat)) == key)
-            .cloned();
-        if let Some(chat) = busy {
-            return Err(StoreError::Invalid(format!(
-                "{chat} has a turn running; stop it before closing its Project."
-            )));
+            .filter(|chat| in_project(chat))
+            .cloned()
+            .collect();
+        if let Some(chat) = busy.first() {
+            if !force {
+                return Err(StoreError::Invalid(format!(
+                    "{chat} has a turn running; stop it before closing its Project."
+                )));
+            }
         }
+        for chat in &busy {
+            if let Some(turn) = self.active_turn(chat) {
+                self.force_end(
+                    chat,
+                    turn,
+                    "Milagre closed this Project before the turn ended.",
+                );
+            }
+            self.stuck.remove(chat);
+            self.runs.shift_remove(chat);
+        }
+        self.sync_busy();
+        self.close_sessions(&key);
         self.states.forget(&key)
     }
 
-    /// Ends the host: refused while a turn runs (quit-time suspend and resume aren't ported), otherwise every
-    /// provider shuts down and the states close (a failed close keeps them, see ProjectStates::close).
-    pub fn shutdown(&mut self) -> Result<()> {
-        if let Some(chat) = self.active.keys().chain(self.stuck.keys()).next() {
-            return Err(gate(&format!(
-                "Quitting while a turn runs in {chat} (suspend and resume)"
-            )));
+    /// Ends the host. Providers' waiting events are handled first. Refused while a turn runs (quit-time suspend and
+    /// resume aren't ported) unless `force`, which ends those turns as failed (their replies so far saved). Then every
+    /// provider shuts down (nonblocking by the trait's contract) and the states close (a failed close keeps them, see
+    /// ProjectStates::close).
+    pub fn shutdown(&mut self, force: bool) -> Result<()> {
+        let errors = self.pump();
+        for error in errors {
+            self.notice(Notice::Failed {
+                chat: String::new(),
+                what: "handling events before quitting".into(),
+                error: error.to_string(),
+            });
+        }
+        let running: Vec<String> = self
+            .active
+            .keys()
+            .chain(self.stuck.keys())
+            .cloned()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if let Some(chat) = running.first() {
+            if !force {
+                return Err(gate(&format!(
+                    "Quitting while a turn runs in {chat} (suspend and resume)"
+                )));
+            }
+        }
+        for chat in &running {
+            if let Some(turn) = self.active_turn(chat) {
+                self.force_end(chat, turn, "Milagre quit before the turn ended.");
+            }
+            self.stuck.remove(chat);
         }
         for provider in self.providers.values_mut() {
             provider.shutdown();
         }
+        self.latest.clear();
+        self.sync_busy();
         self.states.close()
     }
 

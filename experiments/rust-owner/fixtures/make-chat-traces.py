@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Writes fixtures/chat-traces.json (run from experiments/rust-owner). Shared by chat-node.cjs and tests/chat.rs."""
+"""Writes fixtures/chat-traces.json (run from experiments/rust-owner, then `npx oxfmt fixtures/chat-traces.json` for
+the repository formatter). Shared by chat-node.cjs and tests/chat.rs."""
 import json
 
 START = 1767225600000  # 2026-01-01T00:00:00Z
@@ -50,7 +51,8 @@ T.append({"name": "send-lifecycle", "start": START, "seed": seed, "steps": [
     send("Fails to start", "c5", session=5),
     send("", "c6", session=5),
     event("turn-completed", session=5),
-    event("turn-completed", session=5),
+    # (A second turn-completed here, with nothing running, is published by Node and dropped by Rust on purpose:
+    # tests/chat_safety.rs a_duplicate_turn_end_while_idle_is_dropped.)
     {"op": "advance", "ms": 300},
     {"op": "snapshot"},
     {"op": "crash"},
@@ -103,5 +105,5 @@ T.append({"name": "idle-sweep-keeps-running-chat", "start": START, "seed": seed,
     {"op": "snapshot"}]})
 
 with open("fixtures/chat-traces.json", "w", encoding="ascii") as out:
-    out.write(json.dumps(T, indent=1) + "\n")
+    out.write(json.dumps(T, indent=2) + "\n")
 print(len(T), "traces,", sum(len(t["steps"]) for t in T), "steps")

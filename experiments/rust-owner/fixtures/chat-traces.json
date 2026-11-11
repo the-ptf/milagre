@@ -215,13 +215,6 @@
         }
       },
       {
-        "op": "event",
-        "session": 5,
-        "event": {
-          "type": "turn-completed"
-        }
-      },
-      {
         "op": "advance",
         "ms": 300
       },
