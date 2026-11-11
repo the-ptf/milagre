@@ -704,6 +704,10 @@ async fn scripted_actions_fixture() {
         .unwrap();
     assert_eq!(second["total"], 2);
     assert_eq!(second["messages"][0]["clientMessageId"], "public-action-2");
+    assert_eq!(second["messages"][0]["role"], "user");
+    assert_eq!(second["messages"][0]["body"], "fixture:blocked-start");
+    assert_eq!(second["messages"][1]["role"], "assistant");
+    assert_eq!(second["messages"][1]["body"], "");
     assert_eq!(second["messages"][1]["outcome"], "cancelled");
     client.disconnect();
     assert_eq!(actions.interrupt(2).await, Err(Error::Disconnected));
