@@ -1,0 +1,20 @@
+[package]
+name = "milagre-content-store"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Isolated Rust Artifact store with Node-compatible live pages, assets and comments"
+
+[dependencies]
+milagre-owner-store = { path = "../rust-owner" }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+regex = "1"
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[workspace]
