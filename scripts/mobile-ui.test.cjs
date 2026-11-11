@@ -6879,6 +6879,7 @@ test("Compact now from the context sheet sends /compact to the open Chat with th
   assert.equal(sent.body, "/compact");
   assert.equal(sent.prompt, "/compact");
   assert.equal(sent.compact, true);
+  assert.equal(sent.sentFrom, "phone");
   assert.equal(sent.sessionId, 42);
   assert.equal(sent.projectPath, projectPath);
   assert.equal(Object.keys(screen.session.pendingChats).length, 0);
