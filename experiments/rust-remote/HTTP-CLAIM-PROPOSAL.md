@@ -1,6 +1,6 @@
 # HTTP Claim and cancellation proposal
 
-Status: proposed contract for review, not an implemented API or production authorization. This checkpoint changes no dispatcher, network dependency, listener, endpoint, profile format, phone codec or mobile file. First implementation would be an in-memory adapter/state-machine fixture. A subsequent, separately approved loopback fixture would exercise a real HTTP library against a server created and owned by that fixture. Production integration remains gated.
+Status: agreed synthetic state-machine contract, not an implemented network API or production authorization. This checkpoint changes no dispatcher, network dependency, listener, endpoint, profile format, phone codec or mobile file. First implementation would be an in-memory adapter/state-machine fixture. A subsequent, separately approved loopback fixture would exercise a real HTTP library against a server created and owned by that fixture. Production integration remains gated.
 
 ## Source contract and current boundary
 
@@ -79,3 +79,11 @@ Required checkpoint tests:
 5. Retain all existing MemoryHttp and seven Node reciprocal checks. Extend actual Node synthetic fixtures for queue timing, cancellation observations and response bytes; later loopback tests cover real HTTP parsing without contacting a live endpoint. Production routing/credentials, cross-process recovery, actual phones, dense-state census, complete Unicode header/path support, batching and reserved-lane fairness remain excluded.
 
 Requested agreement: the owner-only consuming attempt/status model, claim-based deadlines and separate scheduling bound, preallocated completion/output path, and explicit full-body fixture memory/concurrency limits. Implementation should follow in separately reviewed state-machine then adapter checkpoints. This document does not lift any production gate.
+
+## Concluded refinements
+
+The owner accepted the consuming attempt/status model, 340,000 ms claim timeout plus 5,000 ms delivery margin, explicit 20,000 ms Ready scheduling expiry, prepaid completion/output, 64 MiB response maximum and fixture-only 128 MiB connection/device, 256 MiB global, two-global/one-device execution limits.
+
+Status preparation reserves bounded backing memory before allocation and before admitting any of the 512 service/32 device slots. Dropping an unsubmitted attempt releases its exact status slot; Full returns that original attempt. Dropping an accepted receipt never cancels, reconstructs or replays its operation. Status acknowledgment and execution cleanup are distinct: `ack_terminal` may discard observation only, and can never release an executor, cancellation/completion slot, response body or output lease that remains owned. Resource cleanup precedes slot reuse for active operations even if observation has already been acknowledged.
+
+Begin and cancellation share one serialized transition. Deterministic barriers must prove cancellation before Begin yields NotStarted/zero invocations, whereas cancellation after Begin preserves MayHaveRun without replay. Checked id/deadline/accounting overflow refuses with zero invocation. Response storage uses a fixed bounded allocation charged before allocation, with no Vec growth, uncharged capacity expansion or oversized temporary body. The initial checkpoint is a private synthetic state machine; Registry/authority/supervisor wiring, frame-credit integration and real HTTP dependencies/network remain separate reviewed work.
