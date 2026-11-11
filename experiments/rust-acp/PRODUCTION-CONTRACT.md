@@ -117,3 +117,10 @@ Acceptance gate after that checkpoint: parent and account/process owners agree o
 install identity, workspace authority, process-tree cleanup and immutable guards supply the
 constructor inputs. Then implement one bounded host binding at a time with fake executables and
 synthetic directories. Enabling production launch is a later, explicit integration decision.
+
+## Concrete host-binding proposal
+
+[HOST-BINDING-CONTRACT.md](HOST-BINDING-CONTRACT.md) maps the current root owner/account/registry
+APIs to a proposed first synthetic Kiro Ordinary/Ask binding. Its pinned source evidence, private
+authority, readiness/revocation limits, descriptor-execution platform decision, retained cleanup
+and acceptance tests require parent agreement before implementation. No production gate changes.

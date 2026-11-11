@@ -96,6 +96,8 @@ The concrete constructor/account/lifecycle inventory and proposed next checkpoin
 synthetic account/install observations; see [LAUNCH-PLANNING.md](LAUNCH-PLANNING.md).
 It remains disconnected from spawn and runtime; plans are not account or executable authority.
 The parent must agree the real lease/guard/cleanup contract before any production constructor.
+The next concrete agreement is [HOST-BINDING-CONTRACT.md](HOST-BINDING-CONTRACT.md): a synthetic
+Kiro Ordinary/Ask binding using real copied services, with private authority and retained cleanup.
 
 ## Transport compatibility and watchdog gaps
 
