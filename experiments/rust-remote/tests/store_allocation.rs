@@ -1,6 +1,9 @@
+#![cfg(unix)]
 //! Single-test binary: allocator instrumentation only, never linked into the library.
 //! The production library retains forbid(unsafe_code).
 use milagre_remote::synthetic_store::{StoreFault, StoreLimits};
+#[path = "../src/synthetic_store/hydration.rs"]
+mod hydration;
 #[path = "../src/synthetic_store/snapshot.rs"]
 mod snapshot;
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -53,7 +56,7 @@ fn snapshot_decode_has_bounded_serialized_and_parsed_allocations() {
     let limits = StoreLimits::default();
     let state = snapshot::Snapshot {
         profile: [1; 16],
-        revision: 1,
+        revision: 2,
         identity: 1,
         boot: 1,
         policy: 1,
@@ -70,6 +73,7 @@ fn snapshot_decode_has_bounded_serialized_and_parsed_allocations() {
                     kind: snapshot::Kind::Phone,
                     epoch: 1,
                     removed: Some(1),
+                    last_removed: Some(1),
                 }
             })
             .collect(),
@@ -82,6 +86,20 @@ fn snapshot_decode_has_bounded_serialized_and_parsed_allocations() {
         "total={total} largest={largest}"
     );
     assert!(largest < limits.parsed_bytes);
+    // The actual authority hydration path, with a record value at least as large
+    // as policy::Record (two u64s), includes all key copies and BTree node overhead.
+    let ((decoded, maps), total, _) = measure(|| {
+        let decoded = snapshot::Snapshot::decode(&bytes, limits).unwrap();
+        let maps = hydration::hydrate(&decoded, |_| (0u64, 0u64), || (0u64, 0u64));
+        (decoded, maps)
+    });
+    assert_eq!(maps.records.len(), 4096);
+    assert_eq!(maps.epochs.len(), 4096);
+    assert_eq!(maps.from_previous_boot.len(), 4096);
+    assert!(total < limits.parsed_bytes, "hydration total={total}");
+    let ((candidate, records), total, _) = measure(|| (decoded.clone(), maps.records.clone()));
+    assert_eq!(candidate.devices.len(), records.len());
+    assert!(total < limits.parsed_bytes, "candidate total={total}");
     let dense = format!("{{\"devices\":[{}0]}}", "0,".repeat(500_000));
     let (result, total, _) = measure(|| snapshot::Snapshot::decode(dense.as_bytes(), limits));
     assert!(result.is_err());

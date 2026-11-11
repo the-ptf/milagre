@@ -1,5 +1,7 @@
 //! Isolated synthetic service model. Owns its records, approval state and admission.
 //! No live-profile loading, daemon writer, listener, or caller-supplied Allow booleans.
+#[cfg(unix)]
+pub mod persistent;
 use crate::admission::{
     Admission, AdmissionError, Limits as AdmissionLimits, Source, Status as AdmissionStatus,
 };
@@ -38,6 +40,9 @@ pub enum PolicyError {
     Storage(#[from] std::io::Error),
     #[error(transparent)]
     Protocol(#[from] crate::Error),
+    #[cfg(unix)]
+    #[error(transparent)]
+    PersistentStore(#[from] crate::synthetic_store::StoreFault),
 }
 pub type Result<T> = std::result::Result<T, PolicyError>;
 #[derive(Clone, Copy)]
@@ -68,6 +73,7 @@ enum Record {
 }
 /// Opaque, instance-bound, non-cloneable connection generation.
 pub struct Ticket {
+    binding: Option<SessionBinding>,
     authority: [u8; 16],
     id: u64,
 }
@@ -164,6 +170,47 @@ impl Drop for TemporaryRecords {
     }
 }
 
+enum RecordStore {
+    Temporary(TemporaryRecords),
+    #[cfg(unix)]
+    Persistent(Box<persistent::RestartRecords>),
+    #[cfg(unix)]
+    Closed,
+}
+impl RecordStore {
+    fn commit(&mut self, records: &BTreeMap<String, Record>) -> Result<()> {
+        match self {
+            Self::Temporary(s) => s.commit(records),
+            #[cfg(unix)]
+            Self::Persistent(s) => s.commit_records(records).map_err(Into::into),
+            #[cfg(unix)]
+            Self::Closed => Err(PolicyError::Denied),
+        }
+    }
+    fn capacity(&self, records: &BTreeMap<String, Record>, key: &str, max: usize) -> bool {
+        match self {
+            Self::Temporary(_) => records.contains_key(key) || records.len() < max,
+            #[cfg(unix)]
+            Self::Persistent(s) => {
+                records
+                    .values()
+                    .filter(|r| matches!(r, Record::Active { .. }))
+                    .count()
+                    < max
+                    && (records.contains_key(key) || records.len() < s.history_limit())
+            }
+            #[cfg(unix)]
+            Self::Closed => false,
+        }
+    }
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SessionBinding {
+    pub profile: [u8; 16],
+    pub identity: u64,
+    pub boot: u64,
+    pub instance: [u8; 16],
+}
 const GLOBAL_BYTES: usize = 256 * 1024 * 1024;
 const DEVICE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SESSIONS: usize = 16;
@@ -225,6 +272,7 @@ impl Drop for SessionPermit {
 /// All readers/writers made here share one connection budget; reconnects of the same
 /// device share its device budget. Reserve carrier/decrypt/phone buffers separately.
 pub struct Session {
+    pub(crate) binding: Option<SessionBinding>,
     access: Access,
     device: channel::Device,
     reply: Vec<u8>,
@@ -308,7 +356,8 @@ pub struct TemporaryAuthority {
     desktop: DesktopAccess,
     retired: bool,
     records: BTreeMap<String, Record>,
-    storage: TemporaryRecords,
+    storage: RecordStore,
+    binding: Option<SessionBinding>,
     grant: Grant,
     pending: BTreeMap<u64, Pending>,
     next: u64,
@@ -370,7 +419,8 @@ impl TemporaryAuthority {
             desktop,
             retired: false,
             records,
-            storage,
+            storage: RecordStore::Temporary(storage),
+            binding: None,
             grant: Grant {
                 generation: 0,
                 opened: 0,
@@ -384,7 +434,11 @@ impl TemporaryAuthority {
     }
     /// Public test artifacts only; no token or private key is written here.
     pub fn temporary_directory(&self) -> &Path {
-        &self.storage.directory
+        match &self.storage {
+            RecordStore::Temporary(s) => &s.directory,
+            #[cfg(unix)]
+            _ => unreachable!("persistent core never exposes temporary_directory"),
+        }
     }
     fn clock(&mut self, now: u64) -> Result<()> {
         if now < self.last_time {
@@ -414,6 +468,13 @@ impl TemporaryAuthority {
             .generation
             .checked_add(1)
             .ok_or(PolicyError::Limited)?;
+        #[cfg(unix)]
+        if let RecordStore::Persistent(s) = &mut self.storage {
+            if let Err(e) = s.open_window() {
+                self.retire();
+                return Err(e.into());
+            }
+        }
         self.grant = Grant {
             generation,
             opened: now,
@@ -427,7 +488,13 @@ impl TemporaryAuthority {
         !self.retired
             && now < self.grant.until
             && match self.records.get(key) {
-                Some(Record::Removed { at }) => *at < self.grant.opened,
+                Some(Record::Removed { at }) => {
+                    #[cfg(unix)]
+                    if let RecordStore::Persistent(s) = &self.storage {
+                        return s.may_repair(key, *at, self.grant.opened);
+                    }
+                    *at < self.grant.opened
+                }
                 _ => true,
             }
     }
@@ -532,12 +599,13 @@ impl TemporaryAuthority {
             },
         );
         Ok(Ticket {
+            binding: self.binding,
             authority: self.instance,
             id: self.next,
         })
     }
     fn ticket_id(&self, ticket: &Ticket) -> Result<u64> {
-        if ticket.authority != self.instance {
+        if ticket.authority != self.instance || ticket.binding != self.binding {
             return Err(PolicyError::Denied);
         }
         Ok(ticket.id)
@@ -649,7 +717,10 @@ impl TemporaryAuthority {
             {
                 return Err(PolicyError::Denied);
             }
-            if !self.records.contains_key(&d.key) && self.records.len() >= self.limits.records {
+            if !self
+                .storage
+                .capacity(&self.records, &d.key, self.limits.records)
+            {
                 return Err(PolicyError::Limited);
             }
             let mut next = self.records.clone();
@@ -702,6 +773,7 @@ impl TemporaryAuthority {
             time_valid
                 && !self.retired
                 && ticket.authority == self.instance
+                && ticket.binding == self.binding
                 && self.records.get(&key) == Some(&Record::Active { kind })
                 && (!new || (p.grant == self.grant.generation && final_now < self.grant.until))
         })?;
@@ -714,6 +786,7 @@ impl TemporaryAuthority {
             .copied()
             .unwrap_or(0);
         Ok(Session {
+            binding: self.binding,
             access: Access {
                 state: self.revocations.clone(),
                 key: authorized.device.key.clone(),

@@ -1,6 +1,6 @@
 # Proposal: isolated synthetic authority restart
 
-Status: proposal only, awaiting parent API agreement before implementation. This checkpoint adds no runtime code, dependency, constructor or profile reader. Existing 135-test/six-doctest evidence covers the current disposable implementation, not the restart behavior proposed here.
+Status: contract accepted by the parent at checkpoint 881de763. Descriptor-store and authority implementation/evidence are documented in RESTART-STORE.md and PERSISTENT-AUTHORITY.md. The proposal text below records the agreed boundary; supervisor integration remains deferred.
 
 ## Scope and source findings
 
@@ -147,6 +147,6 @@ These are source-only observations. No existing files, real device keys, credent
 
 ## Contract checkpoint and next sequence
 
-All five round-1 refinements are accepted in this revision. The exact error-ownership shape above returns revoked guards on consuming close failure, keeps quarantine read-only, and gives Drop no commit path. The retained broker acknowledgment is required to enforce quarantine even when an ambiguous Clean rename is visible on disk. Confirm this revised API/ownership shape before concluding the contract; no runtime implementation has begun.
+All five round-1 refinements are accepted in this revision. The exact error-ownership shape above returns revoked guards on consuming close failure, keeps quarantine read-only, and gives Drop no commit path. The retained broker acknowledgment is required to enforce quarantine even when an ambiguous Clean rename is visible on disk. The parent accepted this API/ownership shape and concluded the contract before runtime implementation.
 
 After agreement, checkpoint 1 implements only fresh descriptor store/capability, locking, strict bounded snapshots, explicit commit and subprocess/fault-injection evidence. Checkpoint 2 adds the persistent authority, composed revocation, persisted epochs/tombstones and explicit clean close. Existing temporary behavior remains unchanged. Supervisor ownership/wiring is a later separately reviewed checkpoint. No reset, production recovery, existing-profile/import/network/mobile/host change or push is included.

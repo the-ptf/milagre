@@ -9,6 +9,8 @@ pub mod http_dispatch;
 pub mod peer;
 pub mod phone;
 pub mod policy;
+#[cfg(unix)]
+pub use policy::persistent;
 mod raw_json;
 pub mod registry;
 pub mod supervisor;

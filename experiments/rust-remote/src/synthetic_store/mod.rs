@@ -1,6 +1,7 @@
 //! Fresh synthetic descriptor capability only. No existing path/FD import API.
 //! macOS prototype; no production profile or supervisor integration.
-mod snapshot;
+pub(crate) mod hydration;
+pub(crate) mod snapshot;
 use crate::budget::{GlobalBudget, Reservation};
 use rand_core::{CryptoRng, RngCore};
 use rustix::{
@@ -170,7 +171,8 @@ struct Core {
     pid: u32,
     limits: StoreLimits,
     ledger: Mutex<Ledger>,
-    _budget: Reservation,
+    global: GlobalBudget,
+    _budget: Option<Reservation>,
 }
 impl Core {
     fn pid(&self) -> Result<()> {
@@ -182,6 +184,14 @@ impl Core {
     }
     fn ledger(&self) -> std::sync::MutexGuard<'_, Ledger> {
         self.ledger.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+impl Drop for Core {
+    fn drop(&mut self) {
+        if self.pid != process::getpid().as_raw_nonzero().get() as u32 {
+            // Do not release an inherited reservation through a possibly held mutex.
+            std::mem::forget(self._budget.take());
+        }
     }
 }
 // Only construction owns this rollback guard. It unlinks matching newly created
@@ -328,6 +338,8 @@ pub struct WriterLease {
     attempt: u64,
     finished: bool,
     poisoned: bool,
+    #[cfg(test)]
+    pub(crate) fail_next: Option<IoStage>,
     last: Option<Stamp>,
 }
 impl SyntheticProfile {
@@ -338,8 +350,8 @@ impl SyntheticProfile {
         if !limits.valid() {
             return Err(StoreFault::InvalidLimits);
         }
-        let budget = GlobalBudget::new(limits.working_bytes)
-            .map_err(|_| StoreFault::TooLarge)?
+        let global = GlobalBudget::new(256 * 1024 * 1024).map_err(|_| StoreFault::TooLarge)?;
+        let budget = global
             .connection(limits.working_bytes)
             .map_err(|_| StoreFault::TooLarge)?
             .reserve(limits.working_bytes)
@@ -422,7 +434,8 @@ impl SyntheticProfile {
                 destroyed: false,
                 transaction: None,
             }),
-            _budget: budget,
+            global,
+            _budget: Some(budget),
         });
         // Refuse a filesystem which does not support the agreed root lock.
         drop(Locks::acquire(&core)?);
@@ -459,6 +472,8 @@ impl SyntheticProfile {
             attempt,
             finished: false,
             poisoned: false,
+            #[cfg(test)]
+            fail_next: None,
             last: prior,
         })
     }
@@ -703,22 +718,18 @@ impl WriterLease {
         }
         Ok(snapshot)
     }
-    #[expect(
-        dead_code,
-        reason = "authority checkpoint follows descriptor-store checkpoint"
-    )]
+    pub(crate) fn global(&self) -> GlobalBudget {
+        self.core.global.clone()
+    }
     pub(crate) fn limits(&self) -> StoreLimits {
         self.core.limits
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "authority checkpoint follows descriptor-store checkpoint"
-        )
-    )]
     pub(crate) fn commit(&mut self, snapshot: &Snapshot) -> Result<CommitReceipt> {
-        self.commit_at(snapshot, None)
+        #[cfg(test)]
+        let fail = self.fail_next.take();
+        #[cfg(not(test))]
+        let fail = None;
+        self.commit_at(snapshot, fail)
     }
     fn commit_at(&mut self, snapshot: &Snapshot, fail: Option<IoStage>) -> Result<CommitReceipt> {
         if self.poisoned {
@@ -788,13 +799,6 @@ impl WriterLease {
             .map_err(|e| io(IoStage::SyncDirectory, e))?;
         Ok(())
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "authority checkpoint follows descriptor-store checkpoint"
-        )
-    )]
     pub(crate) fn acknowledge(
         mut self,
         receipt: CommitReceipt,
@@ -840,3 +844,12 @@ impl Drop for WriterLease {
 
 #[cfg(all(test, target_os = "macos"))]
 mod tests;
+
+// macOS spawn may briefly inherit another test thread's CLOEXEC descriptions
+// before exec closes them. Serialize disk/subprocess scenarios, never retry a
+// lock assertion or weaken the production nonblocking Busy response.
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) fn testing_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}

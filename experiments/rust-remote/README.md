@@ -105,3 +105,5 @@ Phone checkpoint adds 13 tests plus reciprocal Node host/mobile traces. The safe
 App-wide typecheck/lint/unit/UI checks are not substituted by these tests. No PR or production application changes are part of this checkpoint.
 
 The fresh synthetic descriptor-store checkpoint is documented in [RESTART-STORE.md](RESTART-STORE.md). It adds pinned root/file locks, bounded private snapshots and retained-broker crash evidence, bringing the current total to 147 tests and seven doctests. Persistent authority and supervisor restart integration are still separate checkpoints.
+
+Persistent authority now consumes that fresh writer, owns its Registry and preserves epochs/tombstones across explicit clean worker replacement under a retained broker. Close failures retain revoked writer guards; Drop never writes Clean. See [PERSISTENT-AUTHORITY.md](PERSISTENT-AUTHORITY.md) for the API, final v1 status fields, subprocess/fault evidence and remaining supervisor/network/recovery gaps. The additional `tests/restart-node.mjs` check inventories actual Node device persistence with in-memory dependencies only; it does not claim disk-format or live-phone interoperability.

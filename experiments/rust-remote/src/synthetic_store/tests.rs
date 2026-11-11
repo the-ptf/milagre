@@ -31,6 +31,7 @@ fn saved(p: &SyntheticProfile) -> Vec<u8> {
 }
 #[test]
 fn explicit_commit_receipt_restarts_but_drop_never_cleans() {
+    let _disk_test = crate::synthetic_store::testing_lock();
     let mut p = profile();
     let mut w = p.acquire_writer().unwrap();
     assert!(matches!(p.acquire_writer(), Err(StoreFault::Busy)));
@@ -57,6 +58,7 @@ fn explicit_commit_receipt_restarts_but_drop_never_cleans() {
 }
 #[test]
 fn faults_never_issue_clean_receipt_and_retain_exclusive_ownership() {
+    let _disk_test = crate::synthetic_store::testing_lock();
     for stage in [
         IoStage::WriteTransaction,
         IoStage::SyncFile,
@@ -85,6 +87,7 @@ fn faults_never_issue_clean_receipt_and_retain_exclusive_ownership() {
 }
 #[test]
 fn wrong_receipt_retains_writer_and_no_implicit_retry() {
+    let _disk_test = crate::synthetic_store::testing_lock();
     let mut p = profile();
     let mut w = p.acquire_writer().unwrap();
     let mut state = w.load().unwrap();
@@ -103,6 +106,7 @@ fn wrong_receipt_retains_writer_and_no_implicit_retry() {
 }
 #[test]
 fn schema_and_allocation_shapes_are_strict_and_redacted() {
+    let _disk_test = crate::synthetic_store::testing_lock();
     let mut p = profile();
     let w = p.acquire_writer().unwrap();
     let state = w.load().unwrap();
@@ -133,13 +137,29 @@ fn schema_and_allocation_shapes_are_strict_and_redacted() {
                 kind: Kind::Phone,
                 epoch: 1,
                 removed: Some(1),
+                last_removed: Some(1),
             }
         })
         .collect();
     state.policy = 1;
+    state.boot = 1;
+    state.revision = 2;
     let bytes = state.encode(p.core.limits).unwrap();
     let decoded = Snapshot::decode(&bytes, p.core.limits).unwrap();
     assert_eq!(decoded.devices.len(), 128);
+    let canonical = String::from_utf8(bytes.clone()).unwrap();
+    for invalid in [
+        canonical.replacen(
+            "\"identity_status\":\"current\"",
+            "\"identity_status\":\"other\"",
+            1,
+        ),
+        canonical.replacen("\"run_state\":\"clean\"", "\"run_state\":\"other\"", 1),
+        canonical.replacen(",\"removal_generation\":1", "", 1),
+        canonical.replacen("\"state\":\"removed\"", "\"state\":\"other\"", 1),
+    ] {
+        assert!(Snapshot::decode(invalid.as_bytes(), p.core.limits).is_err());
+    }
     assert!(Snapshot::decode(
         &bytes,
         StoreLimits {
@@ -155,6 +175,7 @@ fn schema_and_allocation_shapes_are_strict_and_redacted() {
 }
 #[test]
 fn replaced_names_permissions_and_unexpected_entries_fail_before_reads_or_sweeps() {
+    let _disk_test = crate::synthetic_store::testing_lock();
     let mut p = profile();
     fs::renameat(&p.core.root, LOCK, &p.core.root, "original.lock").unwrap();
     let replacement = new_file(&p.core.root, LOCK).unwrap();
@@ -254,16 +275,20 @@ fn child_core(pid: u32, ids: &[u64]) -> Arc<Core> {
             destroyed: false,
             transaction: None,
         }),
-        _budget: GlobalBudget::new(1)
-            .unwrap()
-            .connection(1)
-            .unwrap()
-            .reserve(1)
-            .unwrap(),
+        global: GlobalBudget::new(256 * 1024 * 1024).unwrap(),
+        _budget: Some(
+            GlobalBudget::new(1)
+                .unwrap()
+                .connection(1)
+                .unwrap()
+                .reserve(1)
+                .unwrap(),
+        ),
     })
 }
 #[test]
 fn process_child() {
+    let _disk_test = crate::synthetic_store::testing_lock();
     let Ok(mode) = std::env::var("MILAGRE_REMOTE_STORE_CHILD") else {
         return;
     };
@@ -286,6 +311,7 @@ fn process_child() {
             attempt: 1,
             finished: false,
             poisoned: false,
+            fail_next: None,
             last: None,
         };
         assert_eq!(w.diagnostics().fault, Some(StoreFault::WrongProcess));
@@ -315,8 +341,13 @@ fn process_child() {
             attempt,
             finished: false,
             poisoned: false,
+            fail_next: None,
             last: Some(prior),
         };
+        if mode.starts_with("worker-authority-") {
+            crate::policy::persistent::tests::worker(writer, &mode, attempt);
+            return;
+        }
         let mut state = writer.load().unwrap();
         state.revision += 1;
         state.boot += 1;
@@ -363,6 +394,7 @@ fn process_child() {
 }
 #[test]
 fn subprocess_independent_locks_replacement_inheritance_and_kill_release() {
+    let _disk_test = crate::synthetic_store::testing_lock();
     let mut p = profile();
     let w = p.acquire_writer().unwrap();
     for mode in ["busy", "inherited"] {
@@ -399,6 +431,7 @@ fn subprocess_independent_locks_replacement_inheritance_and_kill_release() {
 
 #[test]
 fn partial_destroy_retains_lock_and_retries_only_owned_remaining_names() {
+    let _disk_test = crate::synthetic_store::testing_lock();
     for step in [1, 2, 3] {
         let mut p = profile();
         assert!(p.destroy_at(Some(step)).is_err());
@@ -414,6 +447,7 @@ fn partial_destroy_retains_lock_and_retries_only_owned_remaining_names() {
 }
 #[test]
 fn root_spelling_substitution_never_sweeps_the_replacement_or_original() {
+    let _disk_test = crate::synthetic_store::testing_lock();
     let mut p = profile();
     let original = saved(&p);
     let moved = format!("{}-moved", p.core.name);
@@ -427,6 +461,7 @@ fn root_spelling_substitution_never_sweeps_the_replacement_or_original() {
 }
 #[test]
 fn exhausted_revisions_poison_without_wrapping_or_rewriting() {
+    let _disk_test = crate::synthetic_store::testing_lock();
     let mut p = profile();
     let mut w = p.acquire_writer().unwrap();
     let mut state = w.load().unwrap();
@@ -445,6 +480,7 @@ fn exhausted_revisions_poison_without_wrapping_or_rewriting() {
 
 #[test]
 fn subprocess_clean_ack_is_required_even_when_clean_snapshot_is_visible() {
+    let _disk_test = crate::synthetic_store::testing_lock();
     for mode in [
         "worker-clean",
         "worker-running",
@@ -489,6 +525,85 @@ fn subprocess_clean_ack_is_required_even_when_clean_snapshot_is_visible() {
         if mode == "worker-clean" {
             assert_eq!(writer.diagnostics().fault, None);
             assert_eq!(writer.diagnostics().boot, Some(2));
+        } else {
+            assert_eq!(writer.diagnostics().fault, Some(StoreFault::DirtyRun));
+        }
+        drop(writer);
+        p.destroy().unwrap();
+    }
+}
+#[test]
+fn subprocess_authority_clean_restart_and_crash_after_removal_revocation() {
+    let _disk_test = crate::synthetic_store::testing_lock();
+    for mode in [
+        "worker-authority-clean",
+        "worker-authority-drop",
+        "worker-authority-ambiguous",
+        "worker-authority-no-ack",
+        "worker-authority-exit-removal",
+    ] {
+        let mut p = profile();
+        for run in 0..2 {
+            let (prior, attempt) = {
+                let mut l = p.core.ledger();
+                assert!(!l.active);
+                l.attempt += 1;
+                l.active = true;
+                (l.ack.take().unwrap(), l.attempt)
+            };
+            // The private launch reads the expected prior from the retained broker.
+            p.core.ledger().ack = Some(prior);
+            let selected = if run == 0 {
+                "worker-authority-clean"
+            } else {
+                mode
+            };
+            let worker = child(&p, &p.core.root, selected);
+            let pid = worker.id();
+            let output = worker.wait_with_output().unwrap();
+            assert_ne!(pid, p.core.pid);
+            assert_eq!(
+                output.status.code(),
+                Some(if selected == "worker-authority-exit-removal" {
+                    23
+                } else {
+                    0
+                }),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(output.stdout.len() < 4096);
+            let receipt = String::from_utf8(output.stdout)
+                .unwrap()
+                .lines()
+                .find_map(|l| l.strip_prefix("CLEAN ").map(str::to_owned));
+            let mut ledger = p.core.ledger();
+            ledger.active = false;
+            ledger.ack = None;
+            if let Some(receipt) = receipt {
+                let values: Vec<u64> = receipt.split(' ').map(|v| v.parse().unwrap()).collect();
+                assert_eq!(
+                    values,
+                    [
+                        attempt,
+                        prior.revision + if run == 0 { 4 } else { 2 },
+                        prior.boot + 1
+                    ]
+                );
+                ledger.ack = Some(Stamp {
+                    revision: values[1],
+                    boot: values[2],
+                    retired: false,
+                });
+            }
+        }
+        let writer = p.acquire_writer().unwrap();
+        if mode == "worker-authority-clean" {
+            let s = writer.load().unwrap();
+            assert_eq!(s.boot, 2);
+            assert_eq!(s.devices.len(), 1);
+            assert_eq!(s.devices[0].epoch, 0);
+            assert!(s.devices[0].removed.is_none());
         } else {
             assert_eq!(writer.diagnostics().fault, Some(StoreFault::DirtyRun));
         }

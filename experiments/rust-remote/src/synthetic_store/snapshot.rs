@@ -22,6 +22,7 @@ pub(crate) struct Device {
     pub kind: Kind,
     pub epoch: u64,
     pub removed: Option<u64>,
+    pub last_removed: Option<u64>,
 }
 #[derive(Clone)]
 pub(crate) struct Snapshot {
@@ -81,8 +82,8 @@ struct Wire<'a> {
     identity_generation: u64,
     boot_generation: u64,
     policy_generation: u64,
-    retired: bool,
-    running: bool,
+    identity_status: &'a str,
+    run_state: &'a str,
     box_secret: &'a str,
     pairing_token: &'a str,
     #[serde(borrow)]
@@ -94,7 +95,12 @@ struct WireDevice<'a> {
     key: &'a str,
     kind: &'a str,
     epoch: u64,
-    removed: Option<u64>,
+    state: &'a str,
+    #[serde(deserialize_with = "required_optional_u64")]
+    removal_generation: Option<u64>,
+}
+fn required_optional_u64<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
+    Option::<u64>::deserialize(d)
 }
 struct Records {
     limit: usize,
@@ -131,7 +137,15 @@ impl<'de> Visitor<'de> for Records {
                 key: k,
                 kind,
                 epoch: w.epoch,
-                removed: w.removed,
+                removed: match w.state {
+                    "active" => None,
+                    "removed" => Some(
+                        w.removal_generation
+                            .ok_or_else(|| serde::de::Error::custom("removal"))?,
+                    ),
+                    _ => return Err(serde::de::Error::custom("state")),
+                },
+                last_removed: w.removal_generation,
             });
         }
         Ok(out)
@@ -207,8 +221,16 @@ impl Snapshot {
             identity: wire.identity_generation,
             boot: wire.boot_generation,
             policy: wire.policy_generation,
-            retired: wire.retired,
-            running: wire.running,
+            retired: match wire.identity_status {
+                "current" => false,
+                "retired" => true,
+                _ => return Err(StoreFault::InvalidSchema),
+            },
+            running: match wire.run_state {
+                "clean" => false,
+                "running" => true,
+                _ => return Err(StoreFault::InvalidSchema),
+            },
             secret: key(wire.box_secret)?,
             token: unhex(wire.pairing_token)?,
             devices,
@@ -226,12 +248,21 @@ impl Snapshot {
         }
         if self.boot > self.revision
             || self.policy > self.revision
-            || (self.running && self.boot == 0)
+            || (self.running && (self.boot == 0 || self.retired))
+            || (self.boot == 0 && (self.retired || self.policy != 0 || !self.devices.is_empty()))
+            || self
+                .boot
+                .checked_add(self.policy)
+                .is_none_or(|n| n > self.revision)
         {
             return Err(StoreFault::InvalidSchema);
         }
         for (i, d) in self.devices.iter().enumerate() {
-            if d.epoch > self.policy
+            if (d.epoch == 0) != d.last_removed.is_none()
+                || d.last_removed
+                    .is_some_and(|g| g == 0 || g > self.policy || g < d.epoch)
+                || (d.removed.is_some() && d.removed != d.last_removed)
+                || d.epoch > self.policy
                 || (i > 0 && self.devices[i - 1].key >= d.key)
                 || d.removed
                     .is_some_and(|g| g == 0 || g > self.policy || d.epoch == 0)
@@ -265,7 +296,8 @@ impl Snapshot {
             key: String,
             kind: Kind,
             epoch: u64,
-            removed: &'a Option<u64>,
+            state: &'static str,
+            removal_generation: &'a Option<u64>,
         }
         struct Array<'a>(&'a [Device]);
         impl Serialize for Array<'_> {
@@ -277,7 +309,12 @@ impl Snapshot {
                         key: URL_SAFE_NO_PAD.encode(d.key),
                         kind: d.kind,
                         epoch: d.epoch,
-                        removed: &d.removed,
+                        state: if d.removed.is_some() {
+                            "removed"
+                        } else {
+                            "active"
+                        },
+                        removal_generation: &d.last_removed,
                     })?;
                 }
                 seq.end()
@@ -291,8 +328,8 @@ impl Snapshot {
             identity_generation: u64,
             boot_generation: u64,
             policy_generation: u64,
-            retired: bool,
-            running: bool,
+            identity_status: &'static str,
+            run_state: &'static str,
             box_secret: String,
             pairing_token: String,
             devices: Array<'a>,
@@ -316,8 +353,8 @@ impl Snapshot {
                 identity_generation: self.identity,
                 boot_generation: self.boot,
                 policy_generation: self.policy,
-                retired: self.retired,
-                running: self.running,
+                identity_status: if self.retired { "retired" } else { "current" },
+                run_state: if self.running { "running" } else { "clean" },
                 box_secret: URL_SAFE_NO_PAD.encode(self.secret),
                 pairing_token: hex(&self.token),
                 devices: Array(&self.devices),

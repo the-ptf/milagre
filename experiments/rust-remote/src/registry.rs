@@ -50,6 +50,7 @@ pub enum CarrierStatus {
 }
 #[derive(Clone)]
 pub struct Handle {
+    binding: Option<crate::policy::SessionBinding>,
     owner: [u8; 16],
     carrier: u64,
     generation: u64,
@@ -57,7 +58,8 @@ pub struct Handle {
 }
 impl Handle {
     pub(crate) fn same(&self, other: &Self) -> bool {
-        self.owner == other.owner
+        self.binding == other.binding
+            && self.owner == other.owner
             && self.carrier == other.carrier
             && self.generation == other.generation
     }
@@ -123,6 +125,7 @@ impl WorkToken {
 /// A read-only pagination position bound to one registry identity.
 #[derive(Clone)]
 pub struct WorkCursor {
+    binding: Option<crate::policy::SessionBinding>,
     owner: [u8; 16],
     after: (u64, u64),
 }
@@ -298,6 +301,7 @@ pub struct Stats {
     pub outbound_bytes: usize,
 }
 pub struct Registry {
+    pub(crate) binding: Option<crate::policy::SessionBinding>,
     owner: [u8; 16],
     limits: Limits,
     next: u64,
@@ -330,6 +334,7 @@ impl Registry {
         let mut owner = [0; 16];
         rng.fill_bytes(&mut owner);
         Ok(Self {
+            binding: None,
             owner,
             limits,
             next: 0,
@@ -346,7 +351,8 @@ impl Registry {
         Ok(())
     }
     fn current(&self, h: &Handle) -> bool {
-        h.owner == self.owner
+        h.binding == self.binding
+            && h.owner == self.owner
             && self
                 .entries
                 .get(&h.carrier)
@@ -420,6 +426,7 @@ impl Registry {
         }
         self.next = generation;
         let handle = Handle {
+            binding: self.binding,
             owner: self.owner,
             carrier,
             generation,
@@ -451,6 +458,17 @@ impl Registry {
             _ => Err(RegistryError::Revoked),
         }
     }
+    #[cfg(unix)]
+    pub(crate) fn pending(&mut self, h: &Handle, now: u64) -> Result<()> {
+        self.clock(now)?;
+        if self.retired || !self.current(h) {
+            return Err(RegistryError::Revoked);
+        }
+        match self.entries[&h.carrier].state {
+            State::Pending { deadline, .. } if now < deadline => Ok(()),
+            _ => Err(RegistryError::Revoked),
+        }
+    }
     pub fn establish(&mut self, h: &Handle, session: Session, now: u64) -> Result<()> {
         self.clock(now)?;
         if !self.current(h) {
@@ -464,7 +482,7 @@ impl Registry {
             self.close(h, CloseReason::HelloTimeout);
             return Err(RegistryError::Revoked);
         }
-        if self.retired || session.is_revoked() {
+        if self.retired || session.is_revoked() || self.binding != session.binding {
             self.close(h, CloseReason::Removed);
             return Err(RegistryError::Revoked);
         }
@@ -767,7 +785,7 @@ impl Registry {
         if limit == 0 || limit > 64 {
             return Err(Error::TooLarge.into());
         }
-        if cursor.is_some_and(|c| c.owner != self.owner) {
+        if cursor.is_some_and(|c| c.owner != self.owner || c.binding != self.binding) {
             return Err(RegistryError::Revoked);
         }
         let mut ready = Vec::new();
@@ -792,6 +810,7 @@ impl Registry {
         }
         ready.sort_by_key(|(order, _)| *order);
         let next = (ready.len() > limit).then(|| WorkCursor {
+            binding: self.binding,
             owner: self.owner,
             after: ready[limit - 1].0,
         });
