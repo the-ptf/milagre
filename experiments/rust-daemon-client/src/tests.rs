@@ -972,4 +972,5 @@ fn an_old_accepted_receipt_cannot_release_a_new_capture_hold() {
     worker.join().unwrap();
 }
 
+mod actions;
 mod hydration;

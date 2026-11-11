@@ -16,7 +16,7 @@ mod reply;
 use serde_json::Value;
 use std::{collections::BTreeSet, os::unix::net::UnixStream, sync::Arc, time::Duration};
 
-pub use client::Client;
+pub use client::{Client, ScriptedActions};
 pub use launcher::{Cleanup, FixtureInfo, ShutdownReport};
 pub use notify::Notifications;
 
@@ -31,6 +31,10 @@ pub enum Error {
         submitted: bool,
     },
     InvalidScope,
+    InvalidInput {
+        field: &'static str,
+        message: &'static str,
+    },
     StaleSnapshot,
     StateTooLarge {
         hydration: Option<Hydration>,
@@ -206,6 +210,11 @@ pub struct FixtureGuard {
     authority: Arc<Authority>,
 }
 impl FixtureGuard {
+    /// Explicit fixture-only write capability for this exact Client connection.
+    /// It opens no view, keeps no Client alive, and cannot target a live provider.
+    pub fn scripted_actions(&self, client: &Client) -> Result<ScriptedActions> {
+        client.scripted_actions_for(&self.authority)
+    }
     /// Spawn only the owned `app-fixture` beside this executable. No path or environment override.
     pub async fn launch() -> Result<Self> {
         launcher::launch(false).await

@@ -81,7 +81,7 @@ def main():
             raise SystemExit("Synthetic parent HOME canary changed")
         if result.returncode:
             raise SystemExit(result.returncode)
-        if any(marker not in result.stdout for marker in ["OWNED_FIXTURE_EVIDENCE ", "OWNED_FIXTURE_DROP_EVIDENCE ", "OWNED_FIXTURE_CANCEL_EVIDENCE "]):
+        if any(marker not in result.stdout for marker in ["OWNED_FIXTURE_EVIDENCE ", "OWNED_FIXTURE_DROP_EVIDENCE ", "OWNED_FIXTURE_CANCEL_EVIDENCE ", "OWNED_FIXTURE_POPULATED_EVIDENCE ", "OWNED_FIXTURE_ACTIONS_EVIDENCE "]):
             raise SystemExit("Real fixture evidence missing")
     if stage.exists():
         raise SystemExit("Staging directory was not removed")

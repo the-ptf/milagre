@@ -621,7 +621,153 @@ fn owned_fixture_end_to_end() {
             json!({"pid":cancelled.pid,"profile":cancelled.profile,"socket":cancelled.socket,"launchRoot":cancelled.launch_root,"cancelledBeforePublication":true,"removedAfterCancellation":true})
         );
         populated_fixture().await;
+        scripted_actions_fixture().await;
     });
+}
+
+async fn scripted_actions_fixture() {
+    let guard = FixtureGuard::launch().await.unwrap();
+    let info = guard.info().unwrap().clone();
+    let project = guard.project().to_owned();
+    let (client, hello, mut notices) = Client::connect(guard.endpoint(), ClientOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(hello.owner["pid"], info.pid);
+    let actions = guard.scripted_actions(&client).unwrap();
+    assert!(matches!(
+        actions.send(1, "not opened", "refused-before-open").await,
+        Err(Error::Remote { code, .. }) if code == "ISOLATED_SCOPE_ONLY"
+    ));
+    assert!(matches!(
+        actions.interrupt(1).await,
+        Err(Error::Remote { code, .. }) if code == "ISOLATED_SCOPE_ONLY"
+    ));
+    client.open_view(&project).await.unwrap();
+    let initial = client.runtime_snapshot().await.unwrap();
+    client.accept_snapshot(&initial).await.unwrap();
+    let sent = actions
+        .send(1, "Public scripted action", "public-action-1")
+        .await
+        .unwrap();
+    let mut last = initial.event_seq;
+    let completed = collect_action_events(&mut notices, &mut last, "turn-completed");
+    let types = action_types(&completed);
+    assert_eq!(
+        types,
+        [
+            "message-sent",
+            "session-started",
+            "message-sent",
+            "text-delta",
+            "turn-completed"
+        ]
+    );
+    let transcript = client
+        .chat_messages(&project, 1, ChatPageOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(transcript["total"], 2);
+    assert_eq!(transcript["messages"][0]["body"], "Public scripted action");
+    assert_eq!(
+        transcript["messages"][0]["clientMessageId"],
+        "public-action-1"
+    );
+    assert_eq!(transcript["messages"][1]["body"], "Scripted isolated reply");
+    assert_eq!(transcript["messages"][1]["outcome"], "completed");
+    let before_stop = actions
+        .send(2, "fixture:blocked-start", "public-action-2")
+        .await
+        .unwrap();
+    let blocked = collect_action_events(&mut notices, &mut last, "session-started");
+    assert_eq!(action_types(&blocked), ["message-sent", "session-started"]);
+    assert!(client
+        .chat_runs()
+        .await
+        .unwrap()
+        .runs
+        .get(format!("{project}#2"))
+        .is_some());
+    let stopped = actions.interrupt(2).await.unwrap();
+    let cancelled = collect_action_events(&mut notices, &mut last, "turn-cancelled");
+    assert_eq!(action_types(&cancelled), ["turn-cancelled"]);
+    assert!(client
+        .chat_runs()
+        .await
+        .unwrap()
+        .runs
+        .as_object()
+        .unwrap()
+        .is_empty());
+    let second = client
+        .chat_messages(&project, 2, ChatPageOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(second["total"], 2);
+    assert_eq!(second["messages"][0]["clientMessageId"], "public-action-2");
+    assert_eq!(second["messages"][1]["outcome"], "cancelled");
+    client.disconnect();
+    assert_eq!(actions.interrupt(2).await, Err(Error::Disconnected));
+    let ShutdownReport::Complete(cleanup) = guard.shutdown().await.unwrap() else {
+        panic!("scripted actions fixture did not stop")
+    };
+    assert_eq!(cleanup.exit_code, Some(0));
+    assert!(
+        cleanup.stop_acknowledged
+            && cleanup.profile_removed
+            && cleanup.socket_removed
+            && cleanup.launch_storage_removed
+    );
+    wait_removed(&info);
+    println!(
+        "OWNED_FIXTURE_ACTIONS_EVIDENCE {}",
+        json!({
+            "pid":info.pid,"profile":info.profile,"socket":info.socket,"launchRoot":info.launch_root,
+            "sends":2,"interrupts":1,"viewRefusals":2,"sameConnection":true,
+            "completedEvents":completed,"blockedEvents":blocked,"cancelledEvents":cancelled,
+            "sendReceipt":sent,"blockedReceipt":before_stop,"interruptReceipt":stopped,
+            "messages":4,"cleanup":"Complete"
+        })
+    );
+}
+
+fn collect_action_events(
+    notices: &mut crate::Notifications,
+    last: &mut u64,
+    terminal: &str,
+) -> Vec<Value> {
+    let until = Instant::now() + Duration::from_secs(8);
+    let mut events = Vec::new();
+    loop {
+        assert!(Instant::now() < until, "missing {terminal}: {events:?}");
+        match notices.next().now_or_never() {
+            Some(Some(Notice::Event {
+                wire_seq,
+                channel,
+                payload,
+                ..
+            })) => {
+                assert!(wire_seq > *last);
+                *last = wire_seq;
+                assert!(events.len() < 64, "unexpected event flood");
+                let done = channel == "agent:event" && payload["event"]["type"] == terminal;
+                // Retain metadata only; the transcript is checked independently above.
+                events.push(json!({"wireSeq":wire_seq,"channel":channel,"type":payload["event"]["type"],"runSeq":payload["seq"],"statePresent":payload["state"].is_object()}));
+                if done {
+                    return events;
+                }
+            }
+            Some(other) => panic!("actions connection closed unexpectedly: {other:?}"),
+            None => thread::sleep(Duration::from_millis(5)),
+        }
+    }
+}
+
+fn action_types(events: &[Value]) -> Vec<&str> {
+    events
+        .iter()
+        .filter(|e| e["channel"] == "agent:event")
+        .map(|e| e["type"].as_str().unwrap())
+        .collect()
 }
 
 async fn populated_fixture() {

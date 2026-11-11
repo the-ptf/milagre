@@ -2,8 +2,8 @@ use crate::{
     notify::{Notifications, Queue},
     protocol,
     protocol::{safe_integer, Engine},
-    reply, ChatPage, ChatPageOptions, ChatRuns, ClientOptions, Error, FixtureEndpoint, Hello,
-    Result, RuntimeSnapshot, SnapshotReceipt, StateRead,
+    reply, Authority, ChatPage, ChatPageOptions, ChatRuns, ClientOptions, Error, FixtureEndpoint,
+    Hello, Result, RuntimeSnapshot, SnapshotReceipt, StateRead,
 };
 use serde_json::{json, Map, Value};
 use std::{
@@ -11,7 +11,7 @@ use std::{
     os::unix::net::UnixStream,
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-        mpsc, Arc, Mutex,
+        mpsc, Arc, Mutex, Weak,
     },
     thread,
     time::{Duration, Instant},
@@ -20,6 +20,7 @@ use std::{
 static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
 
 struct Handle {
+    authority: Weak<Authority>,
     sender: mpsc::SyncSender<Job>,
     pending: Arc<AtomicUsize>,
     maximum: usize,
@@ -53,6 +54,91 @@ pub struct Client {
     handle: Arc<Handle>,
 }
 
+/// Explicit actions for one owned Scripted fixture connection. This weak capability
+/// neither reconnects nor keeps a dropped Client alive. Open the view explicitly first.
+/// No vendor/model/policy/path options or raw RPC are exposed.
+/// ```compile_fail
+/// use milagre_daemon_client::ScriptedActions;
+/// let actions = ScriptedActions::from_socket("/tmp/production.sock");
+/// ```
+#[derive(Clone)]
+pub struct ScriptedActions {
+    handle: Weak<Handle>,
+}
+
+fn input(field: &'static str, message: &'static str) -> Error {
+    Error::InvalidInput { field, message }
+}
+
+impl ScriptedActions {
+    fn client(&self) -> Result<Client> {
+        let handle = self.handle.upgrade().ok_or(Error::Disconnected)?;
+        if handle.stop.load(Ordering::Acquire) {
+            return Err(Error::Disconnected);
+        }
+        Ok(Client { handle })
+    }
+
+    fn chat(chat: u64) -> Result<()> {
+        if chat == 0 || chat > 9_007_199_254_740_991 {
+            return Err(input(
+                "chat",
+                "Expected a positive JSON-safe numeric Chat ID",
+            ));
+        }
+        Ok(())
+    }
+
+    // Release the transient strong Client before awaiting. An action alone must
+    // not prolong a dropped connection, even while its submitted result is pending.
+    fn enqueue(
+        client: Client,
+        method: &'static str,
+        args: Value,
+    ) -> Result<reply::Receiver<Value>> {
+        if args.to_string().len() > 3072 {
+            return Err(input(
+                "payload",
+                "Encoded action arguments exceed 3072 bytes",
+            ));
+        }
+        let (reply, wait) = reply::channel();
+        client.submit(Kind::Call {
+            method,
+            args,
+            reply,
+        })?;
+        Ok(wait)
+    }
+
+    /// Submit text to the pinned kiro/scripted model in Ask mode. The returned
+    /// owner receipt is admission/result metadata, not proof of turn completion.
+    /// A submitted timeout/disconnect is uncertain; nothing is retried automatically.
+    pub async fn send(&self, chat: u64, text: &str, client_message_id: &str) -> Result<Value> {
+        let client = self.client()?;
+        Self::chat(chat)?;
+        if text.is_empty() || text.len() > 2048 {
+            return Err(input("text", "Expected 1..=2048 UTF-8 bytes"));
+        }
+        if client_message_id.is_empty() || client_message_id.len() > 128 {
+            return Err(input("client_message_id", "Expected 1..=128 UTF-8 bytes"));
+        }
+        let args = json!([{"projectPath":client.handle.project,"sessionId":chat,
+            "provider":"kiro","model":"scripted","permissionMode":"ask",
+            "body":text,"clientMessageId":client_message_id}]);
+        Self::enqueue(client, "chat:send", args)?.await
+    }
+
+    /// Interrupt this Chat's active run when the owner dispatches the command.
+    /// Protocol v1 does not bind this request to a previously observed turn ID.
+    pub async fn interrupt(&self, chat: u64) -> Result<Value> {
+        let client = self.client()?;
+        Self::chat(chat)?;
+        let key = format!("{}#{chat}", client.handle.project);
+        Self::enqueue(client, "agent:interrupt", json!([key]))?.await
+    }
+}
+
 // Always seal notices and the socket, including unwinding after a caller waker panics.
 // Normal errors close first; Queue::close preserves that first cause.
 struct WorkerExit {
@@ -83,7 +169,7 @@ struct Job {
     expires: Instant,
 }
 enum Kind {
-    Read {
+    Call {
         method: &'static str,
         args: Value,
         reply: reply::Sender<Value>,
@@ -93,6 +179,20 @@ enum Kind {
 }
 
 impl Client {
+    pub(crate) fn scripted_actions_for(
+        &self,
+        authority: &Arc<Authority>,
+    ) -> Result<ScriptedActions> {
+        if self.handle.stop.load(Ordering::Acquire) {
+            return Err(Error::Disconnected);
+        }
+        if !Weak::ptr_eq(&self.handle.authority, &Arc::downgrade(authority)) {
+            return Err(Error::InvalidScope);
+        }
+        Ok(ScriptedActions {
+            handle: Arc::downgrade(&self.handle),
+        })
+    }
     pub async fn connect(
         endpoint: FixtureEndpoint,
         options: ClientOptions,
@@ -107,6 +207,7 @@ impl Client {
         let notices = Queue::new(&options);
         let client = Self {
             handle: Arc::new(Handle {
+                authority: Arc::downgrade(&endpoint.authority),
                 sender,
                 pending: Arc::new(AtomicUsize::new(0)),
                 maximum: options.max_pending,
@@ -202,7 +303,7 @@ impl Client {
     }
     async fn read(&self, method: &'static str, args: Value) -> Result<Value> {
         let (reply, wait) = reply::channel();
-        self.submit(Kind::Read {
+        self.submit(Kind::Call {
             method,
             args,
             reply,
@@ -310,7 +411,7 @@ fn terminal(error: &Error) -> bool {
 }
 fn reject(kind: Kind, error: Error) {
     match kind {
-        Kind::Read { reply, .. } => reply.send(Err(error)),
+        Kind::Call { reply, .. } => reply.send(Err(error)),
         Kind::Snapshot(reply) => reply.send(Err(error)),
         Kind::Accept(_, reply) => reply.send(Err(error)),
     }
@@ -338,7 +439,7 @@ fn run(engine: &mut Engine, receiver: &mpsc::Receiver<Job>, stop: &AtomicBool) -
                     continue;
                 }
                 let failure = match kind {
-                    Kind::Read {
+                    Kind::Call {
                         method,
                         args,
                         reply,
