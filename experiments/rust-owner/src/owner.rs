@@ -74,12 +74,21 @@ pub struct OwnedProject {
     settled: Option<HashMap<String, String>>,
     /// project-store.cjs `swept`: the first save of a run sweeps old sidecars even when it wrote none.
     swept: bool,
+    /// The root folder as it was opened: its device and inode. Every write checks the root is still that folder, at
+    /// that canonical path (no link on it or above it).
+    root_identity: (u64, u64),
 }
 
 impl OwnedProject {
     /// Takes the owner lock of `project` (a folder inside `isolation`). Refused when any lock is already there.
     pub fn open(isolation: &Isolation, project: &Path) -> Result<Self> {
         let root = isolation.project(project)?;
+        let root_identity = {
+            use std::os::unix::fs::MetadataExt;
+            let meta = std::fs::symlink_metadata(&root)
+                .map_err(|error| StoreError::io(error, "lstat", &root))?;
+            (meta.dev(), meta.ino())
+        };
         let guard = RustOwnerLock.acquire(&ownership::project_lock(&root))?;
         Ok(OwnedProject {
             store: ProjectStore::owned(&root),
@@ -87,6 +96,7 @@ impl OwnedProject {
             messages: MessageStore::default(),
             settled: None,
             swept: false,
+            root_identity,
         })
     }
 
@@ -104,15 +114,37 @@ impl OwnedProject {
     }
 
     /// Whether this process still owns the Project, checked before every write: the lock is ours
-    /// ([`OwnerGuard::verify`]) and the files a save writes lead nowhere else (`.milagre` a real folder, `chats.db` and
-    /// `coordination.json` neither symbolic links nor hard-linked files). The full walk of `.milagre` ran at open
-    /// ([`crate::isolation::Isolation::check_contents`]); this is the cheap check repeated per write.
+    /// ([`OwnerGuard::verify`]), the root is still the folder opened (same device and inode, its canonical path
+    /// unchanged: nothing moved, no link on or above it), and the files a save writes lead nowhere else (`.milagre` a
+    /// real folder, `chats.db` and `coordination.json` neither symbolic links nor hard-linked files). The full walk of
+    /// `.milagre` ran at open ([`crate::isolation::Isolation::check_contents`]); this is the cheap check repeated per
+    /// write.
     pub fn verify_owned(&self) -> Result<()> {
-        self.guard.verify()?;
         let lost = |why: &str| StoreError::OwnershipLost {
             lock: self.guard.path().to_path_buf(),
             why: why.into(),
         };
+        // The root first: still the folder that was opened, at its canonical path. A Project moved away (its lock with
+        // it) and a link put in its place, or a link above it, would otherwise send every write below elsewhere.
+        {
+            use std::os::unix::fs::MetadataExt;
+            let root = self.root();
+            match std::fs::symlink_metadata(root) {
+                Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
+                    return Err(lost("the Project folder was replaced"))
+                }
+                Ok(meta) if (meta.dev(), meta.ino()) != self.root_identity => {
+                    return Err(lost("the Project folder was replaced"))
+                }
+                Ok(_) => {}
+                Err(_) => return Err(lost("the Project folder is gone")),
+            }
+            match std::fs::canonicalize(root) {
+                Ok(real) if real == root => {}
+                _ => return Err(lost("the Project folder's path now leads elsewhere")),
+            }
+        }
+        self.guard.verify()?;
         let metadata = self.root().join(".milagre");
         match std::fs::symlink_metadata(&metadata) {
             Ok(meta) if !meta.is_dir() || meta.file_type().is_symlink() => {
