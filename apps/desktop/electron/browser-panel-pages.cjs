@@ -166,6 +166,12 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
       }
       schedule();
     },
+    closePage(chatKey, pageId) {
+      const page = live().find((item) => item.pageId === pageId && item.chatKey === chatKey);
+      if (!page || page.host.isDestroyed()) return false;
+      page.host.send("browser-panel:close-page", { contentsId: page.contentsId, chatKey });
+      return true;
+    },
     /** The host went away and came back: it has none of the pages until they are sent again. */
     republish: () => schedule(true),
     close: () => proxy.close(),

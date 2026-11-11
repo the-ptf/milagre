@@ -2885,7 +2885,10 @@ function createRuntime(options) {
       ...require("./chat-browser-tools.cjs").browserPageToolDefinitions(
         chatId,
         browsers,
-        { openInPanel: (target, url) => emit("browser-panel:open", { chatId: target, url }) },
+        {
+          openInPanel: (target, url) => emit("browser-panel:open", { chatId: target, url }),
+          closePage: async (target, id) => emit("browser-panel:close-page", { chatId: target, pageId: id }),
+        },
         // browser_upload sends files from the Chat's Worktrees and the user's Downloads only.
         {
           roots: () =>

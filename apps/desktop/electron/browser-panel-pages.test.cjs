@@ -97,6 +97,22 @@ test("the window's own webviews are sent to the host with their Chats; a page th
   assert.equal(f.guests.get(7).listenerCount("did-navigate") + f.guests.get(7).listenerCount("destroyed"), 0);
 });
 
+test("closePage targets one exact page only when its Chat matches", async (t) => {
+  const f = fixture(t);
+  f.pages.setPages(f.host, [
+    { contentsId: 7, chatKey: "/p#1" },
+    { contentsId: 8, chatKey: "/p#2" },
+  ]);
+  await f.settle();
+  const [first, second] = f.published.at(-1).pages;
+  assert.equal(f.pages.closePage("/p#2", first.id), false);
+  assert.equal(f.sent.length, 0);
+  assert.equal(f.pages.closePage("/p#1", first.id), true);
+  assert.deepEqual(f.sent, [["browser-panel:close-page", { contentsId: 7, chatKey: "/p#1" }]]);
+  assert.equal(f.pages.closePage("/p#1", second.id), false);
+  assert.equal(f.sent.length, 1);
+});
+
 test("a DevTools connection to a page attaches its debugger for as long as it is open", async (t) => {
   const f = fixture(t);
   f.pages.setPages(f.host, [{ contentsId: 7, chatKey: "/p#1" }]);

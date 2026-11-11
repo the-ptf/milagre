@@ -159,7 +159,7 @@ async function uploadable(paths, roots) {
 /**
  * @param {string} chatId
  * @param {{ devtools(request: { chatId: string; page?: string }): Promise<{ target: { id: string; title: string; url: string }; session: any; state: any }>; list(request: { chatId: string }): Promise<{ targets: { id: string; url: string; source: string }[] }> }} browsers
- * @param {{ openInPanel(chatId: string, url: string): void }} panel
+ * @param {{ openInPanel(chatId: string, url: string): void; closePage?(chatId: string, pageId: string): Promise<void> }} panel
  * @param {{ roots(): Promise<string[]>; chooserWaitMs?: number }} [uploads] the folders browser_upload may send files from
  */
 function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: async () => [] }) {
@@ -193,6 +193,36 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
         return JSON.stringify({
           note: "The Browser panel was asked to open the page but hasn't reported it. Milagre may not be open on this computer; check browser_list.",
         });
+      },
+    },
+    {
+      name: "browser_close",
+      description:
+        "Close a page in this Chat's Browser panel by its exact id from browser_list. With no page id, close every page in this Chat's Browser panel. This does not close pages in other Chats or browsers.",
+      input: { page: page, all: z.boolean().optional().describe("Close all pages in this Chat's Browser panel.") },
+      readOnly: false,
+      run: async (input) => {
+        if (input.all) {
+          const { targets } = await browsers.list({ chatId });
+          const pages = targets.filter((target) => target.source === "panel");
+          for (const target of pages) await panel.closePage?.(chatId, target.id);
+          const until = Date.now() + 3000;
+          let remaining = pages.map((target) => target.id);
+          while (Date.now() < until && remaining.length) {
+            const current = new Set((await browsers.list({ chatId })).targets.map((target) => target.id));
+            remaining = remaining.filter((id) => current.has(id));
+            if (remaining.length) await settle(100);
+          }
+          return JSON.stringify({ closed: pages.length - remaining.length, ...(remaining.length ? { remaining } : {}) });
+        }
+        if (!input.page) throw new Error("Provide a page id or set all to true.");
+        const target = (await browsers.list({ chatId })).targets.find((item) => item.id === input.page && item.source === "panel");
+        if (!target) return JSON.stringify({ closed: false, page: input.page });
+        await panel.closePage?.(chatId, target.id);
+        const until = Date.now() + 3000;
+        while (Date.now() < until && (await browsers.list({ chatId })).targets.some((item) => item.id === target.id)) await settle(100);
+        const closed = !(await browsers.list({ chatId })).targets.some((item) => item.id === target.id);
+        return JSON.stringify({ closed, page: target.id });
       },
     },
     {

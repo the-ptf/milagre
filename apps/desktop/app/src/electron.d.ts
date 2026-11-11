@@ -925,6 +925,7 @@ declare global {
       onKey: (callback: (request: { from: number; key: "l" | "r" | "w" }) => void) => () => void;
       /** The agent opened a page in a Chat's Browser panel (browser_open). */
       onOpenUrl?: (callback: (request: { chatKey: string; url: string }) => void) => () => void;
+      onClosePage?: (callback: (request: { contentsId: number; chatKey: string }) => void) => () => void;
       /**
        * A page with webContents id `from` started or stopped being viewed from the phone or another computer, or its
        * viewer's size changed: `viewport` is the size it lays out at while parked, null for its own.

@@ -529,6 +529,8 @@ async function startDesktop() {
         }
         if (channel === "browser-panel:open" && typeof payload?.chatId === "string" && typeof payload?.url === "string" && /^https?:\/\//i.test(payload.url))
           mainWindow?.webContents.send("browser-panel:open-url", { chatKey: payload.chatId, url: payload.url });
+        if (channel === "browser-panel:close-page" && typeof payload?.chatId === "string" && typeof payload?.pageId === "string")
+          panelPages.closePage(payload.chatId, payload.pageId);
         if (channel === "devices:pending" && notificationsSupported()) notifier.notifyComputerWaiting(payload?.requests);
         if (channel === "runtime:connection") {
           connectionState = payload;

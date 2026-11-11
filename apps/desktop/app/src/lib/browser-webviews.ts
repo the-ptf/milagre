@@ -324,6 +324,10 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
   const offOpen = bridge.onOpenUrl?.(({ chatKey, url }) => {
     if (typeof chatKey === "string" && /^https?:\/\//i.test(url)) openBrowserTab(chatKey, url);
   });
+  const offClose = bridge.onClosePage?.(({ contentsId, chatKey }) => {
+    const page = pageOfContents(contentsId);
+    if (page?.chatKey === chatKey) closeBrowserTab(chatKey, page.tabId);
+  });
   const offViewed = bridge.onViewed?.(({ from, viewed, viewport }) => {
     const page = pageOfContents(from);
     if (!page) return;
@@ -337,6 +341,7 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
     offKey();
     offViewed?.();
     offOpen?.();
+    offClose?.();
   };
 }
 

@@ -50,6 +50,7 @@ function fixture({ roots = [], files } = {}) {
   const session = fakeSession();
   const state = {};
   const opened = [];
+  const closed = [];
   const targets = [];
   const browsers = {
     devtools: async ({ chatId, page }) => {
@@ -63,12 +64,39 @@ function fixture({ roots = [], files } = {}) {
     browserPageToolDefinitions(
       "/p#1",
       browsers,
-      { openInPanel: (chatId, url) => (opened.push([chatId, url]), targets.push({ ...TARGET, url })) },
+      {
+        openInPanel: (chatId, url) => (opened.push([chatId, url]), targets.push({ ...TARGET, url })),
+        closePage: async (chatId, id) => {
+          closed.push([chatId, id]);
+          const index = targets.findIndex((target) => target.id === id);
+          if (index >= 0) targets.splice(index, 1);
+        },
+      },
       { roots: async () => roots, chooserWaitMs: 100 },
     ).map((tool) => [tool.name, tool]),
   );
-  return { session, state, tools, opened, run: (name, input = {}) => runTool(tools[name], input) };
+  return { session, state, tools, opened, closed, targets, run: (name, input = {}) => runTool(tools[name], input) };
 }
+
+test("browser_close closes only exact pages owned by this Chat and closes all its panel pages", async () => {
+  const f = fixture();
+  f.targets.push({ ...TARGET });
+  const second = { ...TARGET, id: `panel-abc123abc123:${"B".repeat(32)}` };
+  f.targets.push(second, { ...TARGET, id: `panel-other:${"C".repeat(32)}`, source: "attached" });
+  assert.match((await f.run("browser_close", { page: TARGET.id })).text, /"closed":true/);
+  assert.deepEqual(f.closed, [["/p#1", TARGET.id]]);
+  assert.equal(
+    f.targets.some((target) => target.id === TARGET.id),
+    false,
+  );
+  assert.deepEqual(JSON.parse((await f.run("browser_close", { page: TARGET.id })).text), { closed: false, page: TARGET.id });
+  await f.run("browser_close", { all: true });
+  assert.deepEqual(f.closed.at(-1), ["/p#1", second.id]);
+  assert.equal(
+    f.targets.some((target) => target.source === "attached"),
+    true,
+  );
+});
 
 test("a snapshot names the elements a person sees, with refs the other tools take", async () => {
   const f = fixture();
