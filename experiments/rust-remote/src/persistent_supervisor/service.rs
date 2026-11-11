@@ -448,10 +448,10 @@ impl Runtime {
             shared.changed.notify_all();
         }
     }
-    fn emit(shared: &Shared, event: Event) {
+    fn emit(shared: &Shared, event: Event) -> bool {
         let mut q = shared.queues();
         if shared.stop.load(Ordering::SeqCst) != RUNNING {
-            return;
+            return false;
         }
         let advisory = matches!(event, Event::Closed(_));
         if advisory {
@@ -462,7 +462,7 @@ impl Runtime {
                 .count();
             if count >= shared.limits.events / 2 || q.events.len() >= shared.limits.events {
                 shared.closed_dropped.fetch_add(1, Ordering::SeqCst);
-                return;
+                return false;
             }
         } else if q.events.len() >= shared.limits.events {
             if let Some(index) = q
@@ -473,8 +473,7 @@ impl Runtime {
                 q.events.remove(index);
                 shared.closed_dropped.fetch_add(1, Ordering::SeqCst);
             } else {
-                shared.fail(WorkerFault::EventOverflow);
-                return;
+                return false;
             }
         }
         let mut reservation = shared.events.reserve(2048);
@@ -490,18 +489,23 @@ impl Runtime {
             shared.closed_dropped.fetch_add(1, Ordering::SeqCst);
             reservation = shared.events.reserve(2048);
         }
-        match reservation {
-            Ok(lease) => q.events.push_back(Notification {
-                event,
-                created: Instant::now(),
-                _lease: lease,
-            }),
+        let emitted = match reservation {
+            Ok(lease) => {
+                q.events.push_back(Notification {
+                    event,
+                    created: Instant::now(),
+                    _lease: lease,
+                });
+                true
+            }
             Err(_) if advisory => {
                 shared.closed_dropped.fetch_add(1, Ordering::SeqCst);
+                false
             }
-            Err(_) => shared.fail(WorkerFault::EventOverflow),
-        }
+            Err(_) => false,
+        };
         shared.changed.notify_all();
+        emitted
     }
     fn current(&self, h: &Handle) -> Result<()> {
         if self
@@ -632,11 +636,11 @@ impl Runtime {
                         state: state.clone(),
                     },
                 );
-                Self::emit(
+                let emitted = Self::emit(
                     shared,
                     Event::Approval {
                         permit: PersistentApproval {
-                            handle: h,
+                            handle: h.clone(),
                             serial: self.serial,
                             deadline: metadata.deadline,
                             state,
@@ -646,6 +650,14 @@ impl Runtime {
                         deadline: metadata.deadline,
                     },
                 );
+                if !emitted {
+                    // A resource refusal is local, never a dirty-profile stop.
+                    let p = self.pending.remove(&h.carrier()).unwrap();
+                    p.state.store(CANCELLED, Ordering::SeqCst);
+                    self.authority
+                        .cancel_carrier_ticket(p.ticket, CloseReason::Limit);
+                    return Err(Error::Full);
+                }
                 Ok(())
             }
         }

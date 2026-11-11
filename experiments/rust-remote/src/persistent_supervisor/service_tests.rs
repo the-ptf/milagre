@@ -793,12 +793,13 @@ fn full_queues_still_join_and_acknowledge_healthy_close_after_draining() {
     finish(start(stop.into_parts().1));
 }
 #[test]
-fn authoritative_overflow_returns_joined_dirty_guard_without_event_handoff() {
+fn approval_event_count_shortage_closes_only_new_carrier_and_preserves_clean_restart() {
     let _disk = crate::synthetic_store::testing_lock();
     let (s, c, _) = service(Limits {
         events: 1,
         ..Default::default()
     });
+    let (phone, phone_m, _) = phone(&c, 3, 6);
     let (h, m) = attach(&c, 1);
     hello(&c, &h, 4, DeviceKind::Desktop);
     let (other, other_m) = attach(&c, 2);
@@ -823,23 +824,121 @@ fn authoritative_overflow_returns_joined_dirty_guard_without_event_handoff() {
     .unwrap();
     assert!(matches!(
         c.submit(C::Hello {
-            handle: other,
+            handle: other.clone(),
             source: Source::Relay,
             bytes
         })
         .unwrap()
         .wait(WAIT),
-        Err(Error::UnknownOutcome)
+        Err(Error::Full)
     ));
-    let (fault, stopped) = s
-        .close_for_restart()
-        .err()
-        .expect("overflow cannot clean")
-        .into_parts();
-    assert_eq!(fault, CloseFault::Worker(WorkerFault::EventOverflow));
-    assert!(stopped.diagnostics().worker_joined);
-    assert!(m.is_closed() && other_m.is_closed());
-    assert_eq!(c.retained_bytes(), StoreLimits::default().working_bytes);
-    let mut p = quarantined(released(stopped));
-    p.destroy().unwrap();
+    assert!(c.failure().is_none());
+    assert_eq!(
+        other.status(),
+        CarrierStatus::Closed(crate::registry::CloseReason::Limit)
+    );
+    assert!(other_m.is_closed());
+    assert_eq!(other_m.delivery_attempts(), 0);
+    assert_eq!(phone.status(), CarrierStatus::Active);
+    assert!(!phone_m.is_closed());
+    let permit = approval(&c);
+    c.approve(permit)
+        .unwrap_or_else(|_| panic!("existing approval"))
+        .wait(WAIT)
+        .unwrap();
+    assert_eq!(h.status(), CarrierStatus::Active);
+    assert_eq!(m.delivery_attempts(), 1);
+    let (fresh, _, permit) = desktop(&c, 4, 5);
+    c.approve(permit)
+        .unwrap_or_else(|_| panic!("capacity recovered"))
+        .wait(WAIT)
+        .unwrap();
+    assert_eq!(fresh.status(), CarrierStatus::Active);
+    finish(start(clean(s)));
+}
+
+#[test]
+fn hello_queued_before_global_saturation_cannot_dirty_profile_on_approval_shortage() {
+    let _disk = crate::synthetic_store::testing_lock();
+    let (s, c, _) = service(Limits::default());
+    let (known, known_m, _) = phone(&c, 1, 4);
+    let (h, m) = attach(&c, 2);
+    let public = match run(&c, C::HostPublicKey) {
+        Reply::HostPublicKey(k) => k,
+        _ => panic!("host"),
+    };
+    let token = match run(&c, C::PairingInvitation) {
+        Reply::PairingInvitation(t) => t,
+        _ => panic!("invitation"),
+    };
+    let (bytes, _) = channel::phone_hello(
+        &SecretKey::from([5; 32]),
+        &public,
+        &token,
+        HelloOptions {
+            kind: Some(DeviceKind::Desktop),
+            ..Default::default()
+        },
+        &mut OsRng,
+    )
+    .unwrap();
+    let (gate, held) = park(&c);
+    let hello = c
+        .submit(C::Hello {
+            handle: h.clone(),
+            source: Source::Relay,
+            bytes,
+        })
+        .unwrap();
+    let pool = c.0.global.connection(256 * 1024 * 1024).unwrap();
+    let fill = pool
+        .reserve(256 * 1024 * 1024 - c.retained_bytes())
+        .unwrap();
+    unpark(gate);
+    held.wait(WAIT).unwrap();
+    assert!(matches!(hello.wait(WAIT), Err(Error::Full)));
+    drop(fill);
+    assert!(c.failure().is_none());
+    assert_eq!(
+        h.status(),
+        CarrierStatus::Closed(crate::registry::CloseReason::Limit)
+    );
+    assert!(m.is_closed());
+    assert_eq!(m.delivery_attempts(), 0);
+    assert_eq!(known.status(), CarrierStatus::Active);
+    assert!(!known_m.is_closed());
+    let (fresh, _, permit) = desktop(&c, 3, 5);
+    c.approve(permit)
+        .unwrap_or_else(|_| panic!("later approval"))
+        .wait(WAIT)
+        .unwrap();
+    assert_eq!(fresh.status(), CarrierStatus::Active);
+    finish(start(clean(s)));
+}
+#[test]
+fn idle_tick_expires_and_promotes_work_without_creating_response_frames() {
+    let _disk = crate::synthetic_store::testing_lock();
+    let (s, c, clock) = service(Limits {
+        registry: crate::registry::Limits {
+            inflight: 1,
+            request_ms: 10,
+            queue_wait_ms: 20,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let (h, m, mut ch) = phone(&c, 1, 4);
+    work(&c, &h, &mut ch, 1);
+    let first = tokens(&c).remove(0);
+    work(&c, &h, &mut ch, 2);
+    assert!(c.next_event(Duration::ZERO).is_none());
+    clock.advance_to(11).unwrap();
+    assert!(matches!(c.next_event(WAIT), Some(Event::WorkAvailable))); // No command/tick submitted after advancing.
+    assert_eq!(first.status(), WorkStatus::TimedOut);
+    assert_eq!(m.delivery_attempts(), 1);
+    assert!(m.receive().is_none());
+    let promoted = tokens(&c).remove(0);
+    assert_eq!(promoted.id(), 2);
+    assert_eq!(promoted.status(), WorkStatus::InFlight);
+    finish(s);
 }
