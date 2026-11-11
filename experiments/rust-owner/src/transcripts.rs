@@ -61,6 +61,8 @@ pub struct TranscriptSource<'a> {
     /// The message id the brief catches up after.
     pub catch_up_after: Option<Value>,
     pub clock: Clock,
+    /// Where the minimal brief's changed files come from (admitted worktrees only); `None`: no list.
+    pub changed: crate::changed_files::ChangedPlan,
 }
 
 /// The state a job's source borrows: a plain JSON value, or the owner's in-memory Project state (its messages read in
@@ -113,6 +115,7 @@ impl<'a> SourceState<'a> {
 
 /// What a job owns: the copied part of the state.
 struct TranscriptInput {
+    changed: crate::changed_files::ChangedPlan,
     state: Value,
     session: u64,
     catch_up_after: Option<Value>,
@@ -236,6 +239,7 @@ fn take_input(source: &TranscriptSource<'_>, budget: usize) -> Result<Transcript
         Value::Array(kept.into_iter().cloned().collect()),
     );
     Ok(TranscriptInput {
+        changed: source.changed.clone(),
         state: Value::Object(copy),
         session: source.session,
         catch_up_after: source.catch_up_after.clone(),
@@ -251,6 +255,8 @@ pub enum JobOutcome {
     Staged {
         staged: StagedTranscript,
         brief_prompt: Option<handover::BriefRequest>,
+        /// The changed files for the minimal brief (`git status`, hardened); empty when there is no list.
+        changed_files: Vec<String>,
     },
     /// The job failed. A temporary file it may have made is in `leftover`, to discard.
     Failed {
@@ -279,6 +285,7 @@ type Inbox = Arc<Mutex<VecDeque<JobOutcome>>>;
 
 /// The owner's side: the pinned handovers folder, the reservations and the inbox.
 pub struct TranscriptJobs {
+    copy: PathBuf,
     pin: RootPin,
     dir: Arc<OwnedFd>,
     /// The handover store's lease, held from opening to the last job, outcome and cleanup (each holds a share).
@@ -450,6 +457,7 @@ impl TranscriptJobs {
         }
         let swept = sweep(&dir, &path)?;
         Ok(TranscriptJobs {
+            copy: isolation.root().to_path_buf(),
             pin,
             dir,
             lease,
@@ -503,6 +511,7 @@ impl TranscriptJobs {
         let digest = Sha1::digest(project.as_os_str().as_encoded_bytes());
         Ok(TranscriptJob {
             id,
+            copy: self.copy.clone(),
             lease: self.lease.clone(),
             folder: self.pin.clone(),
             dir: self.dir.clone(),
@@ -546,6 +555,8 @@ impl TranscriptJobs {
 /// One transcript to render and stage. Built only by [`TranscriptJobs::job`]; run it once on a blocking worker.
 pub struct TranscriptJob {
     id: JobId,
+    /// The isolated copy (Git's home and discovery ceiling).
+    copy: PathBuf,
     lease: Arc<Lease>,
     folder: RootPin,
     dir: Arc<OwnedFd>,
@@ -566,9 +577,10 @@ impl TranscriptJob {
         let id = self.id;
         match outcome {
             // The staged file travels in the outcome; the guard's copy is dropped only once it is reported.
-            Ok((staged, brief_prompt)) => self.guard.report(JobOutcome::Staged {
+            Ok((staged, brief_prompt, changed_files)) => self.guard.report(JobOutcome::Staged {
                 staged,
                 brief_prompt,
+                changed_files,
             }),
             Err(error) => {
                 let leftover = self.guard.leftover.take();
@@ -582,7 +594,14 @@ impl TranscriptJob {
         self.guard.leftover = None;
     }
 
-    fn stage(&mut self) -> Result<(StagedTranscript, Option<handover::BriefRequest>)> {
+    #[allow(clippy::type_complexity)]
+    fn stage(
+        &mut self,
+    ) -> Result<(
+        StagedTranscript,
+        Option<handover::BriefRequest>,
+        Vec<String>,
+    )> {
         let input = &self.input;
         let session = Value::from(input.session);
         let full = handover::render_transcript_bounded(
@@ -657,7 +676,10 @@ impl TranscriptJob {
                 .and_then(|text| handover::safe_brief_request(&text, catch_up).ok())
             }
         };
-        Ok((staged, brief_prompt))
+        // Off the actor too: Git in the admitted worktrees only (Node's changedFiles, failing to no list).
+        let changed_files = crate::changed_files::changed_files(&self.copy, &self.input.changed)
+            .unwrap_or_default();
+        Ok((staged, brief_prompt, changed_files))
     }
 }
 

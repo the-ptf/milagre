@@ -134,6 +134,8 @@ struct Preparing {
     saving: bool,
     /// A failed save of the done divider was told (once per handoff).
     told_saving: bool,
+    /// The changed files the transcript job found (for the minimal brief).
+    changed_files: Vec<String>,
 }
 
 /// A transcript job out: whose it is, whether its handoff was cancelled (its result is then only cleaned up), and a
@@ -753,6 +755,8 @@ pub struct ChatHost {
     pub handoff: HandoffMode,
     /// The time zone a transcript's Routine runs are written in (Node: the computer's).
     pub handoff_zone: handover::Zone,
+    /// The worktrees Git may run in for a handoff's changed files (none until the runtime admits them).
+    git: crate::changed_files::GitGrants,
     /// The providers were shut down by `shutdown`: a later call only retries closing the states.
     providers_shut_down: bool,
     /// The quit's final save and close succeeded.
@@ -825,7 +829,9 @@ pub struct ChatHost {
 
 impl ChatHost {
     pub fn new(states: ProjectStates) -> Self {
+        let git = crate::changed_files::GitGrants::new(states.isolation().root());
         ChatHost {
+            git,
             states,
             providers: BTreeMap::new(),
             runs: Runs::new(),
@@ -1480,6 +1486,7 @@ impl ChatHost {
                                         zone: handover::Zone::Utc,
                                         now_ms: 0.0,
                                     },
+                                    changed: None,
                                 },
                                 restore_budget,
                             )?;
@@ -2970,9 +2977,20 @@ impl ChatHost {
                 start,
                 saving: false,
                 told_saving: false,
+                changed_files: Vec::new(),
             },
         );
         self.sync_busy();
+        // The minimal brief's changed files: Git in the Chat's worktree (or its Link members), admitted folders only.
+        let changed = self.git.plan(
+            preparing_start_cwd(self.preparing.get(chat)).as_deref(),
+            state.as_ref().and_then(|state| {
+                state
+                    .sessions()?
+                    .get(&session.to_string())?
+                    .get("worktrees")
+            }),
+        );
         let reserved = match &state {
             Some(state) => self.reserve_transcript(
                 project,
@@ -2988,6 +3006,7 @@ impl ChatHost {
                         zone: self.handoff_zone,
                         now_ms: self.states.now() as f64,
                     },
+                    changed,
                 },
             ),
             None => Err(StoreError::Invalid(format!(
@@ -3266,6 +3285,7 @@ impl ChatHost {
             JobOutcome::Staged {
                 staged,
                 brief_prompt,
+                changed_files,
             } if current => {
                 // The generation and the Project are checked here, on the actor, right before the one rename.
                 match self
@@ -3275,6 +3295,9 @@ impl ChatHost {
                 {
                     Ok(path) => {
                         self.end_job(id);
+                        if let Some(preparing) = self.preparing.get_mut(&chat) {
+                            preparing.changed_files = changed_files;
+                        }
                         self.transcript_ready(&chat, turn, path, brief_prompt);
                     }
                     Err(error) => {
@@ -3368,6 +3391,13 @@ impl ChatHost {
         }
     }
 
+    /// Admits a worktree for the changed files of a handoff's minimal brief: a canonical folder inside the isolated
+    /// copy with a Git folder of its own and no redirecting config (see [`crate::changed_files`]). Nothing else is ever
+    /// run in; a Chat whose worktree isn't admitted gets no list, as a failing Node run does.
+    pub fn admit_worktree(&mut self, path: &Path) -> Result<()> {
+        self.git.admit(path)
+    }
+
     /// Lets the host ask a model for handoff briefs (none registered: every brief is the minimal one).
     pub fn register_brief_model(&mut self, model: Box<dyn BriefModel>) {
         self.brief_model = Some(model);
@@ -3457,14 +3487,17 @@ impl ChatHost {
             .as_ref()
             .map(|path| Value::String(jsjson::js_string(&path.to_string_lossy())));
         let provider = Value::String(preparing.provider.clone());
-        // The changed files come from a hardened Git job not ported yet: until then the minimal brief says none.
         preparing.brief = Some(handover::brief_text(
             file.as_ref(),
             Some(&provider),
             preparing.catch_up,
             reply.as_deref(),
             preparing.last_user_message.as_ref(),
-            &[],
+            &preparing
+                .changed_files
+                .iter()
+                .map(|file| Value::String(file.clone()))
+                .collect::<Vec<_>>(),
         ));
         self.finish_preparation(chat, turn);
     }
@@ -3661,6 +3694,7 @@ impl ChatHost {
                 start: Map::new(),
                 saving: false,
                 told_saving: false,
+                changed_files: Vec::new(),
             },
         );
         let job = match self.reserve_transcript(project, chat, turn, source) {
@@ -4395,6 +4429,11 @@ impl ChatHost {
             other => self.states.call(other, args),
         }
     }
+}
+
+/// The working folder a prepared turn's start request names (its `cwd`), as text.
+fn preparing_start_cwd(preparing: Option<&Preparing>) -> Option<String> {
+    preparing?.start.get("cwd")?.as_str().map(str::to_string)
 }
 
 /// Whether `m` is the handoff divider `id` in one of `statuses`.

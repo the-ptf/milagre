@@ -67,6 +67,7 @@ fn source(state: &Value, session: u64) -> TranscriptSource<'_> {
         provider: Some("claude"),
         catch_up_after: None,
         clock: CLOCK,
+        changed: None,
     }
 }
 
@@ -220,6 +221,7 @@ fn transcript_jobs_stay_within_their_byte_bounds() {
         provider: Some("claude"),
         catch_up_after: None,
         clock: CLOCK,
+        changed: None,
     };
     let (job, peak) = peak_of(|| jobs.job(&project, in_place).unwrap());
     assert!(peak < MIB, "a Project-state source copied {peak} bytes");

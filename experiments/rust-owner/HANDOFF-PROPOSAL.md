@@ -89,3 +89,16 @@ Until one is agreed the gate stays, with no fixture bypass.
 - A Routine run's time uses the computer's time zone, so the same Chat renders differently on two computers.
 - One malformed message (a non-string body read for the title, a step that is `null`) throws and fails the whole
   handoff.
+
+## Before Restore is adopted (planned, not built)
+
+- **Recovery on open.** Add `ChatHost::open_project(project)` (or extend the runtime's Project open) that, in this
+  order: opens the Project states, opens the handover store (lease, then the sweep of provable leftovers), then runs
+  `recover_handoffs`. `recover_handoffs` alone opens the store first if it isn't open, so a forgotten call order can't
+  leave a divider preparing. Runtime API change: agree with the runtime first.
+- **Restore enablement.** Replace the public `handoff` field with `ChatHost::enable_restore_for_tests()` (only with
+  `test-fixtures`) and a named conformance constructor, so production code can't flip it. The runtime's tests that
+  use Restore move to that constructor. Agree with the runtime first.
+- **Follow-ups from review.** A restore refuses when the Chat's messages aren't loaded or are missing (instead of
+  rendering a partial transcript); a host-path counting-allocator test (a restore send with 200 MiB in other Chats);
+  Restore mode opens the handover store only when a restore is decided, not on every send.

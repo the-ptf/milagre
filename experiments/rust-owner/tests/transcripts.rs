@@ -80,6 +80,7 @@ fn source_of(state: Value, after: Option<Value>) -> TranscriptSource<'static> {
         provider: None,
         catch_up_after: after,
         clock: CLOCK,
+        changed: None,
     }
 }
 
@@ -104,6 +105,7 @@ fn a_staged_transcript_commits_where_node_would_name_it() {
     let JobOutcome::Staged {
         staged,
         brief_prompt,
+        ..
     } = outcomes.remove(0)
     else {
         panic!("not staged")

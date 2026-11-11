@@ -209,9 +209,15 @@ agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the n
   `AtCapacity`, more than `MAX_BRIEFS` (8) out, or a request that can't go out exactly: the minimal brief at once.
   `Replied` is encoded once on entry; over `MAX_BRIEF_REPLY_BYTES` (64 KiB, a deliberate deviation) counts as
   failed. A brief past `brief_grace_ms` (30 s) is cancelled (advisory) and counts as failed; a cancelled, settled or
-  unknown id's later answer is dropped. The changed files of the minimal brief need a hardened Git job (cleared
-  environment, `GIT_OPTIONAL_LOCKS=0`, no hooks or fsmonitor, timeout, output cap, admitted Worktrees only): not
-  ported, so the minimal brief says `(none)` until it is; a gate condition.
+  unknown id's later answer is dropped. The minimal brief's changed files come from `src/changed_files.rs`: `git status --porcelain` run by the transcript
+  job (off the actor) only in worktrees the runtime admitted with `ChatHost::admit_worktree` (canonical, inside the
+  isolated copy, a `.git` folder of its own, no `commondir`, no `include`/`worktree`/`fsmonitor` config; checked again
+  at each run), with `/usr/bin/git`, a cleared environment (no system or global config, `GIT_OPTIONAL_LOCKS=0`, no
+  prompt, `GIT_DIR`/`GIT_WORK_TREE` pinned, discovery ceiling at the copy, hooks and fsmonitor off), 3 s and 1 MiB per
+  pipe. Anything not admitted or failing gives no list, as Node's `changedFiles().catch(() => [])`. Lines are read as
+  Node reads them (`line.slice(3)`, the alias in front for a Link member); Git's own defaults apply where Node would
+  use the person's Git config (`core.quotePath`). Admission is a new runtime API: coordinate before the runtime calls
+  it.
 - **Job memory.** `TranscriptJobs::job` takes a borrowed `TranscriptSource`: it measures only the Chat's session,
   worktree and messages before the divider (a counting serializer, nothing copied) and refuses a Chat over
   `MAX_TRANSCRIPT_INPUT_BYTES` (32 MiB) or a job that would take the reserved jobs' inputs over

@@ -14,6 +14,7 @@
 //! - [`search`]: message-search.mjs and chatSearch.
 //! - [`agent_runs`]: agent-runs.mjs: runs and the agent events folded into the state (unported ones refused).
 //! - [`tool_activity`]: summarizeStep and capOutput, the facts a finished tool step keeps.
+//! - [`changed_files`]: the minimal brief's changed files: hardened `git status` in admitted worktrees only.
 //! - [`brief`]: the handoff brief's model boundary (nonblocking, bounded, typed text), and a scripted fake for tests.
 //! - [`transcripts`]: handover transcripts written off the actor as bounded, owned jobs (pinned descriptors).
 //! - [`handover`]: handover.cjs's pure parts: the transcript, its cut and path, the framed brief and the brief text.
@@ -24,6 +25,7 @@
 pub mod agent_runs;
 pub mod audit;
 pub mod brief;
+pub mod changed_files;
 pub mod chat_db;
 pub mod chat_host;
 pub mod commands;

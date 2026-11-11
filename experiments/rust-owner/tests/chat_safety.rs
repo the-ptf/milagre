@@ -1810,6 +1810,7 @@ fn transcript_input_with(
             zone: milagre_owner_store::handover::Zone::Utc,
             now_ms: 0.0,
         },
+        changed: None,
     }
 }
 
