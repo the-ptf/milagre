@@ -1,5 +1,10 @@
 //! Spike evidence tool (macOS): write the app's own window to a PNG.
 //!
+//! Two ways. [`headless`] (feature `headless-snapshot`, the default snapshot mode when built in) draws the app with no
+//! window through gpui-pre's headless Metal renderer, after pumping frames, so later-frame state shows. The window
+//! capture below photographs a real AppKit window and only ever sees its first frames when the window is occluded or
+//! the display sleeps; `MILAGRE_GPUI_SNAPSHOT_HEADLESS=0` picks it in a build that has both.
+//!
 //! `screencapture -l <id>` needs the Screen Recording permission for whatever launched it. A process
 //! may capture its own windows without that permission, so the app captures itself instead. Run with
 //! `MILAGRE_GPUI_SNAPSHOT=/tmp/shell.png`; `main.rs` saves the window once it has drawn and quits.
@@ -12,6 +17,53 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+#[cfg(any(test, feature = "headless-snapshot"))]
+pub mod headless;
+
+/// Which snapshot mode `MILAGRE_GPUI_SNAPSHOT` runs in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// [`headless`]: no window, frames pumped, Metal readback.
+    Headless,
+    /// [`save_window_png`]: a real window, captured after its first frames.
+    Window,
+    /// `MILAGRE_GPUI_SNAPSHOT_HEADLESS=1` in a build without the `headless-snapshot` feature.
+    HeadlessUnavailable,
+}
+
+/// `MILAGRE_GPUI_SNAPSHOT_HEADLESS`: `0` forces the window capture, `1` (or unset) the headless one when the build has
+/// it.
+pub fn mode() -> Mode {
+    mode_for(std::env::var("MILAGRE_GPUI_SNAPSHOT_HEADLESS").ok().as_deref(), cfg!(feature = "headless-snapshot"))
+}
+
+fn mode_for(setting: Option<&str>, built_in: bool) -> Mode {
+    let wanted = match setting {
+        Some("0" | "false" | "no" | "off") => false,
+        Some(_) => true,
+        None => built_in,
+    };
+    match (wanted, built_in) {
+        (false, _) => Mode::Window,
+        (true, true) => Mode::Headless,
+        (true, false) => Mode::HeadlessUnavailable,
+    }
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::{Mode, mode_for};
+
+    #[test]
+    fn headless_is_the_default_only_when_built_in() {
+        assert_eq!(mode_for(None, true), Mode::Headless);
+        assert_eq!(mode_for(None, false), Mode::Window);
+        assert_eq!(mode_for(Some("0"), true), Mode::Window);
+        assert_eq!(mode_for(Some("1"), true), Mode::Headless);
+        assert_eq!(mode_for(Some("1"), false), Mode::HeadlessUnavailable);
+    }
+}
 
 type CFTypeRef = *const c_void;
 

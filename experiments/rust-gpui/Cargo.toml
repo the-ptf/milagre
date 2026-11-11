@@ -22,6 +22,10 @@ fitcheck = []
 webview = ["fitcheck", "dep:gpui-webview"]
 # gpui-component's syntect highlighter (and two-face's grammars): code colours in markdown, on by default.
 syntect = ["gpui-component/syntect"]
+# Snapshots with no window (src/snapshot/headless.rs): gpui-pre's HeadlessAppContext and Metal headless renderer,
+# which live behind its `test-support`. Off in the app; with it on, `MILAGRE_GPUI_SNAPSHOT` renders headless unless
+# `MILAGRE_GPUI_SNAPSHOT_HEADLESS=0`. No gpui-pre patch.
+headless-snapshot = ["gpui/test-support", "gpui_platform/test-support", "dep:gpui_apple"]
 
 [dependencies]
 # GPUI from `gpui-pre`: weekly crates.io snapshots of zed-industries/zed's own `gpui` crates (0.3.12 is
@@ -88,9 +92,14 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry"] }
 # The unguessable address of each Artifact preview (src/workspace/panel/artifacts/protocol.rs). Already in the tree.
 getrandom = "0.3"
+# The headless snapshot's text system (CoreText, `AppleTextSystem`), built without a `MacPlatform` (which must be made on
+# the main thread). Already in the tree under gpui-pre-platform; only with `headless-snapshot`.
+gpui_apple = { package = "gpui-pre-apple", version = "=0.3.12", features = ["font-kit"], optional = true }
 
 [dev-dependencies]
 # `test-support` adds GPUI's headless test platform (`#[gpui::test]`, `TestAppContext`, `debug_selector`).
 gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
 # CoreText itself for the bundled-font tests (`theme/fonts.rs`); already in the tree under gpui-pre-platform.
 gpui_apple = { package = "gpui-pre-apple", version = "=0.3.12", features = ["font-kit"] }
+# The headless snapshot module builds under `cargo test` too (src/snapshot/headless.rs): the Metal headless renderer.
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders", "test-support"] }

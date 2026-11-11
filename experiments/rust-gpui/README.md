@@ -26,6 +26,27 @@ lights come out grey, and AppKit may report it occluded, after which gpui-pre dr
 occluded window's display link): snapshot mode waits for the provider logos to decode before it opens the window, and
 an animation or a later change never shows in a snapshot.
 
+Headless snapshots (`src/snapshot/headless.rs`) draw with no window at all, so later frames show (a selection made
+after the first frame, open popovers and dialogs, settled animations) whether or not the display is awake. No
+`caffeinate` needed:
+
+```sh
+cargo build --features headless-snapshot
+MILAGRE_GPUI_SNAPSHOT=/tmp/x.png target/debug/milagre-gpui-spike                 # headless by default in this build
+MILAGRE_GPUI_SNAPSHOT=/tmp/x.png MILAGRE_GPUI_SNAPSHOT_FRAMES=240 target/debug/milagre-gpui-spike   # frames pumped (120)
+MILAGRE_GPUI_SNAPSHOT=/tmp/x.png MILAGRE_GPUI_SNAPSHOT_HEADLESS=0 target/debug/milagre-gpui-spike   # the window capture
+```
+
+It runs the app on gpui-pre's `HeadlessAppContext` (its test platform with the real CoreText text system and the
+app's assets), opens the main window as `app::run` does, so every `MILAGRE_GPUI_*` seed applies, pumps frames (next-frame
+callbacks, redraw, the simulated clock moves 16.7 ms), then renders the last scene with `MetalHeadlessRenderer` and
+reads it back: 2880 x 1800 px. What differs from the window capture: no traffic lights or window shadow (there is no
+AppKit window), and the clock is simulated, so a looping spinner stops wherever the last frame left it. The feature
+turns on gpui-pre's `test-support`, which is why it is not in the app's default build; `MILAGRE_GPUI_SNAPSHOT_HEADLESS=1`
+in a build without it exits with an error. No gpui-pre patch: 0.3.12 already ships `HeadlessAppContext`,
+`capture_screenshot` and `gpui_platform::current_headless_renderer`. `cargo test headless_renders_the_window --
+--ignored` checks it.
+
 Needs Xcode's command line tools (for `bindgen`'s libclang). It does **not** need the Metal Toolchain (`runtime_shaders`).
 `node tools/gen-icons.mjs` (run by hand when icons change) needs the repository's `node_modules`.
 

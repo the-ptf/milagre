@@ -31,6 +31,10 @@ const SAVE_DELAY: Duration = Duration::from_millis(500);
 /// Starts the app and opens the main window. Returns when the app quits.
 pub fn run() {
     let snapshot = std::env::var_os("MILAGRE_GPUI_SNAPSHOT").map(PathBuf::from);
+    // Headless snapshots run without an `Application` at all (`snapshot/headless.rs`).
+    if let Some(path) = &snapshot {
+        headless_snapshot(path);
+    }
     gpui_platform::application().with_assets(crate::assets::Assets).run(move |cx: &mut App| {
         init(cx);
         // WP-01 fit-check gallery (`--features fitcheck`, `MILAGRE_GPUI_FITCHECK=<page>`) instead of the app.
@@ -216,6 +220,25 @@ fn snapshot_then_quit(window: WindowHandle<Root>, path: PathBuf, cx: &mut App) {
     })
     .detach();
 }
+
+/// Runs the headless snapshot and exits when that is the snapshot mode (`snapshot::mode`); returns otherwise.
+#[cfg(target_os = "macos")]
+fn headless_snapshot(path: &std::path::Path) {
+    use crate::snapshot::Mode;
+    match crate::snapshot::mode() {
+        Mode::Window => {}
+        #[cfg(feature = "headless-snapshot")]
+        Mode::Headless => std::process::exit(crate::snapshot::headless::run_app(path)),
+        _ => {
+            let _ = path;
+            eprintln!("snapshot failed: headless snapshots need `--features headless-snapshot`");
+            std::process::exit(2);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn headless_snapshot(_path: &std::path::Path) {}
 
 #[cfg(target_os = "macos")]
 fn save(window: &gpui::Window, path: &std::path::Path) -> Result<(usize, usize), String> {
