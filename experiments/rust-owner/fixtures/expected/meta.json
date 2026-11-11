@@ -1,0 +1,5 @@
+{
+ "node": "v24.13.0",
+ "sqlite": "node:sqlite",
+ "generatedBy": "experiments/rust-owner/fixtures/generate.cjs"
+}
