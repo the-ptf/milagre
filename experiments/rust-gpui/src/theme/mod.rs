@@ -17,6 +17,7 @@
 //! Never write a hex colour or a raw size in a view: add the token here (with its DESIGN.md row) instead.
 
 mod colors;
+pub mod component_bridge;
 mod elevation;
 mod metrics;
 mod typography;

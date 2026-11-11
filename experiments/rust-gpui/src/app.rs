@@ -65,6 +65,8 @@ pub fn init(cx: &mut App) {
     crate::ui::preload_logos(cx);
     // gpui-component's globals, theme and key bindings, so its widgets can be used in any view.
     gpui_component::init(cx);
+    // Its theme follows ours: DESIGN.md colours, radii and type for every gpui-component widget.
+    crate::theme::component_bridge::init(cx);
 
     cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
     cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
