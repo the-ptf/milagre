@@ -25,16 +25,88 @@ pub enum HostRole {
     Babysit,
     ExecutionAdvisor,
 }
+/// One-use owner-issued wake identity. Releasing it invalidates every endpoint
+/// that retains the wake; it never makes the identity available for admission again.
+#[derive(Clone)]
+pub struct WakeLease(Arc<WakeState>);
+struct WakeState {
+    owner: Weak<ContentOwner>,
+    id: String,
+    claimed: AtomicBool,
+    released: AtomicBool,
+    chat_id: String,
+    project_id: String,
+    requests: Vec<WakeRequest>,
+}
+impl WakeLease {
+    pub(crate) fn new(
+        owner: &Arc<ContentOwner>,
+        id: String,
+        caller: &Caller,
+        requests: Vec<WakeRequest>,
+    ) -> Self {
+        Self(Arc::new(WakeState {
+            owner: Arc::downgrade(owner),
+            id,
+            claimed: AtomicBool::new(false),
+            released: AtomicBool::new(false),
+            chat_id: caller.chat_id.clone(),
+            project_id: caller.project_id.clone(),
+            requests,
+        }))
+    }
+    pub fn id(&self) -> &str {
+        &self.0.id
+    }
+    pub fn release(&self) {
+        self.0.released.store(true, Ordering::Release);
+    }
+    pub(crate) fn claim(&self, owner: &Arc<ContentOwner>, caller: &Caller) -> Result<()> {
+        if self.0.chat_id != caller.chat_id
+            || self.0.project_id != caller.project_id
+            || !std::ptr::eq(self.0.owner.as_ptr(), Arc::as_ptr(owner))
+            || self.0.released.load(Ordering::Acquire)
+            || self.0.claimed.swap(true, Ordering::AcqRel)
+        {
+            return Err(invalid(
+                "Wake lease is foreign, released or already admitted.",
+            ));
+        }
+        Ok(())
+    }
+    pub(crate) fn active(&self) -> Result<()> {
+        if self.0.released.load(Ordering::Acquire) {
+            Err(invalid("Wake lease has been released."))
+        } else {
+            Ok(())
+        }
+    }
+}
 /// This is owner configuration, never a tool input. A supplied manifest can only
 /// narrow registered handlers and must match their authoritative effect metadata.
 pub struct PolicyOptions {
+    pub wake: Option<WakeLease>,
     pub role: HostRole,
     pub manifest: Option<Vec<HostTool>>,
     pub on_sealed: Option<Arc<dyn Fn() + Send + Sync>>,
 }
+impl PolicyOptions {
+    pub fn escalation(wake: WakeLease, on_sealed: Arc<dyn Fn() + Send + Sync>) -> Self {
+        Self {
+            role: HostRole::Escalation {
+                wake_id: wake.id().into(),
+                requests: wake.0.requests.clone(),
+            },
+            wake: Some(wake),
+            manifest: None,
+            on_sealed: Some(on_sealed),
+        }
+    }
+}
 impl Default for PolicyOptions {
     fn default() -> Self {
         Self {
+            wake: None,
             role: HostRole::Ordinary,
             manifest: None,
             on_sealed: None,
@@ -47,6 +119,7 @@ pub struct BudgetStatus {
     pub sealed: bool,
 }
 pub(crate) struct HostPolicy {
+    wake: Option<WakeLease>,
     role: HostRole,
     manifest: Vec<HostTool>,
     attempts: AtomicUsize,
@@ -76,7 +149,11 @@ fn valid_id(value: &str, limit: usize) -> bool {
         && !value.chars().any(char::is_control)
 }
 impl HostPolicy {
-    pub(crate) fn new(caller: &Caller, options: PolicyOptions) -> Result<Self> {
+    pub(crate) fn new(
+        caller: &Caller,
+        options: PolicyOptions,
+        external: &[RegisteredTool],
+    ) -> Result<Self> {
         match &options.role {
             HostRole::Babysit | HostRole::ExecutionAdvisor => {
                 return Err(invalid(
@@ -95,6 +172,13 @@ impl HostPolicy {
                         "Escalation requires an explicit wake and valid Chat/request pairs.",
                     ));
                 }
+                if options
+                    .wake
+                    .as_ref()
+                    .is_none_or(|lease| lease.id() != wake_id || &lease.0.requests != requests)
+                {
+                    return Err(invalid("Escalation requires its owner-issued wake lease."));
+                }
                 let unique = requests
                     .iter()
                     .map(|r| (&r.chat_id, &r.request_id))
@@ -106,7 +190,11 @@ impl HostPolicy {
                     return Err(invalid("Escalation requires an owner stop callback."));
                 }
             }
-            HostRole::Ordinary | HostRole::AnalysisAdvisor => {}
+            HostRole::Ordinary | HostRole::AnalysisAdvisor => {
+                if options.wake.is_some() {
+                    return Err(invalid("Only escalation can carry a wake lease."));
+                }
+            }
         }
         let mut trusted = Vec::new();
         for tool in contract()["tools"].as_array().unwrap() {
@@ -126,7 +214,23 @@ impl HostPolicy {
                 });
             }
         }
-        let constrained = !matches!(options.role, HostRole::Ordinary);
+        trusted.extend(
+            external
+                .iter()
+                .filter(|tool| {
+                    if tool.effect == ToolEffect::Read {
+                        caller.read
+                    } else {
+                        caller.write
+                    }
+                })
+                .map(RegisteredTool::manifest),
+        );
+        let permitted = |tool: &HostTool| match options.role {
+            HostRole::Ordinary => true,
+            HostRole::Escalation { .. } => tool.read_only || tool.name == "chat_respond",
+            _ => tool.read_only,
+        };
         let manifest = if let Some(requested) = options.manifest {
             let mut seen = BTreeSet::new();
             for tool in &requested {
@@ -135,9 +239,9 @@ impl HostPolicy {
                         "Host manifest contains an unavailable or misannotated tool.",
                     ));
                 }
-                if constrained && !tool.read_only {
+                if !permitted(tool) {
                     return Err(invalid(
-                        "This constrained content session only supports read tools.",
+                        "This constrained host session does not permit that handler.",
                     ));
                 }
             }
@@ -147,12 +251,10 @@ impl HostPolicy {
                 .filter(|tool| requested.contains(tool))
                 .collect()
         } else {
-            trusted
-                .into_iter()
-                .filter(|tool| !constrained || tool.read_only)
-                .collect()
+            trusted.into_iter().filter(permitted).collect()
         };
         Ok(Self {
+            wake: options.wake,
             role: options.role,
             manifest,
             attempts: AtomicUsize::new(0),
@@ -162,11 +264,17 @@ impl HostPolicy {
     pub(crate) fn manifest(&self) -> &[HostTool] {
         &self.manifest
     }
-    pub(crate) fn wake_id(&self) -> Option<&str> {
-        match &self.role {
-            HostRole::Escalation { wake_id, .. } => Some(wake_id),
-            _ => None,
+    pub(crate) fn claim(&self, owner: &Arc<ContentOwner>, caller: &Caller) -> Result<()> {
+        if let Some(wake) = &self.wake {
+            wake.claim(owner, caller)?;
         }
+        Ok(())
+    }
+    pub(crate) fn active(&self) -> Result<()> {
+        if let Some(wake) = &self.wake {
+            wake.active()?;
+        }
+        Ok(())
     }
     pub(crate) fn role(&self) -> &HostRole {
         &self.role
@@ -179,6 +287,7 @@ impl HostPolicy {
         }
     }
     pub(crate) fn authorize(&self, name: &str, args: &Value) -> Result<()> {
+        self.active()?;
         if matches!(self.role, HostRole::Escalation { .. }) {
             // Reserve before validation/execution. Every attempted tool call consumes a
             // slot; parallel callers cannot each observe the sixth slot as free.
@@ -213,7 +322,10 @@ impl HostPolicy {
                 "Tool unavailable for this connection",
             ));
         };
-        if !matches!(self.role, HostRole::Ordinary) && !tool.read_only {
+        if !matches!(self.role, HostRole::Ordinary)
+            && !tool.read_only
+            && !(matches!(self.role, HostRole::Escalation { .. }) && name == "chat_respond")
+        {
             return Err(Error::coded("ROLE_DENIED", ONLY_READS));
         }
         Ok(())

@@ -3,6 +3,7 @@ mod accepted;
 pub use accepted::{AcceptedCall, CallPhase, CallReceipt, CallStatus, MutationOutcome};
 mod feedback;
 pub mod policy;
+mod registry;
 mod schema;
 use milagre_content_store::{
     design::{self, raster::RasterRenderer, DesignKits, ProjectForChat},
@@ -10,6 +11,7 @@ use milagre_content_store::{
 };
 use milagre_owner_store::{jsjson, Isolation};
 use policy::{BudgetStatus, HostPolicy, HostRole, HostTool, PolicyOptions};
+pub use registry::{HostContext, RegisteredTool, ToolEffect};
 use serde_json::{json, Value};
 use std::{
     cell::RefCell,
@@ -88,7 +90,7 @@ pub struct ContentOwner {
     raster: Option<Arc<RasterRenderer>>,
     active: Arc<AtomicBool>,
     fault: Mutex<Option<String>>,
-    wakes: Mutex<BTreeSet<String>>,
+    wakes: Mutex<u64>,
     calls: Arc<tokio::sync::Semaphore>,
 }
 /// Renderer authority minted only by its owning ContentOwner. MCP Caller values
@@ -103,6 +105,8 @@ pub struct Dispatcher {
     caller: Caller,
     owner: Arc<ContentOwner>,
     policy: Arc<HostPolicy>,
+    external: Arc<Vec<RegisteredTool>>,
+    routes: BTreeSet<String>,
 }
 impl ContentOwner {
     #[allow(clippy::too_many_arguments)]
@@ -141,7 +145,7 @@ impl ContentOwner {
             raster,
             active: Arc::new(AtomicBool::new(true)),
             fault: Mutex::new(None),
-            wakes: Mutex::new(BTreeSet::new()),
+            wakes: Mutex::new(0),
             calls: Arc::new(tokio::sync::Semaphore::new(16)),
         }))
     }
@@ -219,25 +223,75 @@ impl ContentOwner {
         caller: Caller,
         options: PolicyOptions,
     ) -> Result<Dispatcher> {
+        self.host_session(caller, options, Vec::new())
+    }
+    pub fn issue_wake(
+        self: &Arc<Self>,
+        caller: &Caller,
+        requests: Vec<policy::WakeRequest>,
+    ) -> Result<policy::WakeLease> {
+        static OWNER_IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        self.isolated(|| {
+            self.check()?;
+            self.caller_check(caller)?;
+            let mut serial = self.lock_state(&self.wakes);
+            self.check()?;
+            *serial = serial
+                .checked_add(1)
+                .ok_or_else(|| Error::new("Wake identity sequence exhausted."))?;
+            let id = OWNER_IDS
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |id| id.checked_add(1))
+                .map_err(|_| Error::new("Wake identity sequence exhausted."))?;
+            Ok(policy::WakeLease::new(
+                self,
+                format!("wake-{id}-{}", *serial),
+                caller,
+                requests,
+            ))
+        })
+    }
+    /// Assemble the whole trusted host registry once per role/wake. Endpoints
+    /// cloned or narrowed from this capability share its budget and immutable scope.
+    pub fn host_session(
+        self: &Arc<Self>,
+        caller: Caller,
+        options: PolicyOptions,
+        external: Vec<RegisteredTool>,
+    ) -> Result<Dispatcher> {
         self.isolated(|| {
             let caller = normalize_caller(&self.isolation, caller)?;
             let _lane = self.lock_state(&self.stores);
             self.caller_check(&caller)?;
-            let policy = HostPolicy::new(&caller, options)?;
-            if let Some(wake) = policy.wake_id() {
-                let mut wakes = self.lock_state(&self.wakes);
-                self.check()?;
-                if wakes.len() >= 256 || !wakes.insert(wake.into()) {
-                    return Err(Error::coded(
-                        "UNSUPPORTED_POLICY",
-                        "Wake already admitted or owner wake limit reached.",
-                    ));
-                }
+            let mut seen = BTreeSet::new();
+            if external
+                .iter()
+                .any(|tool| !seen.insert(tool.schema["name"].as_str().unwrap()))
+            {
+                return Err(Error::coded(
+                    "UNSUPPORTED_POLICY",
+                    "Duplicate host tool registration.",
+                ));
             }
+            let policy = Arc::new(HostPolicy::new(&caller, options, &external)?);
+            policy.claim(self, &caller)?;
+            let mut caller = caller;
+            let previous = caller.assert_active.clone();
+            let scope = policy.clone();
+            caller.assert_active = Arc::new(move || {
+                scope.active()?;
+                previous()
+            });
+            let routes = policy
+                .manifest()
+                .iter()
+                .map(|tool| tool.name.clone())
+                .collect();
             Ok(Dispatcher {
                 caller,
                 owner: self.clone(),
-                policy: Arc::new(policy),
+                policy,
+                external: Arc::new(external),
+                routes,
             })
         })
     }
@@ -469,16 +523,67 @@ impl Dispatcher {
         owner.session(caller)
     }
     fn active(&self) -> Result<()> {
+        self.policy.active()?;
         self.owner.caller_check(&self.caller)
+    }
+    /// A separate transport/registry endpoint, with the same whole-host capability.
+    pub fn endpoint(&self, names: &[&str]) -> Result<Self> {
+        if names.iter().any(|name| !self.routes.contains(*name)) {
+            return Err(Error::coded(
+                "TOOL_UNAVAILABLE",
+                "Endpoint cannot widen its host capability.",
+            ));
+        }
+        let mut endpoint = self.clone();
+        endpoint.routes = names.iter().map(|s| s.to_string()).collect();
+        Ok(endpoint)
+    }
+    pub fn host_manifest(&self) -> Vec<HostTool> {
+        self.policy.manifest().to_vec()
+    }
+    fn authorize(&self, name: &str, args: &Value) -> Result<()> {
+        self.policy.authorize(name, args)?;
+        if !self.routes.contains(name) {
+            return Err(Error::coded(
+                "TOOL_UNAVAILABLE",
+                "Tool unavailable on this host endpoint.",
+            ));
+        }
+        Ok(())
     }
     pub fn storage_fault(&self) -> Option<String> {
         self.owner.storage_fault()
     }
     pub fn list(&self) -> Result<Value> {
         self.active()?;
-        Ok(
-            json!({"tools":contract()["tools"].as_array().unwrap().iter().filter(|tool|self.policy.manifest().iter().any(|entry|entry.name==tool["name"].as_str().unwrap())).map(|tool|{let mut tool=tool.clone();tool["annotations"]["readOnlyHint"]=json!(self.policy.manifest().iter().find(|entry|entry.name==tool["name"].as_str().unwrap()).unwrap().read_only);tool["description"]=json!(tool["description"].as_str().unwrap().replace("$BUNDLED_SKILLS",&self.caller.bundled_skills.to_string_lossy()));tool}).collect::<Vec<_>>()}),
-        )
+        let mut tools = Vec::new();
+        for definition in contract()["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(self.external.iter().map(|tool| &tool.schema))
+        {
+            let name = definition["name"].as_str().unwrap();
+            if !self.routes.contains(name) {
+                continue;
+            }
+            let entry = self
+                .policy
+                .manifest()
+                .iter()
+                .find(|tool| tool.name == name)
+                .unwrap();
+            let mut tool = definition.clone();
+            tool["annotations"]["readOnlyHint"] = json!(entry.read_only);
+            if let Some(description) = tool["description"].as_str() {
+                tool["description"] = json!(description.replace(
+                    "$BUNDLED_SKILLS",
+                    &self.caller.bundled_skills.to_string_lossy()
+                ));
+            }
+            tools.push(tool);
+        }
+        Ok(json!({"tools":tools}))
     }
     /// One complete in-process JSON-RPC frame. Notifications produce no reply.
     /// Transport adapters enforce framing/authentication before passing a frame.
@@ -611,7 +716,7 @@ impl Dispatcher {
                                         let empty = json!({});
                                         let args =
                                             message["params"].get("arguments").unwrap_or(&empty);
-                                        match self.policy.authorize(name, args) {
+                                        match self.authorize(name, args) {
                                             Ok(()) => self.call_inline(name, args, receipt).await,
                                             Err(error) => tool_error(error.message),
                                         }
@@ -649,7 +754,12 @@ impl Dispatcher {
         }
     }
     pub fn provider_manifest(&self) -> Vec<HostTool> {
-        self.policy.manifest().to_vec()
+        self.policy
+            .manifest()
+            .iter()
+            .filter(|tool| self.routes.contains(&tool.name))
+            .cloned()
+            .collect()
     }
     pub fn role(&self) -> &HostRole {
         self.policy.role()
@@ -665,7 +775,7 @@ impl Dispatcher {
                 "Content call capacity reached; request was not accepted.",
             )
         })?;
-        self.policy.authorize(name, args)?;
+        self.authorize(name, args)?;
         let runtime = tokio::runtime::Handle::try_current()
             .map_err(|_| Error::new("Content calls require a Tokio runtime."))?;
         let this = self.clone();
@@ -713,6 +823,37 @@ impl Dispatcher {
         if jsjson::to_string(args).len() > limit {
             return tool_error(format!("Request exceeds the {limit}-byte MCP limit."));
         }
+        if let Some(tool) = self
+            .external
+            .iter()
+            .find(|tool| tool.schema["name"] == name)
+        {
+            let result = self.owner.with_stores(&self.caller, |_, _| {
+                self.policy.active()?;
+                let mutating = tool.effect != ToolEffect::Read;
+                receipt.begin(mutating)?;
+                let result = (tool.handler)(
+                    &HostContext {
+                        chat_id: self.caller.chat_id.clone(),
+                        project_id: self.caller.project_id.clone(),
+                        check: {
+                            let owner = self.owner.clone();
+                            let caller = self.caller.clone();
+                            Arc::new(move || owner.caller_check(&caller))
+                        },
+                    },
+                    args,
+                );
+                if mutating && result.as_ref().is_ok_and(|value| value["isError"] != true) {
+                    receipt.committed();
+                }
+                result
+            });
+            if let Err(error) = self.active() {
+                return tool_error(error.message);
+            }
+            return result.unwrap_or_else(|error| tool_error(error.message));
+        }
         let empty = json!({});
         let args = match schema::parse(
             &contract()["parsing"][name],
@@ -723,6 +864,7 @@ impl Dispatcher {
         };
         let mutating = policy::read_only(name) == Some(false);
         let work = self.owner.with_stores(&self.caller, |artifacts, kits| {
+            self.policy.active()?;
             receipt.begin(mutating)?;
             let result = Execution {
                 caller: &self.caller,

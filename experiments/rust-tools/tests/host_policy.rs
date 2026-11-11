@@ -46,21 +46,24 @@ fn owner(temp: &Path) -> Arc<ContentOwner> {
     )
     .unwrap()
 }
-fn escalation(id: &str, stops: Arc<AtomicUsize>) -> PolicyOptions {
-    PolicyOptions {
-        role: HostRole::Escalation {
-            wake_id: id.into(),
-            requests: vec![WakeRequest {
+fn escalation(owner: &Arc<ContentOwner>, stops: Arc<AtomicUsize>) -> PolicyOptions {
+    let wake = owner
+        .issue_wake(
+            &caller(),
+            vec![WakeRequest {
                 chat_id: "/child#2".into(),
                 request_id: "request-1".into(),
             }],
-        },
-        manifest: None,
-        on_sealed: Some(Arc::new(move || {
+        )
+        .unwrap();
+    PolicyOptions::escalation(
+        wake,
+        Arc::new(move || {
             stops.fetch_add(1, Ordering::SeqCst);
-        })),
-    }
+        }),
+    )
 }
+
 fn text(value: &Value) -> &str {
     value["content"][0]["text"].as_str().unwrap()
 }
@@ -201,7 +204,8 @@ async fn analysis_and_full_grants_cannot_bypass_host_roles_with_adapter_absent()
                     name: "artifact_show".into(),
                     read_only: false
                 }]),
-                on_sealed: None
+                on_sealed: None,
+                wake: None
             }
         )
         .is_err());
@@ -222,11 +226,9 @@ async fn parallel_escalation_calls_reserve_six_slots_then_seal_once_after_two_gr
     let temp = tempfile::tempdir().unwrap();
     let owner = owner(temp.path());
     let stops = Arc::new(AtomicUsize::new(0));
-    let session = Arc::new(
-        owner
-            .session_with_policy(caller(), escalation("wake-parallel", stops.clone()))
-            .unwrap(),
-    );
+    let options = escalation(&owner, stops.clone());
+    let lease = options.wake.as_ref().unwrap().clone();
+    let session = Arc::new(owner.session_with_policy(caller(), options).unwrap());
     let mut tasks = Vec::new();
     for _ in 0..32 {
         let session = session.clone();
@@ -248,15 +250,21 @@ async fn parallel_escalation_calls_reserve_six_slots_then_seal_once_after_two_gr
     assert_eq!(session.budget_status().attempts, 9);
     assert!(session.budget_status().sealed);
     assert!(owner
-        .session_with_policy(caller(), escalation("wake-parallel", stops.clone()))
+        .session_with_policy(
+            caller(),
+            PolicyOptions::escalation(lease.clone(), Arc::new(|| {}))
+        )
         .is_err());
     drop(session);
     assert!(owner
-        .session_with_policy(caller(), escalation("wake-parallel", stops.clone()))
+        .session_with_policy(
+            caller(),
+            PolicyOptions::escalation(lease.clone(), Arc::new(|| {}))
+        )
         .is_err());
     assert_eq!(
         owner
-            .session_with_policy(caller(), escalation("new-wake", stops))
+            .session_with_policy(caller(), escalation(&owner, stops))
             .unwrap()
             .budget_status()
             .attempts,
@@ -268,7 +276,7 @@ async fn wake_scope_is_immutable_and_unimplemented_responses_fail_closed() {
     let temp = tempfile::tempdir().unwrap();
     let owner = owner(temp.path());
     let stops = Arc::new(AtomicUsize::new(0));
-    let mut options = escalation("scope", stops.clone());
+    let mut options = escalation(&owner, stops.clone());
     let original = options.role.clone();
     let session = owner.session_with_policy(caller(), options).unwrap();
     assert_eq!(session.role(), &original);
@@ -309,12 +317,13 @@ async fn wake_scope_is_immutable_and_unimplemented_responses_fail_closed() {
                 PolicyOptions {
                     role,
                     manifest: None,
-                    on_sealed: Some(Arc::new(|| {}))
+                    on_sealed: Some(Arc::new(|| {})),
+                    wake: None
                 }
             )
             .is_err());
     }
-    options = escalation("no-stop", stops);
+    options = escalation(&owner, stops);
     options.on_sealed = None;
     assert!(owner.session_with_policy(caller(), options).is_err());
 }
@@ -334,7 +343,7 @@ async fn host_budget_matches_node_escalation_turn_without_provider_approvals() {
     let owner = owner(temp.path());
     let stops = Arc::new(AtomicUsize::new(0));
     let session = owner
-        .session_with_policy(caller(), escalation("node", stops.clone()))
+        .session_with_policy(caller(), escalation(&owner, stops.clone()))
         .unwrap();
     for expected in node["calls"].as_array().unwrap() {
         let reply = session.call("artifact_list", &json!({})).await;
@@ -357,7 +366,7 @@ async fn denied_calls_count_and_stop_callback_panics_cannot_unseal_the_host() {
     let temp = tempfile::tempdir().unwrap();
     let owner = owner(temp.path());
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut options = escalation("denials", calls.clone());
+    let mut options = escalation(&owner, calls.clone());
     options.on_sealed = Some(Arc::new({
         let calls = calls.clone();
         move || {
@@ -387,25 +396,271 @@ async fn denied_calls_count_and_stop_callback_panics_cannot_unseal_the_host() {
     );
 }
 #[test]
-fn wake_admission_is_bounded_and_cannot_relabel_an_existing_wake() {
+fn wake_leases_release_without_lifetime_exhaustion_and_cannot_be_rebound() {
     let temp = tempfile::tempdir().unwrap();
     let owner = owner(temp.path());
     let stops = Arc::new(AtomicUsize::new(0));
-    for index in 0..256 {
-        owner
-            .session_with_policy(
-                caller(),
-                escalation(&format!("wake-{index}"), stops.clone()),
-            )
-            .unwrap();
+    let mut previous = None;
+    for _ in 0..1024 {
+        let options = escalation(&owner, stops.clone());
+        let lease = options.wake.as_ref().unwrap().clone();
+        if let Some(id) = previous {
+            assert_ne!(lease.id(), id);
+        }
+        previous = Some(lease.id().to_owned());
+        let session = owner.session_with_policy(caller(), options).unwrap();
+        let endpoint = session.endpoint(&["artifact_list"]).unwrap();
+        lease.release();
+        assert!(session.list().is_err());
+        assert!(endpoint.list().is_err());
+        assert!(owner
+            .session_with_policy(caller(), PolicyOptions::escalation(lease, Arc::new(|| {})))
+            .is_err());
     }
-    assert!(owner
-        .session_with_policy(caller(), escalation("wake-over-limit", stops.clone()))
-        .is_err());
-    let mut relabeled = escalation("wake-0", stops);
-    if let HostRole::Escalation { requests, .. } = &mut relabeled.role {
-        requests[0].request_id = "other-request".into();
+    let mut forged = escalation(&owner, stops.clone());
+    if let HostRole::Escalation { requests, .. } = &mut forged.role {
+        requests[0].request_id = "other".into();
     }
-    assert!(owner.session_with_policy(caller(), relabeled).is_err());
+    assert!(owner.session_with_policy(caller(), forged).is_err());
+    let mut forged = escalation(&owner, stops);
+    if let HostRole::Escalation { wake_id, .. } = &mut forged.role {
+        *wake_id = "made-up".into();
+    }
+    assert!(owner.session_with_policy(caller(), forged).is_err());
     assert!(owner.session(caller()).is_ok());
+}
+
+fn external(
+    name: &str,
+    effect: milagre_tools::ToolEffect,
+    calls: Arc<AtomicUsize>,
+) -> milagre_tools::RegisteredTool {
+    use milagre_tools::{RegisteredTool, ToolEffect};
+    let name = name.to_owned();
+    let handler_name = name.clone();
+    RegisteredTool::new(json!({"name":name,"description":"Fixture handler only","inputSchema":{"type":"object"},"annotations":{"readOnlyHint":effect==ToolEffect::Read}}),effect,Arc::new(move|context,args|{
+        // This fixture implements the retained handler's own argument checks;
+        // matching a wake pair never licenses an arbitrary response payload.
+        if handler_name=="chat_respond" && !matches!(args["decision"].as_str(),Some("allow"|"deny")) {
+            return Err(milagre_content_store::Error::new("Invalid fixture response decision"));
+        }
+        context.assert_active()?;
+        calls.fetch_add(1,Ordering::SeqCst);
+        Ok(json!({"content":[{"type":"text","text":"fixture"}],"isError":false}))
+    })).unwrap()
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn complete_host_registry_and_endpoints_share_one_budget_and_manifest() {
+    use milagre_tools::ToolEffect;
+    let temp = tempfile::tempdir().unwrap();
+    let shared = owner(temp.path());
+    let stops = Arc::new(AtomicUsize::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let host = shared
+        .host_session(
+            caller(),
+            escalation(&shared, stops.clone()),
+            vec![
+                external("chat_read", ToolEffect::Read, calls.clone()),
+                external("chat_respond", ToolEffect::WakeResponse, calls.clone()),
+            ],
+        )
+        .unwrap();
+    let content = host.endpoint(&["artifact_list"]).unwrap();
+    let chat = host.endpoint(&["chat_read", "chat_respond"]).unwrap();
+    assert_eq!(host.host_manifest(), content.host_manifest());
+    assert_eq!(host.host_manifest(), chat.host_manifest());
+    assert_eq!(chat.provider_manifest().len(), 2);
+    assert!(chat
+        .provider_manifest()
+        .iter()
+        .any(|tool| tool.name == "chat_respond" && !tool.read_only));
+    assert_eq!(
+        content.list().unwrap()["tools"].as_array().unwrap().len(),
+        1
+    );
+    assert!(chat.endpoint(&["artifact_list"]).is_err());
+    let mut tasks = Vec::new();
+    for index in 0..24 {
+        let endpoint = if index % 2 == 0 {
+            content.clone()
+        } else {
+            chat.clone()
+        };
+        tasks.push(tokio::spawn(async move {
+            endpoint
+                .call(
+                    if index % 2 == 0 {
+                        "artifact_list"
+                    } else {
+                        "chat_read"
+                    },
+                    &json!({}),
+                )
+                .await
+        }));
+    }
+    let mut accepted = 0;
+    for task in tasks {
+        let reply = task.await.unwrap();
+        if reply["isError"] == false {
+            accepted += 1
+        } else {
+            assert_eq!(text(&reply), REPLY_NOW);
+        }
+    }
+    assert_eq!(accepted, 6);
+    assert_eq!(stops.load(Ordering::SeqCst), 1);
+    assert_eq!(content.budget_status(), chat.budget_status());
+    assert_eq!(chat.budget_status().attempts, 9);
+}
+
+#[tokio::test]
+async fn external_handlers_cannot_bypass_roles_scope_schema_or_endpoint_membership() {
+    use milagre_tools::{RegisteredTool, ToolEffect};
+    let temp = tempfile::tempdir().unwrap();
+    let shared = owner(temp.path());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let registrations = || {
+        vec![
+            external("chat_read", ToolEffect::Read, calls.clone()),
+            external("chat_respond", ToolEffect::WakeResponse, calls.clone()),
+            external("chat_delete", ToolEffect::Write, calls.clone()),
+        ]
+    };
+    let ordinary = shared
+        .host_session(caller(), PolicyOptions::default(), registrations())
+        .unwrap();
+    let analysis = shared
+        .host_session(
+            caller(),
+            PolicyOptions {
+                role: HostRole::AnalysisAdvisor,
+                ..Default::default()
+            },
+            registrations(),
+        )
+        .unwrap();
+    assert_eq!(
+        ordinary.call("chat_delete", &json!({})).await["isError"],
+        false
+    );
+    for name in ["chat_delete", "chat_respond", "unlisted_chat_tool"] {
+        assert_eq!(
+            analysis
+                .call(name, &json!({"permissionMode":"full","readOnlyHint":true}))
+                .await["isError"],
+            true
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let host = shared
+        .host_session(
+            caller(),
+            escalation(&shared, Arc::new(AtomicUsize::new(0))),
+            registrations(),
+        )
+        .unwrap();
+    for args in [
+        json!({"chatId":"/wrong#2","requestId":"request-1","decision":"allow"}),
+        json!({"chatId":"/child#2","requestId":"wrong","decision":"allow"}),
+        json!({"chatId":"/child#2","requestId":"request-1","decision":"arbitrary-payload"}),
+    ] {
+        assert_eq!(host.call("chat_respond", &args).await["isError"], true);
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        host.call(
+            "chat_respond",
+            &json!({"chatId":"/child#2","requestId":"request-1","decision":"deny"})
+        )
+        .await["isError"],
+        false
+    );
+    assert_eq!(
+        host.call("chat_delete", &json!({"permissionMode":"full"}))
+            .await["isError"],
+        true
+    );
+    let content = host.endpoint(&["artifact_list"]).unwrap();
+    assert_eq!(content.call("chat_read", &json!({})).await["isError"], true);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    for role in [HostRole::Babysit, HostRole::ExecutionAdvisor] {
+        assert!(shared
+            .host_session(
+                caller(),
+                PolicyOptions {
+                    role,
+                    ..Default::default()
+                },
+                registrations()
+            )
+            .is_err());
+    }
+    for (name, effect, read_only) in [
+        ("chat_respond", ToolEffect::Read, true),
+        ("unknown_write", ToolEffect::Write, true),
+        ("artifact_list", ToolEffect::Read, true),
+    ] {
+        assert!(RegisteredTool::new(
+            json!({"name":name,"inputSchema":{},"annotations":{"readOnlyHint":read_only}}),
+            effect,
+            Arc::new(|_, _| panic!("unreachable"))
+        )
+        .is_err());
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn release_revokes_inflight_external_commit_and_all_derived_endpoints() {
+    use milagre_tools::{RegisteredTool, ToolEffect};
+    use std::sync::{Condvar, Mutex};
+    let temp = tempfile::tempdir().unwrap();
+    let shared = owner(temp.path());
+    let other_temp = tempfile::tempdir().unwrap();
+    let foreign = owner(other_temp.path());
+    let entered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let gate = Arc::new((Mutex::new(false), Condvar::new()));
+    let writes = Arc::new(AtomicUsize::new(0));
+    let options = escalation(&shared, Arc::new(AtomicUsize::new(0)));
+    let lease = options.wake.as_ref().unwrap().clone();
+    assert!(foreign
+        .session_with_policy(
+            caller(),
+            PolicyOptions::escalation(lease.clone(), Arc::new(|| {}))
+        )
+        .is_err());
+    let tool=RegisteredTool::new(json!({"name":"chat_respond","inputSchema":{"type":"object"},"annotations":{"readOnlyHint":false}}),ToolEffect::WakeResponse,Arc::new({let gate=gate.clone();let entered=entered.clone();let writes=writes.clone();move|context,args|{
+        if args["decision"]!="allow" {return Err(milagre_content_store::Error::new("Invalid fixture response"));}
+        entered.store(true,Ordering::SeqCst);
+        let (_guard,timeout)=gate.1.wait_timeout_while(gate.0.lock().unwrap(),std::time::Duration::from_secs(2),|ready|!*ready).unwrap();assert!(!timeout.timed_out());
+        context.assert_active()?;writes.fetch_add(1,Ordering::SeqCst);
+        Ok(json!({"content":[],"isError":false}))
+    }})).unwrap();
+    let host = shared.host_session(caller(), options, vec![tool]).unwrap();
+    let endpoint = host.endpoint(&["chat_respond"]).unwrap();
+    let accepted = endpoint
+        .start_call(
+            "chat_respond",
+            &json!({"chatId":"/child#2","requestId":"request-1","decision":"allow"}),
+        )
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while !entered.load(Ordering::SeqCst) {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    lease.release();
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_all();
+    assert_eq!(accepted.wait().await["isError"], true);
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
+    assert!(host.list().is_err());
+    assert!(endpoint.list().is_err());
+    assert!(shared.storage_fault().is_none());
+    assert!(shared
+        .session_with_policy(caller(), PolicyOptions::escalation(lease, Arc::new(|| {})))
+        .is_err());
 }
