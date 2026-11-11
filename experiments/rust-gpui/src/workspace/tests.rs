@@ -104,7 +104,7 @@ fn headers_move_and_zoom_the_window_but_their_controls_do_not(cx: &mut TestAppCo
     }
 
     // A press on a header control, then a move: no window move.
-    let search = cx.debug_bounds("search").expect("the search button is drawn").center();
+    let search = cx.debug_bounds("bar-search").expect("the search button is drawn").center();
     cx.simulate_mouse_down(search, MouseButton::Left, Modifiers::none());
     cx.simulate_mouse_move(search + point(px(6.0), px(0.0)), Some(MouseButton::Left), Modifiers::none());
     cx.simulate_mouse_up(search + point(px(6.0), px(0.0)), MouseButton::Left, Modifiers::none());

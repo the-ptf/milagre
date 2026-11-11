@@ -423,7 +423,6 @@ impl Sidebar {
 
     fn render_collapsed(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let theme = *cx.theme();
-        let sidebar = cx.entity();
         let button = |id: &'static str, icon: IconName| IconButton::new(id, icon).size(IconButtonSize::S32).glyph(IconSize::S16);
         let footer = self.footer(cx);
         let (on_add, on_filters) = (footer.on_add_project.clone(), footer.on_filters.clone());
@@ -442,13 +441,9 @@ impl Sidebar {
             .h_full()
             .bg(theme.canvas)
             .text_color(theme.ink)
+            // The traffic lights and the window's bar (with its Expand sidebar toggle) sit over this header and run on
+            // past the rail's edge (`workspace/shell/top_bar.rs`).
             .child(chrome::header("sidebar-header"))
-            .child(
-                div().flex().flex_col().items_center().flex_none().gap(px(1.0)).child(
-                    button("expand-sidebar", IconName::SidebarRight01)
-                        .on_click(move |_, _, cx| sidebar.update(cx, |this, cx| this.set_collapsed(false, cx))),
-                ),
-            )
             .child(div().h(px(8.0)).flex_none())
             .child(uniform_list("rail-list", self.rows.len(), cx.processor(Self::render_rail)).flex_1().min_h_0())
             .child(toast)
@@ -530,16 +525,10 @@ impl Render for Sidebar {
             .h_full()
             .bg(theme.canvas)
             .text_color(theme.ink)
-            .child(header(
-                {
-                    let sidebar = cx.entity();
-                    move |_, cx| sidebar.update(cx, |_, cx| cx.emit(SidebarEvent::NewChat))
-                },
-                {
-                    let sidebar = cx.entity();
-                    move |_, cx| sidebar.update(cx, |this, cx| this.set_collapsed(true, cx))
-                },
-            ))
+            .child(header({
+                let sidebar = cx.entity();
+                move |_, cx| sidebar.update(cx, |_, cx| cx.emit(SidebarEvent::NewChat))
+            }))
             .child(destination("canvas", "Canvas", IconName::FlowConnection, false, &theme))
             .child(div().id("routines-button").on_click(cx.listener(|_, _, _, cx| cx.emit(SidebarEvent::Routines))).child(destination(
                 "routines",
@@ -586,40 +575,18 @@ impl Render for Sidebar {
     }
 }
 
-/// 44px title-bar header: the traffic lights sit at the left (see `app.rs`), three 16px icon buttons at
-/// x 208, 240 and 272. Each button has a 24px hit area centred on its glyph.
-fn header(
-    on_new_chat: impl Fn(&mut Window, &mut gpui::App) + 'static,
-    on_hide: impl Fn(&mut Window, &mut gpui::App) + 'static,
-) -> impl IntoElement {
-    let on_new_chat = Rc::new(on_new_chat);
-    let button = |name: &'static str, icon: IconName, x: f32| {
-        div()
-            .absolute()
-            .left(px(x - 4.0))
-            .top(px(10.0))
-            .no_drag()
-            .child(IconButton::new(name, icon).size(IconButtonSize::S24).glyph(IconSize::S16))
-    };
-    chrome::header("sidebar-header")
-        .relative()
-        .child(
-            div().absolute().left(px(208.0 - 4.0)).top(px(10.0)).no_drag().child(
-                IconButton::new("hide-sidebar", IconName::SidebarLeft01)
-                    .size(IconButtonSize::S24)
-                    .glyph(IconSize::S16)
-                    .on_click(move |_, window, cx| on_hide(window, cx)),
-            ),
-        )
-        .child(button("search", IconName::Search01, 240.0))
-        .child(
-            div().absolute().left(px(268.0)).top(px(10.0)).no_drag().child(
-                IconButton::new("new-chat", IconName::PencilEdit02)
-                    .size(IconButtonSize::S24)
-                    .glyph(IconSize::S16)
-                    .on_click(move |_, window, cx| on_new_chat(window, cx)),
-            ),
-        )
+/// 44px title-bar header: the traffic lights sit at the left (see `app.rs`), the window's bar beside them (the
+/// sidebar toggle, Routines, Link Projects and Search, drawn by `workspace/shell/top_bar.rs` from x 80 to 232), and
+/// the New Chat button with its 16px glyph at x 272 (a 24px hit area centred on it).
+fn header(on_new_chat: impl Fn(&mut Window, &mut gpui::App) + 'static) -> impl IntoElement {
+    chrome::header("sidebar-header").relative().child(
+        div().absolute().left(px(268.0)).top(px(10.0)).no_drag().child(
+            IconButton::new("new-chat", IconName::PencilEdit02)
+                .size(IconButtonSize::S24)
+                .glyph(IconSize::S16)
+                .on_click(move |_, window, cx| on_new_chat(window, cx)),
+        ),
+    )
 }
 
 /// A 32px destination row: icon at x 12, label at x 40, optional accent dot at x 268.

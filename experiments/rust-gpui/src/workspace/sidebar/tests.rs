@@ -111,11 +111,10 @@ fn the_bottom_group_is_pinned_under_the_list(cx: &mut TestAppContext) {
 #[gpui::test]
 fn header_buttons_sit_at_their_x_positions(cx: &mut TestAppContext) {
     let (_sidebar, cx) = mount(cx);
-    for (name, x) in [("hide-sidebar", 208.0), ("search", 240.0), ("new-chat", 272.0)] {
-        let b = cx.debug_bounds(name).unwrap_or_else(|| panic!("{name} is drawn"));
-        assert_eq!(b.origin.x + px(4.0), px(x), "{name} glyph left edge");
-        assert_eq!(b.size.width, px(24.0));
-    }
+    // The toggle and Search moved to the window's bar (`workspace/shell/tests.rs` places them).
+    let b = cx.debug_bounds("new-chat").expect("new-chat is drawn");
+    assert_eq!(b.origin.x + px(4.0), px(272.0), "new-chat glyph left edge");
+    assert_eq!(b.size.width, px(24.0));
 }
 
 #[gpui::test]
