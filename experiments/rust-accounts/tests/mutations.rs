@@ -105,11 +105,11 @@ fn actual_node_mutations_match_metadata_results_files_and_changed_events() {
                 ),
                 "remove" => service.remove(provider, id.as_deref().unwrap()),
                 "scope" => service.scope_snapshot(op["scope"].as_str().unwrap()),
-                "snapshot" => Ok(service.snapshot()),
+                "snapshot" => Ok(service.snapshot().unwrap()),
                 "reopen" => {
                     service.close();
                     service = sandbox.open().unwrap();
-                    Ok(service.snapshot())
+                    Ok(service.snapshot().unwrap())
                 }
                 _ => panic!("unreplayed method {method}"),
             };
@@ -136,6 +136,7 @@ fn actual_node_mutations_match_metadata_results_files_and_changed_events() {
             );
             let events: Vec<_> = service
                 .take_events()
+                .unwrap()
                 .into_iter()
                 .map(|event| event.provider)
                 .collect();

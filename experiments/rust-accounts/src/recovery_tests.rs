@@ -19,13 +19,14 @@ fn sources() -> SyntheticSources {
         gemini_cli_skills: true,
     }
 }
-const SCENARIOS: [&str; 6] = [
+const SCENARIOS: [&str; 7] = [
     "sources",
     "codex",
     "claude",
     "default",
     "antigravity",
     "combined",
+    "remove",
 ];
 fn setup(scenario: &str) -> (AccountSandbox, AccountService, String) {
     journal::inject(None, false);
@@ -36,6 +37,14 @@ fn setup(scenario: &str) -> (AccountSandbox, AccountService, String) {
     }
     let id = if matches!(scenario, "sources" | "default" | "combined") {
         String::new()
+    } else if scenario == "remove" {
+        service
+            .create_prepared("codex", "Synthetic", Availability::Installed)
+            .unwrap()
+            .account["id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
     } else {
         service
             .create(scenario, "Synthetic", Availability::Installed)
@@ -57,7 +66,7 @@ fn run(service: &mut AccountService, scenario: &str, id: &str) -> Result<()> {
             result => result,
         },
         "combined" => {
-            let existing = service.accounts().saved()["accounts"]
+            let existing = service.accounts().unwrap().saved()["accounts"]
                 .as_array()
                 .unwrap()
                 .first()
@@ -78,6 +87,7 @@ fn run(service: &mut AccountService, scenario: &str, id: &str) -> Result<()> {
             assert_eq!(ready.pending(), ["login"]);
             Ok(())
         }
+        "remove" => service.remove("codex", id).map(|_| ()),
         "default" => service.prepare_synthetic_antigravity_default(),
         provider => service.resume_preparation(provider, id).map(|p| {
             assert_eq!(p.pending(), ["login"]);
@@ -119,7 +129,7 @@ fn snapshot(path: &Path, root: &Path, id: &str) -> Value {
     Value::Object(result)
 }
 fn finished(copy: &AccountSandbox, service: &AccountService, scenario: &str, id: &str) -> Value {
-    let discovered = service.accounts().saved()["accounts"]
+    let discovered = service.accounts().unwrap().saved()["accounts"]
         .as_array()
         .unwrap()
         .first()
@@ -138,12 +148,12 @@ fn finished(copy: &AccountSandbox, service: &AccountService, scenario: &str, id:
         fs::read_to_string(copy.path().join(MARKER)).unwrap(),
         copy.0.marker
     );
-    if !matches!(scenario, "sources" | "default" | "combined") {
+    if !matches!(scenario, "sources" | "default" | "combined" | "remove") {
         assert_eq!(
             service.preparation_status(scenario, id).unwrap(),
             PreparationStatus::Complete
         );
-        assert!(service.snapshot()["providers"]
+        assert!(service.snapshot().unwrap()["providers"]
             .as_array()
             .unwrap()
             .iter()
@@ -381,7 +391,7 @@ fn creation_publication_is_idempotent_and_forgetting_never_resurrects() {
         journal::inject(None, false);
         service.close();
         let mut next = copy.open().unwrap();
-        let before = next.accounts().saved()["accounts"]
+        let before = next.accounts().unwrap().saved()["accounts"]
             .as_array()
             .unwrap()
             .len();
@@ -398,10 +408,10 @@ fn creation_publication_is_idempotent_and_forgetting_never_resurrects() {
             assert_eq!(pending[0].preparation, PreparationStatus::Complete);
         }
         run(&mut next, "combined", &id).unwrap();
-        let account = next.accounts().saved()["accounts"][0].clone();
+        let account = next.accounts().unwrap().saved()["accounts"][0].clone();
         let id = account["id"].as_str().unwrap();
         assert_eq!(
-            next.accounts().saved()["accounts"]
+            next.accounts().unwrap().saved()["accounts"]
                 .as_array()
                 .unwrap()
                 .len(),
@@ -409,7 +419,7 @@ fn creation_publication_is_idempotent_and_forgetting_never_resurrects() {
         );
         next.recover_creation("codex", id).unwrap();
         assert_eq!(
-            next.accounts().saved()["accounts"]
+            next.accounts().unwrap().saved()["accounts"]
                 .as_array()
                 .unwrap()
                 .len(),
@@ -461,7 +471,7 @@ fn reserved_creation_counts_toward_limit_and_retry_uses_saved_source() {
     service.recover_creation("codex", &id).unwrap();
     assert_eq!(fs::read(config).unwrap(), before);
     assert_eq!(
-        service.accounts().saved()["accounts"]
+        service.accounts().unwrap().saved()["accounts"]
             .as_array()
             .unwrap()
             .len(),
@@ -529,7 +539,7 @@ fn twenty_failed_creations_can_be_identified_abandoned_or_recovered() {
         ids.push(identity.id.clone());
     }
     assert_eq!(service.recoverable_creations().unwrap().len(), 20);
-    assert!(service.accounts().saved()["accounts"]
+    assert!(service.accounts().unwrap().saved()["accounts"]
         .as_array()
         .unwrap()
         .is_empty());
@@ -563,7 +573,7 @@ fn twenty_failed_creations_can_be_identified_abandoned_or_recovered() {
         .create_prepared("codex", "New", Availability::Installed)
         .unwrap();
     assert_eq!(
-        service.accounts().saved()["accounts"]
+        service.accounts().unwrap().saved()["accounts"]
             .as_array()
             .unwrap()
             .len(),
@@ -611,13 +621,122 @@ fn failure_identity_covers_ambiguous_publication_without_claiming_a_plan_exists(
             next.recover_creation(&identity.provider, &identity.id)
                 .unwrap();
             assert_eq!(
-                next.accounts().saved()["accounts"]
+                next.accounts().unwrap().saved()["accounts"]
                     .as_array()
                     .unwrap()
                     .len(),
                 1
             );
         }
+        drop(service);
+        cleanup(copy, next);
+    }
+}
+
+#[test]
+fn every_removal_stage_refuses_resume_and_finishes_without_resurrection() {
+    let (stages, _) = baseline("remove");
+    for (point, stage) in stages.iter().enumerate() {
+        let (copy, mut service, id) = setup("remove");
+        let dir = copy.path().join("accounts").join(&id);
+        fs::write(dir.join("sentinel"), "keep").unwrap();
+        journal::inject(Some(point), false);
+        assert!(service.remove("codex", &id).is_err());
+        journal::inject(None, false);
+        // The first two failures precede a durable Removing intent; all later points must refuse.
+        if point > 1 {
+            assert!(
+                service.resume_preparation("codex", &id).is_err(),
+                "{point}/{}",
+                stage
+            );
+        }
+        service.close();
+        let mut next = copy.open().unwrap();
+        if point > 1 {
+            assert!(next.resume_preparation("codex", &id).is_err());
+        }
+        next.remove("codex", &id).unwrap();
+        next.remove("codex", &id).unwrap();
+        assert!(next.accounts().unwrap().saved()["accounts"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(next.recover_creation("codex", &id).is_err());
+        assert_eq!(fs::read_to_string(dir.join("sentinel")).unwrap(), "keep");
+        drop(service);
+        cleanup(copy, next);
+    }
+}
+#[test]
+fn ambiguous_publish_latches_every_service_operation_until_close_and_reopen() {
+    let stages = baseline("combined").0;
+    for stage in ["journal-renamed", "profile-renamed", "metadata-renamed"] {
+        let (copy, mut service, _) = setup("combined");
+        let mut ticket = service
+            .create("codex", "Existing", Availability::Installed)
+            .unwrap();
+        let id = ticket.account["id"].as_str().unwrap().to_owned();
+        let request = service.begin_observation("codex", "default").unwrap();
+        let proof = service
+            .observed(request, crate::IdentityState::Ready)
+            .unwrap();
+        let request = service.begin_observation("claude", "default").unwrap();
+        journal::inject(
+            Some(stages.iter().position(|s| *s == stage).unwrap()),
+            false,
+        );
+        assert!(service
+            .create_prepared("codex", "Synthetic", Availability::Installed)
+            .is_err());
+        journal::inject(None, false);
+        let before_meta = fs::read(copy.path().join("accounts/accounts.json")).unwrap();
+        let before_journal = fs::read(copy.path().join(journal::FILE)).unwrap();
+        assert!(service.accounts().is_err());
+        assert!(service.snapshot().is_err());
+        assert!(service.scope_snapshot("/synthetic").is_err());
+        assert!(service.pin(None).is_err());
+        assert!(service.owner_id().is_err());
+        assert!(service.generation().is_err());
+        assert!(service.take_events().is_err());
+        assert!(service
+            .create("codex", "No", Availability::Installed)
+            .is_err());
+        assert!(service
+            .create_prepared("codex", "No", Availability::Installed)
+            .is_err());
+        assert!(service.recoverable_creations().is_err());
+        assert!(service.recover_creation("codex", &id).is_err());
+        assert!(service.abandon_creation("codex", &id).is_err());
+        assert!(service.prepare_creation(&mut ticket).is_err());
+        assert!(service.resume_preparation("codex", &id).is_err());
+        assert!(service.preparation_status("codex", &id).is_err());
+        assert!(service.seed_synthetic_sources(&sources()).is_err());
+        assert!(service.resume_synthetic_sources().is_err());
+        assert!(service.prepare_synthetic_antigravity_default().is_err());
+        assert!(service
+            .inherit_synthetic_mcp("codex", &id, Some(""))
+            .is_err());
+        assert!(service.begin_observation("codex", "default").is_err());
+        assert!(service
+            .observed(request, crate::IdentityState::Ready)
+            .is_err());
+        assert!(service.select("codex", "default", proof).is_err());
+        assert!(service.assign("/synthetic", "codex", None, None).is_err());
+        assert!(service.remove("codex", &id).is_err());
+        assert_eq!(
+            fs::read(copy.path().join("accounts/accounts.json")).unwrap(),
+            before_meta
+        );
+        assert_eq!(
+            fs::read(copy.path().join(journal::FILE)).unwrap(),
+            before_journal
+        );
+        assert!(copy.open().is_err());
+        service.close();
+        assert!(service.snapshot().is_err());
+        let next = copy.open().unwrap();
+        assert!(next.snapshot().is_ok());
         drop(service);
         cleanup(copy, next);
     }

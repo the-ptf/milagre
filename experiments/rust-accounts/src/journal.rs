@@ -33,6 +33,7 @@ pub(crate) struct Creation {
 pub(crate) enum Publication {
     Pending,
     Published,
+    Removing,
     Removed,
 }
 #[derive(Clone, Serialize, Deserialize)]

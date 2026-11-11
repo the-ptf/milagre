@@ -154,25 +154,31 @@ impl AccountSandbox {
     }
 }
 impl AccountService {
-    pub fn accounts(&self) -> &Accounts {
-        &self.accounts
+    pub fn accounts(&self) -> Result<&Accounts> {
+        self.active()?;
+        Ok(&self.accounts)
     }
     pub fn pin(&self, scope: Option<&str>) -> Result<Selection> {
+        self.active()?;
         if let Some(scope) = scope {
             crate::valid_scope(scope)?;
         }
         self.accounts.pin(scope)
     }
-    pub fn owner_id(&self) -> Uuid {
-        self.owner
+    pub fn owner_id(&self) -> Result<Uuid> {
+        self.active()?;
+        Ok(self.owner)
     }
-    pub fn generation(&self) -> u64 {
-        self.generation
+    pub fn generation(&self) -> Result<u64> {
+        self.active()?;
+        Ok(self.generation)
     }
-    pub fn snapshot(&self) -> Value {
-        self.decorate(self.accounts.snapshot())
+    pub fn snapshot(&self) -> Result<Value> {
+        self.active()?;
+        Ok(self.decorate(self.accounts.snapshot()))
     }
     pub fn scope_snapshot(&self, scope: &str) -> Result<Value> {
+        self.active()?;
         self.accounts
             .scope_snapshot(scope)
             .map(|s| self.decorate(s))
@@ -355,7 +361,7 @@ impl AccountService {
             id,
             preparation: crate::PreparationStatus::Pending,
             account,
-            snapshot: self.snapshot(),
+            snapshot: self.snapshot()?,
         })
     }
     /// Synthetic equivalent of Node's ordering: finish the private profile, then publish metadata.
@@ -414,9 +420,9 @@ impl AccountService {
         let creation = entry.creation.ok_or(AccountError(crate::MISSING_ACCOUNT))?;
         match creation.publication {
             crate::journal::Publication::Removed => Ok(()),
-            crate::journal::Publication::Published => Err(AccountError(
-                "Use remove for an account whose metadata is already published.",
-            )),
+            crate::journal::Publication::Published | crate::journal::Publication::Removing => Err(
+                AccountError("Use remove for an account whose metadata is already published."),
+            ),
             crate::journal::Publication::Pending => writer.forget_creation(&key),
         }
     }
@@ -455,7 +461,10 @@ impl AccountService {
             .entry(&key)?
             .ok_or(AccountError(crate::MISSING_ACCOUNT))?;
         let creation = entry.creation.ok_or(AccountError(crate::MISSING_ACCOUNT))?;
-        if creation.publication == crate::journal::Publication::Removed {
+        if matches!(
+            creation.publication,
+            crate::journal::Publication::Removing | crate::journal::Publication::Removed
+        ) {
             return Err(AccountError(crate::MISSING_ACCOUNT));
         }
         self.writer
@@ -479,7 +488,10 @@ impl AccountService {
             ));
         }
         let creation = entry.creation.ok_or(AccountError(crate::MISSING_ACCOUNT))?;
-        if creation.publication == crate::journal::Publication::Removed {
+        if matches!(
+            creation.publication,
+            crate::journal::Publication::Removing | crate::journal::Publication::Removed
+        ) {
             return Err(AccountError(crate::MISSING_ACCOUNT));
         }
         let account = creation.account;
@@ -532,7 +544,7 @@ impl AccountService {
             id: id.into(),
             preparation: crate::PreparationStatus::Complete,
             account,
-            snapshot: self.snapshot(),
+            snapshot: self.snapshot()?,
         })
     }
     /// Seed a fresh copy from supplied synthetic text. Never discovers HOME or opens caller paths.
@@ -584,7 +596,7 @@ impl AccountService {
             id: id.into(),
             preparation: crate::PreparationStatus::Pending,
             account,
-            snapshot: self.snapshot(),
+            snapshot: self.snapshot()?,
         };
         self.prepare_creation(&mut pending)?;
         Ok(pending)
@@ -636,7 +648,7 @@ impl AccountService {
         let mut next = self.accounts.saved().clone();
         next["selected"][provider] = json!(id);
         self.persist(next, Some(provider))?;
-        Ok(self.snapshot())
+        self.snapshot()
     }
     pub fn assign(
         &mut self,
@@ -675,32 +687,60 @@ impl AccountService {
     }
     pub fn remove(&mut self, provider: &str, id: &str) -> Result<Value> {
         self.active()?;
-        self.accounts.account(provider, id)?;
+        crate::provider_check(provider)?;
         if id == "default" {
             return Err(AccountError(
                 "The connected CLI account cannot be removed here.",
             ));
         }
-        let mut next = self.accounts.saved().clone();
-        next["accounts"]
-            .as_array_mut()
-            .unwrap()
-            .retain(|a| a["id"] != id);
-        if next["selected"][provider] == id {
-            next["selected"][provider] = json!("default");
+        let key = format!("profile:{provider}:{id}");
+        let account = match self.accounts.account(provider, id) {
+            Ok(account) => Some(account),
+            Err(_) => {
+                let entry = self
+                    .writer
+                    .as_ref()
+                    .ok_or(AccountError(CLOSED))?
+                    .entry(&key)?
+                    .ok_or(AccountError(crate::MISSING_ACCOUNT))?;
+                let creation = entry.creation.ok_or(AccountError(crate::MISSING_ACCOUNT))?;
+                match creation.publication {
+                    crate::journal::Publication::Removed => return self.snapshot(),
+                    crate::journal::Publication::Removing => None,
+                    _ => return Err(AccountError(crate::MISSING_ACCOUNT)),
+                }
+            }
+        };
+        if let Some(account) = account {
+            self.writer
+                .as_ref()
+                .ok_or(AccountError(CLOSED))?
+                .begin_removal(&key, &account)?;
+            crate::journal::checkpoint("removal-intent")?;
+            let mut next = self.accounts.saved().clone();
+            next["accounts"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|a| a["id"] != id);
+            if next["selected"][provider] == id {
+                next["selected"][provider] = json!("default");
+            }
+            // Scope pins and profile files remain, as in Node.
+            self.persist(next, Some(provider))?;
+            crate::journal::checkpoint("removal-metadata")?;
         }
         self.writer
             .as_ref()
             .ok_or(AccountError(CLOSED))?
-            .forget_creation(&format!("profile:{provider}:{id}"))?;
-        // Scopes intentionally keep removed IDs, and no profile directory is touched.
-        self.persist(next, Some(provider))?;
+            .forget_creation(&key)?;
+        crate::journal::checkpoint("removal-complete")?;
         self.identities.remove(&(provider.into(), id.into()));
         self.observations.remove(&(provider.into(), id.into()));
-        Ok(self.snapshot())
+        self.snapshot()
     }
-    pub fn take_events(&mut self) -> Vec<AccountEvent> {
-        std::mem::take(&mut self.events)
+    pub fn take_events(&mut self) -> Result<Vec<AccountEvent>> {
+        self.active()?;
+        Ok(std::mem::take(&mut self.events))
     }
     /// Immediate metadata commits leave nothing to flush. Drop releases only this service's lock.
     pub fn close(&mut self) {

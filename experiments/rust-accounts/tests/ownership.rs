@@ -94,6 +94,7 @@ fn readiness_is_account_owner_generation_and_inspection_specific() {
     assert_eq!(
         owner
             .accounts()
+            .unwrap()
             .selected("codex", Some("/project"))
             .unwrap(),
         ID
@@ -134,7 +135,7 @@ fn unready_and_signing_in_accounts_cannot_be_selected_or_assigned() {
         "Finish or cancel the current sign-in first."
     );
     assert_eq!(fs::read(copy.file()).unwrap(), before);
-    assert!(owner.take_events().is_empty());
+    assert!(owner.take_events().unwrap().is_empty());
 }
 #[test]
 fn removal_retains_profile_data_scope_pins_and_captured_selection() {
@@ -150,24 +151,29 @@ fn removal_retains_profile_data_scope_pins_and_captured_selection() {
     owner.select("codex", ID, proof).unwrap();
     owner.remove("codex", ID).unwrap();
     assert_eq!(fs::read(&sentinel).unwrap(), b"synthetic content only");
-    assert_eq!(owner.accounts().selected("codex", None).unwrap(), "default");
+    assert_eq!(
+        owner.accounts().unwrap().selected("codex", None).unwrap(),
+        "default"
+    );
     assert_eq!(pinned.account_id("codex").unwrap(), ID);
-    assert!(owner.accounts().account("codex", ID).is_err());
+    assert!(owner.accounts().unwrap().account("codex", ID).is_err());
 }
 #[test]
 fn external_metadata_edits_and_marker_replacement_fail_without_overwriting() {
     let copy = Copy::new();
     let mut owner = copy.0.open().unwrap();
     let original = fs::read(copy.file()).unwrap();
-    let snapshot = owner.accounts().saved().clone();
+    let snapshot = owner.accounts().unwrap().saved().clone();
     let changed = seed().replace("Saved", "External");
     fs::write(copy.file(), changed.as_bytes()).unwrap();
     assert!(owner
         .create("claude", "No", Availability::Installed)
         .is_err());
     assert_eq!(fs::read(copy.file()).unwrap(), changed.as_bytes());
-    assert_eq!(owner.accounts().saved(), &snapshot);
+    assert!(owner.accounts().is_err());
+    assert!(owner.snapshot().is_err());
     fs::write(copy.file(), &original).unwrap();
+    assert_eq!(owner.accounts().unwrap().saved(), &snapshot);
     let marker = copy.0.path().join("MILAGRE-ACCOUNT-COPY");
     let saved = fs::read(&marker).unwrap();
     fs::write(&marker, b"synthetic-secret-marker").unwrap();

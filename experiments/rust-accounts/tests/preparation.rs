@@ -89,7 +89,7 @@ fn real_node_preparation_files_and_pending_status() {
             service.prepare_creation(&mut pending).unwrap();
             assert_eq!(tree(&path.join("accounts"), &path), before);
             assert_eq!(
-                service.snapshot()["providers"]
+                service.snapshot().unwrap()["providers"]
                     .as_array()
                     .unwrap()
                     .iter()
@@ -118,7 +118,7 @@ fn real_node_preparation_files_and_pending_status() {
                 .unwrap();
             assert_eq!(pending.pending(), ["login"]);
             assert_eq!(
-                service.accounts().saved()["accounts"]
+                service.accounts().unwrap().saved()["accounts"]
                     .as_array()
                     .unwrap()
                     .len(),

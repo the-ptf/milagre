@@ -261,9 +261,10 @@ let ready_to_login = accounts.resume_preparation("codex", existing_id)?;
 `PreparationStatus::Pending` or `Complete`. It never claims authentication. A crash after the
 metadata rename but before its journal acknowledgment is repaired by checking the exact saved
 account row, not appending it twice. `recover_creation` is idempotent for an already published
-account. Removal records a forget intent before dropping metadata, so recovery cannot resurrect
-an explicitly forgotten account. A failed removal can leave its metadata present and its
-creation forgotten; retrying removal resolves that state without deleting profile files.
+account. Removal records `Removing`, drops metadata, then acknowledges `Removed`, so recovery cannot
+resurrect an explicitly forgotten account. A failed removal can leave metadata present with a
+removal intent; preparation refuses that account and retrying `remove` finishes the operation
+without deleting profile files.
 Unpublished reservations count toward the 20-account limit. `preparation_status` checks the
 current copy and reports file-plan completion for an existing account.
 
@@ -302,12 +303,13 @@ cover conflicting files, journal tampering, exact-once publication, explicit rem
 account limits and immutable source snapshots. Existing Node conformance and containment tests
 remain in the suite. The matrix covers **289 injected-error points and 76 abrupt child exits**;
 additional regressions reject modified authentication, unsafe journal paths and journal rollback.
-The crate now has **32 passing tests**, with two normally ignored helper tests invoked only by
+That checkpoint had **32 passing tests**, with two normally ignored helper tests invoked only by
 the lock/crash fixtures.
 
-After an I/O error, close and reopen the service before retrying. An error after a metadata
-rename can leave the old in-memory model stale; reopen reads the durable metadata and reconciles
-its publication journal. The journal makes partial preparation recoverable, not invisible or
+After an I/O error, close and reopen the service before retrying. An error after a journal,
+profile or metadata rename latches the writer as uncertain: every service method except `close`
+refuses further calls, including snapshots and event drains. Reopen reads the durable metadata
+and reconciles its publication journal. The journal makes partial preparation recoverable, not invisible or
 transactionally rolled back. A conflicting external edit remains a visible error and is never
 silently repaired. Sources and profile creation are journaled; later arbitrary MCP refreshes
 still use the earlier two-file semantics.
@@ -338,3 +340,30 @@ reservation limit, abandons 15 (one has a persistent conflicting config), recove
 another account. Reopening still refuses abandoned plans, and the conflicting file is unchanged.
 A second regression covers an identity allocated before any journal commit and one returned after
 an ambiguous metadata rename. These add two tests to the preceding 32-test checkpoint.
+
+### Removal recovery and uncertain-I/O latch
+
+Removal uses a persisted `Removing` intent, metadata deletion, then a `Removed` acknowledgment.
+Both states refuse `run_plan`, `prepare_creation`, `resume_preparation`, preparation-status checks
+and creation recovery. `remove` can finish an intent even when metadata already disappeared;
+repeating an acknowledged removal is harmless. Neither path removes profile or unknown files.
+The shared error/crash matrix now includes removal, and a dedicated regression interrupts every
+removal checkpoint, confirms resume is refused after the durable intent and retries to completion.
+
+A journal/profile/metadata rename followed by an error now sets an irreversible latch on that
+writer. All service calls refuse until `close`; only a new service from the retained sandbox can
+continue. This includes reads that previously exposed a stale in-memory snapshot. **API change:**
+`AccountService::accounts`, `snapshot`, `owner_id`, `generation` and `take_events` now return
+`Result`; `pin` and `scope_snapshot` also verify that the service is active. Pure `Accounts` and
+`Selection` APIs are unchanged. A regression checks every public service operation after an
+interrupted journal, profile and metadata publication and proves rejected calls leave both
+metadata and journal bytes unchanged.
+
+These changes add two tests. Journal text compaction and incremental verification are still
+unported: completed/abandoned plans retain their text, and exhausting the 64 MiB journal cap can
+block further creation despite free account slots. The whole-copy scan and special-file refusal
+are restrictions of synthetic fixtures, not a production profile-store design. The creator of a
+synthetic copy owns its cleanup; tests remove their known copies after dropping handles. There
+is no automatic orphan cleanup or whole-owner restart admission without the retained capability.
+
+The current crate has **36 passing tests**. The expanded shared matrix covers **300 injected-error points and 87 abrupt child exits**, plus the dedicated 15-point removal regression. All Node fixture checks, clippy and formatting pass.

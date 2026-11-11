@@ -13,7 +13,10 @@ use std::{
         unix::fs::{MetadataExt, PermissionsExt},
     },
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 use uuid::Uuid;
 const MARKER: &str = "MILAGRE-ACCOUNT-COPY";
@@ -22,6 +25,7 @@ const LOCK: &str = ".metadata-writer.lock";
 const UNSAFE: &str = "Account copy ownership or file containment changed.";
 const IO: &str = "Could not persist isolated account metadata.";
 const BUSY: &str = "This isolated account copy already has a writer.";
+const UNCERTAIN: &str = "Account I/O outcome is uncertain. Close and reopen the account service.";
 #[derive(Clone)]
 pub struct AccountSandbox(Arc<Root>);
 struct Root {
@@ -126,6 +130,7 @@ impl AccountSandbox {
             lock,
             _root_lock: root_lock,
             expected: read_optional(&self.0.accounts, META)?,
+            uncertain: AtomicBool::new(false),
         };
         writer.verify()?;
         Ok(writer)
@@ -189,6 +194,7 @@ pub(crate) struct Writer {
     lock: File,
     _root_lock: File,
     expected: Option<Vec<u8>>,
+    uncertain: AtomicBool,
 }
 impl Writer {
     pub(crate) fn body(&self) -> Result<Option<&str>> {
@@ -199,6 +205,9 @@ impl Writer {
             .map_err(|_| AccountError(crate::READ_ERROR))
     }
     pub(crate) fn verify(&self) -> Result<()> {
+        if self.uncertain.load(Ordering::Acquire) {
+            return Err(AccountError(UNCERTAIN));
+        }
         self.sandbox.verify()?;
         let current = open(&self.sandbox.0.accounts, LOCK, libc::O_RDWR, 0)?;
         if !same(
@@ -236,6 +245,7 @@ impl Writer {
             libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
             0o600,
         )?;
+        let mut published = false;
         let result = (|| {
             file.write_all(&bytes).map_err(|_| AccountError(IO))?;
             file.sync_all().map_err(|_| AccountError(IO))?;
@@ -257,6 +267,7 @@ impl Writer {
             {
                 return Err(AccountError(IO));
             }
+            published = true;
             journal::checkpoint("metadata-renamed")?;
             dir.sync_all().map_err(|_| AccountError(IO))?;
             temp_dir.sync_all().map_err(|_| AccountError(IO))?;
@@ -264,6 +275,9 @@ impl Writer {
             Ok(())
         })();
         if result.is_err() {
+            if published {
+                self.uncertain.store(true, Ordering::Release);
+            }
             unlink_same(temp_dir, &name, &file);
         }
         result?;
@@ -470,17 +484,20 @@ impl Writer {
         self.sandbox.path()
     }
     pub(crate) fn prepared(&self, key: &str) -> Result<bool> {
-        self.verify()?;
-        Ok(self
-            .sandbox
-            .0
-            .journal
-            .lock()
-            .map_err(|_| AccountError(UNSAFE))?
-            .data
-            .entries
-            .get(key)
-            .is_some_and(|e| e.complete))
+        let entry = self.entry(key)?;
+        if entry
+            .as_ref()
+            .and_then(|e| e.creation.as_ref())
+            .is_some_and(|c| {
+                matches!(
+                    c.publication,
+                    journal::Publication::Removing | journal::Publication::Removed
+                )
+            })
+        {
+            return Err(AccountError(crate::MISSING_ACCOUNT));
+        }
+        Ok(entry.is_some_and(|e| e.complete))
     }
     // All callers supply fixed components or an already validated account UUID. No caller paths.
     fn directory(&self, parts: &[&str], create: bool) -> Result<File> {
@@ -528,6 +545,7 @@ impl Writer {
             libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
             0o600,
         )?;
+        let mut published = false;
         let result = (|| {
             file.write_all(text.as_bytes())
                 .map_err(|_| AccountError(IO))?;
@@ -556,12 +574,16 @@ impl Writer {
             {
                 return Err(AccountError(IO));
             }
+            published = true;
             journal::checkpoint("profile-renamed")?;
             dir.sync_all().map_err(|_| AccountError(IO))?;
             temp_dir.sync_all().map_err(|_| AccountError(IO))?;
             Ok(())
         })();
         if result.is_err() {
+            if published {
+                self.uncertain.store(true, Ordering::Release);
+            }
             unlink_same(temp_dir, &temp, &file);
         }
         result
@@ -776,6 +798,7 @@ impl Writer {
             libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
             0o600,
         )?;
+        let mut published = false;
         let result = (|| {
             file.write_all(&bytes).map_err(|_| AccountError(IO))?;
             file.sync_all().map_err(|_| AccountError(IO))?;
@@ -794,6 +817,7 @@ impl Writer {
             {
                 return Err(AccountError(IO));
             }
+            published = true;
             // Advance memory before a directory-sync error: disk has already atomically changed.
             *root.journal.lock().map_err(|_| AccountError(UNSAFE))? =
                 JournalState { data: next, bytes };
@@ -803,6 +827,9 @@ impl Writer {
             Ok(())
         })();
         if result.is_err() {
+            if published {
+                self.uncertain.store(true, Ordering::Release);
+            }
             unlink_same(&root.dir, &temp, &file);
         }
         result
@@ -854,6 +881,29 @@ impl Writer {
             .map(|(k, e)| (k.clone(), e.clone()))
             .collect())
     }
+    pub(crate) fn begin_removal(&self, key: &str, account: &serde_json::Value) -> Result<()> {
+        self.journal_change(|j| {
+            let entry = j.entries.entry(key.into()).or_insert_with(|| Entry {
+                tag: key.into(),
+                steps: vec![],
+                next: 0,
+                complete: false,
+                creation: None,
+            });
+            if let Some(c) = &entry.creation {
+                if c.account != *account {
+                    return Err(AccountError(
+                        "Account removal conflicts with its saved creation plan.",
+                    ));
+                }
+            }
+            entry.creation = Some(journal::Creation {
+                account: account.clone(),
+                publication: journal::Publication::Removing,
+            });
+            Ok(())
+        })
+    }
     pub(crate) fn forget_creation(&self, key: &str) -> Result<()> {
         let Some(entry) = self.entry(key)? else {
             return Ok(());
@@ -874,11 +924,12 @@ impl Writer {
         let mut entry = self
             .entry(key)?
             .ok_or(AccountError("No isolated preparation plan exists."))?;
-        if entry
-            .creation
-            .as_ref()
-            .is_some_and(|c| c.publication == journal::Publication::Removed)
-        {
+        if entry.creation.as_ref().is_some_and(|c| {
+            matches!(
+                c.publication,
+                journal::Publication::Removing | journal::Publication::Removed
+            )
+        }) {
             return Err(AccountError(crate::MISSING_ACCOUNT));
         }
         if entry.complete {
