@@ -124,6 +124,14 @@ struct Preparing {
     /// The brief asked, and the brief once written (the model's, or the minimal one).
     brief_id: Option<BriefId>,
     brief: Option<String>,
+    /// A staged restore: the divider's id, the Chat's session, the turn as stored and the start request (prompt
+    /// without the brief yet). `None` for a transcript prepared by a test alone.
+    divider: Option<i64>,
+    session: i64,
+    turn_fields: Map<String, Value>,
+    start: Map<String, Value>,
+    /// The divider is marked done in memory and waits for a save before the turn starts (retried on `tick`).
+    saving: bool,
 }
 
 /// A transcript job out: whose it is, whether its handoff was cancelled (its result is then only cleaned up), and a
@@ -607,6 +615,18 @@ pub enum SteeringMode {
     Recorded,
 }
 
+/// Whether a send that hands a Chat over is refused or prepared. Switching providers is always refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum HandoffMode {
+    /// Refused with the "handoff restore" gate (production, until traces and the runtime adapter are verified).
+    #[default]
+    Gated,
+    /// Conformance and isolated tests only: a restore (same provider, a completed reply, no native session) is staged
+    /// and prepared as Node does: divider and message in one save, the transcript job, the brief, the divider marked
+    /// done and saved, then the turn started with the framed brief.
+    Restore,
+}
+
 /// What a send answered.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sent {
@@ -727,6 +747,10 @@ pub struct ChatHost {
     next_turn: u64,
     /// Steering: gated unless a conformance run records it (see [`SteeringMode`]).
     pub steering: SteeringMode,
+    /// Restore handoffs: gated unless a conformance run or an isolated test prepares them (see [`HandoffMode`]).
+    pub handoff: HandoffMode,
+    /// The time zone a transcript's Routine runs are written in (Node: the computer's).
+    pub handoff_zone: handover::Zone,
     /// The providers were shut down by `shutdown`: a later call only retries closing the states.
     providers_shut_down: bool,
     /// The quit's final save and close succeeded.
@@ -803,6 +827,8 @@ impl ChatHost {
             active: HashMap::new(),
             next_turn: 0,
             steering: SteeringMode::Gated,
+            handoff: HandoffMode::Gated,
+            handoff_zone: handover::Zone::Local,
             deferred: Vec::new(),
             providers_shut_down: false,
             closed: false,
@@ -1084,6 +1110,17 @@ impl ChatHost {
             .into_iter()
             .collect();
         let now = self.states.now();
+        // A restore may only be staged with the handover store leased and a job reservation free: known before the
+        // change, refused inside it before anything is staged.
+        let restore_mode = self.handoff == HandoffMode::Restore;
+        let mut restore_refused = if restore_mode {
+            self.open_transcripts()
+                .and_then(|()| self.transcript_capacity())
+                .err()
+        } else {
+            None
+        };
+        let mut restore: Option<(i64, Value)> = None; // divider id, the model handed from
 
         // What the change decides, read after it.
         let mut duplicate: Option<Value> = None;
@@ -1410,8 +1447,17 @@ impl ChatHost {
                                 && m.get("outcome").and_then(Value::as_str) == Some("completed")
                         });
                         if replied && !jsjson::truthy(session.get("native_session_id")) {
-                            return Err(gate(
-                                "Restoring a Chat whose provider session is gone (handoff restore)",
+                            if !restore_mode {
+                                return Err(gate(
+                                    "Restoring a Chat whose provider session is gone (handoff restore)",
+                                ));
+                            }
+                            if let Some(refused) = restore_refused.take() {
+                                return Err(refused);
+                            }
+                            restore = Some((
+                                0,
+                                agent_runs::last_user_model(&with_session, session_id),
                             ));
                         }
                     }
@@ -1420,10 +1466,36 @@ impl ChatHost {
                 if !steering {
                     run_model = model.clone().unwrap_or(Value::Null);
                 }
-                let next_id = with_session
+                let mut next_id = with_session
                     .get("next_id")
                     .and_then(Value::as_f64)
                     .unwrap_or(f64::NAN);
+                // A restore's divider takes the next id, just before the message (Node's dividerId).
+                let divider = restore.as_mut().map(|(divider_id, from_model)| {
+                    *divider_id = next_id as i64;
+                    let mut from = Map::new();
+                    from.insert("provider".into(), json!(provider));
+                    if jsjson::truthy(Some(from_model)) {
+                        from.insert("model".into(), from_model.clone());
+                    }
+                    let mut to = Map::new();
+                    to.insert("provider".into(), json!(provider));
+                    to.insert("model".into(), model.clone().unwrap_or_else(jsjson::undefined));
+                    let divider = json!({
+                        "id": jsjson::number(next_id),
+                        "session_id": session_id_value.clone(),
+                        "body": "",
+                        "role": "assistant",
+                        "context": {
+                            "kind": "handoff",
+                            "from": Value::Object(from),
+                            "to": Value::Object(to),
+                            "status": "preparing",
+                        },
+                    });
+                    next_id += 1.0;
+                    Msg::new(divider)
+                });
                 let mut message = Map::new();
                 message.insert("id".into(), jsjson::number(next_id));
                 message.insert("session_id".into(), session_id_value.clone());
@@ -1486,6 +1558,7 @@ impl ChatHost {
                 let msg = Msg::new(Value::Object(message));
                 pending = Some(msg.clone());
                 let mut list = with_session.message_list().to_vec();
+                list.extend(divider);
                 list.push(msg);
                 let next = agent_runs::with_session(&with_session, session_id, next_session)
                     .with_field("next_id", jsjson::number(next_id + 1.0))
@@ -1673,6 +1746,28 @@ impl ChatHost {
                 turn: Some(running),
             });
         }
+        if let Some((divider, _)) = restore {
+            let turn_fields = match self.turns.get(&chat) {
+                Some(Value::Object(fields)) => fields.clone(),
+                _ => Map::new(),
+            };
+            let turn = self.stage_restore(
+                &project,
+                &chat,
+                session_id,
+                &provider,
+                divider,
+                turn_fields,
+                start,
+            );
+            return Ok(Sent {
+                session_id: json!(session_id),
+                duplicate: false,
+                queued: false,
+                steering: false,
+                turn: Some(turn),
+            });
+        }
         let turn = self.start_turn(&chat, &provider, &Value::Object(start));
         Ok(Sent {
             session_id: json!(session_id),
@@ -1686,11 +1781,28 @@ impl ChatHost {
     /// Asks the provider to start the turn, without waiting for it. A refusal known at once ends it in the Chat as
     /// Node's `.catch` does (and so does a later `StartFailed`); if even that fold fails, the end is kept and retried.
     fn start_turn(&mut self, chat: &str, provider: &str, request: &Value) -> Option<TurnId> {
+        let turn = self.reserve_turn(chat, provider);
+        self.launch_turn(chat, provider, request, turn)
+    }
+
+    /// A new turn for `chat`, running from now on (its generation): what a start or a staged handoff takes.
+    fn reserve_turn(&mut self, chat: &str, provider: &str) -> TurnId {
         self.next_turn += 1;
         let turn = TurnId(self.next_turn);
         self.active
             .insert(chat.to_string(), (turn, provider.to_string()));
         self.latest.insert(chat.to_string(), turn);
+        turn
+    }
+
+    /// Asks the provider to start the reserved `turn`.
+    fn launch_turn(
+        &mut self,
+        chat: &str,
+        provider: &str,
+        request: &Value,
+        turn: TurnId,
+    ) -> Option<TurnId> {
         let outcome = match self.providers.get_mut(provider) {
             Some(adapter) => match outbound_request(request) {
                 Ok(request) => adapter.start_turn(turn, &request),
@@ -1814,6 +1926,15 @@ impl ChatHost {
         // Job outcomes and temporary files still to remove: handled while a quit or a forget waits on them too.
         self.drive_jobs(true);
         self.drive_briefs(Some(now));
+        let saving: Vec<String> = self
+            .preparing
+            .iter()
+            .filter(|(_, p)| p.saving)
+            .map(|(chat, _)| chat.clone())
+            .collect();
+        for chat in saving {
+            self.start_prepared(&chat);
+        }
         let overdue: Vec<(String, TurnId)> = self
             .deadlines
             .iter()
@@ -2561,6 +2682,9 @@ impl ChatHost {
     /// nothing to do (SessionManager.interrupt without a session).
     pub fn interrupt(&mut self, chat: &str) -> Result<()> {
         self.canonical_chat(chat)?;
+        if self.cancel_handoff(chat) {
+            return Ok(());
+        }
         let Some((turn, provider)) = self.active.get(chat).cloned() else {
             return Ok(());
         };
@@ -2654,6 +2778,7 @@ impl ChatHost {
         // While it closes, nothing starts in it: a forced end must not start a Send-now pick or the queue.
         self.closing.insert(key.clone());
         self.send_next.retain(|chat, _| !in_project(chat));
+        self.cancel_preparations(Some(&key));
         for chat in &busy {
             if let Some(turn) = self.active_turn(chat) {
                 self.force_end(
@@ -2718,7 +2843,6 @@ impl ChatHost {
         }
     }
 
-    #[cfg_attr(not(feature = "test-fixtures"), allow(dead_code))]
     /// Refused with `TRANSCRIPTS_AT_CAPACITY` when every job reservation is taken: checked before a handoff stages
     /// anything.
     fn transcript_capacity(&self) -> Result<()> {
@@ -2731,8 +2855,276 @@ impl ChatHost {
         Ok(())
     }
 
+    /// Opens the handover store (its lease taken, leftovers swept) once.
+    fn open_transcripts(&mut self) -> Result<()> {
+        if self.transcripts.is_none() {
+            self.transcripts = Some(TranscriptJobs::new(self.states.isolation())?);
+        }
+        Ok(())
+    }
+
+    /// A restore staged by `send` (divider and message saved, the run opened): its turn is reserved now and the
+    /// transcript job queued. The turn starts once the brief is written and the divider saved done.
+    #[allow(clippy::too_many_arguments)]
+    fn stage_restore(
+        &mut self,
+        project: &Path,
+        chat: &str,
+        session: i64,
+        provider: &str,
+        divider: i64,
+        turn_fields: Map<String, Value>,
+        start: Map<String, Value>,
+    ) -> TurnId {
+        let turn = self.reserve_turn(chat, provider);
+        let state = self.states.current(project).map(|state| state.to_value());
+        // Node's lastUserMessage: the last of the Chat's messages before the divider that a person typed.
+        let last_user_message = state
+            .as_ref()
+            .and_then(|state| state.get("messages")?.as_array())
+            .and_then(|messages| {
+                messages.iter().rev().find(|m| {
+                    m.get("session_id").and_then(Value::as_i64) == Some(session)
+                        && m.get("id")
+                            .and_then(Value::as_f64)
+                            .is_some_and(|id| id < divider as f64)
+                        && m.get("role").and_then(Value::as_str) == Some("user")
+                        && m.get("body")
+                            .and_then(Value::as_str)
+                            .is_some_and(|body| !body.trim().is_empty())
+                })
+            })
+            .and_then(|m| m.get("body").cloned())
+            .unwrap_or_else(|| json!(""));
+        self.preparing.insert(
+            chat.to_string(),
+            Preparing {
+                turn,
+                project: project.to_path_buf(),
+                transcript: None,
+                brief_prompt: None,
+                provider: provider.to_string(),
+                catch_up: false,
+                last_user_message: Some(last_user_message),
+                brief_id: None,
+                brief: None,
+                divider: Some(divider),
+                session,
+                turn_fields,
+                start,
+                saving: false,
+            },
+        );
+        self.sync_busy();
+        let reserved = match &state {
+            Some(state) => self.reserve_transcript(
+                project,
+                chat,
+                turn,
+                TranscriptSource {
+                    state,
+                    session: session as u64,
+                    before: Some(divider as f64),
+                    provider: Some(provider),
+                    catch_up_after: None,
+                    clock: handover::Clock {
+                        zone: self.handoff_zone,
+                        now_ms: self.states.now() as f64,
+                    },
+                },
+            ),
+            None => Err(StoreError::Invalid(format!(
+                "{} isn't open.",
+                project.display()
+            ))),
+        };
+        if let Err(error) = reserved {
+            self.abandon_preparation(chat, turn, &error.to_string());
+        }
+        turn
+    }
+
+    /// The brief is written: the divider is marked done with it and the transcript's path, then saved; the turn starts
+    /// once that save holds (a failed save is retried on `tick`, the turn never starts before).
+    fn finish_preparation(&mut self, chat: &str, turn: TurnId) {
+        let Some(preparing) = self.preparing.get(chat).filter(|p| p.turn == turn) else {
+            return;
+        };
+        let Some(divider) = preparing.divider else {
+            return;
+        };
+        let (project, session) = (preparing.project.clone(), preparing.session);
+        let brief = preparing.brief.clone().unwrap_or_default();
+        let path = preparing
+            .transcript
+            .as_ref()
+            .map(|path| jsjson::js_string(&path.to_string_lossy()))
+            .unwrap_or_default();
+        let updated = self
+            .states
+            .update(&project, Some(&[session]), true, |latest| {
+                let mut changed = false;
+                let list = latest
+                    .message_list()
+                    .iter()
+                    .map(|m| {
+                        if !is_divider(m, divider, &["preparing"]) {
+                            return m.clone();
+                        }
+                        changed = true;
+                        let mut value = m.value().clone();
+                        let context = value["context"]
+                            .as_object_mut()
+                            .expect("a divider's context");
+                        context.insert("status".into(), json!("done"));
+                        context.insert("brief".into(), json!(brief));
+                        context.insert("transcriptPath".into(), json!(path));
+                        Msg::new(value)
+                    })
+                    .collect();
+                changed.then(|| latest.with_messages(list))
+            });
+        match updated {
+            Ok((_, changed)) => {
+                if changed {
+                    self.broadcast(&project);
+                }
+                if let Some(preparing) = self.preparing.get_mut(chat) {
+                    preparing.saving = true;
+                }
+                self.start_prepared(chat);
+            }
+            Err(error) => self.abandon_preparation(chat, turn, &error.to_string()),
+        }
+    }
+
+    /// Starts a prepared turn once its done divider is saved; a failed save keeps it for the next `tick`.
+    fn start_prepared(&mut self, chat: &str) {
+        let Some(preparing) = self.preparing.get(chat).filter(|p| p.saving) else {
+            return;
+        };
+        let project = preparing.project.clone();
+        if let Err(error) = self.states.flush(Some(&project)) {
+            self.notice(Notice::Failed {
+                chat: chat.to_string(),
+                what: "saving the handoff before its turn starts (tried again on each tick)".into(),
+                error: error.to_string(),
+            });
+            return;
+        }
+        let preparing = self.preparing.remove(chat).expect("checked above");
+        self.sync_busy();
+        let lead = handover::framed_brief(
+            preparing
+                .brief
+                .as_ref()
+                .map(|b| Value::String(b.clone()))
+                .as_ref(),
+        )
+        .unwrap_or_default();
+        let prompt = with_lead(&lead, preparing.start.get("prompt"));
+        let mut fields = preparing.turn_fields;
+        fields.insert("prompt".into(), prompt.clone());
+        self.turns.insert(chat.to_string(), Value::Object(fields));
+        let mut start = preparing.start;
+        start.insert("prompt".into(), prompt);
+        self.launch_turn(
+            chat,
+            &preparing.provider,
+            &Value::Object(start),
+            preparing.turn,
+        );
+    }
+
+    /// Marks a handoff's divider failed (only while it is preparing; Node's failHandoff, a restore reverting nothing).
+    fn fail_divider(&mut self, project: &Path, session: i64, divider: i64) {
+        let failed = self
+            .states
+            .update(project, Some(&[session]), true, |latest| {
+                let mut changed = false;
+                let list = latest
+                    .message_list()
+                    .iter()
+                    .map(|m| {
+                        if !is_divider(m, divider, &["preparing"]) {
+                            return m.clone();
+                        }
+                        changed = true;
+                        let mut value = m.value().clone();
+                        value["context"]["status"] = json!("failed");
+                        Msg::new(value)
+                    })
+                    .collect();
+                changed.then(|| latest.with_messages(list))
+            });
+        match failed {
+            Ok((_, true)) => self.broadcast(project),
+            Ok(_) => {}
+            Err(error) => self.notice(Notice::Failed {
+                chat: String::new(),
+                what: "marking a handoff failed".into(),
+                error: error.to_string(),
+            }),
+        }
+    }
+
+    /// recoverHandoffs: when a Project opens, a divider still `preparing` that no handoff here prepares failed in a
+    /// crash: it is marked failed (a switch's session going back to the provider it left), and `handoverPending`
+    /// marks go. Call after the handover store is open (its leftovers swept).
+    pub fn recover_handoffs(&mut self, project: &Path) -> Result<()> {
+        let key = self.canonical_project(&project.display().to_string())?;
+        let project_text = key.display().to_string();
+        let live: HashSet<String> = self.preparing.keys().cloned().collect();
+        let (_, changed) = self.states.update(&key, None, true, |latest| {
+            let mut sessions = latest.sessions().cloned().unwrap_or_default();
+            let mut touched = false;
+            for session in sessions.values_mut() {
+                if let Some(map) = session.as_object_mut() {
+                    touched |= map.shift_remove("handoverPending").is_some();
+                }
+            }
+            let list: Vec<MsgRef> = latest
+                .message_list()
+                .iter()
+                .map(|m| {
+                    let preparing = m.get("context").is_some_and(|c| {
+                        c.get("kind").and_then(Value::as_str) == Some("handoff")
+                            && c.get("status").and_then(Value::as_str) == Some("preparing")
+                    });
+                    let chat = agent_runs::chat_key(
+                        &project_text,
+                        m.get("session_id").unwrap_or(&Value::Null),
+                    );
+                    if !preparing || live.contains(&chat) {
+                        return m.clone();
+                    }
+                    touched = true;
+                    let mut value = m.value().clone();
+                    let from = value["context"]["from"]["provider"].clone();
+                    let to = value["context"]["to"]["provider"].clone();
+                    value["context"]["status"] = json!("failed");
+                    let session_key = jsjson::property_key(m.get("session_id"));
+                    if let Some(Value::Object(session)) = sessions.get_mut(&session_key) {
+                        if from != to && session.get("provider") == Some(&to) {
+                            revert_switch(session, &from, &to);
+                        }
+                    }
+                    Msg::new(value)
+                })
+                .collect();
+            touched.then(|| {
+                latest
+                    .with_field("sessions", Value::Object(sessions))
+                    .with_messages(list)
+            })
+        })?;
+        if changed {
+            self.broadcast(&key);
+        }
+        Ok(())
+    }
+
     /// Reserves the transcript job of the handoff `chat` prepares for `turn`, ready for `take_jobs`.
-    #[cfg_attr(not(feature = "test-fixtures"), allow(dead_code))]
     fn reserve_transcript(
         &mut self,
         project: &Path,
@@ -2741,9 +3133,7 @@ impl ChatHost {
         source: TranscriptSource<'_>,
     ) -> Result<JobId> {
         self.transcript_capacity()?;
-        if self.transcripts.is_none() {
-            self.transcripts = Some(TranscriptJobs::new(self.states.isolation())?);
-        }
+        self.open_transcripts()?;
         let job = self
             .transcripts
             .as_mut()
@@ -3014,6 +3404,7 @@ impl ChatHost {
             preparing.last_user_message.as_ref(),
             &[],
         ));
+        self.finish_preparation(chat, turn);
     }
 
     /// Cancels a brief still out (advisory): its result, whenever it comes, is dropped.
@@ -3029,27 +3420,100 @@ impl ChatHost {
 
     /// A handoff of `turn` that won't start: forgotten, and told. Nothing of it is retried.
     fn abandon_preparation(&mut self, chat: &str, turn: TurnId, why: &str) {
-        if self.preparing.get(chat).is_some_and(|p| p.turn == turn) {
-            let brief = self.preparing.remove(chat).and_then(|p| p.brief_id);
-            self.drop_brief(brief);
-            self.sync_busy();
-            self.notice(Notice::Failed {
-                chat: chat.to_string(),
-                what: "preparing the handoff".into(),
-                error: why.to_string(),
-            });
+        let Some(preparing) = self.preparing.remove(chat) else {
+            return;
+        };
+        if preparing.turn != turn {
+            self.preparing.insert(chat.to_string(), preparing);
+            return;
         }
+        self.drop_brief(preparing.brief_id);
+        self.sync_busy();
+        self.notice(Notice::Failed {
+            chat: chat.to_string(),
+            what: "preparing the handoff".into(),
+            error: why.to_string(),
+        });
+        // Node: abandonHandoff (the divider failed), then the start's `.catch` folds `turn-failed` with the message.
+        if let Some(divider) = preparing.divider {
+            self.fail_divider(&preparing.project, preparing.session, divider);
+        }
+        if self.active_turn(chat) == Some(turn) {
+            self.fail_turn(
+                chat,
+                turn,
+                &jsjson::js_string(why),
+                "a handoff that couldn't be prepared",
+            );
+        }
+    }
+
+    /// Stop while a handoff is prepared (Node's cancelHandoff): no agent session runs yet, so the divider fails and the
+    /// turn is cancelled here. True when there was one.
+    fn cancel_handoff(&mut self, chat: &str) -> bool {
+        if !self.preparing.contains_key(chat) {
+            return false;
+        }
+        let only = chat.to_string();
+        self.cancel_where(|key, _| key == only);
+        true
     }
 
     /// Stops the handoffs being prepared (all, or one Project's): their jobs' results will only be cleaned up, and
     /// jobs not yet taken are dropped (each reports `Unknown`, nothing written).
     fn cancel_preparations(&mut self, project: Option<&Path>) {
-        let in_scope = |path: &Path| project.is_none_or(|key| key == path);
+        let project = project.map(Path::to_path_buf);
+        self.cancel_where(|_, preparing| {
+            project.as_ref().is_none_or(|key| *key == preparing.project)
+        });
+        // Jobs of handoffs already gone (a stale one) in scope are cancelled too.
         for slot in self.job_slots.values_mut() {
-            if in_scope(&slot.project) {
+            if project.as_ref().is_none_or(|key| *key == slot.project) {
                 slot.cancelled = true;
             }
         }
+        self.drop_cancelled_jobs();
+    }
+
+    /// Cancels the handoffs being prepared that `pick` picks: their jobs' results are only cleaned up (jobs not taken
+    /// yet are dropped, reporting `Unknown`), their briefs are cancelled, their dividers fail and their turns end
+    /// `turn-cancelled`.
+    fn cancel_where(&mut self, pick: impl Fn(&str, &Preparing) -> bool) {
+        let chats: Vec<String> = self
+            .preparing
+            .iter()
+            .filter(|(chat, preparing)| pick(chat, preparing))
+            .map(|(chat, _)| chat.clone())
+            .collect();
+        for chat in chats {
+            let preparing = self.preparing.remove(&chat).expect("listed above");
+            for slot in self.job_slots.values_mut() {
+                if slot.chat == chat && slot.turn == preparing.turn {
+                    slot.cancelled = true;
+                }
+            }
+            self.drop_brief(preparing.brief_id);
+            if let Some(divider) = preparing.divider {
+                self.fail_divider(&preparing.project, preparing.session, divider);
+            }
+            if self.active_turn(&chat) == Some(preparing.turn) {
+                if let Err(error) =
+                    self.receive(&chat, preparing.turn, &json!({ "type": "turn-cancelled" }))
+                {
+                    self.notice(Notice::Failed {
+                        chat: chat.clone(),
+                        what: "cancelling a handoff's turn".into(),
+                        error: error.to_string(),
+                    });
+                }
+            }
+        }
+        self.drop_cancelled_jobs();
+        self.sync_busy();
+    }
+
+    /// Jobs of cancelled handoffs not taken yet are dropped (each reports `Unknown`; nothing was written).
+    fn drop_cancelled_jobs(&mut self) {
         let cancelled: HashSet<JobId> = self
             .job_slots
             .iter()
@@ -3057,18 +3521,6 @@ impl ChatHost {
             .map(|(id, _)| *id)
             .collect();
         self.ready_jobs.retain(|job| !cancelled.contains(&job.id()));
-        let briefs: Vec<Option<BriefId>> = self
-            .preparing
-            .values()
-            .filter(|preparing| in_scope(&preparing.project))
-            .map(|preparing| preparing.brief_id)
-            .collect();
-        for brief in briefs {
-            self.drop_brief(brief);
-        }
-        self.preparing
-            .retain(|_, preparing| !in_scope(&preparing.project));
-        self.sync_busy();
     }
 
     /// Jobs or cleanups still out for `project` (all Projects with `None`).
@@ -3128,6 +3580,11 @@ impl ChatHost {
                 last_user_message,
                 brief_id: None,
                 brief: None,
+                divider: None,
+                session: 0,
+                turn_fields: Map::new(),
+                start: Map::new(),
+                saving: false,
             },
         );
         let job = match self.reserve_transcript(project, chat, turn, source) {
@@ -3272,6 +3729,8 @@ impl ChatHost {
             }
         }
         self.send_next.clear();
+        // A handoff still preparing never started its agent: it is cancelled, not force-ended.
+        self.cancel_preparations(None);
         for chat in &running {
             if let Some(turn) = self.active_turn(chat) {
                 self.force_end(chat, turn, "Milagre quit before the turn ended.");
@@ -3859,6 +4318,56 @@ impl ChatHost {
             "agent:answer-question" => self.answer_question(&arg(0)).map(ticket_value),
             other => self.states.call(other, args),
         }
+    }
+}
+
+/// Whether `m` is the handoff divider `id` in one of `statuses`.
+fn is_divider(m: &MsgRef, id: i64, statuses: &[&str]) -> bool {
+    m.get("id").and_then(Value::as_f64) == Some(id as f64)
+        && m.get("context").is_some_and(|c| {
+            c.get("kind").and_then(Value::as_str) == Some("handoff")
+                && c.get("status")
+                    .and_then(Value::as_str)
+                    .is_some_and(|status| statuses.contains(&status))
+        })
+}
+
+/// chat-host.cjs `withLead(lead, prompt)`: the parts that aren't blank, a blank line between.
+fn with_lead(lead: &str, prompt: Option<&Value>) -> Value {
+    let mut parts = Vec::new();
+    if !lead.trim().is_empty() {
+        parts.push(lead.to_string());
+    }
+    if let Some(Value::String(prompt)) = prompt {
+        if !prompt.trim().is_empty() {
+            parts.push(prompt.clone());
+        }
+    }
+    Value::String(parts.join("\n\n"))
+}
+
+/// chat-host.cjs `revertSwitch(session, from, to)` with `withNativeSessions`: the session back on `from`, its native
+/// session parked under `to`, `from`'s parked one resumed.
+fn revert_switch(session: &mut Map<String, Value>, from: &Value, to: &Value) {
+    let mut parked = match session.get("native_sessions") {
+        Some(Value::Object(parked)) => parked.clone(),
+        _ => Map::new(),
+    };
+    if let Some(current) = session
+        .get("native_session_id")
+        .filter(|id| jsjson::truthy(Some(id)))
+    {
+        parked.insert(jsjson::property_key(Some(to)), current.clone());
+    }
+    let resume = parked.shift_remove(&jsjson::property_key(Some(from)));
+    session.insert("provider".into(), from.clone());
+    session.shift_remove("native_session_id");
+    session.shift_remove("native_sessions");
+    if let Some(resume) = resume.filter(|id| jsjson::truthy(Some(id))) {
+        session.insert("native_session_id".into(), resume);
+    }
+    if !parked.is_empty() {
+        session.insert("native_sessions".into(), Value::Object(parked));
     }
 }
 

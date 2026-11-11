@@ -159,7 +159,29 @@ owner turn is an `Ordinary` session.
 
 ## Handoff (gated; contract agreed, being built)
 
-Restore only first; switch stays gated. Both gates stay until the traces and the runtime adapter are verified. The
+Restore only first; switch stays gated. Both gates stay until the traces and the runtime adapter are verified.
+`ChatHost::handoff` is `HandoffMode::Gated` in production; `HandoffMode::Restore` (isolated tests and conformance
+only) runs the restore lifecycle:
+
+1. `send` to a Chat whose last turn was on the same provider, with a completed reply and no native session: with the
+   handover store leased and a job reservation free (else refused before anything is staged), the divider
+   (`{ id: next_id, role: "assistant", body: "", context: { kind: "handoff", from, to, status: "preparing" } }`) and
+   the message (`next_id + 1`) are saved in one write and flushed, `message-sent` opens the run, and the turn is
+   reserved (`Sent.turn`). Nothing is asked of the provider yet.
+2. The transcript job renders the Chat before the divider (Node's `before`, provider set to the one handed from).
+   Its commit asks the brief (`safe_brief_request`).
+3. The brief (the model's, or the minimal one) marks the divider `done` with `brief` and `transcriptPath`; the turn
+   starts only once that save holds (a failed save is retried on `tick`), with `framedBrief(brief)` ahead of the
+   prompt (`withLead`). `Notice::Started`/the turn's end settle `Sent.turn` as for any start.
+4. Stop while preparing (`interrupt`): the divider fails and the turn ends `turn-cancelled`; no agent is asked.
+   A failed job or commit: the divider fails and the turn ends `turn-failed` with the reason. A forced quit or
+   forget cancels it like Stop (never `close_chat`: no session runs) and waits for jobs out (`QUIT_PENDING`).
+5. `recover_handoffs(project)`, called once the Project and the handover store are open: dividers still `preparing`
+   that no live handoff owns fail (a switch's session reverted to the provider it left, native sessions swapped
+   back), and `handoverPending` marks go.
+
+A send while a restore prepares is not steered into it (steering is gated); it queues or is refused as any send to
+a busy Chat. The
 agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the negotiation summary.
 
 - **Deliberate deviation: the brief prompt.** Node wraps the transcript in `<transcript>` unescaped and cuts it with
