@@ -1291,6 +1291,7 @@ function createRuntime(options) {
   const pullRequestWatch = injectedPullRequests
     ? null
     : createPullRequestWatch({
+        exec: options.pullRequestExec,
         onChange: (folders) => {
           for (const projectPath of new Set(folders.map((folder) => states.worktreeProject(folder)).filter(Boolean)))
             emit("pull-requests:changed", { projectPath });
@@ -3750,6 +3751,9 @@ function createRuntime(options) {
     bugReports?.close();
     void doneSweep.stop();
     closing = true;
+    // Optional PR metadata must not hold accepted commands open until gh's network timeout. Desktop and phone
+    // share this poller; end its reads before draining commands, while still saving accepted Chat mutations below.
+    pullRequestWatch?.close();
     for (const chatId of chats.limitResumeFlights.keys()) chats.invalidateLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId), "shutdown");
     subchatEscalation.close();
     // A comment already on its way goes back to its queue before the rest closes.
@@ -3784,7 +3788,6 @@ function createRuntime(options) {
       computerResources.close();
       ports.close();
       diffs.close();
-      pullRequestWatch?.close();
       if (!states.closed) {
         await chats.suspendRunning();
         // A failed early save must not leave provider processes running. The
