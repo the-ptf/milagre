@@ -9,7 +9,8 @@ const { startDaemon } = require("./server.cjs");
 const { once } = require("node:events");
 
 test("stop acknowledges with pending PR reads, preserves accepted Chat changes, and tolerates repeated cleanup", { timeout: 60000 }, async () => {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-stop-pending-"));
+  // macOS's temporary directory can be an alias; commands must use the same canonical scope as project:open.
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-stop-pending-")));
   const project = path.join(directory, "project");
   const dataDir = path.join(directory, "profile");
   const request = Promise.withResolvers();
@@ -54,6 +55,8 @@ test("stop acknowledges with pending PR reads, preserves accepted Chat changes, 
     await started.promise;
     // A mutation accepted while metadata is pending must still survive shutdown.
     await reader.call("chat:patch", [project, 2, { title: "Saved before stopping" }]);
+    const accepted = await reader.call("project:read", [project]);
+    assert.equal(accepted.state.sessions[2].title, "Saved before stopping", "the title mutation was accepted before shutdown");
     const stopStarted = Date.now();
     const closed = once(control, "close", { signal: AbortSignal.timeout(5000) });
     const [ack] = await Promise.all([control.call("daemon:stop"), closed, stopped.promise]);
