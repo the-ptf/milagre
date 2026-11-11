@@ -6,15 +6,30 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
-Auto/Full follow-up is implemented but **not accepted or committed**. Root reproduces
+Auto/Full follow-up is implemented but **not accepted or committed**. The first root run reproduces
 140 Claude tests (one live test ignored), 69 default runtime tests, thirteen Node-client
 scenarios, all-feature compilation, strict Clippy/fmt and fresh recorder parity including
 61 workspace cases. Independent source review finds three blocking permission-callback
 regressions: a slow callback is not bound to its original turn/mode generation; cancellation
 refunds inbound capacity while blocking work survives; and callback panic becomes normal
 fallback, which can allow in Full. Existing passing tests do not cover those races.
-Claude is assigned bounded fixes and deterministic blocked-callback regressions before
-acceptance. General session changes make these relevant beyond the fake fixture. Logs:
+Claude's subsequent fix adds turn/mode epochs, retained inbound counts, eight blocking
+worker permits, failure denial and seven lifecycle tests. Independent source rereview
+closes the original stale-decision and panic findings, but one P2 remains: permit-waiting
+callbacks can still enter policy code after cancellation, close or Drop. The queued
+admission must be checked at callback entry against shutdown; an eight-running-plus-one
+queued regression is assigned. Counter observations alone do not prove drainage.
+
+The author reports 147 Claude tests, 69 runtime tests, six regression mutants and 25
+repeated lifecycle passes after those fixes. Root has not rerun that revision while the
+remaining P2 is open. The author also disclosed a broad fake-claude SIGTERM and about
+sixteen pattern SIGKILL commands for access_lifecycle test processes, with no precise
+timing or matched-process evidence. Cross-test impact is unknown; those cleanup claims
+are not acceptance evidence. Further process handling must use exact retained ownership,
+and acceptance requires fresh runs after the final fix. Production PIDs 20674/20679 keep
+their original start times, and the GPUI fixture hash remains `51e90342`.
+
+General session changes make these relevant beyond the fake fixture. First-root-run logs:
 `/tmp/milagre-{claude,runtime}-modes-root-*.log` and
 `/tmp/milagre-modes-oracle-root-{instructions,session}.log`.
 
