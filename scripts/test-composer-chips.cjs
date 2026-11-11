@@ -60,8 +60,9 @@ async function browserChecks() {
     if (details.level === "error") errors.push(details.message);
   });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
-  const waitFor = async (source, what = source) => {
-    for (let n = 0; n < 200; n++) {
+  const waitFor = async (source, what = source, timeout = 5000) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
       if (await evaluate(source)) return;
       await delay(25);
     }
@@ -149,6 +150,9 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     window.webContents.focus();
+    // loadURL can finish before the fixture's awaited App import and initial render. Cold Vite transforms on
+    // Linux CI exceed the interaction budget; wait for startup separately without relaxing later assertions.
+    await waitFor(`!!${editor}`, "the initial app render", 30000);
     await openChat("Chips chat");
     assert.equal(await evaluate(`${editor}.getAttribute('aria-label')`), "Prompt");
     assert.equal(await evaluate(`${editor}.getAttribute('contenteditable')`), "true");
