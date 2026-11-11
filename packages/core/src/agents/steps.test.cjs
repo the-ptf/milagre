@@ -11,6 +11,7 @@ test("Claude: commands, reads and edits get a title and a kind", () => {
     kind: "shell",
     title: "Ran `npm test`",
     detail: "$ npm test\n",
+    description: "Run tests",
   });
   assert.deepEqual(claudeStep("t2", "Read", { file_path: "/repo/src/App.tsx" }), {
     id: "t2",

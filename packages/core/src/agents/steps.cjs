@@ -127,7 +127,10 @@ function claudeStep(id, name, input = {}) {
   const mcp = /^mcp__(.+?)__(.+)$/.exec(String(name));
   const metadata = mcp ? toolMetadata(mcp[1], mcp[2], input) : {};
   const step = (kind, title, detail, file) => compact({ id: String(id), kind, title, detail, file: filePath(file), ...metadata });
-  if (name === "Bash") return step("shell", `Ran ${code(input.command)}`, capOutput(`$ ${input.command ?? ""}\n`));
+  if (name === "Bash") {
+    const description = typeof input.description === "string" ? input.description.trim().replace(/\s+/g, " ").slice(0, 200) : "";
+    return { ...step("shell", `Ran ${code(input.command)}`, capOutput(`$ ${input.command ?? ""}\n`)), ...(description ? { description } : {}) };
+  }
   if (name === "Read") return step("read", `Read ${fileName(input.file_path)}`, undefined, input.file_path);
   if (CLAUDE_EDIT_TOOLS.has(name))
     return step("edit", `Edited ${fileName(input.file_path ?? input.notebook_path)}`, undefined, input.file_path ?? input.notebook_path);

@@ -446,7 +446,10 @@ Hugeicons everywhere (`@hugeicons/core-free-icons`), drawn in the text colour.
 
 - A folded reply's activity summary shows at most four stacked circular marks, one per kind of work: 20px `field`
   circles overlapping by 6px, each ringed in the page colour, with a 12px `ink-2` glyph.
+  Its timer and chevron follow the summary content and call count without a spacer, with the timer first.
 - A running turn shows the animated Milagre logo beside the turn timer (12px `ink-3`, tabular figures).
+  The current tool's purpose or thinking summary heading sits between the logo and timer on desktop and phone.
+  This label uses plain language; shell commands stay in tool rows, with "Running a command" as the footer fallback.
 
 ### Dialogs and Settings
 

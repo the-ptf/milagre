@@ -114,8 +114,7 @@ export function linkWorktreeProject(step) {
 }
 
 /**
- * What a running turn is busy with when it isn't the agent's own work, for the label beside the running mark: a Link
- * Chat's Worktree being made, or a Worktree's setup. Null while the agent works, which the mark alone shows.
+ * Current work beside the running mark and turn timer. Worktree creation and setup lead ordinary tool activity.
  */
 export function runStatusLabel(steps = []) {
   const running = steps.filter((step) => step.status === "running");
@@ -123,7 +122,9 @@ export function runStatusLabel(steps = []) {
   const project = creating ? linkWorktreeProject(creating) : null;
   if (running.some((step) => step.kind === "setup")) return project ? `Running setup in ${project}` : "Running Worktree setup";
   if (creating) return project ? `Creating Worktree in ${project}` : "Creating Worktree";
-  return null;
+  const current = currentActivityStep(steps);
+  if (current?.kind === "shell") return current.description || "Running a command";
+  return current ? stepDisplayTitle(current, true).replace(/`/g, "") : null;
 }
 
 /** What a send waits on before its turn starts: its new Worktree, the host taking the message, then the agent starting. */
@@ -132,7 +133,27 @@ export function sendStatusLabel({ creatingWorktree = false, sent = false, provid
   return sent ? `Starting ${providerName(provider)}` : "Sending";
 }
 
+/** Approvals lead; otherwise show actual tool work ahead of concurrent thinking. */
+export function currentActivityStep(steps, waitingIds = []) {
+  const running = steps.filter((step) => step.status === "running");
+  return running.find((step) => waitingIds.includes(step.id)) ?? running.findLast((step) => step.kind !== "thinking") ?? running.at(-1);
+}
+
+/** Only complete, standalone summary headings become progress labels. Never lift a sentence from reasoning. */
+function thinkingHeading(detail = "") {
+  const headings = [...detail.matchAll(/^(?:\*\*([^*\n]+)\*\*[ \t]*(?=\n|$)|#{1,6}[ \t]+([^\n]+)\n)/gm)];
+  const last = headings.at(-1);
+  return last
+    ? (last[1] ?? last[2])
+        .replace(/[ \t]+#+[ \t]*$/, "")
+        .trim()
+        .slice(0, 200)
+    : "";
+}
+
 export function stepDisplayTitle(step, running = false) {
+  if (running && step.kind === "thinking") return thinkingHeading(step.detail) || step.title;
+  if (running && step.kind === "shell" && step.description) return step.description;
   let title = step.kind === "thinking" && Number.isFinite(step.durationMs) && step.title.startsWith("Thought for ") ? "Thought" : step.title;
   const project = linkWorktreeProject(step);
   if (project !== null) title = project ? `Created Worktree in ${project}` : "Created Worktree";

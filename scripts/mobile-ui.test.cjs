@@ -8393,6 +8393,25 @@ test("Always expand reasoning opens thinking rows in Activity until tapped, and 
   assert.equal(shows(activityItemHost({ expandReasoning: true }).tool(shell), "51 tests passed"), false, "other tools stay folded");
 });
 
+test("phone live tool rows update summary headings and command purposes while preserving approval titles", () => {
+  const host = activityItemHost();
+  const thought = { id: "thinking", kind: "thinking", title: "Thinking", status: "running", detail: "**Inspecting recorded swipe events**\n\nCompare fields." };
+  const label = (step, waiting = false) =>
+    find(host.tool({ step, live: true, waiting }), (node) => node.props?.accessibilityRole === "button").props.accessibilityLabel;
+  assert.match(label(thought), /^Inspecting recorded swipe events/);
+  assert.match(label({ ...thought, detail: thought.detail + "\n\n**Testing both post orders**" }), /^Testing both post orders/);
+  const command = {
+    id: "shell",
+    kind: "shell",
+    title: "Ran `npm test`",
+    status: "running",
+    description: "Check recorded swipe events",
+    detail: "$ npm test\n",
+  };
+  assert.match(label(command), /^Check recorded swipe events/);
+  assert.match(label(command, true), /^Ran npm test, Needs approval, Waiting for approval/);
+});
+
 test("tool disclosure reveals late output, while its chat action opens Activity without expanding", () => {
   const item = activityItemHost();
   const props = { step: { id: "s", kind: "shell", title: "Ran `npm test`", status: "running", hasDetail: true }, live: false, waiting: false };
@@ -12493,7 +12512,7 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
   );
 });
 
-test("mobile Full detail shows each tool call and the notes between them in the Chat, with no activity fold", () => {
+test("mobile tool display keeps compact progress specific and Full detail in order", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const reply = (display) =>
     load("chat-reply.tsx", {
@@ -12517,6 +12536,7 @@ test("mobile Full detail shows each tool call and the notes between them in the 
       "./page-comments-card": { PageCommentsCard: "PageCommentsCard" },
       "./answer-card": { AnswerCard: "AnswerCard" },
       "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
+      "./display-clock": { useDisplayValue: (_interval, compute) => compute(Date.now()) },
       "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
       "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
       "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
@@ -12563,6 +12583,20 @@ test("mobile Full detail shows each tool call and the notes between them in the 
   assert.deepEqual(opened, [["run", "b"]], "tapping a call opens that exact call in the sheet");
   assert.equal(find(tree, (node) => node.type === "ToolRow" && node.props.step.id === "a").props.waiting, false);
   assert.equal(find(tree, (node) => node.type === "ToolRow" && node.props.step.id === "b").props.waiting, true);
+  const command = { id: "command", kind: "shell", title: "Ran `npm test`", description: "Check recorded swipe events", status: "running" };
+  const thought = { id: "thought", kind: "thinking", title: "Thinking", status: "running", detail: "**Testing both post orders**\n\nCompare the results." };
+  const compactRow = (steps, approvals = []) => {
+    const tree = reply("compact")({ ...props, message: undefined, run: { ...live, steps, approvals } });
+    const row = find(tree, (node) => typeof node.type === "function" && node.type.name === "ActivityRow");
+    return row.type(row.props);
+  };
+  const parallel = compactRow([command, thought]);
+  assert.ok(find(parallel, (node) => node.type === "Text" && node.props.children === "Running 2 calls"));
+  const thinking = compactRow([{ ...command, status: "done" }, thought]);
+  assert.equal(find(thinking, (node) => node.type === "ActivityTitle").props.title, "Thinking");
+  const waiting = compactRow([command, thought], [{ stepId: command.id }]);
+  assert.equal(find(waiting, (node) => node.type === "ActivityTitle").props.title, "Ran `npm test`");
+  assert.equal(find(waiting, (node) => node.type === "ActivityTitle").props.shimmer, false);
 });
 
 test("mobile activity sheet opens the selected call without paging and keeps approval asks in Chat", () => {

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   activityDuration,
   activitySources,
+  currentActivityStep,
   stepDisplayTitle,
   runStatusLabel,
   sendStatusLabel,
@@ -95,7 +96,7 @@ test("a Link Chat's Worktree step and its setup say which Project they are for",
       { ...create, status: "done" },
       { kind: "shell", status: "running", title: "Ran `ls`" },
     ]),
-    null,
+    "Running a command",
   );
   assert.equal(runStatusLabel(), null);
   assert.equal(sendStatusLabel({ creatingWorktree: true }), "Creating Worktree");
@@ -111,4 +112,39 @@ test("thought durations occupy the timing slot once, while old messages keep the
 
 test("only the approval's own step is waiting; questions do not pause unrelated calls", () => {
   assert.deepEqual(waitingStepIds([{ stepId: "a" }, {}, { stepId: "b" }]), ["a", "b"]);
+});
+
+test("live thinking follows the latest complete summary heading without exposing reasoning sentences", () => {
+  const step = { kind: "thinking", title: "Thinking", status: "running", detail: "**Inspecting swipe events**\n\nI need to compare the fields." };
+  assert.equal(stepDisplayTitle(step, true), "Inspecting swipe events");
+  assert.equal(stepDisplayTitle({ ...step, detail: step.detail + "\n\n**Rebuilding with recorded swipe" }, true), "Inspecting swipe events");
+  assert.equal(
+    stepDisplayTitle({ ...step, detail: step.detail + "\n\n**Rebuilding with recorded swipe format**" }, true),
+    "Rebuilding with recorded swipe format",
+  );
+  assert.equal(stepDisplayTitle({ ...step, detail: "Reasoning with **inline emphasis**." }, true), "Thinking");
+  assert.equal(stepDisplayTitle({ ...step, detail: "### Testing both post orders\nMore reasoning." }, true), "Testing both post orders");
+  assert.equal(stepDisplayTitle({ ...step, detail: "### Testing both" }, true), "Thinking");
+  assert.equal(stepDisplayTitle({ ...step, title: "Thought", status: "done" }), "Thought");
+});
+
+test("command purpose leads while running, with the exact command retained for approval and output", () => {
+  const step = { kind: "shell", title: "Ran `npm test`", description: "Check recorded swipe events", detail: "$ npm test\n" };
+  assert.equal(stepDisplayTitle(step, true), "Check recorded swipe events");
+  assert.equal(stepDisplayTitle(step), "Ran `npm test`");
+  assert.equal(stepSections(step).input, "npm test");
+  assert.equal(stepDisplayTitle({ ...step, description: undefined }, true), "Running `npm test`");
+  assert.equal(runStatusLabel([{ ...step, status: "running" }]), "Check recorded swipe events");
+  assert.equal(runStatusLabel([{ ...step, description: undefined, status: "running" }]), "Running a command");
+});
+
+test("parallel activity keeps a concrete tool visible, with approvals ahead of tools and thinking", () => {
+  const shell = { id: "command", kind: "shell", status: "running", title: "Ran `npm test`" };
+  const thought = { id: "thought", kind: "thinking", status: "running", title: "Thinking" };
+  const edit = { id: "edit", kind: "edit", status: "running", title: "Edited `main.swift`" };
+  assert.equal(currentActivityStep([shell, thought]), shell);
+  assert.equal(currentActivityStep([shell, thought, edit]), edit);
+  assert.equal(currentActivityStep([shell, thought, edit], [shell.id]), shell);
+  assert.equal(currentActivityStep([{ ...shell, status: "done" }, thought]), thought);
+  assert.equal(currentActivityStep([{ ...shell, status: "done" }]), undefined);
 });
