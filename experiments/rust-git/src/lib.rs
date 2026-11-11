@@ -3,6 +3,8 @@
 mod changes;
 mod diff;
 mod history;
+#[cfg(unix)]
+pub mod isolated;
 mod process;
 mod refs;
 

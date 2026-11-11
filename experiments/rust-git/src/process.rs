@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncRead, AsyncReadExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     process::Command,
     sync::{mpsc, Semaphore},
 };
@@ -165,6 +165,45 @@ async fn execute(
     timeout: Duration,
     max_buffer: usize,
 ) -> Outcome {
+    execute_profile(program, cwd, args, config, timeout, max_buffer, None, None).await
+}
+
+/// Only the new private temporary-repository capability can supply this context.
+pub(crate) struct IsolatedEnvironment {
+    pub root: std::path::PathBuf,
+    pub hooks: std::path::PathBuf,
+}
+pub(crate) async fn isolated_process(
+    cwd: &Path,
+    args: &[&str],
+    input: Option<Vec<u8>>,
+    environment: &IsolatedEnvironment,
+    timeout: Duration,
+) -> Outcome {
+    execute_profile(
+        "git",
+        cwd,
+        args,
+        &[],
+        timeout,
+        MAX_BUFFER,
+        input,
+        Some(environment),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn execute_profile(
+    program: &str,
+    cwd: &Path,
+    args: &[&str],
+    config: &[String],
+    timeout: Duration,
+    max_buffer: usize,
+    input: Option<Vec<u8>>,
+    isolated: Option<&IsolatedEnvironment>,
+) -> Outcome {
     static LANES: OnceLock<Semaphore> = OnceLock::new();
     let _slot = LANES
         .get_or_init(|| Semaphore::new(8))
@@ -172,12 +211,26 @@ async fn execute(
         .await
         .unwrap();
     let mut command = Command::new(program);
+    if isolated.is_some() {
+        // Fixture hooks must not inherit provider tokens, shell startup files,
+        // dynamic-loader overrides or credential agents from the live host.
+        command
+            .env_clear()
+            .env(
+                "PATH",
+                std::env::var_os("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
+            )
+            .env("LC_ALL", "C");
+    }
+    let hooks = isolated
+        .map(|context| format!("core.hooksPath={}", context.hooks.display()))
+        .unwrap_or_else(|| "core.hooksPath=/dev/null".into());
     command.current_dir(cwd).arg("-C").arg(cwd).args([
         "--no-pager",
         "-c",
         "core.fsmonitor=false",
         "-c",
-        "core.hooksPath=/dev/null",
+        &hooks,
         "-c",
         "submodule.recurse=false",
     ]);
@@ -186,7 +239,11 @@ async fn execute(
     }
     command
         .args(args)
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
@@ -205,6 +262,19 @@ async fn execute(
         .env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_NO_LAZY_FETCH", "1");
+    if let Some(context) = isolated {
+        command
+            .env("HOME", context.root.join("home"))
+            .env("TMPDIR", &context.root)
+            .env("XDG_CONFIG_HOME", context.root.join("home/.config"))
+            .env("XDG_CACHE_HOME", context.root.join("home/.cache"))
+            .env("GNUPGHOME", context.root.join("home/gnupg"))
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env_remove("SSH_AUTH_SOCK")
+            .env_remove("GPG_TTY");
+    }
     #[cfg(unix)]
     command.process_group(0);
     let mut child = match command.spawn() {
@@ -236,6 +306,16 @@ async fn execute(
         kill_group: true,
         readers: vec![out_task.abort_handle(), err_task.abort_handle()],
     };
+    let mut input_task = input.map(|bytes| {
+        let mut stdin = child.stdin.take().unwrap();
+        tokio::spawn(async move {
+            let _ = stdin.write_all(&bytes).await;
+            let _ = stdin.shutdown().await;
+        })
+    });
+    if let Some(task) = &input_task {
+        cleanup.readers.push(task.abort_handle());
+    }
     // Includes pipe draining: descendants cannot hold an inherited pipe open forever.
     let mut timed_out = false;
     let mut overflow = false;
@@ -244,6 +324,9 @@ async fn execute(
             let status = child.wait().await;
             let _ = (&mut out_task).await;
             let _ = (&mut err_task).await;
+            if let Some(task) = &mut input_task {
+                let _ = task.await;
+            }
             status
         };
         tokio::pin!(complete);
@@ -278,7 +361,12 @@ async fn execute(
     } else if overflow {
         "stdout or stderr exceeded maxBuffer".into()
     } else if timed_out {
-        "Git read timed out".into()
+        if isolated.is_some() {
+            "Git operation timed out"
+        } else {
+            "Git read timed out"
+        }
+        .into()
     } else {
         format!("Git exited with code {:?}", status.and_then(|s| s.code()))
     };

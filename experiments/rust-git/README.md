@@ -2,6 +2,8 @@
 
 This standalone library ports the production renderer's four local Git read channels. It is a building block for the isolated Rust runtime; it does not replace the production Node owner, own a Project, watch files, or advertise Git mutations as working.
 
+The separate [`isolated` mutation capability](ISOLATED-WRITES.md) ports commit and Worktree operations only in fresh disposable repositories it creates itself. It cannot adopt an existing Project, and it does not change the `GitReader` contract below.
+
 ```rust,no_run
 use milagre_git_read::GitReader;
 use serde_json::json;
@@ -46,7 +48,7 @@ The read boundary uses the existing Node client's `analysisOnly` approach: clear
 ## Deliberate gaps
 
 1. GitHub PR lookup and default GitHub repository selection remain in the unported GitHub adapter. When Node would query GitHub, this reader returns `ghReady:false`, an explicit unavailable `ghMessage`, `pr:null`, and `prRepo:null`. It does not claim that the user's installed `gh` is missing and omits `ghCode`. Other local fields match Node.
-2. Commit message generation, commit/stage, push, PR create/review/merge, worktree management, file watching, sidebar diff-stat polling, owner lifecycle and background-lane priority are not implemented. The owner must schedule reads and refresh UI state. The eight-slot pool does not yet reserve an interactive slot as Node's process-lanes scheduler does.
+2. `GitReader` exposes no mutations. Commit and Worktree domain writes exist only in the separate temporary-repository capability. Commit message generation, push, PR create/review/merge, live Worktree management, file watching, sidebar diff-stat polling, owner lifecycle and background-lane priority remain unported. The owner must schedule reads and refresh UI state. The eight-slot pool does not yet reserve an interactive slot as Node's process-lanes scheduler does.
 3. Repository-configured helper execution is intentionally disabled. Repositories that require clean filters, text conversion, submodule recursion or lazy object fetching can therefore differ from the normal desktop Node client. Tests compare those cases with Node's existing `analysisOnly` profile. No performance claim follows from these narrower services.
 
 This work follows `GLOSSARY.md`, ADR 0003 (runtime ownership) and ADR 0004 (shared Git client). It does not acquire or bypass a production owner lock.

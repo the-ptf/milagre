@@ -4,7 +4,7 @@ use std::{io::Read, path::Path};
 
 pub const GITHUB_UNAVAILABLE: &str =
     "GitHub PR lookup is not available in the read-only Rust Git adapter.";
-fn looks_secret(file: &str) -> bool {
+pub(crate) fn looks_secret(file: &str) -> bool {
     let name = file.rsplit('/').next().unwrap_or(file).to_lowercase();
     if name.starts_with(".env") {
         return !matches!(
