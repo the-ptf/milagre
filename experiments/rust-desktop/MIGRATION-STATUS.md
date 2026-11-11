@@ -321,3 +321,15 @@ This does not prove the original disconnect was byte-budget exhaustion. The diag
 At the user's request, Chats10759,10975,11013 and11038 were marked Done through the existing production daemon's chat:patch command and verified with state:read. Active migration, review and unresolved issue Chats remain open. This used the existing single writer and did not launch or replace a host.
 
 Artifact1442139e version38 records the independent outgoing-capacity correction and the still-unproven disconnect cause, preserves six real screenshots and passes340/720 dark previews with zero overflow or console errors.
+
+## Retained-terminal ordering and private persistent composition
+
+Integrated b19c658a as a3a264d6. Retained terminal folds are retried before later parked events; if retry fails again, that Chat's later events remain queued while other Chats proceed. Live events join the same ordered queue, so Exited cannot replace the retained completion on a later pump. Repeated-failure coverage verifies one completed end and one queued successor start. Independent review is pending; passing checks alone do not close the replay-order P2.
+
+Integrated c3796e2c as d4372f0b. Private Running/Quiesced/Aborted phases, sticky abort, consuming carrier tickets, ticket-derived approval deadlines and guarded ciphertext lease transfer prepare the persistent supervisor. Root180 Rust tests and7 doctests and strict Clippy pass (`/tmp/milagre-remote-composition-{root,clippy}.log`). The agent reports all7 unchanged Node checks passing; root did not rerun those this checkpoint. Quiescence is not a join receipt. Retained worker ownership, joined shutdown, approval queue rejection and automatic ticks remain assigned to the remote agent. No production profile or network wiring was added.
+
+Sonnet found no P1/P2 in the earlier heap/error bounds, Git timestamp fix and deterministic filter probe, or wire5d9a9d52/runtime d849c05e. The original connection closure remains unexplained; write timeout and other close paths are leads, not established causes. The runtime agent is adding replay integration evidence and proposing bounded typed disconnect diagnostics before further reproduction.
+
+Installed shell440f06d1 remains signature-valid with unchanged production PID55108 and Rust PID16468 start times. Saved WebKit content/five bounded workflows and one exact real send/reply were reread without relaunch or resend. No shell source change requires rebuilding the installed bundle. No push, host replacement, second writer or native mobile fingerprint change. Heartbeatf3fd7e41 remains enabled because shared Node services and standalone upgrade/rollback remain unfinished. Artifact version38 remains the prior checkpoint; this log is newer.
+
+Root owner validation passes169 tests, strict all-target and release-library Clippy (`/tmp/milagre-owner-replay-{root,clippy,release-clippy}.log`). Runtime integration and independent replay review remain pending.
