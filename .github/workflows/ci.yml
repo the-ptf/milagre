@@ -44,8 +44,8 @@ jobs:
               - 'package-lock.json'
               - '.github/workflows/ci.yml'
               - '.github/actions/**'
-  # The quick JavaScript checks run in parallel after Linux repository signing. Each unit runtime gets its own
-  # runner so the quick checks do not compete with it for CPU.
+  # The quick JavaScript checks (static, supply chain, Linux repository signing) as parallel steps of one job, a log
+  # each. Each unit runtime gets its own runner so the quick checks do not compete with it for CPU.
   # The `javascript` gate below is the required check that gathers them.
   quick-checks:
     runs-on: ubuntu-24.04
@@ -65,18 +65,6 @@ jobs:
         with:
           path: ${{ runner.temp }}/signatures-verified
           key: signatures-verified-${{ hashFiles('package-lock.json') }}
-      # Keep apt/signing outside the parallel group: apt DNS failed there repeatedly across Ubuntu mirrors.
-      - name: Test real Linux repository signing
-        run: |-
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm createrepo-c gnupg
-          export GNUPGHOME="$RUNNER_TEMP/milagre-test-key"
-          mkdir -m 700 "$GNUPGHOME"
-          gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Milagre CI fixture' rsa3072 sign 1d
-          MILAGRE_LINUX_SIGNING_KEY=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
-          export MILAGRE_LINUX_SIGNING_KEY
-          MILAGRE_LINUX_REPOSITORY_INTEGRATION=1 node --test scripts/linux-repository.test.cjs
-          gpgconf --kill gpg-agent || true
-          rm -rf "$GNUPGHOME"
       - parallel:
           - name: Typecheck
             run: npm run typecheck
@@ -101,6 +89,22 @@ jobs:
             run: |
               if [ -f "$RUNNER_TEMP/signatures-verified" ]; then echo "this lockfile's signatures were verified on an earlier run"; exit 0; fi
               npm audit signatures && touch "$RUNNER_TEMP/signatures-verified"
+          # Node built-ins plus the rpm and repository tools; this was the Linux leg of native-tests.
+          - name: Test real Linux repository signing
+            run: |-
+              # Canonical DNS outages also affect the Azure alias. Keep signature verification on the independent mirror.
+              if [ -f /etc/apt/apt-mirrors.txt ] && ! getent ahosts archive.ubuntu.com >/dev/null; then
+                printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+              fi
+              sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm createrepo-c gnupg
+              export GNUPGHOME="$RUNNER_TEMP/milagre-test-key"
+              mkdir -m 700 "$GNUPGHOME"
+              gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Milagre CI fixture' rsa3072 sign 1d
+              MILAGRE_LINUX_SIGNING_KEY=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
+              export MILAGRE_LINUX_SIGNING_KEY
+              MILAGRE_LINUX_REPOSITORY_INTEGRATION=1 node --test scripts/linux-repository.test.cjs
+              gpgconf --kill gpg-agent || true
+              rm -rf "$GNUPGHOME"
   unit:
     # Each supported runtime gets the whole runner. Two runtime legs retain the 20-job PR concurrency budget.
     name: unit (Node ${{ matrix.node }})
