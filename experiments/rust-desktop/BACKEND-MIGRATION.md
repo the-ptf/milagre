@@ -20,6 +20,17 @@ GPUI `9a50ea52` added live reducers and a manually connected mounted transcript,
 
 ## Current safety gate (2026-11-11)
 
+Background-retention checkpoint `caee6436` preserves a Claude fixture process across TLDR
+changes while its native mapper represents active children or tasks. Once that work settles,
+an atomic idle close resumes a fresh process with its captured native id. Unknown activity
+refuses replacement. Root passes 157 Claude tests, 84 default runtime tests and all fifteen
+production Node-client fixture scenarios; strict Clippy/fmt, all-feature compilation and
+fresh Node oracles pass. Review closes the full-capacity reuse and shutdown-race P2s.
+The latter now audits late refused events before actual owner shutdown; real save failures
+and stuck turns still retain their gates. This is fixed native fake evidence, with no
+real-provider, active-subscription forget or production-cutover claim. Installed Tauri and
+the GPUI-pinned fixture remain unchanged. Detailed evidence is in the integration status.
+
 Live permission-mode checkpoint `6e553232` connects the Claude fixture's RPC, owner and
 native session through bounded asynchronous receipts. Active Ask/Full/Ask changes, waiting
 cards and idle Auto/Ask changes match actual Node traces against the fixed fake CLI. Root

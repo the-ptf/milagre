@@ -6,6 +6,32 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+Background-retention checkpoint `caee6436` is accepted in the isolated Claude fixture.
+Four turns reuse the same native fake process while children or tasks remain active;
+after settlement, the fifth resumes the native id in a new process with TLDR off.
+The lower session lock makes the idle check and logical close atomic. Exact worker
+session/executor pairing retains cleanup; unknown mapper state refuses replacement.
+Explicit close still settles background activity and reaps the worker.
+
+Root passes 157 Claude tests (one live test ignored), 84 default runtime tests and all
+fifteen production Node-client scenarios. The fresh manager oracle matches fifteen
+actual Node SessionManager cases using synthetic sessions, with nine source pins.
+Strict Clippy/fmt, all-feature/all-target compilation, fresh instruction/session recorders
+and targeted JS lint/format pass. Independent source review closes all P1/P2 findings
+within this scope. Two mutations reproduce the busy-restart defect and shutdown refusal.
+
+The first full client run exposed a timing-dependent `PROJECT_NOT_READY` from `daemon:stop`
+after forget. The runtime now audits every refused pre-pump event, then performs the
+unchanged owner shutdown validation. Deterministic tests prove no reopening, writing or
+state publication from late/foreign events; actual save failure retains the lock and a
+stuck terminal fold retains its active turn. The full rerun passes with native PID evidence
+`[80576,80576,80576,80576,80577]` and cleanup true. Failure logs remain alongside accepted
+logs under `/tmp/milagre-retention-root-*`; exact commands and limits are in
+[CLAUDE-FIXTURE.md](../rust-runtime/CLAUDE-FIXTURE.md#ordinary-launch-and-tldr-restart).
+The client detaches its renderer subscription before forget, so active-subscription forget
+is not covered. Implicit extra turns, real CLI equivalence, account routing, images and
+broader workspace/provider authority remain open. No production gate is lifted.
+
 Live permission-mode checkpoint `6e553232` is accepted within the isolated Claude fixture.
 `agent:set-permission-mode` now reaches the captured active or retained idle session and
 holds its RPC reply until the mode result and kept Chat preference are published. Full
@@ -29,15 +55,18 @@ Logs and the corrected missing-NODE_PATH and wrong-linter setup attempts are rec
 No pattern signals or cleanup scans were used. Root commits printed that lefthook was not
 found; the explicit checks above are the validation evidence, not commit-hook success.
 
-Implementation agents are settled and Sonnet Chat 10929 remains archived/idle. GPUI Chat
-11899 reports 1,397 tests and two ongoing UI-polish agents; this is its report, not a root
-GPUI run. Its shared-client and daemon pins are unchanged. The installed ordinary shell
-again matches SHA-256 `5ff830b9`, and its strict signature check passes. Production PIDs
-20674/20679 retain their original starts. Saved Hix1TF WebKit evidence was reread: both
-content runs pass, but used their historical fixture binary, not the current `51e90342`
-development daemon. No new native run or real-provider claim follows. No reinstall was
-needed for this backend-only checkpoint; no fixture was installed or production restarted.
-The migration remains incomplete, and the heartbeat remains enabled.
+Implementation agents are settled and Sonnet Chat 10929 remains archived/idle; independent
+review is now handled by subagents. GPUI Chat 11899 reports 1,400 tests and installed build
+`a031d4b2`; root read its report, not a fresh GPUI run. Its client/daemon pins remain unchanged.
+The installed ordinary shell again matches SHA-256 `5ff830b9`, and strict signature verification
+passes. Production PIDs 20674/20679 retain their original starts. Saved Hix1TF evidence was
+reread: both actual WebKit content runs pass with zero observed main-document errors and
+two expected CSP probes per phase; their generated roots remain absent. Those runs used
+historical daemon `71f174eb`, not the current pinned `51e90342`. No fresh native or real-provider
+pass follows from this backend checkpoint. No shell change required reinstalling; no fixture
+was installed or production restarted. The migration remains incomplete and the heartbeat
+remains enabled. The planning range stays 40% to 55% of retained backend engineering;
+production owner cutover remains 0%.
 
 Auto/Full Project-Chat checkpoint `6a57ae05` is accepted within the isolated fake-provider
 scope. Fresh root checks pass 151 Claude tests (one live test ignored), 69 default runtime
