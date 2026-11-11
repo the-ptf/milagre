@@ -7,6 +7,7 @@ mod pages;
 mod profile;
 mod protocol;
 mod server;
+pub mod state_patch;
 
 pub use profile::IsolatedProfile;
 pub use protocol::{RpcError, RpcResult, MAX_FRAME_BYTES, MAX_PENDING, VERSION};
