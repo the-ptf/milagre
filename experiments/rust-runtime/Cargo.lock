@@ -529,6 +529,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "milagre-claude"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "milagre-content-store"
 version = "0.1.0"
 dependencies = [
@@ -617,6 +631,8 @@ name = "milagre-rust-runtime"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "libc",
+ "milagre-claude",
  "milagre-content-store",
  "milagre-git-read",
  "milagre-owner-store",

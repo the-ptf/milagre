@@ -1,0 +1,96 @@
+// Production Node clients against a Rust owner and checked-in native fake Claude only.
+const assert = require("node:assert/strict");
+const { spawn } = require("node:child_process");
+const { once } = require("node:events");
+const fs = require("node:fs");
+const readline = require("node:readline");
+const { connect } = require("../../../apps/daemon/src/client.cjs");
+const { connectDesktopRuntime } = require("../../../apps/daemon/src/runtime-client.cjs");
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function until(label, test) {
+  const end = Date.now() + 7000;
+  while (Date.now() < end) {
+    if (await test()) return;
+    await delay(10);
+  }
+  throw Error("Timed out: " + label);
+}
+async function scenario(name) {
+  const child = spawn(process.argv[2], [name], { stdio: ["pipe", "pipe", "pipe"] });
+  const exit = once(child, "exit");
+  const lines = readline.createInterface({ input: child.stdout });
+  let stderr = "",
+    client,
+    runtime,
+    metadata;
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const timeout = setTimeout(() => child.kill("SIGKILL"), 20000);
+  try {
+    metadata = JSON.parse((await once(lines, "line"))[0]);
+    assert.equal(metadata.fakeClaude, true);
+    assert.equal(metadata.actor.provider, "claude");
+    client = await connect({ dataDir: metadata.profile, timeoutMs: 5000 });
+    runtime = await connectDesktopRuntime({ connect: () => connect({ dataDir: metadata.profile, timeoutMs: 5000 }) });
+    const project = metadata.actor.project;
+    const events = [];
+    client.on("event", (event) => {
+      if (event.channel === "agent:event") events.push(event.payload.event);
+    });
+    await client.call("project:open", [project]);
+    await runtime.openProject(project);
+    const chatId = project + "#1";
+    const body = name === "unicode" ? "native \u{10fffe} \ue123 \ud83d" : "fixture input";
+    await client.call("chat:send", [
+      { projectPath: project, sessionId: 1, body, clientMessageId: "claude-" + name, provider: "claude", model: "sonnet", permissionMode: "ask" },
+    ]);
+    if (name === "permission") {
+      await until("permission card", () => events.some((e) => e.type === "permission-request"));
+      const card = events.find((e) => e.type === "permission-request");
+      assert.equal(await client.call("agent:respond-permission", [{ chatId, requestId: card.requestId, decision: "allow" }]), true);
+    }
+    if (["question", "unicode"].includes(name)) {
+      await until("question card", () => events.some((e) => e.type === "question-request"));
+      const card = events.find((e) => e.type === "question-request");
+      assert.equal(
+        await client.call("agent:answer-question", [
+          { chatId, requestId: card.requestId, answers: { [card.questions[0].id]: [name === "unicode" ? body : "A"] } },
+        ]),
+        true,
+      );
+    }
+    if (name === "stop") {
+      await until("native session", () => events.some((e) => e.type === "session-started"));
+      await client.call("agent:interrupt", [chatId]);
+    }
+    await until("single terminal event", () => events.some((e) => ["turn-completed", "turn-failed", "turn-cancelled"].includes(e.type)));
+    assert.equal(events.filter((e) => ["turn-completed", "turn-failed", "turn-cancelled"].includes(e.type)).length, 1);
+    if (!["stop", "crash"].includes(name)) {
+      const messages = await client.call("chat:messages", [project, 1]);
+      assert.ok(messages.messages.some((m) => m.body === (name === "unicode" ? "native \u{10fffe} \ue123 \ufffd" : "Claude fixture hello")));
+      assert.ok(messages.messages.some((m) => m.body === body));
+    }
+    assert.equal((await client.call("daemon:snapshot")).runs.runs[chatId], undefined);
+    await client.call("daemon:stop");
+  } finally {
+    await runtime?.close().catch((e) => {
+      if (!["DAEMON_CLOSED", "CLOSING"].includes(e.code)) throw e;
+    });
+    client?.close();
+    child.stdin.end();
+    const [code] = await exit;
+    clearTimeout(timeout);
+    lines.close();
+    assert.equal(code, 0, name + ": " + stderr);
+    assert.equal(fs.existsSync(metadata.profile), false);
+    assert.equal(fs.existsSync(metadata.actor.project), false);
+  }
+}
+(async () => {
+  for (const name of ["reply", "permission", "question", "stop", "crash", "unicode"]) await scenario(name);
+  console.log("Claude owner Node client conformance passed (6 scenarios)");
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -7,6 +7,7 @@ default-run = "milagre-rust-runtime"
 description = "Isolated read integration of Milagre's Rust wire server and saved Project reader"
 
 [dependencies]
+libc = "0.2"
 milagre-owner-store = { path = "../rust-owner" }
 milagre-owner-wire = { path = "../rust-owner-wire" }
 milagre-content-store = { path = "../rust-content-store" }
@@ -14,6 +15,7 @@ milagre-ports = { path = "../rust-ports" }
 milagre-terminals = { path = "../rust-terminals" }
 milagre-git-read = { path = "../rust-git" }
 milagre-tools = { path = "../rust-tools" }
+milagre-claude = { path = "../rust-claude" }
 milagre-providers = { path = "../rust-providers" }
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -21,3 +23,9 @@ sha2 = "0.10"
 hex = "0.4"
 
 [workspace]
+
+[[bin]]
+name = "runtime-fake-claude"
+path = "../rust-claude/src/bin/fake_claude.rs"
+test = false
+doc = false

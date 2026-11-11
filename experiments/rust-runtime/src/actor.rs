@@ -210,6 +210,7 @@ fn convert(error: milagre_owner_store::StoreError) -> RpcError {
 
 struct State {
     host: ChatHost,
+    provider: &'static str,
     project: PathBuf,
     opened: bool,
     version: u64,
@@ -280,7 +281,9 @@ impl State {
             }
             "chat:send" => {
                 let request = args.first().cloned().unwrap_or(Value::Null);
-                if request["projectPath"].as_str() != Some(&path) || request["provider"] != "kiro" {
+                if request["projectPath"].as_str() != Some(&path)
+                    || request["provider"] != self.provider
+                {
                     return Err(RpcError::new(
                         "ISOLATED_SCOPE_ONLY",
                         "Only the scripted fixture provider and Project are admitted",
@@ -580,6 +583,42 @@ pub fn start() -> Result<(Server, Value), RpcError> {
         .map_err(convert)?;
     fs::create_dir(project.join(".milagre"))?;
     fs::write(project.join(".milagre/coordination.json"),json!({"next_id":10,"name":"actor","worktrees":{"1":{"id":1,"path":project,"name":"main"}},"sessions":{"1":{"id":1,"worktree_id":1},"2":{"id":2,"worktree_id":1}},"messages":[]}).to_string())?;
+    start_provider(
+        profile,
+        isolation,
+        project,
+        Box::new(Scripted::default()),
+        "kiro",
+    )
+}
+
+/// Separate fake-CLI owner fixture. It never adopts the wire profile or a production account.
+pub fn start_claude(
+    scenario: crate::claude_fixture::Scenario,
+) -> Result<(Server, Value, crate::claude_fixture::FixtureMonitor), RpcError> {
+    let provider = crate::claude_fixture::ClaudeFixture::create(scenario).map_err(|_| {
+        RpcError::new(
+            "FIXTURE_FAILED",
+            "Could not create the private Claude fixture",
+        )
+    })?;
+    let monitor = provider.monitor();
+    let (server, metadata) = start_provider(
+        IsolatedProfile::create()?,
+        provider.isolation(),
+        provider.project().to_path_buf(),
+        Box::new(provider),
+        "claude",
+    )?;
+    Ok((server, metadata, monitor))
+}
+fn start_provider(
+    profile: IsolatedProfile,
+    isolation: Isolation,
+    project: PathBuf,
+    provider: Box<dyn Provider>,
+    provider_name: &'static str,
+) -> Result<(Server, Value), RpcError> {
     let epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -598,7 +637,7 @@ pub fn start() -> Result<(Server, Value), RpcError> {
     host.interrupt_grace_ms = 250;
     host.answer_grace_ms = 250;
     host.answer_capacity = 32;
-    host.register(Box::new(Scripted::default()));
+    host.register(provider);
     let shared = Arc::new(Shared {
         snapshot: Mutex::new(
             json!({"projects":[],"links":[],"runs":{"runs":{},"seq":0},"ports":{}}),
@@ -630,6 +669,7 @@ pub fn start() -> Result<(Server, Value), RpcError> {
         run(
             State {
                 host,
+                provider: provider_name,
                 project,
                 opened: false,
                 version: 0,
@@ -645,7 +685,7 @@ pub fn start() -> Result<(Server, Value), RpcError> {
             epoch,
         )
     }));
-    let metadata = json!({"project":actor.project,"scriptedProvider":true,"tickMs":20,"debounceMs":100,"idleMs":350,"interruptGraceMs":250});
+    let metadata = json!({"project":actor.project,"scriptedProvider":provider_name == "kiro","provider":provider_name,"tickMs":20,"debounceMs":100,"idleMs":350,"interruptGraceMs":250});
     Ok((server, metadata))
 }
 
@@ -959,6 +999,7 @@ mod publication_tests {
         };
         let mut state = State {
             host: ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0)),
+            provider: "kiro",
             project: profile.path().join("fixture"),
             opened: false,
             version: 0,
