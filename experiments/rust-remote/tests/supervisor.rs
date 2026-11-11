@@ -127,7 +127,10 @@ fn idle_and_hello_deadlines_run_without_commands_or_caller_ticks() {
     clock.advance_to(45001).unwrap();
     closed(&c, &h, CloseReason::IdleTimeout);
     assert!(m.is_closed());
-    assert_eq!(c.retained_bytes(), 0);
+    assert_eq!(
+        c.retained_bytes(),
+        milagre_remote::supervisor::CONTROL_RESERVE_BYTES
+    );
     drop(s);
     assert!(!path.exists());
     assert!(c.is_finished());
@@ -194,7 +197,10 @@ fn removal_cancels_running_and_queued_then_late_finish_cannot_send() {
         Err(Error::Registry(_))
     ));
     assert_eq!(m.delivery_attempts(), 1);
-    assert_eq!(c.retained_bytes(), 0);
+    assert_eq!(
+        c.retained_bytes(),
+        milagre_remote::supervisor::CONTROL_RESERVE_BYTES
+    );
     clock.advance_to(2).unwrap();
     run(&c, Command::OpenPairing);
     let (new, m2, _) = phone(&c, 2, 2);
@@ -425,7 +431,10 @@ fn carrier_queue_byte_bounds_close_and_release() {
     ));
     closed(&c, &h, CloseReason::CarrierFailure);
     assert!(m.receive().is_none());
-    assert_eq!(c.retained_bytes(), 0);
+    assert_eq!(
+        c.retained_bytes(),
+        milagre_remote::supervisor::CONTROL_RESERVE_BYTES
+    );
     drop(s);
 }
 #[test]
@@ -548,11 +557,11 @@ fn thousand_pending_evictions_without_event_consumer_preserve_phones_and_authori
     let (desktop, memory) = attach(&c, 1002);
     let pending = hello(&c, &desktop, 3, 1, DeviceKind::Desktop);
     assert_eq!(c.event_stats().authoritative, 2);
-    let token = next_work(&c); // authoritative events skip the queued advisory closures
     let permit = match c.next_event(WAIT).unwrap() {
         Event::Approval { permit, .. } => permit,
         _ => panic!(),
     };
+    let token = next_work(&c); // approvals precede work and both skip advisories
     run(&c, Command::Approve(permit));
     pending.finish(&memory.receive().unwrap()).unwrap();
     run(

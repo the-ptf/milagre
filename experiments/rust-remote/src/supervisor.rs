@@ -313,10 +313,19 @@ impl Receipt {
         }
     }
 }
+pub const CONTROL_RESERVE_BYTES: usize = 18 * 1024;
+const CONTROL_SLOT_BYTES: usize = 2048;
+const CONTROL_SLOTS: usize = 8;
+const CARRIER_COMMANDS: usize = 8;
+const CARRIER_BYTES: usize = 2 * 1024 * 1024;
+const SOURCE_COMMANDS: usize = 32;
+const SOURCE_BYTES: usize = 16 * 1024 * 1024;
 struct Envelope {
+    origin: Option<(Handle, Source)>,
+    cost: usize,
     command: Command,
     reply: mpsc::SyncSender<Result<Reply>>,
-    _lease: Reservation,
+    _lease: Option<Reservation>,
 }
 impl Envelope {
     fn reject(self) {
@@ -342,6 +351,8 @@ pub enum StopReason {
 }
 struct Queues {
     commands: VecDeque<Envelope>,
+    controls: VecDeque<Envelope>,
+    control_reserve: Option<Reservation>,
     events: VecDeque<Notification>,
     work_ready: bool,
 }
@@ -417,7 +428,7 @@ pub struct CarrierClient {
 impl CarrierClient {
     pub fn submit(&self, command: CarrierCommand) -> Result<Receipt> {
         let handle = self.handle.clone();
-        self.owner.submit(match command {
+        let command = match command {
             CarrierCommand::Hello(bytes) => Command::Hello {
                 handle,
                 source: self.source,
@@ -425,7 +436,9 @@ impl CarrierClient {
             },
             CarrierCommand::Request(bytes) => Command::Request { handle, bytes },
             CarrierCommand::Disconnect => Command::Disconnect(handle),
-        })
+        };
+        self.owner
+            .enqueue(command, Some((self.handle.clone(), self.source)))
     }
     pub fn status(&self) -> CarrierStatus {
         self.handle.status()
@@ -441,21 +454,84 @@ impl OwnerClient {
         }
     }
     pub fn submit(&self, command: Command) -> Result<Receipt> {
+        let origin = match &command {
+            Command::Hello { handle, source, .. } => Some((handle.clone(), *source)),
+            Command::Request { handle, .. } | Command::Disconnect(handle) => {
+                Some((handle.clone(), Source::Relay))
+            }
+            _ => None,
+        };
+        self.enqueue(command, origin)
+    }
+    fn enqueue(&self, command: Command, origin: Option<(Handle, Source)>) -> Result<Receipt> {
         let cost = command.cost().ok_or(Error::Full)?;
+        let control = matches!(
+            command,
+            Command::Retire
+                | Command::RemoveDevice(_)
+                | Command::Approve(_)
+                | Command::DrainWork { .. }
+        );
         let mut q = self.0.queues.lock().unwrap_or_else(|e| e.into_inner());
         if self.0.stop.load(Ordering::SeqCst) != 0 {
             return Err(Error::NotExecuted);
         }
-        if q.commands.len() >= self.0.limits.commands {
-            return Err(Error::Full);
-        }
-        let lease = self.0.ingress.reserve(cost).map_err(|_| Error::Full)?;
+        let lease = if control {
+            // Precharged at construction, so data/global saturation cannot consume it.
+            if cost > CONTROL_SLOT_BYTES || q.controls.len() >= CONTROL_SLOTS {
+                return Err(Error::Full);
+            }
+            None
+        } else {
+            if q.commands.len() >= self.0.limits.commands {
+                return Err(Error::Full);
+            }
+            if let Some((handle, source)) = &origin {
+                let mut carrier_count = 0;
+                let mut carrier_bytes = cost;
+                let mut source_count = 0;
+                let mut source_bytes = cost;
+                let mut total_count = 0;
+                let mut total_bytes = cost;
+                for pending in &q.commands {
+                    if let Some((h, src)) = &pending.origin {
+                        total_count += 1;
+                        total_bytes += pending.cost;
+                        if h.same(handle) {
+                            carrier_count += 1;
+                            carrier_bytes += pending.cost;
+                        }
+                        if src == source {
+                            source_count += 1;
+                            source_bytes += pending.cost;
+                        }
+                    }
+                }
+                if carrier_count >= CARRIER_COMMANDS
+                    || carrier_bytes > CARRIER_BYTES
+                    || source_count >= SOURCE_COMMANDS
+                    || source_bytes > SOURCE_BYTES
+                    || total_count >= (self.0.limits.commands / 2).max(1)
+                    || total_bytes > self.0.limits.command_bytes / 2
+                {
+                    return Err(Error::Full);
+                }
+            }
+            Some(self.0.ingress.reserve(cost).map_err(|_| Error::Full)?)
+        };
         let (tx, rx) = mpsc::sync_channel(1);
-        q.commands.push_back(Envelope {
+        let envelope = Envelope {
+            origin,
+            cost,
             command,
             reply: tx,
             _lease: lease,
-        });
+        };
+        if control {
+            q.controls.push_back(envelope);
+        } else {
+            q.commands.push_back(envelope);
+        }
         self.0.wake.notify_one();
         Ok(Receipt(rx))
     }
@@ -468,18 +544,19 @@ impl OwnerClient {
                 q.events.is_empty() && !q.work_ready && !self.0.finished.load(Ordering::SeqCst)
             })
             .unwrap_or_else(|e| e.into_inner());
-        // One fixed readiness bit is independent of event-queue capacity.
-        if q.work_ready {
-            q.work_ready = false;
-            return Some(Event::WorkAvailable);
-        }
-        // Authoritative FIFO has priority over lossy closure diagnostics.
-        let index = q
+        // Approvals cannot be starved by repeated readiness observations.
+        if let Some(index) = q
             .events
             .iter()
-            .position(|n| !matches!(n.event, Event::Closed(_)))
-            .unwrap_or(0);
-        q.events.remove(index).map(|n| n.event)
+            .position(|n| matches!(n.event, Event::Approval { .. }))
+        {
+            return q.events.remove(index).map(|n| n.event);
+        }
+        // A readiness observation is acknowledged only by a successful initial drain.
+        if q.work_ready {
+            return Some(Event::WorkAvailable);
+        }
+        q.events.pop_front().map(|n| n.event)
     }
     pub fn event_stats(&self) -> EventStats {
         let q = self.0.queues.lock().unwrap_or_else(|e| e.into_inner());
@@ -555,6 +632,12 @@ impl Supervisor {
         let shared = Arc::new(Shared {
             queues: Mutex::new(Queues {
                 commands: VecDeque::new(),
+                controls: VecDeque::new(),
+                control_reserve: Some(
+                    global
+                        .connection(CONTROL_RESERVE_BYTES)?
+                        .reserve(CONTROL_RESERVE_BYTES)?,
+                ),
                 events: VecDeque::new(),
                 work_ready: false,
             }),
@@ -890,11 +973,15 @@ impl Actor {
                 return Ok(Reply::Dispatched(record));
             }
             Command::DrainWork { cursor, limit } => {
-                return Ok(Reply::Work(self.registry.drain_work(
-                    cursor.as_ref(),
-                    limit,
-                    now,
-                )?))
+                let page = self.registry.drain_work(cursor.as_ref(), limit, now)?;
+                if cursor.is_none() {
+                    self.shared
+                        .queues
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .work_ready = false;
+                }
+                return Ok(Reply::Work(page));
             }
             Command::OpenPairing => self.authority.open_pairing(now)?,
             Command::Attach { id, carrier } => {
@@ -1018,13 +1105,15 @@ impl Actor {
                     .shared
                     .wake
                     .wait_timeout_while(q, Duration::from_millis(self.shared.limits.tick_ms), |q| {
-                        q.commands.is_empty() && self.shared.stop.load(Ordering::SeqCst) == 0
+                        q.controls.is_empty()
+                            && q.commands.is_empty()
+                            && self.shared.stop.load(Ordering::SeqCst) == 0
                     })
                     .unwrap_or_else(|e| e.into_inner());
                 if self.shared.stop.load(Ordering::SeqCst) != 0 {
                     break;
                 }
-                q.commands.pop_front()
+                q.controls.pop_front().or_else(|| q.commands.pop_front())
             };
             if let Some(envelope) = envelope {
                 // Recheck idle deadlines after sleeping and before executing any queued continuation.
@@ -1052,6 +1141,10 @@ impl Drop for Actor {
         });
         self.retire();
         let mut q = self.shared.queues.lock().unwrap_or_else(|e| e.into_inner());
+        for envelope in q.controls.drain(..) {
+            envelope.reject();
+        }
+        q.control_reserve.take();
         for envelope in q.commands.drain(..) {
             envelope.reject();
         }
@@ -1083,6 +1176,14 @@ mod tests {
         let shared = Arc::new(Shared {
             queues: Mutex::new(Queues {
                 commands: VecDeque::new(),
+                controls: VecDeque::new(),
+                control_reserve: Some(
+                    global
+                        .connection(CONTROL_RESERVE_BYTES)
+                        .unwrap()
+                        .reserve(CONTROL_RESERVE_BYTES)
+                        .unwrap(),
+                ),
                 events: VecDeque::new(),
                 work_ready: false,
             }),
@@ -1196,7 +1297,7 @@ mod tests {
         let first = c.submit(Command::OpenPairing).unwrap();
         let second = c.submit(Command::OpenPairing).unwrap();
         assert!(matches!(c.submit(Command::OpenPairing), Err(Error::Full)));
-        assert_eq!(c.retained_bytes(), 2048);
+        assert_eq!(c.retained_bytes(), CONTROL_RESERVE_BYTES + 2048);
         c.0.stop(StopReason::Requested);
         release.send(()).unwrap();
         drop(s);
@@ -1432,5 +1533,158 @@ mod tests {
         assert_eq!(actor.authority.expire(600000).unwrap(), 0);
         drop(actor);
         assert_eq!(c.retained_bytes(), 0);
+    }
+    #[test]
+    fn flood_cannot_block_owner_revocation_or_another_carrier_hello() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        for remove in [false, true] {
+            let (mut actor, c, clock, _) = fixture(Limits::default());
+            clock.advance_to(1).unwrap();
+            actor.execute(Command::OpenPairing).unwrap();
+            let (h, memory) = attach_direct(&mut actor, 1);
+            let (hello, _) = synthetic_hello(2, DeviceKind::Phone);
+            actor
+                .execute(Command::Hello {
+                    handle: h.clone(),
+                    source: Source::Relay,
+                    bytes: hello,
+                })
+                .unwrap();
+            let (other, _) = attach_direct(&mut actor, 2);
+            let carrier = c.carrier(h.clone(), Source::Relay);
+            let mut admitted = 0;
+            for _ in 0..64 {
+                if carrier
+                    .submit(CarrierCommand::Request(vec![0; 100]))
+                    .is_ok()
+                {
+                    admitted += 1;
+                }
+            }
+            assert_eq!(admitted, CARRIER_COMMANDS);
+            let (hello, _) = synthetic_hello(3, DeviceKind::Phone);
+            assert!(c
+                .carrier(other, Source::Relay)
+                .submit(CarrierCommand::Hello(hello))
+                .is_ok());
+            // Exhaust general owner ingress too, then all remaining global bytes.
+            while c.submit(Command::OpenPairing).is_ok() {}
+            let remaining = 256 * 1024 * 1024 - c.retained_bytes();
+            let held = actor
+                .shared
+                .global
+                .connection(256 * 1024 * 1024)
+                .unwrap()
+                .reserve(remaining)
+                .unwrap();
+            let key = URL_SAFE_NO_PAD.encode(SecretKey::from([2; 32]).public_key().as_bytes());
+            let receipt = c
+                .submit(if remove {
+                    Command::RemoveDevice(key)
+                } else {
+                    Command::Retire
+                })
+                .unwrap();
+            let worker = thread::spawn(move || actor.run());
+            receipt.wait(Duration::from_secs(3)).unwrap();
+            assert!(matches!(h.status(), CarrierStatus::Closed(_)));
+            assert!(memory.is_closed());
+            c.0.stop(StopReason::Requested);
+            worker.join().unwrap();
+            drop(held);
+            assert_eq!(c.retained_bytes(), 0);
+        }
+    }
+    #[test]
+    fn per_carrier_and_source_byte_count_limits_are_bounded() {
+        let (mut actor, c, _, _) = fixture(Limits {
+            commands: 128,
+            ..Default::default()
+        });
+        for id in 0..5 {
+            let (h, _) = attach_direct(&mut actor, id + 1);
+            let carrier = c.carrier(h, Source::Relay);
+            for _ in 0..8 {
+                let result = carrier.submit(CarrierCommand::Request(vec![0; 1]));
+                assert_eq!(result.is_ok(), id < 4);
+            }
+        }
+        assert_eq!(c.0.queues.lock().unwrap().commands.len(), 32);
+        let (direct, _) = attach_direct(&mut actor, 6);
+        assert!(c
+            .carrier(direct, Source::Direct(7))
+            .submit(CarrierCommand::Hello(vec![0]))
+            .is_ok());
+        drop(actor);
+        assert_eq!(c.retained_bytes(), 0);
+        let (mut actor, c, _, _) = fixture(Limits::default());
+        let (h, _) = attach_direct(&mut actor, 1);
+        let carrier = c.carrier(h, Source::Direct(1));
+        let mut bytes = Vec::with_capacity(CARRIER_BYTES / 2);
+        bytes.push(0);
+        assert!(carrier
+            .submit(CarrierCommand::Request({
+                let mut first = Vec::with_capacity(CARRIER_BYTES / 2);
+                first.push(0);
+                first
+            }))
+            .is_ok());
+        assert!(matches!(
+            carrier.submit(CarrierCommand::Request(bytes)),
+            Err(Error::Full)
+        ));
+    }
+    #[test]
+    fn readiness_survives_refused_or_invalid_drain_and_approval_wins() {
+        let (mut actor, c, _, _) = fixture(Limits::default());
+        c.0.queues.lock().unwrap().work_ready = true;
+        assert!(matches!(
+            c.next_event(Duration::ZERO),
+            Some(Event::WorkAvailable)
+        ));
+        for _ in 0..CONTROL_SLOTS {
+            c.submit(Command::Retire).unwrap();
+        }
+        assert!(matches!(
+            c.submit(Command::DrainWork {
+                cursor: None,
+                limit: 1
+            }),
+            Err(Error::Full)
+        ));
+        assert!(matches!(
+            c.next_event(Duration::ZERO),
+            Some(Event::WorkAvailable)
+        ));
+        assert!(actor
+            .apply(Command::DrainWork {
+                cursor: None,
+                limit: 0
+            })
+            .is_err());
+        assert!(c.0.queues.lock().unwrap().work_ready);
+        let (h, _) = attach_direct(&mut actor, 1);
+        actor.emit(Event::Approval {
+            permit: Approval {
+                handle: h,
+                serial: 1,
+            },
+            device_key: "synthetic".into(),
+        });
+        assert!(matches!(
+            c.next_event(Duration::ZERO),
+            Some(Event::Approval { .. })
+        ));
+        assert!(matches!(
+            c.next_event(Duration::ZERO),
+            Some(Event::WorkAvailable)
+        ));
+        actor
+            .apply(Command::DrainWork {
+                cursor: None,
+                limit: 1,
+            })
+            .unwrap();
+        assert!(!c.0.queues.lock().unwrap().work_ready);
     }
 }
