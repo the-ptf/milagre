@@ -1,5 +1,6 @@
 //! Isolated read/PTY adapters. Optional ProjectStates ownership covers fresh fixture copies only.
 //! No live profile, provider execution, Project mutation, or arbitrary Project folder access.
+pub mod actor;
 mod artifacts;
 mod copies;
 mod git;

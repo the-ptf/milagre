@@ -1,6 +1,6 @@
-# Next owner integration boundary (proposal, not implemented)
+# Owner actor integration boundary
 
-The runtime still exposes saved-file reads, isolated content operations, PTYs, ports and Git fixture reads. `OwnedCopies` owns one `Mutex<ProjectStates>` and advances its clock only when a read arrives. It does not run ChatHost, providers, or periodic saves/sweeps. The following is the proposed next boundary, not evidence of a working owner.
+The runtime still exposes saved-file reads, isolated content operations, PTYs, ports and Git fixture reads. `OwnedCopies` owns one `Mutex<ProjectStates>` and advances its clock only when a read arrives. It does not run ChatHost, providers, or periodic saves/sweeps. The separate `actor-runtime` now exercises the actor/timer/publication/shutdown-retry boundary on a synthetic Project and scripted provider only. The read/PTY/Git executables retain their existing behavior. Production integration below remains incomplete.
 
 ## One state owner and one publication order
 
@@ -14,7 +14,7 @@ The existing `EventSink::transaction` lock must precede any owner mutation visib
 
 Use epoch milliseconds captured once plus monotonic elapsed time, so a wall-clock correction cannot move the scheduler backwards. A wakeable bounded timer sends ticks to the owner actor even without connected clients. Coalesce overdue tick messages; `ProjectStates::advance` already executes each due action in order. A clock abstraction and configurable intervals should make tests deterministic rather than sleeping for the production 60-second sweep.
 
-The timer must hold a weak actor reference and stop when the actor stops. Shutdown first closes admission and drains accepted wire requests, as the wire server already does. Then stop the timer, stop/drain provider sessions, fold their terminal events, flush/close states, release content and terminal resources, and acknowledge `daemon:stop`. The exact provider/state/resource ordering must preserve persisted terminal events before ownership is released.
+The timer must hold a weak actor reference and stop when the actor stops. Shutdown first closes admission and drains accepted wire requests, as the wire server already does. Keep lifecycle pumping while sessions stop, fold their terminal events, flush/close states, then stop the timer, release content and terminal resources, and acknowledge `daemon:stop`. The exact provider/state/resource ordering must preserve persisted terminal events before ownership is released.
 
 A failed flush retains state and ownership, keeps admission closed, and returns the failure. An explicit repeated stop may retry flushing. The current wire server permits another stop while closing; ordinary requests stay refused. Do not restore mutation admission automatically, drop the owner after a failure, or make shutdown success depend on a client remaining connected. Production profile handoff is a separate future operation requiring explicit authorization.
 
@@ -33,3 +33,13 @@ Provider adapters must obey the new immediate-return contract and its session/tu
 ## Acceptance evidence for that next checkpoint
 
 Use fresh marked copies and scripted provider processes only. Prove a debounced save and idle unload occur without a subsequent read; publish and snapshot preserve sequence order; save failures remain dirty/owned and can be retried; a blocked provider start leaves other Chats and Stop responsive; stale completion cannot close the next turn; disconnect/reconnect preserves an active turn; timer/drop/shutdown release only the test process's resources; failed shutdown retains locks until a successful retry. Compare state, disk and wire events against the existing Node implementation. Real credentials, production sockets and live provider turns are outside this fixture checkpoint.
+
+## Scripted checkpoint implementation
+
+`src/actor.rs` uses one owner thread, a 64-request / 8 MiB queue and coalesced monotonic ticks. Snapshot handling reads a cache updated inside the publication transaction; it never queues work to an actor that might be waiting on the same publication lock. This avoids the lock inversion a synchronous snapshot request would create. Domain callbacks return at once; the synthetic provider delivers its bounded scheduled events on subsequent ticks.
+
+The fixture has no external provider/session processes. It cancels its synthetic turns before close, records failures without releasing retained owner state, and permits repeated stop while closed to normal commands. It does not implement production suspend/resume or a nonresponsive provider's force-close deadline. The owner review after `d3e001ba` identified session-generation, idle terminal-event, lost interrupt-end and forgotten-Project gaps; those must be fixed and integrated before real providers.
+
+The Node client suite and four admission/provider-budget/publication unit tests are the evidence for this checkpoint. Actual Node timer/event equivalence remains covered at the owner library trace boundary; this new integration suite exercises the actual production wire clients against scripted provider events, not a live model or a complete Node runtime oracle.
+
+The actor now retains unsent wire events on publication failure, closes admission, and refuses cached snapshots until restart. Durable stop remains available. A failed stop keeps pumping provider lifecycle events so delayed cancellation can complete. `state:read` gets its revision after cache publication. Forced destruction after a failed stop is explicitly crash-equivalent, not a successful durable shutdown.

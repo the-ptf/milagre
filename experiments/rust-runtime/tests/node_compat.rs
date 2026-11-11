@@ -109,3 +109,22 @@ fn production_node_client_edits_owned_designs_with_native_rendering() {
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("conformance passed"));
 }
+
+#[test]
+fn production_node_clients_drive_scripted_owner_actor() {
+    let output = std::process::Command::new("node")
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/actor-compat.cjs"
+        ))
+        .arg(env!("CARGO_BIN_EXE_actor-runtime"))
+        .output()
+        .expect("Node is required for scripted owner actor conformance");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("conformance passed"));
+}
