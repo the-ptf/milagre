@@ -52,3 +52,16 @@ ChatHost::admit_worktree is available but this runtime does not call it yet. A s
 The proposed owner open_project boundary must load state, acquire and check the handover-store lease, sweep permitted leftovers, and recover interrupted dividers before runtime publishes the Project or opens content scope. Reopen must be idempotent for this host's active preparations; closing/forgotten lifecycle checks and failed-open retry remain owner responsibilities. Runtime will not reproduce those steps from separate calls. A proposed test-fixtures-only enable_restore_for_tests method replaces the public mutable mode; no release constructor may opt in.
 
 Successful restore coverage remains next: a fixture send should persist its done divider and committed transcript before one provider start, include the admitted worktree's exact changed-file list in the minimal brief, and preserve restart, cancellation and stale-result behavior. Current runtime evidence proves cancellation of a real restore only.
+
+## Agreed readiness adapter, awaiting owner checkpoint
+
+The owner negotiation requires explicit open_project before sends, queue operations, answers and provider events, including Projects already loaded through ProjectStates. Partial opening must retain ownership but remain not ready until an explicit retry durably completes recovery. The owner will emit one ProjectReady after success and preserve distinct OWNER_CLOSING, PROJECT_NOT_READY and HANDOVER_STORE_BUSY errors.
+
+Runtime adaptation is pending the concrete owner commits:
+
+1. Check the request against the actor's one exact admitted Project path before open_project. Publish or enable content scope only after success. On failed reopen, hide the Project and revoke its content generation while keeping explicit open available for retry; do not globally close the actor.
+2. Keep readiness separate from loaded state. Suppress Project state broadcasts from partial loading/recovery until successful open. Map ProjectReady onto the existing renderer state protocol rather than inventing a new renderer capability.
+3. Require ready state for project:current, project:snapshot and state:read; none may retry failed recovery or reopen after forget. Only project:open and project:switch retry. Trusted fixture startup may explicitly open before binding the server. A non-recovering owner readiness query/guard is requested so reads and publication do not trust a stale runtime flag after owner-side failures. Any changed initial-view behavior must remain documented as a fixture compatibility limit.
+4. Open the four direct Codex owner fixtures and the job seed fixture through the owner API. Replace the single test Restore assignment with enable_restore_for_tests; keep release construction gated and keep saved/owned read-only foundations outside this ChatHost migration.
+
+Required new evidence: competing handover-store lease fails open with HANDOVER_STORE_BUSY and no ready publication; sends/events remain refused; releasing that lease plus explicit retry succeeds once and allows normal commands. Repeated ready opens must verify ownership, preserve active preparation, and avoid duplicate ProjectReady. A failed ready reopen must revoke existing content grants and retain locks/state for retry. No worktree admission is part of this adapter checkpoint.
