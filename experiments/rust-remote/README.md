@@ -113,3 +113,5 @@ The separate [store safety follow-ups](STORE-SAFETY.md) preserve corrected-limit
 The private composition checkpoint adds phase-aware quiescence/abort, exact carrier-ticket approval binding and guarded ciphertext lease transfer. See [PERSISTENT-COMPOSITION.md](PERSISTENT-COMPOSITION.md). Its private hooks are now used by the separate retained worker below.
 
 `persistent_supervisor::PersistentSupervisor` now owns a fresh synthetic profile through joined shutdown, typed owning failures, bounded commands, consuming approval permits and automatic deadline ticks. See [PERSISTENT-WORKER.md](PERSISTENT-WORKER.md) for the two checkpoint boundaries, 212-test/eight-doctest evidence, unknown-outcome rules and remaining review/production gates.
+
+The [HTTP Claim/cancellation proposal](HTTP-CLAIM-PROPOSAL.md) specifies owner-only atomic admission, claim-based deadlines, retained cancellation/completion and explicit fixture response budgets. It is pending review, with no asynchronous HTTP implementation or production authorization.
