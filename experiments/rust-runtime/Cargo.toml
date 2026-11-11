@@ -12,6 +12,7 @@ milagre-owner-wire = { path = "../rust-owner-wire" }
 milagre-content-store = { path = "../rust-content-store" }
 milagre-ports = { path = "../rust-ports" }
 milagre-terminals = { path = "../rust-terminals" }
+milagre-git-read = { path = "../rust-git" }
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"

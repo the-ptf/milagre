@@ -2,6 +2,7 @@
 //! No live profile, provider execution, Project mutation, or arbitrary Project folder access.
 mod artifacts;
 mod copies;
+mod git;
 mod inbox;
 mod owned;
 mod ports;
@@ -63,6 +64,7 @@ pub struct ReadHandler {
     versions: Mutex<HashMap<String, (String, u64)>>,
     terminals: Option<terminals::TerminalService>,
     artifacts: Option<artifacts::ArtifactService>,
+    git: Option<git::GitService>,
 }
 impl ReadHandler {
     pub fn new(backend: Arc<dyn ReadBackend>, epoch: String) -> Self {
@@ -73,6 +75,7 @@ impl ReadHandler {
             versions: Mutex::new(HashMap::new()),
             terminals: None,
             artifacts: None,
+            git: None,
         }
     }
     fn info(&self, path: &str) -> Result<ProjectInfo, RpcError> {
@@ -214,6 +217,13 @@ impl Handler for ReadHandler {
         if self.artifacts.is_some() {
             methods.extend(artifacts::METHODS.iter().map(|name| (*name).into()));
         }
+        if self.git.is_some() {
+            methods.extend(
+                milagre_git_read::METHODS
+                    .iter()
+                    .map(|method| (*method).into()),
+            );
+        }
         methods.sort();
         methods.dedup();
         methods
@@ -222,6 +232,19 @@ impl Handler for ReadHandler {
         Ok(jsjson::to_string(result))
     }
     fn invoke(&self, method: &str, args: &[Value], context: &ClientContext) -> RpcResult {
+        if milagre_git_read::METHODS.contains(&method) {
+            return self
+                .git
+                .as_ref()
+                .ok_or_else(|| {
+                    RpcError::new(
+                        "UNSUPPORTED_SERVICE",
+                        "Git reads require the isolated Git fixture",
+                    )
+                })?
+                .invoke(method, args, context);
+        }
+
         if milagre_terminals::wire::COMMANDS.contains(&method) {
             return self
                 .terminals
@@ -379,7 +402,15 @@ pub fn start() -> Result<Server, RpcError> {
 pub fn start_owned() -> Result<Server, RpcError> {
     start_mode(true)
 }
+/// Private standalone Git fixture attached to one copied Project. No caller supplies paths.
+pub fn start_owned_git() -> Result<(Server, Value), RpcError> {
+    let (server, metadata) = start_mode_with_git(true, true)?;
+    Ok((server, metadata.expect("Git fixture requested")))
+}
 fn start_mode(owned: bool) -> Result<Server, RpcError> {
+    Ok(start_mode_with_git(owned, false)?.0)
+}
+fn start_mode_with_git(owned: bool, with_git: bool) -> Result<(Server, Option<Value>), RpcError> {
     let profile = IsolatedProfile::create()?;
     // This profile has just been created empty in canonical /tmp. The policy is checked before
     // fixture copies exist, and there is no caller-supplied path or route to a live Project.
@@ -404,6 +435,20 @@ fn start_mode(owned: bool) -> Result<Server, RpcError> {
     let events = Arc::new(Mutex::new(None));
     let terminal_service = terminals::TerminalService::new(backend.clone(), events.clone(), owned)?;
     let mut handler = ReadHandler::new(backend.clone(), epoch);
+    let git_metadata = if with_git {
+        let project = backend
+            .projects()
+            .into_iter()
+            .find(|project| project.name == "alpha")
+            .expect("alpha fixture")
+            .path;
+        let git = git::GitService::new(project, backend.clone())?;
+        let metadata = git.metadata();
+        handler.git = Some(git);
+        Some(metadata)
+    } else {
+        None
+    };
     if let Some(isolation) = content_isolation {
         handler.artifacts = Some(artifacts::ArtifactService::new(
             isolation,
@@ -422,5 +467,5 @@ fn start_mode(owned: bool) -> Result<Server, RpcError> {
         },
     )?;
     *events.lock().unwrap() = Some(server.events());
-    Ok(server)
+    Ok((server, git_metadata))
 }
