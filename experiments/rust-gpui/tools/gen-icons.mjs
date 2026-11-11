@@ -165,6 +165,18 @@ const ICONS = [
   // CheckmarkCircle02, Delete02, Refresh and UserMultiple are in other blocks.
   "Briefcase01",
   "User",
+  // WP-20 Sidebar menus, actions and undo (ChatRow menu, FiltersMenu, ScopeRail, Folder footer). Copy01, GitBranch,
+  // PencilEdit02, Refresh01, Tick02, Circle, GitPullRequest, Link04, Delete02, Undo02, Filter, Laptop, Folder01,
+  // FolderAdd, Clock01, Pulse01, EthernetPort, FileEdit and ArrowRight01 are in other blocks.
+  "Bug01",
+  "FolderOpen",
+  "SourceCode",
+  "Pin",
+  "PinOff",
+  "Unlink04",
+  "View",
+  "PlusMinus01",
+  "SidebarRight01",
 ];
 
 /** The stroke written into every icon file; `src/assets` replaces it for the 12px (1.6) and 18px (2) sizes. */

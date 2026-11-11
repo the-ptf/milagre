@@ -45,7 +45,7 @@ pub struct ScopeData {
 #[derive(Clone, Debug, Default)]
 pub struct SidebarData {
     pub computers: ComputersSnapshot,
-    /// Every visible scope (hidden Projects left out), each computer's in its recent order.
+    /// Every scope, hidden Projects included (the lists leave them out), each computer's in its recent order.
     pub scopes: Vec<ScopeData>,
     /// Every reachable computer's runs, by qualified Chat key.
     pub runs: ChatRuns,
@@ -64,7 +64,8 @@ impl SidebarData {
             let mut runs = Vec::new();
             for computer in computers.ids() {
                 let recent = source.recent_projects(computer.clone()).await.unwrap_or_default();
-                for project in recent.into_iter().filter(|project| !project.hidden) {
+                // Hidden Projects load too: Filters can bring one back, and the lists leave them out.
+                for project in recent {
                     let Ok(read) = source.read_state(project.scope()).await else { continue };
                     let pull_requests = source.pull_requests(project.scope()).await.unwrap_or_default();
                     scopes.push(ScopeData { project, state: read.state, pull_requests });
@@ -251,12 +252,34 @@ pub struct ChatLists {
     pub done: Vec<ListedChat>,
 }
 
+/// What this device keeps that shapes the lists: its pins and what Filters leaves out.
+#[derive(Clone, Debug, Default)]
+pub struct ListFilters {
+    /// This device's pins (`milagre.chatPins`); a scope it has not pinned in yet shows the shared ones.
+    pub pins: DevicePins,
+    /// Computers whose Projects the sidebar leaves out (Filters › Computers).
+    pub hidden_computers: HashSet<String>,
+}
+
 /// The sidebar's lists from its data: the one-list layout's Pinned, All Chats and Done.
 pub fn chat_lists(data: &SidebarData, order: ChatOrder, opened: &HashSet<String>) -> ChatLists {
+    chat_lists_with(data, order, opened, &ListFilters::default())
+}
+
+/// [`chat_lists`] with this device's pins and filters.
+pub fn chat_lists_with(data: &SidebarData, order: ChatOrder, opened: &HashSet<String>, filters: &ListFilters) -> ChatLists {
     let marks = RunMarks(&data.runs);
-    let pins = DevicePins::new();
-    let all: Vec<Vec<ListedChat>> =
-        data.scopes.iter().enumerate().map(|(ix, scope)| scope_chats(ix, scope, order, &marks, &pins)).collect();
+    let all: Vec<Vec<ListedChat>> = data
+        .scopes
+        .iter()
+        .enumerate()
+        .map(|(ix, scope)| {
+            if scope.project.hidden || filters.hidden_computers.contains(scope.project.computer.as_ref()) {
+                return Vec::new();
+            }
+            scope_chats(ix, scope, order, &marks, &filters.pins)
+        })
+        .collect();
     // Chats homes go first, as the desktop passes them to the merge.
     let mut ordered: Vec<&Vec<ListedChat>> = Vec::new();
     ordered.extend(all.iter().filter(|rows| rows.first().is_some_and(|row| data.scopes[row.scope].project.is_chats_home())));

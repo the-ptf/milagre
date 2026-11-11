@@ -16,11 +16,14 @@ use std::cell::Cell;
 use std::ops::Range;
 use std::rc::Rc;
 
-use gpui::{ClickEvent, Context, EventEmitter, FontWeight, HighlightStyle, Rgba, SharedString, StyledText, Window, div, prelude::*, px};
+use gpui::{
+    Bounds, ClickEvent, Context, EventEmitter, FontWeight, HighlightStyle, MouseButton, Pixels, Point, Rgba, SharedString, StyledText,
+    Window, canvas, div, prelude::*, px,
+};
 
 use super::list::{Family, ShownChat, SidebarData, project_label};
 use crate::logic::identity::project_list::project_initial;
-use crate::logic::lists::chat_row::DESKTOP_CHAT_ROW_SHOW;
+use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::marks::{ChatMark, MarkIcon, Tone, chat_mark_presentation};
 use crate::logic::prs::blockers::row_pull_requests;
 use crate::theme::{ActiveTheme, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_10, TEXT_12, TEXT_13, TextStepExt, Theme, hex};
@@ -44,6 +47,10 @@ pub enum RowEvent {
     Clicked,
     /// The family count was clicked: fold or unfold the family.
     ToggleFamily,
+    /// A right press: the row's context menu opens at the pointer.
+    ContextMenu(Point<Pixels>),
+    /// The pointer came onto the row (with the row's bounds in the window) or left it.
+    Hover(Option<Bounds<Pixels>>),
 }
 
 /// What one row shows: the view model the sidebar builds from a listed Chat and its scope.
@@ -70,8 +77,29 @@ pub struct ChatRow {
     pub family: Option<Family>,
 }
 
+/// What the menus need about a row that the row does not show (it stays literal-constructible for the Run Chat's
+/// row in `routines/page.rs`): where its Chat lives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RowMeta {
+    /// Index into `SidebarData::scopes`.
+    pub scope: usize,
+    /// The Chat's number in its scope.
+    pub id: u64,
+}
+
+impl RowMeta {
+    pub fn of(shown: &ShownChat) -> Self {
+        Self { scope: shown.item.scope, id: shown.item.chat.id }
+    }
+}
+
 impl ChatRow {
     pub fn new(shown: &ShownChat, data: &SidebarData) -> Self {
+        Self::with_show(shown, data, DESKTOP_CHAT_ROW_SHOW)
+    }
+
+    /// The row as Filters › Show has it: which facts the second line carries.
+    pub fn with_show(shown: &ShownChat, data: &SidebarData, show: ChatRowShow) -> Self {
         let listed = &shown.item;
         let scope = &data.scopes[listed.scope];
         let project = &scope.project;
@@ -80,8 +108,18 @@ impl ChatRow {
         // A Chat without a Project (the Chats home) shows its own initial.
         let initial = project_initial(if project.is_chats_home() { &title } else { &project.name });
 
-        let show = DESKTOP_CHAT_ROW_SHOW;
         let mut parts = vec![project_label(project).to_string()];
+        let worktree = scope.state.worktree_of(chat);
+        if show.branch
+            && let Some(worktree) = worktree
+        {
+            parts.push(worktree.name.to_string());
+        }
+        if show.linear_issue
+            && let Some(key) = worktree.and_then(|worktree| worktree.linear_issue.as_ref())
+        {
+            parts.push(key.to_string());
+        }
         if show.pull_requests {
             let folder = scope.state.worktree_of(chat).map(|worktree| worktree.path.clone()).unwrap_or_default();
             let refs = chat.summary.as_ref().map(|summary| summary.pull_requests.clone()).unwrap_or_default();
@@ -93,6 +131,16 @@ impl ChatRow {
             if prs.len() > 1 {
                 parts.push(format!("+{}", prs.len() - 1));
             }
+        }
+        if show.diff
+            && let Some(diff) = worktree.and_then(|worktree| worktree.diff.as_ref()).filter(|diff| diff.added > 0 || diff.removed > 0)
+        {
+            parts.push(format!("+{} −{}", diff.added, diff.removed));
+        }
+        if show.last_activity
+            && let Some(at) = listed.last_at
+        {
+            parts.push(since(at));
         }
         let mut offline = None;
         // The computer, only once there are several (`rowComputer`).
@@ -123,19 +171,40 @@ impl ChatRow {
     }
 }
 
+/// How long ago `at` (ms since the epoch) was, as the desktop's second line says it.
+fn since(at: i64) -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
+    crate::logic::lists::chat_row::activity_ago(at as f64, now)
+}
+
 pub struct ChatRowView {
     ix: usize,
     row: ChatRow,
     selected: bool,
     /// Shared with the sidebar: every `render` of any row, to check what a frame rebuilt.
     renders: Rc<Cell<usize>>,
+    /// Where the row was last painted, for the hover card.
+    bounds: Rc<Cell<Bounds<Pixels>>>,
+    /// The row is being renamed: the field takes the title's place.
+    rename: Option<gpui::AnyView>,
 }
 
 impl EventEmitter<RowEvent> for ChatRowView {}
 
 impl ChatRowView {
     pub fn new(ix: usize, row: ChatRow, selected: bool, renders: Rc<Cell<usize>>) -> Self {
-        Self { ix, row, selected, renders }
+        Self { ix, row, selected, renders, bounds: Rc::default(), rename: None }
+    }
+
+    /// The rename field in the title's place, or the title again.
+    pub fn set_rename(&mut self, field: Option<gpui::AnyView>, cx: &mut Context<Self>) {
+        self.rename = field;
+        cx.notify();
+    }
+
+    /// Sets the field a new view starts with (no repaint to ask for yet).
+    pub fn set_rename_silently(&mut self, field: Option<gpui::AnyView>) {
+        self.rename = field;
     }
 
     pub fn set_selected(&mut self, selected: bool, cx: &mut Context<Self>) {
@@ -182,6 +251,20 @@ impl Render for ChatRowView {
                     .when(selected, |el| el.bg(theme.hover2))
                     .when(!selected, |el| el.hover(move |style| style.bg(hover)))
                     .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(RowEvent::Clicked)))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(|_, event: &gpui::MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            cx.emit(RowEvent::ContextMenu(event.position));
+                        }),
+                    )
+                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                        cx.emit(RowEvent::Hover(hovered.then(|| this.bounds.get())));
+                    }))
+                    .child({
+                        let cell = self.bounds.clone();
+                        canvas(move |bounds, _, _| cell.set(bounds), |_, _, _, _| ()).absolute().size_full()
+                    })
                     .child(project_tile(row, &theme))
                     .child(
                         div()
@@ -189,14 +272,16 @@ impl Render for ChatRowView {
                             .flex_col()
                             .flex_1()
                             .min_w_0()
-                            .child(
-                                div()
+                            .child(match &self.rename {
+                                Some(field) => div().h(px(18.0)).child(field.clone()).into_any_element(),
+                                None => div()
                                     .text_step(TEXT_13)
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme.ink)
                                     .truncate()
-                                    .child(row.title.clone()),
-                            )
+                                    .child(row.title.clone())
+                                    .into_any_element(),
+                            })
                             .child(
                                 div().text_step(TEXT_12).font_weight(FontWeight::MEDIUM).text_color(theme.ink3).truncate().child(detail),
                             ),
@@ -209,7 +294,7 @@ impl Render for ChatRowView {
 
 /// A project tile: the project's identity colour, or `field`, with its initial at 600. (The spike's look;
 /// DESIGN.md's default tile is an ink fill, which `ProjectAvatar` draws without `.colors`.)
-fn project_tile(row: &ChatRow, theme: &Theme) -> ProjectAvatar {
+pub(super) fn project_tile(row: &ChatRow, theme: &Theme) -> ProjectAvatar {
     let (fill, ink) = match row.tile {
         Some(color) => (color, hex("#ffffff")),
         None => (theme.field, theme.ink2),
@@ -236,7 +321,7 @@ fn tone_color(tone: Tone, theme: &Theme) -> Rgba {
 /// The trailing mark, as the desktop's `ChatMarkDotInline` draws it from `chat_mark_presentation`: a spinner ring
 /// while running, the background ring with its count, the mark's glyph in its tone when the Chat needs the user or
 /// works on a Delegation, the red dot for an idle Chat whose last turn failed, the accent dot when unread.
-fn status_mark(ix: usize, row: &ChatRow, theme: &Theme) -> gpui::AnyElement {
+pub(super) fn status_mark(ix: usize, row: &ChatRow, theme: &Theme) -> gpui::AnyElement {
     let mark = if row.mark == ChatMark::Idle && row.failed { ChatMark::Failed } else { row.mark };
     let presentation = chat_mark_presentation(mark);
     let color = tone_color(presentation.tone, theme);

@@ -135,6 +135,15 @@ pub enum IconName {
     UserGroup,
     Briefcase01,
     User,
+    Bug01,
+    FolderOpen,
+    SourceCode,
+    Pin,
+    PinOff,
+    Unlink04,
+    View,
+    PlusMinus01,
+    SidebarRight01,
 }
 
 /// Each icon, its Hugeicons name, and its asset path per stroke: 1.6 (12px), 1.8 (14 and 16px), 2 (18px).
@@ -270,4 +279,13 @@ pub(crate) const ICONS: &[(IconName, &str, [&str; 3])] = &[
     (IconName::UserGroup, "UserGroup", ["hugeicons/user-group.svg@1.6", "hugeicons/user-group.svg", "hugeicons/user-group.svg@2"]),
     (IconName::Briefcase01, "Briefcase01", ["hugeicons/briefcase-01.svg@1.6", "hugeicons/briefcase-01.svg", "hugeicons/briefcase-01.svg@2"]),
     (IconName::User, "User", ["hugeicons/user.svg@1.6", "hugeicons/user.svg", "hugeicons/user.svg@2"]),
+    (IconName::Bug01, "Bug01", ["hugeicons/bug-01.svg@1.6", "hugeicons/bug-01.svg", "hugeicons/bug-01.svg@2"]),
+    (IconName::FolderOpen, "FolderOpen", ["hugeicons/folder-open.svg@1.6", "hugeicons/folder-open.svg", "hugeicons/folder-open.svg@2"]),
+    (IconName::SourceCode, "SourceCode", ["hugeicons/source-code.svg@1.6", "hugeicons/source-code.svg", "hugeicons/source-code.svg@2"]),
+    (IconName::Pin, "Pin", ["hugeicons/pin.svg@1.6", "hugeicons/pin.svg", "hugeicons/pin.svg@2"]),
+    (IconName::PinOff, "PinOff", ["hugeicons/pin-off.svg@1.6", "hugeicons/pin-off.svg", "hugeicons/pin-off.svg@2"]),
+    (IconName::Unlink04, "Unlink04", ["hugeicons/unlink-04.svg@1.6", "hugeicons/unlink-04.svg", "hugeicons/unlink-04.svg@2"]),
+    (IconName::View, "View", ["hugeicons/view.svg@1.6", "hugeicons/view.svg", "hugeicons/view.svg@2"]),
+    (IconName::PlusMinus01, "PlusMinus01", ["hugeicons/plus-minus-01.svg@1.6", "hugeicons/plus-minus-01.svg", "hugeicons/plus-minus-01.svg@2"]),
+    (IconName::SidebarRight01, "SidebarRight01", ["hugeicons/sidebar-right-01.svg@1.6", "hugeicons/sidebar-right-01.svg", "hugeicons/sidebar-right-01.svg@2"]),
 ];

@@ -4,18 +4,58 @@
 //! (`visible_providers`), each window's "46% wk" (`format_percent`), the meter filled in the usage tone (`usage_tone`:
 //! orange from 80 %, red from 95 %), and the `Alert02` mark after a provider whose last read failed.
 
-use gpui::{FontWeight, Rgba, div, prelude::*, px};
+use std::cell::Cell;
+use std::rc::Rc;
+
+use gpui::{AnyElement, App, Bounds, FontWeight, Pixels, Rgba, Window, canvas, div, prelude::*, px};
 
 use crate::data::{AccountUsage, UsageSnapshot, UsageStatus};
 use crate::logic::usage::report::{UsageTone, format_percent, usage_tone, visible_providers};
 use crate::theme::{TEXT_12, TEXT_13, TextStepExt, Theme};
-use crate::ui::{Icon, IconName, IconSize, ProviderLogo};
+use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, ProviderLogo};
 
 const DONE_HEIGHT: f32 = 40.0;
 const FOOTER_HEIGHT: f32 = 44.0;
 
-/// Done row, usage block and footer, each under a 1px `line` rule.
-pub fn bottom_group(done_count: usize, usage: &UsageSnapshot, theme: &Theme) -> impl IntoElement + use<> {
+/// A footer button's handler.
+pub type FooterHandler = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// What the footer needs from the sidebar: the Filters button's state and the handlers of its three buttons.
+pub struct Footer {
+    /// The Filters menu is open: its button stays pressed.
+    pub filters_open: bool,
+    /// A dot on the Filters button: orange while a computer is away, accent while a filter is on.
+    pub filters_dot: Option<FiltersDot>,
+    pub on_add_project: FooterHandler,
+    pub on_filters: FooterHandler,
+    /// Where the Filters button is painted, for the menu's backdrop.
+    pub button_bounds: Rc<Cell<Bounds<Pixels>>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FiltersDot {
+    Away,
+    Filtering,
+}
+
+/// The footer's left edge for the first button, and the gap between buttons (`mx-2`, `gap-1`).
+pub const FOOTER_PAD: f32 = 12.0;
+pub const FOOTER_BUTTON: f32 = 32.0;
+pub const FOOTER_GAP: f32 = 4.0;
+/// Where the Filters button's left edge sits.
+pub const FILTERS_LEFT: f32 = FOOTER_PAD + FOOTER_BUTTON + FOOTER_GAP;
+/// The footer's height: the menu opens just above it.
+pub const FOOTER_BAR: f32 = FOOTER_HEIGHT;
+
+/// The Done row, then the toast's slot, the usage block and the footer, each under a 1px `line` rule. The toast hangs
+/// from a zero-height slot between Done and the usage block, so it floats over the usage meters.
+pub fn bottom_group(
+    done_count: usize,
+    usage: &UsageSnapshot,
+    toast: AnyElement,
+    footer: Footer,
+    theme: &Theme,
+) -> impl IntoElement + use<> {
     let rule = || div().flex_none().h(px(1.0)).w_full().bg(theme.line);
     let hover = theme.hover;
     let done = div()
@@ -41,7 +81,28 @@ pub fn bottom_group(done_count: usize, usage: &UsageSnapshot, theme: &Theme) -> 
         .flex_none()
         .py(px(8.0))
         .children(visible_providers(&report).into_iter().map(|row| usage_row(row, theme)));
-    let footer = div()
+    div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .child(rule())
+        .child(done)
+        .child(toast)
+        .child(rule())
+        .child(usage)
+        .child(rule())
+        .child(footer_bar(footer, theme))
+}
+
+/// Add Project and Filters at the left, Settings at the right.
+fn footer_bar(footer: Footer, theme: &Theme) -> impl IntoElement + use<> {
+    let Footer { filters_open, filters_dot, on_add_project, on_filters, button_bounds } = footer;
+    let button = |id: &'static str, icon: IconName| IconButton::new(id, icon).size(IconButtonSize::S32).glyph(IconSize::S16);
+    let dot = filters_dot.map(|dot| {
+        let color = if dot == FiltersDot::Away { theme.orange } else { theme.accent };
+        div().debug_selector(|| "filters-dot".into()).absolute().top(px(4.0)).right(px(4.0)).size(px(6.0)).rounded_full().bg(color)
+    });
+    div()
         .id("sidebar-footer")
         .debug_selector(|| "sidebar-footer".to_string())
         .flex()
@@ -49,17 +110,29 @@ pub fn bottom_group(done_count: usize, usage: &UsageSnapshot, theme: &Theme) -> 
         .items_center()
         .justify_between()
         .h(px(FOOTER_HEIGHT))
-        .px(px(20.0))
-        .child(Icon::new(IconName::FolderAdd).color(theme.ink3))
+        .px(px(FOOTER_PAD))
         .child(
             div()
-                .id("sidebar-settings")
-                .debug_selector(|| "sidebar-settings".to_string())
-                .cursor_pointer()
-                .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::settings::ToggleSettings), cx))
-                .child(Icon::new(IconName::Settings01).color(theme.ink3)),
-        );
-    div().flex().flex_col().flex_none().child(rule()).child(done).child(rule()).child(usage).child(rule()).child(footer)
+                .flex()
+                .items_center()
+                .gap(px(FOOTER_GAP))
+                .child(button("add-project", IconName::FolderAdd).on_click(move |_, window, cx| on_add_project(window, cx)))
+                .child(
+                    div()
+                        .relative()
+                        .child(canvas(move |bounds, _, _| button_bounds.set(bounds), |_, _, _, _| ()).absolute().size_full())
+                        .child(
+                            button("filters", IconName::Filter).pressed(filters_open).on_click(move |_, window, cx| on_filters(window, cx)),
+                        )
+                        .children(dot),
+                ),
+        )
+        .child(
+            div().id("sidebar-settings").debug_selector(|| "sidebar-settings".to_string()).child(
+                button("settings", IconName::Settings01)
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::settings::ToggleSettings), cx)),
+            ),
+        )
 }
 
 const USAGE_ROW_HEIGHT: f32 = 32.0;
