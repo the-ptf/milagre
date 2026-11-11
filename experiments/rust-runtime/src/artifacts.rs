@@ -219,9 +219,11 @@ impl ArtifactService {
         let caller = self
             .caller(chat, true, DesignScope::All, None)
             .map_err(convert)?;
-        let result = self
-            .owner()
-            .and_then(|owner| owner.renderer(&caller, method, request));
+        let result = self.owner().and_then(|owner| {
+            let scope =
+                owner.renderer_scope(&caller.chat_id, &caller.project_id, caller.assert_active)?;
+            owner.renderer(&scope, method, request)
+        });
         if result.as_ref().is_err_and(fatal) {
             self.authority.fail();
         }
