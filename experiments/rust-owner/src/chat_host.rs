@@ -2877,13 +2877,13 @@ impl ChatHost {
         start: Map<String, Value>,
     ) -> TurnId {
         let turn = self.reserve_turn(chat, provider);
-        let state = self.states.current(project).map(|state| state.to_value());
+        // Borrowed in place (its messages shared, not copied): the job copies only the selected Chat's parts.
+        let state = self.states.current(project);
         // Node's lastUserMessage: the last of the Chat's messages before the divider that a person typed.
         let last_user_message = state
             .as_ref()
-            .and_then(|state| state.get("messages")?.as_array())
-            .and_then(|messages| {
-                messages.iter().rev().find(|m| {
+            .and_then(|state| {
+                state.message_list().iter().rev().find(|m| {
                     m.get("session_id").and_then(Value::as_i64) == Some(session)
                         && m.get("id")
                             .and_then(Value::as_f64)
@@ -2922,7 +2922,7 @@ impl ChatHost {
                 chat,
                 turn,
                 TranscriptSource {
-                    state,
+                    state: state.into(),
                     session: session as u64,
                     before: Some(divider as f64),
                     provider: Some(provider),

@@ -61,7 +61,7 @@ fn peak_of<T>(run: impl FnOnce() -> T) -> (T, usize) {
 
 fn source(state: &Value, session: u64) -> TranscriptSource<'_> {
     TranscriptSource {
-        state,
+        state: state.into(),
         session,
         before: None,
         provider: Some("claude"),
@@ -206,4 +206,25 @@ fn transcript_jobs_stay_within_their_byte_bounds() {
         peak < 40 * MIB,
         "a job refusing a 36 MiB transcript allocated {peak} bytes"
     );
+
+    // 8. The owner's in-memory state as the source (what a staged restore uses): a 1 KB Chat beside a 40 MiB one is
+    //    read in place and copied alone, without first turning the Project state into JSON.
+    let project_state = milagre_owner_store::message_store::ProjectState::from_value(&state(&[
+        1_000,
+        MAX_TRANSCRIPT_INPUT_BYTES + 8 * MIB,
+    ]));
+    let in_place = TranscriptSource {
+        state: (&project_state).into(),
+        session: 1,
+        before: None,
+        provider: Some("claude"),
+        catch_up_after: None,
+        clock: CLOCK,
+    };
+    let (job, peak) = peak_of(|| jobs.job(&project, in_place).unwrap());
+    assert!(peak < MIB, "a Project-state source copied {peak} bytes");
+    let id = job.id();
+    drop(job);
+    jobs.take_outcomes();
+    jobs.finish(id);
 }

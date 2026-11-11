@@ -29,6 +29,7 @@ use sha1::{Digest, Sha1};
 use crate::handover::{self, Clock};
 use crate::isolation::Isolation;
 use crate::jsjson;
+use crate::message_store::ProjectState;
 use crate::ownership::RootPin;
 use crate::{Result, StoreError};
 
@@ -51,7 +52,7 @@ pub const MAX_TRANSCRIPT_BUDGET_BYTES: usize = 64 << 20;
 /// What a job renders, borrowed from the owner's state: only the Chat's session, its worktree and its messages before
 /// the handoff's divider are measured, then copied (the session's provider set to the one handed from).
 pub struct TranscriptSource<'a> {
-    pub state: &'a Value,
+    pub state: SourceState<'a>,
     pub session: u64,
     /// Node's `before`: only messages whose id is less than the divider's.
     pub before: Option<f64>,
@@ -60,6 +61,54 @@ pub struct TranscriptSource<'a> {
     /// The message id the brief catches up after.
     pub catch_up_after: Option<Value>,
     pub clock: Clock,
+}
+
+/// The state a job's source borrows: a plain JSON value, or the owner's in-memory Project state (its messages read in
+/// place, nothing copied but the selected Chat's).
+#[derive(Clone, Copy)]
+pub enum SourceState<'a> {
+    Json(&'a Value),
+    Project(&'a ProjectState),
+}
+
+impl<'a> From<&'a Value> for SourceState<'a> {
+    fn from(state: &'a Value) -> Self {
+        SourceState::Json(state)
+    }
+}
+
+impl<'a> From<&'a ProjectState> for SourceState<'a> {
+    fn from(state: &'a ProjectState) -> Self {
+        SourceState::Project(state)
+    }
+}
+
+impl<'a> SourceState<'a> {
+    fn get(&self, key: &str) -> Option<&'a Value> {
+        match self {
+            SourceState::Json(state) => state.get(key),
+            SourceState::Project(state) => state.get(key),
+        }
+    }
+
+    fn session(&self, key: &str) -> Option<&'a Value> {
+        match self {
+            SourceState::Json(state) => state.get("sessions")?.get(key),
+            SourceState::Project(state) => state.sessions()?.get(key),
+        }
+    }
+
+    fn messages(&self) -> Option<Vec<&'a Value>> {
+        match self {
+            SourceState::Json(state) => match state.get("messages") {
+                Some(Value::Array(messages)) => Some(messages.iter().collect()),
+                _ => None,
+            },
+            SourceState::Project(state) => {
+                Some(state.message_list().iter().map(|m| m.value()).collect())
+            }
+        }
+    }
 }
 
 /// What a job owns: the copied part of the state.
@@ -96,8 +145,7 @@ fn take_input(source: &TranscriptSource<'_>, budget: usize) -> Result<Transcript
     let key = source.session.to_string();
     let session_id = Value::from(source.session);
     let session = state
-        .get("sessions")
-        .and_then(|sessions| sessions.get(&key))
+        .session(&key)
         .filter(|session| !jsjson::is_undefined(session))
         .ok_or_else(|| StoreError::Invalid(format!("Chat {key} isn't in the state.")))?;
     let worktree_key = jsjson::property_key(session.get("worktree_id"));
@@ -105,7 +153,7 @@ fn take_input(source: &TranscriptSource<'_>, budget: usize) -> Result<Transcript
         .get("worktrees")
         .and_then(|worktrees| worktrees.as_object())
         .and_then(|worktrees| worktrees.get(&worktree_key));
-    let Some(Value::Array(messages)) = state.get("messages") else {
+    let Some(messages) = state.messages() else {
         return Err(StoreError::Invalid(
             "The state's messages aren't a list.".into(),
         ));

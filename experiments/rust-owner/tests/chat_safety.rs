@@ -1797,10 +1797,11 @@ fn transcript_input_with(
     body: &str,
 ) -> milagre_owner_store::transcripts::TranscriptSource<'static> {
     milagre_owner_store::transcripts::TranscriptSource {
-        state: Box::leak(Box::new(json!({
+        state: (&*Box::leak(Box::new(json!({
             "sessions": { "1": { "title": "T", "provider": "kiro", "worktree_id": 1 } },
             "messages": [{ "id": 1, "session_id": 1, "role": "user", "body": body }],
-        }))),
+        }))))
+            .into(),
         session: 1,
         before: None,
         provider: None,

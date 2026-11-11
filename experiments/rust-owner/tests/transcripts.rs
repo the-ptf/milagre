@@ -74,7 +74,7 @@ fn state() -> Value {
 /// A source over a state that lives for the test (leaked: tests only).
 fn source_of(state: Value, after: Option<Value>) -> TranscriptSource<'static> {
     TranscriptSource {
-        state: Box::leak(Box::new(state)),
+        state: (&*Box::leak(Box::new(state))).into(),
         session: 7,
         before: None,
         provider: None,
