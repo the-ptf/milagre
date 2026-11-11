@@ -663,3 +663,188 @@ fn begin_at_deadline_cancels_installed_worker_without_invocation() {
     assert_eq!(a.observe_fixed(id).unwrap().state, State::TimedOut);
     clean(a);
 }
+
+#[test]
+fn immediate_begin_failures_refund_slots_and_credits_before_returning_no_id() {
+    use crate::policy::persistent::fixed_executor::BeforeBegin;
+    let _disk = crate::synthetic_store::testing_lock();
+    for failure in [BeforeBegin::Cancel, BeforeBegin::Deadline] {
+        let mut p = profile(Default::default());
+        let mut a = resume(
+            &mut p,
+            PersistentLimits {
+                registry: registry::Limits {
+                    idle_ms: 400_000,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        a.open_pairing(1).unwrap();
+        let (h, mut peer, _) = pair(&mut a, 1, 4, 1);
+        let (other, mut peer2, _) = pair(&mut a, 2, 5, 1);
+        let (_, c) = clock();
+        let pool = a.global_pool().unwrap();
+        let baseline = pool.used();
+        for n in 1..=6 {
+            let w = request(&mut a, &h, &mut peer, n, c.now()).remove(0);
+            a.fixed_before_begin(failure);
+            let expected = if matches!(failure, BeforeBegin::Deadline) {
+                Fault::Expired
+            } else {
+                Fault::Stale
+            };
+            assert_eq!(
+                a.start_fixed(w.clone(), Outcome::Success, &c),
+                Err(expected)
+            );
+            assert_eq!(a.fixed_occupied_slots(), 0, "failed Begin returned no Id");
+            assert_eq!(a.fixed_failed_install_stats(), Some((0, 1)));
+            assert_eq!(
+                pool.used(),
+                baseline,
+                "all request, execution and metadata credits returned"
+            );
+            assert_eq!(
+                w.status(),
+                if matches!(failure, BeforeBegin::Deadline) {
+                    WorkStatus::TimedOut
+                } else {
+                    WorkStatus::Cancelled
+                }
+            );
+            assert!(a.start_fixed(w, Outcome::Success, &c).is_err()); // Never restored to Ready.
+            assert!(!a
+                .take_output(&h, c.now(), |_| panic!("failed Begin cannot emit"))
+                .unwrap());
+            let other_work = request(&mut a, &other, &mut peer2, n, c.now()).remove(0);
+            a.finish_request(&other_work, b"null", c.now()).unwrap();
+            assert!(a
+                .take_output(&other, c.now(), |bytes| {
+                    assert_eq!(peer2.open_encoded(bytes).unwrap(), b"null");
+                    Ok(())
+                })
+                .unwrap());
+            assert_eq!(other.status(), CarrierStatus::Active);
+            assert_eq!(pool.used(), baseline);
+        }
+        // Both slots remain admissible after more than two failed starts.
+        let w1 = request(&mut a, &h, &mut peer, 7, c.now()).remove(0);
+        let w2 = request(&mut a, &other, &mut peer2, 7, c.now()).remove(0);
+        let first = a.start_fixed(w1, Outcome::Success, &c).unwrap();
+        let second = a.start_fixed(w2, Outcome::Success, &c).unwrap();
+        assert_eq!(a.fixed_occupied_slots(), 2);
+        for id in [first, second] {
+            if !a.observe_fixed(id).unwrap().joined {
+                joined(&mut a, id, c.now());
+            }
+            a.discard_fixed(id, c.now()).unwrap();
+        }
+        assert_eq!(pool.used(), baseline);
+        clean(a);
+    }
+}
+
+#[test]
+fn immediate_begin_idle_refusal_joins_and_removes_its_unobservable_slot() {
+    use crate::policy::persistent::fixed_executor::BeforeBegin;
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(Default::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    let (h, mut peer, _) = pair(&mut a, 1, 4, 1);
+    let w = request(&mut a, &h, &mut peer, 1, 2).remove(0);
+    let (_, c) = clock();
+    let pool = a.global_pool().unwrap();
+    a.fixed_before_begin(BeforeBegin::Idle);
+    assert_eq!(
+        a.start_fixed(w.clone(), Outcome::Success, &c),
+        Err(Fault::Stale)
+    );
+    assert_eq!(a.fixed_occupied_slots(), 0);
+    assert_eq!(a.fixed_failed_install_stats(), Some((0, 1)));
+    assert_eq!(h.status(), CarrierStatus::Closed(CloseReason::IdleTimeout));
+    assert_eq!(w.status(), WorkStatus::Cancelled);
+    assert_eq!(pool.used(), StoreLimits::default().working_bytes);
+    clean(a);
+}
+
+#[test]
+fn immediate_begin_refusal_preserves_poison_and_panic_abort_after_refunding_slot() {
+    use crate::policy::persistent::fixed_executor::BeforeBegin;
+    let _disk = crate::synthetic_store::testing_lock();
+    for poison in [false, true] {
+        let mut p = profile(Default::default());
+        let mut a = resume(&mut p, Default::default());
+        a.open_pairing(1).unwrap();
+        let (h, mut peer, _) = pair(&mut a, 1, 4, 1);
+        let w = request(&mut a, &h, &mut peer, 1, 2).remove(0);
+        let (_, c) = clock();
+        let pool = a.global_pool().unwrap();
+        a.fixed_before_begin(if poison {
+            BeforeBegin::Poison
+        } else {
+            BeforeBegin::Deadline
+        });
+        assert_eq!(
+            a.start_fixed(
+                w.clone(),
+                if poison {
+                    Outcome::Success
+                } else {
+                    Outcome::PanicBeforeBegin
+                },
+                &c
+            ),
+            Err(Fault::Worker)
+        );
+        assert_eq!(a.fixed_occupied_slots(), 0);
+        assert_eq!(a.fixed_failed_install_stats(), Some((0, 1)));
+        assert_eq!(pool.used(), StoreLimits::default().working_bytes);
+        assert_eq!(w.status(), WorkStatus::Cancelled);
+        assert!(a.start_fixed(w, Outcome::Success, &c).is_err());
+        let revision = a.diagnostics().revision;
+        let (fault, stopped) = a.close_for_restart().err().unwrap().into_parts();
+        assert_eq!(fault, StoreFault::DirtyRun);
+        assert_eq!(stopped.diagnostics().revision, revision);
+        assert!(matches!(p.acquire_writer(), Err(StoreFault::Busy)));
+        stopped.release();
+    }
+}
+
+#[test]
+fn failed_immediate_begin_does_not_cancel_or_join_another_owned_slot() {
+    use crate::policy::persistent::fixed_executor::BeforeBegin;
+    let _disk = crate::synthetic_store::testing_lock();
+    let mut p = profile(Default::default());
+    let mut a = resume(&mut p, Default::default());
+    a.open_pairing(1).unwrap();
+    let (h, mut peer, _) = pair(&mut a, 1, 4, 1);
+    let (other, mut peer2, _) = pair(&mut a, 2, 5, 1);
+    let (_, c) = clock();
+    let other_work = request(&mut a, &other, &mut peer2, 1, 2).remove(0);
+    let running = held(&mut a, other_work.clone(), &c, false);
+    let probe = a.fixed_probe(running);
+    until(|| probe.calls() == 1);
+    let pool = a.global_pool().unwrap();
+    let baseline = pool.used();
+    for n in 1..=6 {
+        let w = request(&mut a, &h, &mut peer, n, 2).remove(0);
+        a.fixed_before_begin(BeforeBegin::Cancel);
+        assert_eq!(
+            a.start_fixed(w.clone(), Outcome::Success, &c),
+            Err(Fault::Stale)
+        );
+        assert_eq!(a.fixed_occupied_slots(), 1);
+        assert_eq!(a.fixed_failed_install_stats(), Some((0, 1)));
+        assert_eq!(pool.used(), baseline);
+        assert_eq!(w.status(), WorkStatus::Cancelled);
+        assert_eq!(other_work.status(), WorkStatus::InFlight);
+        assert!(!probe.cancelled());
+        assert_eq!(probe.joins(), 0);
+    }
+    probe.finish();
+    joined(&mut a, running, 2);
+    assert_eq!(a.observe_fixed(running).unwrap().status, Some(200));
+    clean(a);
+}

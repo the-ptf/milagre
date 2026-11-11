@@ -155,6 +155,8 @@ pub(super) struct Core {
     failed: bool,
     #[cfg(test)]
     failed_install: Option<(usize, usize)>,
+    #[cfg(test)]
+    before_begin: Option<BeforeBegin>,
 }
 impl Core {
     pub(super) fn cancel_device(&mut self, key: &str) {
@@ -405,8 +407,48 @@ impl PersistentAuthority {
         if hooks.defer_begin {
             return Ok(id);
         }
-        self.begin_fixed(id, clock.now())?;
+        #[cfg(test)]
+        self.inject_before_begin(id, clock);
+        let begin_at = clock.now();
+        if let Err(fault) = self.begin_fixed(id, begin_at) {
+            return Err(self.refuse_fixed_begin(index, fault, begin_at));
+        }
         Ok(id)
+    }
+    fn refuse_fixed_begin(&mut self, index: usize, fault: Fault, now: u64) -> Fault {
+        // No Id escaped. Keep the entry owned through cancellation and actual join,
+        // then remove its claimed work and refund the unobservable slot before Err.
+        let entry = self.fixed.entries[index].as_mut().unwrap();
+        entry.cancel(State::Cancelled); // Preserves an already recorded timeout/failure.
+        let joined = entry.join();
+        let uncertain = entry.observation.execution != Execution::NotStarted;
+        #[cfg(test)]
+        {
+            self.fixed.failed_install = Some((
+                entry.worker.signal.calls.load(Ordering::SeqCst),
+                entry.worker.joins.load(Ordering::SeqCst),
+            ));
+        }
+        if !joined || uncertain {
+            self.fixed.failed = true;
+            self.abort_in_place();
+        }
+        let entry = self.fixed.entries[index].take().unwrap();
+        self.registry.as_mut().unwrap().end_claim(
+            &entry.permit,
+            if entry.observation.state == State::TimedOut {
+                registry::WorkStatus::TimedOut
+            } else {
+                registry::WorkStatus::Cancelled
+            },
+            now,
+        );
+        drop(entry); // Metadata is released before the failed start becomes observable.
+        if !joined || uncertain {
+            Fault::Worker
+        } else {
+            fault
+        }
     }
     fn refuse_fixed_worker(&mut self, mut worker: Worker, fault: Fault) -> Fault {
         worker.signal.cancel();
@@ -656,5 +698,43 @@ impl ExitGate {
 impl PersistentAuthority {
     pub(super) fn fixed_failed_install_stats(&self) -> Option<(usize, usize)> {
         self.fixed.failed_install
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(super) enum BeforeBegin {
+    Cancel,
+    Deadline,
+    Idle,
+    Poison,
+}
+#[cfg(test)]
+impl PersistentAuthority {
+    pub(super) fn fixed_before_begin(&mut self, action: BeforeBegin) {
+        self.fixed.before_begin = Some(action);
+        self.fixed.failed_install = None;
+    }
+    pub(super) fn fixed_occupied_slots(&self) -> usize {
+        self.fixed.entries.iter().flatten().count()
+    }
+    fn inject_before_begin(&mut self, id: Id, clock: &Clock) {
+        let Some(action) = self.fixed.before_begin.take() else {
+            return;
+        };
+        match action {
+            BeforeBegin::Cancel => self.fixed.entry(id).unwrap().worker.signal.cancel(),
+            BeforeBegin::Poison => self.fixed_probe(id).poison(),
+            BeforeBegin::Deadline | BeforeBegin::Idle => {
+                let Clock::Manual(manual) = clock else {
+                    panic!("manual fixture clock required");
+                };
+                let now = match action {
+                    BeforeBegin::Deadline => self.fixed.entry(id).unwrap().http_deadline,
+                    _ => clock.now().checked_add(45_000).unwrap(),
+                };
+                manual.advance_to(now).unwrap();
+            }
+        }
     }
 }
