@@ -3268,6 +3268,12 @@ impl ChatHost {
         self.closing.insert(key.clone());
         self.send_next.retain(|chat, _| !in_project(chat));
         self.cancel_preparations(Some(&key));
+        // A turn end kept after a failed fold is the turn's real end: folded (with what waits behind it) before
+        // anything is forced, so a close never replaces it. Only one whose save still fails is forced below.
+        if self.ready.contains(&key) {
+            self.retry_stuck_in(&key);
+            self.release_held(&key);
+        }
         for chat in &busy {
             if let Some(turn) = self.active_turn(chat) {
                 self.force_end(

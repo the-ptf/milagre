@@ -287,7 +287,14 @@ loading keeps its locks and state and leaves it not ready; calling `open_project
 - A turn end kept after a failed fold comes before anything that arrived after it: the open retries the Project's kept
   ends first; a Chat's parked events, and its later events, wait in order behind its kept end until that end folds
   (retried on every `pump`), so a later `Exited` can't turn a completion into a failure. An interrupt's deadline
-  never forces a turn whose end is kept (forcing would replace or drop it). Waiting events count
+  never forces a turn whose end is kept (forcing would replace or drop it).
+- A turn end whose save keeps failing: the turn stays busy (its run open, its queue waiting) and the end is tried
+  again on every `pump`, each failure returned from that `pump`; events after it wait behind it within the parked
+  budget (past it they are dropped and refused). An answer's deadline may settle it `Uncertain` meanwhile; a receipt
+  waiting behind the end then resolves it once the end folds. The only ways out are the save holding again (the end
+  folds once, then what waited, then the queue) or an explicit forced `forget` or quit: those fold kept ends first
+  (when the Project is ready), and only one still failing is ended in memory (told as a failed save of a turn
+  Milagre stopped) with what waited behind it dropped, never replayed. Waiting events count
   against the parked budget; past it a ready Project's new one is dropped and refused.
 - Past the budget the Project whose event didn't fit fails closed (another Project's kept events stay): what was kept for it is dropped (nothing is replayed), the provider
   sessions of its running turns are closed at once, later events for it are dropped, and once `open_project` succeeds

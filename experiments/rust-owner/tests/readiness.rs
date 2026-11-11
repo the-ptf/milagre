@@ -1065,3 +1065,118 @@ fn events_waiting_behind_a_kept_end_are_bounded_while_ready() {
     assert_eq!(c.last_reply()["outcome"], json!("completed"));
     assert_eq!(c.host.parked_for_tests(), (0, 0));
 }
+
+/// A forced close of a Project whose turn end is kept: with saves holding again, the kept completion (then what waited
+/// behind it) folds first and the close replaces nothing; with saves still failing, the close ends the turn in memory
+/// (told) and drops what waited, never replaying it later. A forced quit ends the same way.
+#[test]
+fn a_forced_close_folds_a_kept_end_before_forcing() {
+    for saves_hold in [true, false] {
+        let mut c = copy(false);
+        c.send("one").unwrap();
+        assert!(c.host.pump().is_empty());
+        let chat = c.chat();
+        let turn = c.kiro.current(&chat).unwrap();
+        c.kiro
+            .emit(&chat, json!({ "type": "text-delta", "text": "done" }));
+        assert!(c.host.pump().is_empty());
+        c.host
+            .states
+            .set_commit_failure_for_tests(Some("disk full"));
+        c.kiro.emit(&chat, json!({ "type": "turn-completed" }));
+        c.exited(turn);
+        c.host.pump();
+        assert_eq!(c.host.parked_for_tests().0, 1, "the exit isn't waiting");
+        c.host.take_notices();
+        if saves_hold {
+            c.host.states.set_commit_failure_for_tests(None);
+        }
+        c.host.forget(&c.project, true).unwrap();
+        let notices = c.host.take_notices();
+        assert_eq!(c.host.parked_for_tests(), (0, 0));
+        assert!(c.host.stuck_ends().is_empty());
+        assert!(!c.host.is_busy(&chat));
+        if saves_hold {
+            assert_eq!(
+                Copy::end_types(&notices),
+                vec!["turn-completed"],
+                "{notices:?}"
+            );
+        } else {
+            assert!(
+                notices.iter().any(|n| matches!(n, Notice::Failed { what, .. } if what.contains("turn Milagre stopped"))),
+                "{notices:?}"
+            );
+        }
+        // Nothing is replayed later.
+        c.host.states.set_commit_failure_for_tests(None);
+        c.host.pump();
+        assert!(Copy::end_types(&c.host.take_notices()).is_empty());
+    }
+    // A forced quit with the save still failing completes, nothing left waiting.
+    let mut c = copy(false);
+    c.send("one").unwrap();
+    assert!(c.host.pump().is_empty());
+    let chat = c.chat();
+    let turn = c.kiro.current(&chat).unwrap();
+    c.host
+        .states
+        .set_commit_failure_for_tests(Some("disk full"));
+    c.kiro.emit(&chat, json!({ "type": "turn-completed" }));
+    c.exited(turn);
+    c.host.pump();
+    c.host.shutdown(true).unwrap();
+    assert_eq!(c.host.parked_for_tests(), (0, 0));
+    assert!(!c.host.is_busy(&chat));
+}
+
+/// An answer's deadline passing while its receipt waits behind a kept turn end (it arrived after that end): it
+/// settles `Uncertain` once, and once the end folds the waiting receipt resolves it once, as `Accepted`: the same
+/// outcome as with no deadline (the end settles it `Uncertain`, the later receipt resolves it).
+#[test]
+fn a_receipt_waiting_behind_a_kept_end_resolves_its_answer_once() {
+    let mut c = copy(false);
+    c.send("one").unwrap();
+    assert!(c.host.pump().is_empty());
+    c.ask("q1");
+    let answer = c.answer("q1");
+    let chat = c.chat();
+    c.kiro
+        .emit(&chat, json!({ "type": "text-delta", "text": "done" }));
+    assert!(c.host.pump().is_empty());
+    c.host
+        .states
+        .set_commit_failure_for_tests(Some("disk full"));
+    c.kiro.emit(&chat, json!({ "type": "turn-completed" }));
+    c.kiro.push(ProviderEvent::AnswerSettled {
+        chat: chat.clone(),
+        answer,
+        outcome: AnswerOutcome::Accepted,
+    });
+    c.host.pump();
+    assert_eq!(c.host.stuck_ends(), vec![chat.clone()]);
+    assert_eq!(c.host.parked_for_tests().0, 1);
+    c.host.take_notices();
+    c.host
+        .tick(c.host.states.now() + c.host.answer_grace_ms + 1);
+    c.host.states.set_commit_failure_for_tests(None);
+    assert!(c.host.pump().is_empty());
+    let notices = c.host.take_notices();
+    let settled = Copy::settlements(&notices, answer);
+    assert!(
+        matches!(settled.as_slice(), [AnswerResult::Uncertain(_)]),
+        "{settled:?}"
+    );
+    let resolved: Vec<&AnswerResult> = notices
+        .iter()
+        .filter_map(|n| match n {
+            Notice::AnswerResolved {
+                answer: a, result, ..
+            } if *a == answer => Some(result),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(resolved, vec![&AnswerResult::Accepted]);
+    assert_eq!(c.host.answers_in_flight(), 0);
+    assert_eq!(Copy::end_types(&notices), vec!["turn-completed"]);
+}
