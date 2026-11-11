@@ -1,27 +1,29 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// Errors from the read-only repositories. `Display` repeats the daemon's message where Node has a fixed one, so a
-/// command answered by Rust fails with the text a client already shows.
+/// Errors from the repositories. `Display` repeats the daemon's message where Node has a fixed one, so a command
+/// answered by Rust fails with the text a client already shows.
 #[derive(Debug)]
 pub enum StoreError {
-    /// A file read failed. `code` is Node's `error.code` (ENOENT, EACCES, …) when it maps to one.
+    /// A file operation failed. `code` is Node's `error.code` (ENOENT, EACCES, …) when it maps to one; `dest` is the
+    /// second path of a rename or link, which Node's message names too.
     Io {
         code: Option<&'static str>,
         syscall: &'static str,
         path: PathBuf,
+        dest: Option<PathBuf>,
         message: String,
     },
     /// coordination.json points at chats.db, which is gone (project-store.cjs readProjectState).
     MissingChatsDb(PathBuf),
-    /// coordination.json or a chats.db payload isn't JSON serde can read (see README: lone surrogates).
+    /// coordination.json, a sidecar or a chats.db payload isn't JSON.
     Json {
         context: String,
         message: String,
     },
     Sqlite(String),
-    /// A rollback journal or WAL next to chats.db: a writer was mid-transaction when this copy was taken. An immutable
-    /// read would see half of it, and a recovery would write, so the read is refused.
+    /// A rollback journal or WAL next to chats.db while reading read-only: a writer was mid-transaction when this
+    /// copy was taken. An immutable read would see half of it, and a recovery would write, so the read is refused.
     HotJournal(PathBuf),
     /// chat-db.cjs findRow: `Messages can't be looked up by ${field}`.
     BadLookup(String),
@@ -31,26 +33,58 @@ pub enum StoreError {
     BadSendStatus,
     /// A value a command can't take (not from Node; Node would coerce or throw a TypeError).
     Invalid(String),
+    /// project-content.cjs writeContent: a content-addressed file exists with other bytes.
+    ContentMismatch(PathBuf),
+    /// An owner lock already exists. Never taken over here, whatever its state (see ownership.rs).
+    LockRefused {
+        lock: PathBuf,
+        state: &'static str,
+        owner: Option<String>,
+    },
+    /// ownership.cjs release: the lock's owner record holds another token.
+    OwnershipChanged(PathBuf),
+    /// A write outside an isolated copy, or an isolated copy that isn't safe to write (see isolation.rs).
+    NotIsolated(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
 
+fn node_code(error: &std::io::Error) -> Option<&'static str> {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => Some("ENOENT"),
+        std::io::ErrorKind::PermissionDenied => Some("EACCES"),
+        std::io::ErrorKind::AlreadyExists => Some("EEXIST"),
+        _ => match error.raw_os_error() {
+            Some(libc::EISDIR) => Some("EISDIR"),
+            Some(libc::ENOTDIR) => Some("ENOTDIR"),
+            Some(libc::ELOOP) => Some("ELOOP"),
+            Some(libc::ENOTEMPTY) => Some("ENOTEMPTY"),
+            Some(libc::EPERM) => Some("EPERM"),
+            Some(libc::EXDEV) => Some("EXDEV"),
+            Some(libc::ENOSPC) => Some("ENOSPC"),
+            _ => None,
+        },
+    }
+}
+
 impl StoreError {
     pub fn io(error: std::io::Error, syscall: &'static str, path: &Path) -> Self {
-        let code = match error.kind() {
-            std::io::ErrorKind::NotFound => Some("ENOENT"),
-            std::io::ErrorKind::PermissionDenied => Some("EACCES"),
-            _ => match error.raw_os_error() {
-                Some(libc::EISDIR) => Some("EISDIR"),
-                Some(libc::ENOTDIR) => Some("ENOTDIR"),
-                Some(libc::ELOOP) => Some("ELOOP"),
-                _ => None,
-            },
-        };
         StoreError::Io {
-            code,
+            code: node_code(&error),
             syscall,
             path: path.to_path_buf(),
+            dest: None,
+            message: error.to_string(),
+        }
+    }
+
+    /// A two-path operation (rename, link), named like Node: `CODE: text, rename 'a' -> 'b'`.
+    pub fn io2(error: std::io::Error, syscall: &'static str, path: &Path, dest: &Path) -> Self {
+        StoreError::Io {
+            code: node_code(&error),
+            syscall,
+            path: path.to_path_buf(),
+            dest: Some(dest.to_path_buf()),
             message: error.to_string(),
         }
     }
@@ -67,21 +101,36 @@ impl StoreError {
 impl fmt::Display for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            StoreError::Io { code: Some(code), syscall, path, .. } => {
-                let text = match *code {
-                    "ENOENT" => "no such file or directory",
-                    "EACCES" => "permission denied",
-                    "EISDIR" => "illegal operation on a directory",
-                    "ENOTDIR" => "not a directory",
-                    "ELOOP" => "too many symbolic links encountered",
-                    other => other,
-                };
-                write!(f, "{code}: {text}, {syscall} '{}'", path.display())
+            StoreError::Io { code, syscall, path, dest, message } => {
+                match code {
+                    Some(code) => {
+                        let text = match *code {
+                            "ENOENT" => "no such file or directory",
+                            "EACCES" => "permission denied",
+                            "EEXIST" => "file already exists",
+                            "EISDIR" => "illegal operation on a directory",
+                            "ENOTDIR" => "not a directory",
+                            "ELOOP" => "too many symbolic links encountered",
+                            "ENOTEMPTY" => "directory not empty",
+                            "EPERM" => "operation not permitted",
+                            "EXDEV" => "cross-device link not permitted",
+                            "ENOSPC" => "no space left on device",
+                            other => other,
+                        };
+                        write!(f, "{code}: {text}, {syscall} '{}'", path.display())?;
+                    }
+                    None => write!(f, "{message}, {syscall} '{}'", path.display())?,
+                }
+                if let Some(dest) = dest {
+                    write!(f, " -> '{}'", dest.display())?;
+                }
+                Ok(())
             }
-            StoreError::Io { code: None, syscall, path, message } => write!(f, "{message}, {syscall} '{}'", path.display()),
-            StoreError::MissingChatsDb(path) => {
-                write!(f, "This Project's messages are kept in {}, which is missing.", path.display())
-            }
+            StoreError::MissingChatsDb(path) => write!(
+                f,
+                "This Project's messages are kept in {}, which is missing.",
+                path.display()
+            ),
             StoreError::Json { context, message } => write!(f, "{context}: {message}"),
             StoreError::Sqlite(message) => write!(f, "{message}"),
             StoreError::HotJournal(path) => write!(
@@ -93,6 +142,36 @@ impl fmt::Display for StoreError {
             StoreError::MessageGone => write!(f, "That message is no longer in this Project."),
             StoreError::BadSendStatus => write!(f, "Choose an open Chat and message identity."),
             StoreError::Invalid(message) => write!(f, "{message}"),
+            StoreError::ContentMismatch(_) => {
+                write!(f, "Stored Project content does not match its reference")
+            }
+            StoreError::LockRefused { lock, state, owner } => {
+                let record = lock.join("owner.json");
+                match *state {
+                    "stale" => write!(
+                        f,
+                        "Milagre state is owned by a process that has exited ({}). This owner never takes a lock over: verify the process in {} has exited, then remove {} yourself.",
+                        owner.as_deref().unwrap_or("no record"),
+                        record.display(),
+                        lock.display()
+                    ),
+                    "abandoned" => write!(
+                        f,
+                        "Milagre state has an empty owner lock left by a crash. This owner never takes a lock over: remove {} yourself after checking no runtime is starting.",
+                        lock.display()
+                    ),
+                    _ => write!(
+                        f,
+                        "Milagre state is already owned. Close its other runtime. If it crashed, verify the process in {} has exited before removing {}.",
+                        record.display(),
+                        lock.display()
+                    ),
+                }
+            }
+            StoreError::OwnershipChanged(lock) => {
+                write!(f, "Milagre ownership changed: {}", lock.display())
+            }
+            StoreError::NotIsolated(message) => write!(f, "{message}"),
         }
     }
 }
@@ -101,6 +180,9 @@ impl std::error::Error for StoreError {}
 
 impl From<rusqlite::Error> for StoreError {
     fn from(error: rusqlite::Error) -> Self {
-        StoreError::Sqlite(error.to_string())
+        match error {
+            rusqlite::Error::SqliteFailure(_, Some(message)) => StoreError::Sqlite(message),
+            other => StoreError::Sqlite(other.to_string()),
+        }
     }
 }

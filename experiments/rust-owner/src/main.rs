@@ -15,6 +15,8 @@ use std::process::ExitCode;
 use milagre_owner_store::audit::{audit, AuditOptions};
 use milagre_owner_store::jsjson;
 use milagre_owner_store::ownership::{self, LockState, SystemProbe};
+use milagre_owner_store::write::{ProjectStateWriter, SaveOptions};
+use milagre_owner_store::{Isolation, OwnedProject, Policy};
 use milagre_owner_store::{
     MessageRepository, PageOptions, ProjectReader, ProjectRepository, ProjectStore,
 };
@@ -24,7 +26,12 @@ const USAGE: &str = "usage:
   milagre-owner-store audit <copied-dir> [--allow-copied-lock] [--json]
   milagre-owner-store read <copied-project> state | chat:messages <chatId> [--before <id>] [--turns <n>] [--limit <n>]
                                             | chat:message <id> | chat:send-status <clientMessageId> | previews <chatId>...
-  [--allow-copied-lock] also applies to read.";
+  [--allow-copied-lock] also applies to read.
+
+Writes, only inside an isolated copy folder (a MILAGRE-ISOLATED-COPY marker; Milagre's folders and known Projects refused):
+  milagre-owner-store prepare-copy <source-project> <new-empty-dir> [<name>]   copy a Project's .milagre (no lock) in
+  milagre-owner-store save <isolated-dir> <name> <state.json> [--durable] [--unloaded <id,id>]
+  milagre-owner-store rewrite <isolated-dir> <name>                            read as owner, save the same state back";
 
 fn number(text: &str) -> Result<Value, String> {
     serde_json::from_str::<Value>(text)
@@ -183,6 +190,62 @@ fn run() -> Result<(), String> {
                 other => return Err(format!("unknown read: {other}\n{USAGE}")),
             };
             println!("{output}");
+            Ok(())
+        }
+        Some("prepare-copy") if args.len() == 3 || args.len() == 4 => {
+            let source = PathBuf::from(&args[1]);
+            let name = args.get(3).cloned().unwrap_or_else(|| {
+                source
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "project".into())
+            });
+            let isolation = Isolation::create(&PathBuf::from(&args[2]), &Policy::system())
+                .map_err(|e| e.to_string())?;
+            let copy = isolation
+                .copy_project(&source, &name)
+                .map_err(|e| e.to_string())?;
+            println!("{}", copy.display());
+            Ok(())
+        }
+        Some("save") if args.len() >= 4 => {
+            let durable = flag(&mut args, "--durable");
+            let unloaded = option(&mut args, "--unloaded")?
+                .map(|list| {
+                    list.split(',')
+                        .map(|id| id.trim().parse::<i64>().map_err(|e| e.to_string()))
+                        .collect::<Result<_, _>>()
+                })
+                .transpose()?
+                .unwrap_or_default();
+            let isolation = Isolation::open(&PathBuf::from(&args[1]), &Policy::system())
+                .map_err(|e| e.to_string())?;
+            let state = jsjson::parse_bytes(&std::fs::read(&args[3]).map_err(|e| e.to_string())?)?;
+            let mut owner = OwnedProject::open(&isolation, std::path::Path::new(&args[2]))
+                .map_err(|e| e.to_string())?;
+            let options = SaveOptions {
+                durable,
+                unloaded,
+                ..Default::default()
+            };
+            let report = owner
+                .save_project_state(&state, &options)
+                .map_err(|e| e.to_string());
+            owner.release().map_err(|e| e.to_string())?;
+            println!("{}", jsjson::to_string(&report?.to_value()));
+            Ok(())
+        }
+        Some("rewrite") if args.len() == 3 => {
+            let isolation = Isolation::open(&PathBuf::from(&args[1]), &Policy::system())
+                .map_err(|e| e.to_string())?;
+            let mut owner = OwnedProject::open(&isolation, std::path::Path::new(&args[2]))
+                .map_err(|e| e.to_string())?;
+            let report = owner
+                .load()
+                .and_then(|read| owner.save_project_state(&read.state, &SaveOptions::default()))
+                .map_err(|e| e.to_string());
+            owner.release().map_err(|e| e.to_string())?;
+            println!("{}", jsjson::to_string(&report?.to_value()));
             Ok(())
         }
         _ => Err(USAGE.into()),

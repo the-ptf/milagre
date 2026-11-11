@@ -87,7 +87,7 @@ pub fn is_marker(value: Option<&Value>) -> bool {
     matches!(value, Some(Value::Object(map)) if map.get("storedIn") == Some(&Value::String("chats.db".into())))
 }
 
-fn is_sidecar_name(name: &str) -> bool {
+pub(crate) fn is_sidecar_name(name: &str) -> bool {
     name.len() == 69
         && name.ends_with(".json")
         && name[..64]
@@ -95,12 +95,12 @@ fn is_sidecar_name(name: &str) -> bool {
             .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
 /// project-content.cjs `inside(root, target)`.
-fn inside(root: &Path, target: &Path) -> bool {
+pub(crate) fn inside(root: &Path, target: &Path) -> bool {
     target == root || target.starts_with(root)
 }
 
@@ -178,13 +178,22 @@ pub fn is_pr_command(text: &str) -> bool {
     false
 }
 
-const INLINE_DETAIL: usize = 1024;
+pub(crate) const INLINE_DETAIL: usize = 1024;
 
 impl ProjectStore {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         let root = root.into();
         ProjectStore {
             chats: ChatDb::new(root.clone()),
+            root,
+        }
+    }
+
+    /// The store as the Project's owner reads it: chats.db opened read-write like Node (see `owner.rs`).
+    pub(crate) fn owned(root: impl Into<PathBuf>) -> Self {
+        let root = root.into();
+        ProjectStore {
+            chats: ChatDb::owned(root.clone()),
             root,
         }
     }
@@ -212,7 +221,7 @@ impl ProjectStore {
     }
 
     /// A content-addressed sidecar's bytes, checked like Node: realpath inside the folder, sha256 matches the name.
-    fn read_sidecar(directory: &Path, name: &str) -> Option<Vec<u8>> {
+    pub(crate) fn read_sidecar(directory: &Path, name: &str) -> Option<Vec<u8>> {
         let file = std::fs::canonicalize(directory.join(name)).ok()?;
         if !inside(directory, &file) {
             return None;
@@ -228,14 +237,14 @@ impl ProjectStore {
         }
         let directory = self.content_directory("details")?;
         let bytes = Self::read_sidecar(&directory, name)?;
-        match serde_json::from_slice::<Value>(&bytes).ok()? {
+        match jsjson::parse_bytes(&bytes).ok()? {
             Value::Object(map) if map.values().all(Value::is_string) => Some(map),
             _ => None,
         }
     }
 
     /// withoutSuggestions: suggestions belong to the live provider query and are dropped on read.
-    fn without_suggestions(state: &mut Value) {
+    pub(crate) fn without_suggestions(state: &mut Value) {
         let Some(Value::Object(sessions)) = state.get_mut("sessions") else {
             return;
         };
@@ -303,23 +312,21 @@ impl ProjectStore {
                     let transcript = folder
                         .as_deref()
                         .and_then(|dir| Self::read_sidecar(dir, name))
-                        .and_then(
-                            |bytes| match serde_json::from_slice::<Value>(&bytes).ok()? {
-                                Value::Array(rows)
-                                    if rows.iter().all(|row| {
-                                        row.get("id").is_some_and(Value::is_string)
-                                            && row.get("text").is_some_and(Value::is_string)
-                                            && matches!(
-                                                row.get("kind").and_then(Value::as_str),
-                                                Some("message" | "tool")
-                                            )
-                                    }) =>
-                                {
-                                    Some(rows)
-                                }
-                                _ => None,
-                            },
-                        );
+                        .and_then(|bytes| match jsjson::parse_bytes(&bytes).ok()? {
+                            Value::Array(rows)
+                                if rows.iter().all(|row| {
+                                    row.get("id").is_some_and(Value::is_string)
+                                        && row.get("text").is_some_and(Value::is_string)
+                                        && matches!(
+                                            row.get("kind").and_then(Value::as_str),
+                                            Some("message" | "tool")
+                                        )
+                                }) =>
+                            {
+                                Some(rows)
+                            }
+                            _ => None,
+                        });
                     match transcript {
                         Some(rows) => merge(&mut entries, &rows),
                         None => missing.push(Value::String(name.clone())),
@@ -367,7 +374,7 @@ impl ProjectStore {
             if step.get("status").and_then(Value::as_str) == Some("running") {
                 return false;
             }
-            let keeps = detail.encode_utf16().count() <= INLINE_DETAIL
+            let keeps = jsjson::utf16_len(detail) <= INLINE_DETAIL
                 || index as i64 == thought
                 || (step.get("kind").and_then(Value::as_str) == Some("shell")
                     && is_pr_command(detail));
@@ -434,11 +441,10 @@ impl ProjectStore {
 impl ProjectRepository for ProjectStore {
     fn read_raw(&self) -> Result<Value> {
         let file = state_file(&self.root);
-        let text =
-            std::fs::read_to_string(&file).map_err(|error| StoreError::io(error, "open", &file))?;
-        serde_json::from_str(&text).map_err(|error| StoreError::Json {
+        let bytes = std::fs::read(&file).map_err(|error| StoreError::io(error, "open", &file))?;
+        jsjson::parse_bytes(&bytes).map_err(|message| StoreError::Json {
             context: file.display().to_string(),
-            message: error.to_string(),
+            message,
         })
     }
 

@@ -155,7 +155,23 @@ pub trait MessageRepository {
 #[derive(Clone, Debug)]
 pub struct ChatDb {
     project: PathBuf,
+    /// Opened read-write like Node (schema ensured, a hot journal rolled back). Only an owner gets one.
+    owned: bool,
 }
+
+/// chat-db.cjs SCHEMA, verbatim.
+pub(crate) const SCHEMA: &str = "
+  CREATE TABLE IF NOT EXISTS messages (
+    id NOT NULL UNIQUE,
+    session_id INTEGER,
+    position INTEGER NOT NULL,
+    client_message_id TEXT,
+    operation_id TEXT,
+    payload TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS messages_session ON messages (session_id, position);
+  CREATE INDEX IF NOT EXISTS messages_position ON messages (position);
+";
 
 enum Opened {
     Missing,
@@ -190,7 +206,7 @@ pub fn sql_value(value: ValueRef<'_>) -> Value {
         ValueRef::Null => Value::Null,
         ValueRef::Integer(integer) => Value::from(integer),
         ValueRef::Real(real) => jsjson::number(real),
-        ValueRef::Text(text) => Value::String(String::from_utf8_lossy(text).into_owned()),
+        ValueRef::Text(text) => Value::String(jsjson::js_string(&String::from_utf8_lossy(text))),
         // node:sqlite gives a Uint8Array; JSON.stringify writes it as an index-keyed object.
         ValueRef::Blob(bytes) => Value::Object(
             bytes
@@ -203,36 +219,79 @@ pub fn sql_value(value: ValueRef<'_>) -> Value {
 }
 
 fn parse_payload(payload: &str, id: &Value) -> Result<Value> {
-    serde_json::from_str(payload).map_err(|error| StoreError::Json {
+    jsjson::parse(payload).map_err(|message| StoreError::Json {
         context: format!("chats.db row {}", jsjson::to_string(id)),
-        message: error.to_string(),
+        message,
     })
 }
 
-/// A value bound the way node:sqlite binds a JavaScript value: numbers (as doubles; SQLite compares them with stored
-/// integers numerically), strings, null.
-fn bindable(value: &Value) -> Result<rusqlite::types::Value> {
+/// A value bound the way node:sqlite binds a JavaScript value: every number as a double (REAL; an INTEGER column's
+/// affinity turns an integral one back into an integer), a string as UTF-8 with unpaired surrogates as U+FFFD, null.
+/// Anything else fails as node:sqlite fails (`parameter` counts from 1). node:sqlite reads an object in the first
+/// position as named parameters and fails differently; that case is reported the same way here.
+pub(crate) fn bind_js(value: &Value, parameter: usize) -> Result<rusqlite::types::Value> {
     Ok(match value {
         Value::Null => rusqlite::types::Value::Null,
-        Value::Number(number) => match number.as_i64() {
-            Some(integer) => rusqlite::types::Value::Integer(integer),
-            None => rusqlite::types::Value::Real(jsjson::as_f64(number)),
-        },
-        Value::String(text) => rusqlite::types::Value::Text(text.clone()),
-        other => {
-            return Err(StoreError::Invalid(format!(
-                "node:sqlite can't bind {}",
-                jsjson::to_string(other)
+        Value::Number(number) => rusqlite::types::Value::Real(jsjson::as_f64(number)),
+        Value::String(text) => {
+            rusqlite::types::Value::Text(jsjson::to_sqlite_text(text).into_owned())
+        }
+        _ => {
+            return Err(StoreError::Sqlite(format!(
+                "Provided value cannot be bound to SQLite parameter {parameter}."
             )))
         }
     })
+}
+
+/// SQLite text as node:sqlite returns it: invalid UTF-8 as U+FFFD.
+pub(crate) fn text_of(value: ValueRef<'_>) -> Result<String> {
+    match value {
+        ValueRef::Text(text) | ValueRef::Blob(text) => {
+            Ok(String::from_utf8_lossy(text).into_owned())
+        }
+        other => Err(StoreError::Sqlite(format!(
+            "expected text, found {:?}",
+            other.data_type()
+        ))),
+    }
 }
 
 impl ChatDb {
     pub fn new(project: impl Into<PathBuf>) -> Self {
         ChatDb {
             project: project.into(),
+            owned: false,
         }
+    }
+
+    /// The database as its owner opens it (see `owner.rs`): read-write, like Node.
+    pub(crate) fn owned(project: impl Into<PathBuf>) -> Self {
+        ChatDb {
+            project: project.into(),
+            owned: true,
+        }
+    }
+
+    /// Opens (creating `.milagre/` and the file when `create`) read-write with the schema, as chat-db.cjs `open`
+    /// does: node:sqlite's defaults, so no busy timeout. Owner only.
+    pub(crate) fn open_writable(&self, create: bool) -> Result<Option<Connection>> {
+        let file = self.file();
+        if create {
+            let folder = file.parent().expect("inside .milagre");
+            std::fs::create_dir_all(folder)
+                .map_err(|error| StoreError::io(error, "mkdir", folder))?;
+        } else if !file.exists() {
+            return Ok(None);
+        }
+        let mut flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        if create {
+            flags |= OpenFlags::SQLITE_OPEN_CREATE;
+        }
+        let connection = Connection::open_with_flags(&file, flags)?;
+        connection.busy_timeout(std::time::Duration::ZERO)?;
+        connection.execute_batch(SCHEMA)?;
+        Ok(Some(connection))
     }
 
     pub fn file(&self) -> PathBuf {
@@ -244,6 +303,12 @@ impl ChatDb {
     }
 
     fn open(&self) -> Result<Opened> {
+        if self.owned {
+            return Ok(match self.open_writable(false)? {
+                Some(connection) => Opened::Open(connection),
+                None => Opened::Missing,
+            });
+        }
         let file = self.file();
         match std::fs::metadata(&file) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -304,7 +369,7 @@ impl ChatDb {
         while let Some(row) = rows.next()? {
             let chat = sql_value(row.get_ref(0)?);
             let position = sql_value(row.get_ref(1)?);
-            let payload: String = row.get(2)?;
+            let payload = text_of(row.get_ref(2)?)?;
             out.push(Row {
                 message: parse_payload(&payload, &position)?,
                 position,
@@ -320,7 +385,7 @@ impl ChatDb {
         if value.is_null() {
             return Ok(None);
         }
-        let bound = bindable(value)?;
+        let bound = bind_js(value, 1)?;
         self.with(
             || None,
             || None,
@@ -439,7 +504,7 @@ impl MessageRepository for ChatDb {
                     Value::String(text) => text,
                     other => jsjson::to_string(&other),
                 };
-                let mut body_utf16: Vec<u16> = body.encode_utf16().collect();
+                let mut body_utf16: Vec<u16> = jsjson::to_utf16(&body);
                 body_utf16.truncate(240);
                 out.push(Preview { session_id, body_utf16 });
             }
@@ -520,7 +585,7 @@ impl MessageRepository for ChatDb {
         if chats.is_empty() {
             return Ok(None);
         }
-        let bound = bindable(value)?;
+        let bound = bind_js(value, 1)?;
         self.with(
             || None,
             || None,

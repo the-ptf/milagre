@@ -9,15 +9,16 @@ use milagre_owner_store::chat_db::{ChatId, LookupField, MessageRepository};
 use milagre_owner_store::commands::{chat_page, PageOptions, ProjectReader};
 use milagre_owner_store::jsjson;
 use milagre_owner_store::project::{ProjectRepository, ProjectStore};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-const PROJECTS: [&str; 6] = [
+const PROJECTS: [&str; 7] = [
     "alpha",
     "legacy",
     "legacy-compact",
     "missing-db",
     "missing-sidecar",
+    "surrogates",
     "empty",
 ];
 /// Node-only: which Chats ProjectStates unloads from memory after a read. The Rust readers keep nothing in memory.
@@ -30,10 +31,17 @@ fn fixtures() -> PathBuf {
 fn expected(project: &str) -> BTreeMap<String, String> {
     let text = std::fs::read_to_string(fixtures().join("expected").join(format!("{project}.json")))
         .unwrap();
-    let cases: Map<String, Value> = serde_json::from_str(&text).unwrap();
+    // jsjson::parse: a case name can hold an unpaired surrogate (sendStatus of such a clientMessageId).
+    let Value::Object(cases) = jsjson::parse(&text).unwrap() else {
+        panic!("expected an object")
+    };
     cases
         .into_iter()
-        .map(|(key, value)| (key, value.as_str().unwrap().to_string()))
+        // The recorded JSON texts escape every unpaired surrogate, so they decode to plain Rust text.
+        .map(|(key, value)| {
+            let text = String::from_utf16(&jsjson::to_utf16(value.as_str().unwrap())).unwrap();
+            (key, text)
+        })
         .collect()
 }
 
@@ -271,6 +279,18 @@ fn rust_reads_match_node_for_every_recorded_case() {
                 .unwrap_or_else(|| panic!("{project}: no Rust answer for recorded case {case}"));
             compared += 1;
             if rust != node {
+                let at = rust
+                    .bytes()
+                    .zip(node.bytes())
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(0);
+                let from = rust[..at]
+                    .char_indices()
+                    .map(|(i, _)| i)
+                    .rfind(|i| *i + 120 <= at)
+                    .unwrap_or(0);
+                let node = &node[from.min(node.len())..];
+                let rust = &rust[from..];
                 failures.push(format!(
                     "{project} {case}\n  node: {}\n  rust: {}",
                     &node[..node.len().min(400)],

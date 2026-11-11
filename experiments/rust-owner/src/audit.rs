@@ -228,7 +228,7 @@ pub fn audit_project(project: &Path, display: &str, probe: &dyn ProcessProbe) ->
             let position = sql_value(row.get_ref(2)?);
             let client = sql_value(row.get_ref(3)?);
             let operation = sql_value(row.get_ref(4)?);
-            let payload: String = row.get(5)?;
+            let payload = crate::chat_db::text_of(row.get_ref(5)?)?;
             stats.rows += 1;
             match &position {
                 Value::Number(number) if number.is_i64() => {
@@ -243,10 +243,10 @@ pub fn audit_project(project: &Path, display: &str, probe: &dyn ProcessProbe) ->
                 Some(chat_id) => *stats.per_chat.entry(chat_id).or_default() += 1,
                 None => stats.null_session += 1,
             }
-            let message: Value = match serde_json::from_str(&payload) {
+            let message: Value = match jsjson::parse(&payload) {
                 Ok(message) => message,
                 Err(error) => {
-                    stats.unparsable.push(json!({ "id": id, "error": error.to_string() }));
+                    stats.unparsable.push(json!({ "id": id, "error": error }));
                     continue;
                 }
             };

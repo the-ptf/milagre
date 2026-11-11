@@ -173,6 +173,175 @@ pub fn project_lock(project: &Path) -> PathBuf {
     project.join(".milagre").join("runtime.lock")
 }
 
+/// A random RFC 4122 version 4 id, like `crypto.randomUUID()`.
+pub fn random_uuid() -> String {
+    let mut bytes = [0u8; 16];
+    use std::io::Read;
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(&mut bytes))
+        .expect("/dev/urandom");
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let hex = hex::encode(bytes);
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
+/// `new Date(ms).toISOString()`.
+pub fn iso(ms: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(ms)
+        .expect("valid time")
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string()
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|time| time.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// The Rust owner lock: ownership.cjs acquireOwnership's format and release, without its takeover. Any existing lock
+/// (live, stale, abandoned or unreadable) is refused with what [`inspect`] makes of it; removing a dead owner's lock
+/// stays an operator's decision.
+pub struct RustOwnerLock;
+
+/// A held lock. Released by [`OwnerGuard::release`] or, best effort, when dropped.
+#[derive(Debug)]
+pub struct OwnerGuard {
+    lock: PathBuf,
+    token: String,
+    released: bool,
+}
+
+impl OwnerGuard {
+    pub fn path(&self) -> &Path {
+        &self.lock
+    }
+
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    /// ownership.cjs release: removes the record and the lock when the record still holds our token. A record already
+    /// gone counts as released (the empty lock stays for an operator); another token is an error and nothing is removed.
+    pub fn release(&mut self) -> crate::Result<()> {
+        if self.released {
+            return Ok(());
+        }
+        let file = self.lock.join("owner.json");
+        let current = match std::fs::read(&file) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.released = true;
+                return Ok(());
+            }
+            Err(error) => return Err(crate::StoreError::io(error, "open", &file)),
+        };
+        let token = crate::jsjson::parse_bytes(&current).ok().and_then(|owner| {
+            owner
+                .get("token")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        });
+        if token.as_deref() != Some(self.token.as_str()) {
+            return Err(crate::StoreError::OwnershipChanged(self.lock.clone()));
+        }
+        std::fs::remove_file(&file)
+            .map_err(|error| crate::StoreError::io(error, "unlink", &file))?;
+        std::fs::remove_dir(&self.lock)
+            .map_err(|error| crate::StoreError::io(error, "rmdir", &self.lock))?;
+        self.released = true;
+        Ok(())
+    }
+}
+
+impl Drop for OwnerGuard {
+    fn drop(&mut self) {
+        let _ = self.release();
+    }
+}
+
+impl crate::write::OwnerLock for RustOwnerLock {
+    type Guard = OwnerGuard;
+
+    fn acquire(&self, lock: &Path) -> crate::Result<OwnerGuard> {
+        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+        let parent = lock
+            .parent()
+            .ok_or_else(|| crate::StoreError::Invalid("A lock needs a parent folder.".into()))?;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(parent)
+            .map_err(|error| crate::StoreError::io(error, "mkdir", parent))?;
+        if let Err(error) = std::fs::DirBuilder::new().mode(0o700).create(lock) {
+            if error.kind() != std::io::ErrorKind::AlreadyExists {
+                return Err(crate::StoreError::io(error, "mkdir", lock));
+            }
+            let state = inspect(lock, &SystemProbe);
+            let owner = match &state {
+                LockState::Live { owner: Some(owner) } | LockState::Stale { owner } => {
+                    Some(crate::jsjson::to_string(owner))
+                }
+                _ => None,
+            };
+            return Err(crate::StoreError::LockRefused {
+                lock: lock.to_path_buf(),
+                state: state.label(),
+                owner,
+            });
+        }
+        let token = random_uuid();
+        let started = now_ms();
+        // Node writes performance.timeOrigin. `ps` reports whole seconds; recording that (never later than the real
+        // start) keeps a Node staleOwner check from ever reading this live lock as a reused pid.
+        let process_started = SystemProbe
+            .start_time_ms(std::process::id() as i64)
+            .unwrap_or(started);
+        let fields = [
+            ("pid", Value::from(std::process::id())),
+            ("token", Value::String(token.clone())),
+            ("startedAt", Value::String(iso(started))),
+            ("processStartedAt", Value::String(iso(process_started))),
+            (
+                "host",
+                Value::String(crate::jsjson::js_string(&SystemProbe.hostname())),
+            ),
+        ];
+        // JSON.stringify(owner, null, 2)
+        let body = fields
+            .iter()
+            .map(|(key, value)| format!("  \"{key}\": {}", crate::jsjson::to_string(value)))
+            .collect::<Vec<_>>()
+            .join(",\n");
+        let record = format!("{{\n{body}\n}}");
+        let file = lock.join("owner.json");
+        let written = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&file)
+            .and_then(|mut handle| std::io::Write::write_all(&mut handle, record.as_bytes()));
+        if let Err(error) = written {
+            let _ = std::fs::remove_dir_all(lock);
+            return Err(crate::StoreError::io(error, "open", &file));
+        }
+        Ok(OwnerGuard {
+            lock: lock.to_path_buf(),
+            token,
+            released: false,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -17,6 +17,7 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 hex = "0.4"
+base64 = "0.22"
 libc = "0.2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 

@@ -9,7 +9,21 @@
 //! - **Numbers.** Every number is an IEEE double printed with ECMAScript `Number::toString` (`1e+21`, `1e-7`,
 //!   `0.000001`, `-0` as `0`), and integers beyond 2^53 lose precision as JavaScript's do.
 //! - **Strings.** Escapes are `\" \\ \b \f \n \r \t` and `\u00xx` (lower-case) for other control characters, nothing
-//!   else. Lone UTF-16 surrogates, which JavaScript strings can hold, cannot exist in a Rust `String` (see README).
+//!   else; an unpaired UTF-16 surrogate is written `\udxxx`.
+//!
+//! ## Unpaired surrogates
+//!
+//! A JavaScript string is UTF-16 and may hold an unpaired surrogate (half an emoji cut by `slice`); `JSON.stringify`
+//! writes it as `\ud83d`, `JSON.parse` reads it back. A Rust `String` can't hold one and serde_json refuses the
+//! escape. [`parse`] keeps it anyway, losslessly, in an escape inside the `String`:
+//!
+//! - an unpaired surrogate `s` becomes [`ESC`] followed by `char(0xF0000 + (s - 0xD800))`;
+//! - a real [`ESC`] (U+10FFFE, a noncharacter) becomes [`ESC`] [`ESC`].
+//!
+//! The mapping is injective, so equality of encoded strings is equality of the JavaScript strings. [`to_string`]
+//! decodes it back to `\udxxx` (or the real U+10FFFE), [`utf16_len`] / [`to_utf16`] / [`from_utf16`] work on the
+//! JavaScript string, and [`to_sqlite_text`] gives the UTF-8 node:sqlite would bind (an unpaired surrogate as U+FFFD).
+//! Strings that come from elsewhere (SQLite text, file names) go through [`js_string`] before they enter a `Value`.
 
 use serde_json::{Map, Number, Value};
 
@@ -82,9 +96,113 @@ pub fn array_index(key: &str) -> Option<u32> {
     (value < u32::MAX as u64).then_some(value as u32)
 }
 
+/// The escape character of the unpaired-surrogate encoding (see module docs).
+pub const ESC: char = '\u{10FFFE}';
+const LONE_BASE: u32 = 0xF0000;
+
+/// One unit of an encoded string: a real character, or an unpaired surrogate.
+enum Unit {
+    Char(char),
+    Lone(u16),
+}
+
+fn units(text: &str) -> impl Iterator<Item = Unit> + '_ {
+    let mut chars = text.chars();
+    std::iter::from_fn(move || {
+        let character = chars.next()?;
+        if character != ESC {
+            return Some(Unit::Char(character));
+        }
+        Some(match chars.next() {
+            Some(ESC) | None => Unit::Char(ESC),
+            Some(marker) => Unit::Lone((marker as u32 - LONE_BASE + 0xD800) as u16),
+        })
+    })
+}
+
+/// A string from outside JSON (SQLite text, a path) in the encoding `Value`s use: a real U+10FFFE doubled.
+pub fn js_string(text: &str) -> String {
+    if text.contains(ESC) {
+        text.replace(ESC, "\u{10FFFE}\u{10FFFE}")
+    } else {
+        text.to_string()
+    }
+}
+
+/// UTF-16 code units of the JavaScript string an encoded `String` stands for.
+pub fn to_utf16(text: &str) -> Vec<u16> {
+    let mut out = Vec::with_capacity(text.len());
+    for unit in units(text) {
+        match unit {
+            Unit::Char(character) => out.extend_from_slice(character.encode_utf16(&mut [0u16; 2])),
+            Unit::Lone(surrogate) => out.push(surrogate),
+        }
+    }
+    out
+}
+
+/// The encoded `String` for JavaScript UTF-16 code units (lossless; see module docs).
+pub fn from_utf16(units: &[u16]) -> String {
+    let mut out = String::with_capacity(units.len());
+    for decoded in char::decode_utf16(units.iter().copied()) {
+        match decoded {
+            Ok(ESC) => {
+                out.push(ESC);
+                out.push(ESC);
+            }
+            Ok(character) => out.push(character),
+            Err(error) => {
+                out.push(ESC);
+                out.push(
+                    char::from_u32(LONE_BASE + (error.unpaired_surrogate() as u32 - 0xD800))
+                        .expect("plane 15"),
+                );
+            }
+        }
+    }
+    out
+}
+
+/// JavaScript `string.length` of an encoded string.
+pub fn utf16_len(text: &str) -> usize {
+    units(text)
+        .map(|unit| match unit {
+            Unit::Char(character) => character.len_utf16(),
+            Unit::Lone(_) => 1,
+        })
+        .sum()
+}
+
+/// Whether an encoded string holds an unpaired surrogate.
+pub fn has_lone_surrogate(text: &str) -> bool {
+    units(text).any(|unit| matches!(unit, Unit::Lone(_)))
+}
+
+/// The UTF-8 node:sqlite binds for this JavaScript string: V8 writes an unpaired surrogate as U+FFFD.
+pub fn to_sqlite_text(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains(ESC) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    std::borrow::Cow::Owned(
+        units(text)
+            .map(|unit| match unit {
+                Unit::Char(character) => character,
+                Unit::Lone(_) => '\u{FFFD}',
+            })
+            .collect(),
+    )
+}
+
 fn write_string(out: &mut String, text: &str) {
     out.push('"');
-    for character in text.chars() {
+    for unit in units(text) {
+        let character = match unit {
+            Unit::Lone(surrogate) => {
+                out.push_str(&format!("\\u{surrogate:04x}"));
+                continue;
+            }
+            Unit::Char(character) => character,
+        };
         match character {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
@@ -161,6 +279,254 @@ pub fn f64_to_js(value: f64) -> String {
             format!("{digits}e{sign}{}", e.abs())
         } else {
             format!("{}.{}e{sign}{}", &digits[..1], &digits[1..], e.abs())
+        }
+    }
+}
+
+/// `JSON.parse(text)`: the same values serde_json gives (integers as i64/u64, other numbers as f64, objects in
+/// insertion order with a repeated key keeping its first place and last value), but an unpaired `\udxxx` escape is
+/// kept (see module docs) instead of refused. Errors carry the byte offset.
+pub fn parse(text: &str) -> Result<Value, String> {
+    let mut parser = Parser {
+        bytes: text.as_bytes(),
+        text,
+        at: 0,
+    };
+    parser.space();
+    let value = parser.value(0)?;
+    parser.space();
+    if parser.at != parser.bytes.len() {
+        return Err(parser.error("Unexpected data after JSON"));
+    }
+    Ok(value)
+}
+
+/// [`parse`] for bytes read from a file, decoded like Node's `readFile(…, "utf8")` (invalid UTF-8 as U+FFFD).
+pub fn parse_bytes(bytes: &[u8]) -> Result<Value, String> {
+    parse(&String::from_utf8_lossy(bytes))
+}
+
+struct Parser<'a> {
+    bytes: &'a [u8],
+    text: &'a str,
+    at: usize,
+}
+
+impl Parser<'_> {
+    fn error(&self, message: &str) -> String {
+        format!("{message} at position {}", self.at)
+    }
+
+    fn space(&mut self) {
+        while matches!(self.bytes.get(self.at), Some(b' ' | b'\t' | b'\n' | b'\r')) {
+            self.at += 1;
+        }
+    }
+
+    fn literal(&mut self, word: &str, value: Value) -> Result<Value, String> {
+        if self.text[self.at..].starts_with(word) {
+            self.at += word.len();
+            Ok(value)
+        } else {
+            Err(self.error("Unexpected token"))
+        }
+    }
+
+    fn value(&mut self, depth: usize) -> Result<Value, String> {
+        if depth > 10_000 {
+            return Err(self.error("Nesting too deep"));
+        }
+        match self.bytes.get(self.at) {
+            Some(b'{') => {
+                self.at += 1;
+                let mut map = Map::new();
+                self.space();
+                if self.bytes.get(self.at) == Some(&b'}') {
+                    self.at += 1;
+                    return Ok(Value::Object(map));
+                }
+                loop {
+                    self.space();
+                    if self.bytes.get(self.at) != Some(&b'"') {
+                        return Err(self.error("Expected a property name"));
+                    }
+                    let key = self.string()?;
+                    self.space();
+                    if self.bytes.get(self.at) != Some(&b':') {
+                        return Err(self.error("Expected ':'"));
+                    }
+                    self.at += 1;
+                    self.space();
+                    let item = self.value(depth + 1)?;
+                    map.insert(key, item);
+                    self.space();
+                    match self.bytes.get(self.at) {
+                        Some(b',') => self.at += 1,
+                        Some(b'}') => {
+                            self.at += 1;
+                            return Ok(Value::Object(map));
+                        }
+                        _ => return Err(self.error("Expected ',' or '}'")),
+                    }
+                }
+            }
+            Some(b'[') => {
+                self.at += 1;
+                let mut items = Vec::new();
+                self.space();
+                if self.bytes.get(self.at) == Some(&b']') {
+                    self.at += 1;
+                    return Ok(Value::Array(items));
+                }
+                loop {
+                    self.space();
+                    items.push(self.value(depth + 1)?);
+                    self.space();
+                    match self.bytes.get(self.at) {
+                        Some(b',') => self.at += 1,
+                        Some(b']') => {
+                            self.at += 1;
+                            return Ok(Value::Array(items));
+                        }
+                        _ => return Err(self.error("Expected ',' or ']'")),
+                    }
+                }
+            }
+            Some(b'"') => Ok(Value::String(self.string()?)),
+            Some(b't') => self.literal("true", Value::Bool(true)),
+            Some(b'f') => self.literal("false", Value::Bool(false)),
+            Some(b'n') => self.literal("null", Value::Null),
+            Some(b'-' | b'0'..=b'9') => self.number(),
+            None => Err(self.error("Unexpected end of JSON input")),
+            _ => Err(self.error("Unexpected token")),
+        }
+    }
+
+    fn number(&mut self) -> Result<Value, String> {
+        let start = self.at;
+        let digits = |parser: &mut Self| {
+            let from = parser.at;
+            while matches!(parser.bytes.get(parser.at), Some(b'0'..=b'9')) {
+                parser.at += 1;
+            }
+            parser.at > from
+        };
+        if self.bytes.get(self.at) == Some(&b'-') {
+            self.at += 1;
+        }
+        if self.bytes.get(self.at) == Some(&b'0') {
+            self.at += 1;
+        } else if !digits(self) {
+            return Err(self.error("No number after minus sign"));
+        }
+        let mut integer = true;
+        if self.bytes.get(self.at) == Some(&b'.') {
+            self.at += 1;
+            integer = false;
+            if !digits(self) {
+                return Err(self.error("Unterminated fractional number"));
+            }
+        }
+        if matches!(self.bytes.get(self.at), Some(b'e' | b'E')) {
+            self.at += 1;
+            integer = false;
+            if matches!(self.bytes.get(self.at), Some(b'+' | b'-')) {
+                self.at += 1;
+            }
+            if !digits(self) {
+                return Err(self.error("Exponent part is missing a number"));
+            }
+        }
+        let text = &self.text[start..self.at];
+        if integer {
+            if let Ok(value) = text.parse::<i64>() {
+                return Ok(Value::from(value));
+            }
+            if let Ok(value) = text.parse::<u64>() {
+                return Ok(Value::from(value));
+            }
+        }
+        let value: f64 = text.parse().map_err(|_| self.error("Bad number"))?;
+        // JSON.parse gives Infinity for 1e400, which JSON.stringify writes as null.
+        Ok(Number::from_f64(value)
+            .map(Value::Number)
+            .unwrap_or(Value::Null))
+    }
+
+    fn hex4(&mut self) -> Result<u16, String> {
+        let digits = self
+            .text
+            .get(self.at..self.at + 4)
+            .ok_or_else(|| self.error("Bad Unicode escape"))?;
+        let value =
+            u16::from_str_radix(digits, 16).map_err(|_| self.error("Bad Unicode escape"))?;
+        if !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(self.error("Bad Unicode escape"));
+        }
+        self.at += 4;
+        Ok(value)
+    }
+
+    fn string(&mut self) -> Result<String, String> {
+        self.at += 1;
+        let mut units: Vec<u16> = Vec::new();
+        let mut plain = String::new();
+        let mut simple = true;
+        loop {
+            let Some(&byte) = self.bytes.get(self.at) else {
+                return Err(self.error("Unterminated string in JSON"));
+            };
+            match byte {
+                b'"' => {
+                    self.at += 1;
+                    return Ok(if simple {
+                        js_string(&plain)
+                    } else {
+                        from_utf16(&units)
+                    });
+                }
+                b'\\' => {
+                    if simple {
+                        units.extend(plain.encode_utf16());
+                        simple = false;
+                    }
+                    self.at += 1;
+                    let escape = *self
+                        .bytes
+                        .get(self.at)
+                        .ok_or_else(|| self.error("Bad escaped character"))?;
+                    self.at += 1;
+                    match escape {
+                        b'"' => units.push(0x22),
+                        b'\\' => units.push(0x5C),
+                        b'/' => units.push(0x2F),
+                        b'b' => units.push(0x08),
+                        b'f' => units.push(0x0C),
+                        b'n' => units.push(0x0A),
+                        b'r' => units.push(0x0D),
+                        b't' => units.push(0x09),
+                        b'u' => {
+                            let unit = self.hex4()?;
+                            units.push(unit);
+                        }
+                        _ => {
+                            self.at -= 1;
+                            return Err(self.error("Bad escaped character"));
+                        }
+                    }
+                }
+                0x00..=0x1F => return Err(self.error("Bad control character in string literal")),
+                _ => {
+                    let rest = &self.text[self.at..];
+                    let character = rest.chars().next().expect("in bounds");
+                    self.at += character.len_utf8();
+                    if simple {
+                        plain.push(character);
+                    } else {
+                        units.extend_from_slice(character.encode_utf16(&mut [0u16; 2]));
+                    }
+                }
+            }
         }
     }
 }
@@ -263,6 +629,72 @@ mod tests {
             to_string(&value),
             r#"{"9":3,"10":2,"4294967294":7,"b":1,"01":4,"a":5,"4294967295":6}"#
         );
+    }
+
+    #[test]
+    fn unpaired_surrogates_round_trip() {
+        for text in [
+            r#""\ud83d""#,
+            r#""a\udc00b""#,
+            r#""\ud83d\ude00""#,
+            "\"\u{10FFFE}x\"",
+            r#""\udbff\udffe\ud800""#,
+            r#"{"k\ud800":["\udfff"]}"#,
+        ] {
+            let value = parse(text).unwrap();
+            let again = to_string(&value);
+            let expected = to_string(&parse(&again).unwrap());
+            assert_eq!(again, expected, "{text}");
+        }
+        assert_eq!(to_string(&parse(r#""\ud83d""#).unwrap()), r#""\ud83d""#);
+        assert_eq!(
+            to_string(&parse(r#""\ud83d\ude00""#).unwrap()),
+            "\"\u{1F600}\""
+        );
+        // A real U+10FFFE and an unpaired surrogate stay distinct.
+        let real = parse("\"\u{10FFFE}\"").unwrap();
+        let lone = parse(r#""\udbff""#).unwrap();
+        assert_ne!(real, lone);
+        assert_eq!(utf16_len(real.as_str().unwrap()), 2);
+        assert_eq!(utf16_len(lone.as_str().unwrap()), 1);
+        assert_eq!(to_string(&real), "\"\u{10FFFE}\"");
+        assert_eq!(to_sqlite_text(lone.as_str().unwrap()), "\u{FFFD}");
+        // slice(0, 1) of an emoji: half of it.
+        let emoji = to_utf16("\u{1F600}");
+        assert_eq!(
+            to_string(&Value::String(from_utf16(&emoji[..1]))),
+            r#""\ud83d""#
+        );
+    }
+
+    #[test]
+    fn parse_matches_serde_for_ordinary_json() {
+        for text in [
+            r#"{"b":1,"a":[1.5,-0,1e400,-2,18446744073709551615,9223372036854775808,"x\n\u00e9\/"],"c":{"d":null,"e":true}}"#,
+            r#"[]"#,
+            r#" { "dup": 1, "x": 2, "dup": 3 } "#,
+        ] {
+            let ours = parse(text).unwrap();
+            let theirs: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+            if text.contains("1e400") {
+                assert_eq!(ours["a"][2], Value::Null);
+                continue;
+            }
+            assert_eq!(ours, theirs, "{text}");
+        }
+        for bad in [
+            "",
+            "{",
+            r#"{"a":}"#,
+            "[1,]",
+            "01",
+            "\"\t\"",
+            r#""\x""#,
+            "tru",
+            "1 2",
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

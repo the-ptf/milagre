@@ -239,6 +239,40 @@ async function buildProjects(root) {
   lost.transcriptFiles = [`${"f".repeat(64)}.json`, "not-a-sidecar.json"];
   fs.writeFileSync(path.join(missing, ".milagre/subagents", `${"f".repeat(64)}.json`), JSON.stringify([{ id: "y", kind: "message", text: "bad hash" }]));
   fs.writeFileSync(coordination, JSON.stringify(saved));
+  // surrogates: JavaScript strings with unpaired surrogates (half an emoji), which JSON.stringify writes as \udxxx.
+  const lone = path.join(root, "surrogates");
+  fs.mkdirSync(lone, { recursive: true });
+  messageStore.resetStore(lone);
+  const half = "\u{1F600}".slice(0, 1);
+  const tail = "\u{1F600}".slice(1);
+  await saveProjectState(
+    lone,
+    {
+      next_id: 5,
+      sessions: {
+        1: {
+          id: 1,
+          title: `half ${half}`,
+          subagents: [{ id: "s", transcript: [{ id: "t1", kind: "message", text: `${"z".repeat(1500)}${half}` }] }],
+          queued: [{ clientMessageId: `queued-${tail}` }],
+        },
+      },
+      messages: [
+        { id: 1, session_id: 1, role: "user", body: `cut ${half} here`, clientMessageId: `cm-${half}-lone` },
+        {
+          id: 2,
+          session_id: 1,
+          role: "assistant",
+          body: `${"b".repeat(239)}${half}`,
+          outcome: "completed",
+          steps: [{ id: `step-${tail}`, kind: "shell", detail: `${"d".repeat(1100)}${tail}`, status: "done" }],
+        },
+        { id: 3, session_id: 1, role: "user", body: `real \u{10FFFE} noncharacter and ${tail}`, clientMessageId: "cm-real-10fffe\u{10FFFE}" },
+        { id: 4, session_id: 1, role: "assistant", body: `${half}${tail} whole again`, outcome: "completed" },
+      ],
+    },
+    { sweepMinAgeMs: 0 },
+  );
   // empty: a folder with no state at all.
   fs.mkdirSync(path.join(root, "empty/.milagre"), { recursive: true });
   // Content-addressed sidecars: Node's sweep keeps only referenced ones; leftovers beyond that are not part of the format.
@@ -248,7 +282,7 @@ async function buildProjects(root) {
 // ---------------------------------------------------------------------------------------------------------------
 // Expected results, read by Node from a throwaway copy of each Project
 
-const PROJECTS = ["alpha", "legacy", "legacy-compact", "missing-db", "missing-sidecar", "empty"];
+const PROJECTS = ["alpha", "legacy", "legacy-compact", "missing-db", "missing-sidecar", "surrogates", "empty"];
 const sorted = (set) => [...set].sort();
 const errorOf = (error) => ({ error: error.message });
 
@@ -360,12 +394,26 @@ async function expectedFor(source) {
         [...messageStore.unloadedChats(await states.get(dir))].map(Number).sort((a, b) => a - b),
       );
       // chat:message: findMessage, then the details sidecar read back into its steps.
-      for (const id of [1, 2, 6, 902, 904, 777777]) {
+      for (const id of [1, 2, 3, 6, 902, 904, 777777]) {
         const message = await states.findMessage(dir, "id", id);
         record(`chatMessage.${id}`, message ? await withDetails(dir, message) : { error: "That message is no longer in this Project." });
       }
       // chat:send-status without a send in flight (ChatHost.sendStatus after pendingSends drains).
-      for (const clientMessageId of ["cm-1", "cm-8", "cm-10-13", "cm-orphan", "queued-1", "queued-10", "legacy-cm-2", "legacy-queued", "ms-1", "missing"]) {
+      for (const clientMessageId of [
+        "cm-1",
+        "cm-8",
+        "cm-10-13",
+        "cm-orphan",
+        "queued-1",
+        "queued-10",
+        "legacy-cm-2",
+        "legacy-queued",
+        "ms-1",
+        "missing",
+        `cm-${"\u{1F600}".slice(0, 1)}-lone`,
+        `queued-${"\u{1F600}".slice(1)}`,
+        "cm-real-10fffe\u{10FFFE}",
+      ]) {
         const message = await states.findMessage(dir, "clientMessageId", clientMessageId);
         let receipt = null;
         if (message) receipt = { sessionId: message.session_id };
@@ -400,6 +448,7 @@ async function expectedFor(source) {
 }
 
 async function generate(outDir) {
+  // Hidden folder: the Project registry's scan skips dot-folders, so these test Projects never look like real ones.
   const projects = path.join(outDir, ".projects");
   const expected = path.join(outDir, "expected");
   fs.rmSync(projects, { recursive: true, force: true });
