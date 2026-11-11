@@ -1,5 +1,10 @@
 # Synthetic Kiro host binding: proposed agreement
 
+Next concrete design: [exclusive synthetic coordinator checkpoint](SYNTHETIC-COORDINATOR-CHECKPOINT.md),
+based on the committed B06-Mac backend. It proposes a standalone manifest and one empty native
+fixture host turn; the optional feature and full-session portions below remain broader future
+requirements, not newly implemented or accepted coverage.
+
 Status: host composition remains a proposal. The separately approved, default-off
 [MacOsPrivateCopyFixture backend](PRIVATE-COPY-FIXTURE.md) implements a cooperative same-UID
 native execution checkpoint only. It does not implement this host composition or strong B06. The first binding would exercise the real Rust owner, accounts

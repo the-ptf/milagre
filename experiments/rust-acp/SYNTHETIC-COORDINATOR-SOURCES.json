@@ -1,0 +1,38 @@
+{
+  "purpose": "Read-only source baseline for SYNTHETIC-COORDINATOR-CHECKPOINT.md. No live service/profile observation; future implementation remains proposed.",
+  "commit": "9366daa27e5ad14579d2853756b348e2cf01ce52",
+  "native_backend_commit": "0d9e0a26cc88c183b7501a2399f16663ce986350",
+  "trees": {
+    "experiments/rust-acp": "581b407da73cb953d10f485738cf569595f8124a",
+    "experiments/rust-accounts": "9aa49548bf3b832afa983415f4dc661b95bf6aec",
+    "experiments/rust-registry": "83b2330d8da076d720de410feb8443d33170f64d",
+    "experiments/rust-owner": "988f679eb37432ec90b1c63e26a6d0c6746a4250"
+  },
+  "blobs": {
+    "experiments/rust-accounts/Cargo.toml": "cdcb3779dcebbf2f241083b23c70e9ea38a0d0b3",
+    "experiments/rust-accounts/src/lib.rs": "12969db6b2579daf0de206a7ca2fd5f901d64c3d",
+    "experiments/rust-accounts/src/service.rs": "b540d44fdec44d29ffa3bf74c3e710796a69e579",
+    "experiments/rust-accounts/src/store.rs": "3c7cb0471affd2e7635a7bd856e16dd03bc767ec",
+    "experiments/rust-accounts/tests/ownership.rs": "af6d289a71980e4c640e91d9c1fbc1734c1e008d",
+    "experiments/rust-registry/Cargo.toml": "92f64b826e907d2fdc9c0690c29e1f70cfd57795",
+    "experiments/rust-registry/src/lib.rs": "bf381a9b6d5a712ea64b86b35b5d21e99ef54f4b",
+    "experiments/rust-registry/src/writer/storage.rs": "222ff070fb55d56e89273e336e92f15175daadb4",
+    "experiments/rust-registry/src/scopes.rs": "f6e245d3146bb26dde42c4b564377b45d7d461d2",
+    "experiments/rust-registry/README.md": "92c1b079b96afd58dad229325de6b38267324191",
+    "experiments/rust-owner/Cargo.toml": "ca89e02ec897ab7af404e3a9d6f6eae82dc1b810",
+    "experiments/rust-owner/src/chat_host.rs": "ba2899e15fb4b6bbeba2af31820ed7057c1521ff",
+    "experiments/rust-owner/src/states.rs": "71c7005a06882c4bd238880862574f0aa88b4fe3",
+    "experiments/rust-owner/src/ownership.rs": "f9a29e07a92df8a4712a63ebe92afcf4a49c70c1",
+    "experiments/rust-owner/src/isolation.rs": "4397d4c7ca4d74fa01b79eda9138c7ff8e601a59",
+    "experiments/rust-owner/PROVIDER-CONTRACT.md": "af8a4d7c89e193f9ad77e18519f1ec39bd60e82e",
+    "experiments/rust-acp/Cargo.toml": "017a02ab96c612fe67666cbb391230b3965ba10d",
+    "experiments/rust-acp/src/private_copy.rs": "4fc63d3d070917937202be20d09882011b5bee31",
+    "experiments/rust-acp/src/private_copy/files.rs": "a6e9573aa3365769ac05562b56a95f7db0f76ff0",
+    "experiments/rust-acp/src/private_copy/process.rs": "deec2efd9a31c061ba8ea657ee3c8c71bf1d6398",
+    "experiments/rust-acp/src/private_copy/worker.rs": "9ba97ed7e88d7d7f1147e95382c2cafdb62e6738",
+    "experiments/rust-acp/src/private_copy/wire.rs": "69dd5aa2a0d2ab57db09aaa3543f3e2a2fd377ab",
+    "experiments/rust-acp/src/private_copy/tests.rs": "6241ed7a259205db8a108ac40af662631bfd2d32",
+    "experiments/rust-acp/src/bin/native_acp_copy_fixture.rs": "1278d0b1f078f3fbf6c04ebd41986999fb88c419",
+    "experiments/rust-acp/PRIVATE-COPY-FIXTURE.md": "c514724a82bf436e2e18454c75e281538976f79f"
+  }
+}
