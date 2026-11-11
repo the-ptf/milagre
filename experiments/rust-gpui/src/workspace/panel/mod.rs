@@ -5,7 +5,7 @@ mod tests;
 
 use gpui::{ClickEvent, Context, FontWeight, ScrollHandle, Window, div, prelude::*, px};
 
-use crate::theme::{ActiveTheme, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, StyledText, TEXT_12};
+use crate::theme::{ActiveTheme, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, TEXT_12, TextStepExt};
 use crate::ui::legacy_icons::{PanelIcon, icon};
 use crate::workspace::chrome;
 

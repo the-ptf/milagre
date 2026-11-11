@@ -21,8 +21,7 @@ use gpui::{
 };
 use unicode_segmentation::UnicodeSegmentation as _;
 
-use crate::theme::{ActiveTheme, CONTROL_SM, RADIUS_WINDOW, StyledText, TEXT_12, Theme};
-use crate::workspace::chat::markdown::{PROSE_LINE_HEIGHT, PROSE_SIZE, SANS};
+use crate::theme::{ActiveTheme, CHAT_TEXT, CONTROL_SM, RADIUS_WINDOW, SANS, TEXT_12, TextStepExt, Theme};
 use crate::workspace::chat::transcript::{COLUMN_WIDTH, Glyph, glyph};
 
 actions!(
@@ -729,7 +728,7 @@ impl IntoElement for InputElement {
 }
 
 fn shape(text: SharedString, runs: &[TextRun], width: Pixels, window: &mut Window) -> Vec<WrappedLine> {
-    window.text_system().shape_text(text, px(PROSE_SIZE), runs, Some(width), None).map(|lines| lines.into_vec()).unwrap_or_default()
+    window.text_system().shape_text(text, px(CHAT_TEXT.size), runs, Some(width), None).map(|lines| lines.into_vec()).unwrap_or_default()
 }
 
 impl Element for InputElement {
@@ -752,7 +751,7 @@ impl Element for InputElement {
         cx: &mut App,
     ) -> (LayoutId, ()) {
         let (text, runs, _) = self.input.read(cx).display(cx.theme());
-        let line_height = px(PROSE_LINE_HEIGHT);
+        let line_height = px(CHAT_TEXT.line_height);
         let mut style = Style::default();
         style.size.width = relative(1.0).into();
         let layout_id = window.request_measured_layout(style, move |known, available, window, _cx| {
@@ -782,7 +781,7 @@ impl Element for InputElement {
         let selection = input.selected_range.clone();
         let cursor = input.cursor();
         let lines = shape(text, &runs, bounds.size.width, window);
-        let mut layout = InputLayout::new(lines, px(PROSE_LINE_HEIGHT), bounds, placeholder);
+        let mut layout = InputLayout::new(lines, px(CHAT_TEXT.line_height), bounds, placeholder);
 
         let caret = if placeholder { point(px(0.0), px(0.0)) } else { layout.position(cursor) };
         layout.scroll = (caret.y + layout.line_height - bounds.size.height).max(px(0.0));

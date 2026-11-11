@@ -20,19 +20,8 @@ use gpui::{
 };
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
-use crate::theme::{RADIUS_CONTROL, Theme};
+use crate::theme::{CHAT_TEXT, CODE_TEXT, RADIUS_CONTROL, SANS, Theme, mono};
 
-/// The monospace family. `ui-monospace` (SF Mono) is not reachable by a family name on macOS:
-/// `NSFontManager` lists only Andale Mono, Menlo and PT Mono, so the spike uses Menlo.
-pub const MONO: &str = "Menlo";
-/// GPUI's name for the platform UI font (SF Pro on macOS).
-pub const SANS: &str = ".SystemUIFont";
-
-/// Chat text: 14px at line height 1.6 (DESIGN.md, `--chat-size`).
-pub const PROSE_SIZE: f32 = 14.0;
-pub const PROSE_LINE_HEIGHT: f32 = PROSE_SIZE * 1.6;
-const CODE_SIZE: f32 = 12.0;
-const CODE_LINE_HEIGHT: f32 = 18.0;
 const BLOCK_GAP: f32 = 12.0;
 const LIST_GAP: f32 = 4.0;
 const LIST_MARKER_WIDTH: f32 = 20.0;
@@ -315,8 +304,8 @@ pub fn render(blocks: &[Block], id: usize, theme: &Theme) -> impl IntoElement + 
         .gap(px(BLOCK_GAP))
         .w_full()
         .min_w_0()
-        .text_size(px(PROSE_SIZE))
-        .line_height(px(PROSE_LINE_HEIGHT))
+        .text_size(px(CHAT_TEXT.size))
+        .line_height(px(CHAT_TEXT.line_height))
         .text_color(theme.ink)
         .children(blocks.iter().map(|block| render_block(block, id, &mut counter, theme)))
 }
@@ -325,7 +314,7 @@ fn render_block(block: &Block, id: usize, counter: &mut usize, theme: &Theme) ->
     match block {
         Block::Paragraph(inline) => paragraph(inline, id, counter, theme, FontWeight::NORMAL).into_any_element(),
         Block::Heading { level, inline } => {
-            let size = if *level <= 2 { 16.0 } else { PROSE_SIZE };
+            let size = if *level <= 2 { 16.0 } else { CHAT_TEXT.size };
             div().text_size(px(size)).child(paragraph(inline, id, counter, theme, FontWeight::SEMIBOLD)).into_any_element()
         }
         Block::List { start, items } => div()
@@ -382,9 +371,9 @@ pub fn code_block(text: SharedString, id: usize, counter: &mut usize, theme: &Th
         .bg(theme.inset)
         .border_1()
         .border_color(theme.line)
-        .font_family(MONO)
-        .text_size(px(CODE_SIZE))
-        .line_height(px(CODE_LINE_HEIGHT))
+        .font_family(mono())
+        .text_size(px(CODE_TEXT.size))
+        .line_height(px(CODE_TEXT.line_height))
         .text_color(theme.ink)
         .child(scroller)
 }
@@ -396,7 +385,7 @@ pub fn runs(inline: &Inline, theme: &Theme, weight: FontWeight) -> Vec<TextRun> 
         .spans
         .iter()
         .map(|span| {
-            let mut run_font = font(if span.style.code { MONO } else { SANS });
+            let mut run_font = font(if span.style.code { mono() } else { SANS });
             run_font.weight = if span.style.bold { FontWeight::SEMIBOLD } else { weight };
             if span.style.italic {
                 run_font.style = FontStyle::Italic;

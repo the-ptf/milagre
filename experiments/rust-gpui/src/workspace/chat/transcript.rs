@@ -19,8 +19,10 @@ use gpui::{
     Pixels, Rgba, SharedString, Window, canvas, div, list, point, prelude::*, px,
 };
 
-use crate::theme::{ActiveTheme, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_WINDOW, StyledText, TEXT_12, TEXT_13, Theme};
-use crate::workspace::chat::markdown::{self, Block, MONO, PROSE_LINE_HEIGHT, PROSE_SIZE};
+use crate::theme::{
+    ActiveTheme, CHAT_TEXT, CODE_TEXT, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, RADIUS_WINDOW, TEXT_12, TEXT_13, TextStepExt, Theme, mono,
+};
+use crate::workspace::chat::markdown::{self, Block};
 
 /// The Chat content column, centred in the Chat column.
 pub const COLUMN_WIDTH: f32 = 536.0;
@@ -230,9 +232,8 @@ impl Transcript {
                 .border_1()
                 .border_color(theme.line)
                 .p(px(8.0))
-                .font_family(MONO)
-                .text_size(px(12.0))
-                .line_height(px(18.0))
+                .font_family(mono())
+                .text_step(CODE_TEXT)
                 .text_color(theme.ink)
                 .child(approval.command.clone()),
         )
@@ -305,8 +306,8 @@ fn user_message(text: SharedString, theme: &Theme) -> impl IntoElement + use<> {
             .p(px(12.0))
             .rounded(RADIUS_WINDOW)
             .bg(theme.field)
-            .text_size(px(PROSE_SIZE))
-            .line_height(px(PROSE_LINE_HEIGHT))
+            .text_size(px(CHAT_TEXT.size))
+            .line_height(px(CHAT_TEXT.line_height))
             .text_color(theme.ink)
             .child(text),
     )

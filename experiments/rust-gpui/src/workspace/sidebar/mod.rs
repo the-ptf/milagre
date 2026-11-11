@@ -24,7 +24,7 @@ use gpui::{
 pub use crate::data::fixture::{ChatRow, ChatStatus};
 use crate::data::fixture::{LogoKind, USAGE, UsageRow, chat_fixtures};
 use crate::theme::{
-    ActiveTheme, CONTROL_MD, CONTROL_XS, RADIUS_CHIP, RADIUS_CONTROL, ROW_TWO_LINE, StyledText, TEXT_11, TEXT_12, TEXT_13, Theme, hex,
+    ActiveTheme, CONTROL_MD, CONTROL_XS, RADIUS_CHIP, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_11, TEXT_12, TEXT_13, TextStepExt, Theme, hex,
 };
 use crate::ui::legacy_icons::{ProviderLogo, provider_logo};
 use crate::workspace::chrome;

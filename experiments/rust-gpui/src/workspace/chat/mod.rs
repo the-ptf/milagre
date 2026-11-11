@@ -17,7 +17,7 @@ use gpui::{
     AnyView, Context, Entity, FocusHandle, Focusable, FontWeight, SharedString, StyleRefinement, Subscription, Window, div, prelude::*, px,
 };
 
-use crate::theme::{ActiveTheme, CONTROL_SM, StyledText, TEXT_12, TEXT_13, Theme};
+use crate::theme::{ActiveTheme, CONTROL_SM, TEXT_12, TEXT_13, TextStepExt, Theme};
 use crate::workspace::chat::composer::{Composer, ComposerEvent};
 use crate::workspace::chat::transcript::{COLUMN_WIDTH, Transcript};
 use crate::workspace::chrome;

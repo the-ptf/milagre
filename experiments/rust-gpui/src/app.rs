@@ -41,6 +41,7 @@ pub fn run() {
 /// menus. Tests call the parts they need (`testing::init`).
 pub fn init(cx: &mut App) {
     cx.set_global(Theme::from_env());
+    crate::theme::init_fonts(cx);
     // gpui-component's globals, theme and key bindings, so its widgets can be used in any view.
     gpui_component::init(cx);
 
