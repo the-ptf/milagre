@@ -112,8 +112,8 @@ fed from our tokens first.
 primitives; `data/` the domain types, the `DataSource` trait and its fixture; `workspace/` the window, one folder per
 column; `testing/` the headless test helpers; `assets/` and `tools/gen-icons.mjs` the icons.
 
-Seams for the next steps: the sidebar builds its rows from domain data with `ChatRow::new` (`workspace/sidebar/row.rs`;
-swap `fixture_rows` for a `state:read` plus `chat:runs` through the `Data` global), the transcript's items come from
+Seams for the next steps: the sidebar reads its rows through the `Data` global (`workspace/sidebar/list.rs`; a daemon
+client's adapter implementing `DataSource` replaces the fixture with no sidebar change), the transcript's items come from
 `workspace/chat/fixture.rs` (turning `chat:messages` pages into `Item`s is not written), and each panel tab's content goes
 in the `"panel-body"` div in `workspace/panel/mod.rs`.
 
@@ -222,13 +222,32 @@ cached views inside it included (`workspace/tests.rs` pins this down). What the 
   `snapshot.rs`, which calls `CGWindowListCreateImage` through `dlsym` because the macOS 15+ SDK obsoletes it. It may
   stop working on a future macOS.
 
+## Data layer
+
+`src/data` holds the shapes the daemon sends, trimmed to what screens read, each type documented with its TypeScript
+source (`data/mod.rs` has the table): `Provider` (picker order), computers and `ScopeKey`, `Project`/`OpenProject`/
+`StateRead` with their `StateStamp`, the lean `ScopeState`, `Worktree`, `Chat` (`AgentSession` with its summary,
+subagents, background tasks, Routine, parent, pins, Done), `ChatRuns`/`AgentRun` with approvals and questions,
+`ChatMessage` with its context kinds and steps, PRs and usage. `DataSource` is read-only, one method per daemon method
+(`computers:list`, `project:recent`, `project:current`, `project:open`, `project:read`, `state:read`, `chat:runs`,
+`chat:messages`, `pull-requests:snapshot`, `usage:cached`); `experiments/rust-daemon-client`'s adapter will implement it.
+No serde on the domain types: decoding is the adapter's. `serde_json` (already in the tree) only keeps a message
+context kind whole (`ChatContext::Other`). The fixture (`data/fixture.rs`) spans three computers (one offline) with the
+states every list shows; `app::install_fixture` installs it and seeds the sidebar's device state (opened families, the
+Chat on screen) until a preference store exists.
+
 ## Sidebar notes
 
 - `workspace/sidebar/` is the full 304px sidebar: header with three 24px icon buttons (x 208, 240, 272), Canvas /
-  Routines / Links, an "All Chats" section label, a `uniform_list` of 500 fixture Chats, and a pinned Done row, usage block
-  and footer (`bottom.rs`).
-- Rows are built from domain data (`data/fixture.rs`) by `ChatRow::new`: the tile is the Project's initial (or the
-  Chat's, in the Chats home), the detail "project · #PR (+n) · computer", the mark from `ChatStatus::of`.
+  Routines / Links, the Pinned rows, an "All Chats" section label, a `uniform_list` of the fixture's 500 rows, and a
+  pinned Done row (with its count), usage block and footer (`bottom.rs`).
+- `list.rs` reads computers, recent Projects, states, runs, PRs and usage through `DataSource` and ports the desktop's
+  `scopeChats`, `mergeScopeChats` and `shownChats` over `logic::lists` and `logic::marks`: hidden Projects and archived,
+  Done and empty starter Chats out, a hidden Run Chat only while it waits, pinned first, then every scope merged by the
+  Chat order (created), Subchats under their family's top Chat (folded unless opened; the count on the parent's tile
+  folds them), each row's mark from `chat_mark`. `ChatRow::new` (`row.rs`) follows `InboxLine`: "project · #PR · +n ·
+  computer" (the computer with several computers, ", offline" in `orange-ink`), the first PR by `row_pull_requests`. The
+  tile is the Project's initial (the Chat's in a Chats home, where the desktop draws its bubble mark).
 - Keyboard: the sidebar has a `FocusHandle` (`track_focus`, `key_context("Sidebar")`) and `on_key_down`; Up/Down move the
   selection and call `UniformListScrollHandle::scroll_to_item` (only Top/Center/Bottom exist, no "nearest", so the sidebar
   uses the last built range to pick Top or Bottom). Nothing focuses the sidebar at startup; a click does.
@@ -248,7 +267,8 @@ cached views inside it included (`workspace/tests.rs` pins this down). What the 
 - Three 32px rows: the provider's brand mark (16px, x 12), name (x 40), the `Alert02` mark after a provider whose read
   failed, then per usage window a right-aligned 12px label over a 2px track (`line`) with an `ink3` fill. Two windows use
   68px meters at x 132 and 208; one window uses one 144px track from x 132 to 276. Fills are at least 2px above 0% and
-  absent at 0%. Data: `data::fixture::usage()` (`ProviderUsage`).
+  absent at 0%. Data: `usage:cached` through `DataSource`; the rows are `visible_providers`, labels `format_percent`, and
+  fills take the usage tone (orange from 80 %, red from 95 %; the desktop's normal fill is `ink`, the spike keeps `ink3`).
 
 ## Transcript notes
 

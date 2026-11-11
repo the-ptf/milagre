@@ -12,17 +12,19 @@ How this crate is laid out and the rules every agent working on it follows. The 
 | `src/assets/`            | The `AssetSource`: files under `assets/` embedded at build time (`embedded.rs` is generated)     |
 | `src/theme/`             | Tokens: `colors.rs` (`Theme`), `typography.rs`, `metrics.rs`, `elevation.rs`; `tests.rs`         |
 | `src/ui/`                | Shared primitives (`Icon`, `Button`, `IconButton`, `Chip`, `Tab`, `ScrollArea`, `Tooltip`, ...)  |
-| `src/data/`              | Domain types (`model.rs`), the async `DataSource` trait (`source.rs`), `FixtureSource`           |
+| `src/data/`              | Domain types by domain (`chat.rs`, `project.rs`, ...), `DataSource` (`source.rs`), the fixture   |
 | `src/workspace/`         | The window: `mod.rs` (root), `chrome.rs` (title-bar headers), one folder per column              |
-| `src/workspace/sidebar/` | `mod.rs` (the view, the list), `row.rs` (`ChatRowView`, `ChatRow`), `bottom.rs`, `tests.rs`      |
+| `src/workspace/sidebar/` | `mod.rs` (the view), `list.rs` (rows from data), `row.rs` (`ChatRow`), `bottom.rs`, `tests.rs`   |
 | `src/workspace/chat/`    | `mod.rs` (`ChatView`), `transcript.rs`, `running.rs`, `composer.rs`, `markdown.rs`, `fixture.rs` |
 | `src/workspace/panel/`   | The side panel and its tabs                                                                      |
 | `src/testing/`           | Helpers for headless tests (`mount_workspace`, `mount_in_root`, `mount_element`, `bounds`)       |
 | `tools/gen-icons.mjs`    | Generates `assets/hugeicons/`, `assets/logos/`, `src/ui/icon_name.rs`, `src/assets/embedded.rs`  |
 
 A new screen or column gets its own folder under `src/workspace/` (`mod.rs` for the view, `tests.rs` beside it). A
-new primitive is one file in `src/ui/` with its test in `src/ui/tests.rs`. Domain types go in `src/data/model.rs`;
-view models (what a row shows) stay with their view. `data/` never imports from `workspace/` or `ui/`.
+new primitive is one file in `src/ui/` with its test in `src/ui/tests.rs`. Domain types go in `src/data/`, one file per
+domain, each type naming its TypeScript source; view models (what a row shows) stay with their view. `data/` never
+imports from `workspace/` or `ui/`. A type `src/logic` already has in full is re-exported from `data`, not copied; a
+logic rule's small input struct is built from the domain type in `data/edge.rs`, so each field lives in one place.
 
 ## The look is not decided: keep it in the theme and the shell files
 
