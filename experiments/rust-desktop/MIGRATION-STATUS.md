@@ -6,32 +6,33 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
-Auto/Full follow-up is implemented but **not accepted or committed**. The first root run reproduces
-140 Claude tests (one live test ignored), 69 default runtime tests, thirteen Node-client
-scenarios, all-feature compilation, strict Clippy/fmt and fresh recorder parity including
-61 workspace cases. Independent source review finds three blocking permission-callback
-regressions: a slow callback is not bound to its original turn/mode generation; cancellation
-refunds inbound capacity while blocking work survives; and callback panic becomes normal
-fallback, which can allow in Full. Existing passing tests do not cover those races.
-Claude's subsequent fix adds turn/mode epochs, retained inbound counts, eight blocking
-worker permits, failure denial and seven lifecycle tests. Independent source rereview
-closes the original stale-decision and panic findings, but one P2 remains: permit-waiting
-callbacks can still enter policy code after cancellation, close or Drop. The queued
-admission must be checked at callback entry against shutdown; an eight-running-plus-one
-queued regression is assigned. Counter observations alone do not prove drainage.
+Auto/Full Project-Chat checkpoint `6a57ae05` is accepted within the isolated fake-provider
+scope. Fresh root checks pass 151 Claude tests (one live test ignored), 69 default runtime
+tests and thirteen production Node-client fixture scenarios. Strict Clippy/fmt,
+all-feature/all-target compilation and fresh Node recorder checks pass, including the
+three-mode trace and 61 workspace cases. Independent source rereview closes all P2s.
 
-The author reports 147 Claude tests, 69 runtime tests, six regression mutants and 25
-repeated lifecycle passes after those fixes. Root has not rerun that revision while the
-remaining P2 is open. The author also disclosed a broad fake-claude SIGTERM and about
-sixteen pattern SIGKILL commands for access_lifecycle test processes, with no precise
-timing or matched-process evidence. Cross-test impact is unknown; those cleanup claims
-are not acceptance evidence. Further process handling must use exact retained ownership,
-and acceptance requires fresh runs after the final fix. Production PIDs 20674/20679 keep
-their original start times, and the GPUI fixture hash remains `51e90342`.
+The review exposed stale turn/mode decisions, premature inbound-capacity release, panic
+falling through to Full allow, and queued checks entering after revocation. The final
+fix uses turn/mode epochs, retained handler capacity, eight blocking-worker permits and
+an entry gate after both queues. Eleven lifecycle tests include eight entered callbacks
+plus one queued request under withdrawal, close, Drop and turn end. Close drains admitted
+policy bodies; queued wrappers and final handler bookkeeping may finish later. A policy
+that never returns still retains ownership and keeps close waiting. Full is unrestricted
+after guard/access decisions. Mid-turn mode routing, broader workspace authority,
+real-CLI behavior and production execution remain open.
 
-General session changes make these relevant beyond the fake fixture. First-root-run logs:
-`/tmp/milagre-{claude,runtime}-modes-root-*.log` and
-`/tmp/milagre-modes-oracle-root-{instructions,session}.log`.
+Historical process-handling incident: the author disclosed a broad fake-claude SIGTERM
+and about sixteen pattern SIGKILL commands for access_lifecycle tests, without timing or
+matched-process evidence. Cross-test impact is unknown. Those earlier cleanup claims
+are not acceptance evidence. The fresh root checks above used no external test-process
+signals or timeout cleanup. Further handling must use exact retained ownership.
+The pinned GPUI fixture remains `51e90342`; no fixture was installed.
+
+Root acceptance logs: `/tmp/milagre-claude-access-root-final-{tests,clippy,fmt}.log`,
+`/tmp/milagre-runtime-access-root-final-{tests,allfeatures,clippy,fmt,build,node}.log`,
+and `/tmp/milagre-access-root-final-{instructions,session}.log`. Earlier failing review
+checkpoints and logs are retained in history.
 
 Ordinary Claude assembly `991d730b` is accepted within the fixed native fake scope.
 Root passes 137 rust-claude tests (one live test ignored), 93 combined runtime tests,
@@ -41,7 +42,7 @@ eight existing session traces, two ordinary launch queries and 40 prompt-suggest
 cases. Independent source review finds no P1/P2 in that scope. The default TLDR/reply
 settings and a no-background idle TLDR-change restart/resume are now admitted.
 Background-aware session retention, real-CLI private-file versus initialize prompt
-equivalence, Auto/Full workspace access, images, account routing and broader tools remain
+equivalence, broader workspace authority, images, account routing and broader tools remain
 open. No MonoCode code was copied. Detailed evidence and the corrected initial missing
 NODE_PATH test attempt are recorded in [CLAUDE-FIXTURE.md](../rust-runtime/CLAUDE-FIXTURE.md).
 
@@ -70,7 +71,7 @@ Offline HTTP probe `5dacc23e` is accepted as a standalone prerequisite. It drive
 
 Fresh routine writer `e5c34652` is accepted after root 80 Rust tests plus one doctest, strict Clippy/fmt and Claude Sonnet's independent source rereview closing all four findings. The added post-rename Drop regression proves retained locks/capacity, saved candidate bytes, close-only cleanup and no claim redelivery. Source pins now account for all ten plan rows; unused intent bookkeeping is removed and poisoned-writer refusal is explicitly permanent. Root's preceding copied-file and model fixtures each matched 841 actual Node observations plus 98 separate refusals; the implementation agent repeated the copied-file oracle after amendments. These are isolated in-process writer checks, not crash/reopen, native-owner mutation or production durability evidence. Logs: `/tmp/milagre-routines-writer-root-amended-{tests,clippy,fmt}.log`; exact transient test-artifact cleanup and the initial over-specific assertion are recorded in `COPIED-WRITER-CHECKPOINT.md`.
 
-The user retained the full feature scope and asked Claude to accelerate. Ordinary Claude assembly is now accepted above. Claude Opus is assigned the next bounded increment: Auto/Full and workspace-access composition against explicit synthetic/copied inputs and actual Node oracles. New service authority or policy enforcement gaps require a concrete proposal; live provider execution remains gated. Background-aware TLDR restart is still outstanding. Claude advisors run in this Chat, without new sidebar subchats. Root retains integration, commits and final validation.
+The user retained the full feature scope and asked Claude to accelerate. Ordinary Claude assembly and the bounded Auto/Full Project-access increment are accepted above. New service authority or policy enforcement gaps require a concrete proposal; live provider execution remains gated. Background-aware TLDR restart is still outstanding. Claude advisors run in this Chat, without new sidebar subchats. Root retains integration, commits and final validation.
 
 At the user's request, root and a read-only subagent inspected `hardbeat920/monocode` at `7e5a9e3690d5b96a7d93ebf884397835e57b9b7e`. The user explicitly authorizes direct reuse of suitable MIT-licensed code, superseding the intervening reference-only direction. Preserve copyright/license notices and separately applicable third-party notices; record copied-source provenance. This does not require an MIT attribution badge in the product UI. Both the Claude implementation advisor and GPUI Chat 11899 received the correction. Monocode's remote host still packages Node 24.21.0; its storage/protocol assumptions do not replace Milagre ownership or compatibility work. GPUI is evaluating its headless Metal snapshot approach and clipping/blur patches. At the assessment checkpoint no upstream code was installed or run, and no frontend replacement or shared-client pin change followed.
 
