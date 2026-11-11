@@ -122,6 +122,19 @@ fn raw_validation_and_fragment_assembly_do_not_amplify_compact_json_into_values(
             .unwrap(),
         serde_json::Value::Null
     );
+    // Managed phone assembly applies the same raw cap before building a header map.
+    let phone_budget = GlobalBudget::new(8 * 1024 * 1024).unwrap();
+    let mut uploads = milagre_remote::phone::RequestAssembler::with_budget(
+        milagre_remote::phone::AssemblyLimits::default(),
+        phone_budget.connection(8 * 1024 * 1024).unwrap(),
+    )
+    .unwrap();
+    let phone = format!("{{\"t\":\"req\",\"id\":1,\"method\":\"POST\",\"path\":\"/rpc\",\"headers\":{{{}}},\"chunk\":\"\",\"more\":false}}",
+        (0..20_000).map(|i|format!("\"h{i}\":\"\"")).collect::<Vec<_>>().join(","));
+    let (result, total, _) = measure(|| uploads.receive_budgeted(phone.as_bytes(), 0));
+    assert!(matches!(result, Err(Error::TooLarge)));
+    assert!(total < 16_384, "managed header rejection allocated {total}");
+    assert_eq!(phone_budget.used(), 0);
     // Many fields in a bounded envelope are rejected without a map allocation.
     let many = format!(
         "{{\"t\":\"rpc\",\"frame\":null,{}}}",

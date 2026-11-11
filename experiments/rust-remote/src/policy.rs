@@ -2,8 +2,8 @@
 //! No live-profile loading, daemon writer, listener, or caller-supplied Allow booleans.
 use crate::budget::{ConnectionBudget, DeviceBudget, GlobalBudget};
 use crate::channel::{
-    self, Accepted, Authorized, DesktopAccess, DeviceKind, IdentityStatus, OwnerApproval,
-    Persistence, ServiceDecision, StoredDevice,
+    self, Accepted, DesktopAccess, DeviceKind, IdentityStatus, OwnerApproval, Persistence,
+    ServiceDecision, StoredDevice,
 };
 use crate::peer::{Direction, FrameReader, FrameWriter, FRAME_TIMEOUT_MS, MAX_FRAME_BYTES};
 use crate::SecretKey;
@@ -206,34 +206,55 @@ impl Drop for SessionPermit {
 /// All readers/writers made here share one connection budget; reconnects of the same
 /// device share its device budget. Reserve carrier/decrypt/phone buffers separately.
 pub struct Session {
-    authorized: Authorized,
+    device: channel::Device,
+    reply: Vec<u8>,
+    channel: Option<channel::Channel>,
     budget: ConnectionBudget,
-    _permit: SessionPermit,
+    permit: Option<SessionPermit>,
 }
 impl Session {
-    pub fn reply(&self) -> &[u8] {
-        &self.authorized.reply
+    pub fn reply(&self) -> crate::Result<&[u8]> {
+        self.channel.as_ref().ok_or(crate::Error::Unauthorized)?;
+        Ok(&self.reply)
     }
     pub fn device(&self) -> &channel::Device {
-        &self.authorized.device
+        &self.device
     }
-    pub fn channel(&mut self) -> &mut channel::Channel {
-        &mut self.authorized.channel
+    pub fn is_revoked(&self) -> bool {
+        self.channel.is_none()
+    }
+    pub fn revoke(&mut self) {
+        self.channel = None;
+        self.reply = Vec::new();
+        self.permit = None;
+    }
+    pub fn seal_encoded(&mut self, bytes: &[u8]) -> crate::Result<Vec<u8>> {
+        self.channel
+            .as_mut()
+            .ok_or(crate::Error::Unauthorized)?
+            .seal_encoded(bytes)
+    }
+    pub fn open_encoded(&mut self, bytes: &[u8]) -> crate::Result<Vec<u8>> {
+        self.channel
+            .as_mut()
+            .ok_or(crate::Error::Unauthorized)?
+            .open_encoded(bytes)
     }
     pub fn budget(&self) -> ConnectionBudget {
         self.budget.clone()
     }
-    pub fn reader(&self, direction: Direction) -> FrameReader {
+    pub fn reader(&self, direction: Direction) -> crate::Result<FrameReader> {
+        self.channel.as_ref().ok_or(crate::Error::Unauthorized)?;
         FrameReader::with_budget(
             direction,
             MAX_FRAME_BYTES,
             FRAME_TIMEOUT_MS,
             self.budget.clone(),
         )
-        .unwrap()
     }
-    pub fn writer(&self, direction: Direction) -> FrameWriter {
-        FrameWriter::with_budget(direction, self.budget.clone())
+    pub fn writer(&self, direction: Direction) -> crate::Result<FrameWriter> {
+        self.channel.as_ref().ok_or(crate::Error::Unauthorized)?;
+        Ok(FrameWriter::with_budget(direction, self.budget.clone()))
     }
 }
 
@@ -594,9 +615,11 @@ impl TemporaryAuthority {
                 && (!new || (p.grant == self.grant.generation && final_now < self.grant.until))
         })?;
         Ok(Session {
-            authorized,
+            device: authorized.device,
+            reply: authorized.reply,
+            channel: Some(authorized.channel),
             budget,
-            _permit: permit,
+            permit: Some(permit),
         })
     }
 }

@@ -100,6 +100,12 @@ impl DeviceBudget {
     }
 }
 impl ConnectionBudget {
+    pub fn global_used(&self) -> usize {
+        self.global.used()
+    }
+    pub fn device_used(&self) -> Option<usize> {
+        self.device.as_ref().map(|d| d.used())
+    }
     /// Reserve before allocating. The caller can also reserve its socket/decrypt/phone
     /// buffers here; those allocations are not automatically intercepted by this API.
     pub fn reserve(&self, bytes: usize) -> Result<Reservation> {

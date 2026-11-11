@@ -1,5 +1,6 @@
 //! Phone HTTP-over-channel codecs and deterministic, bounded local assembly state.
 //! This is NOT pairing authorization, HTTP forwarding, or a socket lifecycle.
+use crate::budget::{ConnectionBudget, Reservation};
 use crate::{channel::MAX_PLAIN_BYTES, Error, Result, MAX_SAFE_INTEGER};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
@@ -187,12 +188,27 @@ impl Default for AssemblyLimits {
     }
 }
 struct Upload {
+    metadata_lease: Option<Reservation>,
+    body_lease: Option<Reservation>,
     request: Request,
     estimated: usize,
     held: usize,
     deadline: u64,
 }
+/// Owns request allocations through dispatch. Borrow the request; do not copy it
+/// into an unbudgeted task. Dropping it releases every retained reservation.
+pub struct LeasedRequest {
+    request: Request,
+    _metadata: Option<Reservation>,
+    _body: Option<Reservation>,
+}
+impl LeasedRequest {
+    pub fn request(&self) -> &Request {
+        &self.request
+    }
+}
 pub struct RequestAssembler {
+    budget: Option<ConnectionBudget>,
     limits: AssemblyLimits,
     uploads: BTreeMap<i64, Upload>,
     ignored: BTreeSet<i64>,
@@ -213,11 +229,23 @@ impl RequestAssembler {
         }
         Ok(Self {
             limits,
+            budget: None,
             uploads: BTreeMap::new(),
             ignored: BTreeSet::new(),
             held: 0,
             closed: false,
         })
+    }
+    pub fn with_budget(limits: AssemblyLimits, budget: ConnectionBudget) -> Result<Self> {
+        let mut assembler = Self::new(limits)?;
+        assembler.budget = Some(budget);
+        Ok(assembler)
+    }
+    pub fn accepts_tail(&self, id: i64) -> bool {
+        self.uploads.contains_key(&id) || self.ignored.contains(&id)
+    }
+    pub fn deadline_ms(&self) -> Option<u64> {
+        self.uploads.values().map(|u| u.deadline).min()
     }
     pub fn pending(&self) -> usize {
         self.uploads.len()
@@ -262,6 +290,19 @@ impl RequestAssembler {
     /// Invalid wire input closes and releases all assembly state; the carrier must close too.
     /// Caller must invoke expire before admission and run its own 16-active/64-queued scheduler.
     pub fn receive(&mut self, bytes: &[u8], now_ms: u64) -> Result<Option<Request>> {
+        // Budgeted mode must retain ownership through the dispatch handoff.
+        if self.budget.is_some() {
+            return Err(Error::Schema);
+        }
+        Ok(self.receive_owned(bytes, now_ms)?.map(|r| r.request))
+    }
+    pub fn receive_budgeted(&mut self, bytes: &[u8], now_ms: u64) -> Result<Option<LeasedRequest>> {
+        if self.budget.is_none() {
+            return Err(Error::Schema);
+        }
+        self.receive_owned(bytes, now_ms)
+    }
+    fn receive_owned(&mut self, bytes: &[u8], now_ms: u64) -> Result<Option<LeasedRequest>> {
         if self.closed {
             return Err(Error::Envelope);
         }
@@ -271,8 +312,16 @@ impl RequestAssembler {
         }
         result
     }
-    fn receive_inner(&mut self, bytes: &[u8], now_ms: u64) -> Result<Option<Request>> {
+    fn receive_inner(&mut self, bytes: &[u8], now_ms: u64) -> Result<Option<LeasedRequest>> {
         bounded(bytes)?;
+        // Conservative parse/decode scratch admission before serde allocation. The
+        // managed path also rejects dense/deep JSON using the shared raw validator.
+        let _scratch = if let Some(budget) = &self.budget {
+            crate::raw_json::validate(bytes)?;
+            Some(budget.reserve(bytes.len() * 32 + 4096)?)
+        } else {
+            None
+        };
         let p: RequestPart = serde_json::from_slice(bytes).map_err(|_| Error::Schema)?;
         if p.t != "req" || !valid_id(p.id) {
             return Err(Error::Schema);
@@ -312,9 +361,25 @@ impl RequestAssembler {
             let deadline = now_ms
                 .checked_add(self.limits.timeout_ms)
                 .ok_or(Error::Exhausted)?;
+            let metadata_lease = if let Some(budget) = &self.budget {
+                // Strings, IndexMap entry/hash-table capacity, BTreeMap node and Upload.
+                let storage = p.path.capacity()
+                    + p.headers
+                        .iter()
+                        .map(|(k, v)| k.capacity() + v.capacity())
+                        .sum::<usize>()
+                    + p.headers.capacity() * (std::mem::size_of::<(String, String)>() + 64)
+                    + std::mem::size_of::<Upload>()
+                    + 512;
+                Some(budget.reserve(storage)?)
+            } else {
+                None
+            };
             self.uploads.insert(
                 p.id,
                 Upload {
+                    metadata_lease,
+                    body_lease: None,
                     request: Request {
                         id: p.id,
                         method: p.method,
@@ -335,13 +400,32 @@ impl RequestAssembler {
         {
             return Err(Error::TooLarge);
         }
+        let needed = u.request.body.len() + chunk.len();
+        if let Some(budget) = &self.budget {
+            if needed > u.request.body.capacity() {
+                let capacity = needed
+                    .max(u.request.body.capacity().saturating_mul(2))
+                    .min(self.limits.body_bytes);
+                // Old and new allocations are both charged during growth.
+                let lease = budget.reserve(capacity)?;
+                u.request
+                    .body
+                    .reserve_exact(capacity - u.request.body.len());
+                u.body_lease = Some(lease);
+            }
+        }
         u.request.body.extend_from_slice(&chunk);
         u.held += chunk.len();
         self.held += chunk.len();
         if p.more {
             Ok(None)
         } else {
-            Ok(Some(self.remove(p.id).unwrap().request))
+            let u = self.remove(p.id).unwrap();
+            Ok(Some(LeasedRequest {
+                request: u.request,
+                _metadata: u.metadata_lease,
+                _body: u.body_lease,
+            }))
         }
     }
     pub fn disconnect(&mut self) -> Vec<i64> {

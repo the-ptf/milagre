@@ -2,6 +2,10 @@
 
 `milagre-remote` is a synchronous, in-memory protocol library. It opens no socket, accesses no existing profile or pairing store, and acquires no daemon lock. The synthetic policy model alone creates its own marked temporary record directory. It is not wired into the Rust owner or either app. Mobile source, dependencies and runtime fingerprint are unchanged.
 
+## Session registry checkpoint
+
+`registry::Registry` now owns established sessions, carrier generations, request scheduling and shared leases. Removal, retirement, replacement and idle deadlines revoke operations and cancel queued/in-flight tokens. `tick` processes deadlines without incoming frames; no listener or production timer is started. See [REGISTRY.md](REGISTRY.md) for APIs, Node lifecycle evidence and the stronger in-flight cancellation behavior. Registry persistence/restart and real service integration remain separate.
+
 ## Host policy checkpoint
 
 `policy::TemporaryAuthority` owns isolated temporary device records, approval/generation state, single-use enrollment grants, attempt limits and shared connection/device budgets. Low-level acceptance now requires a final generation callback and enforces a monotonic age limit. `Channel::open` applies raw token/depth limits before allocating a Value. See [HOST-POLICY.md](HOST-POLICY.md) for source inventory, APIs, evidence and service gaps.
@@ -94,6 +98,6 @@ If this worktree has no Node dependencies, set `NODE_PATH` to an existing truste
 
 Initial crypto/frame coverage: 18 Rust tests (2 internal plus 16 integration), three handshakes including legacy/minimal phone and desktop metadata, 18 ciphertext frames, ten authenticated invalid hellos, seven envelope tags with full-width connection IDs, and ten boundary/role frame cases through 16 MiB. The reciprocal Node run consumes Rust hello/accept and ciphertexts, reassembles multibyte fragments in both rpc/evt directions, and compares exact envelope bytes and boundary frame hashes. Other tests cover tampering, reflection, wrong host, ephemeral binding, replay/out-of-order, fresh accept after replayed hello, invalid JSON, strict fields/base64, truncation, oversize, exhausted counters/IDs and buffer cleanup. This is transport-library conformance, not an app or network interoperability test.
 
-Phone checkpoint adds 13 tests plus reciprocal Node host/mobile traces. The safety checkpoint adds 11 tests (authorization, Node callback/array differentials, leases, concurrency, expiry and allocation amplification), plus three compile-fail API tests. That checkpoint had 42 Rust tests and three doctests. Host policy/residual coverage raises the policy total to 59 Rust tests and three doctests. Ed25519 coverage raises the current total to 62 Rust tests and four doctests.
+Phone checkpoint adds 13 tests plus reciprocal Node host/mobile traces. The safety checkpoint adds 11 tests (authorization, Node callback/array differentials, leases, concurrency, expiry and allocation amplification), plus three compile-fail API tests. That checkpoint had 42 Rust tests and three doctests. Host policy/residual coverage raises the policy total to 59 Rust tests and three doctests. Ed25519 coverage raises the proof total to 62 Rust tests and four doctests. Registry coverage raises the current total to 75 Rust tests and four doctests.
 
 App-wide typecheck/lint/unit/UI checks are not substituted by these tests. No PR or production application changes are part of this checkpoint.

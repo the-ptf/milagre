@@ -347,11 +347,13 @@ fn sessions_share_connection_and_device_budgets_and_enforce_admission() {
     drop(lease);
     let output = sessions[0]
         .writer(milagre_remote::peer::Direction::Rpc)
+        .unwrap()
         .write("null")
         .unwrap();
     let before = sessions[0].budget().used();
     let raw = sessions[0]
         .reader(milagre_remote::peer::Direction::Rpc)
+        .unwrap()
         .read(&output[0], 0)
         .unwrap()
         .unwrap();

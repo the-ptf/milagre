@@ -1,0 +1,15 @@
+{
+  "sourceSha256": "8145755f04dc1a496faddc7bc736d88a4caaee7c370a468597514a5752063b76",
+  "observed": {
+    "replacementKeepsSuccessor": true,
+    "lateResponseFrames": 0,
+    "queuedAfterClose": 0,
+    "batchAfterClose": 0,
+    "liveClosed": 1,
+    "peerClosed": 1,
+    "approvalAborted": 1,
+    "nodeInflightAfterClose": 1,
+    "nodeFetchAbortedOnDisconnect": false,
+    "timersRemaining": 0
+  }
+}
