@@ -432,6 +432,7 @@ fn worker_panic_retains_execution_charge_until_actual_join() {
         claim.wait_worker_for_test(false);
         claim.finish_fixture();
         claim.wait_worker_for_test(true);
+        claim.wait_thread_finished_for_test(); // Panic has fully unwound before accounting.
         assert!(!joined.load(Ordering::SeqCst));
         assert_eq!(pool.used(), charged);
         assert_eq!(claim.collect(), Err(Fault::Worker));

@@ -689,6 +689,13 @@ impl Claim<'_> {
     pub(crate) fn joined_probe_for_test(&self) -> Arc<std::sync::atomic::AtomicBool> {
         self.worker.joined_probe.clone()
     }
+    pub(crate) fn wait_thread_finished_for_test(&self) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !self.worker.thread.as_ref().unwrap().is_finished() {
+            assert!(std::time::Instant::now() < deadline, "worker did not exit");
+            std::thread::yield_now();
+        }
+    }
     pub(crate) fn wait_worker_for_test(&self, finished: bool) {
         let gate = self.worker.signal.gate.lock().unwrap();
         let (gate, timeout) = self
