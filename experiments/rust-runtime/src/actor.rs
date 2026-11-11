@@ -433,6 +433,16 @@ impl State {
                 // The original command already settled as unknown. Any rollback/state
                 // changes are published through the owner's ordinary notices, never a second reply.
                 Notice::AnswerResolved { .. } => {}
+                Notice::AnswerForgotten { chat, answer } => {
+                    // History eviction is an audit fact, never a delivery result or another RPC reply.
+                    eprintln!(
+                        "{}",
+                        jsjson::to_string(&json!({
+                            "type":"answer-history-forgotten","chatId":chat,"answerId":answer.0,
+                            "delivery":"unknown","lateReconciliation":false
+                        }))
+                    );
+                }
                 Notice::Failed { error, .. } | Notice::Gap { what: error, .. } => {
                     record_failure(shared, error);
                 }

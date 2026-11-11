@@ -514,8 +514,17 @@ impl Worker {
               Some(SessionEvent::Closed{..})|None=>break,
              },
              reply=answers.recv(),if answering.is_none()=>if let Some(mut reply)=reply{
-              if let Some(id)=permissions.remove(&reply.request){let session=session.clone();let token=reply.request.clone();let shared=self.shared.clone();let chat=self.chat.clone();let turn=self.turn;
-               answering=Some(Box::pin(async move{reply.receipt.entered=true;shared.answers_entered.fetch_add(1,Ordering::AcqRel);let result=session.answer(local,id,reply.answer).await;let outcome=match result{
+              if let Some(id)=permissions.remove(&reply.request){
+               let receipt=match session.admit_answer(local,id.clone(),reply.answer){
+                Ok(receipt)=>receipt,
+                Err(_)=>{permissions.insert(reply.request.clone(),id);reply.receipt.settle(AnswerOutcome::Failed(stopped()));continue;}
+               };
+               // The session owns the admitted answer. This receipt observes it independently
+               // of the daemon RPC or its caller disconnecting; dropping it never retracts delivery.
+               reply.receipt.entered=true;
+               self.shared.answers_entered.fetch_add(1,Ordering::AcqRel);
+               let token=reply.request.clone();let shared=self.shared.clone();let chat=self.chat.clone();let turn=self.turn;
+               answering=Some(Box::pin(async move{let result=receipt.wait().await;let outcome=match result{
                 Ok(Delivery::WrittenUnacknowledged)=>{shared.emit(ProviderEvent::Agent{chat,turn,event:RawJson(json!({"type":"permission-resolved","requestId":token,"decision":if reply.answer==Answer::AllowOnce{"allow"}else{"deny"}}))},true);AnswerOutcome::Accepted},
                 Ok(Delivery::NotSent)=>AnswerOutcome::NotWaiting,
                 _=>AnswerOutcome::Uncertain(stopped()),
