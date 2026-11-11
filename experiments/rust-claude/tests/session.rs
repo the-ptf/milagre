@@ -881,9 +881,12 @@ async fn failed_permission_mode_change_closes_before_accepted_message_is_sent() 
         json!({"reply_error":"mode refused"}),
         json!({"expect_eof":proof}),
     ]);
-    let (session, mut events) = session(script);
+    // This assertion requires the child to observe EOF and persist its proof. Use the production
+    // flush grace, not the 500 ms deadline used to accelerate deliberate kill/escalation tests.
+    let (session, mut events) = configured(script, |o| o.limits.close_grace = Duration::from_secs(5));
     session.start_turn(request("one")).await.unwrap();
     until(&mut events, "session-started").await;
+    let pid = session.pid().unwrap();
     let mut r = request("never delivered");
     r.permission_mode = Some("full".into());
     assert!(session.start_turn(r).await.is_err());
@@ -892,6 +895,7 @@ async fn failed_permission_mode_change_closes_before_accepted_message_is_sent() 
     assert!(events.recv().await.is_none());
     assert!(session.is_closed());
     session.close().await;
+    assert!(!pid_alive(pid as i32));
     assert_eq!(std::fs::read(&proof).unwrap(), b"eof-without-frame");
     std::fs::remove_dir_all(root).unwrap();
 }
