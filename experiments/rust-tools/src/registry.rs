@@ -23,10 +23,11 @@ pub struct RegisteredTool {
     pub(crate) schema: Value,
     pub(crate) effect: ToolEffect,
     pub(crate) handler: Handler,
+    pub(crate) timeout: std::time::Duration,
 }
 impl RegisteredTool {
-    /// Register an implemented trusted handler. The handler must validate its
-    /// arguments and return an MCP tool result. Before each commit it must call
+    /// Register an implemented trusted handler. The dispatcher validates its strict
+    /// schema; the handler validates semantic state and returns an MCP tool result. Before each commit it must call
     /// context.assert_active(), as the native stores do at their write checkpoints. Schema/effect are owner code,
     /// never deserialized from transport input. No I/O happens at registration.
     pub fn new(schema: Value, effect: ToolEffect, handler: Handler) -> Result<Self> {
@@ -50,11 +51,43 @@ impl RegisteredTool {
                 "Host tool annotation differs from its registered handler effect.",
             ));
         }
+        crate::registry_schema::check(&schema["inputSchema"], 0)?;
+        if schema["inputSchema"]["type"] != "object" {
+            return Err(Error::coded(
+                "HOST_SCHEMA",
+                "Registered tool root schema must be an object.",
+            ));
+        }
+        if effect == ToolEffect::WakeResponse {
+            for field in ["chatId", "requestId"] {
+                if schema["inputSchema"]["properties"][field]["type"] != "string"
+                    || !schema["inputSchema"]["required"]
+                        .as_array()
+                        .is_some_and(|fields| fields.contains(&json!(field)))
+                {
+                    return Err(Error::coded(
+                        "HOST_SCHEMA",
+                        "Wake responses require explicit string Chat and request fields.",
+                    ));
+                }
+            }
+        }
         Ok(Self {
             schema,
             effect,
             handler,
+            timeout: std::time::Duration::from_secs(10),
         })
+    }
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Result<Self> {
+        if timeout.is_zero() || timeout > std::time::Duration::from_secs(10) {
+            return Err(Error::coded(
+                "HOST_DEADLINE",
+                "External handler timeout must be between zero and ten seconds.",
+            ));
+        }
+        self.timeout = timeout;
+        Ok(self)
     }
     pub(crate) fn manifest(&self) -> HostTool {
         HostTool {

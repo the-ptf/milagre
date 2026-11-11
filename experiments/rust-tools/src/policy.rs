@@ -316,6 +316,16 @@ impl HostPolicy {
                 return Err(Error::coded("ROLE_DENIED", ONLY_READS));
             }
         }
+        self.check_call(name, args)
+    }
+    pub(crate) fn check_call(&self, name: &str, args: &Value) -> Result<()> {
+        self.active()?;
+        if matches!(self.role, HostRole::Escalation { .. })
+            && name == "chat_respond"
+            && !self.wake_allows(args)
+        {
+            return Err(Error::coded("ROLE_DENIED", ONLY_READS));
+        }
         let Some(tool) = self.manifest.iter().find(|tool| tool.name == name) else {
             return Err(Error::coded(
                 "TOOL_UNAVAILABLE",

@@ -24,14 +24,17 @@ pub struct CallStatus {
 /// Retain this before awaiting when the owner needs cancellation evidence. It
 /// contains no request arguments, content, reply, credentials or caller identity.
 #[derive(Clone)]
-pub struct CallReceipt(Arc<Mutex<CallStatus>>);
+pub struct CallReceipt(Arc<Mutex<CallStatus>>, Arc<tokio::sync::Notify>);
 impl CallReceipt {
     pub(crate) fn new() -> Self {
-        Self(Arc::new(Mutex::new(CallStatus {
-            phase: CallPhase::Queued,
-            mutation: MutationOutcome::NotAttempted,
-            cancelled: false,
-        })))
+        Self(
+            Arc::new(Mutex::new(CallStatus {
+                phase: CallPhase::Queued,
+                mutation: MutationOutcome::NotAttempted,
+                cancelled: false,
+            })),
+            Arc::new(tokio::sync::Notify::new()),
+        )
     }
     pub fn status(&self) -> CallStatus {
         *self.0.lock().unwrap_or_else(|p| p.into_inner())
@@ -42,7 +45,16 @@ impl CallReceipt {
         if state.phase == CallPhase::Queued {
             state.phase = CallPhase::CancelledBeforeStart;
         }
+        self.1.notify_one();
         *state
+    }
+    pub(crate) async fn cancelled(&self) {
+        loop {
+            if self.status().cancelled {
+                return;
+            }
+            self.1.notified().await;
+        }
     }
     pub(crate) fn begin(&self, mutating: bool) -> Result<()> {
         let mut state = self.0.lock().unwrap_or_else(|p| p.into_inner());

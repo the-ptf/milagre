@@ -4,6 +4,7 @@ pub use accepted::{AcceptedCall, CallPhase, CallReceipt, CallStatus, MutationOut
 mod feedback;
 pub mod policy;
 mod registry;
+mod registry_schema;
 mod schema;
 use milagre_content_store::{
     design::{self, raster::RasterRenderer, DesignKits, ProjectForChat},
@@ -92,6 +93,7 @@ pub struct ContentOwner {
     fault: Mutex<Option<String>>,
     wakes: Mutex<u64>,
     calls: Arc<tokio::sync::Semaphore>,
+    external_calls: Arc<tokio::sync::Semaphore>,
 }
 /// Renderer authority minted only by its owning ContentOwner. MCP Caller values
 /// and session handles cannot be converted into this capability.
@@ -147,6 +149,7 @@ impl ContentOwner {
             fault: Mutex::new(None),
             wakes: Mutex::new(0),
             calls: Arc::new(tokio::sync::Semaphore::new(16)),
+            external_calls: Arc::new(tokio::sync::Semaphore::new(8)),
         }))
     }
     fn lock_fault(&self) -> MutexGuard<'_, Option<String>> {
@@ -828,29 +831,81 @@ impl Dispatcher {
             .iter()
             .find(|tool| tool.schema["name"] == name)
         {
-            let result = self.owner.with_stores(&self.caller, |_, _| {
-                self.policy.active()?;
-                let mutating = tool.effect != ToolEffect::Read;
-                receipt.begin(mutating)?;
-                let result = (tool.handler)(
-                    &HostContext {
-                        chat_id: self.caller.chat_id.clone(),
-                        project_id: self.caller.project_id.clone(),
-                        check: {
-                            let owner = self.owner.clone();
-                            let caller = self.caller.clone();
-                            Arc::new(move || owner.caller_check(&caller))
-                        },
-                    },
-                    args,
-                );
-                if mutating && result.as_ref().is_ok_and(|value| value["isError"] != true) {
-                    receipt.committed();
+            if let Err(error) = registry_schema::validate(&tool.schema["inputSchema"], args)
+                .and_then(|_| self.policy.check_call(name, args))
+            {
+                return tool_error(error.message);
+            }
+            let permit = match self.owner.external_calls.clone().try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    return tool_error(
+                        "External host handler capacity reached; request was not started.",
+                    )
                 }
-                result
-            });
+            };
+            let owner = self.owner.clone();
+            let caller = self.caller.clone();
+            let tool = tool.clone();
+            let args = args.clone();
+            let observed = receipt.clone();
+            let effect = tool.effect;
+            let deadline = std::time::Instant::now() + tool.timeout;
+            let open = Arc::new(AtomicBool::new(true));
+            let scope_open = open.clone();
+            let check_owner = owner.clone();
+            let check_caller = caller.clone();
+            let check_receipt = receipt.clone();
+            let context = HostContext {
+                chat_id: caller.chat_id.clone(),
+                project_id: caller.project_id.clone(),
+                check: Arc::new(move || {
+                    if !scope_open.load(Ordering::Acquire)
+                        || std::time::Instant::now() >= deadline
+                        || check_receipt.status().cancelled
+                    {
+                        return Err(Error::coded(
+                            "HOST_CALL_EXPIRED",
+                            "External host call cancelled or expired; do not replay mutations.",
+                        ));
+                    }
+                    check_owner.caller_check(&check_caller)
+                }),
+            };
+            let (send, receive) = tokio::sync::oneshot::channel();
+            // This separate bounded thread does not occupy the content lane or
+            // require another Tokio blocking-pool slot. A timed-out callback keeps
+            // its permit until exit; Rust cannot safely terminate arbitrary code.
+            let spawned = std::thread::Builder::new()
+                .name("milagre-host-tool".into())
+                .spawn(move || {
+                    let _permit = permit;
+                    let result = owner.isolated(|| {
+                        context.assert_active()?;
+                        observed.begin(tool.effect != ToolEffect::Read)?;
+                        let result = (tool.handler)(&context, &args);
+                        context.assert_active()?;
+                        result
+                    });
+                    let _ = send.send(result);
+                });
+            let result = if spawned.is_err() {
+                Err(Error::new("External host worker could not start."))
+            } else {
+                tokio::select! {
+                    value=receive=>value.unwrap_or_else(|_|Err(Error::new("External host worker stopped; mutation outcome is uncertain. Do not replay."))),
+                    _=tokio::time::sleep_until(tokio::time::Instant::from_std(deadline))=>Err(Error::coded("HOST_CALL_EXPIRED","External host handler timed out; mutation may have committed. Do not replay.")),
+                    _=receipt.cancelled()=>Err(Error::coded("HOST_CALL_EXPIRED","External host handler cancelled; mutation may have committed. Do not replay.")),
+                }
+            };
+            open.store(false, Ordering::Release);
             if let Err(error) = self.active() {
                 return tool_error(error.message);
+            }
+            if effect != ToolEffect::Read
+                && result.as_ref().is_ok_and(|value| value["isError"] != true)
+            {
+                receipt.committed();
             }
             return result.unwrap_or_else(|error| tool_error(error.message));
         }

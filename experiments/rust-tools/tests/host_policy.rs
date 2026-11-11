@@ -430,24 +430,41 @@ fn wake_leases_release_without_lifetime_exhaustion_and_cannot_be_rebound() {
     assert!(owner.session(caller()).is_ok());
 }
 
+fn external_schema(name: &str, effect: milagre_tools::ToolEffect) -> Value {
+    let input = if effect == milagre_tools::ToolEffect::WakeResponse {
+        json!({"type":"object","additionalProperties":false,"properties":{"chatId":{"type":"string"},"requestId":{"type":"string"},"decision":{"type":"string","enum":["allow","deny"]}},"required":["chatId","requestId","decision"]})
+    } else {
+        json!({"type":"object","additionalProperties":false,"properties":{}})
+    };
+    json!({"name":name,"description":"Fixture handler only","inputSchema":input,"annotations":{"readOnlyHint":effect==milagre_tools::ToolEffect::Read}})
+}
 fn external(
     name: &str,
     effect: milagre_tools::ToolEffect,
     calls: Arc<AtomicUsize>,
 ) -> milagre_tools::RegisteredTool {
-    use milagre_tools::{RegisteredTool, ToolEffect};
+    use milagre_tools::RegisteredTool;
     let name = name.to_owned();
     let handler_name = name.clone();
-    RegisteredTool::new(json!({"name":name,"description":"Fixture handler only","inputSchema":{"type":"object"},"annotations":{"readOnlyHint":effect==ToolEffect::Read}}),effect,Arc::new(move|context,args|{
-        // This fixture implements the retained handler's own argument checks;
-        // matching a wake pair never licenses an arbitrary response payload.
-        if handler_name=="chat_respond" && !matches!(args["decision"].as_str(),Some("allow"|"deny")) {
-            return Err(milagre_content_store::Error::new("Invalid fixture response decision"));
-        }
-        context.assert_active()?;
-        calls.fetch_add(1,Ordering::SeqCst);
-        Ok(json!({"content":[{"type":"text","text":"fixture"}],"isError":false}))
-    })).unwrap()
+    RegisteredTool::new(
+        external_schema(&name, effect),
+        effect,
+        Arc::new(move |context, args| {
+            // This fixture implements the retained handler's own argument checks;
+            // matching a wake pair never licenses an arbitrary response payload.
+            if handler_name == "chat_respond"
+                && !matches!(args["decision"].as_str(), Some("allow" | "deny"))
+            {
+                return Err(milagre_content_store::Error::new(
+                    "Invalid fixture response decision",
+                ));
+            }
+            context.assert_active()?;
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(json!({"content":[{"type":"text","text":"fixture"}],"isError":false}))
+        }),
+    )
+    .unwrap()
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn complete_host_registry_and_endpoints_share_one_budget_and_manifest() {
@@ -630,13 +647,36 @@ async fn release_revokes_inflight_external_commit_and_all_derived_endpoints() {
             PolicyOptions::escalation(lease.clone(), Arc::new(|| {}))
         )
         .is_err());
-    let tool=RegisteredTool::new(json!({"name":"chat_respond","inputSchema":{"type":"object"},"annotations":{"readOnlyHint":false}}),ToolEffect::WakeResponse,Arc::new({let gate=gate.clone();let entered=entered.clone();let writes=writes.clone();move|context,args|{
-        if args["decision"]!="allow" {return Err(milagre_content_store::Error::new("Invalid fixture response"));}
-        entered.store(true,Ordering::SeqCst);
-        let (_guard,timeout)=gate.1.wait_timeout_while(gate.0.lock().unwrap(),std::time::Duration::from_secs(2),|ready|!*ready).unwrap();assert!(!timeout.timed_out());
-        context.assert_active()?;writes.fetch_add(1,Ordering::SeqCst);
-        Ok(json!({"content":[],"isError":false}))
-    }})).unwrap();
+    let tool = RegisteredTool::new(
+        external_schema("chat_respond", ToolEffect::WakeResponse),
+        ToolEffect::WakeResponse,
+        Arc::new({
+            let gate = gate.clone();
+            let entered = entered.clone();
+            let writes = writes.clone();
+            move |context, args| {
+                if args["decision"] != "allow" {
+                    return Err(milagre_content_store::Error::new(
+                        "Invalid fixture response",
+                    ));
+                }
+                entered.store(true, Ordering::SeqCst);
+                let (_guard, timeout) = gate
+                    .1
+                    .wait_timeout_while(
+                        gate.0.lock().unwrap(),
+                        std::time::Duration::from_secs(2),
+                        |ready| !*ready,
+                    )
+                    .unwrap();
+                assert!(!timeout.timed_out());
+                context.assert_active()?;
+                writes.fetch_add(1, Ordering::SeqCst);
+                Ok(json!({"content":[],"isError":false}))
+            }
+        }),
+    )
+    .unwrap();
     let host = shared.host_session(caller(), options, vec![tool]).unwrap();
     let endpoint = host.endpoint(&["chat_respond"]).unwrap();
     let accepted = endpoint
@@ -663,4 +703,180 @@ async fn release_revokes_inflight_external_commit_and_all_derived_endpoints() {
     assert!(shared
         .session_with_policy(caller(), PolicyOptions::escalation(lease, Arc::new(|| {})))
         .is_err());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn external_actor_wait_does_not_hold_the_renderer_storage_lane() {
+    use milagre_tools::{RegisteredTool, ToolEffect};
+    use std::sync::{mpsc, Mutex};
+    use std::time::Duration;
+    let temp = tempfile::tempdir().unwrap();
+    let shared = owner(temp.path());
+    let (send, receive) = mpsc::sync_channel(1);
+    let receive = Mutex::new(receive);
+    let entered = Arc::new(AtomicUsize::new(0));
+    let tool = RegisteredTool::new(
+        external_schema("chat_read", ToolEffect::Read),
+        ToolEffect::Read,
+        Arc::new({
+            let entered = entered.clone();
+            move |context, _| {
+                entered.store(1, Ordering::SeqCst);
+                receive
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(2))
+                    .map_err(|_| milagre_content_store::Error::new("Actor reply did not arrive"))?;
+                context.assert_active()?;
+                Ok(json!({"content":[],"isError":false}))
+            }
+        }),
+    )
+    .unwrap();
+    let session = shared
+        .host_session(caller(), PolicyOptions::default(), vec![tool])
+        .unwrap();
+    let accepted = session.start_call("chat_read", &json!({})).unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while entered.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let actor = tokio::task::spawn_blocking(move || {
+        let scope = shared
+            .renderer_scope("/alpha#1", "/alpha", Arc::new(|| Ok(())))
+            .unwrap();
+        let value = shared
+            .renderer(&scope, "artifact:list", &json!({"chatId":"/alpha#1"}))
+            .unwrap();
+        send.send(()).unwrap();
+        value
+    });
+    assert_eq!(
+        tokio::time::timeout(Duration::from_millis(500), actor)
+            .await
+            .unwrap()
+            .unwrap(),
+        json!([])
+    );
+    assert_eq!(accepted.wait().await["isError"], false);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn external_timeouts_keep_worker_slots_and_refuse_late_commit_without_blocking_content() {
+    use milagre_tools::{MutationOutcome, RegisteredTool, ToolEffect};
+    use std::sync::{Condvar, Mutex};
+    use std::time::Duration;
+    let temp = tempfile::tempdir().unwrap();
+    let shared = owner(temp.path());
+    let gate = Arc::new((Mutex::new(false), Condvar::new()));
+    let entered = Arc::new(AtomicUsize::new(0));
+    let exited = Arc::new(AtomicUsize::new(0));
+    let writes = Arc::new(AtomicUsize::new(0));
+    let tool = RegisteredTool::new(
+        external_schema("chat_write", ToolEffect::Write),
+        ToolEffect::Write,
+        Arc::new({
+            let gate = gate.clone();
+            let entered = entered.clone();
+            let exited = exited.clone();
+            let writes = writes.clone();
+            move |context, _| {
+                entered.fetch_add(1, Ordering::SeqCst);
+                let (_lock, timeout) = gate
+                    .1
+                    .wait_timeout_while(gate.0.lock().unwrap(), Duration::from_secs(3), |open| {
+                        !*open
+                    })
+                    .unwrap();
+                assert!(!timeout.timed_out());
+                let active = context.assert_active();
+                exited.fetch_add(1, Ordering::SeqCst);
+                active?;
+                writes.fetch_add(1, Ordering::SeqCst);
+                Ok(json!({"content":[],"isError":false}))
+            }
+        }),
+    )
+    .unwrap()
+    .with_timeout(Duration::from_millis(100))
+    .unwrap();
+    let session = shared
+        .host_session(caller(), PolicyOptions::default(), vec![tool])
+        .unwrap();
+    let mut accepted = Vec::new();
+    for _ in 0..8 {
+        accepted.push(session.start_call("chat_write", &json!({})).unwrap());
+    }
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while entered.load(Ordering::SeqCst) < 8 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    // One explicit cancellation and seven timeouts use the same scoped commit guard.
+    accepted[0].cancel();
+    for call in accepted {
+        let receipt = call.receipt();
+        assert_eq!(call.wait().await["isError"], true);
+        assert_eq!(receipt.status().mutation, MutationOutcome::Uncertain);
+    }
+    let denied = session.call("chat_write", &json!({})).await;
+    assert_eq!(denied["isError"], true);
+    assert!(text(&denied).contains("capacity"));
+    assert_eq!(
+        session.call("artifact_list", &json!({})).await["isError"],
+        false
+    );
+    assert_eq!(entered.load(Ordering::SeqCst), 8);
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_all();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while exited.load(Ordering::SeqCst) < 8 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
+    assert!(shared.storage_fault().is_none());
+}
+
+#[tokio::test]
+async fn registered_schema_rejects_unvalidated_payloads_before_callbacks() {
+    use milagre_tools::{RegisteredTool, ToolEffect};
+    let temp = tempfile::tempdir().unwrap();
+    let shared = owner(temp.path());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let session = shared
+        .host_session(
+            caller(),
+            PolicyOptions::default(),
+            vec![external(
+                "chat_respond",
+                ToolEffect::WakeResponse,
+                calls.clone(),
+            )],
+        )
+        .unwrap();
+    for args in [
+        json!({}),
+        json!({"chatId":3,"requestId":"r","decision":"allow"}),
+        json!({"chatId":"c","requestId":"r","decision":"allow","otherChat":"b"}),
+        json!({"chatId":"c","requestId":"r","decision":"unsupported"}),
+    ] {
+        assert_eq!(session.call("chat_respond", &args).await["isError"], true);
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let mut schema = external_schema("chat_read", ToolEffect::Read);
+    schema["inputSchema"]["patternProperties"] = json!({".*":{"type":"string"}});
+    assert!(RegisteredTool::new(
+        schema,
+        ToolEffect::Read,
+        Arc::new(|_, _| panic!("must not register"))
+    )
+    .is_err());
 }
