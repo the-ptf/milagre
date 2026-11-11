@@ -13,7 +13,6 @@
 
 pub mod chat;
 pub mod chrome;
-pub mod grid;
 pub mod link;
 mod overlays;
 pub mod panel;
@@ -42,10 +41,8 @@ use crate::workspace::sidebar::{Sidebar, SidebarEvent};
 pub struct Workspace {
     pub sidebar: Entity<Sidebar>,
     pub chat: Entity<ChatView>,
-    /// The Chat grid and the split around the Chat column (WP-48).
-    pub grid: Entity<grid::ChatGrid>,
     /// The Link workspace, in place of the sidebar and the columns while open (WP-48).
-    pub link: Option<grid::hooks::OpenLink>,
+    pub link: Option<link::hooks::OpenLink>,
     pub panel: Entity<Panel>,
     pub settings: Entity<SettingsModal>,
     /// ⌘K (WP-50), above everything else.
@@ -115,7 +112,7 @@ impl Workspace {
                 this.sidebar.update(cx, |sidebar, cx| sidebar.select_key(key, cx));
             }
         });
-        let (grid, grid_subscriptions) = Self::new_grid(&sidebar, &chat, cx);
+        Self::install_window_keys(cx);
         let follow = cx.observe(&sidebar, |this, _, cx| this.follow_sidebar(None, cx));
         // A web page draws over GPUI: it hides while Settings is open (src/platform/webview.rs).
         let web = cx
@@ -131,7 +128,6 @@ impl Workspace {
         Self {
             sidebar,
             chat,
-            grid,
             link: None,
             panel,
             settings,
@@ -145,10 +141,7 @@ impl Workspace {
             routines,
             routines_open,
             routines_at,
-            _subscriptions: vec![layout, follow, web, palette_web, new_chat, open_chat, palette_events, notice_events, first_chat]
-                .into_iter()
-                .chain(grid_subscriptions)
-                .collect(),
+            _subscriptions: vec![layout, follow, web, palette_web, new_chat, open_chat, palette_events, notice_events, first_chat],
         }
     }
 
@@ -206,10 +199,10 @@ impl Render for Workspace {
         let columns = if self.routines_open {
             div().flex().flex_1().min_w_0().h_full().child(self.routines.clone()).into_any_element()
         } else {
-            let body = self.chat_body(window, cx);
+            let body = self.chat.clone().into_any_element();
             let body = self.diff_over_chat(body, window, cx);
             let column = self.chat_column(terminal::column(body, &self.terminals, window, cx), cx);
-            dock::layout(&self.panel, self.grid_corner(column, cx), cx)
+            dock::layout(&self.panel, column, cx)
         };
         let columns = self.link_or(columns);
         let settings = self.settings.clone();
@@ -234,7 +227,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
             .on_action(cx.listener(|this, _: &NewChat, _, cx| this.new_chat(cx)))
             .map(shell::keys::on_window_actions)
-            .map(|el| self.grid_actions(el, cx))
+            .map(|el| self.window_actions(el, cx))
             .map(|el| self.sidebar_drag(el, cx))
             .when(self.link.is_none(), |el| el.child(self.sidebar.clone()).child(hairline(&theme)))
             .child(columns)
