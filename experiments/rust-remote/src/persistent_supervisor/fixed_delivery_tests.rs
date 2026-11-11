@@ -555,3 +555,6 @@ fn owned_verifier_unwind_drains_credit_and_keeps_abort_and_original_writer() {
         quarantined(released(stopped)).destroy().unwrap();
     }
 }
+
+#[path = "fixed_wake_tests.rs"]
+mod fixed_wake_tests;

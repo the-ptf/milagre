@@ -64,14 +64,21 @@ pub(crate) struct Packet {
     lease: Option<Reservation>,
     returned: ReturnSender,
     accepted: Option<PeerAccepted>,
+    wake: Option<crate::persistent_supervisor::wake::WakeToken>,
 }
 impl Packet {
-    pub(crate) fn new(bytes: Vec<u8>, lease: Reservation, returned: ReturnSender) -> Self {
+    pub(crate) fn new(
+        bytes: Vec<u8>,
+        lease: Reservation,
+        returned: ReturnSender,
+        wake: Option<crate::persistent_supervisor::wake::WakeToken>,
+    ) -> Self {
         Self {
             bytes: Some(bytes),
             lease: Some(lease),
             returned,
             accepted: None,
+            wake,
         }
     }
     pub(crate) fn wire_len(&self) -> usize {
@@ -107,6 +114,9 @@ impl Drop for Packet {
         let _ = self.returned.try_send(ReturnedCredit {
             accepted: self.accepted.take(),
         });
+        if let Some(wake) = self.wake.take() {
+            wake.wake();
+        }
     }
 }
 
@@ -118,7 +128,7 @@ mod tests {
         let global = crate::budget::GlobalBudget::new(1536).unwrap();
         let budget = global.connection(1536).unwrap();
         let (sender, receiver) = receipt_cell();
-        let packet = Packet::new(vec![3, 1, 2], budget.reserve(1536).unwrap(), sender);
+        let packet = Packet::new(vec![3, 1, 2], budget.reserve(1536).unwrap(), sender, None);
         assert!(matches!(
             receiver.try_recv(),
             Err(mpsc::TryRecvError::Empty)

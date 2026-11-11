@@ -451,6 +451,7 @@ fn owner_abort_and_actor_unwind_keep_rows_and_backing_until_actual_child_join() 
         assert_eq!(
             owner.retained_bytes(),
             crate::synthetic_store::StoreLimits::default().working_bytes
+                + wake::wake_charge().unwrap()
         );
         assert!(matches!(
             stopped.profile.acquire_writer(),
@@ -797,7 +798,7 @@ fn owner_healthy_close_keeps_two_workers_and_forgotten_rows_until_join_then_pres
     assert!(memories.iter().all(|m| m.is_closed()));
     assert_eq!(
         owner.retained_bytes(),
-        crate::synthetic_store::StoreLimits::default().working_bytes
+        crate::synthetic_store::StoreLimits::default().working_bytes + wake::wake_charge().unwrap()
     );
     slot(&s.retained, &s.shared)
         .runtime

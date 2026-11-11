@@ -498,9 +498,14 @@ impl PersistentAuthority {
         }
         now.checked_add(345_000).ok_or(Fault::Expired)?;
         let tracked = match target {
-            Some(target) => {
-                Some(self.prepare_fixed_output(&token, target, serial, clock, prepaid)?)
-            }
+            Some(target) => Some(self.prepare_fixed_output(
+                &token,
+                target,
+                serial,
+                clock,
+                prepaid,
+                owner.as_ref().and_then(OwnerBinding::wake_token),
+            )?),
             None => None,
         };
         let signal = Arc::new(Signal {
@@ -519,10 +524,14 @@ impl PersistentAuthority {
         let s = signal.clone();
         #[cfg(test)]
         let exit = hooks.exit.clone();
+        let worker_wake = owner.as_ref().and_then(OwnerBinding::wake_token);
         let thread = thread::Builder::new()
             .stack_size(STACK_BYTES)
             .spawn(move || {
-                let result = run(s, outcome, hold);
+                let result = {
+                    let _wake = crate::persistent_supervisor::wake::WakeGuard::new(worker_wake);
+                    run(s, outcome, hold)
+                };
                 #[cfg(test)]
                 if let Some(exit) = exit {
                     exit.wait();

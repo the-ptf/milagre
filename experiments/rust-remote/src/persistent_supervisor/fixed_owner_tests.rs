@@ -650,7 +650,7 @@ fn fixed_saturated_admission_keeps_control_and_stop_lanes_and_drains_forgotten_h
         .all(|t| t.status() == WorkStatus::Cancelled));
     assert_eq!(
         s.retained_bytes(),
-        crate::synthetic_store::StoreLimits::default().working_bytes
+        crate::synthetic_store::StoreLimits::default().working_bytes + wake::wake_charge().unwrap()
     );
     assert!(matches!(
         s.profile.as_mut().unwrap().acquire_writer(),

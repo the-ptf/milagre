@@ -1,5 +1,7 @@
 # Private owner delivery, wakes and fair turns
 
+[Checked-wake implementation evidence](FIXED-OWNER-CHECKED-WAKES.md) records this checkpoint; rotating buckets remain separate.
+
 [Increment 2B.2 implementation evidence](FIXED-OWNER-DELIVERY.md) records the shared commits, returned-credit completion and current validation boundary. Increment 2B.3 remains separately gated.
 
 [Increment 2B.1 implementation evidence](FIXED-OWNER-PEER-SETUP.md) records charged peer setup and fixed requests. It leaves Ready retained without response delivery; 2B.2 and 2B.3 remain separate.

@@ -263,10 +263,19 @@ fn fixed_emit_supplies_actual_deadline_before_seal_and_propagates_refusal() {
     let lease = active.budget().reserve(FIXTURE_FRAME).unwrap();
     let (returned, receiver) = receipt_cell();
     assert!(matches!(
-        registry.emit_fixed_claim(&permit, &grant.0, b"null", lease, returned, 1, |deadline| {
-            assert_eq!(deadline, 15_001);
-            Err(Error::Timeout)
-        }),
+        registry.emit_fixed_claim(
+            &permit,
+            &grant.0,
+            b"null",
+            lease,
+            returned,
+            None,
+            1,
+            |deadline| {
+                assert_eq!(deadline, 15_001);
+                Err(Error::Timeout)
+            }
+        ),
         Err(RegistryError::Protocol(Error::Timeout))
     ));
     let active = registry.claimed(&permit, 1).unwrap();

@@ -6,6 +6,12 @@ struct Counter {
     limit: usize,
     used: Mutex<usize>,
 }
+/// The fixed wake split retains its connection counter after the main lease drops.
+pub(crate) fn fixed_backing_counter_allocation_bytes() -> Option<usize> {
+    std::mem::size_of::<Counter>()
+        .checked_add(2usize.checked_mul(std::mem::size_of::<usize>())?)?
+        .checked_add(std::mem::align_of::<Counter>().checked_sub(1)?)
+}
 impl Counter {
     fn reserve(&self, n: usize) -> Result<()> {
         let mut used = self.used.lock().map_err(|_| Error::Budget)?;
@@ -140,6 +146,9 @@ impl ConnectionBudget {
     }
 }
 impl Reservation {
+    pub(crate) fn held_bytes(&self) -> usize {
+        self.bytes
+    }
     /// Transfer part of an existing charge without releasing/reacquiring counters.
     pub(crate) fn split(&mut self, bytes: usize) -> Result<Self> {
         if bytes > self.bytes {

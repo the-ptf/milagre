@@ -21,14 +21,21 @@ pub struct PersistentApproval {
     deadline: u64,
     state: Arc<AtomicU8>,
     scope: Arc<()>,
+    wake: std::sync::Weak<Shared>,
 }
 impl Drop for PersistentApproval {
     fn drop(&mut self) {
-        let _ = self
+        if self
             .state
             .try_update(Ordering::SeqCst, Ordering::SeqCst, |s| {
                 (s < CONSUMED).then_some(CANCELLED)
-            });
+            })
+            .is_ok()
+        {
+            if let Some(shared) = self.wake.upgrade() {
+                shared.notify_work();
+            }
+        }
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -245,7 +252,7 @@ impl PersistentOwnerClient {
             PersistentCommand::RemoveDevice(_) | PersistentCommand::DrainWork { .. }
         );
         let mut q = self.0.queues();
-        if self.0.stop.load(Ordering::SeqCst) != RUNNING {
+        if !self.0.running() {
             return Err(Error::NotExecuted);
         }
         let lease = if control {
@@ -291,6 +298,9 @@ impl PersistentOwnerClient {
             Some(self.0.ingress.reserve(cost).map_err(|_| Error::Full)?)
         };
         let (reply, rx) = mpsc::sync_channel(1);
+        if !self.0.running() {
+            return Err(Error::NotExecuted);
+        }
         let e = Envelope {
             origin,
             cost,
@@ -303,7 +313,7 @@ impl PersistentOwnerClient {
         } else {
             q.commands.push_back(e);
         }
-        self.0.wake.notify_one();
+        self.0.notify_work();
         Ok(Receipt(rx))
     }
     pub fn approve(
@@ -311,7 +321,7 @@ impl PersistentOwnerClient {
         permit: PersistentApproval,
     ) -> std::result::Result<Receipt, ApprovalRejection> {
         let mut q = self.0.queues();
-        let refusal = if self.0.stop.load(Ordering::SeqCst) != RUNNING {
+        let refusal = if !self.0.running() {
             Some(ApprovalRefusal::Stopped)
         } else if !Arc::ptr_eq(&self.0.scope, &permit.scope) {
             Some(ApprovalRefusal::Replaced)
@@ -328,11 +338,15 @@ impl PersistentOwnerClient {
         };
         if let Some(why) = refusal {
             drop(permit);
-            self.0.wake.notify_one();
+            self.0.notify_work();
             return Err(ApprovalRejection::Unavailable(why));
         }
         if q.controls.len() >= CONTROL_SLOTS {
             return Err(ApprovalRejection::Full(permit));
+        }
+        let (reply, rx) = mpsc::sync_channel(1);
+        if !self.0.running() {
+            return Err(ApprovalRejection::Unavailable(ApprovalRefusal::Stopped));
         }
         if permit
             .state
@@ -341,7 +355,6 @@ impl PersistentOwnerClient {
         {
             return Err(ApprovalRejection::Unavailable(ApprovalRefusal::Revoked));
         }
-        let (reply, rx) = mpsc::sync_channel(1);
         q.controls.push_back(Envelope {
             origin: None,
             cost: 1024,
@@ -349,7 +362,7 @@ impl PersistentOwnerClient {
             reply,
             lease: None,
         });
-        self.0.wake.notify_one();
+        self.0.notify_work();
         Ok(Receipt(rx))
     }
     pub fn next_event(&self, timeout: Duration) -> Option<Event> {
@@ -366,7 +379,7 @@ impl PersistentOwnerClient {
                 self.0.fail(WorkerFault::Poisoned);
                 e.into_inner()
             });
-        if self.0.stop.load(Ordering::SeqCst) != RUNNING {
+        if !self.0.running() {
             return None;
         }
         if let Some(index) = q
@@ -465,7 +478,7 @@ impl Runtime {
     }
     fn emit(shared: &Shared, event: Event) -> bool {
         let mut q = shared.queues();
-        if shared.stop.load(Ordering::SeqCst) != RUNNING {
+        if !shared.running() {
             return false;
         }
         let advisory = matches!(event, Event::Closed(_));
@@ -599,7 +612,7 @@ impl Runtime {
                 }
             }
             loop {
-                if shared.stop.load(Ordering::SeqCst) != RUNNING {
+                if !shared.running() {
                     break;
                 }
                 let result = self.authority.take_output_owned(
@@ -676,6 +689,11 @@ impl Runtime {
                             deadline: metadata.deadline,
                             state,
                             scope: shared.scope.clone(),
+                            wake: shared
+                                .fixed_wake
+                                .as_ref()
+                                .and_then(wake::WakeAccess::hub)
+                                .map_or_else(std::sync::Weak::new, |hub| hub.shared_token()),
                         },
                         device_key: metadata.device_key,
                         deadline: metadata.deadline,
@@ -848,14 +866,18 @@ impl Runtime {
         if result.is_ok() && target.is_some_and(|h| failed.iter().any(|other| other.same(&h))) {
             result = Err(Error::DeliveryUnknown);
         }
-        if result.is_ok() && shared.stop.load(Ordering::SeqCst) != RUNNING {
+        if result.is_ok() && !shared.running() {
             result = Err(Error::UnknownOutcome);
         }
         result
     }
     pub(super) fn run(&mut self, shared: &Arc<Shared>) {
+        if self.fixed.is_some() {
+            self.run_fixed(shared);
+            return;
+        }
         loop {
-            if shared.stop.load(Ordering::SeqCst) != RUNNING {
+            if !shared.running() {
                 break;
             }
             if self.maintain(shared).is_err() {
@@ -878,7 +900,7 @@ impl Runtime {
                         shared.fail(WorkerFault::Poisoned);
                         e.into_inner()
                     });
-                if shared.stop.load(Ordering::SeqCst) != RUNNING {
+                if !shared.running() {
                     break;
                 }
                 q.controls.pop_front().or_else(|| q.commands.pop_front())
@@ -889,7 +911,7 @@ impl Runtime {
                     shared.fail(WorkerFault::Clock);
                     break;
                 }
-                if shared.stop.load(Ordering::SeqCst) != RUNNING {
+                if !shared.running() {
                     envelope.reject();
                     break;
                 }
@@ -899,6 +921,100 @@ impl Runtime {
             }
             self.fixed_prepare_one(shared);
             self.fixed_start_one(shared);
+        }
+    }
+    fn run_fixed(&mut self, shared: &Arc<Shared>) {
+        let hub = self.fixed.as_ref().unwrap().hub.as_ref().unwrap().clone();
+        loop {
+            let generation = hub.generation();
+            if !shared.running() {
+                break;
+            }
+            if self.maintain(shared).is_err() {
+                shared.fail(WorkerFault::Clock);
+                break;
+            }
+            let envelope = {
+                let mut q = shared.queues();
+                q.controls.pop_front().or_else(|| q.commands.pop_front())
+            };
+            if let Some(envelope) = envelope {
+                if self.maintain(shared).is_err() {
+                    envelope.reject();
+                    shared.fail(WorkerFault::Clock);
+                    break;
+                }
+                if !shared.running() {
+                    envelope.reject();
+                    break;
+                }
+                let result = self.execute(shared, envelope.command);
+                drop(envelope.lease);
+                let _ = envelope.reply.try_send(result);
+            }
+            self.fixed_prepare_one(shared);
+            self.fixed_start_one(shared);
+            let occupied = self.authority.fixed_owner_occupancy();
+            let runnable = {
+                let q = shared.queues();
+                !q.commands.is_empty()
+                    || !q.controls.is_empty()
+                    || q.fixed
+                        .as_ref()
+                        .is_some_and(|f| f.has_operations() || f.can_start(&occupied))
+            };
+            #[cfg(test)]
+            let test = shared
+                .queues()
+                .fixed
+                .as_ref()
+                .and_then(|state| state.park_hooks());
+            #[cfg(test)]
+            if let Some(test) = &test {
+                test.rounds.fetch_add(1, Ordering::SeqCst);
+                if !runnable {
+                    if let Some(gate) = &test.before_check {
+                        gate.wait();
+                    }
+                }
+            }
+            if !shared.running() {
+                break;
+            }
+            if !runnable && hub.generation() == generation {
+                #[cfg(test)]
+                if let Some(test) = &test {
+                    if let Some(gate) = &test.after_check {
+                        gate.wait();
+                    }
+                    test.parks.fetch_add(1, Ordering::SeqCst);
+                }
+                #[cfg(test)]
+                if let Some(test) = test
+                    .as_ref()
+                    .filter(|test| test.no_timeout && !test.entered.load(Ordering::SeqCst))
+                {
+                    let _ = test.actor.set(thread::current());
+                    thread::park_timeout(Duration::ZERO); // Drain old tokens before the test's atomic gap.
+                    test.entered.store(true, Ordering::SeqCst);
+                    while !test.release.load(Ordering::SeqCst) {
+                        thread::yield_now();
+                    }
+                    if !shared.running() {
+                        continue;
+                    }
+                    thread::park();
+                    continue;
+                }
+                thread::park_timeout(Duration::from_millis(shared.limits.tick_ms));
+            } else {
+                #[cfg(test)]
+                if !runnable {
+                    if let Some(test) = &test {
+                        test.skipped.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            }
         }
     }
 }

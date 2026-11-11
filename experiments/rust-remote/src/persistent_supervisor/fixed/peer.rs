@@ -115,7 +115,7 @@ impl State {
             operation,
         });
         self.next_reply = generation;
-        shared.wake.notify_one();
+        shared.notify_work();
         ReplyHandle {
             shared: Arc::downgrade(shared),
             slot,
@@ -162,7 +162,7 @@ impl FixedOwnerClient {
         };
         let descriptor = (|| {
             let q = shared.queues();
-            if shared.stop.load(Ordering::SeqCst) != RUNNING {
+            if !shared.running() {
                 return Err(PrepareRefusal::Stopped);
             }
             let fixed = q.fixed.as_ref().ok_or(PrepareRefusal::Stopped)?;
@@ -183,7 +183,7 @@ impl FixedOwnerClient {
         };
         let mut q = shared.queues();
         let admitted = (|| {
-            if shared.stop.load(Ordering::SeqCst) != RUNNING {
+            if !shared.running() {
                 return Err(PrepareRefusal::Stopped);
             }
             let fixed = q.fixed.as_mut().ok_or(PrepareRefusal::Stopped)?;
@@ -208,6 +208,14 @@ impl FixedOwnerClient {
                 return Err(reject(e, transfer));
             }
         };
+        if !shared.running() {
+            drop(q);
+            drop(lease);
+            return Err(PeerRejection::Unavailable(
+                PrepareRefusal::Stopped,
+                transfer,
+            ));
+        }
         let fixed = q.fixed.as_mut().unwrap();
         fixed.peers[id.slot] = Some(PeerCell {
             id,
@@ -233,7 +241,7 @@ impl FixedOwnerClient {
     ) -> Result<FixtureReceipt, PrepareRefusal> {
         let shared = self.shared()?;
         let mut q = shared.queues();
-        if shared.stop.load(Ordering::SeqCst) != RUNNING {
+        if !shared.running() {
             return Err(PrepareRefusal::Stopped);
         }
         let fixed = q.fixed.as_mut().ok_or(PrepareRefusal::Stopped)?;
@@ -249,6 +257,9 @@ impl FixedOwnerClient {
             .map(|p| p.id)
             .ok_or(PrepareRefusal::Stale)?;
         let reply = fixed.peer_reply_slot()?;
+        if !shared.running() {
+            return Err(PrepareRefusal::Stopped);
+        }
         Ok(FixtureReceipt(fixed.queue_peer(
             &shared,
             reply,
@@ -365,7 +376,7 @@ impl Runtime {
                     }
                 })?;
             let mut q = shared.queues();
-            if shared.stop.load(Ordering::SeqCst) != RUNNING {
+            if !shared.running() {
                 return Err(PrepareRefusal::Stopped);
             }
             let cell = q
@@ -428,7 +439,7 @@ impl Runtime {
             return Err(PrepareRefusal::Full);
         }
         let plain = parts.pop().unwrap();
-        if shared.stop.load(Ordering::SeqCst) != RUNNING {
+        if !shared.running() {
             return Err(PrepareRefusal::Stopped);
         }
         let result = binding.peer.seal_encoded(&plain);
@@ -436,7 +447,7 @@ impl Runtime {
         drop(parts);
         // From this attempt onward a sequence may be consumed. Never replay it.
         let result = result.and_then(|wire| {
-            if shared.stop.load(Ordering::SeqCst) != RUNNING {
+            if !shared.running() {
                 return Err(crate::Error::Unauthorized);
             }
             if wire.capacity() > WIRE_BYTES {
@@ -473,7 +484,7 @@ impl Runtime {
             .into_iter()
             .flatten()
         {
-            if shared.stop.load(Ordering::SeqCst) != RUNNING {
+            if !shared.running() {
                 break;
             }
             let Some(peer) = self

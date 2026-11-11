@@ -41,6 +41,14 @@ impl OwnerBinding {
             output,
         }
     }
+    pub(crate) fn wake_token(&self) -> Option<wake::WakeToken> {
+        self.shared
+            .upgrade()?
+            .fixed_wake
+            .as_ref()?
+            .hub()
+            .map(|hub| hub.token())
+    }
     pub(crate) fn id(&self) -> FixedId {
         self.id
     }
@@ -73,7 +81,7 @@ impl OwnerBinding {
         if shared.fault().is_some() {
             return Err(executor::Fault::Worker);
         }
-        if shared.stop.load(Ordering::SeqCst) != RUNNING {
+        if !shared.running() {
             return Err(executor::Fault::Stale);
         }
         let now = shared.clock.now();
@@ -96,10 +104,18 @@ impl OwnerBinding {
         if row.cancel {
             return Err(executor::Fault::Stale);
         }
+        if !shared.running() {
+            return Err(executor::Fault::Stale);
+        }
         row.execution = executor::Execution::MayHaveRun;
         row.phase = Phase::Running;
         commit();
         shared.changed.notify_all();
+        drop(q);
+        #[cfg(test)]
+        if let Some(gate) = self.output.as_ref().and_then(|h| h.after_begin.as_ref()) {
+            gate.wait();
+        }
         Ok(())
     }
     pub(crate) fn settle(&self, proof: executor::Disposed) -> bool {
@@ -131,7 +147,7 @@ impl OwnerBinding {
         if shared.fault().is_some() {
             return Err(executor::Fault::Worker);
         }
-        if shared.stop.load(Ordering::SeqCst) != RUNNING {
+        if !shared.running() {
             return Err(executor::Fault::Stale);
         }
         let now = shared.clock.now();
@@ -157,6 +173,9 @@ impl OwnerBinding {
         }
         if kind != OutputCommit::MaySend && row.delivery != executor::Delivery::MaySend {
             return Err(executor::Fault::State);
+        }
+        if !shared.running() {
+            return Err(executor::Fault::Stale);
         }
         match kind {
             OutputCommit::MaySend => {
@@ -354,7 +373,7 @@ impl Runtime {
         let occupied = self.authority.fixed_owner_occupancy();
         let selected = {
             let mut q = shared.queues();
-            if shared.stop.load(Ordering::SeqCst) != RUNNING {
+            if !shared.running() {
                 return;
             }
             let Some(fixed) = q.fixed.as_mut() else {
@@ -478,6 +497,7 @@ pub(crate) struct OutputHooks {
     pub fragment: bool,
     pub verification_peer: Mutex<Option<crate::channel::Channel>>,
     pub maintenance: [Option<Arc<executor::ExitGate>>; 2],
+    pub after_begin: Option<Arc<executor::ExitGate>>,
 }
 #[cfg(test)]
 impl OwnerBinding {
@@ -508,7 +528,7 @@ impl FixedOwnerClient {
     pub(crate) fn pause_dispatch(&self, paused: bool) {
         let shared = self.0.upgrade().unwrap();
         shared.queues().fixed.as_mut().unwrap().pause_dispatch = paused;
-        shared.wake.notify_one();
+        shared.notify_work();
     }
     pub(crate) fn configure(&self, id: FixedId, test: TestHooks) {
         let shared = self.0.upgrade().unwrap();

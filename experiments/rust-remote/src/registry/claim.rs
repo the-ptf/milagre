@@ -430,6 +430,7 @@ impl Registry {
         plain: &[u8],
         lease: Reservation,
         returned: crate::tracked_output::ReturnSender,
+        wake: Option<crate::persistent_supervisor::wake::WakeToken>,
         now: u64,
         may_send: impl FnOnce(u64) -> crate::Result<()>,
     ) -> Result<()> {
@@ -452,7 +453,9 @@ impl Registry {
         if bytes.capacity() > FIXTURE_FRAME {
             return Err(Error::TooLarge.into());
         }
-        a.fixed_packet = Some(crate::tracked_output::Packet::new(bytes, lease, returned));
+        a.fixed_packet = Some(crate::tracked_output::Packet::new(
+            bytes, lease, returned, wake,
+        ));
         Ok(())
     }
     pub(crate) fn transfer_fixed_claim(

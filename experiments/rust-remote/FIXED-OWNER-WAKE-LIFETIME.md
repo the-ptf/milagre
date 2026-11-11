@@ -1,5 +1,7 @@
 # Checked wake lifetime amendment
 
+[Checked-wake implementation evidence](FIXED-OWNER-CHECKED-WAKES.md) records this checkpoint; rotating buckets remain separate.
+
 Status: root and independent source-plan review accept this narrow accounting amendment for the checked-wake-only checkpoint. Rotating buckets remain separate. This refines the immutable weak-slot lifetime in [the 2B.3 plan](FIXED-OWNER-DELIVERY-PLAN.md), without unsafe code, a new dependency, a hidden wake lock or a larger resource allowance.
 
 ## Fields and reference ownership

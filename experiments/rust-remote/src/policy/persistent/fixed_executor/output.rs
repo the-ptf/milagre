@@ -38,6 +38,7 @@ pub(super) struct Tracked {
     may_send: bool,
     packet_issued: bool,
     consume_attempted: bool,
+    wake: Option<crate::persistent_supervisor::wake::WakeToken>,
     #[cfg(test)]
     fail_seal: bool,
     #[cfg(test)]
@@ -242,6 +243,7 @@ impl PersistentAuthority {
         serial: u64,
         clock: &Clock,
         mut prepaid: Reservation,
+        wake: Option<crate::persistent_supervisor::wake::WakeToken>,
     ) -> std::result::Result<Tracked, Fault> {
         let target = self
             .fixed
@@ -296,6 +298,7 @@ impl PersistentAuthority {
             may_send: false,
             packet_issued: false,
             consume_attempted: false,
+            wake,
             #[cfg(test)]
             fail_seal: false,
             #[cfg(test)]
@@ -328,6 +331,7 @@ impl Tracked {
         drop(self.scratch.take());
         drop(self.packet.take());
         drop(self.sender.take());
+        drop(self.wake.take());
         drop(self.grant.take());
     }
     pub(super) fn cancel_output(&mut self) -> bool {
@@ -572,6 +576,7 @@ impl PersistentAuthority {
                 plain,
                 t.packet.take().unwrap(),
                 t.sender.take().unwrap(),
+                t.wake.take(),
                 now,
                 |deadline| {
                     let deadline = deadline.min(entry.completion_deadline);

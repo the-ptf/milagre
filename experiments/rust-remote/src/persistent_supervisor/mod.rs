@@ -15,6 +15,7 @@ use crate::{
 #[allow(dead_code)]
 pub(crate) mod fixed;
 mod service;
+pub(crate) mod wake;
 use crate::budget::ConnectionBudget;
 use rand_core::OsRng;
 pub use service::{
@@ -42,6 +43,7 @@ pub enum WorkerFault {
     InvalidExit,
     Aborted,
     EventOverflow,
+    WakeOverflow,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StartFault {
@@ -186,6 +188,7 @@ struct Shared {
     changed: Condvar,
     closed_dropped: AtomicU64,
     limits: Limits,
+    fixed_wake: Option<wake::WakeAccess>,
 }
 impl Shared {
     fn new(
@@ -197,14 +200,24 @@ impl Shared {
         let reserve = global
             .connection(CONTROL_RESERVE_BYTES)?
             .reserve(CONTROL_RESERVE_BYTES)?;
+        let mut fixed = if fixed_fixture {
+            Some(fixed::State::new(&global)?)
+        } else {
+            None
+        };
+        let fixed_wake = if let Some(state) = fixed.as_mut() {
+            let access = wake::WakeAccess::new(state.split_wake_charge()?);
+            if Some(access.held_bytes()) != wake::wake_charge() {
+                return Err(crate::Error::Budget);
+            }
+            Some(access)
+        } else {
+            None
+        };
         Ok(Self {
             queues: Mutex::new(Queues {
                 reserve: Some(reserve),
-                fixed: if fixed_fixture {
-                    Some(fixed::State::new(&global)?)
-                } else {
-                    None
-                },
+                fixed,
                 ..Default::default()
             }),
             wake: Condvar::new(),
@@ -220,15 +233,35 @@ impl Shared {
             closed_dropped: AtomicU64::new(0),
             global,
             limits,
+            fixed_wake,
         })
     }
+    fn overflowed(&self) -> bool {
+        self.fixed_wake
+            .as_ref()
+            .and_then(wake::WakeAccess::hub)
+            .is_some_and(|hub| hub.overflowed())
+    }
+    fn running(&self) -> bool {
+        self.stop.load(Ordering::SeqCst) == RUNNING && !self.overflowed()
+    }
+    fn notify_work(&self) {
+        if let Some(hub) = self.fixed_wake.as_ref().and_then(wake::WakeAccess::hub) {
+            hub.wake();
+        } else {
+            self.wake.notify_all();
+        }
+    }
     fn fail(&self, fault: WorkerFault) {
+        self.fail_atomic(fault);
+        self.notify_work();
+        self.changed.notify_all();
+    }
+    fn fail_atomic(&self, fault: WorkerFault) {
         let _ = self
             .fatal
             .compare_exchange(0, fault as u8, Ordering::SeqCst, Ordering::SeqCst);
         self.stop.fetch_max(ABORT, Ordering::SeqCst);
-        self.wake.notify_all();
-        self.changed.notify_all();
     }
     fn fault(&self) -> Option<WorkerFault> {
         match self.fatal.load(Ordering::SeqCst) {
@@ -238,6 +271,7 @@ impl Shared {
             3 => Some(WorkerFault::Clock),
             4 => Some(WorkerFault::InvalidExit),
             5 => Some(WorkerFault::Aborted),
+            7 => Some(WorkerFault::WakeOverflow),
             _ => Some(WorkerFault::EventOverflow),
         }
     }
@@ -251,7 +285,7 @@ impl Shared {
         let _q = self.queues(); // Same synchronization as command and approval admission.
         self.stop
             .fetch_max(if abort { ABORT } else { REQUESTED }, Ordering::SeqCst);
-        self.wake.notify_all();
+        self.notify_work();
         self.changed.notify_all();
     }
     fn drain(&self, _drained: &crate::persistent::composition::RunDrained) {
@@ -291,13 +325,25 @@ impl Runtime {
         if !drained.healthy() {
             shared.fail(WorkerFault::InvalidExit);
         }
+        #[cfg(test)]
+        if let Some(hub) = self.fixed.as_ref().and_then(|fixed| fixed.hub.as_ref()) {
+            assert_eq!(
+                Arc::weak_count(hub),
+                1,
+                "worker/Packet wake tokens must be gone before run references drop"
+            );
+        }
         self.clear_owned(&drained);
         shared.drain(&drained);
         drained.healthy()
     }
     fn finish(&mut self, shared: &Shared) -> bool {
         if shared.stop.load(Ordering::SeqCst) == RUNNING {
-            shared.fail(WorkerFault::InvalidExit);
+            shared.fail(if shared.overflowed() {
+                WorkerFault::WakeOverflow
+            } else {
+                WorkerFault::InvalidExit
+            });
         }
         if shared.stop.load(Ordering::SeqCst) != REQUESTED || shared.fault().is_some() {
             self.authority.abort_in_place();
@@ -398,9 +444,21 @@ impl PersistentSupervisor {
             Ok(shared) => Arc::new(shared),
             Err(_) => return Err(reject(profile, StartFault::Reservation, None)),
         };
-        let fixed = hooks
-            .fixed_fixture
-            .then(|| Box::new(fixed::RuntimeFixed::default()));
+        let fixed = if hooks.fixed_fixture {
+            let hub = wake::WakeHub::new(&shared);
+            shared
+                .fixed_wake
+                .as_ref()
+                .unwrap()
+                .install(&hub)
+                .expect("single fixed wake installation");
+            shared.queues().fixed.as_mut().unwrap().hub = Some(hub.clone());
+            let mut runtime = fixed::RuntimeFixed::default();
+            runtime.hub = Some(hub);
+            Some(Box::new(runtime))
+        } else {
+            None
+        };
         let writer = match profile.acquire_writer() {
             Ok(w) => w,
             Err(e) => return Err(reject(profile, StartFault::Store(e), None)),
@@ -629,11 +687,17 @@ fn worker_main(
         }
         let runtime = slot.runtime.as_mut().unwrap();
         let ran = catch_unwind(AssertUnwindSafe(|| {
+            if let Some(hub) = runtime.fixed.as_ref().and_then(|fixed| fixed.hub.as_ref()) {
+                if hub.install_thread(thread::current()).is_err() {
+                    shared.fail(WorkerFault::InvalidExit);
+                    return;
+                }
+            }
             #[cfg(test)]
             if _hooks.startup_panic {
                 panic!("synthetic startup panic");
             }
-            if shared.fault().is_some() {
+            if shared.fault().is_some() || !shared.running() {
                 return;
             }
             let _ = startup.try_send(());
@@ -657,7 +721,7 @@ fn worker_main(
         }
     }
     shared.finished.store(true, Ordering::SeqCst);
-    shared.wake.notify_all();
+    shared.notify_work();
     shared.changed.notify_all();
 }
 #[cfg(all(test, target_os = "macos"))]

@@ -146,6 +146,7 @@ impl BoundMailbox {
 }
 #[derive(Default)]
 pub(super) struct RuntimeFixed {
+    pub(super) hub: Option<Arc<wake::WakeHub>>,
     targets: [Option<(Handle, TargetId)>; 16],
     peers: [Option<peer::PeerBinding>; 16],
 }
@@ -244,6 +245,7 @@ impl<T, const N: usize> Ring<T, N> {
     }
 }
 pub(super) struct State {
+    pub(super) hub: Option<Arc<wake::WakeHub>>,
     scope: [u8; 16],
     next: u64,
     next_reply: u64,
@@ -256,18 +258,21 @@ pub(super) struct State {
     next_peer: u64,
     #[cfg(test)]
     pause_dispatch: bool,
+    #[cfg(test)]
+    park_test: Option<Arc<ParkTest>>,
     _lease: Reservation,
 }
 impl State {
     pub(super) fn new(global: &GlobalBudget) -> crate::Result<Box<Self>> {
         let bytes = backing_bytes().ok_or(crate::Error::Budget)?;
-        if !peer::allowance_fits() {
+        if !peer::allowance_fits() || !wake::allocation_fits() {
             return Err(crate::Error::Budget);
         }
         let lease = global.connection(bytes)?.reserve(bytes)?;
         let mut scope = [0; 16];
         rand_core::RngCore::fill_bytes(&mut OsRng, &mut scope);
         Ok(Box::new(Self {
+            hub: None,
             scope,
             next: 0,
             next_reply: 0,
@@ -280,8 +285,14 @@ impl State {
             next_peer: 0,
             #[cfg(test)]
             pause_dispatch: false,
+            #[cfg(test)]
+            park_test: None,
             _lease: lease,
         }))
+    }
+    pub(super) fn split_wake_charge(&mut self) -> crate::Result<Reservation> {
+        self._lease
+            .split(wake::wake_charge().ok_or(crate::Error::Budget)?)
     }
     pub(super) fn has_operations(&self) -> bool {
         self.operations.len != 0
@@ -339,7 +350,7 @@ impl FixedOwnerClient {
     fn enqueue(&self, operation: Operation) -> Result<ReplyHandle, PrepareRefusal> {
         let shared = self.shared()?;
         let mut q = shared.queues();
-        if shared.stop.load(Ordering::SeqCst) != RUNNING {
+        if !shared.running() {
             return Err(PrepareRefusal::Stopped);
         }
         let fixed = q.fixed.as_mut().ok_or(PrepareRefusal::Stopped)?;
@@ -355,6 +366,9 @@ impl FixedOwnerClient {
             .next_reply
             .checked_add(1)
             .ok_or(PrepareRefusal::Full)?;
+        if !shared.running() {
+            return Err(PrepareRefusal::Stopped);
+        }
         fixed.replies[slot] = Some(ReplyCell {
             generation,
             result: None,
@@ -367,7 +381,7 @@ impl FixedOwnerClient {
             operation,
         });
         fixed.next_reply = generation;
-        shared.wake.notify_one();
+        shared.notify_work();
         Ok(ReplyHandle {
             shared: Arc::downgrade(&shared),
             slot,
@@ -391,7 +405,7 @@ impl FixedOwnerClient {
             .upgrade()
             .ok_or(SubmitRejection::Unavailable(SubmitRefusal::Stopped))?;
         let mut q = shared.queues();
-        let refusal = if shared.stop.load(Ordering::SeqCst) != RUNNING {
+        let refusal = if !shared.running() {
             Some(SubmitRefusal::Stopped)
         } else if !Weak::ptr_eq(&self.0, &attempt.shared) {
             Some(SubmitRefusal::Replaced)
@@ -441,11 +455,15 @@ impl FixedOwnerClient {
         {
             return Err(SubmitRejection::Full(attempt));
         }
+        if !shared.running() {
+            drop(q);
+            return Err(SubmitRejection::Unavailable(SubmitRefusal::Stopped));
+        }
         let id = attempt.id;
         fixed.row_mut(id).unwrap().phase = Phase::Queued;
         fixed.submissions.push(Submission { id, outcome });
         attempt.armed = false;
-        shared.wake.notify_one();
+        shared.notify_work();
         Ok(FixedReceipt { id })
     }
     pub(crate) fn observe(&self, id: FixedId) -> Observation {
@@ -453,7 +471,7 @@ impl FixedOwnerClient {
             return Observation::Stopped;
         };
         let q = shared.queues();
-        if shared.stop.load(Ordering::SeqCst) != RUNNING {
+        if !shared.running() {
             return Observation::Stopped;
         }
         let Some(fixed) = &q.fixed else {
@@ -480,7 +498,7 @@ impl FixedOwnerClient {
     fn change(&self, id: FixedId, ack: bool) -> Result<(), StatusRefusal> {
         let shared = self.0.upgrade().ok_or(StatusRefusal::Stopped)?;
         let mut q = shared.queues();
-        if shared.stop.load(Ordering::SeqCst) != RUNNING {
+        if !shared.running() {
             return Err(StatusRefusal::Stopped);
         }
         let fixed = q.fixed.as_mut().ok_or(StatusRefusal::Stopped)?;
@@ -497,7 +515,7 @@ impl FixedOwnerClient {
             row.cancel = true;
         }
         fixed.reap();
-        shared.wake.notify_one();
+        shared.notify_work();
         Ok(())
     }
 }
@@ -512,7 +530,7 @@ impl Drop for FixedAttempt {
                 row.cancel = true;
                 row.hidden = true;
             }
-            shared.wake.notify_one();
+            shared.notify_work();
         }
     }
 }
@@ -533,7 +551,7 @@ impl ReplyHandle {
                 shared.fail(WorkerFault::Poisoned);
                 e.into_inner()
             });
-        if shared.stop.load(Ordering::SeqCst) != RUNNING {
+        if !shared.running() {
             return Err(PrepareRefusal::Stopped.into());
         }
         let fixed = q.fixed.as_mut().ok_or(PrepareRefusal::Stopped)?;
@@ -580,7 +598,7 @@ impl Drop for ReplyHandle {
                     let cell = fixed.replies[self.slot].as_mut().unwrap();
                     if cell.pinned && cell.result.is_none() {
                         cell.abandoned = true;
-                        shared.wake.notify_one();
+                        shared.notify_work();
                         return;
                     }
                     let reply = fixed.replies[self.slot].take().unwrap();
@@ -592,7 +610,7 @@ impl Drop for ReplyHandle {
                     }
                 }
             }
-            shared.wake.notify_one();
+            shared.notify_work();
         }
     }
 }
@@ -711,7 +729,7 @@ impl Runtime {
         };
         {
             let q = shared.queues();
-            if shared.stop.load(Ordering::SeqCst) != RUNNING
+            if !shared.running()
                 || q.fixed
                     .as_ref()
                     .and_then(|f| f.reply(pending.slot, pending.generation))
@@ -720,8 +738,22 @@ impl Runtime {
                 return;
             }
         }
+        #[cfg(test)]
+        let operation_gate = shared
+            .queues()
+            .fixed
+            .as_ref()
+            .and_then(|f| f.park_hooks())
+            .and_then(|t| t.before_operation_maintain.clone());
+        #[cfg(test)]
+        if let Some(gate) = operation_gate {
+            gate.wait();
+        }
         if self.maintain(shared).is_err() {
             shared.fail(WorkerFault::Clock);
+            return;
+        }
+        if !shared.running() {
             return;
         }
         let result = match pending.operation {
@@ -786,6 +818,9 @@ impl Runtime {
             .iter()
             .position(Option::is_none)
             .ok_or(PrepareRefusal::Full)?;
+        if !shared.running() {
+            return Err(PrepareRefusal::Stopped);
+        }
         let bound = BoundMailbox {
             handle: handle.clone(),
             memory: self.carriers[&handle.carrier()].memory.clone(),
@@ -801,13 +836,25 @@ impl Runtime {
                     PrepareRefusal::Stale
                 }
             })?;
+        let budget = self.authority.inspect_fixed_peer(target, handle).ok();
+        let mut q = shared.queues();
+        if !shared.running() {
+            drop(q);
+            self.authority
+                .close_carrier(handle, registry::CloseReason::CarrierFailure);
+            return Err(PrepareRefusal::Stopped);
+        }
         self.fixed.as_mut().unwrap().targets[index] = Some((handle.clone(), target));
-        if let Ok(budget) = self.authority.inspect_fixed_peer(target, handle) {
-            shared.queues().fixed.as_mut().unwrap().roster[index] = Some(peer::Descriptor {
+        if let Some(budget) = budget {
+            q.fixed.as_mut().unwrap().roster[index] = Some(peer::Descriptor {
                 handle: handle.clone(),
                 target,
                 budget,
             });
+        }
+        #[cfg(test)]
+        if let Some(test) = q.fixed.as_ref().and_then(|f| f.park_hooks()) {
+            test.adoptions.fetch_add(1, Ordering::SeqCst);
         }
         Ok(target)
     }
@@ -841,7 +888,7 @@ impl Runtime {
             .reserve(STATUS_BYTES)
             .map_err(|_| PrepareRefusal::Full)?;
         let mut q = shared.queues();
-        if shared.stop.load(Ordering::SeqCst) != RUNNING {
+        if !shared.running() {
             return Err(PrepareRefusal::Stopped);
         }
         let fixed = q.fixed.as_mut().ok_or(PrepareRefusal::Stopped)?;
@@ -866,6 +913,9 @@ impl Runtime {
             slot: u16::try_from(slot).map_err(|_| PrepareRefusal::Full)?,
             generation,
         };
+        if !shared.running() {
+            return Err(PrepareRefusal::Stopped);
+        }
         fixed.rows[slot] = Some(Row {
             id,
             token,
@@ -937,6 +987,14 @@ impl FixedOwnerClient {
     }
 }
 
+// Pin the separately compiled non-test layout without counting test barriers.
+#[cfg(all(not(test), target_os = "macos", target_pointer_width = "64"))]
+const _: () = {
+    assert!(std::mem::size_of::<State>() == 202_992);
+    assert!(std::mem::size_of::<RuntimeFixed>() == 5768);
+    assert!(std::mem::size_of::<Row>() == 376);
+};
+
 #[cfg(test)]
 mod layout_tests {
     use super::*;
@@ -952,9 +1010,39 @@ mod layout_tests {
         ];
         #[cfg(target_pointer_width = "64")]
         {
-            assert_eq!(sizes, [235_760, 5760, 440, 56, 248, 40]);
-            assert_eq!(backing_bytes(), Some(245_616));
+            assert_eq!(sizes, [235_776, 5768, 440, 56, 248, 40]);
+            assert_eq!(backing_bytes(), Some(245_640));
         }
         assert!(sizes[2] <= STATUS_BYTES);
+    }
+}
+
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct ParkTest {
+    pub before_check: Option<Arc<executor::ExitGate>>,
+    pub after_check: Option<Arc<executor::ExitGate>>,
+    pub skipped: std::sync::atomic::AtomicUsize,
+    pub parks: std::sync::atomic::AtomicUsize,
+    pub rounds: std::sync::atomic::AtomicUsize,
+    pub no_timeout: bool,
+    pub entered: AtomicBool,
+    pub release: AtomicBool,
+    pub actor: std::sync::OnceLock<std::thread::Thread>,
+    pub before_operation_maintain: Option<Arc<executor::ExitGate>>,
+    pub adoptions: std::sync::atomic::AtomicUsize,
+}
+#[cfg(test)]
+impl FixedOwnerClient {
+    pub(crate) fn park_test(&self, hooks: Arc<ParkTest>) {
+        let shared = self.0.upgrade().unwrap();
+        shared.queues().fixed.as_mut().unwrap().park_test = Some(hooks);
+        shared.notify_work();
+    }
+}
+#[cfg(test)]
+impl State {
+    pub(super) fn park_hooks(&self) -> Option<Arc<ParkTest>> {
+        self.park_test.clone()
     }
 }

@@ -411,7 +411,7 @@ fn sixteen_pending_and_installed_peers_share_one_bound_and_forgotten_handles_dra
     assert_eq!(fixed.peer_counts(), (0, 0, 0));
     assert_eq!(fixed.counts(), (0, 0, 0, 0));
     assert!(memories.iter().all(MemoryCarrier::is_closed));
-    assert_eq!(owner.retained_bytes(), 0); // Destroyed profile plus joined fixed state.
+    assert_eq!(owner.retained_bytes(), wake::wake_charge().unwrap()); // Only the old strong client retains the charged weak hub.
 }
 
 #[test]
