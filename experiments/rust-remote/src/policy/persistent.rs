@@ -618,6 +618,25 @@ impl PersistentAuthority {
         self.reconcile_bound();
         closed
     }
+    pub(crate) fn inspect_fixed_candidate(
+        &mut self,
+        token: &WorkToken,
+        now: u64,
+    ) -> registry::claim::ReadyInspection {
+        if let Err(error) = self.check_registry() {
+            return registry::claim::ReadyInspection {
+                candidate: Err(error.into()),
+                promoted: Vec::new(),
+            };
+        }
+        let result = self
+            .registry
+            .as_mut()
+            .unwrap()
+            .inspect_ready_candidate(token, now);
+        self.reconcile_bound();
+        result
+    }
     pub fn receive_request(
         &mut self,
         h: &Handle,

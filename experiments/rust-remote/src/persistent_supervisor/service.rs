@@ -418,8 +418,8 @@ impl PersistentOwnerClient {
     }
 }
 pub(super) struct Carrier {
-    handle: Handle,
-    memory: MemoryCarrier,
+    pub(super) handle: Handle,
+    pub(super) memory: MemoryCarrier,
 }
 pub(super) struct Pending {
     ticket: CarrierTicket,
@@ -443,8 +443,9 @@ impl Runtime {
         for (_, p) in std::mem::take(&mut self.pending) {
             p.state.store(CANCELLED, Ordering::SeqCst);
         }
+        drop(self.fixed.take());
     }
-    fn work_available(shared: &Shared, started: Vec<WorkToken>) {
+    pub(super) fn work_available(shared: &Shared, started: Vec<WorkToken>) {
         if started.is_empty() {
             return;
         }
@@ -513,7 +514,7 @@ impl Runtime {
         shared.changed.notify_all();
         emitted
     }
-    fn current(&self, h: &Handle) -> Result<()> {
+    pub(super) fn current(&self, h: &Handle) -> Result<()> {
         if self
             .carriers
             .get(&h.carrier())
@@ -525,7 +526,7 @@ impl Runtime {
             Err(Error::Stale)
         }
     }
-    fn reconcile(&mut self, shared: &Shared) {
+    pub(super) fn reconcile(&mut self, shared: &Shared) {
         let stale: Vec<_> = self
             .pending
             .iter()
@@ -559,10 +560,11 @@ impl Runtime {
             Self::emit(shared, Event::Closed(c.handle));
         }
     }
-    fn maintain(&mut self, shared: &Shared) -> Result<()> {
+    pub(super) fn maintain(&mut self, shared: &Shared) -> Result<()> {
         let started = self.authority.tick(self.clock.now())?;
         Self::work_available(shared, started);
         self.reconcile(shared);
+        self.fixed_maintain(shared);
         shared.ticks.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -719,6 +721,11 @@ impl Runtime {
                         return Err(e.into());
                     }
                 };
+                if let Err(error) = carrier.bind_service(&h, shared.scope.clone()) {
+                    carrier.close();
+                    self.authority.close_carrier(&h, CloseReason::Protocol);
+                    return Err(error.into());
+                }
                 self.reconcile(shared);
                 self.carriers.insert(
                     id,
@@ -833,6 +840,7 @@ impl Runtime {
                     .wait_timeout_while(q, Duration::from_millis(shared.limits.tick_ms), |q| {
                         q.commands.is_empty()
                             && q.controls.is_empty()
+                            && !q.fixed.as_ref().is_some_and(|f| f.has_operations())
                             && shared.stop.load(Ordering::SeqCst) == RUNNING
                     })
                     .unwrap_or_else(|e| {
@@ -858,6 +866,7 @@ impl Runtime {
                 drop(envelope.lease); // A receipt observes released ingress accounting.
                 let _ = envelope.reply.try_send(result);
             }
+            self.fixed_prepare_one(shared);
         }
     }
 }

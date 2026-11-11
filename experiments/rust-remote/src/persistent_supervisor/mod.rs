@@ -12,6 +12,8 @@ use crate::{
     supervisor::{Clock, Limits, CONTROL_RESERVE_BYTES},
     synthetic_store::{StoreDiagnostics, StoreFault, SyntheticProfile},
 };
+#[allow(dead_code)]
+pub(crate) mod fixed;
 mod service;
 use crate::budget::ConnectionBudget;
 use rand_core::OsRng;
@@ -167,6 +169,7 @@ struct Queues {
     controls: VecDeque<service::Envelope>,
     events: VecDeque<service::Notification>,
     work_ready: bool,
+    fixed: Option<Box<fixed::State>>,
 }
 struct Shared {
     queues: Mutex<Queues>,
@@ -185,13 +188,23 @@ struct Shared {
     limits: Limits,
 }
 impl Shared {
-    fn new(global: GlobalBudget, limits: Limits, clock: Clock) -> crate::Result<Self> {
+    fn new(
+        global: GlobalBudget,
+        limits: Limits,
+        clock: Clock,
+        fixed_fixture: bool,
+    ) -> crate::Result<Self> {
         let reserve = global
             .connection(CONTROL_RESERVE_BYTES)?
             .reserve(CONTROL_RESERVE_BYTES)?;
         Ok(Self {
             queues: Mutex::new(Queues {
                 reserve: Some(reserve),
+                fixed: if fixed_fixture {
+                    Some(fixed::State::new(&global)?)
+                } else {
+                    None
+                },
                 ..Default::default()
             }),
             wake: Condvar::new(),
@@ -252,6 +265,7 @@ impl Shared {
         q.events.clear();
         q.work_ready = false;
         q.reserve.take();
+        q.fixed.take();
         self.changed.notify_all();
     }
 }
@@ -261,6 +275,7 @@ struct Runtime {
     carriers: BTreeMap<u64, Carrier>,
     pending: BTreeMap<u64, Pending>,
     serial: u64,
+    fixed: Option<Box<fixed::RuntimeFixed>>,
     #[cfg(test)]
     after_apply: Option<Box<dyn FnOnce() + Send>>,
 }
@@ -297,6 +312,7 @@ fn slot<'a>(slot: &'a Mutex<Slot>, shared: &Shared) -> MutexGuard<'a, Slot> {
 }
 #[derive(Clone, Copy, Default)]
 struct Hooks {
+    fixed_fixture: bool,
     #[cfg(test)]
     reserve_failure: bool,
     #[cfg(test)]
@@ -308,6 +324,9 @@ struct Hooks {
 }
 /// Owns the broker capability and JoinHandle before startup is advertised.
 /// Drop always aborts and joins; it never calls a consuming terminal write.
+/// ```compile_fail
+/// use milagre_remote::persistent_supervisor::fixed::FixedFixture;
+/// ```
 pub struct PersistentSupervisor {
     profile: Option<SyntheticProfile>,
     retained: Arc<Mutex<Slot>>,
@@ -350,17 +369,25 @@ impl PersistentSupervisor {
                 joined: false,
             },
         };
-        if !validate(limits) {
+        if !validate(limits)
+            || (hooks.fixed_fixture
+                && (limits.carrier_bytes < 1024
+                    || limits.carrier_bytes > 32 * 1024 * 1024
+                    || limits.registry.outbound_bytes < 1024))
+        {
             return Err(reject(profile, StartFault::InvalidLimits, None));
         }
         let pool = match profile.service_pool() {
             Ok(pool) => pool,
             Err(fault) => return Err(reject(profile, StartFault::Store(fault), None)),
         };
-        let shared = match Shared::new(pool, limits, clock.clone()) {
+        let shared = match Shared::new(pool, limits, clock.clone(), hooks.fixed_fixture) {
             Ok(shared) => Arc::new(shared),
             Err(_) => return Err(reject(profile, StartFault::Reservation, None)),
         };
+        let fixed = hooks
+            .fixed_fixture
+            .then(|| Box::new(fixed::RuntimeFixed::default()));
         let writer = match profile.acquire_writer() {
             Ok(w) => w,
             Err(e) => return Err(reject(profile, StartFault::Store(e), None)),
@@ -413,6 +440,7 @@ impl PersistentSupervisor {
                 carriers: BTreeMap::new(),
                 pending: BTreeMap::new(),
                 serial: 0,
+                fixed,
                 #[cfg(test)]
                 after_apply: None,
             }),

@@ -91,6 +91,7 @@ fn post_running_start_failures_retain_guard_and_never_restore_clean() {
     let _disk = crate::synthetic_store::testing_lock();
     for mode in 0..4 {
         let hooks = Hooks {
+            fixed_fixture: false,
             reserve_failure: mode == 0,
             spawn_failure: mode == 1,
             startup_panic: mode == 2,

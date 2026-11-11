@@ -942,3 +942,6 @@ fn idle_tick_expires_and_promotes_work_without_creating_response_frames() {
     assert_eq!(promoted.status(), WorkStatus::InFlight);
     finish(s);
 }
+
+#[path = "fixed_owner_tests.rs"]
+mod fixed_owner_tests;

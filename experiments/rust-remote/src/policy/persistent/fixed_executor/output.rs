@@ -67,7 +67,17 @@ impl PersistentAuthority {
         memory: MemoryCarrier,
         limits: MailboxLimits,
     ) -> std::result::Result<TargetId, Fault> {
-        let result = self.register_fixed_target(handle, memory, limits);
+        let result = self.register_fixed_target(handle, memory, limits, None);
+        self.reconcile_bound();
+        result
+    }
+    pub(crate) fn adopt_fixed_carrier(
+        &mut self,
+        bound: crate::persistent_supervisor::fixed::BoundMailbox,
+        limits: MailboxLimits,
+    ) -> std::result::Result<TargetId, Fault> {
+        let (handle, memory, scope) = bound.into_parts();
+        let result = self.register_fixed_target(&handle, memory, limits, Some(scope));
         self.reconcile_bound();
         result
     }
@@ -76,6 +86,7 @@ impl PersistentAuthority {
         handle: &Handle,
         memory: MemoryCarrier,
         limits: MailboxLimits,
+        service_scope: Option<Arc<()>>,
     ) -> std::result::Result<TargetId, Fault> {
         self.check_registry().map_err(|_| Fault::Stale)?;
         self.fixed.cancel_closed();
@@ -105,12 +116,19 @@ impl PersistentAuthority {
             .position(Option::is_none)
             .ok_or(Fault::Full)?;
         let serial = self.fixed.next_target.checked_add(1).ok_or(Fault::Full)?;
-        let (budget, access) = self
-            .registry
-            .as_mut()
-            .unwrap()
-            .fixed_registration(handle)
-            .map_err(|_| Fault::Stale)?;
+        let registry = self.registry.as_mut().unwrap();
+        let (budget, access) = if service_scope.is_some() {
+            registry.fixed_registration_empty(handle)
+        } else {
+            registry.fixed_registration(handle)
+        }
+        .map_err(|e| {
+            if matches!(e, registry::RegistryError::Protocol(crate::Error::Budget)) {
+                Fault::Full
+            } else {
+                Fault::Stale
+            }
+        })?;
         let lease = budget
             .reserve(REGISTRATION_BYTES)
             .map_err(|_| Fault::Full)?;
@@ -125,7 +143,18 @@ impl PersistentAuthority {
             generation: handle.generation(),
             serial,
         };
-        memory.bind_fixed(access, id).map_err(|_| Fault::Stale)?;
+        let bound = if let Some(scope) = service_scope {
+            memory.adopt_fixed(access, id, handle, &scope)
+        } else {
+            memory.bind_fixed(access, id)
+        };
+        bound.map_err(|e| {
+            if e == crate::Error::Budget {
+                Fault::Full
+            } else {
+                Fault::Stale
+            }
+        })?;
         self.fixed.targets[index] = Some(Target {
             id,
             handle: handle.clone(),

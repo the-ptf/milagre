@@ -737,3 +737,6 @@ mod claim_worker_tests;
 
 #[path = "fixed_executor_tests.rs"]
 mod fixed_executor_tests;
+
+#[path = "fixed_start_evidence_tests.rs"]
+mod fixed_start_evidence_tests;

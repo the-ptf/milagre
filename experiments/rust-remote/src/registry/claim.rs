@@ -16,6 +16,17 @@ impl From<Error> for AdmissionError {
         Self::Registry(error.into())
     }
 }
+pub(crate) struct ReadyCandidate {
+    pub(crate) budget: ConnectionBudget,
+    pub(crate) device: [u8; 64],
+    pub(crate) deadline: u64,
+}
+pub(crate) struct ReadyInspection {
+    pub(crate) candidate: std::result::Result<ReadyCandidate, AdmissionError>,
+    // Expiring the inspected request can promote queued work even when inspection
+    // itself refuses. The actor must publish that real readiness after either result.
+    pub(crate) promoted: Vec<WorkToken>,
+}
 /// Constructed only after authoritative claim validation. Never Clone.
 pub(crate) struct Permit {
     token: WorkToken,
@@ -45,6 +56,44 @@ impl Registry {
         now: u64,
         fence: Option<&crate::tracked_output::Fence>,
     ) -> std::result::Result<ConnectionBudget, AdmissionError> {
+        let ready = self.inspect_ready_candidate(token, now).candidate?;
+        let limits = self.limits;
+        let a = self.active(&token.handle, now)?;
+        if !fence.is_some_and(|f| {
+            f.active()
+                && a.fixed_fence
+                    .as_ref()
+                    .is_some_and(|current| current.active() && current.same(f))
+        }) {
+            a.egress_available()?;
+        }
+        // The scoped authority owner prevents all other producers until output return.
+        if !a.outbound.is_empty()
+            || limits.outbound_bytes < FIXTURE_FRAME
+            || limits.outbound_frames == 0
+        {
+            return Err(Error::Budget.into());
+        }
+        Ok(ready.budget)
+    }
+    pub(crate) fn inspect_ready_candidate(
+        &mut self,
+        token: &WorkToken,
+        now: u64,
+    ) -> ReadyInspection {
+        let mut promoted = Vec::new();
+        let candidate = self.inspect_ready_candidate_inner(token, now, &mut promoted);
+        ReadyInspection {
+            candidate,
+            promoted,
+        }
+    }
+    fn inspect_ready_candidate_inner(
+        &mut self,
+        token: &WorkToken,
+        now: u64,
+        promoted: &mut Vec<WorkToken>,
+    ) -> std::result::Result<ReadyCandidate, AdmissionError> {
         let limits = self.limits;
         let a = self.active(&token.handle, now)?;
         let Some(job) = a.jobs.get(&token.id) else {
@@ -66,9 +115,11 @@ impl Registry {
             .ok_or(Error::Exhausted)?;
         if now >= scheduling || now >= job.deadline {
             a.remove_job(token.id, WorkStatus::TimedOut);
-            let failed = a.promote(now, limits).is_err();
-            if failed {
-                self.close(&token.handle, CloseReason::Protocol);
+            match a.promote(now, limits) {
+                Ok(started) => *promoted = started,
+                Err(_) => {
+                    self.close(&token.handle, CloseReason::Protocol);
+                }
             }
             return Err(AdmissionError::Expired);
         }
@@ -76,22 +127,22 @@ impl Registry {
         // Uninspected legacy MemoryHttp jobs retain their existing promotion lifetime.
         let job = a.jobs.get_mut(&token.id).unwrap();
         job.deadline = job.deadline.min(scheduling);
-        if !fence.is_some_and(|f| {
-            f.active()
-                && a.fixed_fence
-                    .as_ref()
-                    .is_some_and(|current| current.active() && current.same(f))
-        }) {
-            a.egress_available()?;
-        }
-        // The scoped authority owner prevents all other producers until output return.
-        if !a.outbound.is_empty()
-            || limits.outbound_bytes < FIXTURE_FRAME
-            || limits.outbound_frames == 0
-        {
-            return Err(Error::Budget.into());
-        }
-        a.session.with_access(|| Ok(a.budget())).map_err(Into::into)
+        let deadline = job.deadline;
+        a.session
+            .with_access(|| {
+                let mut device = [0u8; 64];
+                let key = a.session.device().key.as_bytes();
+                if key.len() > device.len() {
+                    return Err(Error::TooLarge);
+                }
+                device[..key.len()].copy_from_slice(key);
+                Ok(ReadyCandidate {
+                    budget: a.budget(),
+                    device,
+                    deadline,
+                })
+            })
+            .map_err(Into::into)
     }
     pub(crate) fn claim_work(
         &mut self,
@@ -312,6 +363,22 @@ impl Registry {
         let packet = a.fixed_packet.take().ok_or(Error::Unauthorized)?;
         a.session
             .with_access(|| memory.deliver_fixed(fence, packet))
+            .map_err(Into::into)
+    }
+}
+
+impl Registry {
+    pub(crate) fn fixed_registration_empty(
+        &mut self,
+        handle: &Handle,
+    ) -> Result<(ConnectionBudget, crate::policy::Access)> {
+        let a = self.active(handle, self.now)?;
+        a.egress_available()?;
+        if !a.outbound.is_empty() || a.fixed_packet.is_some() {
+            return Err(Error::Budget.into());
+        }
+        a.session
+            .with_access(|| Ok((a.budget(), a.session.access())))
             .map_err(Into::into)
     }
 }

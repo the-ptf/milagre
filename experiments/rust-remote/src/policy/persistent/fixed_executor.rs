@@ -25,6 +25,36 @@ pub(crate) enum Fault {
     Worker,
     State,
 }
+/// Provenance from the real start transition, never reconstructed from token status.
+/// No API accepts these values as a caller-supplied cleanup assertion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StartFailure {
+    NotClaimed(Fault),
+    BeginRefused {
+        fault: Fault,
+        terminal: BeginTerminal,
+    },
+    Dirty(Fault),
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BeginTerminal {
+    Cancelled,
+    TimedOut,
+}
+impl StartFailure {
+    pub(crate) fn fault(self) -> Fault {
+        match self {
+            Self::NotClaimed(fault) | Self::BeginRefused { fault, .. } | Self::Dirty(fault) => {
+                fault
+            }
+        }
+    }
+}
+impl From<Fault> for StartFailure {
+    fn from(fault: Fault) -> Self {
+        Self::NotClaimed(fault)
+    }
+}
 #[derive(Clone, Copy)]
 pub(crate) enum Outcome {
     Success,
@@ -330,6 +360,17 @@ impl PersistentAuthority {
     ) -> std::result::Result<Id, Fault> {
         self.start_fixed_prepared(token, outcome, clock, hooks, None)
     }
+    /// Internal consuming-owner admission. The result identifies the actual refusal
+    /// transition; a claimed failed Begin cannot be treated as eligible unclaimed work.
+    pub(crate) fn start_fixed_tracked_evidenced(
+        &mut self,
+        token: WorkToken,
+        target: TargetId,
+        outcome: Outcome,
+        clock: &Clock,
+    ) -> std::result::Result<Id, StartFailure> {
+        self.start_fixed_evidenced(token, outcome, clock, Hooks::default(), Some(target))
+    }
     fn start_fixed_prepared(
         &mut self,
         token: WorkToken,
@@ -338,9 +379,36 @@ impl PersistentAuthority {
         hooks: Hooks,
         target: Option<TargetId>,
     ) -> std::result::Result<Id, Fault> {
+        self.start_fixed_evidenced(token, outcome, clock, hooks, target)
+            .map_err(StartFailure::fault)
+    }
+    fn start_fixed_evidenced(
+        &mut self,
+        token: WorkToken,
+        outcome: Outcome,
+        clock: &Clock,
+        hooks: Hooks,
+        target: Option<TargetId>,
+    ) -> std::result::Result<Id, StartFailure> {
         let result = self.start_fixed_admitted(token, outcome, clock, hooks, target);
         self.reconcile_bound();
-        result
+        result.map_err(|failure| {
+            // Reconciliation can discover dirty cleanup after a definitive local
+            // refusal. Preserve its legacy Fault, but never advertise a clean start
+            // refusal from an aborted/poisoned authority to the future owner actor.
+            if self.pid != std::process::id()
+                || self.phase == Phase::Aborted
+                || self.fixed.failed
+                || self
+                    .core
+                    .as_ref()
+                    .is_some_and(|core| core.revocations.is_poisoned())
+            {
+                StartFailure::Dirty(failure.fault())
+            } else {
+                failure
+            }
+        })
     }
     fn start_fixed_admitted(
         &mut self,
@@ -349,7 +417,7 @@ impl PersistentAuthority {
         clock: &Clock,
         hooks: Hooks,
         target: Option<TargetId>,
-    ) -> std::result::Result<Id, Fault> {
+    ) -> std::result::Result<Id, StartFailure> {
         self.check_registry().map_err(|_| Fault::Stale)?;
         let now = clock.now();
         self.poll_fixed(now)?;
@@ -387,7 +455,7 @@ impl PersistentAuthority {
             .flatten()
             .any(|e| e.device == device)
         {
-            return Err(Fault::Full);
+            return Err(StartFailure::NotClaimed(Fault::Full));
         }
         now.checked_add(345_000).ok_or(Fault::Expired)?;
         let tracked = match target {
@@ -436,7 +504,7 @@ impl PersistentAuthority {
         if hooks.refuse_after_spawn {
             return Err(self.refuse_fixed_worker(worker, Fault::Spawn));
         }
-        let admission = (|| {
+        let admission: std::result::Result<_, Fault> = (|| {
             let now = clock.now();
             let http = now.checked_add(340_000).ok_or(Fault::Expired)?;
             let completion = now.checked_add(345_000).ok_or(Fault::Expired)?;
@@ -487,7 +555,7 @@ impl PersistentAuthority {
             self.abort_in_place();
             self.fixed.drain();
             self.fixed.failed_install = Some((signal.calls.load(Ordering::SeqCst), probe.joins()));
-            return Err(Fault::Worker);
+            return Err(StartFailure::Dirty(Fault::Worker));
         }
         #[cfg(test)]
         if hooks.defer_begin {
@@ -501,7 +569,7 @@ impl PersistentAuthority {
         }
         Ok(id)
     }
-    fn refuse_fixed_begin(&mut self, index: usize, fault: Fault, now: u64) -> Fault {
+    fn refuse_fixed_begin(&mut self, index: usize, fault: Fault, now: u64) -> StartFailure {
         // No Id escaped. Keep the entry owned through cancellation and actual join,
         // then remove its claimed work and refund the unobservable slot before Err.
         let entry = self.fixed.entries[index].as_mut().unwrap();
@@ -520,23 +588,28 @@ impl PersistentAuthority {
             self.abort_in_place();
         }
         let entry = self.fixed.entries[index].take().unwrap();
+        let terminal = if entry.observation.state == State::TimedOut {
+            BeginTerminal::TimedOut
+        } else {
+            BeginTerminal::Cancelled
+        };
         self.registry.as_mut().unwrap().end_claim(
             &entry.permit,
-            if entry.observation.state == State::TimedOut {
-                registry::WorkStatus::TimedOut
-            } else {
-                registry::WorkStatus::Cancelled
+            match terminal {
+                BeginTerminal::TimedOut => registry::WorkStatus::TimedOut,
+                BeginTerminal::Cancelled => registry::WorkStatus::Cancelled,
             },
             now,
         );
         drop(entry); // Metadata is released before the failed start becomes observable.
         if !joined || uncertain {
-            Fault::Worker
+            StartFailure::Dirty(Fault::Worker)
         } else {
-            fault
+            // Only this post-claim, actual-join path creates a clean Begin refusal.
+            StartFailure::BeginRefused { fault, terminal }
         }
     }
-    fn refuse_fixed_worker(&mut self, mut worker: Worker, fault: Fault) -> Fault {
+    fn refuse_fixed_worker(&mut self, mut worker: Worker, fault: Fault) -> StartFailure {
         worker.signal.cancel();
         let joined = worker.join();
         #[cfg(test)]
@@ -548,9 +621,10 @@ impl PersistentAuthority {
         }
         if joined.0.is_err() || worker.signal.poisoned.load(Ordering::SeqCst) {
             self.abort_in_place();
-            Fault::Worker
+            StartFailure::Dirty(Fault::Worker)
         } else {
-            fault
+            // Admission never installed a Permit, and the gated thread was joined.
+            StartFailure::NotClaimed(fault)
         }
     }
     fn begin_fixed(&mut self, id: Id, now: u64) -> std::result::Result<(), Fault> {
@@ -831,5 +905,19 @@ impl PersistentAuthority {
                 manual.advance_to(now).unwrap();
             }
         }
+    }
+}
+
+#[cfg(test)]
+impl PersistentAuthority {
+    pub(super) fn fixed_start_evidence_for_test(
+        &mut self,
+        token: WorkToken,
+        target: TargetId,
+        outcome: Outcome,
+        clock: &Clock,
+        hooks: Hooks,
+    ) -> std::result::Result<Id, StartFailure> {
+        self.start_fixed_evidenced(token, outcome, clock, hooks, Some(target))
     }
 }

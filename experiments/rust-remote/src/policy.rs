@@ -239,6 +239,9 @@ pub(crate) struct Access {
     epoch: u64,
 }
 impl Access {
+    pub(crate) fn same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.state, &other.state) && self.key == other.key && self.epoch == other.epoch
+    }
     pub(crate) fn with<T>(&self, action: impl FnOnce() -> crate::Result<T>) -> crate::Result<T> {
         let state = self.state.read().map_err(|_| crate::Error::Unauthorized)?;
         if state.retired || state.epochs.get(&self.key).copied().unwrap_or(0) != self.epoch {

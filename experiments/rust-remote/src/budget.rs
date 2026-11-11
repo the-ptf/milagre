@@ -161,3 +161,10 @@ impl Drop for Reservation {
         self.budget.local.release(self.bytes);
     }
 }
+
+#[cfg(test)]
+impl Reservation {
+    pub(crate) fn budget_for_test(&self) -> ConnectionBudget {
+        self.budget.clone()
+    }
+}

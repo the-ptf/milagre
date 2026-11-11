@@ -110,6 +110,10 @@ struct Packet {
     bytes: Vec<u8>,
     _lease: Reservation,
 }
+struct ServiceMailboxBinding {
+    scope: Arc<()>,
+    handle: Handle,
+}
 #[derive(Default)]
 struct Mailbox {
     access: Option<policy::Access>,
@@ -119,6 +123,7 @@ struct Mailbox {
     #[cfg(test)]
     fixed_unwind: u8,
     bound: bool,
+    service_binding: Option<ServiceMailboxBinding>,
     closed: bool,
     bytes: usize,
     packets: VecDeque<Packet>,
@@ -1196,6 +1201,44 @@ impl MemoryCarrier {
             }
             m.bound = true;
             m.access = Some(access.clone());
+            m.fixed_target = Some(target);
+            Ok(())
+        })
+    }
+    pub(crate) fn bind_service(&self, handle: &Handle, scope: Arc<()>) -> crate::Result<()> {
+        let mut m = self.0.lock().map_err(|_| crate::Error::Unauthorized)?;
+        if !m.bound || m.closed || m.access.is_some() || m.service_binding.is_some() {
+            return Err(crate::Error::Unauthorized);
+        }
+        m.service_binding = Some(ServiceMailboxBinding {
+            scope,
+            handle: handle.clone(),
+        });
+        Ok(())
+    }
+    pub(crate) fn adopt_fixed(
+        &self,
+        access: policy::Access,
+        target: crate::tracked_output::TargetId,
+        handle: &Handle,
+        scope: &Arc<()>,
+    ) -> crate::Result<()> {
+        access.with(|| {
+            let mut m = self.0.lock().map_err(|_| crate::Error::Unauthorized)?;
+            if !m.bound
+                || m.closed
+                || m.fixed_target.is_some()
+                || !m.access.as_ref().is_some_and(|a| a.same(&access))
+                || !m
+                    .service_binding
+                    .as_ref()
+                    .is_some_and(|b| Arc::ptr_eq(&b.scope, scope) && b.handle.same(handle))
+            {
+                return Err(crate::Error::Unauthorized);
+            }
+            if !m.packets.is_empty() || m.bytes != 0 || m.fixed_packet.is_some() {
+                return Err(crate::Error::Budget);
+            }
             m.fixed_target = Some(target);
             Ok(())
         })
