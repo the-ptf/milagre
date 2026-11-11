@@ -4,7 +4,9 @@
 //! - **Admitted worktrees only.** Git runs only in a folder the owner admitted ([`GitGrants::admit`]): canonical,
 //!   strictly inside the isolated copy, with a real `.git` folder (no `gitdir:` file, no `commondir`: no redirection to
 //!   another repository), whose config has no `include`, `worktree` or `fsmonitor` setting. A path the Chat's state
-//!   names is only ever looked up among them, never run in. Each run checks the folder again.
+//!   names is only ever looked up among them, never run in. Each run checks the folder again, then holds it and its
+//!   `.git` (opened from the copy's own folder down, no link followed): their paths must lead to the held folders
+//!   just before Git runs and again after, or there is no list.
 //! - **Cleared environment.** `/usr/bin/git` with only `PATH=/usr/bin:/bin`, `HOME` the isolated copy, `LC_ALL=C`, no
 //!   system or global config, `GIT_OPTIONAL_LOCKS=0`, no prompt, `GIT_DIR`/`GIT_WORK_TREE` pinned and discovery
 //!   ceiling at the copy; `core.fsmonitor=false` and `core.hooksPath=/dev/null` on the command line.
@@ -242,6 +244,60 @@ const KEPT: [(&str, &[&str]); 8] = [
     ("core.eol", &["lf", "crlf", "native"]),
 ];
 
+const DIR_FLAGS: OFlags = OFlags::RDONLY
+    .union(OFlags::DIRECTORY)
+    .union(OFlags::NOFOLLOW)
+    .union(OFlags::CLOEXEC);
+
+/// The copy's own folder, held, after checking its path is canonical and leads to it.
+fn open_copy(copy: &Path) -> Option<OwnedFd> {
+    let root = rustix::fs::openat(rustix::fs::CWD, copy, DIR_FLAGS, Mode::empty()).ok()?;
+    leads_to(copy, &root).then_some(root)
+}
+
+/// `path` is canonical (no link on it or above it) and names the folder held as `fd`.
+fn leads_to(path: &Path, fd: &OwnedFd) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    !meta.file_type().is_symlink()
+        && Some((meta.dev(), meta.ino())) == identity(fd)
+        && std::fs::canonicalize(path).ok().as_deref() == Some(path)
+}
+
+/// The admitted worktree and its `.git` for one run, opened from the copy's own folder down one component at a time,
+/// never following a link. Git is given their paths, so each must still lead to the folder held just before Git runs
+/// and again after (a folder swapped in under the same name, even a real one, is no list).
+struct Tree {
+    path: PathBuf,
+    root: OwnedFd,
+    git: OwnedFd,
+}
+
+impl Tree {
+    fn open(copy: &Path, folder: &Path) -> Option<Tree> {
+        let mut dir = open_copy(copy)?;
+        for part in folder.strip_prefix(copy).ok()?.components() {
+            let std::path::Component::Normal(name) = part else {
+                return None;
+            };
+            dir = rustix::fs::openat(&dir, name, DIR_FLAGS, Mode::empty()).ok()?;
+        }
+        let git = rustix::fs::openat(&dir, ".git", DIR_FLAGS, Mode::empty()).ok()?;
+        let tree = Tree {
+            path: folder.to_path_buf(),
+            root: dir,
+            git,
+        };
+        tree.holds().then_some(tree)
+    }
+
+    fn holds(&self) -> bool {
+        leads_to(&self.path, &self.root) && leads_to(&self.path.join(".git"), &self.git)
+    }
+}
+
 /// A private Git folder for one run, inside the copy's `.owner/git`, removed when dropped: Git reads its config,
 /// HEAD, refs and index from here, never from the repository's own `.git` (whose objects it reads through an
 /// alternate only). So nothing the repository's config names (filters, fsmonitor, hooks, submodules, includes,
@@ -367,21 +423,7 @@ fn hex_id(text: &str) -> bool {
 impl Scratch {
     fn make(copy: &Path, folder: &Path, deadline: Instant) -> Option<Scratch> {
         // The copy's own folder, held: everything below is made relative to it.
-        let root = rustix::fs::openat(
-            rustix::fs::CWD,
-            copy,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::empty(),
-        )
-        .ok()?;
-        let pinned = {
-            use std::os::unix::fs::MetadataExt;
-            let meta = std::fs::symlink_metadata(copy).ok()?;
-            (meta.dev(), meta.ino())
-        };
-        if identity(&root)? != pinned || std::fs::canonicalize(copy).ok()? != copy {
-            return None;
-        }
+        let root = open_copy(copy)?;
         let owner = folder_at(&root, crate::isolation::OWNER_DIR, false)?;
         let parent = folder_at(&owner, "git", false)?;
         let mut random = [0u8; 8];
@@ -406,13 +448,7 @@ impl Scratch {
 
     /// The path Git is given still leads to the folder held (no link on it or above it).
     fn holds(&self) -> bool {
-        use std::os::unix::fs::MetadataExt;
-        let Ok(meta) = std::fs::symlink_metadata(&self.path) else {
-            return false;
-        };
-        !meta.file_type().is_symlink()
-            && Some((meta.dev(), meta.ino())) == identity(&self.dir)
-            && std::fs::canonicalize(&self.path).ok().as_deref() == Some(self.path.as_path())
+        leads_to(&self.path, &self.dir)
     }
 
     fn fill(&self, copy: &Path, folder: &Path, deadline: Instant) -> Option<()> {
@@ -532,11 +568,12 @@ impl Scratch {
 /// `git status --porcelain` in `folder` through a private Git folder (see [`Scratch`]), hardened (see the module docs);
 /// its output read as UTF-8 (U+FFFD for invalid bytes, as Node's `encoding: "utf8"`), or `None`.
 fn status(copy: &Path, folder: &Path, deadline: Instant, limit: usize) -> Option<String> {
+    let tree = Tree::open(copy, folder)?;
     let scratch = Scratch::make(copy, folder, deadline)?;
     #[cfg(feature = "test-fixtures")]
     test_hooks::run_before_status();
-    // Git is given the private folder's path: it must lead to the folder held, now and after the run.
-    if !scratch.holds() {
+    // Git is given the worktree's and the private folder's paths: each must lead to the folder held, now and after.
+    if !scratch.holds() || !tree.holds() {
         return None;
     }
     let mut command = Command::new(GIT);
@@ -580,7 +617,7 @@ fn status(copy: &Path, folder: &Path, deadline: Instant, limit: usize) -> Option
     );
     #[cfg(feature = "test-fixtures")]
     test_hooks::run_after_git();
-    let output = output.filter(|_| scratch.holds());
+    let output = output.filter(|_| scratch.holds() && tree.holds());
     drop(scratch);
     output
 }

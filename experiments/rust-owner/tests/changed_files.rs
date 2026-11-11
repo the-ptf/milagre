@@ -485,3 +485,70 @@ fn races_and_bad_metadata_never_run_or_redirect() {
     .is_none());
     assert!(!marker.exists());
 }
+
+/// The admitted worktree, or its `.git` alone, swapped for another real folder under the same name (a copy of the
+/// same repository plus a file of its own) before Git runs or while it runs: no list. Untouched, it lists.
+#[test]
+fn a_worktree_swapped_under_its_name_gives_no_list() {
+    use milagre_owner_store::changed_files::test_hooks::{after_git, before_status};
+    let Some((base, copy)) = setup() else { return };
+    let repo = repository(&copy, "repo");
+    let other = copy.join("other");
+    assert!(Command::new("/bin/cp")
+        .args(["-Rp"])
+        .arg(&repo)
+        .arg(&other)
+        .status()
+        .unwrap()
+        .success());
+    std::fs::write(other.join("other-only.txt"), "x").unwrap();
+    let mut grants = GitGrants::new(&copy);
+    grants.admit(&repo).unwrap();
+    let plan = grants.plan(Some(&repo.display().to_string()), None);
+    let listed = changed_files(&copy, &plan).expect("a list");
+    assert!(!listed.iter().any(|file| file == "other-only.txt"));
+    let aside = base.path().join("aside");
+    // Swaps `name` (the worktree, or its .git) with the copy's, and back.
+    let swap = |name: &str| {
+        let (from, to, away) = (other.join(name), repo.join(name), aside.clone());
+        move || {
+            std::fs::rename(&to, &away).unwrap();
+            std::fs::rename(&from, &to).unwrap();
+        }
+    };
+    let back = |name: &str| {
+        std::fs::rename(repo.join(name), other.join(name)).unwrap();
+        std::fs::rename(&aside, repo.join(name)).unwrap();
+    };
+    // The whole worktree before Git runs, then while it runs.
+    let (from, to, away) = (other.clone(), repo.clone(), aside.clone());
+    before_status(move || {
+        std::fs::rename(&to, &away).unwrap();
+        std::fs::rename(&from, &to).unwrap();
+    });
+    assert!(
+        changed_files(&copy, &plan).is_none(),
+        "a worktree swapped in before Git ran was listed"
+    );
+    std::fs::rename(&repo, &other).unwrap();
+    std::fs::rename(&aside, &repo).unwrap();
+    let (from, to, away) = (other.clone(), repo.clone(), aside.clone());
+    after_git(move || {
+        std::fs::rename(&to, &away).unwrap();
+        std::fs::rename(&from, &to).unwrap();
+    });
+    assert!(
+        changed_files(&copy, &plan).is_none(),
+        "a worktree swapped while Git ran was listed"
+    );
+    std::fs::rename(&repo, &other).unwrap();
+    std::fs::rename(&aside, &repo).unwrap();
+    // Its .git alone, before Git runs.
+    before_status(swap(".git"));
+    assert!(
+        changed_files(&copy, &plan).is_none(),
+        "a .git swapped in before Git ran was used"
+    );
+    back(".git");
+    assert_eq!(changed_files(&copy, &plan), Some(listed));
+}
