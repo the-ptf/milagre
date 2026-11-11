@@ -145,7 +145,7 @@ fn the_context_card_opens_on_hover_and_closes_when_the_pointer_leaves(cx: &mut T
 
 #[gpui::test]
 fn the_diff_bars_refresh_reads_the_worktree_again(cx: &mut TestAppContext) {
-    let (workspace, cx) = testing::mount_workspace(cx);
+    let (workspace, cx) = testing::mount_workspace_on(cx, crate::workspace::panel::PanelTab::Changes);
     let changes = workspace.read_with(cx, |w, cx| w.panel.read(cx).changes().clone());
     let row = testing::bounds(cx, "file-u-apps/desktop/app/src/components/changes/ChangesPanel.tsx").center();
     cx.simulate_click(row, Modifiers::none());

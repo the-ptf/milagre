@@ -18,7 +18,7 @@ const PANEL: &str = "apps/desktop/app/src/components/changes/ChangesPanel.tsx";
 const TREE: &str = "apps/desktop/app/src/components/changes/DiffTree.tsx";
 
 fn mount(cx: &mut TestAppContext) -> (Entity<ChangesView>, &mut VisualTestContext) {
-    let (workspace, cx) = testing::mount_workspace(cx);
+    let (workspace, cx) = testing::mount_workspace_on(cx, crate::workspace::panel::PanelTab::Changes);
     let changes = workspace.read_with(cx, |w, cx| w.panel.read(cx).changes().clone());
     (changes, cx)
 }
@@ -227,7 +227,7 @@ fn the_comparison_picker_lists_automatic_and_the_branches(cx: &mut TestAppContex
 
 #[gpui::test]
 fn the_diff_shows_over_the_chat_with_back_named_after_it_and_goes_with_the_panel(cx: &mut TestAppContext) {
-    let (workspace, cx) = testing::mount_workspace(cx);
+    let (workspace, cx) = testing::mount_workspace_on(cx, crate::workspace::panel::PanelTab::Changes);
     let changes = workspace.read_with(cx, |w, cx| w.panel.read(cx).changes().clone());
     click(cx, format!("file-u-{PANEL}"));
     let title = workspace.read_with(cx, |w, cx| w.chat.read(cx).title().to_string());
@@ -245,7 +245,7 @@ fn the_diff_shows_over_the_chat_with_back_named_after_it_and_goes_with_the_panel
 
 #[gpui::test]
 fn the_diff_always_opens_over_the_chat_column_and_back_returns_to_the_list(cx: &mut TestAppContext) {
-    let (workspace, cx) = testing::mount_workspace(cx);
+    let (workspace, cx) = testing::mount_workspace_on(cx, crate::workspace::panel::PanelTab::Changes);
     let _ = workspace;
     click(cx, format!("file-u-{PANEL}"));
     assert!(cx.debug_bounds("diff-over-chat").is_some());

@@ -49,6 +49,17 @@ pub fn mount_workspace(cx: &mut TestAppContext) -> (Entity<Workspace>, &mut Visu
     mount_in_root(cx, Workspace::new)
 }
 
+/// The whole window with the side panel open on `tab` (a Chat opens on Details; most panel tests want a body).
+pub fn mount_workspace_on(cx: &mut TestAppContext, tab: crate::workspace::panel::PanelTab) -> (Entity<Workspace>, &mut VisualTestContext) {
+    let (workspace, cx) = mount_workspace(cx);
+    let panel = workspace.read_with(cx, |w, _| w.panel.clone());
+    panel.update(cx, |panel, cx| panel.activate(tab, cx));
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    (workspace, cx)
+}
+
 /// Mounts the view `build` makes in a test window whose root is gpui-component's `Root`, the way the app's
 /// window is built, and draws it. Returns the view (not the `Root`). `testing::init` runs first.
 ///

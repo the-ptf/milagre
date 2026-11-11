@@ -568,7 +568,7 @@ fn the_panel_shows_the_tab_only_while_a_simulator_is_attached(cx: &mut TestAppCo
     assert!(cx.debug_bounds("panel-body-Simulator").is_some());
     assert!(cx.debug_bounds("simulator-picture").is_some());
     assert!(cx.debug_bounds("toggle-terminal").is_none(), "the corner is one panel toggle");
-    // Detaching the last device drops the tab and goes back to Changes.
+    // Detaching the last device drops the tab and goes back to Details.
     let simulator = panel.read_with(cx, |p, _| p.simulator().clone());
     simulator.update(cx, |v, cx| {
         let device = v.selected().cloned().expect("open");
@@ -576,7 +576,7 @@ fn the_panel_shows_the_tab_only_while_a_simulator_is_attached(cx: &mut TestAppCo
     });
     settle(cx);
     assert!(!panel.read_with(cx, |p, _| p.visible_tabs().contains(&PanelTab::Simulator)));
-    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Changes);
+    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Details);
 }
 
 #[gpui::test]

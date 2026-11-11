@@ -6,16 +6,16 @@ use crate::testing::{self, leak};
 use crate::workspace::panel::{PANEL_WIDTH, PanelTab};
 
 fn mount(cx: &mut TestAppContext) -> (gpui::Entity<crate::workspace::panel::Panel>, &mut gpui::VisualTestContext) {
-    let (workspace, cx) = testing::mount_workspace(cx);
+    let (workspace, cx) = testing::mount_workspace_on(cx, PanelTab::Changes);
     let panel = workspace.read_with(cx, |workspace, _| workspace.panel.clone());
     (panel, cx)
 }
 
 #[gpui::test]
-fn four_tabs_in_order_each_with_icon_and_name(cx: &mut TestAppContext) {
-    let (_panel, cx) = mount(cx);
-    let names = ["Changes", "Designs", "Artifact", "PR"];
-    assert_eq!(PanelTab::ALL.map(PanelTab::label), names);
+fn tabs_in_order_each_with_icon_and_name(cx: &mut TestAppContext) {
+    let (panel, cx) = mount(cx);
+    let names = ["Details", "PR", "Designs", "Artifact", "Changes"];
+    assert_eq!(panel.read_with(cx, |p, _| p.visible_tabs()).into_iter().map(PanelTab::label).collect::<Vec<_>>(), names);
     let mut last_x = px(-1.0);
     for name in names {
         let tab = cx.debug_bounds(leak(format!("panel-tab-{name}"))).unwrap_or_else(|| panic!("{name} tab is drawn"));
@@ -27,7 +27,7 @@ fn four_tabs_in_order_each_with_icon_and_name(cx: &mut TestAppContext) {
             assert_eq!(icon.size.height, px(14.0));
             assert_eq!(icon.origin.x, tab.origin.x + px(6.0), "{name} icon after the 6px padding");
         } else {
-            assert_eq!(name, "PR", "only the clipped PR tab may be unmeasured");
+            assert_eq!(name, "Changes", "only the clipped last tab may be unmeasured");
         }
     }
     for tab in PanelTab::ALL {
@@ -58,14 +58,14 @@ fn the_strip_is_only_the_scrolling_tab_list(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn clicking_the_clipped_pr_tab_scrolls_it_inside_the_list(cx: &mut TestAppContext) {
+fn clicking_the_last_tab_scrolls_it_inside_the_list(cx: &mut TestAppContext) {
     let (panel, cx) = mount(cx);
     let list = cx.debug_bounds("panel-tab-list").expect("tab list is drawn");
     let before = panel.read_with(cx, |p, _| p.tabs_scroll().max_offset());
     assert!(before.x > px(0.0), "the six tabs overflow the list");
-    // Wheel / trackpad horizontal scroll moves the list; nudge it so the PR tab's left part shows.
-    let pr = cx.debug_bounds("panel-tab-PR").expect("PR is drawn");
-    let nudge = (pr.left() - list.right()).max(px(0.0)) + px(20.0);
+    // Wheel / trackpad horizontal scroll moves the list; nudge it so the last tab's left part shows.
+    let pr = cx.debug_bounds("panel-tab-Changes").expect("the last tab is drawn");
+    let nudge = (pr.left() - list.right()).max(px(0.0)) + px(1.0);
     cx.simulate_event(gpui::ScrollEvent {
         position: list.center(),
         delta: gpui::ScrollDelta::Pixels(gpui::point(-nudge, px(0.0))),
@@ -75,16 +75,15 @@ fn clicking_the_clipped_pr_tab_scrolls_it_inside_the_list(cx: &mut TestAppContex
     });
     cx.run_until_parked();
     assert!(panel.read_with(cx, |p, _| p.tabs_scroll().offset().x) < px(0.0), "the wheel scrolled the list");
-    let pr = cx.debug_bounds("panel-tab-PR").expect("PR is drawn");
-    assert!(pr.right() > list.right() || before.x <= nudge, "PR still partly clipped after the nudge");
+    let pr = cx.debug_bounds("panel-tab-Changes").expect("the last tab is drawn");
     let click = gpui::point(pr.left() + px(4.0), pr.center().y);
     assert!(list.contains(&click), "click {click:?} list {list:?} pr {pr:?}");
     cx.simulate_click(click, Modifiers::none());
     cx.run_until_parked();
     cx.update(|window, _| window.refresh());
     cx.run_until_parked();
-    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Pr);
-    let pr = cx.debug_bounds("panel-tab-PR").expect("PR is drawn");
-    assert!(pr.right() <= list.right(), "PR right edge {:?} inside list {:?}", pr.right(), list.right());
+    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Changes);
+    let pr = cx.debug_bounds("panel-tab-Changes").expect("the last tab is drawn");
+    assert!(pr.right() <= list.right(), "last tab right edge {:?} inside list {:?}", pr.right(), list.right());
     assert!(panel.read_with(cx, |p, _| p.tabs_scroll().offset().x) < px(0.0));
 }

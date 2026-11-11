@@ -7,7 +7,7 @@ use super::{Panel, PanelTab};
 use crate::testing;
 
 fn mount(cx: &mut TestAppContext) -> (gpui::Entity<crate::workspace::Workspace>, &mut gpui::VisualTestContext) {
-    testing::mount_workspace(cx)
+    testing::mount_workspace_on(cx, PanelTab::Changes)
 }
 
 fn panel_left(cx: &mut gpui::VisualTestContext) -> gpui::Pixels {
@@ -145,7 +145,7 @@ fn each_chat_keeps_its_tab_and_the_panel_comes_back_to_it(cx: &mut TestAppContex
     settle(cx);
     let second = panel.read_with(cx, |p, _| p.chat().to_string());
     assert_ne!(first, second, "the panel follows the sidebar's selection");
-    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Changes, "another Chat starts on Changes");
+    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Details, "another Chat starts on Details");
     let row = cx.debug_bounds("chat-row-3").expect("row 3");
     cx.simulate_click(row.center(), Modifiers::none());
     settle(cx);

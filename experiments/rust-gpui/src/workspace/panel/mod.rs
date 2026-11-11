@@ -56,7 +56,7 @@ pub enum PanelTab {
     Artifact,
     Pr,
     /// The Chat's environment, context, Subchats, background tasks and links (not in `ALL`, which the desktop's
-    /// panel toggles list; Details is new). Always shown, after the PR.
+    /// panel toggles list; Details is new). Always shown, first, and the tab a Chat opens on.
     Details,
     /// Shown only while the Chat has a simulator attached, after the others (not in `ALL`).
     Simulator,
@@ -68,7 +68,7 @@ impl PanelTab {
 
     /// Every tab the strip can show, in order.
     pub const SHOWN: [PanelTab; 6] =
-        [PanelTab::Changes, PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr, PanelTab::Details, PanelTab::Simulator];
+        [PanelTab::Details, PanelTab::Pr, PanelTab::Designs, PanelTab::Artifact, PanelTab::Changes, PanelTab::Simulator];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -112,7 +112,7 @@ struct ChatPanel {
 
 impl Default for ChatPanel {
     fn default() -> Self {
-        Self { open: true, tab: PanelTab::Changes }
+        Self { open: true, tab: PanelTab::Details }
     }
 }
 
@@ -234,7 +234,7 @@ impl Panel {
         }
         self.content.simulator = attached;
         if !attached && self.active() == PanelTab::Simulator {
-            self.state_mut().tab = PanelTab::Changes;
+            self.state_mut().tab = PanelTab::Details;
             self.relayout(cx);
         } else {
             cx.notify();
@@ -368,9 +368,9 @@ impl Panel {
         self.content = fixture::content_for(&self.chat, self.seeded.as_deref());
         self.load_simulator(cx);
         self.load_details(cx);
-        // A tab this Chat has no content for falls back to Changes.
+        // A tab this Chat has no content for falls back to Details, which every Chat has.
         if !self.content.has(self.state().tab) {
-            self.state_mut().tab = PanelTab::Changes;
+            self.state_mut().tab = PanelTab::Details;
         }
         let (key, data) = (self.chat.clone(), self.content.changes.clone());
         let local = pr::local_files(&data);
