@@ -550,3 +550,38 @@ typed message contexts other than `reload`, `git-action`, `limit-reset` and `han
 `ChatContext::Other`), `native_sessions`, `plan`, `limitResume`, `limitTurn`, `openSuggestions`, queued messages'
 images and context. The fixture's two Chats have no messages, so the sidebar mounted from the adapter lists no row
 (the shared rule leaves empty starter Chats out).
+
+## Settings notes
+
+The in-window Settings dialog (WP-39) lives in `src/settings/` and renders over the three-column workspace with a scrim,
+a `1120 × 800` `rounded-window` (`12px`) surface, a `248px` `bg-canvas` left navigation rail, and a scrollable
+`max-w-[788px]` section body.
+
+| File                        | What                                                                                                       |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `settings/mod.rs`           | `SettingsModal` entity, `ToggleSettings` (`cmd-,`), `FindInSettings` (`cmd-f`), Escape cascade, scrim      |
+| `settings/nav.rs`           | 248px left nav (`Search01` input, grouped section rows, `ComputerDot`, `ProjectAvatar`, search hit list)   |
+| `settings/search.rs`        | `SettingsSectionId`, `ALL_SECTIONS`, `SETTINGS_INDEX`, `fold_search_text`, `search_ranges`, `search_trail` |
+| `settings/store.rs`         | `SettingsStore` GPUI global with React defaults and `MODEL_CATALOG` (in-memory only, no daemon calls)      |
+| `settings/group.rs`         | `page_header`, `SettingsGroup`, `SettingRow`, `CheckboxRow` (no switches), `ChoiceCard`                    |
+| `settings/general.rs`       | General (G-03): Editor, Sidebar Chat order, Chat list choice cards, Done retention, Plan usage, Awake      |
+| `settings/chat.rs`          | Chat (G-06): Messages during a turn, Reasoning choice cards, Tool calls choice cards                       |
+| `settings/notifications.rs` | Notifications (G-08): Alerts, Schedule (Anytime / Custom with day pills & time range), Sound, Routines     |
+| `settings/models.rs`        | Models (G-10): Default model & permission, Context preview & thresholds bar/steppers, Replies (TLDR)       |
+| `settings/browser.rs`       | Browser (G-16): Open links in (`Panel` / `System browser`), per-computer session sign-out                  |
+| `settings/church.rs`        | Church (G-23): Floating inbox (+ activity), Ultracode Fatality, New Chat stats, Delegate, Device notes     |
+| `settings/about.rs`         | About (G-24): Version, Release channel, Check for updates, Auto update, Runtime, License, Privacy, Support |
+| `settings/tests.rs`         | Headless tests for search ranking/accents, modal open/close, nav & placeholders, search jump, all controls |
+
+- **Workspace wiring**: `Workspace::new` (`src/workspace/mod.rs`) calls `settings::init(cx)` (installs `SettingsStore`
+  and binds `cmd-,` to `ToggleSettings` and `cmd-f` inside `SettingsModal` to `FindInSettings`), mounts `SettingsModal`
+  as the top child of `Workspace`, and handles `ToggleSettings`. The sidebar footer Settings icon button
+  (`src/workspace/sidebar/bottom.rs`) dispatches `ToggleSettings`.
+- **Popovers inside Settings**: `SettingsModal` renders inside `Root`'s main view tree (not inside `Root`'s dialog
+  portal), so `Select` triggers inside Settings open their `Popover` menus in `Root`'s popover layer above the modal.
+- **Placeholders**: Sections owned by other packages (`appearance` WP-40, `voice` & `keybindings` WP-41, `accounts` &
+  `usage` WP-42, `skills`, `mcp` & `connections` WP-43, and `worktrees`, `devices`, `this-mac`, paired computers &
+  recent Projects WP-44) appear in the left nav in their exact desktop order and render an `EmptyState` naming their
+  work package.
+- **Snapshot env var**: `MILAGRE_GPUI_SETTINGS=1` (or a section id such as `MILAGRE_GPUI_SETTINGS=general` or `models`)
+  opens Settings on that section before snapshot capture.

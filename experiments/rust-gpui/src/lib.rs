@@ -9,6 +9,7 @@ pub mod data;
 #[cfg(any(test, feature = "fitcheck"))]
 pub mod fitcheck;
 pub mod logic;
+pub mod settings;
 #[cfg(target_os = "macos")]
 pub mod snapshot;
 pub mod theme;

@@ -51,7 +51,14 @@ pub fn bottom_group(done_count: usize, usage: &UsageSnapshot, theme: &Theme) -> 
         .h(px(FOOTER_HEIGHT))
         .px(px(20.0))
         .child(Icon::new(IconName::FolderAdd).color(theme.ink3))
-        .child(Icon::new(IconName::Settings01).color(theme.ink3));
+        .child(
+            div()
+                .id("sidebar-settings")
+                .debug_selector(|| "sidebar-settings".to_string())
+                .cursor_pointer()
+                .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::settings::ToggleSettings), cx))
+                .child(Icon::new(IconName::Settings01).color(theme.ink3)),
+        );
     div().flex().flex_col().flex_none().child(rule()).child(done).child(rule()).child(usage).child(rule()).child(footer)
 }
 
