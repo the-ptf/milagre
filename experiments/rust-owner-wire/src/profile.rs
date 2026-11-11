@@ -8,13 +8,27 @@ use std::{
         net::UnixStream,
     },
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use tempfile::TempDir;
 
 /// A new private throwaway profile. There is intentionally no constructor from an existing path.
 pub struct IsolatedProfile {
-    directory: TempDir,
+    directory: Arc<TempDir>,
     pub(crate) socket: PathBuf,
+}
+
+/// Keeps a fresh temporary profile alive until its workers have finished.
+/// This lease cannot bind a server or adopt an existing directory. It does not
+/// keep the listener open or imply that pending writes were saved successfully.
+#[derive(Clone)]
+pub struct ProfileLease {
+    directory: Arc<TempDir>,
+}
+impl ProfileLease {
+    pub fn path(&self) -> &Path {
+        self.directory.path()
+    }
 }
 impl IsolatedProfile {
     pub fn create() -> Result<Self, RpcError> {
@@ -40,7 +54,7 @@ impl IsolatedProfile {
             ));
         }
         Ok(Self {
-            directory,
+            directory: Arc::new(directory),
             socket: parent.join(format!("{}.sock", &digest[..24])),
         })
     }
@@ -49,6 +63,13 @@ impl IsolatedProfile {
     }
     pub fn socket_path(&self) -> &Path {
         &self.socket
+    }
+    /// Acquire before handing the profile to the server. Each background worker
+    /// must retain a lease through all cleanup, including unwinding and joins.
+    pub fn lease(&self) -> ProfileLease {
+        ProfileLease {
+            directory: self.directory.clone(),
+        }
     }
 }
 

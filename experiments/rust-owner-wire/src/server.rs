@@ -1098,6 +1098,53 @@ mod tests {
         assert!(server.is_stopped());
     }
     #[test]
+    fn forced_server_drop_preserves_profile_until_last_worker_lease() {
+        struct Pending;
+        impl Handler for Pending {
+            fn methods(&self) -> Vec<String> {
+                vec![]
+            }
+            fn invoke(&self, _: &str, _: &[Value], _: &ClientContext) -> RpcResult {
+                Ok(Value::Null)
+            }
+            fn snapshot(&self, _: &ClientContext) -> RpcResult {
+                Ok(json!({}))
+            }
+            fn shutdown(&self) -> RpcResult {
+                Err(RpcError::new("QUIT_PENDING", "Worker is still running"))
+            }
+        }
+        let profile = IsolatedProfile::create().unwrap();
+        let lease = profile.lease();
+        let path = lease.path().to_path_buf();
+        let sentinel = path.join("worker-state");
+        fs::write(&sentinel, "pending").unwrap();
+        let worker_lease = lease.clone();
+        let (release, wait) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            wait.recv().unwrap();
+            assert_eq!(
+                fs::read_to_string(worker_lease.path().join("worker-state")).unwrap(),
+                "pending"
+            );
+            // Unwinding also releases the lease, after local cleanup.
+            panic!("fixture worker unwind");
+        });
+        let handler = Arc::new(Pending);
+        let server = Server::bind(profile, handler.clone(), Config::default()).unwrap();
+        let socket = server.socket_path().to_path_buf();
+        drop(server);
+        assert!(!socket.exists());
+        assert!(sentinel.exists());
+        drop(lease);
+        assert!(sentinel.exists());
+        release.send(()).unwrap();
+        assert!(worker.join().is_err());
+        // An unrelated retained handler Arc cannot shorten or prolong the lease.
+        assert!(!path.exists());
+        drop(handler);
+    }
+    #[test]
     fn stalled_client_is_disconnected_at_the_write_budget() {
         let server = Server::bind(
             IsolatedProfile::create().unwrap(),

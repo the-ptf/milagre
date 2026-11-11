@@ -16,6 +16,8 @@ server.shutdown()?;
 
 `IsolatedProfile` has no constructor from a path and no mutable path access. It creates a private `milagre-rust-wire-*` temporary directory under canonical `/tmp`, independently of `TMPDIR`. The socket name uses the same canonical-profile SHA-256 hash as `apps/daemon/src/paths.cjs`; it is a distinct endpoint under `/tmp/milagre-<uid>/`. That shared directory is validated, never chmodded or removed when it already exists. Binding refuses existing endpoints. Cleanup removes only the inode this instance bound, then drops its own temporary profile.
 
+Background workers acquire `profile.lease()` before the profile moves into `Server::bind`. The cloneable `ProfileLease` keeps the temporary directory alive through worker cleanup, joins and unwinding, even if forced server destruction follows `QUIT_PENDING`. It exposes only the directory path and cannot bind another server. The last profile or lease removes the directory; socket cleanup remains owned by the server. A lease does not claim a successful save or graceful shutdown. Handlers must retain it for every worker that can outlive the server; this is an explicit adapter responsibility.
+
 The public `Handler` trait provides:
 
 - `methods()` and `invoke(method, args, context)` for explicitly registered services. There is no unrestricted command forwarding.
