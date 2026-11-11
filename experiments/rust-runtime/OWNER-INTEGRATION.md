@@ -72,3 +72,5 @@ identities stay strict. A bounded Node-fake receive probe verifies actual provid
 an owner reopen verifies the original disk records.
 
 Answer-history eviction increments a saturating constant-space counter exposed as `daemon:snapshot.diagnostics.answerHistoryForgotten`. It emits neither stderr lines nor another answer RPC result. The actor retains no per-eviction Chat or answer strings; the count means delivery remained unknown when late-reconciliation history was discarded.
+
+Owner LockStranded notices set the sticky `daemon:snapshot.diagnostics.ownerLockStranded` flag and increment the saturating `ownerLockStrandedNotices` counter. The runtime emits no per-notice stderr output and retains no lock path, reason string or token in this audit. The flag means a lock may require operator recovery; it never means the runtime removed that lock or recovered ownership.

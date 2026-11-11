@@ -125,7 +125,10 @@ impl ArtifactService {
                 "../fixtures/design-kits/alpha/project.json.fixture"
             ))?;
         let guard = RustOwnerLock
-            .acquire(&isolation.root().join("artifact-owner.lock"))
+            .acquire(
+                isolation.root(),
+                &isolation.root().join("artifact-owner.lock"),
+            )
             .map_err(|error| RpcError::new("CONTENT_OWNERSHIP", error.to_string()))?;
         Ok(Self {
             owner: Mutex::new(None),

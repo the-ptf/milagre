@@ -69,6 +69,7 @@ struct Shared {
     failure: Mutex<Option<String>>,
     delivery_failed: AtomicBool,
     forgotten_answers: AtomicU64,
+    stranded_lock_notices: AtomicU64,
 }
 struct Actor {
     send: SyncSender<Request>,
@@ -207,8 +208,11 @@ fn diagnostic_snapshot(shared: &Shared) -> Value {
     if !snapshot.is_object() {
         snapshot = json!({});
     }
-    snapshot["diagnostics"] =
-        json!({"answerHistoryForgotten":shared.forgotten_answers.load(Ordering::Acquire)});
+    let stranded = shared.stranded_lock_notices.load(Ordering::Acquire);
+    snapshot["diagnostics"] = json!({
+        "answerHistoryForgotten":shared.forgotten_answers.load(Ordering::Acquire),
+        "ownerLockStrandedNotices":stranded,"ownerLockStranded":stranded>0
+    });
     snapshot
 }
 fn record_failure(shared: &Shared, error: String) {
@@ -452,6 +456,14 @@ impl State {
                 // changes are published through the owner's ordinary notices, never a second reply.
                 Notice::AnswerResolved { .. } => {}
                 Notice::AnswerForgotten { .. } => record_forgotten_answer(shared),
+                Notice::LockStranded { .. } => {
+                    // Signal stranded ownership without retaining path/reason strings or any lock token.
+                    let _ = shared.stranded_lock_notices.try_update(
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                        |count| Some(count.saturating_add(1)),
+                    );
+                }
                 Notice::Failed { error, .. } | Notice::Gap { what: error, .. } => {
                     record_failure(shared, error);
                 }
@@ -728,6 +740,7 @@ fn start_provider(
         failure: Mutex::new(None),
         delivery_failed: AtomicBool::new(false),
         forgotten_answers: AtomicU64::new(0),
+        stranded_lock_notices: AtomicU64::new(0),
     });
     let (send, requests) = mpsc::sync_channel(QUEUE);
     let actor = Arc::new(Actor {
@@ -982,6 +995,7 @@ mod tests {
             failure: Mutex::new(None),
             delivery_failed: AtomicBool::new(false),
             forgotten_answers: AtomicU64::new(0),
+            stranded_lock_notices: AtomicU64::new(0),
         });
         (
             Actor {
@@ -1034,6 +1048,13 @@ mod tests {
             10000
         );
         assert!(receive.try_recv().is_err());
+        actor
+            .shared
+            .stranded_lock_notices
+            .store(2, Ordering::Release);
+        let diagnostics = diagnostic_snapshot(&actor.shared)["diagnostics"].clone();
+        assert_eq!(diagnostics["ownerLockStrandedNotices"], 2);
+        assert_eq!(diagnostics["ownerLockStranded"], true);
         actor
             .shared
             .forgotten_answers
@@ -1107,6 +1128,7 @@ mod publication_tests {
             failure: Mutex::new(None),
             delivery_failed: AtomicBool::new(false),
             forgotten_answers: AtomicU64::new(0),
+            stranded_lock_notices: AtomicU64::new(0),
         };
         let mut state = State {
             host: ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0)),
