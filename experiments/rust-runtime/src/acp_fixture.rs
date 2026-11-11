@@ -825,67 +825,117 @@ mod panic_tests {
 mod delivery_tests {
     use super::*;
     #[test]
-    fn stopped_session_distinguishes_stalled_write_from_unclaimed_queued_answers() {
+    fn stop_maps_two_distinct_native_permission_receipts_without_replay() {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
         runtime.block_on(async {
             let mut options = FakeOptions {
-                scenario: "blocked-answer".into(),
+                scenario: "blocked-two-answers".into(),
                 ..Default::default()
             };
-            options.limits.cancel_grace = Duration::from_millis(500);
+            options.limits.cancel_grace = Duration::from_secs(5);
             let (session, mut events) = FakeSession::launch(options).unwrap();
             let turn = session.send("fixture").unwrap();
-            let request = loop {
-                match tokio::time::timeout(Duration::from_secs(2), events.recv())
+            let mut requests = Vec::new();
+            while requests.len() < 2 {
+                if let SessionEvent::Permission {
+                    turn_id,
+                    request_id,
+                    ..
+                } = tokio::time::timeout(Duration::from_secs(2), events.recv())
                     .await
                     .unwrap()
                     .unwrap()
                 {
-                    SessionEvent::Permission { request_id, .. } => break request_id,
-                    _ => continue,
+                    assert_eq!(turn_id, turn);
+                    requests.push(request_id);
                 }
-            };
-            let writing = session
-                .admit_answer(turn, request.clone(), Answer::AllowOnce)
+            }
+            assert_eq!(requests[0].to_value(), json!("permission"));
+            assert_eq!(requests[1].to_value(), json!("permission-2"));
+            assert_ne!(requests[0], requests[1]);
+            let first = session
+                .admit_answer(turn, requests[0].clone(), Answer::AllowOnce)
+                .unwrap();
+            let second = session
+                .admit_answer(turn, requests[1].clone(), Answer::AllowOnce)
                 .unwrap();
             tokio::time::timeout(Duration::from_secs(2), async {
                 loop {
-                    if !session.inspect().await.unwrap()["writingPermission"].is_null() {
+                    let state = session.inspect().await.unwrap();
+                    if state["writingPermission"] == "permission"
+                        && state["queuedPermissionWrites"] == json!(["permission-2"])
+                    {
+                        assert_eq!(state["permissions"], 2);
                         break;
                     }
-                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    tokio::task::yield_now().await;
                 }
             })
             .await
-            .unwrap();
-            // Both are synchronously admitted, but the request is already claimed by the stalled write.
-            // Closing before yielding leaves these queued decisions provably unattempted.
-            let queued_a = session
-                .admit_answer(turn, request.clone(), Answer::Deny)
-                .unwrap();
-            let queued_b = session.admit_answer(turn, request, Answer::Deny).unwrap();
-            session.shutdown().await;
+            .expect(
+                "both distinct writes must be claimed; the second must remain queued before Stop",
+            );
+            session.cancel();
+            let first_result = first.wait().await;
+            let second_result = second.wait().await;
+            assert_eq!(first_result, Err(SessionError::UncertainDelivery));
+            assert_eq!(second_result, Err(SessionError::Closed));
             assert!(matches!(
-                answer_outcome(writing.wait().await),
+                answer_outcome(first_result),
                 AnswerOutcome::Uncertain(_)
             ));
-            for receipt in [queued_a, queued_b] {
-                let result = receipt.wait().await;
-                assert!(
-                    matches!(
-                        result,
-                        Err(SessionError::Closed | SessionError::UnknownPermission)
-                    ),
-                    "{result:?}"
-                );
-                assert!(matches!(
-                    answer_outcome(result),
-                    AnswerOutcome::Failed(_) | AnswerOutcome::NotWaiting
-                ));
+            assert!(matches!(
+                answer_outcome(second_result),
+                AnswerOutcome::Failed(_)
+            ));
+            let mut closed = Vec::new();
+            let mut ends = 0;
+            loop {
+                match tokio::time::timeout(Duration::from_secs(3), events.recv())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                {
+                    SessionEvent::PermissionClosed {
+                        turn_id,
+                        request_id,
+                        delivery,
+                    } => {
+                        assert_eq!(turn_id, turn);
+                        closed.push((request_id, delivery));
+                    }
+                    SessionEvent::Agent { turn_id, event } if terminal(&event) => {
+                        assert_eq!(turn_id, turn);
+                        assert_eq!(event["type"], "turn-cancelled");
+                        ends += 1;
+                    }
+                    SessionEvent::Closed { .. } => break,
+                    _ => {}
+                }
             }
+            assert_eq!(
+                closed,
+                vec![
+                    (requests[0].clone(), Delivery::Uncertain),
+                    (requests[1].clone(), Delivery::NotSent)
+                ]
+            );
+            assert_eq!(ends, 1);
+            assert!(
+                events.recv().await.is_none(),
+                "no repeated closure or replay event"
+            );
+            assert!(
+                matches!(
+                    session.admit_answer(turn, requests[1].clone(), Answer::AllowOnce),
+                    Err(SessionError::Closed)
+                ),
+                "the stopped queued answer cannot be replayed"
+            );
+            session.shutdown().await;
         });
     }
 }
