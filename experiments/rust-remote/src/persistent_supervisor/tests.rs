@@ -213,3 +213,6 @@ fn retired_start_retains_guard_and_explicit_abort_quarantines() {
     let mut p = quarantined(released(start(profile()).abort()));
     p.destroy().unwrap();
 }
+
+#[path = "service_tests.rs"]
+mod service_tests;

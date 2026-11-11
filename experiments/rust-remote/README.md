@@ -104,10 +104,12 @@ Phone checkpoint adds 13 tests plus reciprocal Node host/mobile traces. The safe
 
 App-wide typecheck/lint/unit/UI checks are not substituted by these tests. No PR or production application changes are part of this checkpoint.
 
-The fresh synthetic descriptor-store checkpoint is documented in [RESTART-STORE.md](RESTART-STORE.md). It adds pinned root/file locks, bounded private snapshots and retained-broker crash evidence, bringing the current total to 147 tests and seven doctests. Persistent authority and supervisor restart integration are still separate checkpoints.
+The fresh synthetic descriptor-store checkpoint is documented in [RESTART-STORE.md](RESTART-STORE.md). It adds pinned root/file locks, bounded private snapshots and retained-broker crash evidence, validated at its original checkpoint by 147 tests and seven doctests. Later authority and supervisor checkpoints are listed below.
 
 Persistent authority now consumes that fresh writer, owns its Registry and preserves epochs/tombstones across explicit clean worker replacement under a retained broker. Close failures retain revoked writer guards; Drop never writes Clean. See [PERSISTENT-AUTHORITY.md](PERSISTENT-AUTHORITY.md) for the API, final v1 status fields, subprocess/fault evidence and remaining supervisor/network/recovery gaps. The additional `tests/restart-node.mjs` check inventories actual Node device persistence with in-memory dependencies only; it does not claim disk-format or live-phone interoperability.
 
 The separate [store safety follow-ups](STORE-SAFETY.md) preserve corrected-limit retry before any write, permit descriptor-checked destruction of interrupted reserved transactions, and remove credentials from retired serialized snapshots. Supervisor integration remains a later reviewed checkpoint.
 
-The next private composition checkpoint adds phase-aware quiescence/abort, exact carrier-ticket approval binding and guarded ciphertext lease transfer. See [PERSISTENT-COMPOSITION.md](PERSISTENT-COMPOSITION.md). It starts no persistent worker and provides no joined service-stop receipt; that owner checkpoint remains gated on independent review.
+The private composition checkpoint adds phase-aware quiescence/abort, exact carrier-ticket approval binding and guarded ciphertext lease transfer. See [PERSISTENT-COMPOSITION.md](PERSISTENT-COMPOSITION.md). Its private hooks are now used by the separate retained worker below.
+
+`persistent_supervisor::PersistentSupervisor` now owns a fresh synthetic profile through joined shutdown, typed owning failures, bounded commands, consuming approval permits and automatic deadline ticks. See [PERSISTENT-WORKER.md](PERSISTENT-WORKER.md) for the two checkpoint boundaries, 209-test/eight-doctest evidence, unknown-outcome rules and remaining review/production gates.

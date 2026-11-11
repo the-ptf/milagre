@@ -1050,3 +1050,85 @@ fn persistent_supervisor_drop_joins_and_leaves_running_snapshot_unchanged() {
     writer.release();
     observer.destroy().unwrap();
 }
+
+#[test]
+fn persistent_service_rejected_release_failure_retains_original_profile_and_locks() {
+    use crate::{
+        persistent_supervisor::{PersistentSupervisor, StartFault},
+        supervisor::{Clock, Limits},
+    };
+    let _disk = testing_lock();
+    let mut observer = profile();
+    let mut writer = observer.acquire_writer().unwrap();
+    let mut state = writer.load().unwrap();
+    state.boot = 1;
+    state.revision = 2;
+    state.devices = (1..=2)
+        .map(|n| Device {
+            key: [n; 32],
+            kind: Kind::Phone,
+            epoch: 0,
+            removed: None,
+            last_removed: None,
+        })
+        .collect();
+    let receipt = writer.commit(&state).unwrap();
+    writer
+        .acknowledge(receipt)
+        .unwrap_or_else(|_| panic!("ack"));
+    let owned = SyntheticProfile {
+        core: observer.core.clone(),
+        cleanup: None,
+        deleted: 0,
+        directory_unlinked: false,
+        before_destroy_unlink: None,
+    };
+    let limits = Limits {
+        authority: crate::policy::Limits {
+            records: 1,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (fault, stopped) = PersistentSupervisor::start(owned, limits, Clock::monotonic())
+        .err()
+        .expect("rejected")
+        .into_parts();
+    assert_eq!(fault, StartFault::InvalidLimits);
+    let before = saved(&observer);
+    fs::renameat(
+        &observer.core.root,
+        LOCK,
+        &observer.core.root,
+        "original.lock",
+    )
+    .unwrap();
+    drop(new_file(&observer.core.root, LOCK).unwrap());
+    let (fault, stopped) = stopped
+        .release()
+        .err()
+        .expect("owning failure")
+        .into_parts();
+    assert_eq!(fault, StoreFault::IdentityChanged);
+    assert_eq!(saved(&observer), before);
+    assert!(matches!(
+        Locks::acquire(&observer.core),
+        Err(StoreFault::Busy)
+    ));
+    fs::unlinkat(&observer.core.root, LOCK, AtFlags::empty()).unwrap();
+    fs::renameat(
+        &observer.core.root,
+        "original.lock",
+        &observer.core.root,
+        LOCK,
+    )
+    .unwrap();
+    both_locks_are_held(&observer.core.root);
+    let mut profile = stopped
+        .release()
+        .unwrap_or_else(|_| panic!("release quarantine"));
+    let writer = profile.acquire_writer().unwrap();
+    assert_eq!(writer.diagnostics().fault, Some(StoreFault::DirtyRun));
+    writer.release();
+    profile.destroy().unwrap();
+}

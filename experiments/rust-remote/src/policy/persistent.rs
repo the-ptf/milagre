@@ -739,6 +739,13 @@ impl PersistentAuthority {
             },
         }
     }
+    #[cfg(test)]
+    pub(crate) fn before_commit_for_test(&mut self, callback: Box<dyn FnOnce() + Send>) {
+        let RecordStore::Persistent(store) = &mut self.core().storage else {
+            unreachable!()
+        };
+        store.before_commit = Some(callback);
+    }
     #[cfg(all(test, target_os = "macos"))]
     pub(crate) fn fail_next_terminal_for_test(&mut self, stage: crate::synthetic_store::IoStage) {
         let RecordStore::Persistent(store) = &mut self.core().storage else {

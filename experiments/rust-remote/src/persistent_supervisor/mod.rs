@@ -12,7 +12,15 @@ use crate::{
     supervisor::{Clock, Limits, CONTROL_RESERVE_BYTES},
     synthetic_store::{StoreDiagnostics, StoreFault, SyntheticProfile},
 };
+mod service;
+use crate::budget::ConnectionBudget;
 use rand_core::OsRng;
+pub use service::{
+    ApprovalRefusal, ApprovalRejection, Event, PersistentApproval, PersistentCarrierClient,
+    PersistentCommand, PersistentOwnerClient, Receipt, Reply,
+};
+use service::{Carrier, Pending};
+use std::collections::{BTreeMap, VecDeque};
 use std::{
     panic::{catch_unwind, AssertUnwindSafe},
     sync::{
@@ -152,8 +160,13 @@ impl StoppedService {
 const RUNNING: u8 = 0;
 const REQUESTED: u8 = 1;
 const ABORT: u8 = 2;
+#[derive(Default)]
 struct Queues {
     reserve: Option<Reservation>,
+    commands: VecDeque<service::Envelope>,
+    controls: VecDeque<service::Envelope>,
+    events: VecDeque<service::Notification>,
+    work_ready: bool,
 }
 struct Shared {
     queues: Mutex<Queues>,
@@ -163,22 +176,35 @@ struct Shared {
     finished: AtomicBool,
     ticks: AtomicU64,
     global: GlobalBudget,
+    ingress: ConnectionBudget,
+    events: ConnectionBudget,
+    scope: Arc<()>,
+    clock: Clock,
+    changed: Condvar,
+    closed_dropped: AtomicU64,
     limits: Limits,
 }
 impl Shared {
-    fn new(global: GlobalBudget, limits: Limits) -> crate::Result<Self> {
+    fn new(global: GlobalBudget, limits: Limits, clock: Clock) -> crate::Result<Self> {
         let reserve = global
             .connection(CONTROL_RESERVE_BYTES)?
             .reserve(CONTROL_RESERVE_BYTES)?;
         Ok(Self {
             queues: Mutex::new(Queues {
                 reserve: Some(reserve),
+                ..Default::default()
             }),
             wake: Condvar::new(),
             stop: AtomicU8::new(RUNNING),
             fatal: AtomicU8::new(0),
             finished: AtomicBool::new(false),
             ticks: AtomicU64::new(0),
+            ingress: global.connection(limits.command_bytes)?,
+            events: global.connection(limits.events * 2048)?,
+            scope: Arc::new(()),
+            clock,
+            changed: Condvar::new(),
+            closed_dropped: AtomicU64::new(0),
             global,
             limits,
         })
@@ -189,6 +215,7 @@ impl Shared {
             .compare_exchange(0, fault as u8, Ordering::SeqCst, Ordering::SeqCst);
         self.stop.fetch_max(ABORT, Ordering::SeqCst);
         self.wake.notify_all();
+        self.changed.notify_all();
     }
     fn fault(&self) -> Option<WorkerFault> {
         match self.fatal.load(Ordering::SeqCst) {
@@ -208,42 +235,43 @@ impl Shared {
         })
     }
     fn request_stop(&self, abort: bool) {
-        let _q = self.queues(); // Same synchronization as admission in the next service layer.
+        let _q = self.queues(); // Same synchronization as command and approval admission.
         self.stop
             .fetch_max(if abort { ABORT } else { REQUESTED }, Ordering::SeqCst);
         self.wake.notify_all();
+        self.changed.notify_all();
     }
     fn drain(&self) {
-        self.queues().reserve.take();
+        let mut q = self.queues();
+        for e in q.controls.drain(..) {
+            e.reject();
+        }
+        for e in q.commands.drain(..) {
+            e.reject();
+        }
+        q.events.clear();
+        q.work_ready = false;
+        q.reserve.take();
+        self.changed.notify_all();
     }
 }
 struct Runtime {
     authority: PersistentAuthority,
     clock: Clock,
+    carriers: BTreeMap<u64, Carrier>,
+    pending: BTreeMap<u64, Pending>,
+    serial: u64,
+    #[cfg(test)]
+    after_apply: Option<Box<dyn FnOnce() + Send>>,
 }
 impl Runtime {
-    fn run(&mut self, shared: &Shared) {
-        while shared.stop.load(Ordering::SeqCst) == RUNNING {
-            if self.authority.tick(self.clock.now()).is_err() {
-                shared.fail(WorkerFault::Clock);
-                break;
-            }
-            shared.ticks.fetch_add(1, Ordering::SeqCst);
-            let q = shared.queues();
-            let _wait = shared
-                .wake
-                .wait_timeout_while(q, Duration::from_millis(shared.limits.tick_ms), |_| {
-                    shared.stop.load(Ordering::SeqCst) == RUNNING
-                })
-                .unwrap_or_else(|e| {
-                    shared.fail(WorkerFault::Poisoned);
-                    e.into_inner()
-                });
-        }
-    }
     fn finish(&mut self, shared: &Shared) -> bool {
+        if shared.stop.load(Ordering::SeqCst) == RUNNING {
+            shared.fail(WorkerFault::InvalidExit);
+        }
         if shared.stop.load(Ordering::SeqCst) != REQUESTED || shared.fault().is_some() {
             self.authority.abort_in_place();
+            self.clear_owned();
             shared.drain();
             return false;
         }
@@ -252,6 +280,7 @@ impl Runtime {
             shared.fail(WorkerFault::InvalidExit);
             self.authority.abort_in_place();
         }
+        self.clear_owned();
         shared.drain();
         healthy && shared.fault().is_none()
     }
@@ -328,7 +357,7 @@ impl PersistentSupervisor {
             Ok(pool) => pool,
             Err(fault) => return Err(reject(profile, StartFault::Store(fault), None)),
         };
-        let shared = match Shared::new(pool, limits) {
+        let shared = match Shared::new(pool, limits, clock.clone()) {
             Ok(shared) => Arc::new(shared),
             Err(_) => return Err(reject(profile, StartFault::Reservation, None)),
         };
@@ -378,7 +407,15 @@ impl PersistentSupervisor {
             ));
         }
         let retained = Arc::new(Mutex::new(Slot {
-            runtime: Some(Runtime { authority, clock }),
+            runtime: Some(Runtime {
+                authority,
+                clock,
+                carriers: BTreeMap::new(),
+                pending: BTreeMap::new(),
+                serial: 0,
+                #[cfg(test)]
+                after_apply: None,
+            }),
             quiesced: false,
         }));
         let mut owner = Self {
@@ -418,6 +455,9 @@ impl PersistentSupervisor {
         }
         Ok(owner)
     }
+    pub fn owner(&self) -> PersistentOwnerClient {
+        PersistentOwnerClient(self.shared.clone())
+    }
     pub fn retained_bytes(&self) -> usize {
         self.shared.global.used()
     }
@@ -442,12 +482,20 @@ impl PersistentSupervisor {
         {
             runtime.authority.abort_in_place();
         }
+        drop(retained);
+        // Final owner-side drainage also covers an unexpected top-level worker unwind.
+        runtime.clear_owned();
+        self.shared.drain();
+        if self.shared.fault().is_some() {
+            runtime.authority.abort_in_place();
+        }
         runtime
     }
     fn stopped(&mut self, abort: bool) -> StoppedService {
         let joined = self.worker.is_some();
         self.join(abort);
-        let runtime = self.take_runtime();
+        let mut runtime = self.take_runtime();
+        runtime.clear_owned();
         self.shared.drain();
         StoppedService {
             profile: self.profile.take().unwrap(),
@@ -566,11 +614,13 @@ fn worker_main(
         slot.quiesced = false;
         if let Some(runtime) = &mut slot.runtime {
             runtime.authority.abort_in_place();
+            runtime.clear_owned();
         }
         shared.drain();
     }
     shared.finished.store(true, Ordering::SeqCst);
     shared.wake.notify_all();
+    shared.changed.notify_all();
 }
 #[cfg(all(test, target_os = "macos"))]
 mod tests;

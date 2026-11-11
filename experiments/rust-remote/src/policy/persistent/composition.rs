@@ -14,27 +14,15 @@ pub(super) struct Binding {
     approval: bool,
 }
 /// Owns the exact HELLO ticket/carrier association; no caller-selected deadline.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "composition precedes the reviewed worker owner")
-)]
 pub(crate) struct CarrierTicket {
     handle: Handle,
     ticket: Ticket,
 }
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "composition precedes the reviewed worker owner")
-)]
 pub(crate) struct ApprovalMetadata {
     pub device_key: String,
     pub deadline: u64,
 }
 #[derive(Clone, Copy)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "composition precedes the reviewed worker owner")
-)]
 pub(crate) enum CarrierDecision {
     PhoneOrKnown,
     ApprovedDesktop,
@@ -148,12 +136,6 @@ impl PersistentAuthority {
         }
     }
 }
-// These methods are intentionally private and unused by production code until the
-// independent review gate permits the retained worker checkpoint.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "composition precedes the reviewed worker owner")
-)]
 impl PersistentAuthority {
     pub(crate) fn begin_for_carrier(
         &mut self,
