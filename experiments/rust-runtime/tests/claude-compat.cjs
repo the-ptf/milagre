@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
 const { once } = require("node:events");
 const fs = require("node:fs");
+const path = require("node:path");
 const { PNG } = require("pngjs");
 const readline = require("node:readline");
 const { connect } = require("../../../apps/daemon/src/client.cjs");
@@ -68,6 +69,7 @@ async function scenario(name) {
       const pendingState = await client.call("project:snapshot", [project]);
       assert.equal(pendingState.state.sessions["1"].queued.length, 1);
       assert.equal(pendingState.state.sessions["1"].queued[0].body, "second queued input");
+      fs.writeFileSync(path.join(path.dirname(project), "queue-release"), "release", { flag: "wx", mode: 0o600 });
     }
     if (name === "permission") {
       await until("permission card", () => events.some((e) => e.type === "permission-request"));

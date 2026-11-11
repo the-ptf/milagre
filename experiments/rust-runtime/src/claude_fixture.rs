@@ -253,7 +253,10 @@ impl ClaudeFixture {
         }
         let program = dir.join("runtime-fake-claude").canonicalize()?;
         let script = profile.path().join("claude-script.json");
-        std::fs::write(&script, script_for(scenario).to_string())?;
+        std::fs::write(
+            &script,
+            script_for(scenario, &profile.path().join("queue-release")).to_string(),
+        )?;
         let content = if matches!(scenario, Scenario::Design) {
             let helper = dir.join("milagre-design-raster").canonicalize()?;
             let raster = Arc::new(milagre_content_store::design::raster::RasterRenderer::new(
@@ -861,7 +864,7 @@ impl Worker {
         self.exit(latest);
     }
 }
-fn script_for(scenario: Scenario) -> Value {
+fn script_for(scenario: Scenario, queue_release: &Path) -> Value {
     let mut steps = vec![json!({"expect":{"subtype":"initialize"}})];
     if matches!(scenario, Scenario::HangInitialize) {
         steps.push(json!({"sleep_ms":10000}));
@@ -872,7 +875,7 @@ fn script_for(scenario: Scenario) -> Value {
         json!({"expect":{"subtype":"set_max_thinking_tokens"}}),
         json!({"reply":{}}),
     ]);
-    for _ in 0..4 {
+    for turn in 0..4 {
         steps.extend([
             json!({"expect":{"type":"user"}}),
             json!({"emit":{"type":"system","subtype":"init","session_id":"fixture-session"}}),
@@ -881,7 +884,7 @@ fn script_for(scenario: Scenario) -> Value {
    Scenario::Permission=>steps.extend([json!({"request":{"id":"p1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo fixture"}}}}),json!({"expect":{"type":"control_response","fields":{"/response/request_id":"p1"}}})]),
    Scenario::Question|Scenario::QuestionDelayedReceipt|Scenario::Unicode=>steps.extend([json!({"request":{"id":"q1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A","description":"First"},{"label":"B","description":"Second"}]}]}}}}),json!({"expect":{"type":"control_response","fields":{"/response/request_id":"q1"}}})]),
    Scenario::Design => { steps.extend(design_steps()); },
-   Scenario::Queue => { steps.push(json!({"sleep_ms":200})); },
+   Scenario::Queue => { if turn==0 {steps.push(json!({"wait_file":queue_release}));} },
    Scenario::Content => {
     steps.extend([
      json!({"request":{"id":"content-show","request":{"subtype":"mcp_message","server_name":"milagre","message":{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"artifact_show","arguments":{"title":"Native Claude artifact","html":"<main>Native shared content</main>"}}}}}}),
@@ -899,6 +902,15 @@ fn script_for(scenario: Scenario) -> Value {
    Scenario::Crash=>{steps.push(json!({"exit":7}));break;},_=>{}
   }
         steps.extend([json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Claude fixture hello"}}}}),json!({"emit":{"type":"result","subtype":"success","num_turns":1,"result":"done"}})]);
+    }
+    if matches!(scenario, Scenario::Queue) {
+        let mut turn = 0;
+        for step in &mut steps {
+            if step["expect"]["type"] == "user" {
+                step["expect"]["fields"] = json!({"/message/content/0/text": if turn==0 {"fixture input"} else {"second queued input"}});
+                turn += 1;
+            }
+        }
     }
     if matches!(scenario, Scenario::Unicode) {
         let native = "native \u{10fffe} \u{e123} \u{fffd}";
