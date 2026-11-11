@@ -88,6 +88,55 @@ impl Pin {
         (self.identity.dev, self.identity.ino)
     }
 }
+
+/// Descriptor-only input from the private coordinator. Never owns directory deletion.
+pub(super) struct Workspace {
+    pub(super) project: Pin,
+    home: Pin,
+    tmp: Pin,
+    parent: Pin,
+}
+impl Workspace {
+    #[cfg(test)]
+    pub(super) fn descriptors(&self) -> [i32; 4] {
+        [&self.project, &self.home, &self.tmp, &self.parent].map(|pin| pin.file.as_raw_fd())
+    }
+    pub(super) fn from_descriptors(project: File, home: File, tmp: File) -> Result<Self, Error> {
+        fn directory(file: File) -> Result<Pin, Error> {
+            let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFD) };
+            if flags < 0 || flags & libc::FD_CLOEXEC == 0 {
+                return Err(Error::Identity);
+            }
+            let mut path = [0i8; libc::PATH_MAX as usize];
+            if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, path.as_mut_ptr()) } < 0 {
+                return Err(Error::Identity);
+            }
+            let path = unsafe { std::ffi::CStr::from_ptr(path.as_ptr()) };
+            use std::os::unix::ffi::OsStrExt;
+            Pin::from(file, PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes())), true)
+        }
+        let project = directory(project)?;
+        let root = project.path.parent().ok_or(Error::Identity)?.to_owned();
+        let workspace = Self { project, home: directory(home)?, tmp: directory(tmp)?, parent: Pin::open(root.clone(), true)? };
+        if workspace.project.path.file_name().is_none_or(|name| name != "project")
+            || workspace.home.path != root.join("home")
+            || workspace.tmp.path != root.join("tmp")
+        {
+            return Err(Error::Identity);
+        }
+        workspace.check()?;
+        Ok(workspace)
+    }
+    fn check(&self) -> Result<(), Error> {
+        for pin in [&self.parent, &self.project, &self.home, &self.tmp] {
+            if fs::canonicalize(&pin.path).map_err(|_| Error::Identity)? != pin.path {
+                return Err(Error::Identity);
+            }
+            pin.check()?;
+        }
+        Ok(())
+    }
+}
 fn child_file(parent: &File, name: &str, flags: i32, mode: libc::mode_t) -> Result<File, Error> {
     let name = CString::new(name).map_err(|_| Error::Identity)?;
     let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags | libc::O_NOFOLLOW | libc::O_CLOEXEC, mode as libc::c_uint) };
@@ -243,6 +292,7 @@ pub(super) struct Prepared {
     executable: usize,
     workspace: usize,
     digest: [u8; 32],
+    registered: Option<super::RegisteredWorkspace>,
 }
 impl Prepared {
     pub(super) fn fixed() -> Result<Self, Error> {
@@ -256,7 +306,13 @@ impl Prepared {
         if source.identity.len == 0 || source.identity.len > ARTIFACT_LIMIT || source.identity.mode & 0o100 == 0 {
             return Err(Error::Artifact);
         }
-        Ok(Self { source_parent, source, storage: Storage::create()?, executable: 0, workspace: 0, digest: [0; 32] })
+        Ok(Self { source_parent, source, storage: Storage::create()?, executable: 0, workspace: 0, digest: [0; 32], registered: None })
+    }
+    pub(super) fn register(&mut self, workspace: Option<super::RegisteredWorkspace>) {
+        self.registered = workspace;
+    }
+    pub(super) fn take_registered(&mut self) -> Option<super::RegisteredWorkspace> {
+        self.registered.take()
     }
     pub(super) fn populate(&mut self, until: Instant) -> Result<(), Error> {
         self.populate_with(until, |_, _| {})
@@ -291,9 +347,13 @@ impl Prepared {
     }
     fn populate_with(&mut self, until: Instant, mut copied: impl FnMut(&mut Self, CopyStage)) -> Result<(), Error> {
         let prepared = self;
-        prepared.workspace = prepared.storage.directory("workspace")?;
-        prepared.storage.directory("home")?;
-        prepared.storage.directory("tmp")?;
+        if let Some(workspace) = &prepared.registered {
+            workspace.0.check()?;
+        } else {
+            prepared.workspace = prepared.storage.directory("workspace")?;
+            prepared.storage.directory("home")?;
+            prepared.storage.directory("tmp")?;
+        }
         prepared.digest = hash(&mut prepared.source.file, until)?;
         prepared.source.file.seek(SeekFrom::Start(0)).map_err(|_| Error::Artifact)?;
         let mut draft = Draft::new(&prepared.storage.root.file)?;
@@ -352,6 +412,9 @@ impl Prepared {
         Ok(prepared)
     }
     pub(super) fn check(&mut self, until: Instant) -> Result<(), Error> {
+        if let Some(workspace) = &self.registered {
+            workspace.0.check()?;
+        }
         self.source_parent.check()?;
         self.source.check()?;
         self.storage.check()?;
@@ -362,13 +425,23 @@ impl Prepared {
         }
         self.source.check()?;
         self.source_parent.check()?;
-        self.storage.check()
+        self.storage.check()?;
+        if let Some(workspace) = &self.registered {
+            workspace.0.check()?;
+        }
+        Ok(())
     }
     pub(super) fn executable(&self) -> &Path {
         &self.storage.entries[self.executable].path
     }
     pub(super) fn cwd(&self) -> &Pin {
-        &self.storage.entries[self.workspace]
+        self.registered.as_ref().map_or_else(|| &self.storage.entries[self.workspace], |workspace| &workspace.0.project)
+    }
+    pub(super) fn home(&self) -> PathBuf {
+        self.registered.as_ref().map_or_else(|| self.storage.root.path.join("home"), |w| w.0.home.path.clone())
+    }
+    pub(super) fn tmp(&self) -> PathBuf {
+        self.registered.as_ref().map_or_else(|| self.storage.root.path.join("tmp"), |w| w.0.tmp.path.clone())
     }
     pub(super) fn digest(&self) -> String {
         self.digest.iter().map(|b| format!("{b:02x}")).collect()

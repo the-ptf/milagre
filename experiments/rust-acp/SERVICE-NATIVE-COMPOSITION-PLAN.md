@@ -119,8 +119,10 @@ that reservation's retained worker handle after it reports is_finished. No block
 inside an actor iteration while the worker is still running. The worker drops every registered
 Project/home/tmp descriptor, executable/source/storage descriptor and native resource that can
 touch service directories before returning the acknowledgment. Join also establishes completion
-of the worker's remaining destructors and thread-local state. A panic or retained-resource exit
-returns no acknowledgment. After successful join, the non-Clone acknowledgment is consumed once;
+of the worker's remaining destructors and thread-local state. An escaping worker-thread panic
+or retained-resource exit returns no acknowledgment. A caught operation panic can still produce
+cleanup acknowledgment after proven disposal, while its turn remains failed. After successful
+join, the non-Clone acknowledgment is consumed once;
 its private immutable identity must match the flight's exact reservation. It contains no service
 descriptor, path, callback, Drop side effect or transferable authority for another reservation.
 For a reservation whose worker never activated, its native reservation owner alone can return

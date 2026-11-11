@@ -1,4 +1,6 @@
-use super::{files::Prepared, process::Owned, wire, Control, Error, Execution, FixtureCase, Report, Shared, Slot};
+use super::{
+    files::Prepared, process::Owned, wire, Control, Disposal, Error, Execution, FixtureCase, RegisteredWorkspace, Report, Shared, Slot,
+};
 use sha2::{Digest, Sha256};
 use std::{
     io::{Read, Write},
@@ -17,6 +19,8 @@ pub(super) enum Fault {
     SpawnFailure,
     #[cfg(test)]
     PartialPreparation,
+    #[cfg(test)]
+    ThreadSpawnFailure,
 }
 fn nonblocking(fd: i32) -> Result<(), Error> {
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
@@ -150,6 +154,18 @@ fn execute(owned: &mut Owned, prepared: &Prepared, shared: &Shared, text: &str, 
             Err(_) => return Err(Error::Protocol),
         }
     }
+    // EOF alone does not prove normal exit. Reap through this exact retained Child,
+    // without signalling; an error/cancellation falls through to cleanup below.
+    loop {
+        check(shared, until)?;
+        if let Some(status) = owned.natural_exit()? {
+            if status.code() != Some(0) {
+                return Err(Error::Protocol);
+            }
+            break;
+        }
+        pause();
+    }
     Ok(execution)
 }
 
@@ -157,6 +173,7 @@ fn execute(owned: &mut Owned, prepared: &Prepared, shared: &Shared, text: &str, 
 struct Resources {
     prepared: Option<Prepared>,
     owned: Option<Owned>,
+    workspace: Option<RegisteredWorkspace>,
     slot: Option<Slot>,
 }
 impl Drop for Resources {
@@ -166,6 +183,7 @@ impl Drop for Resources {
                 std::mem::forget(self.owned.take());
                 std::mem::forget(self.prepared.take());
                 std::mem::forget(self.slot.take());
+                std::mem::forget(self.workspace.take());
                 return;
             }
         }
@@ -173,18 +191,40 @@ impl Drop for Resources {
             if !pins.storage.cleanup() {
                 std::mem::forget(self.prepared.take());
                 std::mem::forget(self.slot.take());
+                std::mem::forget(self.workspace.take());
             }
         }
     }
 }
 
-pub(super) fn run(shared: Arc<Shared>, case: FixtureCase, text: String, slot: Slot, fault: Fault, automatic: Option<Control>) {
-    let mut resources = Resources { prepared: None, owned: None, slot: Some(slot) };
+#[cfg(test)]
+pub(super) fn run(
+    shared: Arc<Shared>,
+    case: FixtureCase,
+    text: String,
+    slot: Slot,
+    fault: Fault,
+    automatic: Option<Control>,
+) -> Option<Disposal> {
+    run_in(shared, case, text, slot, fault, automatic, None)
+}
+pub(super) fn run_in(
+    shared: Arc<Shared>,
+    case: FixtureCase,
+    text: String,
+    slot: Slot,
+    fault: Fault,
+    automatic: Option<Control>,
+    workspace: Option<RegisteredWorkspace>,
+) -> Option<Disposal> {
+    let mut resources = Resources { prepared: None, owned: None, slot: Some(slot), workspace };
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let until = Instant::now() + Duration::from_secs(5);
+        let until = shared.deadline;
         shared.active()?;
+        shared.before_deadline()?;
         resources.prepared = Some(Prepared::fixed()?);
         let pins = resources.prepared.as_mut().ok_or(Error::Identity)?;
+        pins.register(resources.workspace.take());
         // Resource ownership is installed before the first fallible directory/copy step.
         #[cfg(test)]
         if matches!(fault, Fault::PartialPreparation) {
@@ -221,8 +261,8 @@ pub(super) fn run(shared: Arc<Shared>, case: FixtureCase, text: String, slot: Sl
         command
             .args(wire::KIRO_ARGS)
             .env_clear()
-            .env("HOME", pins.storage.root.path.join("home"))
-            .env("TMPDIR", pins.storage.root.path.join("tmp"))
+            .env("HOME", pins.home())
+            .env("TMPDIR", pins.tmp())
             .env("LANG", "C")
             .env("LC_ALL", "C")
             .env(
@@ -255,12 +295,13 @@ pub(super) fn run(shared: Arc<Shared>, case: FixtureCase, text: String, slot: Sl
         execute(resources.owned.as_mut().ok_or(Error::Spawn)?, pins, &shared, &text, fault)
     }))
     .unwrap_or(Err(Error::WorkerPanic));
+    let natural_zero = result.is_ok();
     let mut report = Report { result, reaped: false, exit_code: None, resources_removed: false };
     if report.result == Err(Error::CleanupUncertain) && resources.prepared.is_none() {
         // Storage creation retained an unprovable root before a Pin could be minted.
         std::mem::forget(resources);
         shared.publish(report, true);
-        return;
+        return None;
     }
     if let Some(child) = resources.owned.as_mut() {
         loop {
@@ -276,7 +317,7 @@ pub(super) fn run(shared: Arc<Shared>, case: FixtureCase, text: String, slot: Sl
                     if child.lost() {
                         // Unknown is sticky: no further probe, signal, reap or deletion.
                         std::mem::forget(resources);
-                        return;
+                        return None;
                     }
                     pause(); // Still owned: continue reaping without dropping the capacity slot.
                 }
@@ -290,11 +331,35 @@ pub(super) fn run(shared: Arc<Shared>, case: FixtureCase, text: String, slot: Sl
             report.result = Err(Error::CleanupUncertain);
             std::mem::forget(resources);
             shared.publish(report, true);
-            return;
+            return None;
         }
+        resources.workspace = pins.take_registered();
+    } else {
+        // Nothing native was created. The reservation still owns any input copies.
+        report.resources_removed = true;
     }
-    // Completion publication follows capacity release; wakeups may immediately start anew.
+    let disposition = if report.reaped {
+        Disposal::Reaped { pid: shared.pid.load(Ordering::Acquire), exit_code: report.exit_code, natural_zero }
+    } else {
+        Disposal::NoChild
+    };
+    // The legacy wrapper releases capacity before publication. A registered flight
+    // retains capacity through destruction of its external workspace descriptor copies.
     resources.prepared.take();
-    resources.slot.take();
+    if resources.workspace.is_none() {
+        resources.slot.take();
+    }
     shared.publish(report, true);
+    #[cfg(test)]
+    if let Some(barrier) = shared.before_return.lock().unwrap().take() {
+        barrier.wait();
+        barrier.wait();
+    }
+    // Registered directories belong to the service owner; only descriptor copies
+    // are dropped here. No joined acknowledgment exists until these drops finish.
+    resources.workspace.take();
+    resources.slot.take();
+    drop(resources);
+    drop(automatic);
+    Some(disposition)
 }

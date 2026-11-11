@@ -293,3 +293,183 @@ fn retained_unstamped_worker_expires_and_closes_control() {
     assert!(completed.result.is_ok() && completed.reaped && completed.resources_removed);
     println!("PRIVATE_COPY_UNSTAMPED_DEADLINE_EVIDENCE noSpawn=true removed=true closedControl=true capacityReleased=true");
 }
+
+#[test]
+fn reservation_owns_capacity_before_activation_and_expiry_never_resets() {
+    let (control, observer, reservation) = reserve(FixtureCase::Ready, "unstarted", None, Instant::now()).unwrap();
+    assert!(matches!(automatic(FixtureCase::Ready, "busy"), Err(Error::Busy)));
+    assert!(!observer.shared.completion.lock().unwrap().progress.prepared);
+    let mut running = reservation.activate();
+    assert!(running.worker.is_none());
+    assert_eq!(report(&observer.shared).result, Err(Error::Deadline));
+    let ack = running.try_join().unwrap().unwrap();
+    let foreign = Control { shared: Shared::new() };
+    let ack = foreign.accept_cleanup(ack).expect_err("foreign identity must refuse");
+    assert!(matches!(control.accept_cleanup(ack), Ok(Disposal::NoChild)));
+    assert!(matches!(running.try_join(), Err(Error::Revoked)));
+
+    let (control, observer, reservation) =
+        reserve(FixtureCase::Ready, "cancel before thread", None, Instant::now() + Duration::from_secs(5)).unwrap();
+    observer.cancel_handle().cancel();
+    let mut running = reservation.activate();
+    assert!(running.worker.is_none());
+    assert!(matches!(control.accept_cleanup(running.try_join().unwrap().unwrap()), Ok(Disposal::NoChild)));
+    assert_eq!(report(&observer.shared).result, Err(Error::Revoked));
+
+    let (control, observer, reservation) =
+        reserve(FixtureCase::Ready, "explicit abandonment", None, Instant::now() + Duration::from_secs(5)).unwrap();
+    assert!(matches!(control.accept_cleanup(reservation.abandon()), Ok(Disposal::NoChild)));
+    assert!(report(&observer.shared).resources_removed);
+}
+
+#[test]
+fn final_gate_refuses_expired_stamp_and_commit() {
+    let shared = Shared::until(Instant::now());
+    let control = Control { shared: shared.clone() };
+    let capture = Capture { shared: shared.clone(), epoch: 0 };
+    {
+        let mut gate = shared.gate.lock().unwrap();
+        gate.prepared = true;
+        gate.validated = Some(0);
+    }
+    assert_eq!(shared.commit(), Err(Error::Deadline));
+    assert!(shared.gate.lock().unwrap().phase == Phase::Pending);
+    shared.gate.lock().unwrap().validated = None;
+    assert_eq!(control.stamp(capture), Err(Error::Deadline));
+}
+
+#[test]
+#[ignore = "Only the staging checker provides the fixed native sibling; runs serially"]
+fn registered_workspace_requires_joined_cleanup_ack() {
+    use std::{
+        fs::{self, File},
+        os::unix::fs::{MetadataExt, PermissionsExt},
+    };
+    fn workspace() -> (tempfile::TempDir, RegisteredWorkspace, [i32; 4], (u64, u64)) {
+        let root = tempfile::Builder::new().prefix("milagre-acp-registered-").tempdir_in("/private/tmp").unwrap();
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        for name in ["project", "home", "tmp"] {
+            fs::create_dir(root.path().join(name)).unwrap();
+        }
+        let meta = root.path().join("project").metadata().unwrap();
+        let input = RegisteredWorkspace::from_descriptors(
+            File::open(root.path().join("project")).unwrap(),
+            File::open(root.path().join("home")).unwrap(),
+            File::open(root.path().join("tmp")).unwrap(),
+        )
+        .unwrap();
+        let fds = input.0.descriptors();
+        (root, input, fds, (meta.dev(), meta.ino()))
+    }
+    fn closed(fds: [i32; 4]) {
+        for fd in fds {
+            assert_eq!(unsafe { libc::fcntl(fd, libc::F_GETFD) }, -1);
+            assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::EBADF));
+        }
+    }
+    let (root, input, fds, identity) = workspace();
+    let text = "registered workspace consumed \"input\" \n ä😀";
+    let (control, observer, reservation) = reserve(FixtureCase::Ready, text, Some(input), Instant::now() + Duration::from_secs(5)).unwrap();
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    *observer.shared.before_return.lock().unwrap() = Some(barrier.clone());
+    let mut running = reservation.activate();
+    wait_flag(|| observer.shared.completion.lock().unwrap().progress.prepared);
+    control.stamp(control.capture().unwrap()).unwrap();
+    barrier.wait();
+    let done = report(&observer.shared);
+    let execution = done.result.as_ref().unwrap();
+    assert_eq!((execution.cwd_device, execution.cwd_inode), identity);
+    assert_eq!(execution.text_bytes, text.len());
+    assert_eq!(done.exit_code, Some(0));
+    assert!(done.reaped && done.resources_removed && observer.shared.completion.lock().unwrap().progress.finished);
+    assert!(running.try_join().unwrap().is_none());
+    assert!(matches!(automatic(FixtureCase::Ready, "descriptors still held"), Err(Error::Busy)));
+    for fd in fds {
+        assert!(unsafe { libc::fcntl(fd, libc::F_GETFD) } >= 0);
+    }
+    assert!(root.path().join("project").exists());
+    barrier.wait();
+    wait_flag(|| running.is_finished());
+    let ack = running.try_join().unwrap().unwrap();
+    closed(fds);
+    assert!(matches!(control.accept_cleanup(ack), Ok(Disposal::Reaped { natural_zero: true, exit_code: Some(0), .. })));
+    assert!(root.path().join("project").exists());
+    println!("PRIVATE_COPY_REGISTERED_WORKSPACE_EVIDENCE pid={} cwdDevice={} cwdInode={} textSha256={} joined=true descriptorsClosed=true serviceDirectoriesRetained=true naturalZero=true", execution.pid, identity.0, identity.1, execution.text_sha256);
+
+    let (root, input, fds, _) = workspace();
+    let (control, observer, reservation) = reserve(FixtureCase::Ready, "expired before activation", Some(input), Instant::now()).unwrap();
+    let mut running = reservation.activate();
+    assert!(running.worker.is_none());
+    let ack = running.try_join().unwrap().unwrap();
+    closed(fds);
+    assert!(matches!(control.accept_cleanup(ack), Ok(Disposal::NoChild)));
+    assert_eq!(report(&observer.shared).result, Err(Error::Deadline));
+    assert!(root.path().join("project").exists());
+
+    let (root, input, fds, _) = workspace();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let (control, observer, reservation) = reserve(FixtureCase::Ready, "expire before final commitment", Some(input), deadline).unwrap();
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    *observer.shared.before_commit.lock().unwrap() = Some(barrier.clone());
+    let mut running = reservation.activate();
+    wait_flag(|| observer.shared.completion.lock().unwrap().progress.prepared);
+    control.stamp(control.capture().unwrap()).unwrap();
+    barrier.wait();
+    thread::sleep(deadline.saturating_duration_since(Instant::now()) + Duration::from_millis(1));
+    barrier.wait();
+    wait_flag(|| running.is_finished());
+    let ack = running.try_join().unwrap().unwrap();
+    closed(fds);
+    assert!(matches!(control.accept_cleanup(ack), Ok(Disposal::NoChild)));
+    assert_eq!(report(&observer.shared).result, Err(Error::Deadline));
+    assert_eq!(observer.shared.pid.load(Ordering::Acquire), 0);
+    assert!(root.path().join("project").exists());
+
+    let (root, input, fds, _) = workspace();
+    fs::rename(root.path().join("project"), root.path().join("held-project")).unwrap();
+    fs::create_dir(root.path().join("project")).unwrap();
+    let (control, observer, reservation) =
+        reserve(FixtureCase::Ready, "refuse replacement cwd", Some(input), Instant::now() + Duration::from_secs(5)).unwrap();
+    let mut running = reservation.activate();
+    wait_flag(|| running.is_finished());
+    let ack = running.try_join().unwrap().unwrap();
+    closed(fds);
+    assert!(matches!(control.accept_cleanup(ack), Ok(Disposal::NoChild)));
+    assert_eq!(report(&observer.shared).result, Err(Error::Identity));
+    assert_eq!(observer.shared.pid.load(Ordering::Acquire), 0);
+    assert!(root.path().join("project").exists() && root.path().join("held-project").exists());
+
+    let (root, input, fds, _) = workspace();
+    let (control, observer, reservation) =
+        reserve(FixtureCase::Ready, "thread cannot start", Some(input), Instant::now() + Duration::from_secs(5)).unwrap();
+    let mut running = reservation.activate_with(None, worker::Fault::ThreadSpawnFailure);
+    assert!(running.worker.is_none());
+    let ack = running.try_join().unwrap().unwrap();
+    closed(fds);
+    assert!(matches!(control.accept_cleanup(ack), Ok(Disposal::NoChild)));
+    assert_eq!(report(&observer.shared).result, Err(Error::Spawn));
+    assert!(root.path().join("project").exists());
+
+    for fault in [worker::Fault::None, worker::Fault::PanicAfterSpawn, worker::Fault::SpawnFailure] {
+        let (root, input, fds, _) = workspace();
+        let (control, observer, reservation) =
+            reserve(FixtureCase::IgnoreCancel, "registered cleanup", Some(input), Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut running = reservation.activate_with(None, fault);
+        wait_flag(|| observer.shared.completion.lock().unwrap().progress.prepared);
+        control.stamp(control.capture().unwrap()).unwrap();
+        if matches!(fault, worker::Fault::None) {
+            wait_flag(|| observer.shared.parsed.load(Ordering::Acquire));
+            observer.cancel_handle().cancel();
+        }
+        wait_flag(|| running.is_finished());
+        let ack = running.try_join().unwrap().unwrap();
+        closed(fds);
+        let disposition = control.accept_cleanup(ack).unwrap_or_else(|_| panic!("exact cleanup identity"));
+        assert!(matches!(disposition, Disposal::NoChild | Disposal::Reaped { natural_zero: false, .. }));
+        assert!(report(&observer.shared).result.is_err());
+        assert!(root.path().join("project").exists());
+    }
+    println!(
+        "PRIVATE_COPY_REGISTERED_LIFETIME_EVIDENCE noDeadlineReset=true expiredCommitNoSpawn=true replacementRefused=true threadFailure=true cancellation=true panic=true spawnFailure=true noHostBinding=true"
+    );
+}

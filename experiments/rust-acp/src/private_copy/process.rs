@@ -98,28 +98,47 @@ impl<P: Process> Ownership<P> {
 }
 pub(super) struct Owned {
     inner: Option<Ownership<Child>>,
+    status: Option<ExitStatus>,
 }
 impl Owned {
     pub(super) fn new(child: Child) -> Self {
-        Self { inner: Some(Ownership::new(child)) }
+        Self { inner: Some(Ownership::new(child)), status: None }
     }
     pub(super) fn child(&mut self) -> &mut Child {
         &mut self.inner.as_mut().expect("owned child").process
     }
     pub(super) fn finish(&mut self, until: Instant) -> Result<ExitStatus, Error> {
+        if let Some(status) = self.status {
+            return Ok(status);
+        }
         let inner = self.inner.as_mut().ok_or(Error::CleanupUncertain)?;
         if !inner.signalled {
             inner.signal()?;
         }
         loop {
             if inner.probe()? {
-                return inner.reap_exited();
+                let status = inner.reap_exited()?;
+                self.status = Some(status);
+                return Ok(status);
             }
             if Instant::now() >= until {
                 return Err(Error::CleanupUncertain);
             }
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+    /// Observe normal exit without sending a signal. The worker owns all retries.
+    pub(super) fn natural_exit(&mut self) -> Result<Option<ExitStatus>, Error> {
+        if let Some(status) = self.status {
+            return Ok(Some(status));
+        }
+        let inner = self.inner.as_mut().ok_or(Error::CleanupUncertain)?;
+        if !inner.probe()? {
+            return Ok(None);
+        }
+        let status = inner.reap_exited()?;
+        self.status = Some(status);
+        Ok(Some(status))
     }
     pub(super) fn lost(&self) -> bool {
         self.inner.as_ref().is_none_or(|inner| inner.state == State::Lost)
