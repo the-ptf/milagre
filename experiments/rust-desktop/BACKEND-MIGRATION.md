@@ -6,7 +6,7 @@ The installed Electron app and this client share the daemon through its existing
 
 ## Current safety gate (2026-11-11)
 
-Latest review: two owner readiness P2s remain open. Events consumed while an opened Project is not ready can be lost, and an existing test-only handoff preparation can start before readiness returns. Fixes are assigned; passing155 owner/69 runtime tests do not close them. Git identity/metadata fixes and successful isolated Restore are integrated, and exact native fake prompt consumption is now verified through69f13ed0/63d0f96b. Production adoption remains gated. The supervisor contractee6a1502 is documentation only.
+Owner readiness fix `0e8be144` and runtime recovery regressions `4cb991e8` are integrated. The two readiness P2s await independent review. Root72 runtime tests pass. Full owner validation is blocked by the existing restored-mtime Git filter regression: safe status missed the edited file without executing the filter. The other161 owner tests pass with that exact case explicitly excluded; the assertion remains unchanged. Remote storage safety `bee70780`/`79d0f710`/`60f5eb23` passes168 Rust tests,7 doctests,7 Node checks and strict Clippy. Production adoption remains gated. The installed shell still requires the shared Node owner.
 
 The installed shell still uses the single production Node owner. Current Rust ports run on isolated capabilities and fake providers; no production ownership cutover is authorized by those tests.
 
