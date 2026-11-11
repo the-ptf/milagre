@@ -1,11 +1,13 @@
 //! Native retained-content MCP tools. No listener, credentials, live-profile discovery or provider launch.
 mod feedback;
+pub mod policy;
 mod schema;
 use milagre_content_store::{
     design::{self, raster::RasterRenderer, DesignKits, ProjectForChat},
     ActiveCheck, ArtifactStore, Error, Result, Runtime,
 };
 use milagre_owner_store::{jsjson, Isolation};
+use policy::{BudgetStatus, HostPolicy, HostRole, HostTool, PolicyOptions};
 use serde_json::{json, Value};
 use std::{
     cell::RefCell,
@@ -84,10 +86,12 @@ pub struct ContentOwner {
     raster: Option<Arc<RasterRenderer>>,
     active: Arc<AtomicBool>,
     fault: Mutex<Option<String>>,
+    wakes: Mutex<BTreeSet<String>>,
 }
 pub struct Dispatcher {
     caller: Caller,
     owner: Arc<ContentOwner>,
+    policy: HostPolicy,
 }
 impl ContentOwner {
     #[allow(clippy::too_many_arguments)]
@@ -126,6 +130,7 @@ impl ContentOwner {
             raster,
             active: Arc::new(AtomicBool::new(true)),
             fault: Mutex::new(None),
+            wakes: Mutex::new(BTreeSet::new()),
         }))
     }
     fn check(&self) -> Result<()> {
@@ -149,13 +154,30 @@ impl ContentOwner {
         Ok(())
     }
     pub fn session(self: &Arc<Self>, caller: Caller) -> Result<Dispatcher> {
+        self.session_with_policy(caller, PolicyOptions::default())
+    }
+    pub fn session_with_policy(
+        self: &Arc<Self>,
+        caller: Caller,
+        options: PolicyOptions,
+    ) -> Result<Dispatcher> {
         let caller = normalize_caller(&self.isolation, caller)?;
-        // Serialize admission with shutdown and renderer/MCP storage work.
         let _lane = self.stores.lock().unwrap();
         self.caller_check(&caller)?;
+        let policy = HostPolicy::new(&caller, options)?;
+        if let Some(wake) = policy.wake_id() {
+            let mut wakes = self.wakes.lock().unwrap();
+            if wakes.len() >= 256 || !wakes.insert(wake.into()) {
+                return Err(Error::coded(
+                    "UNSUPPORTED_POLICY",
+                    "Wake already admitted or owner wake limit reached.",
+                ));
+            }
+        }
         Ok(Dispatcher {
             caller,
             owner: self.clone(),
+            policy,
         })
     }
     fn with_stores<T>(
@@ -298,10 +320,10 @@ fn normalize_caller(isolation: &Isolation, mut caller: Caller) -> Result<Caller>
 }
 fn available(caller: &Caller, tool: &Value) -> bool {
     let name = tool["name"].as_str().unwrap();
-    if name == "design_delete" {
+    let Some(read_only) = policy::read_only(name) else {
         return false;
-    }
-    if tool["annotations"]["readOnlyHint"] == true {
+    };
+    if read_only {
         if !caller.read {
             return false;
         }
@@ -358,7 +380,7 @@ impl Dispatcher {
     pub fn list(&self) -> Result<Value> {
         self.active()?;
         Ok(
-            json!({"tools":contract()["tools"].as_array().unwrap().iter().filter(|tool|available(&self.caller,tool)).map(|tool|{let mut tool=tool.clone();tool["description"]=json!(tool["description"].as_str().unwrap().replace("$BUNDLED_SKILLS",&self.caller.bundled_skills.to_string_lossy()));tool}).collect::<Vec<_>>()}),
+            json!({"tools":contract()["tools"].as_array().unwrap().iter().filter(|tool|self.policy.manifest().iter().any(|entry|entry.name==tool["name"].as_str().unwrap())).map(|tool|{let mut tool=tool.clone();tool["annotations"]["readOnlyHint"]=json!(self.policy.manifest().iter().find(|entry|entry.name==tool["name"].as_str().unwrap()).unwrap().read_only);tool["description"]=json!(tool["description"].as_str().unwrap().replace("$BUNDLED_SKILLS",&self.caller.bundled_skills.to_string_lossy()));tool}).collect::<Vec<_>>()}),
         )
     }
     /// One complete in-process JSON-RPC frame. Notifications produce no reply.
@@ -460,7 +482,23 @@ impl Dispatcher {
             Some(encoded.into_bytes())
         }
     }
+    pub fn provider_manifest(&self) -> Vec<HostTool> {
+        self.policy.manifest().to_vec()
+    }
+    pub fn role(&self) -> &HostRole {
+        self.policy.role()
+    }
+    pub fn budget_status(&self) -> BudgetStatus {
+        self.policy.status()
+    }
     pub async fn call(&self, name: &str, args: &Value) -> Value {
+        if let Err(e) = self.active() {
+            return tool_error(e.message);
+        }
+        if let Err(e) = self.policy.authorize(name, args) {
+            return tool_error(e.message);
+        }
+
         let limit = if ["design_show", "design_apply"].contains(&name) {
             MAX_DESIGN_BODY
         } else {
@@ -468,17 +506,6 @@ impl Dispatcher {
         };
         if jsjson::to_string(args).len() > limit {
             return tool_error(format!("Request exceeds the {limit}-byte MCP limit."));
-        }
-        let Some(_tool) = contract()["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|tool| tool["name"] == name && available(&self.caller, tool))
-        else {
-            return tool_error("Tool unavailable for this connection");
-        };
-        if let Err(e) = self.active() {
-            return tool_error(e.message);
         }
         let empty = json!({});
         let args = match schema::parse(
