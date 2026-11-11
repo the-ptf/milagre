@@ -423,3 +423,38 @@ Apple M5 Pro; debug in brackets):
 Assertions on `debug_bounds` only hold in debug builds; run the release measurement for the numbers, not the
 pass. `MILAGRE_GPUI_TRANSCRIPT_TOP=<item>|rich` opens scrolled to an item (or the last answer with a table) and
 `MILAGRE_GPUI_TRANSCRIPT_SELECT=1` drags a selection over that answer, for snapshots.
+
+## Composer notes
+
+The composer's editor (WP-24) is gpui-component's `Textarea` over the prompt string, in `workspace/chat/composer/`:
+`editor.rs` (the string model and our undo), `chips.rs` (chip kinds, labels and look), `menu.rs` (the `@` and `/`
+token, rows and panel), `mentions.rs` (the `MentionSource` trait and its fixture), `history.rs` (`createEditHistory`),
+`mod.rs` (the view, keys, events, send).
+
+- The text area's text is the prompt, byte for byte. A chip is an atomic inline token whose text is its source
+  (`/tldr`, `@src/app.rs`, `@chat:12`, `@computer:Studio`, `[Image #1]`), so copy, send and history all see the
+  string. After every edit the string is split with `logic::prompts::parts::prompt_parts` and the tokens are made to
+  match (`set_value` with the content, keeping selection and scroll), so chips appear and dissolve as the desktop's
+  do (`/tldr` is a chip, `/tldrx` is not). Not while an IME composition is open.
+- Undo is ours (500 ms coalescing, 200 steps, a chip edit or paste is one step): the composer catches `Undo` and
+  `Redo` before the text area and puts a recorded draft back, chips included. The text area's own undo manager is
+  never used.
+- Keys are the text area's actions caught in the capture phase: Enter sends or picks a row (Shift+Enter is a
+  newline; nothing while composing), Tab picks a row or takes the suggestion, Up and Down move the menu highlight or
+  step through sent prompts at the first or last line, Ctrl+Y redoes, Escape closes the menu and otherwise goes on.
+- The menu is an absolutely placed, deferred panel over the transcript, not `ui::Popover`/`MenuList`: those own
+  focus and keys, while here the prompt keeps focus and the highlight follows the caret's token.
+- The box is 68 at rest and grows with its rows to 100 (the desktop's `min-h-[68px]` and `maxHeight={100}`): the
+  composer sets its height from `display_row_count()`; the text area grows to four rows, then scrolls.
+- The text area is made on the composer's first frame (it needs the window, and `ChatView::new` has none); the Chat
+  view focuses it after that frame.
+
+Snapshot env: `MILAGRE_GPUI_COMPOSER_TEXT` (`\n` for a newline), `_SELECT=<start>..<end>`, `_IMAGES=<n>`,
+`_QUOTE=<passage>`, `_ACTIVE=<row>` (a highlighted menu row).
+
+Seams: `ComposerAttachment` events (pasted images and files, dropped files, a deleted image chip, a clicked image
+chip) and `insert_image_mentions` for the attachments tray (WP-25); `set_mentions`, `set_image_count`,
+`set_can_undo`, `set_suggestion`, `set_prompt_history`, `add_quote` and `set_text` (drafts) for real data; the send
+row is unchanged. Not built: dictation, the attachments tray and file-chip attachment sync, the model picker,
+queue and steering placeholders, draft persistence, the skill chip's description tooltip, `/undo` and `/storage`
+opening their panels.
