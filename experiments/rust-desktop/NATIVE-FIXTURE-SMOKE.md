@@ -82,7 +82,8 @@ calls remain explicit in the report, including computers/linked scopes, usage,
 ports, project Git/image/branches, pull requests, keybindings, context settings,
 Chats home, routines and Design enablement. Native notification/update/dictation
 helpers are also unavailable. The visible default model label is not proof that
-that provider can run. No send, provider turn, Design or Artifact was tested here.
+that provider can run. This storage-only sequence did not test a send, provider turn, Design or Artifact.
+The separate scripted send/reload milestone is recorded below.
 
 Cookies, the complete WebKit/IndexedDB/cache filesystem footprint, OS preference
 writes, setup-failure cleanup, native object deallocation and late writes beyond
@@ -92,7 +93,7 @@ not prove object destruction. The two preference hashes are narrower evidence
 than full live-profile isolation. No full persona QA fleet ran for this technical
 smoke, and no installed application or production host was replaced.
 
-## Composer send regression (separate feature, currently blocked)
+## Composer send regression (separate feature; historical failure)
 
 Build the shell with `--features fixture-send-smoke` instead, then run the same
 fixed observer. The native context/report records `scenario: "send"`; missing
@@ -116,15 +117,15 @@ exactly one `turn-completed` passed. Owner reads returned user 10 and assistant
 11, session 1, total two messages, with the exact test prompt/reply. The same
 messages remained readable after the page reload.
 
-**The native lifecycle test fails:** the production sidebar still says "No Chats
+**Before the owner summary fix, the native lifecycle test failed:** the production sidebar still says "No Chats
 yet" even after the owner returns both messages. Earlier probes exposed this
 through a reload timeout, but automatic selection restoration was not established
 as a production requirement. The strengthened phase 0 now requires exactly one
-listed sent-Chat row and fails at this listing defect. After a future fix, phase 1
-will require the listed row, observe automatic selection separately, dispatch a
-DOM click on that row, then require the reply. It does not require automatic
+listed sent-Chat row and failed at this listing defect. Phase 1 requires the
+listed row, observes automatic selection separately, dispatches a DOM click on
+that row, then requires the reply. It does not require automatic
 selection restoration. Production `compactProjectState` calls
-`withChatSummaries`; the Rust owner's current `slim` only ports detail compaction.
+`withChatSummaries`; the Rust owner's pre-fix `slim` only ported detail compaction.
 An existing zero-count summary suppresses the Chat in the production sidebar.
 No frontend summary fallback, fixture seed removal or direct Chat-open event is
 used to bypass this backend compatibility gap.
@@ -147,7 +148,7 @@ save. The shell never reads the owner profile's SQLite files. Same-run durable
 disk evidence, queue/Stop behavior and real-provider turns remain separate work.
 The observer preserves exact message/summary identity comparison across reload,
 requires exactly one listed sent-Chat row in both phases, one DOM row click after
-reload, and zero sends after reload when the lifecycle eventually passes. A native startup
+reload, and zero sends after reload when the lifecycle passes. A native startup
 document probe after three seconds records bounded progress even if hidden
 WebKit timers suspend the JavaScript wait; the existing forty-second watchdog
 still fails and quits rather than reporting success.
@@ -173,15 +174,72 @@ process metadata. No logs include process arguments or environment values.
 Event checks currently prove strictly increasing sequence numbers, streamed text
 and one terminal, not full Node event-sequence equivalence. The observed sequence
 contains two `message-sent` events; this native probe does not explain or bless
-that duplication. Production Node oracle compaction must be corrected by the
-owner summary work, independently of this UI assertion fix.
+that duplication. The owner summary work also corrected production Node oracle compaction,
+independently of this UI assertion fix.
 
 The strengthened probe was run in
 `/private/tmp/milagre-native-fixture-observer-ewMjQV/observer.json`. It now fails
 in phase 0 with `Sent Chat missing from sidebar: owner summary.count is 0 beside
 two messages`, recording zero sidebar rows beside the two owner-read messages.
-Phase 1 is not reached, so its row-click recovery path remains unverified until
-the owner fix. This run records stable preference metadata/hashes as
+Phase 1 was not reached in that run, so it did not verify the row-click recovery
+path. This run records stable preference metadata/hashes as
 `no-change-observed`, three live installed application processes, and
 `attribution: "unattributed", isolationClaim: false`. It does not erase or
 explain the changed preference hash in the earlier `dTEZWF` run.
+
+## Scripted send/reload passed after the owner summary fix
+
+Owner commits `a1db434d` and `37e0c0f3` were rebuilt into the fixed sibling
+`app-fixture`. Both fresh background WebKit runs passed in
+`/private/tmp/milagre-native-fixture-observer-cTjQ8F/observer.json` on November 11,
+2026, from 14:31:34 through 14:31:55 UTC. This is a bounded native fixture result,
+not a claim that the full migration or all runtime conformance checks pass.
+
+Each run selected Scripted Rust fixture/Ask, disabled TLDR through Settings,
+sent once through the production composer, and received the exact scripted
+reply. The sidebar listed exactly one Chat before and after reload. Owner reads
+returned exactly user 10 and assistant 11, session 1, total two messages; the
+summary had `count: 2`, the exact prompt title, matching message IDs/timestamps,
+`lastModel: "scripted"`, `lastOutcome: "completed"`, and the original
+`clientMessageIds`. The entire recorded transcript/summary matched across reload.
+Phase 1 clicked the real listed row through a synthetic DOM event and rendered
+the reply with zero send calls. Automatic selection and reply visibility were
+also observed before that click, but are not required by the test.
+
+The native PNGs and reports are in
+`/private/tmp/milagre-fixture-evidence-HzdRMm` and
+`/private/tmp/milagre-fixture-evidence-JHnyGS`. Both `after-reload.png` captures were
+visually inspected: they show the production sidebar Chat row, title, user
+message, assistant reply, and composer. These are scripted test screenshots,
+not real-provider PR screenshots. Every capture is 2880 x 1800 pixels.
+
+Both native stores reported `isPersistent: false`. Local-storage/native-preference/
+real-outbox markers survived the reload and were absent in the next fresh process;
+the real outbox state remained unchanged. Both processes exited zero after owner
+stop and explicit shell cleanup. Neither private root existed at the four
+scheduled checks through five seconds; the last actual observations were 5000 ms
+and 5002 ms after exit. Native deallocation and later recreation remain untested.
+
+The two observed preference files had unchanged contents and metadata in this
+run. Three installed application processes remained present. The report retains
+`attribution: "unattributed"` and `isolationClaim: false`; this does not explain
+or erase the historical `dTEZWF` change. Observer schema 2 renames the misleading
+legacy boolean to `observedPreferenceContentsUnchanged`, records per-run UTC
+start/exit/observation timestamps plus monotonic elapsed times, and reports a
+bounded native phase/stage/error instead of only an exit-code assertion. Timeout
+termination remains distinct from orderly exit. Listing errors include observed
+row/matching/summary/message counts, and post-click waits requery the row instead
+of retaining a potentially replaced DOM node.
+
+The native event check still proves only ordered events 1 through 5, streamed
+text and one terminal. It does not prove full Node event equivalence. Direct
+SQLite durability, queue/Stop, real providers, cookies, full filesystem attribution,
+Design/Artifact flows and performance comparison remain outside this milestone.
+
+Checkpoint checks: 27 fixture tests and 39 default-shell tests pass (one ignored
+in each); five observer-helper tests pass; strict Clippy over all fixture targets,
+JavaScript lint/format and `git diff --check` pass. Logs are
+`/tmp/milagre-desktop-send-final-tests.log`,
+`/tmp/milagre-desktop-default-final-tests.log`, and
+`/tmp/milagre-desktop-send-final-clippy.log`. These desktop checks do not cover the
+separate runtime owned-read oracle failure reported during this checkpoint.

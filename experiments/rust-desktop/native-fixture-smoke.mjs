@@ -1,6 +1,6 @@
 // Fixed isolated binaries only. This never installs or discovers a live daemon.
 import assert from "node:assert/strict";
-import { installedApplications, preferenceObservation } from "./fixture-observation.mjs";
+import { installedApplications, preferenceObservation, fixtureFailure } from "./fixture-observation.mjs";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
@@ -83,7 +83,7 @@ const binaries = await Promise.all(
   })),
 );
 const summary = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   source: "isolated background WKWebView fixture, scripted Rust owner",
   root,
   binaries,
@@ -106,11 +106,13 @@ async function exists(path) {
   }
 }
 async function run(index) {
+  const startedAt = new Date().toISOString();
+  const startedClock = performance.now();
   const child = spawn(join(bin, "milagre-rust-fixture"), [], {
     env: { HOME: homedir(), PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LANG: "en_US.UTF-8", MILAGRE_BACKGROUND: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const entry = { index, pid: child.pid };
+  const entry = { index, pid: child.pid, startedAt };
   summary.runs.push(entry);
   let output = "",
     errors = "",
@@ -130,6 +132,9 @@ async function run(index) {
     child.once("error", (error) => resolve({ error: error.message }));
     child.once("close", (code, signal) => resolve({ code, signal }));
   });
+  const exitedClock = performance.now();
+  entry.exitedAt = new Date().toISOString();
+  entry.durationMs = Math.round(exitedClock - startedClock);
   clearTimeout(timer);
   entry.status = status;
   entry.stderr = errors;
@@ -161,18 +166,23 @@ async function run(index) {
   assert.ok(receipt.fixtureSmoke.profile.startsWith(`${temp}/milagre-rust-wire-`));
   entry.report = JSON.parse(await readFile(join(receipt.evidenceRoot, "report.json"), "utf8"));
   entry.cleanup = [];
-  let previous = 0;
   for (const ms of [0, 250, 1000, 5000]) {
-    await pause(ms - previous);
-    previous = ms;
+    await pause(Math.max(0, ms - (performance.now() - exitedClock)));
     entry.cleanup.push({
-      millisecondsAfterExit: ms,
+      scheduledMillisecondsAfterExit: ms,
+      observedMillisecondsAfterExit: Math.round(performance.now() - exitedClock),
+      observedAt: new Date().toISOString(),
       shellRootExists: await exists(receipt.fixtureSmoke.shellRoot),
       daemonProfileExists: await exists(receipt.fixtureSmoke.profile),
     });
   }
+  entry.observationCompletedAt = new Date().toISOString();
+  if (status.code !== 0 || entry.report.passed !== true) {
+    entry.failure = fixtureFailure(entry);
+    await save();
+    throw Error(`Fixture run ${index} failed: ${entry.failure.reason}. Evidence ${root}`);
+  }
   await save();
-  assert.equal(status.code, 0, `Fixture failed; evidence ${root}`);
   assert.equal(overflow, false);
   assert.equal(entry.report.passed, true);
   assert.equal(entry.report.isPersistent, false);
@@ -221,6 +231,6 @@ summary.preferenceObservation = preferenceObservation(
   summary.liveApplicationsBefore,
   summary.liveApplicationsAfter,
 );
-summary.productionPreferencesUnchanged = summary.preferenceObservation.contentUnchanged;
+summary.observedPreferenceContentsUnchanged = summary.preferenceObservation.contentUnchanged;
 await save();
 process.stdout.write(`${JSON.stringify({ passed: summary.passed, report: join(root, "observer.json"), error: summary.error })}\n`);

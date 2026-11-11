@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { installedApplications, preferenceObservation } from "./fixture-observation.mjs";
+import { installedApplications, preferenceObservation, fixtureFailure } from "./fixture-observation.mjs";
 
 test("live app metadata includes only installed executable identities, not fixture or command arguments", () => {
   const result = installedApplications(`16468 1 Tue Nov 10 23:32:28 2026 /Users/test/Applications/Milagre Rust.app/Contents/MacOS/milagre-rust
@@ -45,4 +45,23 @@ test("quiet observations retain the limited scope, and failed process discovery 
   assert.equal(result.status, "no-change-observed");
   assert.equal(result.isolationClaim, false);
   assert.equal(result.processMetadataAvailable, false);
+});
+test("failure summary surfaces the native stage and separates timeout termination", () => {
+  const entry = {
+    status: { code: 1, signal: null },
+    report: { stages: [{ phase: 0, passed: false, error: "Expected one listed Chat; observed 0", send: { stage: "sidebar-after-send" } }] },
+  };
+  assert.deepEqual(fixtureFailure(entry), {
+    reason: "Expected one listed Chat; observed 0",
+    phase: 0,
+    stage: "sidebar-after-send",
+    exitCode: 1,
+    signal: null,
+    timedOut: false,
+  });
+  const killed = fixtureFailure({ ...entry, timedOut: true, status: { code: null, signal: "SIGKILL" } });
+  assert.match(killed.reason, /external observer timeout/);
+  assert.equal(killed.signal, "SIGKILL");
+  assert.equal(killed.timedOut, true);
+  assert.equal(fixtureFailure({ status: { code: 0 }, report: { passed: false } }).reason, "native report did not pass");
 });

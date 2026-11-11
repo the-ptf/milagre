@@ -46,8 +46,18 @@ window.__fixtureSendPhase = async (context, { bounded, wait }) => {
   };
   const requireListed = async () => {
     const row = listedRow();
-    if (!row && trace.transcript.summary?.count === 0) throw Error("Sent Chat missing from sidebar: owner summary.count is 0 beside two messages");
-    return row ?? (await wait(listedRow, "exactly one listed sent Chat"));
+    const failure = () =>
+      Error(
+        `Expected one listed sent Chat; observed rows=${trace.sidebar.rowCount}, matching=${trace.sidebar.sentRowCount}, owner summary.count=${trace.transcript.summary?.count ?? "missing"}, transcript total=${trace.transcript.pageTotal}`,
+      );
+    if (!row && trace.transcript.summary?.count === 0) throw failure();
+    if (row) return row;
+    try {
+      return await wait(listedRow, "exactly one listed sent Chat");
+    } catch {
+      listedRow();
+      throw failure();
+    }
   };
   if (context.phase === 1) {
     trace.transcript = await wait(read, "single transcript after renderer reload");
@@ -56,7 +66,10 @@ window.__fixtureSendPhase = async (context, { bounded, wait }) => {
     trace.automaticSelection = { selected: row.getAttribute("aria-current") === "page", replyVisible: document.body.innerText.includes(reply) };
     row.click();
     trace.sidebarClicks = 1;
-    await wait(() => row.getAttribute("aria-current") === "page" && document.body.innerText.includes(reply), "assistant rendered after clicking listed Chat");
+    await wait(
+      () => listedRow()?.getAttribute("aria-current") === "page" && document.body.innerText.includes(reply),
+      "assistant rendered after clicking listed Chat",
+    );
     trace.sendCalls = window.__rustDiagnostics.calls.filter((item) => item.method === "chat:send").length;
     if (trace.sendCalls !== 0) throw Error("Renderer replayed a send after reload");
     trace.reloadSurvived = true;

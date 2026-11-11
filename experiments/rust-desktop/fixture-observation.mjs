@@ -27,3 +27,17 @@ export function preferenceObservation(before, after, processesBefore, processesA
     scope: "two preference files only; concurrent writers and other filesystem locations are not attributed",
   };
 }
+export function fixtureFailure(entry) {
+  const failed = entry.report?.stages?.find((stage) => stage.passed !== true || stage.captureError);
+  const reason = entry.timedOut
+    ? "external observer timeout; shell was signalled, orderly completion is not proven"
+    : failed?.error || failed?.captureError || entry.report?.ownerStop?.error?.code || entry.status?.error || "native report did not pass";
+  return {
+    reason: String(reason).slice(0, 512),
+    phase: failed?.phase ?? null,
+    stage: failed?.send?.stage ?? failed?.nativeDocumentProbe?.sendProbe?.stage ?? null,
+    exitCode: entry.status?.code ?? null,
+    signal: entry.status?.signal ?? null,
+    timedOut: entry.timedOut === true,
+  };
+}
