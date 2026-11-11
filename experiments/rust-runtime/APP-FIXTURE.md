@@ -25,11 +25,15 @@ Only the advertised `kiro`/`scripted` text model is admitted on this route. Ordi
 
 Usage, Chats home, inbox, Design enablement/content, terminals, Git/Worktree mutations, account mutation/login, remote services and other startup calls remain unavailable in this composition. They are not successful empty stubs. Empty Links are supported because this registry genuinely owns an empty Link set. Bootstrap admission rejects more than one Project, a different Project path, nonempty Links or project groups, and malformed/missing Link arrays. Multi-Project and Link-kind account scopes are not modeled; widening the committed fixture requires new Node parity cases before this guard can be widened. The production model picker still needs fixture-scoped initial preferences/model selection in the future launch context; this daemon does not modify them or claim UI startup parity.
 
+Admission checks both the compiled seed and the actual normalized registry snapshot read after the copy and writer are created. Recent Projects must be an empty array or a single entry for the generated Project, in both the seed and the readback. Missing arrays or nonobject Project entries in the seed, and non-UTF-8 generated paths, fail with `FIXTURE_BOOTSTRAP_INVALID`; path validation precedes registry-copy creation. The readback checks apply to normalized values, not the raw file shapes. The serving path returns that typed error instead of unwrapping array or path shapes. These checks constrain the values served by this fixture; they do not widen the registry reader's authority.
+
 ## Evidence
 
 `fixtures/app-bootstrap-node.cjs --check` creates a fresh Node runtime with a private profile/home, empty registry scan roots, no CLI discovery and fixed catalog callbacks. It reads actual runtime Project/catalog/registry/Link/account-scope command results, and records metadata-only Accounts results. Fifteen calls are compared with committed fixtures. The Rust Project seed is Node's prepared normalized state, so this check covers bootstrap response composition rather than re-proving Node's Project normalization. No network/provider turn is requested by the oracle. The usual Rust Project-store conformance remains the storage evidence.
 
 `tests/app_bootstrap.rs` regenerates/checks that oracle and drives the compiled Rust binary through the actual Node daemon client. It compares all fifteen responses, verifies read-state/version/epoch consistency, confirms a Node ownership attempt fails without modifying owner bytes, and tests the exclusive registry writer. Every added read is refused after forget and root replacement; restoring the root still needs explicit open. It also tests foreign scopes, unsupported refresh/model/mutation commands, pinned registry tampering, live run snapshot equivalence, Stop and final profile cleanup. No UI was launched.
+
+The private bootstrap unit tests also modify an isolated registry copy after writer acquisition and before the production readback: an unexpected Link or a second generated directory in recent metadata is refused. An unchanged copy passes. The tests first confirm that the real registry reader returns each injected value, so normalization cannot make the refusal tests vacuous. No constructor hook or metadata mutation endpoint is exposed to callers.
 
 Validation commands:
 
@@ -40,7 +44,7 @@ cargo check --manifest-path experiments/rust-runtime/Cargo.toml --no-default-fea
 node experiments/rust-runtime/fixtures/app-bootstrap-node.cjs --check
 ```
 
-The combined suite has 77 tests including two receipt identity/bounds tests. Default dependency-tree inspection excludes `milagre-registry` and `milagre-accounts`; the app binary's `required-features` prevents a default build from selecting it. The original intermittent paging disconnect remains unproven; this checkpoint does not add stress runs or change wire policies.
+The combined suite has 81 tests including two receipt identity/bounds tests and five bootstrap admission/send-option tests. Default dependency-tree inspection excludes `milagre-registry` and `milagre-accounts`; the app binary's `required-features` prevents a default build from selecting it. The original intermittent paging disconnect remains unproven; this checkpoint does not add stress runs or change wire policies.
 
 ## Bootstrap receipt and proposed desktop handoff
 
