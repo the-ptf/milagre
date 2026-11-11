@@ -1,0 +1,213 @@
+{
+  "now": 1793361600000,
+  "last": {
+    "windows": [
+      {
+        "id": "session",
+        "label": "Session",
+        "shortLabel": "5h",
+        "usedPercent": 42,
+        "resetsAt": null,
+        "discard": "fixture"
+      }
+    ],
+    "updatedAt": "2026-10-30T12:00:00.000Z",
+    "bankedResets": 2,
+    "discard": "fixture"
+  },
+  "blocked": {
+    "until": 1793361660000,
+    "message": "fixture backoff",
+    "discard": "fixture"
+  },
+  "catalog": {
+    "claude-fixture": {
+      "input_cost_per_token": 1,
+      "output_cost_per_token": 2,
+      "cache_read_input_token_cost": 0.5
+    },
+    "vendor/skip": {
+      "input_cost_per_token": 1,
+      "output_cost_per_token": 2
+    }
+  },
+  "line": "{\"type\":\"assistant\",\"timestamp\":\"2026-10-30T12:00:00.000Z\",\"sessionId\":\"fixture\",\"requestId\":\"r1\",\"cwd\":\"/fixture/project\",\"entrypoint\":\"sdk\",\"message\":{\"id\":\"m1\",\"model\":\"claude-fixture\",\"usage\":{\"input_tokens\":12,\"output_tokens\":3}}}\n",
+  "saved": {
+    "quota": {
+      "kiro": {
+        "last": null,
+        "blocked": null
+      },
+      "antigravity": {
+        "last": null,
+        "blocked": null
+      },
+      "claude": {
+        "last": {
+          "windows": [
+            {
+              "id": "session",
+              "label": "Session",
+              "shortLabel": "5h",
+              "usedPercent": 42,
+              "resetsAt": null
+            }
+          ],
+          "updatedAt": "2026-10-30T12:00:00.000Z",
+          "bankedResets": 2
+        },
+        "blocked": {
+          "until": 1793361660000,
+          "message": "fixture backoff"
+        }
+      },
+      "codex": {
+        "last": null,
+        "blocked": null
+      }
+    },
+    "scan": {
+      "version": 3,
+      "files": {
+        "claude:fixture.jsonl": {
+          "provider": "claude",
+          "offset": 236,
+          "carry": {
+            "recent": ["m1:r1"]
+          },
+          "sessions": {
+            "fixture": {
+              "cwd": "/fixture/project",
+              "milagre": true
+            }
+          },
+          "rows": {
+            "498156\tclaude-fixture\tfixture": [12, 0, 0, 3, 0, 1]
+          },
+          "file": "/fixture/22/transcripts/fixture.jsonl"
+        }
+      },
+      "finishedAt": 1793361600000
+    },
+    "pricing": {
+      "fetchedAt": "2026-10-30T12:00:00.000Z",
+      "models": {
+        "claude-fixture": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0.5,
+          "cacheWrite": 1
+        }
+      }
+    }
+  },
+  "reopened": {
+    "quota": {
+      "providers": [
+        {
+          "provider": "claude",
+          "status": "ok",
+          "windows": [
+            {
+              "id": "session",
+              "label": "Session",
+              "shortLabel": "5h",
+              "usedPercent": 42,
+              "resetsAt": null
+            }
+          ],
+          "updatedAt": "2026-10-30T12:00:00.000Z",
+          "bankedResets": 2
+        }
+      ]
+    },
+    "scanRows": [
+      {
+        "provider": "claude",
+        "hour": 498156,
+        "model": "claude-fixture",
+        "session": "fixture",
+        "cwd": "/fixture/project",
+        "title": "",
+        "milagre": true,
+        "input": 12,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "output": 3,
+        "reasoning": 0,
+        "requests": 1
+      }
+    ],
+    "scanFinished": true,
+    "scanChanged": false,
+    "pricing": {
+      "fetchedAt": "2026-10-30T12:00:00.000Z",
+      "models": {
+        "claude-fixture": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0.5,
+          "cacheWrite": 1
+        }
+      }
+    }
+  },
+  "modes": [
+    {
+      "umask": 18,
+      "files": [420, 420, 420],
+      "directory": 493
+    },
+    {
+      "umask": 63,
+      "files": [384, 384, 384],
+      "directory": 448
+    }
+  ],
+  "malformed": [
+    {
+      "contents": "{",
+      "quota": {
+        "providers": []
+      },
+      "scanRows": [],
+      "scanFinished": false,
+      "pricingStatus": {
+        "status": "unavailable"
+      }
+    },
+    {
+      "contents": "null",
+      "quota": {
+        "providers": []
+      },
+      "scanRows": [],
+      "scanFinished": false,
+      "pricingStatus": {
+        "status": "unavailable"
+      }
+    },
+    {
+      "contents": "{}",
+      "quota": {
+        "providers": []
+      },
+      "scanRows": [],
+      "scanFinished": false,
+      "pricingStatus": {
+        "status": "unavailable"
+      }
+    },
+    {
+      "contents": "{\"version\":2,\"files\":{}}",
+      "quota": {
+        "providers": []
+      },
+      "scanRows": [],
+      "scanFinished": false,
+      "pricingStatus": {
+        "status": "unavailable"
+      }
+    }
+  ]
+}

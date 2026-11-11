@@ -2,6 +2,7 @@
 pub mod accounts;
 pub mod limits;
 pub mod owner;
+pub mod persistence;
 pub mod pricing;
 pub mod report;
 pub mod scan;

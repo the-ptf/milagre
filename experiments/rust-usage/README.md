@@ -8,10 +8,10 @@ Not wired into the runtime. All changes are confined to this crate; terminal/por
 | Node source                               | Rust implementation                                                                              | Owner responsibility remaining                                                                         |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
 | `packages/core/src/usage.cjs`             | `limits` response/window mappers, offline `CodexUsage` protocol; `store::UsageReader`            | Credential lookup, HTTP, SDK control call, CLI process lifecycle and timeouts                          |
-| `usage-cache.cjs`                         | `UsageStore` whitelist, import/export, reset expiry; `UsageState` backoff/last-good/checked time | Atomic disk persistence and shutdown flushing                                                          |
+| `usage-cache.cjs`                         | `UsageStore` whitelist, import/export, reset expiry; `UsageState` backoff/last-good/checked time | Production disk capability and runtime save triggers                                                   |
 | `antigravity-usage.cjs`, `kiro-usage.cjs` | `gemini_windows`, `parse_kiro_usage`                                                             | OAuth refresh, Google project discovery, Kiro CLI/cleanup and its 5-minute/3-second background wrapper |
 | `token-usage-scan.cjs`                    | `Entry`, `Scanner`, version-3 `ScanCache`                                                        | Explicit copied transcript roots and persisted cache JSON                                              |
-| `token-usage-pricing.cjs`                 | `slim_prices`, `price_of`, `Pricing` refresh state                                               | Catalog transport, persistence and price-change event                                                  |
+| `token-usage-pricing.cjs`                 | `slim_prices`, `price_of`, `Pricing` refresh state                                               | Catalog transport, production persistence and price-change event                                       |
 | `runtime.cjs` usage commands              | `accounts::UsageAccounts` command envelopes, scope validation, account decoration and isolation  | Trusted account metadata/selection adapter and socket registration                                     |
 | `token-usage.cjs`                         | `build_report`, `owner::TokenUsage`                                                              | Read-only Project/Chats home/Link metadata, owner lifecycle                                            |
 
@@ -99,9 +99,58 @@ only the scope string; it must never supply account snapshots, selected IDs, env
    all-account reads emit `{}`. Optional `read_usage_override` retains Node's test/demo bypass after scope validation.
 
 Account metadata types are a narrow adapter contract, not a dependency on or implementation of rust-accounts.
-Persistence remains deliberately absent: seed/export caches are in memory only. A future disk owner must require
-an explicit fresh-temp capability in this experiment, use one writer and atomic replacement, retain failed writes,
-and supervise shutdown. No cache paths are inferred from account IDs.
+The adapter must retain captured `Selection` together with explicit `EnvironmentContext.directory` when calling
+rust-accounts. `AccountSandbox` preparation is additive and does not imply login: variable-length
+`PendingCreation.pending()` may distinguish profile preparation from login-only work. Readiness still comes from
+the trusted account snapshot. This crate never inspects preparation state or derives a profile directory.
+
+## Temporary persistence API
+
+`persistence::TempCache::fresh() -> io::Result<TempCache>` is the only disk capability constructor. It creates a new
+private temporary directory; there is no arbitrary path constructor, production profile adoption, directory listing,
+or credential discovery. Clone the capability to keep its directory alive across owner restarts. `open()` acquires
+an exclusive writer lease; a second owner returns `AlreadyExists` until the first finishes shutdown.
+
+`CacheOwner` exposes:
+
+- `save_quota(&Selection, &UsageStore)` and `save_accounts(&[(Selection, Value)])` stage quota exports. Account JSON
+  passes through `UsageStore` sanitization. Each structural selection gets a separate filename made from hex-encoded
+  IDs, not Node's ambiguous dash-concatenated key. No ID is interpreted as a path. Names over 250 bytes are rejected;
+  `save_accounts` validates every name before staging anything. The account API and wire key remain unchanged.
+- `save_scan(&ScanCache)` and `save_pricing(&Pricing)` stage the existing v3 scanner and pricing JSON shapes.
+  Quota bodies retain Node's provider map; prices retain `{ fetchedAt, models }`. An empty price state saves null.
+  Saves are independent per file, not a transaction across caches. Request callbacks and transports stay injected.
+- `load_quota(&Selection)`, `load_scan()` and `load_pricing()` rehydrate typed caches. Loads return pending latest
+  data first, then committed disk data. Missing or invalid JSON becomes the existing empty cache state; I/O errors,
+  symlinks and non-regular files return errors. Existing stricter scanner-shape validation still applies. Imported
+  scanner paths never authorize reads; callers must separately supply explicit copied transcript roots.
+- `flush().await -> Result<(), String>` waits for snapshots staged before the call; later stages may remain pending.
+  A single dedicated worker coalesces bursts over 10 ms. Versions prevent an older successful write from clearing a
+  newer staged value. Failed snapshots remain dirty without automatic retry loops; a new save, flush or shutdown
+  retries them. `dirty_count()` reports pending slots. Errors do not prevent other slots from being saved.
+- `shutdown().await -> Result<(), String>` seals new saves immediately and attempts a final flush. Dropping or never
+  polling the returned future does not cancel the worker. Drop also requests shutdown, but explicit shutdown is
+  required to observe its result. Failed snapshots remain in the capability for the next owner to retry. A worker
+  panic reports an error, releases the lease and retains dirty data. The worker keeps the directory alive until I/O
+  ends; the last capability/owner/worker reference removes the temporary directory.
+
+Runtime adapter order: load quota seeds for explicitly known selections, construct `UsageAccounts`, `Scanner` and
+`Pricing`, and stage their exports after mutations. At close, first stop usage/token callbacks, export final account,
+scan and price state, then await cache shutdown. A failed shutdown must be reported and the capability retained for
+retry. No runtime hooks are installed by this crate. Node does not persist `checkedAt`, latest failed responses,
+pricing retry timers or scanner `scannedAt`; these restart semantics are preserved.
+
+Atomic writes use anchored Unix directory descriptors, no-follow exclusive temporary creation, write + file sync,
+rename, then directory sync. Stale temp links are unlinked, never followed; existing hard-linked targets are replaced,
+never truncated. Files are explicitly `0600` and the directory `0700`, without changing the process umask. Node's
+original implementations use implicit modes (`0644` under umask `022`, `0600` under `077`) and drop failed save
+attempts. Private modes and retained retries are intentional corrections. JSON shapes match Node; byte spelling of
+floating-point numbers and object field order need not match.
+
+Close/reopen tests represent owner restarts within the same fresh capability. Full process restart, persistent
+production paths, cache adoption and multi-process writer locks remain gated. Failed writes cannot survive process
+exit until a durable destination accepts them. This temporary capability intentionally cannot be reconstructed from
+a path. Unix persistence is tested on macOS; Windows construction returns `Unsupported`.
 
 ## Scan and parity behavior
 
@@ -131,14 +180,15 @@ Preserved Node behavior:
 
 ## Verification
 
-On macOS arm64: **31 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
-command traces**, account isolation and callback lifecycle checks. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
+On macOS arm64: **42 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
+command traces**, account isolation, callback lifecycle and **11 persistence tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
 from Rust output. Codex is an EventEmitter fixture; Claude uses supplied synthetic credential text and a fake fetch.
 No provider process, keychain access or network transport is available to the fixture sandbox.
 
 ```sh
 TZ=UTC node experiments/rust-usage/scripts/generate-conformance.cjs
 TZ=UTC node experiments/rust-usage/scripts/generate-account-traces.cjs
+TZ=UTC node experiments/rust-usage/scripts/generate-persistence.cjs
 cargo test --offline --manifest-path experiments/rust-usage/Cargo.toml
 cargo clippy --offline --manifest-path experiments/rust-usage/Cargo.toml --all-targets -- -D warnings
 cargo fmt --manifest-path experiments/rust-usage/Cargo.toml --check
@@ -149,7 +199,11 @@ The expected `Milagre couldn't refresh model prices: fixture` warning comes from
 transcript carry/rows, quota/store traces, backoff, price refresh boundaries, reports and physical incremental scans.
 `tests/fixtures/accounts.json` captures command envelopes, validation errors, provider calls and emitted events
 from the original runtime command bodies in a VM. Account metadata/readers are synthetic; cache persistence is
-stubbed to throw if accessed. Command fixtures compare exactly.
+stubbed to throw if accessed. Command fixtures compare exactly. `tests/fixtures/persistence.json` uses the actual
+Node disk implementations in guarded fresh temporary directories: three saved cache shapes, two process-local
+umasks, restart results and four malformed inputs. Scanner fixture warnings are fatal. Rust checks compare those
+outputs and cover actual filesystem failures, retry retention, coalescing, cancelled waits, worker panic, single-writer
+leases, temp cleanup, symlink/hard-link replacement and incremental scans after reopen.
 Object keys and optional/null fields compare exactly; numeric values use a relative tolerance of `1e-12` because
 JavaScript has one numeric type and floating arithmetic may differ in the final bits.
 
@@ -163,7 +217,7 @@ and synchronous/asynchronous callback panics. All scan writes in tests are in fr
 ## Exact gaps and boundaries
 
 1. No live provider access, runtime routing, trusted account adapter, profile discovery, account auto-switching,
-   metadata-store loading, cache persistence, SDK bridge, CLI supervision or network fetch. Use injected owners;
+   metadata-store loading, production cache persistence, SDK bridge, CLI supervision or network fetch. Use injected owners;
    this checkpoint does not claim an end-to-end live usage migration.
 2. Scanner is implemented for Unix and tested on macOS only. Windows scanning explicitly returns Unsupported.
    Linux descriptor code is present but unexecuted here. Injected provider/parser/report tests are platform-neutral.
@@ -176,6 +230,7 @@ and synchronous/asynchronous callback panics. All scan writes in tests are in fr
    2026e, so historical/future rules changed between those databases can differ outside the fixture dates.
    IANA zones, including case/aliases, are mapped; numeric-offset Intl timezone strings are not supported.
 5. Scanner errors opening missing/unreadable roots/files skip them; errors during an opened file read return Err
-   (Node logs and continues). No write queue/idle flush exists because the crate never writes caches. Malformed
-   scan-cache structure fails closed to empty, more strictly than Node's shallow cache validation. Background
+   (Node logs and continues). Scanner persistence is explicitly staged through the temporary cache owner; no live
+   scanner or runtime hook is installed. Malformed scan-cache structure fails closed to empty, more strictly than
+   Node's shallow cache validation. Background
    task supervision is implemented; real provider transports and their process cleanup remain gated.

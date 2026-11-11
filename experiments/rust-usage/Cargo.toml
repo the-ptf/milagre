@@ -9,6 +9,7 @@ description = "Offline usage limits, transcript scanning, cache and report contr
 [workspace]
 
 [dependencies]
+tempfile = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 indexmap = { version = "2", features = ["serde"] }
@@ -21,5 +22,4 @@ tokio = { version = "1", features = ["sync", "rt", "macros"] }
 libc = "0.2"
 
 [dev-dependencies]
-tempfile = "3"
 tokio = { version = "1", features = ["sync", "rt", "macros", "rt-multi-thread", "time"] }
