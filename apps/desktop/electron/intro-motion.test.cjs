@@ -17,8 +17,8 @@ function fixture({ platform = "darwin", compositing = "enabled", software = fals
 }
 
 test("returning users do not wait for or query GPU information", async () => {
-  const { decide, reads } = fixture({ hang: true });
-  assert.equal(await decide(true), false);
+  const { decide, reads } = fixture({ platform: "linux", hang: true });
+  assert.equal(await Promise.race([decide(true), Promise.resolve("waited")]), false, "return before even one asynchronous wait");
   assert.equal(reads(), 0);
 });
 
