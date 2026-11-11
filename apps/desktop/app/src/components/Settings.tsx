@@ -1594,7 +1594,7 @@ function DeviceResources() {
     {
       id: "this-mac",
       name: thisMac,
-      detail: "This Mac",
+      detail: "This computer",
       bridge: window.milagre,
       online: true,
     },

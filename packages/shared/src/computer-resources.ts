@@ -25,7 +25,23 @@ export type ResourcePartKind =
 /** `count`: agents or terminals running, or worktrees on disk; 0 where nothing is counted. */
 export type ResourcePart = { kind: ResourcePartKind; bytes: number; count: number };
 
+/** Label uses the computer's OS, including when viewed from a phone. */
+export function computerPlatformLabel(platform?: string): string {
+  switch (platform) {
+    case "darwin":
+      return "This Mac";
+    case "linux":
+      return "This Linux";
+    case "win32":
+      return "This Windows";
+    default:
+      return "This computer";
+  }
+}
+
 export type ComputerResources = {
+  /** Missing on older hosts. Never infer a remote computer's OS from the viewing device. */
+  platform?: string;
   /** `parts` is missing from a host that predates the breakdown. */
   memory: { total: number; available: number; milagre: number | null; parts?: ResourcePart[] | null };
   /** Null when the host couldn't read its disk. `milagre` and `parts` are null until the first measure of its folders ends. */

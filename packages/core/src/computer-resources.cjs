@@ -320,6 +320,7 @@ function createComputerResources({
       else if (due()) void measureDisk();
       const [memoryNow, spaceNow] = await Promise.all([memory(), space().catch(() => null)]);
       return {
+        platform: process.platform,
         memory: memoryNow,
         disk: spaceNow && { ...spaceNow, milagre: disk.bytes, parts: disk.parts, measuredAt: disk.measuredAt, measuring: measuring !== null },
       };
