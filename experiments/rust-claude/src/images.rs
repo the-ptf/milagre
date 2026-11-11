@@ -141,15 +141,18 @@ impl ToolImageStore for FileImageStore {
     }
 }
 
-pub(crate) fn read_images(call: &Value, result: &Value, store: &dyn ToolImageStore) -> Vec<Value> {
+pub(crate) fn read_images(call: &Value, result: &Value, store: &dyn ToolImageStore, budget: crate::EventBudget) -> Vec<Value> {
     if call["name"] != "Read" || crate::events::truthy(result.get("is_error")) {
         return vec![];
     }
     let Some(blocks) = result["content"].as_array() else {
         return vec![];
     };
-    let mut events = vec![];
+    let mut events = crate::budget::Batch::new(budget);
     for (index, block) in blocks.iter().enumerate() {
+        if events.failed() {
+            break;
+        }
         if block["type"] != "image" || block["source"]["type"] != "base64" {
             continue;
         }
@@ -159,6 +162,9 @@ pub(crate) fn read_images(call: &Value, result: &Value, store: &dyn ToolImageSto
         let Ok(file) = store.save(mime, data) else {
             continue;
         };
+        let Some(file) = file.to_str() else {
+            continue;
+        };
         let id = format!("{}:image:{index}", call["id"].as_str().unwrap_or_default());
         let step = Obj::new()
             .set("id", id.clone())
@@ -166,10 +172,10 @@ pub(crate) fn read_images(call: &Value, result: &Value, store: &dyn ToolImageSto
             .set("title", "Viewed an image")
             .set("imageOrigin", "viewed")
             .opt("sourceFile", call["input"]["file_path"].as_str())
-            .set("file", file.to_string_lossy().as_ref())
+            .set("file", file)
             .build();
         events.push(json!({"type":"step-started","step":step}));
         events.push(json!({"type":"step-completed","id":id,"status":"done","file":file}));
     }
-    events
+    events.finish()
 }

@@ -552,6 +552,10 @@ impl ClaudeClient {
     }
 
     /// Send a user message (streaming input). Returns its uuid, which the CLI echoes on the turn's result.
+    pub(crate) fn validate_user_message(&self, content: &[Value]) -> Result<(), ClientError> {
+        self.encode(&protocol::user_message("00000000-0000-4000-8000-000000000000", content.to_vec())).map(|_| ())
+    }
+
     pub async fn send_user_message(&self, content: Vec<Value>) -> Result<String, ClientError> {
         let uuid = self.uuid();
         self.send_raw(&protocol::user_message(&uuid, content)).await?;

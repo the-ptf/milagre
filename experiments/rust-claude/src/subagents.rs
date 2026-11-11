@@ -8,15 +8,36 @@ use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Subagents {
     agents: Map<String, Value>,
+    budget: crate::budget::EventBudget,
+    max_agents: usize,
+    max_snapshot_bytes: usize,
+    failed: bool,
     foreground: HashSet<String>,
     tasks: HashMap<String, Tasks>,
     calls: HashMap<String, (String, Value)>,
     results: HashSet<String>,
     task_agents: HashMap<String, String>,
     background: Vec<Value>,
+}
+impl Default for Subagents {
+    fn default() -> Self {
+        Self {
+            agents: Map::new(),
+            foreground: HashSet::new(),
+            tasks: HashMap::new(),
+            calls: HashMap::new(),
+            results: HashSet::new(),
+            task_agents: HashMap::new(),
+            background: vec![],
+            budget: Default::default(),
+            max_agents: 128,
+            max_snapshot_bytes: 256 * 1024,
+            failed: false,
+        }
+    }
 }
 fn str_at(value: &Value, field: &str) -> String {
     value.get(field).map(js_string).unwrap_or_else(|| "undefined".into())
@@ -100,7 +121,20 @@ fn add_progress(previous: Option<&Value>, row: &Value) -> Value {
     p
 }
 impl Subagents {
+    pub fn set_limits(&mut self, budget: crate::budget::EventBudget, agents: usize, snapshot_bytes: usize) {
+        self.budget = budget;
+        self.max_agents = agents;
+        self.max_snapshot_bytes = snapshot_bytes;
+    }
+    fn fail(&mut self) -> Value {
+        self.failed = true;
+        crate::budget::failure("Claude subagent tracking exceeded its count or snapshot budget.")
+    }
+
     fn update(&mut self, id: &str, patch: Value, entry: Option<Value>, now: u64) -> Value {
+        if self.failed || (!self.agents.contains_key(id) && self.agents.len() >= self.max_agents) {
+            return self.fail();
+        }
         let previous = self.agents.get(id);
         let row = entry.filter(|e| truthy(&e["text"])).map(|mut e| {
             e["text"] = cap_output(e["text"].as_str().unwrap_or_default()).into();
@@ -142,6 +176,9 @@ impl Subagents {
         } else if agent.get("endedAt").is_none() {
             agent["endedAt"] = now.into();
         }
+        if crate::budget::weight(&agent) > self.max_snapshot_bytes {
+            return self.fail();
+        }
         self.agents.insert(id.into(), agent.clone());
         json!({"type":"subagent-update","agent":agent})
     }
@@ -150,9 +187,15 @@ impl Subagents {
     }
     pub fn settle(&mut self, status: &str, now: u64) -> Vec<Value> {
         let ids: Vec<_> = self.agents.iter().filter(|(_, a)| active(a)).map(|(id, _)| id.clone()).collect();
-        let mut events: Vec<_> = ids.into_iter().map(|id| self.update(&id, json!({"status":status}), None, now)).collect();
+        let mut events = crate::budget::Batch::new(self.budget);
+        for id in ids {
+            events.push(self.update(&id, json!({"status":status}), None, now));
+            if events.failed() {
+                break;
+            }
+        }
         events.extend(self.background_tasks(&[], now));
-        events
+        events.finish()
     }
     fn background_tasks(&mut self, tasks: &[Value], now: u64) -> Vec<Value> {
         let mut next: Vec<_>=tasks.iter().filter(|t|t["task_id"].is_string() && !truthy(&t["ambient"]) && t["task_type"]!="local_agent").take(50).map(|t| {
@@ -173,11 +216,21 @@ impl Subagents {
         vec![json!({"type":"background-tasks","tasks":next})]
     }
     pub fn map(&mut self, message: &Value, now: u64) -> Vec<Value> {
-        let mut events = vec![];
+        let mut events = crate::budget::Batch::new(self.budget);
+        if self.failed {
+            return vec![self.fail()];
+        }
         let parent = message["parent_tool_use_id"].as_str().filter(|s| !s.is_empty());
         let content = message.pointer("/message/content").and_then(Value::as_array);
         if message["type"] == "assistant" {
             for (index, block) in content.into_iter().flatten().enumerate() {
+                if events.failed() {
+                    break;
+                }
+                if self.calls.len() + self.results.len() > self.max_agents.saturating_mul(16) {
+                    events.push(self.fail());
+                    break;
+                }
                 let name = block["name"].as_str().unwrap_or_default();
                 let id = str_at(block, "id");
                 if block["type"] == "tool_use" && ["Agent", "Task"].contains(&name) {
@@ -237,6 +290,9 @@ impl Subagents {
         }
         if message["type"] == "user" {
             for block in content.into_iter().flatten().filter(|b| b["type"] == "tool_result") {
+                if events.failed() {
+                    break;
+                }
                 let id = str_at(block, "tool_use_id");
                 if self.agents.contains_key(&id) {
                     if parent.is_none() {
@@ -283,7 +339,7 @@ impl Subagents {
             if !id.as_ref().is_some_and(|id| self.agents.contains_key(id))
                 && !(subtype == "task_started" && (message["task_type"] == "local_agent" || truthy(&message["subagent_type"])))
             {
-                return events;
+                return events.finish();
             }
             let id = id.unwrap_or(task.clone());
             self.task_agents.insert(task, id.clone());
@@ -337,6 +393,9 @@ impl Subagents {
             let row = truthy(&message["summary"]).then(|| json!({"id":"summary","kind":"message","text":message["summary"]}));
             events.push(self.update(&id, Value::Object(patch), row, now));
         }
-        events
+        if self.calls.len() + self.results.len() + self.task_agents.len() > self.max_agents.saturating_mul(16) {
+            events.push(self.fail());
+        }
+        events.finish()
     }
 }

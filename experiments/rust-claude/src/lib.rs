@@ -6,6 +6,9 @@
 //! card/result shapes ([`milagre`]), the event mapper ([`events`]) and Chat session ([`session`]).
 //! See README.md for sources, conformance coverage and remaining integration gaps.
 
+mod budget;
+pub use budget::EventBudget;
+
 pub mod client;
 pub mod drafts;
 pub mod events;

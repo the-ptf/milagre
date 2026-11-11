@@ -73,9 +73,12 @@ pub struct SessionOptions {
     pub clock: Option<Clock>,
     /// Owner-selected image persistence. None disables image writes, but keeps Read tool rows.
     pub image_store: Option<Arc<dyn crate::images::ToolImageStore>>,
-    /// Queue threshold before the session stops reading the CLI or accepting another start.
-    /// One mapped frame and concurrent control handlers may emit a burst beyond this threshold.
+    /// Total queued events, including one reserved failure slot (minimum 2).
     pub event_capacity: usize,
+    /// Conservative JSON heap estimate, including 1024 bytes reserved for failure (minimum 2048).
+    pub event_bytes: usize,
+    pub max_subagents: usize,
+    pub subagent_snapshot_bytes: usize,
 }
 
 impl SessionOptions {
@@ -97,6 +100,9 @@ impl SessionOptions {
             clock: None,
             image_store: None,
             event_capacity: 1024,
+            event_bytes: 8 * 1024 * 1024,
+            max_subagents: 128,
+            subagent_snapshot_bytes: 256 * 1024,
         }
     }
 }
@@ -159,77 +165,122 @@ impl Gate {
     }
 }
 
-/// The owner's event queue. Pushes never block (they happen under the session lock, in order); the
-/// reader of the CLI waits for room, so a stalled owner slows the CLI instead of growing memory.
-struct EventQueue {
-    state: Mutex<(VecDeque<Value>, bool)>,
-    added: Notify,
-    room: Notify,
-    capacity: usize,
+/// All producers share one budget. Overflow seals the queue with a reserved terminal error;
+/// a process watcher kills the CLI without needing the consumer to drain or the state lock.
+struct QueueState {
+    events: VecDeque<(Value, usize)>,
+    bytes: usize,
+    closed: bool,
 }
-
+struct EventQueue {
+    state: Mutex<QueueState>,
+    added: Notify,
+    capacity: usize,
+    bytes: usize,
+    // 0 = open, 1 = overflow, 2 = receiver dropped, 3 = ordinary closure.
+    status: watch::Sender<u8>,
+}
 impl EventQueue {
     fn push(&self, event: Value) {
-        let mut state = self.state.lock().unwrap();
-        if state.1 {
+        if crate::budget::is_failure(&event) {
+            self.fail(event);
             return;
         }
-        state.0.push_back(event);
+        let bytes = crate::budget::weight(&event);
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return;
+        }
+        if state.events.len() >= self.capacity - 1 || bytes > (self.bytes - 1024).saturating_sub(state.bytes) {
+            drop(state);
+            self.fail(crate::budget::failure("Claude session output exceeded its event count or byte budget."));
+            return;
+        }
+        state.bytes += bytes;
+        state.events.push_back((event, bytes));
         drop(state);
         self.added.notify_one();
     }
-    fn close(&self) {
-        self.state.lock().unwrap().1 = true;
+    fn fail(&self, event: Value) {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return;
+        }
+        // Only internal, fixed-size failure messages enter the reserved slot.
+        let bytes = crate::budget::weight(&event);
+        assert!(bytes <= 1024);
+        state.bytes += bytes;
+        state.events.push_back((event, bytes));
+        state.closed = true;
+        self.status.send_replace(1);
+        drop(state);
         self.added.notify_waiters();
         self.added.notify_one();
-        self.room.notify_waiters();
+    }
+    fn close(&self) {
+        self.state.lock().unwrap().closed = true;
+        self.status.send_if_modified(|s| {
+            if *s == 0 {
+                *s = 3;
+                true
+            } else {
+                false
+            }
+        });
+        self.added.notify_waiters();
+        self.added.notify_one();
+    }
+    fn receiver_dropped(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.events.clear();
+        state.bytes = 0;
+        state.closed = true;
+        self.status.send_replace(2);
+        drop(state);
+        self.added.notify_waiters();
+        self.added.notify_one();
+    }
+    fn closed(&self) -> bool {
+        self.state.lock().unwrap().closed
+    }
+    fn pop(&self) -> Option<Value> {
+        let mut state = self.state.lock().unwrap();
+        let (event, bytes) = state.events.pop_front()?;
+        state.bytes -= bytes;
+        Some(event)
     }
     async fn recv(&self) -> Option<Value> {
         loop {
-            {
-                let mut state = self.state.lock().unwrap();
-                if let Some(event) = state.0.pop_front() {
-                    drop(state);
-                    self.room.notify_waiters();
-                    return Some(event);
-                }
-                if state.1 {
-                    return None;
-                }
-            }
-            self.added.notified().await;
-        }
-    }
-    async fn wait_room(&self) {
-        loop {
-            let notified = self.room.notified();
+            let notified = self.added.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
             {
-                let state = self.state.lock().unwrap();
-                if state.1 || state.0.len() < self.capacity {
-                    return;
+                let mut state = self.state.lock().unwrap();
+                if let Some((event, bytes)) = state.events.pop_front() {
+                    state.bytes -= bytes;
+                    return Some(event);
+                }
+                if state.closed {
+                    return None;
                 }
             }
             notified.await;
         }
     }
 }
-
-/// The session's `AgentEvent`s, in order. Ends after closure, process exit or session drop, once drained.
-/// Drain concurrently with session control calls: CLI control replies share stdout with messages.
+/// The session's ordered events. Dropping the sole receiver stops its CLI and rejects future starts.
 pub struct SessionEvents(Arc<EventQueue>);
-
 impl SessionEvents {
     pub async fn recv(&mut self) -> Option<Value> {
         self.0.recv().await
     }
     pub fn try_recv(&mut self) -> Option<Value> {
-        let event = self.0.state.lock().unwrap().0.pop_front();
-        if event.is_some() {
-            self.0.room.notify_waiters();
-        }
-        event
+        self.0.pop()
+    }
+}
+impl Drop for SessionEvents {
+    fn drop(&mut self) {
+        self.0.receiver_dropped();
     }
 }
 
@@ -271,6 +322,7 @@ struct State {
     permissions: Vec<PendingPermission>,
     questions: Vec<PendingQuestion>,
     turn_ready: Gate,
+    delivery_ready: Gate,
     turn_ended: Gate,
     interrupt_timer: Option<tokio::task::JoinHandle<()>>,
     exit: Option<ExitInfo>,
@@ -303,6 +355,12 @@ impl Drop for Inner {
 
 pub struct ClaudeSession {
     inner: Arc<Inner>,
+}
+
+impl Drop for ClaudeSession {
+    fn drop(&mut self) {
+        self.inner.stop();
+    }
 }
 
 impl std::fmt::Debug for ClaudeSession {
@@ -410,14 +468,20 @@ fn inside_root(root: Option<&std::path::Path>, files: &[String]) -> bool {
 impl ClaudeSession {
     pub fn new(options: SessionOptions) -> (Self, SessionEvents) {
         let queue = Arc::new(EventQueue {
-            state: Mutex::new((VecDeque::new(), false)),
+            state: Mutex::new(QueueState { events: VecDeque::new(), bytes: 0, closed: false }),
             added: Notify::new(),
-            room: Notify::new(),
-            capacity: options.event_capacity.max(1),
+            capacity: options.event_capacity.max(2),
+            bytes: options.event_bytes.max(2048),
+            status: watch::channel(0).0,
         });
         let mapper = {
             let mut mapper = ClaudeMapper::new(options.clock.clone());
             mapper.session_id = options.resume_id.clone();
+            mapper.set_event_limits(
+                crate::EventBudget { count: queue.capacity - 1, bytes: queue.bytes - 1024 },
+                options.max_subagents,
+                options.subagent_snapshot_bytes,
+            );
             if let Some(store) = &options.image_store {
                 mapper.set_image_store(store.clone());
             }
@@ -445,6 +509,7 @@ impl ClaudeSession {
             permissions: Vec::new(),
             questions: Vec::new(),
             turn_ready: Gate::open_now(),
+            delivery_ready: Gate::open_now(),
             turn_ended: Gate::open_now(),
             interrupt_timer: None,
             exit: None,
@@ -470,7 +535,7 @@ impl ClaudeSession {
     }
 
     pub fn is_closed(&self) -> bool {
-        self.inner.state.lock().unwrap().closed
+        self.inner.queue.closed() || self.inner.state.lock().unwrap().closed
     }
 
     pub fn turn_active(&self) -> bool {
@@ -478,15 +543,20 @@ impl ClaudeSession {
     }
 
     /// Start a turn, or steer the running one. A future dropped while the CLI is still starting closes
-    /// the session (and its process) rather than leaving a turn that never ends. A dropped steer
-    /// only withdraws its unsent message. An already applied mode change remains in effect.
-    /// Acceptance means queued to stdin, not acknowledged or executed by the CLI.
+    /// the session (and its process) rather than leaving a turn that never ends. A steer is admitted
+    /// only after eligibility and frame-size validation. The session then owns its mode change and
+    /// delivery even if the receipt future is dropped. Cancellation while waiting for admission has
+    /// no effect. A successful receipt means queued to stdin, not CLI execution acknowledgement.
     pub async fn start_turn(&self, request: TurnRequest) -> Result<TurnStart, SessionError> {
         if self.inner.options.analysis_only {
             return Err(SessionError::UnsupportedAnalysis);
         }
         let _operation = self.inner.operations.lock().await;
-        self.inner.queue.wait_room().await;
+        let delivery = self.inner.state.lock().unwrap().delivery_ready.clone();
+        delivery.wait().await;
+        if self.inner.queue.closed() {
+            return Err(SessionError::Closed);
+        }
         Inner::start_turn(self.inner.clone(), request).await
     }
 
@@ -500,6 +570,8 @@ impl ClaudeSession {
 
     pub async fn set_permission_mode(&self, mode: &str) {
         let _operation = self.inner.operations.lock().await;
+        let delivery = self.inner.state.lock().unwrap().delivery_ready.clone();
+        delivery.wait().await;
         self.inner.set_permission_mode(mode).await
     }
 
@@ -573,9 +645,12 @@ impl Inner {
                 Steer,
                 Begin(Gate),
             }
+            if request.can_start.as_ref().is_some_and(|check| !check()) {
+                return Ok(TurnStart { turn_id: None, steered: false, cancelled: true });
+            }
             let next = {
                 let mut state = self.state.lock().unwrap();
-                if state.closed {
+                if state.closed || self.queue.closed() {
                     return Err(SessionError::Closed);
                 }
                 if state.turn_active {
@@ -611,7 +686,6 @@ impl Inner {
             state.mapper.has_text = false;
             state.mapper.suggestion_turn_id = None;
             state.mapper.local_command_error = None;
-            self.set_pending_mode(&mut state, &mode);
             state.client.is_none()
         };
         if let Err(error) = self.prepare(&request, &mode, needs_start).await {
@@ -647,6 +721,16 @@ impl Inner {
             return TurnStart { turn_id: None, steered: false, cancelled: false };
         }
         let eligible = request.can_start.as_ref().is_none_or(|check| check());
+        if eligible {
+            let client = self.state.lock().unwrap().client.clone();
+            if let Some(client) = client {
+                if let Err(error) = client.validate_user_message(&request.content) {
+                    self.finish_turn(&mut self.state.lock().unwrap(), Some(json!({"type":"turn-failed","message":error.to_string()})));
+                    return TurnStart { turn_id: None, steered: false, cancelled: false };
+                }
+            }
+            self.set_permission_mode(&mode).await;
+        }
         let client = {
             let mut state = self.state.lock().unwrap();
             if !state.turn_active || state.mapper.turn_id.as_deref() != Some(&turn_id) {
@@ -662,6 +746,9 @@ impl Inner {
             }
             // Before the message goes out, so nothing the CLI answers can come first.
             self.emit(json!({ "type": "turn-started", "turnId": turn_id }));
+            if self.queue.closed() {
+                return TurnStart { turn_id: None, steered: false, cancelled: true };
+            }
             state.client.clone()
         };
         if let Some(client) = client {
@@ -677,9 +764,10 @@ impl Inner {
     }
 
     /// Start the CLI if needed, then bring model, mode, effort, fast mode and reply style up to date.
-    async fn prepare(self: &Arc<Self>, request: &TurnRequest, mode: &str, needs_start: bool) -> Result<(), ClientError> {
+    async fn prepare(self: &Arc<Self>, request: &TurnRequest, _mode: &str, needs_start: bool) -> Result<(), ClientError> {
         if needs_start {
-            self.start(request, self.native_mode(mode)).await?;
+            let current = self.state.lock().unwrap().permission_mode.clone();
+            self.start(request, self.native_mode(&current)).await?;
         }
         let client = {
             let state = self.state.lock().unwrap();
@@ -692,16 +780,6 @@ impl Inner {
         if self.state.lock().unwrap().model.as_deref() != Some(request.model.as_str()) {
             client.set_model(Some(&request.model)).await?;
             self.state.lock().unwrap().model = Some(request.model.clone());
-        }
-        // The user may have switched modes while Claude Code was starting.
-        let wanted = {
-            let state = self.state.lock().unwrap();
-            let wanted = self.native_mode(&state.permission_mode);
-            (state.mode.as_deref() != Some(wanted)).then_some(wanted)
-        };
-        if let Some(wanted) = wanted {
-            client.set_permission_mode(wanted).await?;
-            self.state.lock().unwrap().mode = Some(wanted.into());
         }
         // A new effort level alone turns ultracode off, so both keys always travel together.
         let effort_change = {
@@ -788,7 +866,31 @@ impl Inner {
             mcp: options.mcp.clone(),
             other: None,
         };
-        let (client, events) = ClaudeClient::spawn(&launch, handlers, options.limits.clone())?;
+        // At most one decoded transport message waits behind mapping. Frame size remains separately bounded.
+        let mut limits = options.limits.clone();
+        limits.event_capacity = 1;
+        let (client, events) = ClaudeClient::spawn(&launch, handlers, limits)?;
+        let mut status = self.queue.status.subscribe();
+        let watched = client.clone();
+        let owner = weak.clone();
+        tokio::spawn(async move {
+            let reason = loop {
+                let reason = *status.borrow_and_update();
+                if reason != 0 {
+                    break reason;
+                }
+                if status.changed().await.is_err() {
+                    return;
+                }
+            };
+            if reason == 1 || reason == 2 {
+                // Kill independently of state-lock contention (e.g. a trusted policy callback).
+                watched.kill().await;
+                if let Some(inner) = owner.upgrade() {
+                    inner.stop();
+                }
+            }
+        });
         let generation = {
             let mut state = self.state.lock().unwrap();
             if state.closed {
@@ -851,22 +953,63 @@ impl Inner {
             Next::Start => return self.clone().start_turn(request).await,
             Next::Steer(client, turn_id) => (client, turn_id),
         };
-        if let Some(mode) = &request.permission_mode {
-            self.set_permission_mode(mode).await;
+        if request.can_start.as_ref().is_some_and(|check| !check()) {
+            return Ok(TurnStart { turn_id: None, steered: false, cancelled: true });
         }
-        // A terminal result, interrupt or close may arrive while the mode request is pending.
+        // Admission is side-effect free until this point, including oversized messages.
+        client.validate_user_message(&request.content).map_err(SessionError::Send)?;
+        let (done, result) = oneshot::channel();
+        let ready = Gate::new();
+        {
+            let mut state = self.state.lock().unwrap();
+            if state.closed || self.queue.closed() {
+                return Err(SessionError::Closed);
+            }
+            state.delivery_ready = ready.clone();
+            let weak = Arc::downgrade(self);
+            state.background.retain(|task| !task.is_finished());
+            state.background.push(tokio::spawn(async move {
+                struct OpenOnDrop(Gate);
+                impl Drop for OpenOnDrop {
+                    fn drop(&mut self) {
+                        self.0.open();
+                    }
+                }
+                let _release = OpenOnDrop(ready);
+                if let Some(inner) = weak.upgrade() {
+                    // Accepted delivery belongs to the session, not to the caller awaiting its receipt.
+                    let accepted = inner.deliver_steer(request, client, turn_id).await;
+                    if let Err(error) = &accepted {
+                        let mut state = inner.state.lock().unwrap();
+                        if !state.closed && !inner.queue.closed() {
+                            inner.finish_turn(&mut state, Some(json!({"type":"turn-failed","message":format!("Claude could not deliver an accepted message: {error}")})));
+                            inner.stop_locked(&mut state);
+                        }
+                    }
+                    let _ = done.send(accepted);
+                }
+            }));
+        }
+        result.await.unwrap_or(Err(SessionError::ClosedBeforeSend))
+    }
+
+    async fn deliver_steer(
+        self: &Arc<Self>,
+        mut request: TurnRequest,
+        client: ClaudeClient,
+        turn_id: Option<String>,
+    ) -> Result<TurnStart, SessionError> {
+        // Admission has committed. Eligibility cannot revoke an accepted message later.
+        request.can_start = None;
+        let mode = request.permission_mode.clone().unwrap_or_else(|| self.state.lock().unwrap().permission_mode.clone());
+        self.set_permission_mode(&mode).await;
         let retry = {
             let state = self.state.lock().unwrap();
-            state.closed || state.cancel_requested || !state.turn_active || state.mapper.turn_id != turn_id
+            state.closed || self.queue.closed() || state.cancel_requested || !state.turn_active || state.mapper.turn_id != turn_id
         };
         if retry {
             return self.clone().start_turn(request).await;
         }
-        if request.can_start.as_ref().is_some_and(|check| !check()) {
-            return Ok(TurnStart { turn_id: None, steered: false, cancelled: true });
-        }
-        // send_user_message reserves queue capacity before sending. Dropping while it waits
-        // cannot enqueue later. After acceptance there is no await before recording the steer.
         client.send_user_message(request.content).await.map_err(SessionError::Send)?;
         let mut state = self.state.lock().unwrap();
         if state.turn_active && state.mapper.turn_id == turn_id {
@@ -928,6 +1071,7 @@ impl Inner {
         self.finish_turn(state, Some(json!({ "type": "turn-cancelled" })));
         self.cancel_all(state);
         state.turn_ready.open();
+        state.delivery_ready.open();
         self.queue.close();
         if let Some(client) = client {
             if let Ok(runtime) = tokio::runtime::Handle::try_current() {
@@ -963,35 +1107,64 @@ impl Inner {
         if self.options.analysis_only {
             return;
         }
-        let (client, native) = {
+        // Snapshot identities under lock; filesystem work runs on the blocking pool.
+        let candidates = {
             let mut state = self.state.lock().unwrap();
-            self.set_pending_mode(&mut state, mode);
-            let native = self.native_mode(mode);
-            if state.client.is_none() || state.closed || state.mode.as_deref() == Some(native) {
+            if state.closed || self.queue.closed() {
                 return;
             }
-            state.mode = None; // A dropped control future must force the next turn to reapply it.
+            state.permission_mode = mode.into();
+            state.permissions.iter().map(|p| (p.id.clone(), p.token.clone(), p.auto_files.clone())).collect::<Vec<_>>()
+        };
+        let allowed = if mode == "auto" {
+            let cwd = self.options.launch.cwd.clone();
+            let mut status = self.queue.status.subscribe();
+            if *status.borrow() != 0 {
+                return;
+            }
+            let check = tokio::task::spawn_blocking(move || {
+                candidates.into_iter().filter(|(_, _, files)| inside_root(cwd.as_deref(), files)).collect::<Vec<_>>()
+            });
+            tokio::select! { result = check => result.unwrap_or_default(), _ = status.changed() => return }
+        } else if mode == "full" {
+            candidates
+        } else {
+            vec![]
+        };
+        let (client, native) = {
+            let mut state = self.state.lock().unwrap();
+            if state.closed || self.queue.closed() || state.permission_mode != mode {
+                return;
+            }
+            for (id, token, _) in allowed {
+                if state.permissions.iter().any(|p| p.id == id && p.token == token) {
+                    self.resolve_permission(&mut state, &id, "allow");
+                }
+            }
+            let native = self.native_mode(mode);
+            if state.client.is_none() || state.mode.as_deref() == Some(native) {
+                return;
+            }
+            state.mode = None;
             (state.client.clone().unwrap(), native)
         };
-        if client.set_permission_mode(native).await.is_ok() {
-            self.state.lock().unwrap().mode = Some(native.into());
-        }
-    }
-
-    // --- PendingPermissions / PendingQuestions ---
-
-    /// `PendingPermissions.setMode`: Full answers every waiting card; Auto answers the waiting edits
-    /// inside the Chat's folder.
-    fn set_pending_mode(&self, state: &mut State, mode: &str) {
-        state.permission_mode = mode.into();
-        let ids: Vec<String> = state
-            .permissions
-            .iter()
-            .filter(|p| mode == "full" || (mode == "auto" && inside_root(self.options.launch.cwd.as_deref(), &p.auto_files)))
-            .map(|p| p.id.clone())
-            .collect();
-        for id in ids {
-            self.resolve_permission(state, &id, "allow");
+        match client.set_permission_mode(native).await {
+            Ok(_) => {
+                let mut state = self.state.lock().unwrap();
+                if !state.closed && state.permission_mode == mode {
+                    state.mode = Some(native.into());
+                }
+            }
+            Err(_) => {
+                let mut state = self.state.lock().unwrap();
+                if !state.closed && !self.queue.closed() {
+                    self.finish_turn(
+                        &mut state,
+                        Some(json!({"type":"turn-failed","message":"Claude could not apply the requested permission mode."})),
+                    );
+                    self.stop_locked(&mut state);
+                }
+            }
         }
     }
 
@@ -1085,9 +1258,9 @@ impl Inner {
         self.stop_locked(state);
     }
 
-    fn on_message(self: &Arc<Self>, generation: u64, message: &Value) {
+    fn on_message(self: &Arc<Self>, generation: u64, message: &Value, images: &std::collections::HashMap<String, Vec<Value>>) {
         let mut state = self.state.lock().unwrap();
-        if generation != state.generation {
+        if generation != state.generation || self.queue.closed() {
             return;
         }
         let kind = message["type"].as_str().unwrap_or("");
@@ -1095,7 +1268,7 @@ impl Inner {
         if kind == "prompt_suggestion" {
             let prompt_suggestions = self.options.prompt_suggestions && !self.options.analysis_only && !self.options.execution_advisor;
             if prompt_suggestions && !state.closed && !state.turn_active && !state.cancel_requested && !state.implicit_turn {
-                for event in state.mapper.map(message) {
+                for event in state.mapper.map_prepared(message, Some(images)) {
                     self.emit(event);
                 }
             }
@@ -1123,7 +1296,7 @@ impl Inner {
             candidate.turn_id = Some(turn_id.clone());
             candidate.has_text = false;
             candidate.local_command_error = None;
-            let events = candidate.map(message);
+            let events = candidate.map_prepared(message, Some(images));
             if events.is_empty() {
                 candidate.turn_id = state.mapper.turn_id.clone();
                 candidate.has_text = state.mapper.has_text;
@@ -1133,9 +1306,13 @@ impl Inner {
             state.mapper = candidate;
             events
         } else {
-            state.mapper.map(message)
+            state.mapper.map_prepared(message, Some(images))
         };
         for event in events {
+            if crate::budget::is_failure(&event) {
+                self.queue.fail(event);
+                break;
+            }
             state.implicit_turn = false;
             if event["type"] == "session-started" {
                 state.announced_id = true;
@@ -1212,15 +1389,52 @@ async fn pump(weak: Weak<Inner>, generation: u64, mut events: EventStream, queue
     while let Some(event) = events.recv().await {
         let Some(inner) = weak.upgrade() else { return };
         match event {
-            ClaudeEvent::Message(message) => inner.on_message(generation, &message),
+            ClaudeEvent::Message(message) => {
+                let jobs = inner.state.lock().unwrap().mapper.image_jobs(&message);
+                drop(inner);
+                let budget = crate::EventBudget { count: queue.capacity - 1, bytes: queue.bytes - 1024 };
+                if jobs.len() > budget.count {
+                    queue.fail(crate::budget::failure("Claude image work exceeded its event budget."));
+                    return;
+                }
+                let images = if jobs.is_empty() {
+                    std::collections::HashMap::new()
+                } else {
+                    let mut status = queue.status.subscribe();
+                    if *status.borrow() != 0 {
+                        return;
+                    }
+                    let save = tokio::task::spawn_blocking(move || {
+                        let mut images = std::collections::HashMap::new();
+                        let mut remaining = budget;
+                        for (id, call, result, store) in jobs {
+                            let events = crate::images::read_images(&call, &result, store.as_ref(), remaining);
+                            let failed = events.iter().any(crate::budget::is_failure);
+                            remaining.count = remaining.count.saturating_sub(events.len());
+                            remaining.bytes = remaining.bytes.saturating_sub(events.iter().map(crate::budget::weight).sum::<usize>());
+                            images.insert(id, events);
+                            if failed {
+                                break;
+                            }
+                        }
+                        images
+                    });
+                    tokio::select! { result = save => result.unwrap_or_default(), _ = status.changed() => return }
+                };
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                inner.on_message(generation, &message, &images);
+            }
             ClaudeEvent::Diagnostic(_) => {}
             ClaudeEvent::Exit(info) => {
                 inner.handle_end(generation, Some(info));
                 return;
             }
         }
-        drop(inner);
-        queue.wait_room().await;
+        if queue.closed() {
+            return;
+        }
     }
     if let Some(inner) = weak.upgrade() {
         inner.handle_end(generation, None);
@@ -1444,5 +1658,45 @@ mod workspace_tests {
         assert!(!inside_root(Some(&raw_cwd), &[workspace.join("new").to_string_lossy().into_owned()]));
         assert!(!inside_root(Some(&workspace.join("missing/..")), &["new".into()]));
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod event_queue_tests {
+    use super::*;
+    #[test]
+    fn concurrent_producers_cannot_exceed_either_budget_or_duplicate_failure() {
+        for (capacity, bytes) in [(4, 8192), (100, 2048)] {
+            let queue = Arc::new(EventQueue {
+                state: Mutex::new(QueueState { events: VecDeque::new(), bytes: 0, closed: false }),
+                added: Notify::new(),
+                capacity,
+                bytes,
+                status: watch::channel(0).0,
+            });
+            let threads: Vec<_> = (0..8)
+                .map(|_| {
+                    let queue = queue.clone();
+                    std::thread::spawn(move || {
+                        for _ in 0..100 {
+                            queue.push(json!({"type":"permission-request","text":"x".repeat(200)}));
+                        }
+                    })
+                })
+                .collect();
+            for thread in threads {
+                thread.join().unwrap();
+            }
+            {
+                let state = queue.state.lock().unwrap();
+                assert!(state.events.len() <= capacity);
+                assert!(state.bytes <= bytes);
+                assert_eq!(state.bytes, state.events.iter().map(|(v, _)| crate::budget::weight(v)).sum::<usize>());
+                assert_eq!(state.events.iter().filter(|(v, _)| crate::budget::is_failure(v)).count(), 1);
+            }
+            while queue.pop().is_some() {}
+            assert_eq!(queue.state.lock().unwrap().bytes, 0);
+            assert_eq!(*queue.status.borrow(), 1);
+        }
     }
 }

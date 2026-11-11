@@ -21,9 +21,10 @@ Background work survives turn completion; close/crash settles it before terminal
 
 Safety checkpoint 8ba16913 refuses every `analysis_only` start before spawning with
 `SessionError::UnsupportedAnalysis`. Auto resolution of pending edits checks raw string paths,
-canonical cwd/ancestors and current filesystem state under the same lock as the mode change.
-Missing/relative cwd and malformed or unresolved paths fail closed. A dropped steer preserves
-its running turn and question; already-applied mode changes remain. The separate initial-start
+canonical cwd/ancestors on the blocking pool, then rechecks mode and pending-card tokens under lock.
+Missing/relative cwd and malformed or unresolved paths fail closed. A steer now checks eligibility
+and size before admission; a session-owned task completes its requested mode and delivery after
+admission even if the caller drops the receipt. Cancellation before admission has no side effects. The separate initial-start
 abandon guard still closes that owned process. These choices are stricter than Node in the places
 called out in README; fixture equality does not imply policy completeness.
 
@@ -94,8 +95,8 @@ need an agreed host TurnId allocation contract; the current owner trait supplies
 host-initiated starts. Gate this behavior until that contract exists.
 
 Permission/question responses also need bounded command dispatch or a safe nonblocking registry:
-the current synchronous methods acquire the session mutex, and image mapping may hold it during
-I/O. Returning `Ok(false)` must still mean the request is gone, not that the worker was busy.
+the current synchronous methods acquire the session mutex. Image saving and automatic canonical
+path checks now run outside that mutex, but trusted AccessPolicy callbacks still run under it. Returning `Ok(false)` must still mean the request is gone, not that the worker was busy.
 The owner must authenticate and scope request ids and retain exactly-once settlement across
 turn end, close, withdrawal and stale responses. There is no owner adapter in this checkpoint.
 
@@ -108,8 +109,12 @@ path is metadata only. Node traces compare both events and exact persisted bytes
 writes preserve other events. No owner media route, retention/quota, input-image lifecycle,
 `promptImageBlocks` ordering or general MCP image extraction is supplied.
 
-Storage is synchronous under mapping/session locks. Move expensive file I/O off those locks
-before requiring strict owner response latency, while preserving event order and current-turn
-ownership. Filesystem authorization remains point-in-time; neither path checks nor image storage
+Standalone mapping remains synchronous. Sessions capture image work under lock and perform it
+on the blocking pool. Results are mapped only for the current process generation; close can finish
+without waiting for storage. Already-started filesystem writes cannot be forcibly cancelled.
+Automatic canonical-path checks likewise run on the blocking pool, then revalidate request tokens
+and mode. Output queues and mapped batches now have shared count/estimated-byte limits with a
+reserved terminal error and independent CLI shutdown; subagent snapshots/counts are capped too.
+See README's queue safety contract for defaults and intentional differences from Node. Filesystem authorization remains point-in-time; neither path checks nor image storage
 provide a filesystem sandbox. Windows and real billed provider turns remain unverified. The
 opt-in live initialize/control test remains ignored throughout this work.

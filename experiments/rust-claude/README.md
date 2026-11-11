@@ -76,17 +76,18 @@ reader.await?;
   `turn-started`, and `can_start == false` produces no turn events. Invisible notification-only
   implicit turns stay invisible. Prompt suggestions belong only to completed, unsteered turns.
 - Starts, steering and public mode changes serialize. Close and interrupt remain independent so they
-  can stop initialization or a blocked control request. Dropping an accepted start/steer future closes
-  the session synchronously; cleanup runs independently. A caller cancelled while waiting for the
-  operation lock has made no change. Dropping `close()` cannot abandon its process cleanup.
+  can stop initialization or a blocked control request. Dropping an initial start closes its process.
+  A steer first checks eligibility and frame size, then commits one session-owned delivery task;
+  dropping its receipt cannot abandon that accepted message. A caller cancelled while waiting for
+  admission has made no change. Dropping `close()` cannot abandon its process cleanup.
 - Permission and question callbacks release the session before waiting. Withdrawal/turn end settles
   pending cards once; private card tokens prevent an old cancellation from resolving a reused id.
   Questions still appear in Full; steering dismisses them. Access/guard decisions are injected via
   `AccessPolicy` and `PreToolUseGuard`, not read from live Milagre state.
-- The session event capacity is a **backpressure threshold**, not a strict event count: a single
-  mapped frame or concurrent permission callbacks can produce a burst. The underlying transport
-  still bounds frames, queues and outstanding controls. Drain events concurrently with all control
-  calls. `try_recv()` releases backpressure just as `recv()` does.
+- Every session event producer shares a count and estimated-byte budget. A reserved terminal slot
+  reports overflow and seals the queue; an independent watcher stops the CLI without a consumer.
+  Dropping `SessionEvents` also stops the process and rejects later starts. Mapped batches,
+  subagent snapshots and tracked children have limits. See the queue safety contract below.
 - Intentional differences from Node: failed initialization closes the half-initialized session;
   steering reports failed sends, rechecks ownership after a mode change, and never acknowledges a
   rejected oversize frame; the first implicit text belongs to its new turn. Node's current
@@ -222,10 +223,10 @@ cargo fmt --check
   commands, login/rate-limit errors and suggestions; child tasks/transcripts/status/progress and
   background sets. Its generator uses a deterministic clock. The transcript-tail case feeds 105
   messages and compares the final 100-row snapshots and cumulative progress.
-- `tests/session.rs` covers 27 integration cases, including eight Node `ClaudeSession` traces:
+- `tests/session.rs` covers 39 integration cases, including eight Node `ClaudeSession` traces:
   starts/steering, implicit turns, notification-only turns, suggestions, permissions/questions,
-  settings ordering, can-start, resume/login/crashes, backpressure, oversize sends, dropped startup,
-  dropped steering, dropped close, session drop and interrupt grace. Fake processes only. Existing
+  settings ordering, can-start, resume/login/crashes, queue pressure, oversize sends, dropped startup,
+  queued cancellation, accepted delivery, dropped close/receiver, session drop and interrupt grace. Fake processes only. Existing
   transport stalled-write/drop tests continue to ensure no partial frame is followed by another.
 - `scripts/generate-session.cjs` runs the actual Node session with an in-memory query double. No real
   SDK is loaded, no process is launched and no profile is written. The only writes are the fixture.
@@ -310,22 +311,54 @@ Auto mode resolves pending edits only after checking their raw string paths agai
 existing cwd, canonicalized as supplied. New files use their nearest existing ancestor; symlink
 escapes, dangling/looping links, empty paths, `..` in requested paths and missing/relative cwd fail
 closed. A mode switch rechecks every waiting edit, so a path authorized when a card was created is
-not cached through a later symlink replacement. The check and pending-mode resolution hold the same
-session lock. This deliberately tightens Node's lexical `insideRoot`, matching rust-providers
+not cached through a later symlink replacement. Candidate request ids/tokens/paths are captured under
+lock, checked on the blocking pool, then matched again against current mode and pending tokens
+under lock before resolution. This deliberately tightens Node's lexical `insideRoot`, matching rust-providers
 40425d7a's canonical rules. Filesystem changes after authorization still need OS/CLI enforcement;
 this is not a filesystem sandbox.
 
-Dropping an initial turn start still closes its owned process. Dropping a steer before queue
-acceptance discards only that message; it does not dismiss questions, mark the turn steered or end
-the session. A mode change already applied by that request remains applied; an interrupted control
-reply leaves the native mode unknown so a later mode request reapplies it. Accepted user frames
-remain owned by the transport even if their caller goes away. Acceptance is enqueue, not CLI
-execution acknowledgement. `can_start` also gates steers after pending mode changes.
+Dropping an initial turn start still closes its owned process. Steering now has a distinct
+admission boundary: wait for any earlier delivery, check `can_start`, validate the encoded frame,
+then commit exactly one session-owned delivery task. No requested mode changes or pending-card
+resolutions happen before admission. Dropping a future still waiting for admission discards it;
+dropping the receipt of an admitted message cannot abandon that message or its requested mode.
+The accepted task applies the mode, then sends the message. Failed native mode changes close with
+an explicit error, and failed accepted delivery cannot disappear when the receipt is gone.
+Questions are dismissed only after the user frame is queued. A successful receipt means stdin
+queue acceptance, not CLI execution acknowledgement. Eligibility is not rechecked after admission.
 
-The owner's event consumer must drain concurrently with start and mode calls. Those operations
-remain serialized, so public mode updates can wait behind startup or a full event queue. First-turn
-cancellation, mode-update responsiveness, CLI delivery acknowledgement and per-turn policy injection
-must be accounted for when adapting to the owner's nonblocking `Provider`/`TurnId` API.
+Starts and public mode changes remain serialized. Close, interrupt and receiver-drop shutdown
+remain independent. The owner must drain events promptly to avoid overflow; operations no longer
+wait indefinitely for queue room. Startup latency, CLI delivery acknowledgement and per-turn
+policy injection still need accounting in the owner's nonblocking `Provider`/`TurnId` adapter.
+
+## Queue safety contract
+
+`SessionOptions.event_capacity` defaults to 1024 (minimum 2); `event_bytes` defaults to 8 MiB
+(minimum 2048). These totals include one reserved terminal event and 1024 reserved bytes. Every
+producer, including permission/question callbacks, resolutions, implicit turns and close/exit
+settlement, uses the same queue. Accounting estimates JSON heap payload plus per-value/map-entry
+overhead without allocating a serialization copy. This is an output budget, not a process RSS cap.
+Dequeued entries release their count and byte charges.
+
+On overflow the accepted prefix remains ordered, followed by exactly one `turn-failed` with
+`code: "claude_event_limit"`; later output is discarded. A watcher stops the CLI independently of
+the consumer and session lock. A failed mapped batch is replaced by that explicit error; partial
+batch events are not published. Background output can fail between turns; the owner must treat
+this code as a session failure, not a second completion of the previous turn. Standalone mappers use `EventBudget` too. A session limits the
+transport's pending message channel to one frame; input frames and in-progress parsing retain
+the separate `Limits.max_frame_bytes` bound (64 MiB default).
+
+`max_subagents` defaults to 128 tracked children across the session, including completed children;
+`subagent_snapshot_bytes` defaults to 256 KiB per child. Exceeding either fails explicitly instead
+of silently evicting a child. Child task indexes are capped relative to the child limit. Snapshot
+batches, close/crash settlement and image event batches also obey count/byte limits, so repeated
+full snapshots cannot grow a frame's mapped output without a bound. Ordinary Node traces remain
+unchanged within these limits. Limits intentionally add failure cases not present in Node.
+
+Dropping the only `SessionEvents` receiver clears buffered output, stops its CLI and unblocks
+startup. Dropping the session cancels owned delivery tasks. No background task depends on the
+owner draining output to perform shutdown.
 
 ## Read-image storage
 
@@ -345,9 +378,12 @@ The default file store creates directories with 0700 and files with 0600 on Unix
 files atomically via hard links, deduplicates concurrent saves and refuses existing symlink,
 non-file or corrupt hash entries. Parent directories must be trusted; this is not protection from
 an attacker replacing the owner's directory tree. Filesystems without hard links return an error,
-which skips the image. Saving and validation are synchronous during mapping (under the session
-lock); moving large-image I/O off that lock is an owner integration requirement. Disk quotas,
-retention, crash-temp cleanup and Windows behavior remain unimplemented or unverified.
+which skips the image. Standalone mapping remains synchronous. Sessions capture matched Read jobs
+under the state lock, validate/save on the blocking pool, then publish only if the process generation
+is still current. Close and receiver drop remain responsive during storage. Blocking filesystem
+operations cannot be forcibly cancelled: an already-started save may finish after close, but it
+cannot publish a stale event. Disk quotas, retention, crash-temp cleanup and Windows behavior
+remain unimplemented or unverified.
 
 `tests/images.rs` checks eleven Node traces including saved bytes, atomic concurrent deduplication,
 private modes, corrupt entries, symlink refusal, oversized payloads and no-store behavior. The

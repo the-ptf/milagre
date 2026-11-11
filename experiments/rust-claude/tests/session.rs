@@ -133,6 +133,8 @@ async fn drop_session_with_pending_question_reaps_process() {
     let pid = session.pid().unwrap();
     drop(session);
     assert!(wait_dead(pid as i32).await);
+    let trace = until(&mut events, "turn-cancelled").await;
+    assert_eq!(kinds(&trace), ["question-resolved", "turn-cancelled"]);
     assert!(events.recv().await.is_none());
 }
 
@@ -296,27 +298,17 @@ async fn can_start_rechecks_before_any_message_is_sent() {
 }
 
 #[tokio::test]
-async fn try_recv_releases_backpressure() {
+async fn try_recv_releases_count_and_byte_accounting() {
     let mut script = handshake();
     script.extend([json!({"expect":{"type":"user"}}), init(), text("hello"), result()]);
-    let (session, mut events) = configured(script, |o| o.event_capacity = 1);
+    let (session, mut events) = configured(script, |o| {
+        o.event_capacity = 8;
+        o.event_bytes = 8192;
+    });
     session.start_turn(request("one")).await.unwrap();
-    let mut trace = vec![];
-    tokio::time::timeout(Duration::from_secs(3), async {
-        loop {
-            if let Some(event) = events.try_recv() {
-                let done = event["type"] == "turn-completed";
-                trace.push(event);
-                if done {
-                    break;
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await
-    .unwrap();
+    let trace = until(&mut events, "turn-completed").await;
     assert_eq!(kinds(&trace), ["turn-started", "session-started", "text-delta", "turn-completed"]);
+    assert!(events.try_recv().is_none());
     session.close().await;
 }
 
@@ -370,42 +362,34 @@ async fn session_traces_match_node_claude_session() {
 }
 
 #[tokio::test]
-async fn dropped_steer_during_mode_change_preserves_running_turn() {
+async fn accepted_steer_survives_dropped_receipt_during_mode_change() {
     let mut script = handshake();
     script.extend([
-        json!({"expect":{"type":"user"}}),
-        init(),
-        question("q1"),
-        json!({"expect":{"subtype":"set_permission_mode"}}),
-        text("mode pending"),
-        json!({"expect":{"type":"control_cancel_request"}}),
-        text("still running"),
-        json!({"expect":{"subtype":"set_permission_mode"}}),
-        json!({"reply":{}}),
-        json!({"expect_pair":[{"/type":"user","/message/content/0/text":"delivered"},
-            {"/type":"control_response","/response/request_id":"q1"}]}),
-        result(),
+        json!({"expect":{"type":"user"}}), init(), question("q1"),
+        json!({"expect":{"subtype":"set_permission_mode"}}), text("mode pending"),
+        json!({"sleep_ms":50}), json!({"reply":{}}),
+        json!({"expect_pair":[{"/type":"user","/message/content/0/text":"accepted"}, {"/type":"control_response","/response/request_id":"q1"}]}),
+        text("accepted delivery"),
+        json!({"expect":{"type":"user","fields":{"/message/content/0/text":"later"}}}), result(),
     ]);
     let (session, mut events) = session(script);
     let first = session.start_turn(request("one")).await.unwrap();
     until(&mut events, "question-request").await;
     let pid = session.pid().unwrap();
-    let mut r = request("never sent");
+    let mut r = request("accepted");
     r.permission_mode = Some("full".into());
-    let mut steer = Box::pin(session.start_turn(r.clone()));
+    let mut steer = Box::pin(session.start_turn(r));
     tokio::select! { _=&mut steer=>panic!("unexpected steer"), e=next(&mut events)=>assert_eq!(e["text"], "mode pending") }
     drop(steer);
     assert!(!session.is_closed());
     assert!(session.turn_active());
     assert_eq!(session.pid(), Some(pid));
-    assert_eq!(next(&mut events).await["text"], "still running");
-    assert!(events.try_recv().is_none()); // No cancellation or question dismissal.
-    r.content = request("delivered").content;
-    let second = session.start_turn(r).await.unwrap();
+    let trace = until(&mut events, "text-delta").await;
+    assert_eq!(kinds(&trace), ["question-resolved", "text-delta"]);
+    let second = session.start_turn(request("later")).await.unwrap();
     assert_eq!(first.turn_id, second.turn_id);
     assert!(second.steered);
-    let trace = until(&mut events, "turn-completed").await;
-    assert_eq!(kinds(&trace), ["question-resolved", "turn-completed"]);
+    assert_eq!(kinds(&until(&mut events, "turn-completed").await), ["turn-completed"]);
     session.close().await;
 }
 
@@ -445,7 +429,7 @@ async fn oversize_messages_report_failure_without_steering_acknowledgement() {
     let (session, mut events) = configured(script, |o| o.limits.max_outgoing_frame_bytes = 1024);
     let rejected = session.start_turn(request(&"x".repeat(2000))).await.unwrap();
     assert!(rejected.turn_id.is_none());
-    assert_eq!(kinds(&until(&mut events, "turn-failed").await), ["turn-started", "turn-failed"]);
+    assert_eq!(kinds(&until(&mut events, "turn-failed").await), ["turn-failed"]);
     session.start_turn(request("small")).await.unwrap();
     until(&mut events, "session-started").await;
     assert!(session.start_turn(request(&"x".repeat(2000))).await.is_err());
@@ -475,14 +459,14 @@ async fn turn_settings_apply_in_order_and_task_output_is_shaped() {
         result(),
         json!({"expect":{"subtype":"set_model","fields":{"/request/model":"opus"}}}),
         json!({"reply":{}}),
-        json!({"expect":{"subtype":"set_permission_mode","fields":{"/request/mode":"acceptEdits"}}}),
-        json!({"reply":{}}),
         json!({"expect":{"subtype":"apply_flag_settings","fields":{"/request/settings":{"effortLevel":"high","ultracode":true}}}}),
         json!({"reply":{}}),
         json!({"expect":{"subtype":"apply_flag_settings","fields":{"/request/settings":{"fastMode":true}}}}),
         json!({"reply":{}}),
         json!({"expect":{"subtype":"apply_flag_settings","fields":{"/request/settings":{"outputStyle":"Concise"}}}}),
         json!({"reply_error":"unsupported style"}),
+        json!({"expect":{"subtype":"set_permission_mode","fields":{"/request/mode":"acceptEdits"}}}),
+        json!({"reply":{}}),
         json!({"expect":{"type":"user"}}),
         result(),
         json!({"expect":{"subtype":"get_task_output","fields":{"/request/task_id":"task1"}}}),
@@ -511,6 +495,7 @@ async fn turn_settings_apply_in_order_and_task_output_is_shaped() {
 #[tokio::test]
 async fn question_answers_are_filtered_and_full_still_asks() {
     let mut script = handshake();
+    script.extend([json!({"expect":{"subtype":"set_permission_mode"}}), json!({"reply":{}})]);
     script.extend([json!({"expect":{"type":"user"}}),question("q1"),
         json!({"expect":{"type":"control_response","fields":{"/response/response/behavior":"allow","/response/response/updatedInput/answers":{"Which?":"A"}}}}),result()]);
     let (session, mut events) = session(script);
@@ -683,4 +668,256 @@ async fn read_images_persist_returned_bytes_through_session_options() {
     assert_eq!(std::fs::read(image["step"]["file"].as_str().unwrap()).unwrap(), b"GIF89a");
     session.close().await;
     std::fs::remove_dir_all(root).unwrap();
+}
+
+async fn pressure_failure(script_tail: Vec<Value>, configure: impl FnOnce(&mut SessionOptions)) {
+    let mut script = handshake();
+    script.push(json!({"expect":{"type":"user"}}));
+    script.extend(script_tail);
+    script.push(json!({"sleep_ms":10000}));
+    let (session, mut events) = configured(script, configure);
+    session.start_turn(request("one")).await.unwrap();
+    // No consumer is running. Queue failure must still stop the process.
+    let pid = session.pid();
+    if let Some(pid) = pid {
+        assert!(wait_dead(pid as i32).await);
+    }
+    let mut trace = vec![];
+    while let Some(event) = tokio::time::timeout(Duration::from_secs(2), events.recv()).await.unwrap() {
+        trace.push(event);
+    }
+    let failures: Vec<_> = trace.iter().filter(|e| e["type"] == "turn-failed").collect();
+    assert_eq!(failures.len(), 1, "{trace:?}");
+    assert_eq!(failures[0]["code"], "claude_event_limit");
+    assert!(session.is_closed());
+    assert!(session.start_turn(request("later")).await.is_err());
+}
+
+#[tokio::test]
+async fn single_frame_event_amplification_overflows_without_drain() {
+    let blocks: Vec<_> =
+        (0..100).map(|i| json!({"type":"tool_use","id":format!("t{i}"),"name":"Read","input":{"file_path":"a"}})).collect();
+    pressure_failure(vec![json!({"emit":{"type":"assistant","message":{"content":blocks}}})], |o| o.event_capacity = 4).await;
+}
+
+#[tokio::test]
+async fn large_text_hits_byte_budget_before_count_budget() {
+    pressure_failure(vec![text(&"x".repeat(128 * 1024))], |o| {
+        o.event_capacity = 100;
+        o.event_bytes = 4096;
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn permission_and_question_bursts_share_output_budget() {
+    let requests = (0..40).map(|i| if i % 2 == 0 { permission(&format!("p{i}")) } else { question(&format!("q{i}")) }).collect();
+    pressure_failure(requests, |o| o.event_capacity = 4).await;
+    let card =
+        json!({"request":{"id":"large","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"x".repeat(10000)}}}});
+    pressure_failure(vec![card], |o| {
+        o.event_capacity = 100;
+        o.event_bytes = 4096;
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn subagent_count_and_snapshot_overflow_stop_process() {
+    let agents: Vec<_> =
+        (0..3).map(|i| json!({"type":"tool_use","id":format!("a{i}"),"name":"Agent","input":{"description":"child"}})).collect();
+    pressure_failure(vec![json!({"emit":{"type":"assistant","message":{"content":agents}}})], |o| o.max_subagents = 2).await;
+    pressure_failure(vec![
+        json!({"emit":{"type":"assistant","message":{"content":[{"type":"tool_use","id":"a","name":"Agent","input":{}}]}}}),
+        json!({"emit":{"type":"assistant","parent_tool_use_id":"a","uuid":"child-msg","message":{"content":[{"type":"text","text":"x".repeat(10000)}]}}}),
+    ], |o| o.subagent_snapshot_bytes = 2048).await;
+}
+
+#[tokio::test]
+async fn receiver_drop_reaps_process_and_unblocks_startup() {
+    let (session, events) = session(vec![json!({"expect":{"subtype":"initialize"}}), json!({"sleep_ms":10000})]);
+    let mut start = Box::pin(session.start_turn(request("one")));
+    tokio::select! { _=&mut start=>panic!("unexpected start"), _=tokio::time::sleep(Duration::from_millis(30))=>{} }
+    let pid = session.pid().unwrap();
+    drop(events);
+    tokio::time::timeout(Duration::from_secs(2), &mut start).await.unwrap().unwrap();
+    drop(start);
+    assert!(wait_dead(pid as i32).await);
+    assert!(session.is_closed());
+    assert!(tokio::time::timeout(Duration::from_millis(200), session.start_turn(request("later"))).await.unwrap().is_err());
+}
+
+#[tokio::test]
+async fn refused_and_oversized_steers_cannot_change_mode_or_approve_cards() {
+    let mut script = handshake();
+    script.extend([
+        json!({"expect":{"type":"user"}}),
+        permission("pending"),
+        json!({"expect":{"type":"control_response","fields":{"/response/response/behavior":"deny"}}}),
+        json!({"expect":{"type":"user","fields":{"/message/content/0/text":"accepted"}}}),
+        result(),
+    ]);
+    let (session, mut events) = configured(script, |o| o.limits.max_outgoing_frame_bytes = 1024);
+    session.start_turn(request("one")).await.unwrap();
+    until(&mut events, "permission-request").await;
+    let mut refused = request("refused");
+    refused.permission_mode = Some("full".into());
+    refused.can_start = Some(Arc::new(|| false));
+    assert!(session.start_turn(refused).await.unwrap().cancelled);
+    let mut oversized = request(&"x".repeat(4096));
+    oversized.permission_mode = Some("full".into());
+    assert!(session.start_turn(oversized).await.is_err());
+    assert!(events.try_recv().is_none());
+    assert!(session.respond_to_permission("pending", "deny"));
+    session.start_turn(request("accepted")).await.unwrap();
+    let trace = until(&mut events, "turn-completed").await;
+    assert_eq!(trace[0]["decision"], "deny");
+    session.close().await;
+}
+
+#[tokio::test]
+async fn cancelled_queued_steer_cannot_escalate_mode() {
+    let mut script = handshake();
+    script.extend([
+        json!({"expect":{"type":"user"}}),
+        permission("pending"),
+        json!({"expect":{"subtype":"set_permission_mode","fields":{"/request/mode":"acceptEdits"}}}),
+        text("mode pending"),
+        json!({"sleep_ms":100}),
+        json!({"reply":{}}),
+        json!({"expect":{"type":"user","fields":{"/message/content/0/text":"accepted"}}}),
+        json!({"expect":{"type":"control_response","fields":{"/response/response/behavior":"deny"}}}),
+        result(),
+    ]);
+    let (session, mut events) = session(script);
+    session.start_turn(request("one")).await.unwrap();
+    until(&mut events, "permission-request").await;
+    let mut r = request("accepted");
+    r.permission_mode = Some("auto".into());
+    let mut first = Box::pin(session.start_turn(r));
+    tokio::select! { _=&mut first=>panic!("unexpected start"), e=next(&mut events)=>assert_eq!(e["text"], "mode pending") }
+    let mut queued = request("never accepted");
+    queued.permission_mode = Some("full".into());
+    let mut queued = Box::pin(session.start_turn(queued));
+    tokio::select! { _=&mut queued=>panic!("queued steer completed"), _=tokio::time::sleep(Duration::from_millis(10))=>{} }
+    drop(queued);
+    assert!(first.await.unwrap().steered);
+    assert!(events.try_recv().is_none());
+    assert!(session.respond_to_permission("pending", "deny"));
+    assert_eq!(until(&mut events, "turn-completed").await[0]["decision"], "deny");
+    session.close().await;
+}
+
+#[tokio::test]
+async fn eligibility_lost_during_startup_does_not_apply_requested_mode() {
+    let mut script = handshake();
+    script.extend([json!({"expect":{"type":"user","fields":{"/message/content/0/text":"next"}}}), result()]);
+    let (session, mut events) = session(script);
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut r = request("obsolete");
+    r.permission_mode = Some("full".into());
+    r.can_start = Some(Arc::new(move || calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0));
+    assert!(session.start_turn(r).await.unwrap().cancelled);
+    assert!(events.try_recv().is_none());
+    session.start_turn(request("next")).await.unwrap();
+    until(&mut events, "turn-completed").await;
+    session.close().await;
+}
+
+#[tokio::test]
+async fn slow_image_store_does_not_hold_session_lock_or_publish_after_close() {
+    struct SlowStore {
+        entered: Arc<tokio::sync::Notify>,
+        release: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
+    }
+    impl milagre_claude::ToolImageStore for SlowStore {
+        fn save(&self, _: &str, _: &str) -> Result<std::path::PathBuf, String> {
+            self.entered.notify_one();
+            let (lock, cv) = &*self.release;
+            let mut done = lock.lock().unwrap();
+            while !*done {
+                done = cv.wait(done).unwrap();
+            }
+            Ok("/unused/returned.gif".into())
+        }
+    }
+    struct Release(Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            *self.0 .0.lock().unwrap() = true;
+            self.0 .1.notify_all();
+        }
+    }
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Release(Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new())));
+    let mut script = handshake();
+    script.extend([json!({"expect":{"type":"user"}}),
+        json!({"emit":{"type":"assistant","message":{"content":[{"type":"tool_use","id":"r","name":"Read","input":{}}]}}}),
+        json!({"emit":{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"r","content":[{"type":"image","source":{"type":"base64","media_type":"image/gif","data":"R0lGODlh"}}]}]}}})]);
+    let (session, mut events) =
+        configured(script, |o| o.image_store = Some(Arc::new(SlowStore { entered: entered.clone(), release: release.0.clone() })));
+    session.start_turn(request("one")).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), entered.notified()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), session.close()).await.unwrap();
+    drop(release);
+    let trace = until(&mut events, "turn-cancelled").await;
+    assert!(!trace.iter().any(|e| e["step"]["kind"] == "image"));
+    assert!(events.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn failed_permission_mode_change_closes_before_accepted_message_is_sent() {
+    let root = scratch("mode-rejection");
+    let proof = root.join("eof-proof");
+    let mut script = handshake();
+    script.extend([
+        json!({"expect":{"type":"user"}}),
+        init(),
+        json!({"expect":{"subtype":"set_permission_mode"}}),
+        json!({"reply_error":"mode refused"}),
+        json!({"expect_eof":proof}),
+    ]);
+    let (session, mut events) = session(script);
+    session.start_turn(request("one")).await.unwrap();
+    until(&mut events, "session-started").await;
+    let mut r = request("never delivered");
+    r.permission_mode = Some("full".into());
+    assert!(session.start_turn(r).await.is_err());
+    let trace = until(&mut events, "turn-failed").await;
+    assert_eq!(trace.last().unwrap()["message"], "Claude could not apply the requested permission mode.");
+    assert!(events.recv().await.is_none());
+    assert!(session.is_closed());
+    session.close().await;
+    assert_eq!(std::fs::read(&proof).unwrap(), b"eof-without-frame");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn receiver_drop_after_start_stops_pump_without_another_start() {
+    let mut script = handshake();
+    script.extend([json!({"expect":{"type":"user"}}), init(), json!({"sleep_ms":10000})]);
+    let (session, mut events) = session(script);
+    session.start_turn(request("one")).await.unwrap();
+    until(&mut events, "session-started").await;
+    let pid = session.pid().unwrap();
+    drop(events);
+    assert!(wait_dead(pid as i32).await);
+    assert!(session.is_closed());
+    assert!(tokio::time::timeout(Duration::from_millis(200), session.start_turn(request("later"))).await.unwrap().is_err());
+}
+
+#[tokio::test]
+async fn repeated_subagent_snapshots_in_one_frame_share_batch_byte_budget() {
+    let rows: Vec<_> = (0..40).map(|_| json!({"type":"text","text":"x".repeat(100)})).collect();
+    pressure_failure(
+        vec![
+            json!({"emit":{"type":"assistant","message":{"content":[{"type":"tool_use","id":"a","name":"Agent","input":{}}]}}}),
+            json!({"emit":{"type":"assistant","parent_tool_use_id":"a","uuid":"child-msg","message":{"content":rows}}}),
+        ],
+        |o| {
+            o.event_bytes = 16000;
+            o.subagent_snapshot_bytes = 256 * 1024;
+        },
+    )
+    .await;
 }

@@ -21,6 +21,7 @@
 //!   {"close_stdout": true}
 //!   {"spawn_grandchild": "/path/pidfile"}  start `sleep 60` in this process group, write its pid
 //!   {"ignore_sigterm": true}
+//!   {"expect_eof": "/path/proof"}     require EOF with no intervening frame, then write proof
 //!   {"wait_eof": true}                 read stdin until EOF, then write {"type":"fake_eof"}
 //! `FAKE_CLAUDE_NO_STDIN=1` never reads stdin (for backpressure tests); `FAKE_CLAUDE_STDIN_DELAY_MS=n`
 //! starts reading it only after n ms.
@@ -250,6 +251,13 @@ fn main() {
                 unsafe {
                     libc::signal(libc::SIGTERM, libc::SIG_IGN);
                 }
+            }
+            "expect_eof" => {
+                match lines.recv() {
+                    Ok(Some(frame)) => fail(format!("expected EOF, got {frame}")),
+                    _ => eof = true,
+                }
+                std::fs::write(arg.as_str().unwrap(), b"eof-without-frame").unwrap();
             }
             "wait_eof" => {
                 while !eof {

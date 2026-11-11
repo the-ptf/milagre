@@ -208,6 +208,7 @@ pub struct ClaudeMapper {
     subagents: crate::subagents::Subagents,
     clock: Clock,
     image_store: Option<Arc<dyn crate::images::ToolImageStore>>,
+    budget: crate::budget::EventBudget,
 }
 
 impl std::fmt::Debug for ClaudeMapper {
@@ -341,7 +342,13 @@ impl ClaudeMapper {
             subagents: Default::default(),
             clock: clock.unwrap_or_else(|| Arc::new(system_clock)),
             image_store: None,
+            budget: Default::default(),
         }
+    }
+
+    pub fn set_event_limits(&mut self, budget: crate::budget::EventBudget, max_agents: usize, snapshot_bytes: usize) {
+        self.budget = budget;
+        self.subagents.set_limits(budget, max_agents, snapshot_bytes);
     }
 
     /// Enable Read-image persistence in an owner-selected store. Unconfigured mappers do no I/O.
@@ -425,8 +432,37 @@ impl ClaudeMapper {
         events
     }
 
-    /// `mapClaudeMessage(message, state)`.
+    /// Capture just the matched image work under the session lock; execution happens outside it.
+    pub(crate) fn image_jobs(&self, message: &Value) -> Vec<(String, Value, Value, Arc<dyn crate::images::ToolImageStore>)> {
+        let Some(store) = &self.image_store else {
+            return vec![];
+        };
+        if message["type"] != "user" || !is_top(message) || truthy(message.get("isReplay")) {
+            return vec![];
+        }
+        let mut seen = std::collections::HashSet::new();
+        message
+            .pointer("/message/content")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|block| {
+                let id = block["tool_use_id"].as_str()?;
+                let call = self.tools.get(id)?;
+                if block["type"] != "tool_result" || call["name"] != "Read" || !seen.insert(id.to_owned()) {
+                    return None;
+                }
+                Some((id.to_owned(), call.clone(), block.clone(), store.clone()))
+            })
+            .collect()
+    }
+
     pub fn map(&mut self, message: &Value) -> Vec<Value> {
+        self.map_prepared(message, None)
+    }
+
+    /// `mapClaudeMessage(message, state)`.
+    pub(crate) fn map_prepared(&mut self, message: &Value, images: Option<&HashMap<String, Vec<Value>>>) -> Vec<Value> {
         let kind = message.get("type").and_then(Value::as_str).unwrap_or("");
         let subtype = message.get("subtype").and_then(Value::as_str);
         let top = is_top(message);
@@ -440,9 +476,15 @@ impl ClaudeMapper {
                 return Vec::new();
             }
             let turn_id = self.suggestion_turn_id.take().unwrap();
-            return vec![json!({ "type": "prompt-suggestion", "text": suggestion.unwrap(), "turnId": turn_id })];
+            let mut events = crate::budget::Batch::new(self.budget);
+            events.push(json!({ "type": "prompt-suggestion", "text": suggestion.unwrap(), "turnId": turn_id }));
+            return events.finish();
         }
-        let mut events = self.subagents.map(message, self.now());
+        let mut events = crate::budget::Batch::new(self.budget);
+        events.extend(self.subagents.map(message, self.now()));
+        if events.failed() {
+            return events.finish();
+        }
         if kind == "assistant" && message.get("error").and_then(Value::as_str) == Some("authentication_failed") {
             self.auth_failed = true;
         }
@@ -555,6 +597,9 @@ impl ClaudeMapper {
         if kind == "assistant" && !top {
             let agent = crate::text::js_string(&message["parent_tool_use_id"]);
             for block in message.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default() {
+                if events.failed() {
+                    break;
+                }
                 let name = block.get("name").map(crate::text::js_string).unwrap_or_else(|| "undefined".into());
                 if block.get("type").and_then(Value::as_str) != Some("tool_use") || !is_artifact_tool(&name) {
                     continue;
@@ -568,6 +613,9 @@ impl ClaudeMapper {
         }
         if kind == "user" && !top {
             for block in message.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default() {
+                if events.failed() {
+                    break;
+                }
                 if block.get("type").and_then(Value::as_str) != Some("tool_result") {
                     continue;
                 }
@@ -579,6 +627,9 @@ impl ClaudeMapper {
         }
         if kind == "assistant" && top {
             for block in message.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default() {
+                if events.failed() {
+                    break;
+                }
                 let name = block.get("name").map(crate::text::js_string).unwrap_or_else(|| "undefined".into());
                 if block.get("type").and_then(Value::as_str) != Some("tool_use") || name == "AskUserQuestion" {
                     continue;
@@ -597,13 +648,20 @@ impl ClaudeMapper {
                 let results: Vec<&Value> =
                     content.iter().filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_result")).collect();
                 for block in &results {
+                    if events.failed() {
+                        break;
+                    }
                     let id = block.get("tool_use_id").map(crate::text::js_string).unwrap_or_default();
                     let Some(call) = self.tools.remove(&id) else { continue };
                     let structured = if results.len() == 1 { message.get("tool_use_result").filter(|v| !v.is_null()) } else { None };
                     events.push(step_completed(claude_step_result(&call, block, structured)));
                     if !truthy(message.get("isReplay")) {
                         if let Some(store) = &self.image_store {
-                            events.extend(crate::images::read_images(&call, block, store.as_ref()));
+                            if let Some(images) = images {
+                                events.extend(images.get(&id).cloned().unwrap_or_default());
+                            } else {
+                                events.extend(crate::images::read_images(&call, block, store.as_ref(), self.budget));
+                            }
                         }
                     }
                     if let Some(tasks) = self.tasks.apply_tool_result(&call, block, structured) {
@@ -619,7 +677,7 @@ impl ClaudeMapper {
             && !truthy(message.get("result"))
             && message.get("user_message_uuids").and_then(Value::as_array).is_none_or(Vec::is_empty)
         {
-            return events;
+            return events.finish();
         }
         if kind == "result" {
             let windows: Vec<u64> = message
@@ -663,7 +721,7 @@ impl ClaudeMapper {
             self.limit = None;
             self.compacting = false;
         }
-        events
+        events.finish()
     }
 }
 
