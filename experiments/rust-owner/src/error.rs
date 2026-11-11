@@ -55,6 +55,12 @@ pub enum StoreError {
     AnswerDeliveryUnknown(String),
     /// Every answer slot is taken (`ANSWERS_AT_CAPACITY`): nothing was shown or handed over.
     AnswersAtCapacity(String),
+    /// Every transcript job reservation is taken (`TRANSCRIPTS_AT_CAPACITY`): the handoff send was refused before
+    /// anything was staged, saved or shown.
+    TranscriptsAtCapacity(String),
+    /// A quit can't finish yet (`QUIT_PENDING`): transcript jobs or their cleanups are still out. Not a failure: the
+    /// locks are held; call `shutdown` again once they report back (`ChatHost::quit_state`).
+    QuitPending(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -106,6 +112,8 @@ impl StoreError {
             StoreError::Io { code, .. } => *code,
             StoreError::AnswerDeliveryUnknown(_) => Some("ANSWER_DELIVERY_UNKNOWN"),
             StoreError::AnswersAtCapacity(_) => Some("ANSWERS_AT_CAPACITY"),
+            StoreError::TranscriptsAtCapacity(_) => Some("TRANSCRIPTS_AT_CAPACITY"),
+            StoreError::QuitPending(_) => Some("QUIT_PENDING"),
             _ => None,
         }
     }
@@ -186,7 +194,9 @@ impl fmt::Display for StoreError {
             }
             StoreError::NotIsolated(message) => write!(f, "{message}"),
             StoreError::AnswerDeliveryUnknown(message) => write!(f, "{message}"),
-            StoreError::AnswersAtCapacity(message) => write!(f, "{message}"),
+            StoreError::AnswersAtCapacity(message)
+            | StoreError::TranscriptsAtCapacity(message)
+            | StoreError::QuitPending(message) => write!(f, "{message}"),
             StoreError::OwnershipLost { lock, why } => write!(
                 f,
                 "This process no longer owns the Project ({why}: {}); nothing was written.",

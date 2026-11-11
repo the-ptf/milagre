@@ -23,6 +23,9 @@ pub const MARKER: &str = "MILAGRE-ISOLATED-COPY";
 
 const MARKER_TEXT: &str = "This folder holds copies of Milagre Projects for the Rust owner experiment (experiments/rust-owner).\nThe Rust owner writes only inside folders with this file. Delete the folder when you are done.\n";
 
+/// The owner's own folder inside an isolated copy (handover transcripts); never a Project.
+pub const OWNER_DIR: &str = ".owner";
+
 /// The folders an isolated copy must stay clear of.
 #[derive(Clone, Debug, Default)]
 pub struct Policy {
@@ -193,6 +196,34 @@ impl Isolation {
         &self.root
     }
 
+    /// `<copy>/.owner/handovers`, where handover transcripts go (Node: `<dataDir>/handovers`). Made (0700) if missing;
+    /// refused when any part of it is a link or not a folder.
+    pub fn handovers(&self) -> Result<PathBuf> {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut path = self.root.clone();
+        for part in [OWNER_DIR, "handovers"] {
+            path.push(part);
+            match std::fs::symlink_metadata(&path) {
+                Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
+                    return Err(StoreError::NotIsolated(format!(
+                        "{} isn't a real folder (isolated copy {}).",
+                        path.display(),
+                        self.root.display()
+                    )))
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    std::fs::DirBuilder::new()
+                        .mode(0o700)
+                        .create(&path)
+                        .map_err(|error| StoreError::io(error, "mkdir", &path))?;
+                }
+                Err(error) => return Err(StoreError::io(error, "lstat", &path)),
+            }
+        }
+        Ok(path)
+    }
+
     /// A Project folder inside this copy, without creating anything: the path resolved lexically (`..` and `.`
     /// folded, never through the file system) must be strictly inside the root, and every part of it that exists must be
     /// a real folder (no symlink, no file). Then the Project's `.milagre` is checked: see [`Isolation::check_contents`].
@@ -261,6 +292,13 @@ impl Isolation {
             .to_path_buf();
         if relative.as_os_str().is_empty() {
             return Err(refuse("is the isolated copy itself, not a Project in it"));
+        }
+        if relative
+            .components()
+            .next()
+            .is_some_and(|first| first.as_os_str() == OWNER_DIR)
+        {
+            return Err(refuse("is the owner's own folder, not a Project"));
         }
         Ok(normal)
     }

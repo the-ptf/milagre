@@ -339,6 +339,7 @@ dependencies = [
  "milagre-owner-store",
  "regex",
  "rusqlite",
+ "rustix",
  "serde_json",
  "sha1",
  "sha2",

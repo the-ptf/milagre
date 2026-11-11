@@ -294,6 +294,11 @@ impl RootPin {
         &self.path
     }
 
+    /// The pinned device and inode.
+    pub fn identity(&self) -> (u64, u64) {
+        self.identity
+    }
+
     /// `Err(why)` when the path no longer leads to the pinned folder.
     pub fn check(&self) -> std::result::Result<(), &'static str> {
         use std::os::unix::fs::MetadataExt;

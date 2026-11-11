@@ -14,6 +14,7 @@
 //! - [`search`]: message-search.mjs and chatSearch.
 //! - [`agent_runs`]: agent-runs.mjs: runs and the agent events folded into the state (unported ones refused).
 //! - [`tool_activity`]: summarizeStep and capOutput, the facts a finished tool step keeps.
+//! - [`transcripts`]: handover transcripts written off the actor as bounded, owned jobs (pinned descriptors).
 //! - [`handover`]: handover.cjs's pure parts: the transcript, its cut and path, the framed brief and the brief text.
 //! - [`chat_host`]: chat-host.cjs sends, receipts, queue and turns, with agents behind the `Provider` trait.
 //! - [`audit`]: the read-only audit behind the `milagre-owner-store audit` command.
@@ -35,6 +36,7 @@ pub mod project;
 pub mod search;
 pub mod states;
 pub mod tool_activity;
+pub mod transcripts;
 pub mod write;
 
 pub use chat_db::{ChatDb, ChatId, LookupField, MessageRepository, Preview, Row};
