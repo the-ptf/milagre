@@ -15,8 +15,8 @@ mod store;
 use serde_json::{json, Map, Value};
 #[cfg(unix)]
 pub use service::{
-    AccountEvent, AccountService, Availability, IdentityState, Observation, PendingCreation,
-    Readiness,
+    AccountEvent, AccountService, Availability, CreationError, CreationIdentity, IdentityState,
+    Observation, PendingCreation, Readiness,
 };
 use std::{
     collections::BTreeMap,

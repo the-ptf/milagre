@@ -71,7 +71,9 @@ fn run(service: &mut AccountService, scenario: &str, id: &str) -> Result<()> {
             let ready = if let Some(id) = existing.or(pending) {
                 service.recover_creation("codex", &id)?
             } else {
-                service.create_prepared("codex", "Synthetic", Availability::Installed)?
+                service
+                    .create_prepared("codex", "Synthetic", Availability::Installed)
+                    .map_err(crate::CreationError::into_cause)?
             };
             assert_eq!(ready.pending(), ["login"]);
             Ok(())
@@ -502,4 +504,121 @@ fn authenticated_older_journal_cannot_resurrect_a_removed_creation() {
     assert!(next.recover_creation("codex", &id).is_err());
     drop(service);
     cleanup(copy, next);
+}
+
+#[test]
+fn twenty_failed_creations_can_be_identified_abandoned_or_recovered() {
+    let (copy, mut service, _) = setup("combined");
+    let stages = baseline("combined").0;
+    let point = stages.iter().position(|s| *s == "step-before").unwrap();
+    let mut ids = vec![];
+    for n in 0..20 {
+        journal::inject(Some(point), false);
+        let error = service
+            .create_prepared(
+                "codex",
+                &format!("Reservation {n}"),
+                Availability::Installed,
+            )
+            .unwrap_err();
+        journal::inject(None, false);
+        let identity = error
+            .identity()
+            .expect("failed allocation retains its typed identity");
+        assert_eq!(identity.provider, "codex");
+        ids.push(identity.id.clone());
+    }
+    assert_eq!(service.recoverable_creations().unwrap().len(), 20);
+    assert!(service.accounts().saved()["accounts"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let full = service
+        .create_prepared("codex", "Full", Availability::Installed)
+        .unwrap_err();
+    assert!(full.identity().is_none());
+    assert_eq!(full.to_string(), "You can save up to 20 accounts.");
+    // This plan has a persistent conflict. Abandon must preserve that exact file.
+    let dir = copy.path().join("accounts").join(&ids[0]);
+    fs::create_dir(&dir).unwrap();
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(dir.join("config.toml"), "unrelated conflicting content").unwrap();
+    fs::set_permissions(dir.join("config.toml"), fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(service.recover_creation("codex", &ids[0]).is_err());
+    for id in &ids[..15] {
+        service.abandon_creation("codex", id).unwrap();
+        service.abandon_creation("codex", id).unwrap();
+        assert!(service.recover_creation("codex", id).is_err());
+    }
+    assert_eq!(
+        fs::read_to_string(dir.join("config.toml")).unwrap(),
+        "unrelated conflicting content"
+    );
+    for id in &ids[15..] {
+        service.recover_creation("codex", id).unwrap();
+        assert!(service.abandon_creation("codex", id).is_err());
+    }
+    assert!(service.recoverable_creations().unwrap().is_empty());
+    service
+        .create_prepared("codex", "New", Availability::Installed)
+        .unwrap();
+    assert_eq!(
+        service.accounts().saved()["accounts"]
+            .as_array()
+            .unwrap()
+            .len(),
+        6
+    );
+    service.close();
+    let mut next = copy.open().unwrap();
+    for id in &ids[..15] {
+        assert!(next.recover_creation("codex", id).is_err());
+    }
+    assert_eq!(
+        fs::read_to_string(dir.join("config.toml")).unwrap(),
+        "unrelated conflicting content"
+    );
+    drop(service);
+    cleanup(copy, next);
+}
+#[test]
+fn failure_identity_covers_ambiguous_publication_without_claiming_a_plan_exists() {
+    let stages = baseline("combined").0;
+    for stage in ["journal-before-temp", "metadata-renamed"] {
+        let (copy, mut service, _) = setup("combined");
+        journal::inject(
+            Some(stages.iter().position(|s| *s == stage).unwrap()),
+            false,
+        );
+        let error = service
+            .create_prepared("codex", "Synthetic", Availability::Installed)
+            .unwrap_err();
+        journal::inject(None, false);
+        let identity = error.identity().unwrap().clone();
+        service.close();
+        let mut next = copy.open().unwrap();
+        if stage == "journal-before-temp" {
+            assert!(next.recoverable_creations().unwrap().is_empty());
+            assert!(next
+                .abandon_creation(&identity.provider, &identity.id)
+                .is_err());
+            next.create_prepared("codex", "Retry", Availability::Installed)
+                .unwrap();
+        } else {
+            assert!(next
+                .abandon_creation(&identity.provider, &identity.id)
+                .is_err());
+            next.recover_creation(&identity.provider, &identity.id)
+                .unwrap();
+            assert_eq!(
+                next.accounts().saved()["accounts"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+        }
+        drop(service);
+        cleanup(copy, next);
+    }
 }

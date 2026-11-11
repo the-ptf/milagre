@@ -874,6 +874,13 @@ impl Writer {
         let mut entry = self
             .entry(key)?
             .ok_or(AccountError("No isolated preparation plan exists."))?;
+        if entry
+            .creation
+            .as_ref()
+            .is_some_and(|c| c.publication == journal::Publication::Removed)
+        {
+            return Err(AccountError(crate::MISSING_ACCOUNT));
+        }
         if entry.complete {
             return Ok(());
         }

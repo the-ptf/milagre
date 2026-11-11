@@ -317,3 +317,24 @@ pipe. Production has no process-restart admission API: recovery requires the ori
 capability to remain available, for example in a supervising owner. Restarting the whole owner
 without that capability, machine power loss, Windows, real profile adoption, credentials and
 login remain unimplemented or unverified. This is still an isolated migration checkpoint.
+
+### Failed creation identities and abandonment
+
+`create_prepared` now returns `Result<PendingCreation, CreationError>`. `CreationError::identity()`
+contains a typed `CreationIdentity { provider, id }` once an ID was allocated. Validation failures
+before allocation return `None`. An allocated ID is not proof that the first journal commit
+reached disk: close/reopen after I/O errors, inspect `recoverable_creations`, then call
+`recover_creation` for that exact identity. Do not repeatedly call `create_prepared` to retry the
+same pending creation. The cause remains a static `AccountError`; discarding the recovery identity
+requires the explicit `into_cause()` method.
+
+`abandon_creation(provider, id)` retires an unpublished reservation with an authenticated Removed
+record and frees its account slot. It is idempotent and retains every profile/unknown file.
+Recovery and plan replay refuse abandoned entries. If metadata is already visible, including the
+metadata-rename/journal-ack window, abandonment refuses and directs the caller to `remove`.
+
+The new regression injects 20 failed creations, checks their returned identities and the full
+reservation limit, abandons 15 (one has a persistent conflicting config), recovers five, then adds
+another account. Reopening still refuses abandoned plans, and the conflicting file is unchanged.
+A second regression covers an identity allocated before any journal commit and one returned after
+an ambiguous metadata rename. These add two tests to the preceding 32-test checkpoint.

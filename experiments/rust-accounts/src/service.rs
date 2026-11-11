@@ -87,6 +87,41 @@ impl PendingCreation {
         self.preparation
     }
 }
+/// Allocated identity to inspect after a failed create_prepared call. It is not a readiness proof.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreationIdentity {
+    pub provider: String,
+    pub id: String,
+}
+#[derive(Debug, Clone)]
+pub struct CreationError {
+    cause: AccountError,
+    identity: Option<CreationIdentity>,
+}
+impl CreationError {
+    /// Reopen after I/O errors and look this identity up in recoverable_creations. A failure
+    /// before the journal commit can return an allocated identity with no durable plan yet.
+    pub fn identity(&self) -> Option<&CreationIdentity> {
+        self.identity.as_ref()
+    }
+    pub fn cause(&self) -> &AccountError {
+        &self.cause
+    }
+    /// Explicitly discard the recovery identity only when the caller already retained it.
+    pub fn into_cause(self) -> AccountError {
+        self.cause
+    }
+}
+impl std::fmt::Display for CreationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.cause.fmt(f)
+    }
+}
+impl std::error::Error for CreationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.cause)
+    }
+}
 pub struct AccountService {
     writer: Option<Writer>,
     accounts: Accounts,
@@ -330,16 +365,60 @@ impl AccountService {
         provider: &str,
         label: &str,
         availability: Availability,
-    ) -> Result<PendingCreation> {
-        let account = self.new_account(provider, label, availability)?;
+    ) -> std::result::Result<PendingCreation, CreationError> {
+        let account = self
+            .new_account(provider, label, availability)
+            .map_err(|cause| CreationError {
+                cause,
+                identity: None,
+            })?;
         let id = account["id"]
             .as_str()
-            .ok_or(AccountError(crate::READ_ERROR))?;
-        self.writer
-            .as_ref()
-            .ok_or(AccountError(CLOSED))?
-            .prepare_profile_creation(provider, id, Some(&account))?;
-        self.publish_creation(provider, id)
+            .expect("new_account returns a validated id");
+        let identity = CreationIdentity {
+            provider: provider.into(),
+            id: id.into(),
+        };
+        let result = (|| {
+            self.writer
+                .as_ref()
+                .ok_or(AccountError(CLOSED))?
+                .prepare_profile_creation(provider, id, Some(&account))?;
+            self.publish_creation(provider, id)
+        })();
+        result.map_err(|cause| CreationError {
+            cause,
+            identity: Some(identity),
+        })
+    }
+    /// Retire only an unpublished reservation. Keep its files and authenticated tombstone.
+    /// A visible account must use remove, including a metadata-write/ack crash window.
+    pub fn abandon_creation(&mut self, provider: &str, id: &str) -> Result<()> {
+        self.active()?;
+        crate::provider_check(provider)?;
+        if self.accounts.saved()["accounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["id"] == id)
+        {
+            return Err(AccountError(
+                "Use remove for an account whose metadata is already published.",
+            ));
+        }
+        let key = format!("profile:{provider}:{id}");
+        let writer = self.writer.as_ref().ok_or(AccountError(CLOSED))?;
+        let entry = writer
+            .entry(&key)?
+            .ok_or(AccountError(crate::MISSING_ACCOUNT))?;
+        let creation = entry.creation.ok_or(AccountError(crate::MISSING_ACCOUNT))?;
+        match creation.publication {
+            crate::journal::Publication::Removed => Ok(()),
+            crate::journal::Publication::Published => Err(AccountError(
+                "Use remove for an account whose metadata is already published.",
+            )),
+            crate::journal::Publication::Pending => writer.forget_creation(&key),
+        }
     }
     /// A pending journal publication is distinct from a signed-in or selected account.
     pub fn recoverable_creations(&self) -> Result<Vec<crate::RecoverableCreation>> {
