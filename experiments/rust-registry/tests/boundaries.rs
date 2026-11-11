@@ -302,3 +302,30 @@ async fn source_aliases_normalize_but_missing_link_ids_never_mint_a_grant() {
     let source = snapshot.project(&a).await.unwrap();
     assert!(snapshot.reachable(&source, &a).await.is_err());
 }
+
+#[tokio::test]
+async fn definitely_mismatched_link_target_does_not_hide_an_unrelated_valid_edge() {
+    let (temp, _, registry, _) = fixture();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let a = root.join("a");
+    let b = root.join("b");
+    let replaced = root.join("replaced");
+    let old_id = root.join("old-project-id");
+    for path in [&a, &b, &replaced] {
+        std::fs::create_dir(path).unwrap();
+    }
+    save(
+        &root,
+        json!({"projects":[{"id":a,"path":a},{"id":b,"path":b},{"id":old_id,"path":replaced}],"links":[
+            {"id":"valid","a":{"project_id":a},"b":{"project_id":b}},
+            {"id":"changed-target","a":{"project_id":a},"b":{"project_id":old_id}}
+        ]}),
+    );
+    let snapshot = registry.snapshot().unwrap();
+    let source = snapshot.project(&a).await.unwrap();
+    let linked = snapshot.reachable(&source, &a).await.unwrap();
+    assert_eq!(linked.len(), 1);
+    assert_eq!(linked[0].worktree(), b);
+    assert_eq!(linked[0].link_ids(), ["valid"]);
+    linked[0].check().await.unwrap();
+}

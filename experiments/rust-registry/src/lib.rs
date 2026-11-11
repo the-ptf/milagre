@@ -18,6 +18,20 @@ pub type Result<T> = std::result::Result<T, String>;
 pub type Active = Arc<dyn Fn() -> Result<()> + Send + Sync>;
 const MAX_FILE: u64 = 4 * 1024 * 1024;
 const MAX_ENTRIES: usize = 4096;
+/// Inspection evidence, never a filesystem grant. Errors are unverifiable and
+/// must not be treated as either absence or outside-copy metadata.
+#[derive(Clone, Debug)]
+pub enum Probe {
+    Present(Identity),
+    Gone,
+    Outside,
+}
+enum RecordProbe {
+    Present(Identity),
+    Gone,
+    Outside,
+    Mismatch,
+}
 #[derive(Clone)]
 pub struct Registry {
     isolation: Isolation,
@@ -251,6 +265,98 @@ impl Registry {
         self.check()?;
         Ok(json!(result))
     }
+    /// Scope classification does not inspect the contents of an outside path.
+    fn outside(&self, requested: &Path) -> Result<bool> {
+        self.check()?;
+        if !requested.is_absolute() {
+            return Err("An absolute registry path is required.".into());
+        }
+        let lexical_path = lexical(requested);
+        let scoped_path = if !lexical_path.starts_with(self.isolation.root())
+            || lexical_path == self.isolation.root()
+        {
+            // macOS /var and /private/var can name the same copied directory.
+            // Resolve metadata only; an outside target's contents are never probed.
+            match std::fs::canonicalize(requested) {
+                Ok(actual)
+                    if actual.starts_with(self.isolation.root())
+                        && actual != self.isolation.root() =>
+                {
+                    actual
+                }
+                _ => return Ok(true),
+            }
+        } else {
+            requested.to_owned()
+        };
+        let mut current = self.isolation.root().to_owned();
+        for part in scoped_path
+            .strip_prefix(self.isolation.root())
+            .map_err(|_| "Path spelling is outside the isolated registry capability.")?
+            .components()
+        {
+            current.push(part);
+            match std::fs::symlink_metadata(&current) {
+                Ok(meta) if meta.file_type().is_symlink() => {
+                    let target = std::fs::read_link(&current).map_err(error)?;
+                    let target = lexical(&current.parent().unwrap().join(target));
+                    if !target.starts_with(self.isolation.root()) || target == self.isolation.root()
+                    {
+                        return Ok(true);
+                    }
+                    let actual = std::fs::canonicalize(&current).map_err(error)?;
+                    if !actual.starts_with(self.isolation.root()) || actual == self.isolation.root()
+                    {
+                        return Ok(true);
+                    }
+                }
+                Ok(_) => {
+                    if part == std::path::Component::ParentDir {
+                        let actual = std::fs::canonicalize(&current).map_err(error)?;
+                        if !actual.starts_with(self.isolation.root()) {
+                            return Ok(true);
+                        }
+                    }
+                }
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::NotFound
+                        || e.kind() == std::io::ErrorKind::NotADirectory =>
+                {
+                    break
+                }
+                Err(e) => return Err(error(e)),
+            }
+        }
+        Ok(false)
+    }
+    fn entry_outside(&self, entry: &Value) -> Result<bool> {
+        Ok(self.outside(Path::new(
+            entry["id"].as_str().ok_or("Invalid saved Project id.")?,
+        ))? || self.outside(Path::new(
+            entry["path"]
+                .as_str()
+                .ok_or("Invalid saved Project path.")?,
+        ))?)
+    }
+    async fn inspect_saved(&self, entry: &Value) -> Result<RecordProbe> {
+        if self.entry_outside(entry)? {
+            return Ok(RecordProbe::Outside);
+        }
+        match self
+            .probe(Path::new(entry["path"].as_str().unwrap()))
+            .await?
+        {
+            Probe::Present(identity)
+                if identity.value["id"] == entry["id"]
+                    && identity.value["path"] == entry["path"] =>
+            {
+                Ok(RecordProbe::Present(identity))
+            }
+            Probe::Present(_) => Ok(RecordProbe::Mismatch),
+            Probe::Gone => Ok(RecordProbe::Gone),
+            Probe::Outside => Ok(RecordProbe::Outside),
+        }
+    }
     /// Only a missing component under the isolated root, with no preceding
     /// symlink or I/O failure, counts as absence. All uncertain probes are errors.
     fn definitely_gone(&self, requested: &Path) -> Result<bool> {
@@ -276,14 +382,27 @@ impl Registry {
         }
         Ok(false)
     }
-    /// Three-way inspection: Some(identity) is present, None is definitely gone,
-    /// and Err is unverifiable. Callers must never prune an Err.
-    pub async fn probe(&self, requested: impl AsRef<Path>) -> Result<Option<Identity>> {
+    /// Present, definitely gone or outside this copy. Err is unverifiable and
+    /// must abort mutation cleanup. Outside rows must be retained, never granted.
+    pub async fn probe(&self, requested: impl AsRef<Path>) -> Result<Probe> {
         let path = requested.as_ref();
-        if self.definitely_gone(path)? {
-            return Ok(None);
+        if self.outside(path)? {
+            return Ok(Probe::Outside);
         }
-        self.identify(path).await.map(Some)
+        let canonical = match std::fs::canonicalize(path) {
+            Ok(canonical) => canonical,
+            Err(e)
+                if e.kind() == std::io::ErrorKind::NotFound
+                    || e.kind() == std::io::ErrorKind::NotADirectory =>
+            {
+                path.to_owned()
+            }
+            Err(e) => return Err(error(e)),
+        };
+        if self.definitely_gone(&canonical)? {
+            return Ok(Probe::Gone);
+        }
+        self.identify(&canonical).await.map(Probe::Present)
     }
     pub async fn identify(&self, path: impl AsRef<Path>) -> Result<Identity> {
         let permit = self
@@ -318,7 +437,13 @@ impl Snapshot {
     /// Resolve a canonical registry identity, never granting an arbitrary descendant.
     pub async fn project(&self, requested: impl AsRef<Path>) -> Result<ProjectGrant> {
         self.check()?;
-        let identity = self.registry.identify(requested.as_ref()).await?;
+        let identity = match self.registry.probe(requested.as_ref()).await? {
+            Probe::Present(identity) => identity,
+            Probe::Gone => return Err("Project folder is unavailable.".into()),
+            Probe::Outside => {
+                return Err("Project is outside the isolated registry capability.".into())
+            }
+        };
         if !self.data["projects"]
             .as_array()
             .unwrap()
@@ -351,14 +476,13 @@ impl Snapshot {
                 .iter()
                 .find(|entry| entry["id"] == *id);
             let grant = match entry {
-                Some(entry) => {
-                    let path = entry["path"].as_str().unwrap();
-                    if self.registry.definitely_gone(Path::new(path))? {
-                        None
-                    } else {
-                        Some(self.project(path).await?)
-                    }
-                }
+                Some(entry) => match self.registry.inspect_saved(entry).await? {
+                    RecordProbe::Present(identity) => Some(ProjectGrant {
+                        snapshot: self.clone(),
+                        identity,
+                    }),
+                    RecordProbe::Gone | RecordProbe::Outside | RecordProbe::Mismatch => None,
+                },
                 None => None,
             };
             if let Some(grant) = grant {
@@ -498,6 +622,18 @@ impl Snapshot {
         source: &ProjectGrant,
         worktree: &Path,
     ) -> Result<Vec<LinkedGrant>> {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            self.reachable_inner(source, worktree),
+        )
+        .await
+        .map_err(|_| "Linked scope discovery timed out; retry with a fresh snapshot.".to_string())?
+    }
+    async fn reachable_inner(
+        &self,
+        source: &ProjectGrant,
+        worktree: &Path,
+    ) -> Result<Vec<LinkedGrant>> {
         self.check()?;
         if source.snapshot.fingerprint != self.fingerprint
             || source.snapshot.registry.profile != self.registry.profile
@@ -509,7 +645,7 @@ impl Snapshot {
         }
         let worktree = self.registry.contained(worktree)?;
         let source_id = source.identity()["id"].as_str().unwrap();
-        let mut relevant = self.data["links"]
+        let relevant = self.data["links"]
             .as_array()
             .unwrap()
             .iter()
@@ -518,19 +654,33 @@ impl Snapshot {
             })
             .cloned()
             .collect::<Vec<_>>();
-        for link in &mut relevant {
-            if !link["id"].as_str().is_some_and(|id| !id.is_empty()) {
-                return Err("Saved canvas Link has no valid id.".into());
-            }
+        let mut scoped = Vec::new();
+        for mut link in relevant {
+            let mut outside = false;
             for side in ["a", "b"] {
+                if let Some(id) = link[side]["project_id"].as_str() {
+                    if self.registry.outside(Path::new(id))? {
+                        outside = true;
+                    }
+                }
                 if let Some(path) = link[side]["worktree_path"].as_str() {
-                    if !self.registry.definitely_gone(Path::new(path))? {
+                    if self.registry.outside(Path::new(path))? {
+                        outside = true;
+                    } else if !self.registry.definitely_gone(Path::new(path))? {
                         link[side]["worktree_path"] =
                             json!(self.registry.contained(Path::new(path))?);
                     }
                 }
             }
+            if outside {
+                continue;
+            }
+            if !link["id"].as_str().is_some_and(|id| !id.is_empty()) {
+                return Err("Saved canvas Link has no valid id.".into());
+            }
+            scoped.push(link);
         }
+        let relevant = scoped;
         let mut ids = BTreeSet::from([source_id.to_owned()]);
         for link in &relevant {
             for endpoint in [&link["a"], &link["b"]] {
@@ -551,11 +701,13 @@ impl Snapshot {
                 .iter()
                 .find(|entry| entry["id"] == id);
             let Some(entry) = entry else { continue };
-            let path = entry["path"].as_str().unwrap();
-            if self.registry.definitely_gone(Path::new(path))? {
-                continue;
-            }
-            let grant = self.project(path).await?;
+            let grant = match self.registry.inspect_saved(entry).await? {
+                RecordProbe::Present(identity) => ProjectGrant {
+                    snapshot: self.clone(),
+                    identity,
+                },
+                RecordProbe::Gone | RecordProbe::Outside | RecordProbe::Mismatch => continue,
+            };
             active[&id] = json!(grant
                 .worktrees()
                 .iter()

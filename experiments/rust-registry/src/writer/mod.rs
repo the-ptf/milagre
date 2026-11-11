@@ -138,19 +138,18 @@ impl Writer {
         let mut data = previous.clone();
         let mut retained = Vec::new();
         for entry in previous["projects"].as_array().unwrap() {
-            if let Some(identity) = self
+            match self
                 .registry
-                .probe(entry["path"].as_str().unwrap())
+                .inspect_saved(entry)
                 .await
                 .map_err(WriteError::refused)?
             {
-                if identity.value["id"] == entry["id"] && identity.value["path"] == entry["path"] {
-                    retained.push(entry.clone());
-                }
+                RecordProbe::Present(_) | RecordProbe::Outside => retained.push(entry.clone()),
+                RecordProbe::Gone | RecordProbe::Mismatch => (),
             }
         }
         data["projects"] = json!(retained);
-        prune_absent(&mut data);
+        self.prune_absent(&mut data)?;
         let result = self.change(method, args, &mut data).await?;
         self.store.verify()?;
         if jsjson::to_string(&data) != jsjson::to_string(&previous) {
@@ -194,28 +193,47 @@ impl Writer {
         first["openedAt"] = json!((self.now)());
         let mut next = vec![first];
         for entry in rows {
+            if self
+                .registry
+                .entry_outside(entry)
+                .map_err(WriteError::refused)?
+            {
+                if entry["id"] == identity["id"] {
+                    return Err(WriteError::refused(
+                        "Project id conflicts with preserved outside-copy metadata.",
+                    ));
+                }
+                next.push(entry.clone());
+                continue;
+            }
             if entry["id"] == identity["id"] || entry["path"] == identity["path"] {
                 continue;
             }
             let path = Path::new(entry["path"].as_str().unwrap());
             let id = Path::new(entry["id"].as_str().unwrap());
-            if self
+            match self
                 .registry
                 .probe(path)
                 .await
                 .map_err(WriteError::refused)?
-                .is_some()
-                && (id == path
-                    || !self
-                        .registry
-                        .definitely_gone(id)
-                        .map_err(WriteError::refused)?)
             {
-                next.push(entry.clone());
+                Probe::Outside => next.push(entry.clone()),
+                Probe::Present(_) => {
+                    if id == path
+                        || self.registry.outside(id).map_err(WriteError::refused)?
+                        || !self
+                            .registry
+                            .definitely_gone(id)
+                            .map_err(WriteError::refused)?
+                    {
+                        next.push(entry.clone());
+                    }
+                }
+                Probe::Gone => (),
             }
         }
         data["projects"] = json!(next);
-        prune_absent(&mut data);
+        self.prune_absent(&mut data)?;
         self.save("project-registry.json", bytes.as_deref(), &data)?;
         Ok(data["projects"].clone())
     }
@@ -282,17 +300,6 @@ impl Writer {
         Ok(result)
     }
 }
-fn prune_absent(data: &mut Value) {
-    let ids = data["projects"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|p| p["id"].clone())
-        .collect::<Vec<_>>();
-    data["links"].as_array_mut().unwrap().retain(|link| {
-        ids.contains(&link["a"]["project_id"]) && ids.contains(&link["b"]["project_id"])
-    });
-}
 fn pretty(value: &Value) -> String {
     let compact = jsjson::to_string(value);
     let chars = compact.chars().collect::<Vec<_>>();
@@ -345,9 +352,9 @@ impl Writer {
     async fn active_worktrees(&self, data: &Value) -> WResult<Value> {
         let mut active = json!({});
         for project in data["projects"].as_array().unwrap() {
-            if let Some(identity) = self
+            if let RecordProbe::Present(identity) = self
                 .registry
-                .probe(project["path"].as_str().unwrap())
+                .inspect_saved(project)
                 .await
                 .map_err(WriteError::refused)?
             {
@@ -368,6 +375,74 @@ impl Writer {
             Err(WriteError::refused("Owner generated an invalid Link id."))
         }
     }
+    fn prune_absent(&self, data: &mut Value) -> WResult<()> {
+        let ids = data["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["id"].clone())
+            .collect::<Vec<_>>();
+        let mut kept = Vec::new();
+        for link in data["links"].as_array().unwrap() {
+            if self.edge_outside(link, data)?
+                || (ids.contains(&link["a"]["project_id"])
+                    && ids.contains(&link["b"]["project_id"]))
+            {
+                kept.push(link.clone());
+            }
+        }
+        data["links"] = json!(kept);
+        Ok(())
+    }
+    fn admitted_projects(&self, data: &Value) -> WResult<Vec<Value>> {
+        data["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|project| match self.registry.entry_outside(project) {
+                Ok(false) => Some(Ok(project.clone())),
+                Ok(true) => None,
+                Err(error) => Some(Err(WriteError::refused(error))),
+            })
+            .collect()
+    }
+    fn edge_outside(&self, link: &Value, data: &Value) -> WResult<bool> {
+        for side in ["a", "b"] {
+            if let Some(id) = link[side]["project_id"].as_str() {
+                if self
+                    .registry
+                    .outside(Path::new(id))
+                    .map_err(WriteError::refused)?
+                {
+                    return Ok(true);
+                }
+                if let Some(project) = data["projects"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|p| p["id"] == id)
+                {
+                    if self
+                        .registry
+                        .entry_outside(project)
+                        .map_err(WriteError::refused)?
+                    {
+                        return Ok(true);
+                    }
+                }
+            }
+            if let Some(path) = link[side]["worktree_path"].as_str() {
+                if self
+                    .registry
+                    .outside(Path::new(path))
+                    .map_err(WriteError::refused)?
+                {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
     async fn change(&self, method: &str, args: &Value, data: &mut Value) -> WResult<Option<Value>> {
         match method {
             "position" => {
@@ -381,6 +456,15 @@ impl Writer {
                     .iter_mut()
                     .find(|p| p["id"] == args["id"])
                     .ok_or_else(|| WriteError::refused("Project is not in the registry."))?;
+                if self
+                    .registry
+                    .entry_outside(row)
+                    .map_err(WriteError::refused)?
+                {
+                    return Err(WriteError::refused(
+                        "Project is outside the isolated registry capability.",
+                    ));
+                }
                 row["position"] = json!({"x":position["x"],"y":position["y"]});
             }
             "worktree-position" => {
@@ -438,7 +522,9 @@ impl Writer {
                 } else {
                     None
                 };
-                let member = membership(data, args, previous_index)?;
+                let mut membership_data = data.clone();
+                membership_data["projects"] = json!(self.admitted_projects(data)?);
+                let member = membership(&membership_data, args, previous_index)?;
                 let result = if let Some(mut previous) = previous {
                     for (key, value) in member.as_object().unwrap() {
                         previous[key] = value.clone();
@@ -494,7 +580,7 @@ impl Writer {
                 {
                     return Err(WriteError::refused("That Link is no longer valid."));
                 }
-                if !links::can_link(a, b, data["projects"].as_array().unwrap(), &active) {
+                if !links::can_link(a, b, &self.admitted_projects(data)?, &active) {
                     return Err(WriteError::refused("These endpoints cannot be linked."));
                 }
                 let same = |x: &Value, y: &Value| {
@@ -531,11 +617,50 @@ impl Writer {
             }
             "link:prune" => {
                 let active = self.active_worktrees(data).await?;
-                let kept = links::prune(
-                    data["links"].as_array().unwrap(),
-                    data["projects"].as_array().unwrap(),
-                    &active,
-                );
+                let admitted = self.admitted_projects(data)?;
+                let mut kept = Vec::new();
+                for link in data["links"].as_array().unwrap() {
+                    if self.edge_outside(link, data)?
+                        || links::can_link(&link["a"], &link["b"], &admitted, &active)
+                    {
+                        kept.push(link.clone());
+                    }
+                }
+                let mut preserved_positions = std::collections::BTreeSet::new();
+                let mut preserved_paths =
+                    std::collections::BTreeMap::<String, std::collections::BTreeSet<String>>::new();
+                if let Some(positions) = data["worktreePositions"].as_object() {
+                    for (id, entries) in positions {
+                        if let Some(entries) = entries.as_object() {
+                            for path in entries.keys().filter(|path| Path::new(path).is_absolute())
+                            {
+                                if self
+                                    .registry
+                                    .outside(Path::new(path))
+                                    .map_err(WriteError::refused)?
+                                {
+                                    preserved_paths
+                                        .entry(id.clone())
+                                        .or_default()
+                                        .insert(path.clone());
+                                }
+                            }
+                        }
+                        if Path::new(id).is_absolute()
+                            && self
+                                .registry
+                                .outside(Path::new(id))
+                                .map_err(WriteError::refused)?
+                            || data["projects"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .any(|project| project["id"] == *id && !admitted.contains(project))
+                        {
+                            preserved_positions.insert(id.clone());
+                        }
+                    }
+                }
                 let removed = data["links"]
                     .as_array()
                     .unwrap()
@@ -546,11 +671,19 @@ impl Writer {
                 data["links"] = json!(kept);
                 if let Some(positions) = data["worktreePositions"].as_object_mut() {
                     positions.retain(|id, positions| {
+                        if preserved_positions.contains(id) {
+                            return true;
+                        }
                         let Some(paths) = active[id].as_array() else {
                             return false;
                         };
                         if let Some(positions) = positions.as_object_mut() {
-                            positions.retain(|path, _| paths.contains(&json!(path)));
+                            positions.retain(|path, _| {
+                                paths.contains(&json!(path))
+                                    || preserved_paths
+                                        .get(id)
+                                        .is_some_and(|saved| saved.contains(path))
+                            });
                         }
                         true
                     });

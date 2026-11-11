@@ -547,3 +547,115 @@ async fn unverifiable_git_project_aborts_cleanup_instead_of_pruning_saved_state(
     assert!(error.message.contains("includes"));
     assert_eq!(before, bytes(copy.path(), "project-registry.json"));
 }
+
+#[tokio::test]
+async fn outside_seed_rows_survive_admitted_mutations_without_becoming_grants() {
+    use milagre_registry::Probe;
+    let temp = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(temp.path(), &Policy::default()).unwrap();
+    let a = isolation.root().join("a");
+    let b = isolation.root().join("b");
+    let weird_id = isolation.root().join("inside-id-outside-path");
+    std::fs::create_dir(&a).unwrap();
+    std::fs::create_dir(&b).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let foreign = std::fs::canonicalize(outside.path()).unwrap();
+    std::fs::write(foreign.join("sentinel"), "not inspected or changed").unwrap();
+    let alien = json!({"id":foreign,"path":foreign,"name":"Original machine","git":false,"position":{"x":13,"y":21},"unknown":{"keep":[1,2]}});
+    let weird = json!({"id":weird_id,"path":foreign,"name":"Outside path only","unknown":true});
+    let absent_foreign = json!({"id":foreign.join("unavailable"),"path":foreign.join("unavailable"),"unknown":"still outside, not gone"});
+    let edge = json!({"id":"outside-edge","a":{"project_id":a},"b":{"project_id":foreign},"unknown":"keep"});
+    let outside_worktree_edge = json!({"id":"outside-worktree","a":{"project_id":a},"b":{"project_id":b,"worktree_path":foreign}});
+    let allowed_group = "00000000-0000-0000-0000-000000000001";
+    let outside_group = "00000000-0000-0000-0000-000000000002";
+    let seed = json!({"scanned":true,"projects":[alien,weird,absent_foreign,{"id":a,"path":a,"name":"a","git":false}],"links":[edge,outside_worktree_edge],"projectGroups":[{"id":allowed_group,"name":"Inside","projectIds":[a,b]},{"id":outside_group,"name":"Outside","projectIds":[a,foreign]}],"worktreePositions":{foreign.to_str().unwrap():{foreign.to_str().unwrap():{"x":7,"y":9}},a.to_str().unwrap():{foreign.to_str().unwrap():{"x":5,"y":6}}}});
+    let copy = RegistryCopy::create(
+        isolation,
+        Seeds {
+            registry: Some(seed.to_string().into_bytes()),
+            recent: None,
+        },
+    )
+    .unwrap();
+    let reader = copy.reader(Arc::new(|| Ok(()))).unwrap();
+    assert!(matches!(
+        reader.probe(&foreign).await.unwrap(),
+        Probe::Outside
+    ));
+    let mut writer = copy
+        .writer(Arc::new(|| Ok(())), clock(Arc::new(AtomicUsize::new(0))))
+        .unwrap();
+    for (method, args) in [
+        ("register", json!({"path":b})),
+        ("position", json!({"id":a,"position":{"x":3,"y":4}})),
+        ("link:prune", json!({})),
+        (
+            "link:add",
+            json!({"a":{"project_id":a},"b":{"project_id":b}}),
+        ),
+    ] {
+        writer.call(method, &args).await.unwrap();
+        let saved = jsjson::parse(&bytes(copy.path(), "project-registry.json").unwrap()).unwrap();
+        assert!(saved["projects"].as_array().unwrap().contains(&alien));
+        assert!(saved["projects"].as_array().unwrap().contains(&weird));
+        assert!(saved["projects"]
+            .as_array()
+            .unwrap()
+            .contains(&absent_foreign));
+        assert_eq!(
+            saved["worktreePositions"][a.to_str().unwrap()][foreign.to_str().unwrap()],
+            seed["worktreePositions"][a.to_str().unwrap()][foreign.to_str().unwrap()]
+        );
+        assert!(saved["links"].as_array().unwrap().contains(&edge));
+        assert!(saved["links"]
+            .as_array()
+            .unwrap()
+            .contains(&outside_worktree_edge));
+        assert_eq!(
+            saved["worktreePositions"][foreign.to_str().unwrap()],
+            seed["worktreePositions"][foreign.to_str().unwrap()]
+        );
+    }
+    let before = bytes(copy.path(), "project-registry.json");
+    for (method, args) in [
+        ("register", json!({"path":foreign})),
+        ("position", json!({"id":foreign,"position":{"x":0,"y":0}})),
+        ("position", json!({"id":weird_id,"position":{"x":0,"y":0}})),
+        (
+            "link:add",
+            json!({"a":{"project_id":a},"b":{"project_id":foreign}}),
+        ),
+        (
+            "group:create",
+            json!({"name":"Cannot grant","projectIds":[a,foreign]}),
+        ),
+    ] {
+        assert!(writer.call(method, &args).await.is_err());
+        assert_eq!(bytes(copy.path(), "project-registry.json"), before);
+    }
+    let snapshot = reader.snapshot().unwrap();
+    assert!(snapshot.project(&foreign).await.is_err());
+    assert!(snapshot
+        .link(outside_group)
+        .await
+        .err()
+        .unwrap()
+        .contains("unavailable"));
+    snapshot
+        .link(allowed_group)
+        .await
+        .unwrap()
+        .check()
+        .await
+        .unwrap();
+    let grant = snapshot.project(&a).await.unwrap();
+    let linked = snapshot.reachable(&grant, &a).await.unwrap();
+    assert_eq!(linked.len(), 1);
+    assert_eq!(linked[0].worktree(), b);
+    linked[0].check().await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(foreign.join("sentinel")).unwrap(),
+        "not inspected or changed"
+    );
+    assert_eq!(std::fs::read_dir(&foreign).unwrap().count(), 1);
+}
