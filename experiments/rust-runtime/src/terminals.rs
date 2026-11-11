@@ -165,12 +165,6 @@ impl TerminalService {
             })
     }
     pub fn invoke_ports(&self, method: &str, args: &[Value]) -> RpcResult {
-        if method == "agent:stop-port" {
-            return Err(RpcError::new(
-                "UNSUPPORTED_SERVICE",
-                "Port stops remain disabled until the Rust port ownership review is resolved",
-            ));
-        }
         let ports = self.ports.as_ref().ok_or_else(|| {
             RpcError::new(
                 "UNSUPPORTED_SERVICE",

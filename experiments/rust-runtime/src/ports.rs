@@ -9,7 +9,7 @@ use std::{
 /// Revalidate signal targets against the current private shell trees, independent of the watcher's cached listing.
 /// The ps sample is read-only; it never admits another application's roots, a terminal shell, or a mixed group.
 pub fn scoped_signal(terminals: &Terminals, target: i64, signal: Signal) -> bool {
-    if target == 0 || target == i64::MIN {
+    if (-1..=1).contains(&target) || target == i64::MIN {
         return false;
     }
     let shells: HashSet<i64> = terminals
@@ -38,6 +38,9 @@ pub fn scoped_signal(terminals: &Terminals, target: i64, signal: Signal) -> bool
     system_kill(target, signal)
 }
 fn allowed_target(rows: &[ProcessRow], shells: &HashSet<i64>, target: i64) -> bool {
+    if (-1..=1).contains(&target) || target == i64::MIN {
+        return false;
+    }
     let by_pid: HashMap<i64, &ProcessRow> = rows.iter().map(|row| (row.pid, row)).collect();
     let descendant = |pid: i64| {
         if shells.contains(&pid) {
@@ -75,7 +78,7 @@ mod tests {
         let shells = HashSet::from([100]);
         assert!(allowed_target(&rows, &shells, 101));
         assert!(allowed_target(&rows, &shells, 103));
-        for target in [100, 200, -100, -102, -200, 999] {
+        for target in [-1, 0, 1, i64::MIN, 100, 200, -100, -102, -200, 999] {
             assert!(!allowed_target(&rows, &shells, target));
         }
         let rows = rows

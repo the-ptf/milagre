@@ -99,8 +99,12 @@ async function run() {
     [chatId, shellPid],
     [`${project}#2`, listenerPid],
     [chatId, "bad"],
+    [chatId, 0],
+    [chatId, 1],
+    [chatId, -1],
+    [chatId, -shellPid],
   ]) {
-    await assert.rejects(runtime.invoke("agent:stop-port", request), { code: "UNSUPPORTED_SERVICE" });
+    assert.equal(await runtime.invoke("agent:stop-port", request), false);
   }
   process.kill(listenerPid, 0);
   process.kill(shellPid, 0);
@@ -118,9 +122,8 @@ async function run() {
   assert.deepEqual((await runtime.invoke("chat:ports", [chatId])).ports, ports.ports);
   const snapshot = await client.call("daemon:snapshot");
   assert.deepEqual(snapshot.ports, all);
-  stage = "owned terminal ends its listener while port stops remain gated";
-  await assert.rejects(runtime.invoke("agent:stop-port", [chatId, listenerPid]), { code: "UNSUPPORTED_SERVICE" });
-  await runtime.invoke("terminal:input", [{ terminalId: terminal.id, data: 'kill "$fixture_listener"\n' }]);
+  stage = "reviewed port stop ends its owned listener while preserving the terminal shell";
+  assert.equal(await runtime.invoke("agent:stop-port", [chatId, listenerPid]), true);
   await until("listener process ended", () => {
     try {
       process.kill(listenerPid, 0);
@@ -137,10 +140,10 @@ async function run() {
   process.kill(shellPid, 0);
   await runtime.invoke("terminal:input", [{ terminalId: terminal.id, data: "printf '\\nSHELL_STILL_ALIVE=%s\\n' \"$$\"\n" }]);
   await readUntil((text) => text.includes(`SHELL_STILL_ALIVE=${shellPid}\r\n`));
-  await assert.rejects(runtime.invoke("agent:stop-port", [chatId, listenerPid]), { code: "UNSUPPORTED_SERVICE" });
+  assert.equal(await runtime.invoke("agent:stop-port", [chatId, listenerPid]), false);
   await runtime.invoke("terminal:close", [{ terminalId: terminal.id }]);
   console.log(
-    "Port runtime conformance passed: real loopback listener, scoped ports/events, reconnect snapshot, refused unrelated PIDs, port stop gated, task-owned listener exit, preserved PTY",
+    "Port runtime conformance passed: real loopback listener, scoped ports/events, reconnect snapshot, refused unrelated PIDs, reviewed owned-listener stop, preserved PTY",
   );
 }
 run()
