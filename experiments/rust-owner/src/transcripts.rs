@@ -229,67 +229,45 @@ fn identity(fd: &OwnedFd) -> std::io::Result<(u64, u64)> {
     Ok((stat.st_dev as u64, stat.st_ino as u64))
 }
 
-/// The handover store's lease: `<handovers>/.lease`, opened without following links and locked exclusively with
-/// `flock` (nonblocking: a second owner is refused at once, never waits). Held by the jobs' owner and shared by every
-/// job, outcome and temporary file still to remove, so it outlives them all. Its file identity is pinned: a commit
-/// checks the lease still names that file. Unlocked explicitly when the last share drops.
+/// The handover store's lease: an exclusive, nonblocking `flock` on the pinned handovers folder itself (its
+/// descriptor), so the lock and the folder are one identity. A file inside it could be replaced to admit a second owner;
+/// the folder can't be without changing the identity every operation checks. Held by the jobs' owner and shared by
+/// every job, outcome and temporary file still to remove, so it outlives them all. Unlocked explicitly when the last
+/// share drops, and only by the process that took it: a forked child dropping its copy leaves the parent's lock alone.
 pub(crate) struct Lease {
     dir: Arc<OwnedFd>,
-    file: OwnedFd,
-    identity: (u64, u64),
+    pid: u32,
 }
-
-const LEASE: &str = ".lease";
 
 impl Lease {
     fn take(dir: &Arc<OwnedFd>, folder: &Path) -> Result<Arc<Lease>> {
-        let path = folder.join(LEASE);
-        let file = rustix::fs::openat(
-            &**dir,
-            LEASE,
-            OFlags::RDWR | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::from_raw_mode(0o600),
-        )
-        .map_err(|error| io(error, "open", &path))?;
-        match rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
+        match rustix::fs::flock(&**dir, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
             Ok(()) => {}
             Err(rustix::io::Errno::WOULDBLOCK) => {
                 return Err(StoreError::OwnershipLost {
-                    lock: path,
+                    lock: folder.to_path_buf(),
                     why: "another owner holds the handover store".into(),
                 })
             }
-            Err(error) => return Err(io(error, "flock", &path)),
-        }
-        let stat = rustix::fs::fstat(&file).map_err(|error| io(error, "fstat", &path))?;
-        if !rustix::fs::FileType::from_raw_mode(stat.st_mode).is_file() || stat.st_nlink != 1 {
-            return Err(StoreError::OwnershipLost {
-                lock: path,
-                why: "the handover store's lease isn't a plain file".into(),
-            });
+            Err(error) => return Err(io(error, "flock", folder)),
         }
         Ok(Arc::new(Lease {
             dir: dir.clone(),
-            file,
-            identity: (stat.st_dev as u64, stat.st_ino as u64),
+            pid: std::process::id(),
         }))
     }
 
-    /// The lease's name still leads to the file locked.
-    fn holds(&self) -> std::result::Result<(), &'static str> {
-        let stat = rustix::fs::statat(&*self.dir, LEASE, AtFlags::SYMLINK_NOFOLLOW)
-            .map_err(|_| "the handover store's lease is gone")?;
-        if (stat.st_dev as u64, stat.st_ino as u64) != self.identity {
-            return Err("the handover store's lease was replaced");
+    /// What dropping the last share does: unlock, in the process that took the lease only.
+    fn release(&self) {
+        if std::process::id() == self.pid {
+            let _ = rustix::fs::flock(&*self.dir, rustix::fs::FlockOperation::Unlock);
         }
-        Ok(())
     }
 }
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        // Explicit: a descriptor a child process inherited must not keep the store locked after this owner.
-        let _ = rustix::fs::flock(&self.file, rustix::fs::FlockOperation::Unlock);
+        self.release();
     }
 }
 
@@ -391,6 +369,13 @@ impl TranscriptJobs {
         }
         let dir = Arc::new(dir);
         let lease = Lease::take(&dir, &path)?;
+        // Locked: the path must still lead to the folder locked before anything in it is swept.
+        pin.check().map_err(lost)?;
+        if identity(&dir).ok() != Some(pin.identity()) {
+            return Err(lost(
+                "the handovers folder changed while its lease was taken",
+            ));
+        }
         let swept = sweep(&dir, &path)?;
         Ok(TranscriptJobs {
             pin,
@@ -412,6 +397,13 @@ impl TranscriptJobs {
     /// Temporary files a previous owner left that were removed when the lease was taken.
     pub fn swept(&self) -> usize {
         self.swept
+    }
+
+    /// Tests only: what dropping the lease's last share does, without dropping it (a forked child runs it to show it
+    /// leaves the parent's lock alone).
+    #[cfg(feature = "test-fixtures")]
+    pub fn test_release_lease_as_if_dropped(&self) {
+        self.lease.release();
     }
 
     /// Reservations out now: jobs not yet finished with [`TranscriptJobs::finish`].
@@ -683,7 +675,6 @@ impl StagedTranscript {
         // The handovers folder still pinned, and its Project folder's path still the folder held.
         let holds = || -> std::result::Result<(), &'static str> {
             self.folder.check()?;
-            self.lease.holds()?;
             let meta =
                 std::fs::symlink_metadata(&sub).map_err(|_| "the transcript folder is gone")?;
             if meta.file_type().is_symlink()

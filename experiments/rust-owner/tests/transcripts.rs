@@ -414,27 +414,33 @@ fn the_sweep_removes_only_provable_leftovers() {
     assert_eq!(jobs.swept(), 1);
     let mut expected = before;
     expected.remove(&PathBuf::from("0123456789ab").join(leftover));
-    let mut after = tree(&folder);
-    after.remove(&PathBuf::from(".lease"));
-    expected.remove(&PathBuf::from(".lease"));
-    assert_eq!(after, expected);
+    assert_eq!(tree(&folder), expected);
     assert_eq!(std::fs::read_to_string(&sentinel).unwrap(), "keep");
 }
 
-/// A lease file replaced under the owner: commits are refused.
+/// The lease is the handovers folder's own lock: files inside it (a stray `.lease`, say) change nothing, and a forked
+/// child dropping its copy of the lease (here: running exactly what that drop runs) leaves the parent's lock held.
 #[test]
-fn a_replaced_lease_refuses_the_commit() {
-    let mut s = setup();
-    s.jobs.job(&s.project, input(None)).unwrap().run();
-    let JobOutcome::Staged { staged, .. } = s.jobs.take_outcomes().remove(0) else {
-        panic!()
-    };
-    let lease = s.jobs.folder().join(".lease");
-    std::fs::rename(&lease, s.base.path().join("old-lease")).unwrap();
-    std::fs::write(&lease, "").unwrap();
-    assert!(matches!(
-        staged.commit(),
-        Err(StoreError::OwnershipLost { .. })
-    ));
-    staged.discard().unwrap();
+fn a_forked_child_dropping_the_lease_leaves_the_parent_holding_it() {
+    let s = setup();
+    std::fs::write(s.jobs.folder().join(".lease"), "").unwrap();
+    assert!(TranscriptJobs::new(&s.isolation).is_err());
+    // SAFETY: the child only makes one flock call through an existing descriptor and exits without unwinding.
+    let child = unsafe { libc::fork() };
+    assert!(child >= 0, "fork failed");
+    if child == 0 {
+        s.jobs.test_release_lease_as_if_dropped();
+        unsafe { libc::_exit(0) };
+    }
+    let mut status = 0;
+    assert_eq!(unsafe { libc::waitpid(child, &mut status, 0) }, child);
+    assert!(
+        TranscriptJobs::new(&s.isolation).is_err(),
+        "the child's drop released the parent's lease"
+    );
+    // The parent's own drop does release it.
+    let isolation_root = s.isolation.root().to_path_buf();
+    drop(s.jobs);
+    let again = Isolation::open(&isolation_root, &Policy::default()).unwrap();
+    assert!(TranscriptJobs::new(&again).is_ok());
 }
