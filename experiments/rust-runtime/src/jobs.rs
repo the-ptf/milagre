@@ -15,6 +15,8 @@ pub(crate) struct Workers {
     pending: VecDeque<TranscriptJob>,
     #[cfg(test)]
     pub(crate) before_run: Option<std::sync::Arc<dyn Fn() -> bool + Send + Sync>>,
+    #[cfg(test)]
+    pub(crate) join_entered: Option<std::sync::mpsc::SyncSender<()>>,
 }
 impl Workers {
     /// Called outside the publication lane. The owner reserves at most four jobs;
@@ -64,6 +66,10 @@ impl Workers {
         self.pending.is_empty() && self.threads.is_empty()
     }
     pub(crate) fn join(&mut self) {
+        #[cfg(test)]
+        if let Some(entered) = &self.join_entered {
+            let _ = entered.try_send(());
+        }
         self.pending.clear();
         for thread in self.threads.drain(..) {
             let _ = thread.join();

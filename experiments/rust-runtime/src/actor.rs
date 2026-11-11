@@ -11,7 +11,7 @@ use milagre_owner_store::{
 };
 use milagre_owner_wire::{
     ClientContext, Config, EventSink, Handler, IsolatedProfile, ProfileLease, Publication,
-    RpcError, RpcResult, Server,
+    RpcError, RpcResult, Server, ShutdownError,
 };
 use serde_json::{json, Value};
 use std::{
@@ -53,7 +53,18 @@ const METHODS: &[&str] = &[
 
 enum Command {
     Call(String, Vec<Value>),
-    Shutdown { force: bool },
+    Shutdown {
+        force: bool,
+        refused: Arc<AtomicBool>,
+    },
+}
+impl Command {
+    fn shutdown(force: bool) -> Self {
+        Self::Shutdown {
+            force,
+            refused: Arc::new(AtomicBool::new(false)),
+        }
+    }
 }
 struct Request {
     command: Command,
@@ -192,7 +203,22 @@ impl Handler for Actor {
         diagnostic_snapshot(&self.shared)
     }
     fn shutdown(&self) -> RpcResult {
-        self.call(Command::Shutdown { force: false })
+        self.call(Command::shutdown(false))
+    }
+    fn shutdown_attempt(&self) -> Result<(), ShutdownError> {
+        let refused = Arc::new(AtomicBool::new(false));
+        self.call(Command::Shutdown {
+            force: false,
+            refused: refused.clone(),
+        })
+        .map(|_| ())
+        .map_err(|error| {
+            if refused.load(Ordering::Acquire) {
+                ShutdownError::Refused(error)
+            } else {
+                ShutdownError::Incomplete(error)
+            }
+        })
     }
 }
 fn record_forgotten_answer(shared: &Shared) {
@@ -283,7 +309,8 @@ pub fn stop_on_stdin(server: std::sync::Weak<Server>) {
                     }
                 }
                 Err(error) => {
-                    eprintln!("{}: isolated owner shutdown refused", error.code);
+                    let message: String = error.message.chars().take(256).collect();
+                    eprintln!("{}: {message}. Shutdown did not finish; the fixture socket remains available. Resolve this condition, then retry daemon:stop. No forced shutdown was performed.", error.code);
                     return;
                 }
                 Ok(()) => return,
@@ -605,6 +632,7 @@ impl State {
         shared: &Shared,
         publication: &Publication<'_>,
         force: bool,
+        refused: &mut bool,
     ) -> RpcResult {
         // This fixture explicitly cancels its synthetic turns. Production quit-time
         // suspend/resume remains unported and must not reuse this policy.
@@ -619,7 +647,14 @@ impl State {
         if !shared.delivery_failed.load(Ordering::Acquire) {
             self.publish_or_latch(shared, publication)?;
         }
-        let closed = self.host.shutdown(force).map_err(convert);
+        let was_running = self.host.quit_state() == QuitState::Running;
+        let closed = self.host.shutdown(force);
+        // Only the owner's actual busy gate, before shutdown starts, permits
+        // reopening. Earlier interrupt/pump errors never reach this branch.
+        *refused = was_running
+            && matches!(&closed, Err(milagre_owner_store::StoreError::Invalid(_)))
+            && self.host.quit_state() == QuitState::Running;
+        let closed = closed.map_err(convert);
         // Closing may produce stranded-lock or failure notices on every retry,
         // including the final one. Drain them before returning any close result.
         if !shared.delivery_failed.load(Ordering::Acquire) {
@@ -668,6 +703,12 @@ fn run(
             let shutdown = matches!(request.command, Command::Shutdown { .. });
             let state_read =
                 matches!(&request.command,Command::Call(method,_) if method=="state:read");
+            let refusal = match &request.command {
+                Command::Shutdown { refused, .. } => Some(refused.clone()),
+                _ => None,
+            };
+            let mut began_open = false;
+            let mut refused = false;
             let mut reply = Some(request.reply);
             let answer_call = matches!(&request.command,Command::Call(method,_) if matches!(method.as_str(),"agent:respond-permission"|"agent:answer-question"));
             let result = sink.transaction(|publication| {
@@ -679,9 +720,9 @@ fn run(
                             state.call(&method, &args)
                         }
                     }
-                    Command::Shutdown { force } => {
-                        shared.closing.store(true, Ordering::Release);
-                        state.shutdown(&shared, publication, force)
+                    Command::Shutdown { force, .. } => {
+                        began_open = !shared.closing.swap(true, Ordering::AcqRel);
+                        state.shutdown(&shared, publication, force, &mut refused)
                     }
                 };
                 if answer_call {
@@ -701,6 +742,18 @@ fn run(
                 }
                 result
             });
+            if shutdown
+                && result.is_err()
+                && began_open
+                && refused
+                && state.host.quit_state() == QuitState::Running
+                && !shared.delivery_failed.load(Ordering::Acquire)
+            {
+                shared.closing.store(false, Ordering::Release);
+                if let Some(refusal) = refusal {
+                    refusal.store(true, Ordering::Release);
+                }
+            }
             if shutdown && result.is_ok() {
                 shared.stop.store(true, Ordering::Release);
             }
@@ -1112,7 +1165,7 @@ mod tests {
             actor
                 .send
                 .try_send(Request {
-                    command: Command::Shutdown { force: false },
+                    command: Command::shutdown(false),
                     reply,
                     bytes: 0,
                 })
@@ -1509,10 +1562,7 @@ mod job_tests {
         // Ordinary busy quit refuses; only this explicit test force cancels staging.
         assert!(server.shutdown().is_err());
         assert_eq!(
-            actor
-                .call(Command::Shutdown { force: true })
-                .unwrap_err()
-                .code,
+            actor.call(Command::shutdown(true)).unwrap_err().code,
             "QUIT_PENDING"
         );
         for _ in 0..2 {
@@ -1550,12 +1600,61 @@ mod job_tests {
         drop(actor);
         Server::finish(server).unwrap();
     }
+
+    #[test]
+    fn preparing_quit_refusal_reopens_commands_then_explicit_stop_can_finish() {
+        let (profile, project, mut host) = seeded();
+        prepare(&mut host, &project, 1);
+        let (workers, gate, entered) = workers(0);
+        let (server, actor) = running(profile, &project, host, workers);
+        let _release = ReleaseOnDrop(gate.clone());
+        entered.recv_timeout(Duration::from_secs(2)).unwrap();
+        let error = shutdown_pending(&server, Duration::from_millis(30)).unwrap_err();
+        assert!(error.message.contains("turn runs"));
+        assert!(!actor.shared.closing.load(Ordering::Acquire));
+        assert!(actor
+            .call(Command::Call("project:current".into(), vec![]))
+            .is_ok());
+        let node = std::process::Command::new("node")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/jobs-stop-compat.cjs"
+            ))
+            .arg(server.profile_path())
+            .arg(&project)
+            .arg("refused")
+            .output()
+            .unwrap();
+        assert!(
+            node.status.success(),
+            "{}",
+            String::from_utf8_lossy(&node.stderr)
+        );
+        assert!(
+            actor.shared.closing.load(Ordering::Acquire),
+            "interrupt then pending quit stays closed"
+        );
+        assert_eq!(
+            actor
+                .call(Command::Call("project:current".into(), vec![]))
+                .unwrap_err()
+                .code,
+            "OWNER_CLOSING"
+        );
+        gate.release();
+        shutdown_pending(&server, Duration::from_secs(3)).unwrap();
+        assert!(server.is_stopped());
+        drop(actor);
+        Server::finish(server).unwrap();
+    }
     #[test]
     fn forced_server_drop_retains_profile_until_actor_joins_paused_job() {
         let (profile, project, mut host) = seeded();
         let path = profile.path().to_path_buf();
         prepare(&mut host, &project, 1);
-        let (workers, gate, entered) = workers(0);
+        let (mut workers, gate, entered) = workers(0);
+        let (joining, joined_entry) = mpsc::sync_channel(1);
+        workers.join_entered = Some(joining);
         let (server, actor) = running(profile, &project, host, workers);
         let _release = ReleaseOnDrop(gate.clone());
         entered.recv_timeout(Duration::from_secs(2)).unwrap();
@@ -1564,17 +1663,12 @@ mod job_tests {
         drop(server);
         assert!(path.exists());
         assert!(project.join(".milagre/runtime.lock").exists());
-        let stop = actor.shared.clone();
         let (completed, receive) = mpsc::sync_channel(1);
         let dropping = thread::spawn(move || {
             drop(actor);
             completed.send(()).unwrap();
         });
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !stop.stop.load(Ordering::Acquire) {
-            assert!(Instant::now() < deadline, "Actor drop entered");
-            thread::yield_now();
-        }
+        joined_entry.recv_timeout(Duration::from_secs(2)).unwrap();
         assert!(receive.try_recv().is_err(), "drop joins the held worker");
         assert!(path.exists());
         assert!(project.join(".milagre/runtime.lock").exists());
