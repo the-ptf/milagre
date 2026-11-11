@@ -423,7 +423,7 @@ impl Render for ChatView {
                         .items_center()
                         .px_4()
                         .pb(px(composer_bottom))
-                        .child(div().w_full().max_w(px(crate::theme::column_width())).child(self.composer.clone())),
+                        .child(div().w_full().max_w(px(composer::new_chat::tray_width())).child(self.composer.clone())),
                 )
             })
             .when(!self.new_chat, |el| {

@@ -36,7 +36,7 @@ mod mentions;
 mod menu;
 mod model_picker;
 mod models;
-mod new_chat;
+pub mod new_chat;
 mod permission;
 mod pick_list;
 #[cfg(test)]
@@ -966,7 +966,7 @@ impl Render for Composer {
             .flex_col()
             .gap(px(QUEUE_GAP))
             .w_full()
-            .max_w(px(crate::theme::column_width()))
+            .max_w(px(if self.new_chat.is_some() { new_chat::tray_width() } else { crate::theme::column_width() }))
             .when_some(queue, |el, queue| el.child(queue))
             .when(starters_shown, |el| el.child(self.render_starters(cx)))
             .child(bar)

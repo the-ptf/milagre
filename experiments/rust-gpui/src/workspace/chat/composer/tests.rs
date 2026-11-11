@@ -349,6 +349,40 @@ fn the_prompt_box_grows_from_68_to_100_then_scrolls(cx: &mut TestAppContext) {
     }
 }
 
+/// Deleting lines gives the room back, line by line, down to the 68px at rest.
+#[gpui::test]
+fn the_prompt_box_shrinks_again_when_lines_are_deleted(cx: &mut TestAppContext) {
+    let (composer, cx) = mount(cx);
+    let height = |cx: &mut VisualTestContext| bounds(cx, "composer-input").size.height;
+    cx.simulate_input("1");
+    for _ in 1..6 {
+        cx.simulate_keystrokes("shift-enter");
+        cx.simulate_input("x");
+    }
+    assert_eq!(height(cx), px(100.0), "six lines");
+    for expected in [100.0, 96.0, 76.0, 68.0, 68.0] {
+        cx.simulate_keystrokes("backspace backspace");
+        cx.run_until_parked();
+        assert_eq!(height(cx), px(expected), "{:?}", text(&composer, cx));
+    }
+    cx.simulate_keystrokes("backspace");
+    assert_eq!(text(&composer, cx), "");
+    assert_eq!(height(cx), px(68.0));
+    assert!(cx.debug_bounds("composer-placeholder").is_some());
+}
+
+/// The new-Chat tray is the desktop's 680 (704 less the gutters) at the default width, and its composer keeps the
+/// 68px prompt.
+#[gpui::test]
+fn the_new_chat_tray_is_the_desktops_width_and_keeps_the_tall_prompt(cx: &mut TestAppContext) {
+    assert_eq!(super::new_chat::tray_width(), 680.0);
+    let (composer, cx) = mount(cx);
+    composer.update(cx, |c, cx| c.start_new_chat(cx));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("new-chat-tray").is_some());
+    assert_eq!(bounds(cx, "composer-input").size.height, px(68.0));
+}
+
 #[gpui::test]
 fn quotes_sit_over_the_prompt_and_go_first_in_the_message(cx: &mut TestAppContext) {
     let (composer, cx) = mount(cx);

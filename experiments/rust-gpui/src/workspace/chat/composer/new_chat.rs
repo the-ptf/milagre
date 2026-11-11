@@ -16,8 +16,16 @@ use crate::ui::{Chip, Dismiss, Icon, IconName, IconSize, Popover};
 
 /// DESIGN.md "Radius": the desktop new-Chat tray is 20.
 pub const TRAY_RADIUS: f32 = 20.0;
+/// The tray's widest: the desktop's 704 box less the gutters' 12 + 12 is 680 (`chat-gutter`, `max-w-[var(--chat-width)]`),
+/// where the Chat column the port draws is 536 at the same setting, so the tray takes the difference on top of it.
+const TRAY_EXTRA: f32 = 680.0 - 536.0;
 const PICKER_WIDTH: f32 = 320.0;
 const BRANCH_WIDTH: f32 = 420.0;
+
+/// The new-Chat tray's widest width, centred in the pane: the Chat column's and the tray's extra.
+pub fn tray_width() -> f32 {
+    crate::theme::column_width() + TRAY_EXTRA
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Isolation {
