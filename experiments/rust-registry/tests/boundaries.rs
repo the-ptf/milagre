@@ -150,3 +150,155 @@ fn retained_registry_capability_refuses_a_replaced_profile_directory() {
     assert!(registry.snapshot().is_err());
     assert!(snapshot.check().is_err());
 }
+
+fn git(cwd: &std::path::Path, args: &[&str]) {
+    let output = std::process::Command::new("/usr/bin/git")
+        .current_dir(cwd)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", cwd)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .args([
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@invalid",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+fn repo(root: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let path = root.join(name);
+    std::fs::create_dir(&path).unwrap();
+    git(&path, &["init", "-b", "main"]);
+    git(&path, &["commit", "--allow-empty", "-m", "fixture"]);
+    path
+}
+#[tokio::test]
+async fn forged_worktree_back_pointers_bare_discovery_and_config_redirection_are_refused() {
+    let (temp, _, registry, _) = fixture();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let a = repo(&root, "a");
+    let b = repo(&root, "b");
+    let branch = root.join("branch");
+    git(
+        &a,
+        &["worktree", "add", "-b", "branch", branch.to_str().unwrap()],
+    );
+    assert!(registry.identify(&a).await.is_ok());
+    let pointer = a.join(".git/worktrees/branch/gitdir");
+    let original = std::fs::read(&pointer).unwrap();
+    std::fs::write(&pointer, format!("{}\n", b.join(".git").display())).unwrap();
+    assert!(
+        registry.identify(&a).await.is_err(),
+        "A forged listing must not admit B into A"
+    );
+    std::fs::write(&pointer, original).unwrap();
+    let marker = std::fs::read(branch.join(".git")).unwrap();
+    std::fs::remove_file(branch.join(".git")).unwrap();
+    assert!(
+        registry.identify(&a).await.is_err(),
+        "An unrelated replacement folder is not an active Worktree"
+    );
+    std::fs::write(branch.join(".git"), marker).unwrap();
+    let bare = a.join("nested-bare");
+    std::fs::create_dir(&bare).unwrap();
+    git(&bare, &["init", "--bare"]);
+    assert!(
+        registry.identify(&bare).await.is_err(),
+        "The selected metadata must be the metadata inspected"
+    );
+    git(&a, &["config", "core.worktree", b.to_str().unwrap()]);
+    let error = registry.identify(&a).await.unwrap_err();
+    assert!(error.contains("redirection"), "{error}");
+}
+
+#[tokio::test]
+async fn linked_grant_stays_on_one_target_and_rechecks_the_source_worktree() {
+    let (temp, _, registry, _) = fixture();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let a = repo(&root, "a");
+    let b = repo(&root, "b");
+    let c = root.join("c");
+    std::fs::create_dir(&c).unwrap();
+    let source = root.join("source");
+    let target = root.join("target");
+    git(
+        &a,
+        &["worktree", "add", "-b", "source", source.to_str().unwrap()],
+    );
+    git(
+        &b,
+        &["worktree", "add", "-b", "target", target.to_str().unwrap()],
+    );
+    let aid = registry.identify(&a).await.unwrap().value;
+    let bid = registry.identify(&b).await.unwrap().value;
+    let cid = registry.identify(&c).await.unwrap().value;
+    save(
+        &root,
+        json!({"projects":[aid,bid,cid],"links":[
+            {"id":"first","a":{"project_id":aid["id"],"worktree_path":source},"b":{"project_id":bid["id"],"worktree_path":target}},
+            {"id":"second","a":{"project_id":bid["id"]},"b":{"project_id":cid["id"]}}
+        ]}),
+    );
+    let snapshot = registry.snapshot().unwrap();
+    let project = snapshot.project(&a).await.unwrap();
+    let reached = snapshot.reachable(&project, &source).await.unwrap();
+    assert_eq!(reached.len(), 1);
+    assert_eq!(reached[0].identity(), &bid);
+    assert_eq!(reached[0].worktree(), target);
+    assert_eq!(reached[0].link_ids(), ["first"]);
+    assert!(reached[0].contains_folder(&target).await.unwrap());
+    assert!(!reached[0].contains_folder(&b).await.unwrap());
+    assert!(!reached[0].contains_folder(&c).await.unwrap());
+    let bytes = std::fs::read(root.join("profile/project-registry.json")).unwrap();
+    git(
+        &a,
+        &["worktree", "remove", "--force", source.to_str().unwrap()],
+    );
+    std::fs::create_dir(&source).unwrap();
+    assert_eq!(
+        bytes,
+        std::fs::read(root.join("profile/project-registry.json")).unwrap()
+    );
+    assert!(
+        reached[0].check().await.is_err(),
+        "Registry bytes alone cannot keep removed source scope alive"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn source_aliases_normalize_but_missing_link_ids_never_mint_a_grant() {
+    let (temp, _, registry, _) = fixture();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let a = root.join("a");
+    let b = root.join("b");
+    let alias = root.join("alias");
+    std::fs::create_dir(&a).unwrap();
+    std::fs::create_dir(&b).unwrap();
+    std::os::unix::fs::symlink(&a, &alias).unwrap();
+    let aid = registry.identify(&a).await.unwrap().value;
+    let bid = registry.identify(&b).await.unwrap().value;
+    let mut value = json!({"projects":[aid,bid],"links":[{"id":"edge","a":{"project_id":a,"worktree_path":alias},"b":{"project_id":b}}]});
+    save(&root, value.clone());
+    let snapshot = registry.snapshot().unwrap();
+    let source = snapshot.project(&alias).await.unwrap();
+    let grants = snapshot.reachable(&source, &alias).await.unwrap();
+    assert_eq!(grants.len(), 1);
+    grants[0].check().await.unwrap();
+    value["links"][0].as_object_mut().unwrap().remove("id");
+    save(&root, value);
+    let snapshot = registry.snapshot().unwrap();
+    let source = snapshot.project(&a).await.unwrap();
+    assert!(snapshot.reachable(&source, &a).await.is_err());
+}

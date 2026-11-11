@@ -31,7 +31,7 @@ pub struct Registry {
 pub struct Snapshot {
     registry: Registry,
     fingerprint: [u8; 32],
-    data: Value,
+    data: Arc<Value>,
 }
 #[derive(Clone)]
 pub struct ProjectGrant {
@@ -204,7 +204,7 @@ impl Registry {
         Ok(Snapshot {
             registry: self.clone(),
             fingerprint: Sha256::digest(bytes).into(),
-            data,
+            data: Arc::new(data),
         })
     }
     /// Mirrors the menu's read filtering. It grants no capability on its own.
@@ -250,6 +250,40 @@ impl Registry {
         }
         self.check()?;
         Ok(json!(result))
+    }
+    /// Only a missing component under the isolated root, with no preceding
+    /// symlink or I/O failure, counts as absence. All uncertain probes are errors.
+    fn definitely_gone(&self, requested: &Path) -> Result<bool> {
+        self.check()?;
+        let path = lexical(requested);
+        // Never classify link/../x lexically: the kernel resolves the link first.
+        if path != requested {
+            return Ok(false);
+        }
+        let relative = path
+            .strip_prefix(self.isolation.root())
+            .map_err(|_| "Path is outside the isolated registry capability.")?;
+        let mut current = self.isolation.root().to_owned();
+        for part in relative.components() {
+            current.push(part);
+            match std::fs::symlink_metadata(&current) {
+                Ok(meta) if meta.file_type().is_symlink() => return Ok(false),
+                Ok(meta) if !meta.is_dir() => return Ok(true),
+                Ok(_) => (),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+                Err(e) => return Err(error(e)),
+            }
+        }
+        Ok(false)
+    }
+    /// Three-way inspection: Some(identity) is present, None is definitely gone,
+    /// and Err is unverifiable. Callers must never prune an Err.
+    pub async fn probe(&self, requested: impl AsRef<Path>) -> Result<Option<Identity>> {
+        let path = requested.as_ref();
+        if self.definitely_gone(path)? {
+            return Ok(None);
+        }
+        self.identify(path).await.map(Some)
     }
     pub async fn identify(&self, path: impl AsRef<Path>) -> Result<Identity> {
         let permit = self
@@ -317,7 +351,14 @@ impl Snapshot {
                 .iter()
                 .find(|entry| entry["id"] == *id);
             let grant = match entry {
-                Some(entry) => self.project(entry["path"].as_str().unwrap()).await.ok(),
+                Some(entry) => {
+                    let path = entry["path"].as_str().unwrap();
+                    if self.registry.definitely_gone(Path::new(path))? {
+                        None
+                    } else {
+                        Some(self.project(path).await?)
+                    }
+                }
                 None => None,
             };
             if let Some(grant) = grant {
@@ -404,13 +445,27 @@ fn lexical(path: &Path) -> PathBuf {
 
 #[derive(Clone)]
 pub struct LinkedGrant {
+    source: ProjectGrant,
+    source_worktree: PathBuf,
     project: ProjectGrant,
     worktree: PathBuf,
     link_ids: Vec<String>,
 }
 impl LinkedGrant {
-    pub fn project(&self) -> &ProjectGrant {
-        &self.project
+    /// Target metadata only. This capability cannot become a ProjectGrant or
+    /// authorize a second hop through Snapshot::reachable.
+    /// ```compile_fail
+    /// # use milagre_registry::{Snapshot, LinkedGrant};
+    /// # async fn cannot_chain(snapshot: &Snapshot, linked: &LinkedGrant) {
+    /// snapshot.reachable(linked, linked.worktree()).await;
+    /// # }
+    /// ```
+    pub fn identity(&self) -> &Value {
+        self.project.identity()
+    }
+    pub async fn contains_folder(&self, path: impl AsRef<Path>) -> Result<bool> {
+        self.check().await?;
+        Ok(self.project.snapshot.registry.contained(path.as_ref())? == self.worktree)
     }
     pub fn worktree(&self) -> &Path {
         &self.worktree
@@ -419,10 +474,19 @@ impl LinkedGrant {
         &self.link_ids
     }
     pub async fn check(&self) -> Result<()> {
-        if self.project.contains_folder(&self.worktree).await? {
+        let fresh = self
+            .source
+            .snapshot
+            .reachable(&self.source, &self.source_worktree)
+            .await?;
+        if fresh.iter().any(|grant| {
+            grant.identity() == self.identity()
+                && grant.worktree == self.worktree
+                && grant.link_ids == self.link_ids
+        }) {
             Ok(())
         } else {
-            Err("Linked Worktree is no longer active.".into())
+            Err("Linked scope or endpoint is no longer active.".into())
         }
     }
 }
@@ -445,7 +509,7 @@ impl Snapshot {
         }
         let worktree = self.registry.contained(worktree)?;
         let source_id = source.identity()["id"].as_str().unwrap();
-        let relevant = self.data["links"]
+        let mut relevant = self.data["links"]
             .as_array()
             .unwrap()
             .iter()
@@ -454,6 +518,19 @@ impl Snapshot {
             })
             .cloned()
             .collect::<Vec<_>>();
+        for link in &mut relevant {
+            if !link["id"].as_str().is_some_and(|id| !id.is_empty()) {
+                return Err("Saved canvas Link has no valid id.".into());
+            }
+            for side in ["a", "b"] {
+                if let Some(path) = link[side]["worktree_path"].as_str() {
+                    if !self.registry.definitely_gone(Path::new(path))? {
+                        link[side]["worktree_path"] =
+                            json!(self.registry.contained(Path::new(path))?);
+                    }
+                }
+            }
+        }
         let mut ids = BTreeSet::from([source_id.to_owned()]);
         for link in &relevant {
             for endpoint in [&link["a"], &link["b"]] {
@@ -474,10 +551,11 @@ impl Snapshot {
                 .iter()
                 .find(|entry| entry["id"] == id);
             let Some(entry) = entry else { continue };
-            let grant = match self.project(entry["path"].as_str().unwrap()).await {
-                Ok(grant) => grant,
-                Err(_) => continue,
-            };
+            let path = entry["path"].as_str().unwrap();
+            if self.registry.definitely_gone(Path::new(path))? {
+                continue;
+            }
+            let grant = self.project(path).await?;
             active[&id] = json!(grant
                 .worktrees()
                 .iter()
@@ -508,6 +586,8 @@ impl Snapshot {
                 .map(str::to_owned)
                 .collect();
             grants.push(LinkedGrant {
+                source: source.clone(),
+                source_worktree: worktree.clone(),
                 project: project.clone(),
                 worktree: PathBuf::from(target["worktree_path"].as_str().unwrap()),
                 link_ids: ids,

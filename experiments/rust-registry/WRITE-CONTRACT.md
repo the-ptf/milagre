@@ -26,6 +26,12 @@ A writer serializes operations in Node call order. The public API must retain ow
 
 There is no Project-delete method in Node `createProjectRegistry`; this work will not invent one. Removing a Project from the recent menu is `recent.forget`. Persisted Project removal happens through Node's stale-entry cleanup. `list()` also scans default discovery roots on its first call; production discovery is excluded here. A bounded explicit copied-root scan, if added later, needs its own contract.
 
+## Presence and uncertain identity
+
+`Registry::probe` returns present (`Some(identity)`), definitely gone (`None`) or unverifiable (`Err`). A missing/non-directory path component strictly within the isolation, without a preceding symlink or I/O error, proves absence. A successful identity that differs from the saved id/main path may be removed by general update as Node does. Capacity, subprocess timeout, unsupported includes/redirection, Git inspection limits, permission failures and changed ownership never count as absence. Every general update, registration cleanup and active-Worktree catalog propagates those failures and commits nothing. This intentionally refuses work that Node might prune after a weaker identity check.
+
+Discovery within a mutation has a 30-second timeout. A discovery future can be cancelled without starting a later write; any already-running bounded read worker finishes without mutation. Final staging/sync/rename has no await and is not preempted by that discovery timeout. This library has no background mutation actor, ticket endpoint or retry. A future runtime owner must retain the returned commit outcome rather than fire-and-forget calls.
+
 ## Recent Projects
 
 The saved list normalizes each row to exactly `{path,name,openedAt}`. Paths use Node lexical `path.resolve`, not realpath. The first duplicate normalized path wins before filesystem filtering; missing/non-directory paths drop; at most ten remain. Unknown row fields are dropped. Missing/corrupt JSON reads empty; mutation reads propagate other I/O errors rather than wiping the list.

@@ -197,6 +197,8 @@ async fn failures_distinguish_unchanged_and_committed_uncertain_then_restart() {
         .await
         .unwrap();
     let before = bytes(copy.path(), "project-registry.json");
+    let reader = copy.reader(Arc::new(|| Ok(()))).unwrap();
+    let retained = reader.snapshot().unwrap().project(&project).await.unwrap();
     for fault in [Fault::BeforeStage, Fault::BeforeRename] {
         writer.fault_once(fault);
         let error = writer
@@ -220,6 +222,8 @@ async fn failures_distinguish_unchanged_and_committed_uncertain_then_restart() {
     assert!(error.message.contains("Do not replay"));
     let committed = bytes(copy.path(), "project-registry.json");
     assert_ne!(before, committed);
+    assert!(retained.contains_folder(&project).await.is_err());
+    reader.snapshot().unwrap().project(&project).await.unwrap();
     drop(writer);
     let mut reopened = copy.writer(Arc::new(|| Ok(())), clock(ticks)).unwrap();
     let inode_before = inode(copy.path(), "project-registry.json");
@@ -484,4 +488,62 @@ async fn mutation_cannot_create_a_registry_its_bounded_reader_will_refuse() {
     assert_eq!(error.message, "Registry output entry limit exceeded.");
     assert_eq!(bytes(copy.path(), "project-registry.json"), Some(seed));
     assert!(copy.reader(Arc::new(|| Ok(()))).unwrap().snapshot().is_ok());
+}
+
+#[tokio::test]
+async fn unverifiable_git_project_aborts_cleanup_instead_of_pruning_saved_state() {
+    let (_temp, copy, project) = simple_copy();
+    let output = Command::new("/usr/bin/git")
+        .current_dir(&project)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", &project)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .args(["init", "-b", "main"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let healthy = project.parent().unwrap().join("healthy");
+    std::fs::create_dir(&healthy).unwrap();
+    let mut writer = copy
+        .writer(Arc::new(|| Ok(())), clock(Arc::new(AtomicUsize::new(0))))
+        .unwrap();
+    writer
+        .call("register", &json!({"path":project}))
+        .await
+        .unwrap();
+    let before = bytes(copy.path(), "project-registry.json");
+    let huge = project.join(".git/too-many");
+    std::fs::create_dir(&huge).unwrap();
+    for n in 0..4097 {
+        std::fs::write(huge.join(n.to_string()), "").unwrap();
+    }
+    for (method, args) in [
+        ("register", json!({"path":healthy})),
+        (
+            "position",
+            json!({"id":project.join(".git"),"position":{"x":1,"y":2}}),
+        ),
+        ("link:prune", json!({})),
+    ] {
+        let error = writer.call(method, &args).await.unwrap_err();
+        assert!(!error.committed);
+        assert!(error.message.contains("inspection limit"), "{error}");
+        assert_eq!(before, bytes(copy.path(), "project-registry.json"));
+    }
+    std::fs::remove_dir_all(&huge).unwrap();
+    let config = project.join(".git/config");
+    let original = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(
+        &config,
+        format!("{original}\n[include]\npath = never-read\n"),
+    )
+    .unwrap();
+    let error = writer
+        .call("register", &json!({"path":healthy}))
+        .await
+        .unwrap_err();
+    assert!(error.message.contains("includes"));
+    assert_eq!(before, bytes(copy.path(), "project-registry.json"));
 }

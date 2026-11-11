@@ -82,7 +82,7 @@ async fn actual_node_registry_identity_links_and_scope_conformance_without_write
                     .project(a["project"].as_str().unwrap())
                     .await
                     .unwrap();
-                snapshot.reachable(&source,Path::new(a["worktree"].as_str().unwrap())).await.map(|grants|json!(grants.iter().map(|grant|json!({"project_id":grant.project().identity()["id"],"worktree_path":grant.worktree(),"link_id":grant.link_ids()[0],"link_ids":grant.link_ids()})).collect::<Vec<_>>()))
+                snapshot.reachable(&source,Path::new(a["worktree"].as_str().unwrap())).await.map(|grants|json!(grants.iter().map(|grant|json!({"project_id":grant.identity()["id"],"worktree_path":grant.worktree(),"link_id":grant.link_ids()[0],"link_ids":grant.link_ids()})).collect::<Vec<_>>()))
             }
             "canLink" => Ok(json!(links::can_link(
                 &a["a"],

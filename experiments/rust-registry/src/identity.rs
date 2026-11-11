@@ -17,6 +17,9 @@ fn plain(path: PathBuf, worktrees: Vec<Value>) -> Identity {
 }
 fn directory(registry: &Registry, path: &Path) -> Result<PathBuf> {
     let path = registry.contained(path)?;
+    if path.to_str().is_none() {
+        return Err("Non-UTF-8 registry paths are unsupported.".into());
+    }
     if !path.is_dir() {
         return Err(format!("{} isn't a folder.", name(&path)));
     }
@@ -59,6 +62,9 @@ fn verify_git(registry: &Registry, git_dir: &Path) -> Result<()> {
         }
         if meta.is_dir() {
             for entry in std::fs::read_dir(&path).map_err(error)? {
+                if pending.len() + count >= MAX_ENTRIES {
+                    return Err("Git metadata inspection limit exceeded.".into());
+                }
                 pending.push(entry.map_err(error)?.path());
             }
         } else if !meta.is_file() {
@@ -74,6 +80,11 @@ fn verify_git(registry: &Registry, git_dir: &Path) -> Result<()> {
                 .filter(|c| !c.is_whitespace())
                 .collect::<String>()
                 .to_ascii_lowercase();
+            if compact.contains("worktree=") {
+                return Err(
+                    "Git core.worktree redirection is unsupported in registry copies.".into(),
+                );
+            }
             if compact.contains("[include") {
                 return Err("Git config includes are unsupported in registry copies.".into());
             }
@@ -143,19 +154,98 @@ async fn git(registry: &Registry, cwd: &Path, args: &[&str]) -> Result<String> {
         }
     }
 }
+async fn verify_checkout(
+    registry: &Registry,
+    opened: &Path,
+    top: &Path,
+    git_dir: &Path,
+) -> Result<PathBuf> {
+    verify_git(registry, git_dir)?;
+    let common = if let Some(bytes) = read_file(&git_dir.join("commondir"))? {
+        let text = std::str::from_utf8(&bytes).map_err(error)?;
+        directory(registry, &git_dir.join(text.trim()))?
+    } else {
+        git_dir.to_owned()
+    };
+    if common != git_dir {
+        verify_git(registry, &common)?;
+        if git_dir.parent() != Some(common.join("worktrees").as_path()) {
+            return Err("Git Worktree metadata is not under its common directory.".into());
+        }
+        let bytes =
+            read_file(&git_dir.join("gitdir"))?.ok_or("Git Worktree back pointer is missing.")?;
+        let back = std::str::from_utf8(&bytes).map_err(error)?.trim();
+        let expected = std::fs::canonicalize(top.join(".git")).map_err(error)?;
+        let actual = std::fs::canonicalize(git_dir.join(back)).map_err(error)?;
+        if actual != expected {
+            return Err("Git Worktree back pointer does not match its checkout.".into());
+        }
+    }
+    let actual_git = directory(
+        registry,
+        Path::new(
+            git(registry, opened, &["rev-parse", "--absolute-git-dir"])
+                .await?
+                .trim(),
+        ),
+    )?;
+    if actual_git != git_dir {
+        return Err("Git selected unverified repository metadata.".into());
+    }
+    if git(registry, opened, &["rev-parse", "--is-bare-repository"])
+        .await?
+        .trim()
+        != "false"
+    {
+        return Err("Bare repositories are unsupported in registry copies.".into());
+    }
+    let actual_top = directory(
+        registry,
+        Path::new(
+            git(registry, opened, &["rev-parse", "--show-toplevel"])
+                .await?
+                .trim(),
+        ),
+    )?;
+    if actual_top != top
+        || !opened.starts_with(top)
+        || git_directory(registry, &actual_top.join(".git"))? != git_dir
+    {
+        return Err("Git checkout redirected outside its verified repository.".into());
+    }
+    let actual_common = directory(
+        registry,
+        &opened.join(
+            git(registry, opened, &["rev-parse", "--git-common-dir"])
+                .await?
+                .trim(),
+        ),
+    )?;
+    if actual_common != common {
+        return Err("Git selected an unverified common directory.".into());
+    }
+    registry.check()?;
+    Ok(common)
+}
 pub(crate) async fn identify(registry: &Registry, requested: &Path) -> Result<Identity> {
     let opened = directory(registry, requested)?;
     let marker = opened.join(".milagre-folder-chats");
-    if std::fs::symlink_metadata(&marker).is_ok_and(|meta| meta.is_file()) {
+    let folder_home = match std::fs::symlink_metadata(&marker) {
+        Ok(meta) => meta.is_file(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => return Err(error(e)),
+    };
+    if folder_home {
         let mut worktrees = vec![json!({"path":opened,"name":"main","plain":true})];
         let folders = opened.join(".chat-folders");
-        if folders.exists() {
+        if !registry.definitely_gone(&folders)? {
             let canonical = directory(registry, &folders)?;
             if canonical != folders {
                 return Err("Chats-home folder aliases are unsupported.".into());
             }
             let mut entries = std::fs::read_dir(folders)
                 .map_err(error)?
+                .take(MAX_ENTRIES + 1)
                 .collect::<std::io::Result<Vec<_>>>()
                 .map_err(error)?;
             if entries.len() > MAX_ENTRIES {
@@ -180,10 +270,27 @@ pub(crate) async fn identify(registry: &Registry, requested: &Path) -> Result<Id
     let mut current = opened.as_path();
     let mut found = None;
     while current != registry.isolation.root() {
+        // Git can prefer an implicit bare repository before an ancestor .git.
+        // Refuse it before launching Git, so its unverified config is not read.
+        let mut bare_parts = 0;
+        for part in ["HEAD", "objects", "refs"] {
+            match std::fs::symlink_metadata(current.join(part)) {
+                Ok(_) => bare_parts += 1,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                Err(e) => return Err(error(e)),
+            }
+        }
+        if bare_parts == 3 {
+            return Err("Implicit bare repositories are unsupported in registry copies.".into());
+        }
         let marker = current.join(".git");
-        if std::fs::symlink_metadata(&marker).is_ok() {
-            found = Some(git_directory(registry, &marker)?);
-            break;
+        match std::fs::symlink_metadata(&marker) {
+            Ok(_) => {
+                found = Some(git_directory(registry, &marker)?);
+                break;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+            Err(e) => return Err(error(e)),
         }
         current = current
             .parent()
@@ -195,27 +302,9 @@ pub(crate) async fn identify(registry: &Registry, requested: &Path) -> Result<Id
             vec![json!({"path":opened,"name":name(&opened),"plain":true})],
         ));
     };
-    verify_git(registry, &git_dir)?;
-    if let Some(bytes) = read_file(&git_dir.join("commondir"))? {
-        let text = std::str::from_utf8(&bytes).map_err(error)?;
-        verify_git(registry, &directory(registry, &git_dir.join(text.trim()))?)?;
-    }
-    let top = directory(
-        registry,
-        Path::new(
-            git(registry, &opened, &["rev-parse", "--show-toplevel"])
-                .await?
-                .trim(),
-        ),
-    )?;
-    let common = directory(
-        registry,
-        &top.join(
-            git(registry, &top, &["rev-parse", "--git-common-dir"])
-                .await?
-                .trim(),
-        ),
-    )?;
+    let expected_top = current.to_owned();
+    let common = verify_checkout(registry, &opened, &expected_top, &git_dir).await?;
+    let top = expected_top;
     let output = git(registry, &top, &["worktree", "list", "--porcelain", "-z"]).await?;
     let mut all = Vec::new();
     for block in output.split("\0\0").filter(|s| !s.is_empty()) {
@@ -231,19 +320,27 @@ pub(crate) async fn identify(registry: &Registry, requested: &Path) -> Result<Id
     if all.len() > MAX_ENTRIES {
         return Err("Git Worktree limit exceeded.".into());
     }
-    let main = all
+    let main_path = all
         .first()
         .and_then(|v| v["path"].as_str())
         .ok_or("The Project's main checkout is missing.")?;
-    let main = directory(registry, Path::new(main))
-        .map_err(|_| "The Project's main checkout is missing.".to_string())?;
+    let main = directory(registry, Path::new(main_path))?;
     let mut worktrees = Vec::new();
-    for tree in all {
+    for mut tree in all {
         let path = Path::new(tree["path"].as_str().unwrap());
-        if !path.exists() {
+        if registry.definitely_gone(path)? {
             continue;
         }
-        directory(registry, path)?;
+        let path = directory(registry, path)?;
+        let tree_git = git_directory(registry, &path.join(".git"))?;
+        let tree_common = verify_checkout(registry, &path, &path, &tree_git).await?;
+        if tree_common != common {
+            return Err("Git Worktree belongs to another Project.".into());
+        }
+        if path == main && tree_git != common {
+            return Err("Git main checkout metadata does not match the common directory.".into());
+        }
+        tree["path"] = json!(path);
         worktrees.push(tree);
     }
     registry.check()?;

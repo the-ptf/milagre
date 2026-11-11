@@ -117,6 +117,16 @@ impl Writer {
     /// The public mutation boundary holds &mut self across discovery and performs
     /// staging/rename synchronously, without an await inside the commit.
     pub async fn call(&mut self, method: &str, args: &Value) -> WResult<Value> {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            self.call_inner(method, args),
+        )
+        .await
+        .map_err(|_| {
+            WriteError::refused("Registry mutation discovery timed out; no mutation committed.")
+        })?
+    }
+    async fn call_inner(&mut self, method: &str, args: &Value) -> WResult<Value> {
         self.store.verify()?;
         if method.starts_with("recent:") {
             return self.recent(method, args).await;
@@ -128,10 +138,11 @@ impl Writer {
         let mut data = previous.clone();
         let mut retained = Vec::new();
         for entry in previous["projects"].as_array().unwrap() {
-            if let Ok(identity) = self
+            if let Some(identity) = self
                 .registry
-                .identify(entry["path"].as_str().unwrap())
+                .probe(entry["path"].as_str().unwrap())
                 .await
+                .map_err(WriteError::refused)?
             {
                 if identity.value["id"] == entry["id"] && identity.value["path"] == entry["path"] {
                     retained.push(entry.clone());
@@ -188,8 +199,17 @@ impl Writer {
             }
             let path = Path::new(entry["path"].as_str().unwrap());
             let id = Path::new(entry["id"].as_str().unwrap());
-            if self.registry.contained(path).is_ok_and(|p| p.is_dir())
-                && (id == path || self.registry.contained(id).is_ok())
+            if self
+                .registry
+                .probe(path)
+                .await
+                .map_err(WriteError::refused)?
+                .is_some()
+                && (id == path
+                    || !self
+                        .registry
+                        .definitely_gone(id)
+                        .map_err(WriteError::refused)?)
             {
                 next.push(entry.clone());
             }
@@ -325,10 +345,11 @@ impl Writer {
     async fn active_worktrees(&self, data: &Value) -> WResult<Value> {
         let mut active = json!({});
         for project in data["projects"].as_array().unwrap() {
-            if let Ok(identity) = self
+            if let Some(identity) = self
                 .registry
-                .identify(project["path"].as_str().unwrap())
+                .probe(project["path"].as_str().unwrap())
                 .await
+                .map_err(WriteError::refused)?
             {
                 active[project["id"].as_str().unwrap()] = json!(identity
                     .worktrees
@@ -610,4 +631,46 @@ fn membership(data: &Value, request: &Value, previous_index: Option<usize>) -> W
         result["hidden"] = json!(true);
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn probe_capacity_is_unverifiable_and_never_removes_a_saved_project() {
+        let temp = tempfile::tempdir().unwrap();
+        let isolation =
+            Isolation::create(temp.path(), &milagre_owner_store::Policy::default()).unwrap();
+        let project = isolation.root().join("project");
+        std::fs::create_dir(&project).unwrap();
+        let copy = RegistryCopy::create(isolation, Seeds::default()).unwrap();
+        let mut writer = copy
+            .writer(
+                Arc::new(|| Ok(())),
+                Arc::new(|| "2026-01-01T00:00:00.000Z".into()),
+            )
+            .unwrap();
+        writer
+            .call("register", &json!({"path":project}))
+            .await
+            .unwrap();
+        let before = std::fs::read(copy.path().join("project-registry.json")).unwrap();
+        let _all_slots = writer
+            .registry
+            .probes
+            .clone()
+            .acquire_many_owned(8)
+            .await
+            .unwrap();
+        let error = writer
+            .call("position", &json!({"id":project,"position":{"x":1,"y":2}}))
+            .await
+            .unwrap_err();
+        assert!(!error.committed);
+        assert!(error.message.contains("capacity"));
+        assert_eq!(
+            std::fs::read(copy.path().join("project-registry.json")).unwrap(),
+            before
+        );
+    }
 }
