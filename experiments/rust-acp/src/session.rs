@@ -316,6 +316,7 @@ impl FakeSession {
             "reply-then-permission",
             "multi-turn",
             "blocked-answer",
+            "blocked-two-answers",
             "delayed-answer",
             "error-after-text",
             "exit-after-text",
@@ -725,6 +726,11 @@ impl Actor {
             }
         }
         for work in self.writes.drain(..) {
+            // Still in the actor queue: no transport future was created for this reply.
+            // Claiming prevents duplicate answers; it does not imply a write was attempted.
+            if let Some(p) = self.permissions.iter_mut().find(|p| Some(&p.id) == work.id.as_ref() && Some(p.turn) == work.turn) {
+                p.claimed = false;
+            }
             if let Some(reply) = work.reply {
                 let _ = reply.send(Err(SessionError::Closed));
             }
@@ -935,7 +941,7 @@ impl Actor {
         match cmd {
             Command::Send(turn) => self.queue.push_back(turn),
             Command::Inspect(reply) => {
-                let _=reply.send(json!({"nativeId":self.native,"capabilities":self.capabilities,"state":self.state.snapshot(),"stateBytes":self.state.retained_weight(),"permissions":self.permissions.len(),"ready":self.ready,"writingPermission":self.writing.as_ref().and_then(|w|w.work.id.as_ref()).map(RequestId::to_value),"pid":self.rpc.as_ref().and_then(AcpRpc::pid)}));
+                let _=reply.send(json!({"nativeId":self.native,"capabilities":self.capabilities,"state":self.state.snapshot(),"stateBytes":self.state.retained_weight(),"permissions":self.permissions.len(),"ready":self.ready,"writingPermission":self.writing.as_ref().and_then(|w|w.work.id.as_ref()).map(RequestId::to_value),"queuedPermissionWrites":self.writes.iter().filter_map(|w|w.id.as_ref().map(RequestId::to_value)).collect::<Vec<_>>(),"pid":self.rpc.as_ref().and_then(AcpRpc::pid)}));
             }
             Command::FinishFake(reply) => {
                 let Some(rpc) = self.rpc.clone() else {

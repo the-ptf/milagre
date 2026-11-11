@@ -595,3 +595,63 @@ async fn every_session_limit_has_a_nonzero_floor_and_bounded_ceiling() {
         }
     }
 }
+
+#[tokio::test]
+async fn stop_distinguishes_in_flight_answer_from_claimed_queued_answer() {
+    let mut o = options("blocked-two-answers");
+    o.limits.cancel_grace = Duration::from_secs(5);
+    o.limits.permission_timeout = Duration::from_secs(5);
+    o.limits.turn_timeout = Duration::from_secs(10);
+    let (s, mut events) = FakeSession::launch(o).unwrap();
+    let turn = s.send("hello").unwrap();
+    let mut requests = vec![];
+    while requests.len() < 2 {
+        if let SessionEvent::Permission { turn_id, request_id, params, .. } = next(&mut events).await {
+            assert_eq!(turn_id, turn);
+            requests.push((request_id, params));
+        }
+    }
+    let first = requests[0].0.clone();
+    let second = requests[1].0.clone();
+    assert_eq!(first.to_value(), json!("permission"));
+    assert_eq!(second.to_value(), json!("permission-2"));
+    assert_eq!(requests[0].1["options"][0]["optionId"].as_str().unwrap().len(), 200_000);
+    assert_eq!(requests[1].1["options"][0]["optionId"], "allow");
+    let first_receipt = s.admit_answer(turn, first.clone(), Answer::AllowOnce).unwrap();
+    let second_receipt = s.admit_answer(turn, second.clone(), Answer::AllowOnce).unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let state = s.inspect().await.unwrap();
+            if state["writingPermission"] == first.to_value() && state["queuedPermissionWrites"] == json!([second.to_value()]) {
+                assert_eq!(state["permissions"], 2);
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("both decisions must be claimed, with the second still queued before Stop");
+    s.cancel();
+    assert_eq!(first_receipt.wait().await, Err(SessionError::UncertainDelivery));
+    assert_eq!(second_receipt.wait().await, Err(SessionError::Closed));
+    let mut closed = vec![];
+    let mut terminals = vec![];
+    loop {
+        match next(&mut events).await {
+            SessionEvent::PermissionClosed { turn_id, request_id, delivery } => {
+                assert_eq!(turn_id, turn);
+                closed.push((request_id, delivery));
+            }
+            SessionEvent::Agent { turn_id, event } if terminal(&event) => {
+                assert_eq!(turn_id, turn);
+                terminals.push(event["type"].clone());
+            }
+            SessionEvent::Closed { .. } => break,
+            _ => {}
+        }
+    }
+    assert_eq!(closed, vec![(first, Delivery::Uncertain), (second, Delivery::NotSent)]);
+    assert_eq!(terminals, vec![json!("turn-cancelled")]);
+    assert!(events.recv().await.is_none());
+    s.shutdown().await;
+}

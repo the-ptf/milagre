@@ -55,13 +55,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         return;
       }
       if (scenario === "reuse-permission") return permission(native);
-      if (scenario === "blocked-answer" || scenario === "delayed-answer") {
+      if (["blocked-answer", "blocked-two-answers", "delayed-answer"].includes(scenario)) {
         send({
           id: "permission",
           method: "session/request_permission",
           params: { sessionId: native, toolCall: { toolCallId: "t" }, options: [{ kind: "allow_once", optionId: "x".repeat(200000) }] },
         });
         process.stdin.pause();
+        if (scenario === "blocked-two-answers") permission(native, "permission-2");
         if (scenario === "delayed-answer") setTimeout(() => process.stdin.resume(), 300);
         else setInterval(() => {}, 1000);
         return;

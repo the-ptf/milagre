@@ -47,8 +47,10 @@ answers and cancellation; no task is spawned per request. IDs stay claimed until
 
 `WrittenUnacknowledged` means the pipe write completed, not that the provider received or acted
 on it. `Uncertain` covers a failed/stalled write or process loss while delivery may have started. Killing the process cannot retract a permission reply or prove
-non-execution. Never replay an uncertain answer. `NotSent` is used only for an unclaimed request
-that this session never attempted to answer.
+non-execution. Never replay an uncertain answer. `NotSent` is used for requests this session never
+attempted to write, including claimed decisions drained from the actor queue before any transport
+future was created. A drained decision's receipt returns `Closed`; an in-flight decision's receipt
+returns `UncertainDelivery`. `PermissionClosed` carries the per-request delivery classification.
 
 `admit_answer` synchronously transfers the decision to the bounded session command queue and
 returns an `AnswerReceipt`. The actor still validates turn/request ownership before claiming it.
@@ -155,3 +157,17 @@ The owner must validate associations against its authoritative tool manifest and
 persisting/routing them. They never authorize commands, files, linked tools or wake scope.
 Vendor account/bootstrap/private profiles, detached descendants/Windows Jobs, instructions/images,
 subagent routing, restart/resume ownership and the provider trait integration remain blocked.
+
+## Fixed blocked-write regression hook
+
+The fake-only scenario `blocked-two-answers` emits `permission` with a 200,000-byte `allow_once`
+option ID, pauses stdin, then emits `permission-2` with ordinary once-only options. It never resumes
+stdin. Use a sufficiently long cancellation/write and permission timeout while arranging Stop.
+`inspect().writingPermission` is the currently active permission write ID or null;
+`inspect().queuedPermissionWrites` is the ordered array of permission IDs already claimed and
+queued in the actor, excluding the active write and non-permission controls. These are snapshots,
+not mutation hooks or authorization. Wait for `writingPermission == "permission"` and
+`queuedPermissionWrites == ["permission-2"]` before Stop to exercise actual queued-write cleanup.
+Expected outcomes: first receipt `UncertainDelivery`, second receipt `Closed`; closure events
+`Uncertain` and `NotSent` respectively, followed by one cancelled terminal and session closure.
+This hook stays behind `fake-session` and adds no configurable script/path constructor.
