@@ -9,9 +9,10 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use gpui::{ClickEvent, Context, EventEmitter, FontWeight, Rgba, Window, div, prelude::*, px};
+use gpui::{ClickEvent, Context, EventEmitter, FontWeight, Rgba, SharedString, Window, div, prelude::*, px};
 
-use crate::data::fixture::{ChatRow, ChatStatus};
+use crate::data::fixture::ListedChat;
+use crate::data::{ChatStatus, Project, ProjectKind};
 use crate::theme::{ActiveTheme, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_12, TEXT_13, TextStepExt, Theme, hex};
 use crate::ui::{Icon, IconName, IconSize, ProjectAvatar, SpinnerRing};
 
@@ -23,6 +24,34 @@ const MARK_SLOT: f32 = 16.0;
 
 pub enum RowEvent {
     Clicked,
+}
+
+/// What one row shows: the view model the sidebar builds from a Chat and its Project.
+#[derive(Clone, Debug)]
+pub struct ChatRow {
+    /// The letter on the Project tile.
+    pub initial: char,
+    /// The tile's identity colour; `None` draws the neutral `field` tile.
+    pub tile: Option<Rgba>,
+    pub title: SharedString,
+    /// "project · #PR (+n) · computer".
+    pub detail: SharedString,
+    pub status: ChatStatus,
+}
+
+impl ChatRow {
+    pub fn new(listed: &ListedChat, project: &Project) -> Self {
+        let chat = &listed.chat;
+        // A Chat without a Project (the Chats home) shows its own initial.
+        let named = if project.kind == ProjectKind::ChatsHome { &chat.title } else { &project.name };
+        let initial = named.chars().find(|c| c.is_alphanumeric()).map_or('?', |c| c.to_ascii_uppercase());
+        let mut detail = vec![project.name.to_string()];
+        if let Some((first, rest)) = chat.pull_requests.split_first() {
+            detail.push(if rest.is_empty() { format!("#{first}") } else { format!("#{first} +{}", rest.len()) });
+        }
+        detail.push(chat.computer.to_string());
+        Self { initial, tile: project.color, title: chat.title.clone(), detail: detail.join(" · ").into(), status: listed.status() }
+    }
 }
 
 pub struct ChatRowView {

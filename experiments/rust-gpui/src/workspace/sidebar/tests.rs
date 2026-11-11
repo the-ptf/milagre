@@ -127,3 +127,26 @@ fn a_sidebar_re_render_reuses_its_rows(cx: &mut TestAppContext) {
     assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), Some(2));
     assert_eq!(after - before, 2, "moving the selection renders the old and the new row only");
 }
+
+/// The rows the sidebar builds from the fixture's domain data: the first screen.
+#[test]
+fn rows_come_from_the_domain_data() {
+    use crate::data::fixture::FixtureData;
+    use crate::workspace::sidebar::{ChatRow, ChatStatus};
+    let data = FixtureData::new();
+    let rows: Vec<ChatRow> = data.chats.iter().take(6).map(|listed| ChatRow::new(listed, &data.projects[listed.project])).collect();
+    let shown: Vec<(char, &str, &str, ChatStatus)> =
+        rows.iter().map(|row| (row.initial, row.title.as_ref(), row.detail.as_ref(), row.status)).collect();
+    assert_eq!(
+        shown,
+        [
+            ('M', "Migrate desktop to Rust PoC", "milagre-ade · Victor XPro", ChatStatus::Running),
+            ('M', "Fix Linux onboarding intro hang", "milagre-ade · #1020 · Victor XPro", ChatStatus::NeedsApproval),
+            ('M', "Fix Windows port listener cleanup", "milagre · tianxu", ChatStatus::Unread),
+            ('M', "Codebase analysis and fixes", "milagre-ade · #1015 +3 · Victor XPro", ChatStatus::Running),
+            ('R', "RDCar ops", "rd-car · deer", ChatStatus::Question),
+            ('G', "Gestor RDCar", "Chats · deer", ChatStatus::Unread),
+        ]
+    );
+    assert!(rows[2].tile.is_some() && rows[0].tile.is_none(), "milagre has an identity colour, milagre-ade the neutral tile");
+}

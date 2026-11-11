@@ -2,7 +2,7 @@
 
 use gpui::{FontWeight, div, prelude::*, px};
 
-use crate::data::fixture::{USAGE, UsageRow};
+use crate::data::{ProviderUsage, UsageStatus, fixture};
 use crate::theme::{TEXT_12, TEXT_13, TextStepExt, Theme};
 use crate::ui::{Icon, IconName, IconSize, ProviderLogo};
 
@@ -34,7 +34,7 @@ pub fn bottom_group(theme: &Theme) -> impl IntoElement + use<> {
         .flex_col()
         .flex_none()
         .py(px(8.0))
-        .children(USAGE.iter().map(|row| usage_row(row, theme)));
+        .children(fixture::usage().iter().map(|row| usage_row(row, theme)));
     let footer = div()
         .id("sidebar-footer")
         .debug_selector(|| "sidebar-footer".to_string())
@@ -53,7 +53,7 @@ const USAGE_ROW_HEIGHT: f32 = 32.0;
 const METER_WIDTH: f32 = 68.0;
 
 /// One provider row: logo at x 12, name at x 40, then one or two meters ending at x 276.
-fn usage_row(row: &UsageRow, theme: &Theme) -> impl IntoElement + use<> {
+fn usage_row(row: &ProviderUsage, theme: &Theme) -> impl IntoElement + use<> {
     let single = row.windows.len() == 1;
     let mut el = div()
         .relative()
@@ -75,7 +75,7 @@ fn usage_row(row: &UsageRow, theme: &Theme) -> impl IntoElement + use<> {
                 .text_color(theme.ink2)
                 .child(row.provider.name()),
         );
-    if row.warning {
+    if row.status == UsageStatus::Error {
         // The desktop's "Couldn't read usage" mark: Alert02 at 12 in `red-ink` (SidebarUsage.tsx).
         el = el.child(
             div().absolute().left(px(86.0)).top(px(10.0)).child(Icon::new(IconName::Alert02).size(IconSize::S12).color(theme.red_ink)),
@@ -83,7 +83,8 @@ fn usage_row(row: &UsageRow, theme: &Theme) -> impl IntoElement + use<> {
     }
     for (i, w) in row.windows.iter().enumerate() {
         let (x, width) = if single { (132.0, 144.0) } else { (132.0 + 76.0 * i as f32, METER_WIDTH) };
-        let fill = if w.percent == 0 { 0.0 } else { (width * w.percent as f32 / 100.0).max(2.0) };
+        let fill = if w.used_percent <= 0.0 { 0.0 } else { (width * w.used_percent / 100.0).max(2.0) };
+        let label = format!("{}% {}", w.used_percent.round(), w.short_label);
         let id = format!("usage-meter-{}-{i}", row.provider.name());
         let track_id = format!("usage-track-{}-{i}", row.provider.name());
         let fill_id = format!("usage-fill-{}-{i}", row.provider.name());
@@ -99,7 +100,7 @@ fn usage_row(row: &UsageRow, theme: &Theme) -> impl IntoElement + use<> {
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(theme.ink3)
                     .text_right()
-                    .child(w.label),
+                    .child(label),
             )
             .child(
                 div()

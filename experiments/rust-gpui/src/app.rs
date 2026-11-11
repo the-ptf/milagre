@@ -59,6 +59,8 @@ pub fn run() {
 /// menus. Tests call the parts they need (`testing::init`).
 pub fn init(cx: &mut App) {
     cx.set_global(Theme::from_env());
+    // Where views get their data. Only the fixture exists; a daemon client implements the same trait.
+    cx.set_global(crate::data::Data(std::sync::Arc::new(crate::data::FixtureSource::new())));
     crate::theme::init_fonts(cx);
     crate::ui::preload_logos(cx);
     // gpui-component's globals, theme and key bindings, so its widgets can be used in any view.

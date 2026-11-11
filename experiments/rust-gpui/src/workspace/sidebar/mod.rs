@@ -26,11 +26,12 @@ use gpui::{
     Subscription, UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
 };
 
-use crate::data::fixture::chat_fixtures;
-pub use crate::data::fixture::{ChatRow, ChatStatus};
+pub use crate::data::ChatStatus;
+use crate::data::fixture::FixtureData;
 use crate::theme::{ActiveTheme, CONTROL_MD, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_13, TextStepExt, Theme};
 use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, SectionLabel};
 use crate::workspace::chrome::{self, NoDrag};
+pub use row::ChatRow;
 use row::{ChatRowView, ROW_INSET, RowEvent, dot_mark};
 
 pub const SIDEBAR_WIDTH: f32 = 304.0;
@@ -56,7 +57,7 @@ pub struct Sidebar {
 impl Sidebar {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
-            rows: chat_fixtures(),
+            rows: fixture_rows(),
             selected: Some(1),
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
@@ -197,6 +198,13 @@ impl Render for Sidebar {
             )
             .child(bottom::bottom_group(&theme))
     }
+}
+
+/// The fixture's All Chats list as rows. The seam for real data: read `state:read` and `chat:runs` through
+/// the app's `DataSource` and map each Chat with `ChatRow::new` the same way.
+fn fixture_rows() -> Vec<ChatRow> {
+    let data = FixtureData::new();
+    data.chats.iter().map(|listed| ChatRow::new(listed, &data.projects[listed.project])).collect()
 }
 
 /// 44px title-bar header: the traffic lights sit at the left (see `app.rs`), three 16px icon buttons at
