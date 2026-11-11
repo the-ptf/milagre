@@ -10,8 +10,10 @@ authority, full ACP session, assistant text or general descendant cleanup.
 `src/private_copy/core.rs` is the single owner of ACTIVE, admission and progress. The existing
 public feature wrapper delegates to it and keeps `start`, `cancel` and `wait`. The separate
 `fixtures/synthetic-host/Cargo.toml` compiles the same private source once as an integration test.
-It has no `milagre-acp` dependency, no host/account/registry dependencies yet, no library facade
-and no selectable executable. The root ACP manifest, features and lockfile are unchanged.
+It has no `milagre-acp` dependency, no library facade and no selectable executable. A separate
+service-admission target now uses copied host/account/registry dependencies but does not import
+the native core. See [its checkpoint](SERVICE-ADMISSION-CHECKPOINT.md). The root ACP manifest,
+features and lockfile are unchanged.
 The checker verifies the standalone dependency graph and proves automatic/coordinated starts
 share one Busy slot in a process. Separate test processes naturally own separate fixture slots.
 
@@ -59,13 +61,18 @@ separate ACP supervisor's descendant/authority gates.
 
 ## Validation and remaining work
 
-The staged checker executes five separate fixed tests: public progress/cancellation, original
+The staged checker executes six separate fixed tests: retained unstamped deadline,
+public progress/cancellation, original
 native/lifetime coverage, coordinated admission/consumption, partial-preparation retention, and
 standalone progress without caller Tokio. The partial-preparation test replaces the private copy
 after writer close but before final reader admission. Its full worker reports CleanupUncertain,
 no PID, no removal and Busy on the next start. It intentionally retains resources until its own
 test process exits. The parent validates a fixed two-entry identity manifest before test teardown;
 neither backend nor test resets ACTIVE or claims that retention was successful cleanup.
+
+Final progress publication revokes the control gate. A retained unstamped Control cannot mint a
+stamp after its worker's preparation deadline has expired and cleanup has finished. The deadline
+regression proves no PID, actual resource removal, revoked Control and reuse of the native slot.
 
 Run:
 
@@ -76,12 +83,12 @@ cargo test --offline --locked --manifest-path experiments/rust-acp/fixtures/synt
 python3 experiments/rust-acp/scripts/check-private-copy-fixture.py
 ```
 
-Strict Clippy and formatting apply to both manifests. Logs from the current implementation are
+Strict Clippy and formatting apply to both manifests. Logs from the accepted core checkpoint are
 `/tmp/milagre-acp-core-default.log`, `/tmp/milagre-acp-core-all.log`,
 `/tmp/milagre-acp-core-context.log` and `/tmp/milagre-acp-core-final-real.log`.
 The final log records native and runner digests, exact test names, observed evidence and staging
 removal. Checkout HEAD is explicitly not source-to-binary attestation.
 
-Next, after source review, the separate coordinator checkpoint can add actual copied services,
-their exclusive validation epochs, registered Project descriptor ownership and retained two-phase
-host close. None of those properties is inferred from this native-core evidence.
+The separate service-admission checkpoint now adds actual copied services, exclusive validation
+epochs and registered Project descriptor ownership. Native connection and child-dependent host
+close remain deferred. None of those properties is inferred from this native-core evidence.

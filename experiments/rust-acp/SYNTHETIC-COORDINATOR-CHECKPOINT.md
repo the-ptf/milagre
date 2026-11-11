@@ -1,7 +1,8 @@
 # Exclusive synthetic coordinator: next checkpoint proposal
 
-Status: root agreed this scope. The first private-core checkpoint is implemented for review;
-copied-service and ChatHost composition remain deferred and are not accepted host-binding evidence.
+Status: root agreed this scope. The private-core checkpoint was accepted as `bccf6b69`.
+The [copied-service admission checkpoint](SERVICE-ADMISSION-CHECKPOINT.md) is implemented for
+review. Native connection remains deferred; standalone execution is not host-binding evidence.
 See [native core checkpoint](NATIVE-CORE-CHECKPOINT.md) for its exact implementation boundary.
 The source baseline is `9366daa27e5ad14579d2853756b348e2cf01ce52`; the native backend
 was committed as `0d9e0a26`. [Source inventory](SYNTHETIC-COORDINATOR-SOURCES.json)
@@ -247,7 +248,7 @@ caller ticks. Bound each coordinator poll batch so control commands cannot starv
    full ACP session, descendant cleanup, production authority and strong B06, all still gated.
 
 Root agreed the standalone layout, exclusive epoch/gate contract, empty native fixture turn
-mapping and retained two-phase close. Implementation is staged: the private core is reviewed
-before copied-service composition begins. Shared account
+mapping and retained two-phase close. Implementation is staged: the accepted private core and
+current service admission layer remain disconnected pending review. Shared account
 lease or owner cleanup API work, arbitrary providers and real ACP session negotiation require
 separate scope decisions.
