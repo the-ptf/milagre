@@ -58,11 +58,10 @@ rejects with static code/message `ANSWER_DELIVERY_UNKNOWN`, preserves the saved 
 blocks retries for that request and session generation. Those slots are never evicted while
 unresolved; at capacity new answers return `ANSWERS_AT_CAPACITY` before handing anything over.
 A definitive late settlement emits AnswerResolved and frees the slot without a second RPC reply.
-Closing the generation frees its slots while retaining uncertain messages as history.
+Normal turn completion releases active slots into bounded historical reconciliation records. Idle answers return false. Closing the generation keeps uncertain messages as history.
 
 Provider Agent events and Started results carry raw serde JSON in `RawJson`. ChatHost performs
-the only owner-codec normalization. The adapter no longer pre-encodes output. Owner input is
-decoded before passing it to Codex; real private-use/noncharacter text is preserved. Prompt and
+the only owner-codec normalization. The adapter no longer pre-encodes output. The owner supplies native input in `RawJson`; the adapter does not decode it again. In the owner, real private-use/noncharacter text is preserved. Prompt and
 answer text replace lone UTF-16 units with U+FFFD only in the outbound native copy because the
 provider transport uses serde_json Unicode strings. Stored originals remain lossless. Session,
 request and question identities plus model/resume metadata remain strict: a lone unit is refused

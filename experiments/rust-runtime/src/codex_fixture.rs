@@ -4,7 +4,7 @@ use milagre_owner_store::{
     chat_host::{
         AnswerId, AnswerOutcome, Provider, ProviderError, ProviderErrorKind, ProviderEvent, TurnId,
     },
-    jsjson::{self, RawJson},
+    jsjson::RawJson,
     Isolation, Policy,
 };
 use milagre_owner_wire::IsolatedProfile;
@@ -351,19 +351,7 @@ impl CodexFixture {
                 return Err(refused("The fixture answer queue is full or duplicated"));
             }
         }
-        let native_id: Result<String, _> =
-            serde_json::from_str(&jsjson::to_string(&json!(request_id)));
-        let native_id = match native_id {
-            Ok(id) => id,
-            Err(_) => {
-                self.shared
-                    .answers
-                    .lock()
-                    .unwrap()
-                    .remove(&(chat.into(), answer));
-                return Err(refused("Lone UTF-16 request identities are unsupported"));
-            }
-        };
+        let native_id = request_id.to_owned();
         let reply = Reply {
             turn,
             request_id: native_id,
@@ -466,21 +454,10 @@ impl Provider for CodexFixture {
     fn name(&self) -> &str {
         "codex"
     }
-    fn start_turn(&mut self, id: TurnId, request: &Value) -> Result<(), ProviderError> {
+    fn start_turn(&mut self, id: TurnId, request: &RawJson) -> Result<(), ProviderError> {
+        let request = &request.0;
         let chat = self.validate(id, request)?;
-        // Text may contain a half-surrogate in stored JavaScript strings. serde_json's
-        // provider protocol needs Unicode, so replace only the outbound text copy.
-        // Identities remain strict: replacement could alias a different native session.
-        let prompt =
-            String::from_utf16_lossy(&jsjson::to_utf16(request["prompt"].as_str().unwrap()));
-        let mut metadata = request.clone();
-        metadata["prompt"] = Value::Null;
-        let mut native_request = RawJson::decode(&metadata)
-            .map_err(|_| refused("Lone UTF-16 units in provider identities are unsupported"))?
-            .0;
-        native_request["prompt"] = Value::String(prompt);
-        self.slots
-            .retain(|_, slot| !slot.done.load(Ordering::Acquire));
+        let native_request = request.clone();
         let existing = self.slots.contains_key(&chat);
         if !existing {
             if *self.shared.workers.lock().unwrap() >= CHATS {
@@ -630,8 +607,9 @@ impl Provider for CodexFixture {
         turn: TurnId,
         answer: AnswerId,
         request_id: &str,
-        answers: &Value,
+        answers: &RawJson,
     ) -> Result<(), ProviderError> {
+        let answers = &answers.0;
         if answers.to_string().len() > REQUEST_BYTES {
             return Err(refused("Oversized fixture answer"));
         }
@@ -652,12 +630,11 @@ impl Provider for CodexFixture {
                 for value in items {
                     let text = value
                         .as_str()
-                        .filter(|v| jsjson::utf16_len(v) <= 10000)
+                        .filter(|v| v.encode_utf16().count() <= 10000)
                         .ok_or_else(|| refused("Invalid fixture answer text"))?;
-                    strings.push(String::from_utf16_lossy(&jsjson::to_utf16(text)));
+                    strings.push(text.to_owned());
                 }
-                let native_id = String::from_utf16(&jsjson::to_utf16(id))
-                    .map_err(|_| refused("Lone UTF-16 question identities are unsupported"))?;
+                let native_id = id.clone();
                 values.push((native_id, strings));
             }
             codex::approvals::QuestionOutcome::Answered(values)

@@ -5,7 +5,7 @@ use milagre_owner_store::{
     chat_host::{
         AnswerId, AnswerOutcome, Provider, ProviderError, ProviderErrorKind, ProviderEvent, TurnId,
     },
-    jsjson::{self, RawJson},
+    jsjson::RawJson,
     Isolation, Policy,
 };
 use milagre_owner_wire::IsolatedProfile;
@@ -295,7 +295,10 @@ impl ClaudeFixture {
                 !s.done.load(Ordering::Acquire) && s.latest.load(Ordering::Acquire) == turn.0
             })
             .ok_or_else(|| refused("The fixture session generation is gone"))?;
-        let request = decode_identity(request)?;
+        if request.encode_utf16().count() > 4096 {
+            return Err(refused("Invalid fixture identity"));
+        }
+        let request = request.to_owned();
         let mut pending = self.shared.pending.lock().unwrap();
         if pending.len() >= ANSWERS || !pending.insert((chat.into(), id)) {
             return Err(refused("The fixture answer lane is full or duplicated"));
@@ -318,13 +321,6 @@ impl ClaudeFixture {
         }
         Ok(())
     }
-}
-fn decode_identity(s: &str) -> Result<String, ProviderError> {
-    if jsjson::utf16_len(s) > 4096 {
-        return Err(refused("Invalid fixture identity"));
-    }
-    String::from_utf16(&jsjson::to_utf16(s))
-        .map_err(|_| refused("Lone UTF-16 identity units are unsupported"))
 }
 fn native_request(request: &Value, project: &Path) -> Result<Value, ProviderError> {
     if request.to_string().len() > 1024 * 1024 {
@@ -378,15 +374,10 @@ fn native_request(request: &Value, project: &Path) -> Result<Value, ProviderErro
             return Err(refused("Images and replies are unsupported"));
         }
     }
-    let prompt = request["prompt"]
-        .as_str()
-        .ok_or_else(|| refused("Expected text prompt"))?;
-    let mut metadata = request.clone();
-    metadata["prompt"] = Value::Null;
-    let mut native = RawJson::decode(&metadata)
-        .map_err(|_| refused("Lone UTF-16 identity units are unsupported"))?
-        .0;
-    native["prompt"] = json!(String::from_utf16_lossy(&jsjson::to_utf16(prompt)));
+    if !request["prompt"].is_string() {
+        return Err(refused("Expected text prompt"));
+    }
+    let native = request.clone();
     let chat = native["chatId"]
         .as_str()
         .filter(|s| !s.is_empty() && s.len() <= 4096)
@@ -406,7 +397,8 @@ impl Provider for ClaudeFixture {
     fn name(&self) -> &str {
         "claude"
     }
-    fn start_turn(&mut self, id: TurnId, request: &Value) -> Result<(), ProviderError> {
+    fn start_turn(&mut self, id: TurnId, request: &RawJson) -> Result<(), ProviderError> {
+        let request = &request.0;
         self.open()?;
         if id.0 == 0 {
             return Err(refused("Invalid turn generation"));
@@ -575,8 +567,9 @@ impl Provider for ClaudeFixture {
         turn: TurnId,
         answer: AnswerId,
         request: &str,
-        answers: &Value,
+        answers: &RawJson,
     ) -> Result<(), ProviderError> {
+        let answers = &answers.0;
         if answers.to_string().len() > 1024 * 1024 {
             return Err(refused("Oversized question answer"));
         }
@@ -588,7 +581,7 @@ impl Provider for ClaudeFixture {
             .as_object()
             .ok_or_else(|| refused("Expected question answer map"))?
         {
-            let key = decode_identity(key)?;
+            let key = key.clone();
             let values = value
                 .as_array()
                 .ok_or_else(|| refused("Expected answer list"))?;
@@ -597,7 +590,7 @@ impl Provider for ClaudeFixture {
                 let text = value
                     .as_str()
                     .ok_or_else(|| refused("Expected answer text"))?;
-                out.push(json!(String::from_utf16_lossy(&jsjson::to_utf16(text))));
+                out.push(json!(text));
             }
             native.insert(key, json!(out));
         }

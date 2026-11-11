@@ -37,7 +37,7 @@ fn reply_resume_and_sequential_turns_have_exact_generation_and_one_end() {
     let monitor = p.monitor();
     let mut req = request(&p, "chat");
     req["resumeId"] = json!("resumed-thread");
-    p.start_turn(TurnId(1), &req).unwrap();
+    p.start_turn(TurnId(1), &RawJson((req).clone())).unwrap();
     let events = collect(&mut p, |e| e.iter().any(terminal));
     assert_eq!(events.iter().filter(|e| terminal(e)).count(), 1);
     assert_eq!(
@@ -57,7 +57,7 @@ fn reply_resume_and_sequential_turns_have_exact_generation_and_one_end() {
             .collect::<String>(),
         "Hello"
     );
-    p.start_turn(TurnId(2), &req).unwrap();
+    p.start_turn(TurnId(2), &RawJson((req).clone())).unwrap();
     let events = collect(&mut p, |e| e.iter().any(terminal));
     assert!(events.iter().all(|e| match e {
         ProviderEvent::Agent { turn, .. } | ProviderEvent::Started { turn, .. } =>
@@ -85,7 +85,8 @@ fn interrupt_and_close_return_without_waiting_for_slow_or_stubborn_native_turn()
     for scenario in [Scenario::SlowStop, Scenario::Stubborn] {
         let mut p = CodexFixture::create(scenario).unwrap();
         let monitor = p.monitor();
-        p.start_turn(TurnId(4), &request(&p, "chat")).unwrap();
+        p.start_turn(TurnId(4), &RawJson((request(&p, "chat")).clone()))
+            .unwrap();
         collect(&mut p, |e| {
             e.iter().any(|e| matches!(e, ProviderEvent::Started { .. }))
         });
@@ -105,7 +106,8 @@ fn cancelled_initialization_and_thread_start_do_not_pin_the_owner() {
     for scenario in [Scenario::HangInitialize, Scenario::HangThread] {
         let mut p = CodexFixture::create(scenario).unwrap();
         let monitor = p.monitor();
-        p.start_turn(TurnId(1), &request(&p, "chat")).unwrap();
+        p.start_turn(TurnId(1), &RawJson((request(&p, "chat")).clone()))
+            .unwrap();
         let pid = fixture_child(p.project());
         drop(p);
         assert!(monitor.wait_stopped(Duration::from_secs(3)));
@@ -128,20 +130,29 @@ fn refusal_precedes_spawn_and_approval_answer_settles_after_native_write() {
     ] {
         let mut req = request(&p, "chat");
         req[key] = value;
-        assert!(p.start_turn(TurnId(1), &req).is_err());
+        assert!(p.start_turn(TurnId(1), &RawJson((req).clone())).is_err());
         assert_eq!(monitor.workers(), 0);
     }
-    p.start_turn(TurnId(1), &request(&p, "chat")).unwrap();
+    p.start_turn(TurnId(1), &RawJson((request(&p, "chat")).clone()))
+        .unwrap();
     collect(&mut p, |e| {
         e.iter().any(
             |e| matches!(e,ProviderEvent::Agent {event:RawJson(event),..} if event["type"]=="permission-request"),
         )
     });
-    assert!(p.start_turn(TurnId(2), &request(&p, "chat")).is_err());
+    assert!(p
+        .start_turn(TurnId(2), &RawJson((request(&p, "chat")).clone()))
+        .is_err());
     p.respond_permission("chat", TurnId(1), AnswerId(1), "srv-1", "allow")
         .unwrap();
-    p.answer_question("chat", TurnId(1), AnswerId(2), "not-waiting", &json!({}))
-        .unwrap();
+    p.answer_question(
+        "chat",
+        TurnId(1),
+        AnswerId(2),
+        "not-waiting",
+        &RawJson((json!({})).clone()),
+    )
+    .unwrap();
     let events = collect(&mut p, |e| {
         e.iter()
             .filter(|e| matches!(e, ProviderEvent::AnswerSettled { .. }))
@@ -175,7 +186,7 @@ fn failed_resume_and_crash_have_a_single_exit_and_no_live_worker() {
         let monitor = p.monitor();
         let mut req = request(&p, "chat");
         req["resumeId"] = json!("thread-old");
-        p.start_turn(TurnId(7), &req).unwrap();
+        p.start_turn(TurnId(7), &RawJson((req).clone())).unwrap();
         let events = collect(&mut p, |e| {
             e.iter().any(|e| matches!(e, ProviderEvent::Exited { .. }))
         });
@@ -252,13 +263,15 @@ fn owner_persists_real_adapter_events_and_advances_a_queued_turn() {
 fn captured_close_and_late_exit_do_not_stop_replacement_session() {
     let mut p = CodexFixture::create(Scenario::SlowStop).unwrap();
     let monitor = p.monitor();
-    p.start_turn(TurnId(10), &request(&p, "chat")).unwrap();
+    p.start_turn(TurnId(10), &RawJson((request(&p, "chat")).clone()))
+        .unwrap();
     collect(&mut p, |e| {
         e.iter().any(|e| matches!(e, ProviderEvent::Started { .. }))
     });
     let old_pid = monitor.native_session("chat").unwrap().0.unwrap();
     p.close_chat("chat", TurnId(10)).unwrap();
-    p.start_turn(TurnId(11), &request(&p, "chat")).unwrap();
+    p.start_turn(TurnId(11), &RawJson((request(&p, "chat")).clone()))
+        .unwrap();
     let events = collect(&mut p, |e| {
         e.iter().any(|e| {
             matches!(
@@ -314,7 +327,7 @@ fn stalled_owner_event_consumer_closes_admission_and_preserves_terminal_reserve(
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         assert!(Instant::now() < deadline, "event budget was not enforced");
-        match p.start_turn(TurnId(next), &req) {
+        match p.start_turn(TurnId(next), &RawJson((req).clone())) {
             Ok(()) => next += 1,
             Err(e) if e.message == "The fixture provider is closed" => break,
             Err(e) => assert!(e.message.contains("Steering"), "{e:?}"),
@@ -334,17 +347,22 @@ fn stalled_owner_event_consumer_closes_admission_and_preserves_terminal_reserve(
             .count(),
         1
     );
-    assert!(p.start_turn(TurnId(next), &req).is_err());
+    assert!(p.start_turn(TurnId(next), &RawJson((req).clone())).is_err());
 }
 #[test]
 fn session_limit_is_bounded_and_one_hung_chat_does_not_block_another() {
     let mut p = CodexFixture::create(Scenario::HangThread).unwrap();
     let monitor = p.monitor();
     for id in 1..=16 {
-        p.start_turn(TurnId(id), &request(&p, &format!("chat-{id}")))
-            .unwrap();
+        p.start_turn(
+            TurnId(id),
+            &RawJson((request(&p, &format!("chat-{id}"))).clone()),
+        )
+        .unwrap();
     }
-    assert!(p.start_turn(TurnId(17), &request(&p, "overflow")).is_err());
+    assert!(p
+        .start_turn(TurnId(17), &RawJson((request(&p, "overflow")).clone()))
+        .is_err());
     assert_eq!(monitor.workers(), 16);
     let before = Instant::now();
     p.shutdown();
@@ -353,21 +371,17 @@ fn session_limit_is_bounded_and_one_hung_chat_does_not_block_another() {
 }
 
 #[test]
-fn owner_unicode_identities_are_decoded_and_lone_identity_units_are_refused() {
+fn raw_provider_identities_preserve_literal_marker_sequences() {
     let mut p = CodexFixture::create(Scenario::Reply).unwrap();
     let monitor = p.monitor();
     let mut req = request(&p, "chat");
-    req["resumeId"] = milagre_owner_store::jsjson::parse(r#""half\ud800""#).unwrap();
-    assert!(p
-        .start_turn(TurnId(1), &req)
-        .unwrap_err()
-        .message
-        .contains("UTF-16"));
+    let lone = milagre_owner_store::jsjson::parse(r#""half\ud800""#).unwrap();
+    assert!(RawJson::decode(&json!({"resumeId":lone})).is_err());
     assert_eq!(monitor.workers(), 0);
     let thread = "real-\u{10fffe}-\u{f0000}";
     req["prompt"] = json!("hello");
-    req["resumeId"] = json!(milagre_owner_store::jsjson::js_string(thread));
-    p.start_turn(TurnId(2), &req).unwrap();
+    req["resumeId"] = json!(thread);
+    p.start_turn(TurnId(2), &RawJson((req).clone())).unwrap();
     collect(&mut p, |e| e.iter().any(terminal));
     assert_eq!(
         monitor.native_session("chat").unwrap().1.as_deref(),
@@ -428,7 +442,8 @@ fn fixture_child(project: &std::path::Path) -> u32 {
 fn queued_answers_fail_exactly_once_on_close_and_stale_generations_are_refused() {
     let mut p = CodexFixture::create(Scenario::HangThread).unwrap();
     let monitor = p.monitor();
-    p.start_turn(TurnId(1), &request(&p, "chat")).unwrap();
+    p.start_turn(TurnId(1), &RawJson((request(&p, "chat")).clone()))
+        .unwrap();
     assert!(p
         .respond_permission("chat", TurnId(2), AnswerId(90), "x", "allow")
         .is_err());
@@ -459,7 +474,8 @@ fn queued_answers_fail_exactly_once_on_close_and_stale_generations_are_refused()
 fn question_answers_reach_the_node_fake_and_settle_once() {
     let mut p = CodexFixture::create(Scenario::Question).unwrap();
     let monitor = p.monitor();
-    p.start_turn(TurnId(1), &request(&p, "chat")).unwrap();
+    p.start_turn(TurnId(1), &RawJson((request(&p, "chat")).clone()))
+        .unwrap();
     let events = collect(&mut p, |e| {
         e.iter()
             .any(|e| matches!(e,ProviderEvent::Agent {event:RawJson(event),..}if event["type"]=="question-request"))
@@ -480,7 +496,7 @@ fn question_answers_reach_the_node_fake_and_settle_once() {
         TurnId(1),
         AnswerId(1),
         id,
-        &json!({"color":["Green"]}),
+        &RawJson((json!({"color":["Green"]})).clone()),
     )
     .unwrap();
     let events = collect(&mut p, |e| {
@@ -593,7 +609,8 @@ fn owner_question_ticket_waits_for_native_answer_and_preserves_unknown_request_s
 fn cancellation_after_native_write_reports_uncertain_not_failed() {
     let mut p = CodexFixture::create(Scenario::QuestionDelayedReceipt).unwrap();
     let monitor = p.monitor();
-    p.start_turn(TurnId(1), &request(&p, "chat")).unwrap();
+    p.start_turn(TurnId(1), &RawJson((request(&p, "chat")).clone()))
+        .unwrap();
     collect(&mut p, |e| {
         e.iter().any(|e|matches!(e,ProviderEvent::Agent{event:RawJson(event),..}if event["type"]=="question-request"))
     });
@@ -602,7 +619,7 @@ fn cancellation_after_native_write_reports_uncertain_not_failed() {
         TurnId(1),
         AnswerId(1),
         "srv-q",
-        &json!({"color":["Green"]}),
+        &RawJson((json!({"color":["Green"]})).clone()),
     )
     .unwrap();
     let native = collect(&mut p, |e| {
@@ -668,18 +685,6 @@ fn delayed_receipt_keeps_history_blocks_retry_and_resolves_without_second_rpc_no
     let AnswerTicket::Pending(answer) = host.answer_question(&request).unwrap() else {
         panic!("must wait")
     };
-    loop {
-        assert!(host.pump().is_empty());
-        if host
-            .take_notices()
-            .iter()
-            .any(|n| matches!(n,Notice::Event{event,..}if event["type"]=="text-delta"))
-        {
-            break;
-        }
-        assert!(Instant::now() < deadline);
-        std::thread::sleep(Duration::from_millis(5));
-    }
     assert!(host.tick(1011).is_empty());
     assert_eq!(host.take_notices().iter().filter(|n|matches!(n,Notice::AnswerSettled{answer:id,result:AnswerResult::Uncertain(_),..}if *id==answer)).count(),1);
     assert_eq!(host.answers_in_flight(), 1);
@@ -693,6 +698,27 @@ fn delayed_receipt_keeps_history_blocks_retry_and_resolves_without_second_rpc_no
         host.answer_question(&other).unwrap_err(),
         milagre_owner_store::StoreError::AnswersAtCapacity(_)
     ));
+    loop {
+        assert!(host.pump().is_empty());
+        if host
+            .take_notices()
+            .iter()
+            .any(|n| matches!(n,Notice::Event{event,..}if event["type"]=="text-delta"))
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        host.answers_in_flight(),
+        0,
+        "normal turn end releases active answer capacity"
+    );
+    assert_eq!(
+        host.answer_question(&request).unwrap(),
+        AnswerTicket::Settled(false)
+    );
     // Actual native reply echoes the raw markers. Owner serialization must decode one layer,
     // without interpreting their adjacent codepoints as a surrogate or doubling them again.
     let state = host.states.whole_state(&project).unwrap();
@@ -766,7 +792,7 @@ fn native_cli_receives_decoded_prompt_and_answers_while_disk_keeps_original_utf1
     let AnswerTicket::Pending(id)=host.answer_question(&json!({"chatId":chat,"requestId":"srv-q","summary":answer,"answers":{"color":[answer]}})).unwrap() else {panic!("must await native receipt")};
     loop {
         assert!(host.pump().is_empty());
-        if host.take_notices().iter().any(|n|matches!(n,Notice::AnswerSettled{answer:known,result:AnswerResult::Accepted,..}if *known==id)){break}
+        if host.take_notices().iter().any(|n|matches!(n,Notice::AnswerSettled{answer:known,result:AnswerResult::Accepted,..}|Notice::AnswerResolved{answer:known,result:AnswerResult::Accepted,..}if *known==id)){break}
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(5));
     }

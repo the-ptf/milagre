@@ -700,7 +700,8 @@ impl Provider for Scripted {
     fn name(&self) -> &str {
         "kiro"
     }
-    fn start_turn(&mut self, turn: TurnId, request: &Value) -> Result<(), ProviderError> {
+    fn start_turn(&mut self, turn: TurnId, request: &RawJson) -> Result<(), ProviderError> {
+        let request = &request.0;
         if self.active.len() >= 8 || self.events.len() > 55 {
             return Err(ProviderError::new(
                 ProviderErrorKind::Refused,
@@ -852,7 +853,7 @@ impl Provider for Scripted {
         turn: TurnId,
         answer: AnswerId,
         request: &str,
-        _: &Value,
+        _: &RawJson,
     ) -> Result<(), ProviderError> {
         self.respond_permission(chat, turn, answer, request, "deny")
     }
@@ -958,12 +959,15 @@ mod tests {
             provider
                 .start_turn(
                     TurnId(turn),
-                    &json!({"chatId":format!("fixture#{turn}"),"prompt":"run"}),
+                    &RawJson(json!({"chatId":format!("fixture#{turn}"),"prompt":"run"})),
                 )
                 .unwrap();
         }
         assert!(provider
-            .start_turn(TurnId(9), &json!({"chatId":"fixture#9","prompt":"run"}))
+            .start_turn(
+                TurnId(9),
+                &RawJson(json!({"chatId":"fixture#9","prompt":"run"}))
+            )
             .is_err());
         assert!(provider.events.len() <= 64);
     }

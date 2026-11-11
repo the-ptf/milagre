@@ -30,7 +30,7 @@ fn sequential_turns_reuse_process_and_emit_one_terminal_each() {
     let req = request(&p);
     let mut pid = None;
     for id in 1..=2 {
-        p.start_turn(TurnId(id), &req).unwrap();
+        p.start_turn(TurnId(id), &RawJson((req).clone())).unwrap();
         let events = collect(&mut p, |e| e.iter().any(terminal));
         assert_eq!(events.iter().filter(|e| terminal(e)).count(), 1);
         assert!(events
@@ -53,7 +53,8 @@ fn permissions_and_questions_settle_asynchronously() {
     ] {
         let mut p = ClaudeFixture::create(scenario).unwrap();
         let m = p.monitor();
-        p.start_turn(TurnId(1), &request(&p)).unwrap();
+        p.start_turn(TurnId(1), &RawJson((request(&p)).clone()))
+            .unwrap();
         let events = collect(&mut p, |e| {
             e.iter()
                 .any(|e| matches!(e,ProviderEvent::Agent{event:RawJson(v),..} if v["type"]==kind))
@@ -77,8 +78,14 @@ fn permissions_and_questions_settle_asynchronously() {
                 .unwrap();
         } else {
             let q = card["questions"][0]["id"].as_str().unwrap();
-            p.answer_question("fixture", TurnId(1), AnswerId(1), id, &json!({q:["A"]}))
-                .unwrap();
+            p.answer_question(
+                "fixture",
+                TurnId(1),
+                AnswerId(1),
+                id,
+                &RawJson((json!({q:["A"]})).clone()),
+            )
+            .unwrap();
         }
         let events = collect(&mut p, |e| {
             e.iter().any(terminal)
@@ -102,7 +109,8 @@ fn stop_crash_and_cancelled_initialization_release_workers() {
     for scenario in [Scenario::Stop, Scenario::Crash, Scenario::HangInitialize] {
         let mut p = ClaudeFixture::create(scenario).unwrap();
         let m = p.monitor();
-        p.start_turn(TurnId(1), &request(&p)).unwrap();
+        p.start_turn(TurnId(1), &RawJson((request(&p)).clone()))
+            .unwrap();
         if matches!(scenario, Scenario::HangInitialize) {
             std::thread::sleep(Duration::from_millis(50));
             p.shutdown();
@@ -135,7 +143,7 @@ fn unsupported_configuration_is_refused_before_spawn() {
     ] {
         let mut req = request(&p);
         req[k] = v;
-        assert!(p.start_turn(TurnId(1), &req).is_err());
+        assert!(p.start_turn(TurnId(1), &RawJson((req).clone())).is_err());
         assert_eq!(p.monitor().workers(), 0);
     }
 }
@@ -144,7 +152,8 @@ fn unsupported_configuration_is_refused_before_spawn() {
 fn cancelled_receipt_after_callback_keeps_delivery_uncertain() {
     let mut p = ClaudeFixture::create(Scenario::QuestionDelayedReceipt).unwrap();
     let monitor = p.monitor();
-    p.start_turn(TurnId(1), &request(&p)).unwrap();
+    p.start_turn(TurnId(1), &RawJson((request(&p)).clone()))
+        .unwrap();
     let events = collect(&mut p, |e| {
         e.iter().any(|e| matches!(e, ProviderEvent::Agent{event:RawJson(v),..} if v["type"]=="question-request"))
     });
@@ -162,7 +171,7 @@ fn cancelled_receipt_after_callback_keeps_delivery_uncertain() {
         TurnId(1),
         AnswerId(1),
         "q1",
-        &json!({question:["A"]}),
+        &RawJson((json!({question:["A"]})).clone()),
     )
     .unwrap();
     // The fake emits text only after it receives the actual callback response.
@@ -172,7 +181,9 @@ fn cancelled_receipt_after_callback_keeps_delivery_uncertain() {
         )
     });
     p.close_chat("fixture", TurnId(1)).unwrap();
-    assert!(p.start_turn(TurnId(2), &request(&p)).is_err());
+    assert!(p
+        .start_turn(TurnId(2), &RawJson((request(&p)).clone()))
+        .is_err());
     assert!(monitor.wait_stopped(Duration::from_secs(3)));
     let events = p.take_events();
     assert_eq!(
@@ -208,9 +219,11 @@ fn cancelled_receipt_after_callback_keeps_delivery_uncertain() {
 fn stale_close_cannot_stop_the_next_turn_and_drop_reaps() {
     let mut p = ClaudeFixture::create(Scenario::Reply).unwrap();
     let monitor = p.monitor();
-    p.start_turn(TurnId(1), &request(&p)).unwrap();
+    p.start_turn(TurnId(1), &RawJson((request(&p)).clone()))
+        .unwrap();
     collect(&mut p, |e| e.iter().any(terminal));
-    p.start_turn(TurnId(2), &request(&p)).unwrap();
+    p.start_turn(TurnId(2), &RawJson((request(&p)).clone()))
+        .unwrap();
     assert!(p.close_chat("fixture", TurnId(1)).is_err());
     let events = collect(&mut p, |e| e.iter().any(terminal));
     assert_eq!(events.iter().filter(|e| terminal(e)).count(), 1);
@@ -228,7 +241,8 @@ fn stale_close_cannot_stop_the_next_turn_and_drop_reaps() {
 fn compact_subagent_close_patch_keeps_the_prior_transcript() {
     let mut p = ClaudeFixture::create(Scenario::Subagent).unwrap();
     let m = p.monitor();
-    p.start_turn(TurnId(1), &request(&p)).unwrap();
+    p.start_turn(TurnId(1), &RawJson((request(&p)).clone()))
+        .unwrap();
     let initial = collect(&mut p, |events| {
         events.iter().any(|e|matches!(e,ProviderEvent::Agent{event:RawJson(v),..} if v["type"]=="subagent-update"&&v["agent"]["transcript"].as_array().is_some_and(|rows|rows.iter().any(|r|r["text"]=="retained child result"))))
     });
@@ -282,7 +296,7 @@ fn initial_resume_reaches_native_argv_and_reused_session_refuses_a_different_ide
     let m = p.monitor();
     let mut req = request(&p);
     req["resumeId"] = json!("resumed-fixture");
-    p.start_turn(TurnId(1), &req).unwrap();
+    p.start_turn(TurnId(1), &RawJson((req).clone())).unwrap();
     collect(&mut p, |e| {
         e.iter().any(|e|matches!(e,ProviderEvent::Agent{event:RawJson(v),..} if v["type"]=="session-started"))
     });
@@ -298,13 +312,17 @@ fn initial_resume_reaches_native_argv_and_reused_session_refuses_a_different_ide
 
     let mut p = ClaudeFixture::create(Scenario::Reply).unwrap();
     let m = p.monitor();
-    p.start_turn(TurnId(1), &request(&p)).unwrap();
+    p.start_turn(TurnId(1), &RawJson((request(&p)).clone()))
+        .unwrap();
     collect(&mut p, |e| e.iter().any(terminal));
     let mut changed = request(&p);
     changed["resumeId"] = json!("another-session");
-    assert!(p.start_turn(TurnId(2), &changed).is_err());
+    assert!(p
+        .start_turn(TurnId(2), &RawJson((changed).clone()))
+        .is_err());
     changed["resumeId"] = json!("fixture-session");
-    p.start_turn(TurnId(2), &changed).unwrap();
+    p.start_turn(TurnId(2), &RawJson((changed).clone()))
+        .unwrap();
     collect(&mut p, |e| e.iter().any(terminal));
     p.shutdown();
     assert!(m.wait_stopped(Duration::from_secs(3)));
