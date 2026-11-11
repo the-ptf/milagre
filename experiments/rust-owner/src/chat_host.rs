@@ -1561,7 +1561,10 @@ impl ChatHost {
             .insert(chat.to_string(), (turn, provider.to_string()));
         self.latest.insert(chat.to_string(), turn);
         let outcome = match self.providers.get_mut(provider) {
-            Some(adapter) => adapter.start_turn(turn, &RawJson::decode_lossy(request)),
+            Some(adapter) => match outbound_request(request) {
+                Ok(request) => adapter.start_turn(turn, &request),
+                Err(why) => Err(ProviderError::new(ProviderErrorKind::Refused, why)),
+            },
             None => Err(ProviderError::new(
                 ProviderErrorKind::Unavailable,
                 format!("No {provider} provider adapter is registered with the Rust owner."),
@@ -1941,7 +1944,10 @@ impl ChatHost {
     fn force_end(&mut self, chat: &str, turn: TurnId, message: &str) {
         if let Some((_, provider)) = self.active.get(chat).cloned() {
             if let Some(adapter) = self.providers.get_mut(&provider) {
-                if let Err(error) = adapter.close_chat(chat, turn) {
+                let closed = outbound_identity(chat).map_err(|error| {
+                    ProviderError::new(ProviderErrorKind::Refused, error.to_string())
+                });
+                if let Err(error) = closed.and_then(|wire| adapter.close_chat(&wire, turn)) {
                     self.notice(Notice::Failed {
                         chat: chat.into(),
                         what: "closing the agent's session".into(),
@@ -2424,7 +2430,7 @@ impl ChatHost {
         };
         match self.providers.get_mut(&provider) {
             Some(adapter) => adapter
-                .interrupt(chat, turn)
+                .interrupt(&outbound_identity(chat)?, turn)
                 .map_err(|error| StoreError::Invalid(jsjson::js_string(&error.message)))?,
             None => {
                 return Err(StoreError::Invalid(format!(
@@ -2462,7 +2468,10 @@ impl ChatHost {
             let generation = self.latest.get(&chat).copied();
             let adapter = provider.and_then(|name| self.providers.get_mut(&name));
             if let (Some(adapter), Some(generation)) = (adapter, generation) {
-                if let Err(error) = adapter.close_chat(&chat, generation) {
+                let closed = outbound_identity(&chat).map_err(|error| {
+                    ProviderError::new(ProviderErrorKind::Refused, error.to_string())
+                });
+                if let Err(error) = closed.and_then(|wire| adapter.close_chat(&wire, generation)) {
                     self.notice(Notice::Failed {
                         chat: chat.clone(),
                         what: "closing the agent's session".into(),
@@ -2692,15 +2701,11 @@ impl ChatHost {
         };
         let id = jsjson::property_key(request_id);
         self.admit_answer(&chat, turn, &id)?;
+        let wire_chat = outbound_identity(&chat)?;
+        let wire_id = outbound_identity(&id)?;
         let answer = self.next_answer_id();
         self.provider(&provider)?
-            .respond_permission(
-                &chat,
-                turn,
-                answer,
-                &jsjson::decode_text_lossy(&id),
-                decision,
-            )
+            .respond_permission(&wire_chat, turn, answer, &wire_id, decision)
             .map_err(|error| StoreError::Invalid(jsjson::js_string(&error.message)))?;
         self.hold_answer(answer, &chat, turn, &id, None);
         Ok(AnswerTicket::Pending(answer))
@@ -2973,18 +2978,19 @@ impl ChatHost {
             match self.session_of(&chat) {
                 None => Ok(None),
                 Some((turn, provider)) => {
-                    let answer = self.next_answer_id();
                     let id = jsjson::property_key(request_id);
-                    self.provider(&provider)
-                        .and_then(|adapter| {
+                    let wire = outbound_identity(&chat).and_then(|wire_chat| {
+                        Ok((
+                            wire_chat,
+                            outbound_identity(&id)?,
+                            outbound_answers(&given)?,
+                        ))
+                    });
+                    let answer = self.next_answer_id();
+                    wire.and_then(|wire| self.provider(&provider).map(|adapter| (adapter, wire)))
+                        .and_then(|(adapter, (wire_chat, wire_id, wire_answers))| {
                             adapter
-                                .answer_question(
-                                    &chat,
-                                    turn,
-                                    answer,
-                                    &jsjson::decode_text_lossy(&id),
-                                    &RawJson::decode_lossy(&given),
-                                )
+                                .answer_question(&wire_chat, turn, answer, &wire_id, &wire_answers)
                                 .map_err(|error| {
                                     StoreError::Invalid(jsjson::js_string(&error.message))
                                 })
@@ -3299,4 +3305,68 @@ fn ticket_value(ticket: AnswerTicket) -> Value {
         AnswerTicket::Settled(accepted) => Value::Bool(accepted),
         AnswerTicket::Pending(answer) => json!({ "pendingAnswer": answer.0 }),
     }
+}
+
+/// Why a value can't be handed to an agent: an identity holding an unpaired UTF-16 surrogate.
+const IDENTITY_REFUSED: &str =
+    "An id, path or model holding an unpaired UTF-16 surrogate can't be handed to an agent.";
+
+/// An identity (a Chat key, a request or question id) as the provider gets it: plain, refused rather than replaced
+/// (a replacement could make two different identities equal).
+fn outbound_identity(text: &str) -> Result<String> {
+    jsjson::decode_text_strict(text).map_err(|_| StoreError::Invalid(IDENTITY_REFUSED.into()))
+}
+
+/// A turn's request as the provider gets it: the prompt (free text) with an unpaired surrogate replaced by U+FFFD;
+/// everything else (ids, paths, model, settings, keys) decoded strictly, or refused.
+fn outbound_request(request: &Value) -> std::result::Result<RawJson, String> {
+    let mut identities = request.clone();
+    let prompt = identities
+        .as_object_mut()
+        .and_then(|map| map.get_mut("prompt"))
+        .map(std::mem::take);
+    let mut raw = RawJson::decode(&identities)
+        .map_err(|_| IDENTITY_REFUSED.to_string())?
+        .0;
+    if let (Some(prompt), Some(map)) = (prompt, raw.as_object_mut()) {
+        let text = match prompt {
+            Value::String(text) => Value::String(jsjson::decode_text_lossy(&text)),
+            other => {
+                RawJson::decode(&other)
+                    .map_err(|_| IDENTITY_REFUSED.to_string())?
+                    .0
+            }
+        };
+        map.insert("prompt".into(), text);
+    }
+    Ok(RawJson(raw))
+}
+
+/// Answers as the provider gets them: question ids (keys) strict, answer strings (free text) lossy.
+fn outbound_answers(answers: &Value) -> Result<RawJson> {
+    let Value::Object(map) = answers else {
+        return RawJson::decode(answers).map_err(|_| StoreError::Invalid(IDENTITY_REFUSED.into()));
+    };
+    let mut out = serde_json::Map::new();
+    for (question, values) in map {
+        let values = match values {
+            Value::Array(items) => Value::Array(
+                items
+                    .iter()
+                    .map(|item| match item {
+                        Value::String(text) => Ok(Value::String(jsjson::decode_text_lossy(text))),
+                        other => RawJson::decode(other).map(|raw| raw.0),
+                    })
+                    .collect::<std::result::Result<_, _>>()
+                    .map_err(|_| StoreError::Invalid(IDENTITY_REFUSED.into()))?,
+            ),
+            other => {
+                RawJson::decode(other)
+                    .map_err(|_| StoreError::Invalid(IDENTITY_REFUSED.into()))?
+                    .0
+            }
+        };
+        out.insert(outbound_identity(question)?, values);
+    }
+    Ok(RawJson(Value::Object(out)))
 }

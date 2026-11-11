@@ -1374,3 +1374,111 @@ fn provider_text_crosses_both_ways_once() {
         json!(format!("no {tricky}"))
     );
 }
+
+/// Outbound identities are strict: request ids, question ids and every non-text field are decoded exactly or refused
+/// (two different half-surrogate ids would otherwise both become U+FFFD and alias each other, or a real U+FFFD id).
+/// Only free text (the prompt, answer strings) is decoded lossily, and only on the way out: what is saved keeps it.
+#[test]
+fn outbound_identities_are_strict_and_free_text_lossy() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    copy.native();
+    let chat = copy.chat();
+    let wire = |text: &str| jsjson::parse(text).unwrap();
+    // Two different half-surrogate request ids, and a real U+FFFD one.
+    for (id, real) in [
+        (r#""p\ud800""#, false),
+        (r#""p\ud801""#, false),
+        (r#""p�""#, true),
+    ] {
+        let request_id = wire(id);
+        copy.kiro.emit(&chat, json!({ "type": "question-request", "requestId": RawJson::decode(&request_id).ok().map(|raw| raw.0).unwrap_or(json!("x")), "questions": [] }));
+        copy.host.pump();
+        let before = (copy.messages().len(), handed(&copy));
+        let result = copy.host.answer_question(&json!({ "chatId": chat, "requestId": request_id, "answers": { "c": ["Yes"] }, "summary": "Yes" }));
+        if real {
+            assert!(matches!(result, Ok(AnswerTicket::Pending(_))), "{result:?}");
+            let given =
+                copy.kiro.state.lock().unwrap().answers.last().unwrap()["requestId"].clone();
+            assert_eq!(given, json!("p\u{FFFD}"));
+        } else {
+            let error = result.unwrap_err().to_string();
+            assert!(error.contains("unpaired UTF-16 surrogate"), "{error}");
+            assert_eq!(
+                (copy.messages().len(), handed(&copy)),
+                before,
+                "a refused identity was shown or handed over"
+            );
+        }
+        copy.host.pump();
+        let permission = copy.host.respond_permission(
+            &json!({ "chatId": chat, "requestId": wire(id), "decision": "allow" }),
+        );
+        assert_eq!(permission.is_ok(), real, "{id}: {permission:?}");
+        copy.host.pump();
+        copy.host.take_notices();
+    }
+    // A half-surrogate question id (an answers key) is refused too; answer text is lossy.
+    let answers = wire(r#"{ "q\udc00": ["fine"] }"#);
+    let error = copy
+        .host
+        .answer_question(
+            &json!({ "chatId": chat, "requestId": "k1", "answers": answers, "summary": "fine" }),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("unpaired UTF-16 surrogate"));
+    let answers = wire(r#"{ "q": ["half \ud83d here"] }"#);
+    let AnswerTicket::Pending(_) = copy
+        .host
+        .answer_question(
+            &json!({ "chatId": chat, "requestId": "k2", "answers": answers, "summary": "s" }),
+        )
+        .unwrap()
+    else {
+        panic!("settled at once")
+    };
+    assert_eq!(
+        copy.kiro.state.lock().unwrap().answers.last().unwrap()["answers"],
+        json!({ "q": ["half \u{FFFD} here"] })
+    );
+    copy.end("turn-completed");
+
+    // The prompt goes out lossy, and is saved exactly.
+    let body = wire(r#""cut \ud83d""#);
+    copy.host.send(&json!({ "projectPath": copy.path(), "sessionId": 1, "provider": "kiro", "model": "m", "body": body, "clientMessageId": "c2" })).unwrap();
+    assert_eq!(
+        copy.kiro.state.lock().unwrap().turns.last().unwrap()["prompt"],
+        json!("cut \u{FFFD}")
+    );
+    let saved = copy
+        .messages()
+        .iter()
+        .rev()
+        .find(|m| m["role"] == "user")
+        .unwrap()["body"]
+        .clone();
+    assert_eq!(
+        jsjson::to_utf16(saved.as_str().unwrap()).last(),
+        Some(&0xD83D),
+        "the saved text lost its half surrogate"
+    );
+    copy.host.pump();
+    copy.end("turn-completed");
+
+    // An identity in the turn's request (the model) holding one: the turn fails before any provider is asked.
+    let started = copy.started();
+    let model = wire(r#""m\ud83d""#);
+    copy.host.send(&json!({ "projectPath": copy.path(), "sessionId": 1, "provider": "kiro", "model": model, "body": "x", "clientMessageId": "c3" })).unwrap();
+    assert_eq!(
+        copy.started(),
+        started,
+        "a refused identity reached the provider"
+    );
+    let last = copy.messages().last().cloned().unwrap();
+    assert_eq!(last["outcome"], "failed");
+    assert!(last["body"]
+        .as_str()
+        .unwrap()
+        .contains("unpaired UTF-16 surrogate"));
+}

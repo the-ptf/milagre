@@ -124,9 +124,19 @@ Runtime actor: keep the client's command reply for a `Pending` ticket and answer
   are plain strings. Each is encoded once where it enters the host (`deliver`, immediate `Err`s of `start_turn`,
   `interrupt`, `close_chat`, the answer calls).
 - Outbound is raw too, and typed: `start_turn(turn, request: &RawJson)` and `answer_question(.., answers: &RawJson)`
-  get `RawJson::decode_lossy` of the owner's value (and request ids through `jsjson::decode_text_lossy`). A real
-  U+10FFFE comes back single; an unpaired surrogate from a JavaScript client (a truncated emoji) becomes U+FFFD,
-  which no plain string or CLI pipe carries. Adapters pass these on as they are and never decode again.
+  get plain values, decoded by one policy (the runtime's, 52bc1fb6):
+  - free text only, lossy: the request's `prompt` and answer strings, an unpaired surrogate (a truncated emoji from a
+    JavaScript client) as U+FFFD. Only the outbound copy: the saved message keeps it exactly;
+  - every identity strict: `chatId`, `cwd`, `model`, `resumeId`, settings, every object key (question ids), request
+    ids and the `chat` argument of every call. A real U+10FFFE comes back single, a real U+FFFD stays U+FFFD, and an
+    unpaired surrogate is refused, never replaced. Two different half-surrogate ids can't alias each other or a real
+    U+FFFD id. A refused turn fails before any provider call ("An id, path or model holding an unpaired UTF-16
+    surrogate can't be handed to an agent."); a refused answer is refused before it is handed over, its message
+    taken back.
+
+  Adapters pass these values on as they are and never decode again (the runtime's own outbound conversion goes,
+  or it would decode twice).
+
 - `ChatHost::deliver` encodes it once (`RawJson::encode`: every string and key through `jsjson::js_string`, a real
   U+10FFFE doubled). After that, a provider string can't read as the `undefined` marker or decode as a lone surrogate.
   Adapters must not jsjson-encode themselves: the runtime's conversion goes.

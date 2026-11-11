@@ -144,13 +144,6 @@ impl RawJson {
         value
     }
 
-    /// What the owner hands a provider (a turn's request, answers): the raw value of an encoded one, an unpaired
-    /// surrogate (a truncated emoji from a JavaScript client) replaced by U+FFFD, which no plain string or CLI pipe can
-    /// carry. A real U+10FFFE comes back single.
-    pub fn decode_lossy(encoded: &Value) -> RawJson {
-        RawJson(decode_value_lossy(encoded))
-    }
-
     /// The raw value of an encoded one (for a test or a recorded trace replayed through a provider). Fails on an
     /// unpaired surrogate, which a plain Rust string can't hold.
     pub fn decode(encoded: &Value) -> Result<RawJson, String> {
@@ -197,7 +190,8 @@ fn encode_in_place(value: &mut Value) {
     }
 }
 
-/// An encoded string as a plain one, an unpaired surrogate as U+FFFD.
+/// An encoded string as a plain one, an unpaired surrogate as U+FFFD. For free text only (a prompt, an answer):
+/// distinct texts may come out equal, so never for an identity (see [`decode_text_strict`]).
 pub fn decode_text_lossy(text: &str) -> String {
     if !text.contains(ESC) {
         return text.to_string();
@@ -205,17 +199,10 @@ pub fn decode_text_lossy(text: &str) -> String {
     String::from_utf16_lossy(&to_utf16(text))
 }
 
-fn decode_value_lossy(value: &Value) -> Value {
-    match value {
-        Value::String(text) => Value::String(decode_text_lossy(text)),
-        Value::Array(items) => Value::Array(items.iter().map(decode_value_lossy).collect()),
-        Value::Object(map) => Value::Object(
-            map.iter()
-                .map(|(key, item)| (decode_text_lossy(key), decode_value_lossy(item)))
-                .collect(),
-        ),
-        other => other.clone(),
-    }
+/// An encoded string as a plain one, refused when it holds an unpaired surrogate: for identities (ids, paths, models,
+/// object keys), where a replacement could make two different ones equal.
+pub fn decode_text_strict(text: &str) -> Result<String, String> {
+    decode_text(text)
 }
 
 fn decode_text(text: &str) -> Result<String, String> {
