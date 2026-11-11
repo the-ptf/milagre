@@ -85,13 +85,15 @@ struct Signal {
 }
 struct WorkerResult {
     status: Option<u16>,
-    _execution: Reservation,
 }
 /// Constructed only by consuming JoinHandle::join, including the panic outcome.
 struct Joined(std::result::Result<Option<u16>, ()>);
 struct OwnedWorker {
     signal: Arc<Signal>,
     thread: Option<JoinHandle<WorkerResult>>,
+    execution: Option<Reservation>,
+    #[cfg(test)]
+    joined_probe: Arc<std::sync::atomic::AtomicBool>,
 }
 impl OwnedWorker {
     fn cancel(&self) {
@@ -100,14 +102,18 @@ impl OwnedWorker {
         self.signal.wake.notify_all();
     }
     fn join(&mut self) -> Joined {
-        Joined(
-            self.thread
-                .take()
-                .expect("join once")
-                .join()
-                .map(|result| result.status)
-                .map_err(|_| ()),
-        )
+        let result = self
+            .thread
+            .take()
+            .expect("join once")
+            .join()
+            .map(|result| result.status)
+            .map_err(|_| ());
+        // Retain the stack/execution charge through join, including worker unwind.
+        drop(self.execution.take());
+        #[cfg(test)]
+        self.joined_probe.store(true, Ordering::SeqCst);
+        Joined(result)
     }
 }
 impl Drop for OwnedWorker {
@@ -229,8 +235,19 @@ impl<'a> Prepared<'a> {
     pub fn required_bytes(&self) -> usize {
         STACK + OUTPUT + 4096
     }
+    /// Keep ownership of the worker/output in this stack frame. The callback receives
+    /// only a reborrow; forgetting it or an output loan cannot forget the owning Claim.
     #[allow(clippy::result_large_err)]
-    pub fn start(self, outcome: Outcome) -> std::result::Result<Claim<'a>, Rejected<'a>> {
+    pub fn with_claim<T>(
+        self,
+        outcome: Outcome,
+        action: impl for<'scope> FnOnce(&'scope mut Claim<'a>) -> T,
+    ) -> std::result::Result<T, Rejected<'a>> {
+        let mut claim = self.start(outcome)?;
+        Ok(action(&mut claim))
+    }
+    #[allow(clippy::result_large_err)]
+    fn start(self, outcome: Outcome) -> std::result::Result<Claim<'a>, Rejected<'a>> {
         let now = self.clock.now();
         let budget = match self
             .authority
@@ -279,10 +296,7 @@ impl<'a> Prepared<'a> {
             if g.cancel {
                 g.completed = true;
                 s.wake.notify_all();
-                return WorkerResult {
-                    status: None,
-                    _execution: execution,
-                };
+                return WorkerResult { status: None };
             }
             s.calls.fetch_add(1, Ordering::SeqCst);
             g.started = true;
@@ -293,10 +307,7 @@ impl<'a> Prepared<'a> {
             if g.cancel {
                 g.completed = true;
                 s.wake.notify_all();
-                return WorkerResult {
-                    status: None,
-                    _execution: execution,
-                };
+                return WorkerResult { status: None };
             }
             g.completed = true;
             s.wake.notify_all();
@@ -309,7 +320,6 @@ impl<'a> Prepared<'a> {
             };
             WorkerResult {
                 status: Some(status),
-                _execution: execution,
             }
         }) {
             Ok(h) => h,
@@ -323,6 +333,9 @@ impl<'a> Prepared<'a> {
         let worker = OwnedWorker {
             signal,
             thread: Some(thread),
+            execution: Some(execution),
+            #[cfg(test)]
+            joined_probe: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         let claim_at = self.clock.now();
         let (Some(http_deadline), Some(completion_deadline)) =
@@ -629,6 +642,9 @@ impl Drop for Claim<'_> {
 
 #[cfg(test)]
 impl Claim<'_> {
+    pub(crate) fn joined_probe_for_test(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        self.worker.joined_probe.clone()
+    }
     pub(crate) fn wait_worker_for_test(&self, finished: bool) {
         let gate = self.worker.signal.gate.lock().unwrap();
         let (gate, timeout) = self
