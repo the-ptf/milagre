@@ -90,6 +90,8 @@ pub struct ChatView {
     /// Unsent drafts of the Chats left behind, by Chat key.
     drafts: HashMap<SharedString, String>,
     _send: Subscription,
+    /// The header's leading and trailing padding: the window's top bar and corner toggles reach over it (`shell`).
+    header_insets: (Pixels, Pixels),
 }
 
 impl ChatView {
@@ -154,7 +156,18 @@ impl ChatView {
             key: None,
             drafts: HashMap::new(),
             _send: send,
+            header_insets: (px(16.0), px(16.0)),
         }
+    }
+
+    /// Keeps the header's identity clear of what the window draws over it (`workspace::shell::top_bar`). The
+    /// window sets it while it renders, before this column does, so it needs no notify.
+    pub fn set_header_insets(&mut self, leading: Pixels, trailing: Pixels) {
+        self.header_insets = (leading, trailing);
+    }
+
+    pub fn header_insets(&self) -> (Pixels, Pixels) {
+        self.header_insets
     }
 
     /// The Chat on screen.
@@ -306,7 +319,9 @@ impl Render for ChatView {
             pills.set_jump(away, cx);
             pills.set_return_focus(composer_focus);
         });
-        let header = chrome::header("chat-header").px_4().gap_2().relative().child(match &self.bookmark {
+        let header = chrome::header("chat-header").pl(self.header_insets.0).pr(self.header_insets.1).gap_2().relative().child(match &self
+            .bookmark
+        {
             Some(bookmark) => bookmark::bookmark_view(bookmark, self.family_open, &theme, cx),
             None => bookmark::identity(self.title.clone(), self.project.clone(), &theme),
         });
