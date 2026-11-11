@@ -20,7 +20,18 @@ GPUI `9a50ea52` added live reducers and a manually connected mounted transcript,
 
 ## Current safety gate (2026-11-11)
 
-Ordinary Claude assembly `991d730b` covers default TLDR/reply settings and no-background idle restart/resume through the fixed native fake. Auto/Full Project-Chat checkpoint `6a57ae05` now passes fresh root 151 Claude tests (one live test ignored), 69 default runtime tests, thirteen production Node-client fixture scenarios, both non-writing Node recorders, strict Clippy/fmt and all-feature compilation. Eleven lifecycle tests cover stale decisions, retained capacity, callback failure and queued admission after revocation. Independent source rereview closes all P2s. This is isolated fake-provider evidence. Real-CLI prompt/mode behavior, mid-turn mode routing, broader workspace authority, background-aware restart, images, account routing and broader tools remain open. No production authority is enabled.
+Live permission-mode checkpoint `6e553232` connects the Claude fixture's RPC, owner and
+native session through bounded asynchronous receipts. Active Ask/Full/Ask changes, waiting
+cards and idle Auto/Ask changes match actual Node traces against the fixed fake CLI. Root
+passes 154 Claude tests, 74 default runtime tests, 20 targeted owner/oracle tests and fourteen
+production Node-client fixture scenarios; the implementation agent's full owner suite passes
+211 tests. Strict Clippy/fmt, all-feature compilation and fresh recorder checks pass.
+Independent review closes all P2s, including exact cleanup through forgotten/overflowed
+receipt buffers. This adds no shared-client capability, app-fixture permission command,
+production authority or real-provider evidence. Steering-carried mode changes, broader
+workspace/account grants and real CLI validation remain open.
+
+Ordinary Claude assembly `991d730b` covers default TLDR/reply settings and no-background idle restart/resume through the fixed native fake. Auto/Full Project-Chat checkpoint `6a57ae05` now passes fresh root 151 Claude tests (one live test ignored), 69 default runtime tests, thirteen production Node-client fixture scenarios, both non-writing Node recorders, strict Clippy/fmt and all-feature compilation. Eleven lifecycle tests cover stale decisions, retained capacity, callback failure and queued admission after revocation. Independent source rereview closes all P2s. This is isolated fake-provider evidence. Real-CLI prompt/mode behavior, steering-carried mode routing, broader workspace authority, background-aware restart, images, account routing and broader tools remain open. No production authority is enabled.
 
 Routine retained-parent crash checkpoint `2a6fff36` passes root 87 Rust tests plus one doctest, strict Clippy/fmt, three native controls and six compiled native mutants. Actual SIGKILL/reap and retained-descriptor reconciliation are covered; arbitrary restart, lost-parent recovery, power loss and production durability are not. Independent source review finds no P1/P2 within those limits. Earlier copied-writer checkpoint `e5c34652` remains accepted.
 

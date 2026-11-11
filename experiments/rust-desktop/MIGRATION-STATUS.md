@@ -6,6 +6,39 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+Live permission-mode checkpoint `6e553232` is accepted within the isolated Claude fixture.
+`agent:set-permission-mode` now reaches the captured active or retained idle session and
+holds its RPC reply until the mode result and kept Chat preference are published. Full
+resolves a waiting card; a subsequent Ask change restores prompting in the same turn.
+The fixed fake process checks actual Node control/answer traces. The shared client,
+app-fixture capability and other providers do not gain this command.
+
+Root passes 154 Claude tests (one live test ignored), 74 default runtime tests, nineteen
+owner lifecycle tests plus its real Node oracle, and fourteen production Node-client
+fixture scenarios. The implementation agent's full owner suite passes 211 tests with two
+ignored; root inspected its log. Strict Rust Clippy/fmt, runtime all-feature/all-target
+compilation and fresh non-writing Node recorders pass. Targeted JS lint has no errors and
+six existing recorder shadow warnings; formatting passes. Independent source review closes
+the premature-close release, replacement-session identity and discarded-receipt P2s.
+Unknown mode operations retain capacity; exact cleanup receipts survive forget/quit and
+overflow disposal without preference writes or replay. Real CLI behavior, steering-carried
+mode changes, broader workspace/account authority and production execution remain open.
+
+Logs and the corrected missing-NODE_PATH and wrong-linter setup attempts are recorded in
+[CLAUDE-FIXTURE.md](../rust-runtime/CLAUDE-FIXTURE.md#live-permission-changes).
+No pattern signals or cleanup scans were used. Root commits printed that lefthook was not
+found; the explicit checks above are the validation evidence, not commit-hook success.
+
+Implementation agents are settled and Sonnet Chat 10929 remains archived/idle. GPUI Chat
+11899 reports 1,397 tests and two ongoing UI-polish agents; this is its report, not a root
+GPUI run. Its shared-client and daemon pins are unchanged. The installed ordinary shell
+again matches SHA-256 `5ff830b9`, and its strict signature check passes. Production PIDs
+20674/20679 retain their original starts. Saved Hix1TF WebKit evidence was reread: both
+content runs pass, but used their historical fixture binary, not the current `51e90342`
+development daemon. No new native run or real-provider claim follows. No reinstall was
+needed for this backend-only checkpoint; no fixture was installed or production restarted.
+The migration remains incomplete, and the heartbeat remains enabled.
+
 Auto/Full Project-Chat checkpoint `6a57ae05` is accepted within the isolated fake-provider
 scope. Fresh root checks pass 151 Claude tests (one live test ignored), 69 default runtime
 tests and thirteen production Node-client fixture scenarios. Strict Clippy/fmt,
@@ -19,7 +52,7 @@ an entry gate after both queues. Eleven lifecycle tests include eight entered ca
 plus one queued request under withdrawal, close, Drop and turn end. Close drains admitted
 policy bodies; queued wrappers and final handler bookkeeping may finish later. A policy
 that never returns still retains ownership and keeps close waiting. Full is unrestricted
-after guard/access decisions. Mid-turn mode routing, broader workspace authority,
+after guard/access decisions. Steering-carried mode routing, broader workspace authority,
 real-CLI behavior and production execution remain open.
 
 Historical process-handling incident: the author disclosed a broad fake-claude SIGTERM
