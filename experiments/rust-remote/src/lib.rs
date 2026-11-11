@@ -5,6 +5,9 @@ pub mod budget;
 pub mod channel;
 pub mod envelope;
 pub mod host_proof;
+// Staged private fixture. Registry/worker integration is a separate checkpoint.
+#[allow(dead_code)]
+mod http_claim;
 pub mod http_dispatch;
 pub mod peer;
 pub mod phone;

@@ -1,6 +1,6 @@
 # HTTP Claim and cancellation proposal
 
-Status: agreed synthetic state-machine contract, not an implemented network API or production authorization. This checkpoint changes no dispatcher, network dependency, listener, endpoint, profile format, phone codec or mobile file. First implementation would be an in-memory adapter/state-machine fixture. A subsequent, separately approved loopback fixture would exercise a real HTTP library against a server created and owned by that fixture. Production integration remains gated.
+Status: agreed synthetic state-machine contract, not an implemented network API or production authorization. This checkpoint changes no dispatcher, network dependency, listener, endpoint, profile format, phone codec or mobile file. The first [private state-machine fixture](HTTP-CLAIM-STATE.md) is implemented separately, without an adapter. A subsequent, separately approved loopback fixture would exercise a real HTTP library against a server created and owned by that fixture. Production integration remains gated.
 
 ## Source contract and current boundary
 
@@ -46,7 +46,7 @@ Execution evidence and delivery evidence are independent. Cancellation before Be
 
 The first fixture proposal uses bounded in-memory staging, with no new disk spool or store capability. The entire 64 MiB response allowance is reserved and fallibly allocated before Begin, plus bounded headers, read buffers, encoding scratch and an output window. This is conservative but avoids starting a POST whose maximum accepted response cannot be retained. Declared Content-Length never substitutes for reservation or actual byte counting.
 
-Current 64 MiB connection and 32 MiB output defaults cannot retain a 64 MiB body plus framing overhead. They remain unchanged for existing services. The proposed explicit fixture limits are 128 MiB per connection/device, the existing shared 256 MiB global pool, two adapter executions globally and one per device. These are fixture resource choices, not Node's 16-fetch concurrency or a production tuning decision. Dynamic shortages still refuse before Begin. Parent agreement is required for this fixture configuration; accepting a smaller response cap silently is not an alternative.
+Current 64 MiB connection and 32 MiB output defaults cannot retain a 64 MiB body plus framing overhead. They remain unchanged for existing services. The proposed explicit fixture limits are 128 MiB per connection/device, the existing shared 256 MiB global pool, two adapter executions globally and one per device. These are fixture resource choices, not Node's 16-fetch concurrency or a production tuning decision. Dynamic shortages still refuse before Begin. This fixture configuration is agreed; accepting a smaller response cap silently is not an alternative.
 
 Preflight reserves the body staging capacity, bounded request-plan copies, at most 64 KiB response-header storage, one bounded read buffer, codec scratch, two worst-case encrypted response-part slots (each encoding a 256 KiB raw chunk), a small error-frame slot and status/cancel/completion records. Retained capacities and metadata overhead count, not only payload lengths. All buffers use the same existing connection/device/global counters; no adapter-local pool can evade them. Reserved output count/byte credits are deducted from capacity available to every producer, including ordinary Send. Lease transfer to the mailbox neither allocates nor reacquires credit. Credits recycle only after actual carrier consumption or close.
 
@@ -78,7 +78,7 @@ Required checkpoint tests:
 4. Preflight at needed-minus-one versus exactly-needed connection/device/global bytes invokes zero versus once. Saturate every unreserved pool after Begin and deliver the prepaid error/result. Check mailbox credits, header amplification, chunk boundaries, exact 64 MiB and oversize/truncated streams, fallible allocation and retained-capacity accounting. Partial unknown delivery never becomes a second response or invocation.
 5. Retain all existing MemoryHttp and seven Node reciprocal checks. Extend actual Node synthetic fixtures for queue timing, cancellation observations and response bytes; later loopback tests cover real HTTP parsing without contacting a live endpoint. Production routing/credentials, cross-process recovery, actual phones, dense-state census, complete Unicode header/path support, batching and reserved-lane fairness remain excluded.
 
-Requested agreement: the owner-only consuming attempt/status model, claim-based deadlines and separate scheduling bound, preallocated completion/output path, and explicit full-body fixture memory/concurrency limits. Implementation should follow in separately reviewed state-machine then adapter checkpoints. This document does not lift any production gate.
+Agreed scope: the owner-only consuming attempt/status model, claim-based deadlines and separate scheduling bound, preallocated completion/output path, and explicit full-body fixture memory/concurrency limits. Implementation should follow in separately reviewed state-machine then adapter checkpoints. This document does not lift any production gate.
 
 ## Concluded refinements
 
