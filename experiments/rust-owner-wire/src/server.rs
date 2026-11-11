@@ -283,55 +283,12 @@ impl Server {
         });
         let accepting = inner.clone();
         let acceptor = thread::spawn(move || {
-            let mut last_sweep = Instant::now();
-            while !accepting.stopped.load(Ordering::Acquire) {
-                if last_sweep.elapsed() >= Duration::from_millis(100) {
-                    let clients: Vec<_> = accepting
-                        .clients
-                        .lock()
-                        .unwrap()
-                        .values()
-                        .cloned()
-                        .collect();
-                    for client in clients {
-                        client.pages.lock().unwrap().expire();
-                    }
-                    last_sweep = Instant::now();
-                }
-                match listener.accept() {
-                    Ok((socket, _)) => {
-                        let clients = accepting.clients.lock().unwrap();
-                        let full = clients.len() >= accepting.config.max_clients
-                            || (accepting.config.require_authentication
-                                && clients
-                                    .values()
-                                    .filter(|client| !client.authenticated.load(Ordering::Acquire))
-                                    .count()
-                                    >= 32);
-                        drop(clients);
-                        if full {
-                            increment(&accepting.diagnostics.admission_capacity);
-                            let _ = socket.shutdown(Shutdown::Both);
-                            continue;
-                        }
-                        if assert_same_user(&socket).is_err() {
-                            increment(&accepting.diagnostics.admission_peer_credentials);
-                            let _ = socket.shutdown(Shutdown::Both);
-                            continue;
-                        }
-                        if Client::start(socket, &accepting).is_err() {
-                            increment(&accepting.diagnostics.admission_setup_io);
-                        }
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::sleep(Duration::from_millis(5))
-                    }
-                    Err(_) => {
-                        increment(&accepting.diagnostics.listener_accept_io);
-                        break;
-                    }
-                }
-            }
+            accept_loop(
+                accepting,
+                || listener.accept().map(|(socket, _)| socket),
+                thread::sleep,
+                |message| eprintln!("{message}"),
+            );
         });
         Ok(Self {
             inner,
@@ -494,6 +451,100 @@ impl Drop for Inner {
         if let Ok(meta) = fs::symlink_metadata(self.profile.socket_path()) {
             if (meta.dev(), meta.ino()) == self.socket_identity {
                 let _ = fs::remove_file(self.profile.socket_path());
+            }
+        }
+    }
+}
+
+// The listening socket stays nonblocking. Retries allocate no history and sleep
+// at most 250 ms, so stopping the server also bounds acceptor join latency.
+fn accept_retry_delay(error: &std::io::Error, backoff: &mut Duration) -> Option<Duration> {
+    use std::io::ErrorKind;
+    if error.kind() == ErrorKind::WouldBlock {
+        *backoff = Duration::from_millis(10);
+        return Some(Duration::from_millis(5));
+    }
+    if matches!(
+        error.kind(),
+        ErrorKind::Interrupted | ErrorKind::ConnectionAborted
+    ) {
+        return Some(Duration::from_millis(5));
+    }
+    if matches!(
+        error.raw_os_error(),
+        Some(libc::EMFILE | libc::ENFILE | libc::ENOBUFS | libc::ENOMEM)
+    ) {
+        let delay = *backoff;
+        *backoff = (*backoff * 2).min(Duration::from_millis(250));
+        return Some(delay);
+    }
+    None
+}
+fn accept_loop(
+    accepting: Arc<Inner>,
+    mut accept: impl FnMut() -> std::io::Result<UnixStream>,
+    mut sleep: impl FnMut(Duration),
+    mut report: impl FnMut(&'static str),
+) {
+    let mut backoff = Duration::from_millis(10);
+    let mut last_sweep = Instant::now();
+    while !accepting.stopped.load(Ordering::Acquire) {
+        if last_sweep.elapsed() >= Duration::from_millis(100) {
+            let clients: Vec<_> = accepting
+                .clients
+                .lock()
+                .unwrap()
+                .values()
+                .cloned()
+                .collect();
+            for client in clients {
+                client.pages.lock().unwrap().expire();
+            }
+            last_sweep = Instant::now();
+        }
+        match accept() {
+            Ok(socket) => {
+                backoff = Duration::from_millis(10);
+                let clients = accepting.clients.lock().unwrap();
+                let full = clients.len() >= accepting.config.max_clients
+                    || (accepting.config.require_authentication
+                        && clients
+                            .values()
+                            .filter(|client| !client.authenticated.load(Ordering::Acquire))
+                            .count()
+                            >= 32);
+                drop(clients);
+                if full {
+                    increment(&accepting.diagnostics.admission_capacity);
+                    let _ = socket.shutdown(Shutdown::Both);
+                    continue;
+                }
+                if assert_same_user(&socket).is_err() {
+                    increment(&accepting.diagnostics.admission_peer_credentials);
+                    let _ = socket.shutdown(Shutdown::Both);
+                    continue;
+                }
+                if Client::start(socket, &accepting).is_err() {
+                    increment(&accepting.diagnostics.admission_setup_io);
+                }
+            }
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::WouldBlock {
+                    increment(&accepting.diagnostics.listener_accept_io);
+                }
+                if let Some(delay) = accept_retry_delay(&error, &mut backoff) {
+                    if error.kind() != std::io::ErrorKind::WouldBlock {
+                        increment(&accepting.diagnostics.listener_retry_io);
+                    }
+                    sleep(delay);
+                } else {
+                    accepting
+                        .diagnostics
+                        .listener_failed
+                        .store(true, Ordering::Release);
+                    report("isolated wire listener stopped after a non-retryable accept error; inspect daemon:status.diagnostics.wire");
+                    break;
+                }
             }
         }
     }
@@ -1815,6 +1866,170 @@ mod tests {
                 .count(DisconnectReason::ForcedServerDrop),
             0
         );
+    }
+
+    #[test]
+    fn accept_retry_policy_is_bounded_and_permanent_errors_are_not_retried() {
+        for errno in [libc::EMFILE, libc::ENFILE, libc::ENOBUFS, libc::ENOMEM] {
+            let mut backoff = Duration::from_millis(10);
+            let observed: Vec<_> = (0..9)
+                .map(|_| {
+                    accept_retry_delay(&std::io::Error::from_raw_os_error(errno), &mut backoff)
+                        .unwrap()
+                        .as_millis()
+                })
+                .collect();
+            assert_eq!(observed, [10, 20, 40, 80, 160, 250, 250, 250, 250]);
+            assert_eq!(
+                accept_retry_delay(
+                    &std::io::Error::from(std::io::ErrorKind::WouldBlock),
+                    &mut backoff
+                ),
+                Some(Duration::from_millis(5))
+            );
+            assert_eq!(backoff, Duration::from_millis(10));
+        }
+        for errno in [libc::EINTR, libc::ECONNABORTED] {
+            assert_eq!(
+                accept_retry_delay(
+                    &std::io::Error::from_raw_os_error(errno),
+                    &mut Duration::from_millis(10)
+                ),
+                Some(Duration::from_millis(5))
+            );
+        }
+        for errno in [libc::EBADF, libc::ENOTSOCK, libc::EINVAL, libc::EACCES] {
+            assert_eq!(
+                accept_retry_delay(
+                    &std::io::Error::from_raw_os_error(errno),
+                    &mut Duration::from_millis(10)
+                ),
+                None
+            );
+        }
+    }
+    #[test]
+    fn injected_accept_errors_recover_and_serve_later_real_connections() {
+        let server = diagnostic_server(Config::default());
+        let path = server.profile_path().join("accept-fixture.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let inner = server.inner.clone();
+        let reports = Arc::new(AtomicUsize::new(0));
+        let reports_thread = reports.clone();
+        let worker = thread::spawn(move || {
+            let mut errors = [
+                libc::EINTR,
+                libc::ECONNABORTED,
+                libc::EMFILE,
+                libc::ENFILE,
+                libc::ENOBUFS,
+                libc::ENOMEM,
+            ]
+            .into_iter();
+            accept_loop(
+                inner,
+                || match errors.next() {
+                    Some(errno) => Err(std::io::Error::from_raw_os_error(errno)),
+                    None => listener.accept().map(|(socket, _)| socket),
+                },
+                thread::sleep,
+                |_| {
+                    reports_thread.fetch_add(1, Ordering::AcqRel);
+                },
+            );
+        });
+        let mut peers = Vec::new();
+        for id in 1..=2 {
+            let mut peer = UnixStream::connect(&path).unwrap();
+            peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            writeln!(
+                peer,
+                "{}",
+                json!({"v":1,"id":id,"method":"daemon:status","args":[]})
+            )
+            .unwrap();
+            let reply = read_frame_with(
+                &mut BufReader::new(peer.try_clone().unwrap()),
+                MAX_FRAME_BYTES,
+                |bytes| {
+                    serde_json::from_slice(bytes)
+                        .map_err(|_| RpcError::new("INVALID_REQUEST", "Fixed decode failure"))
+                },
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(reply["id"], id);
+            assert_eq!(reply["result"]["diagnostics"]["wire"]["listenerRetryIo"], 6);
+            assert_eq!(
+                reply["result"]["diagnostics"]["wire"]["listenerFailed"],
+                false
+            );
+            peers.push(peer);
+        }
+        assert_eq!(server.disconnect_diagnostics().listener_accept_io, 6);
+        server.shutdown().unwrap();
+        worker.join().unwrap();
+        assert_eq!(
+            reports.load(Ordering::Acquire),
+            0,
+            "retry loop emits no stderr spam"
+        );
+        assert_eq!(
+            server
+                .disconnect_diagnostics()
+                .count(DisconnectReason::GracefulShutdown),
+            2
+        );
+    }
+    #[test]
+    fn persistent_accept_resource_pressure_still_allows_bounded_shutdown() {
+        let server = diagnostic_server(Config::default());
+        let inner = server.inner.clone();
+        let worker = thread::spawn(move || {
+            accept_loop(
+                inner,
+                || Err(std::io::Error::from_raw_os_error(libc::EMFILE)),
+                thread::sleep,
+                |_| panic!("transient resource pressure must not stop the listener"),
+            )
+        });
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while server.disconnect_diagnostics().listener_retry_io < 8 {
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(2));
+        }
+        let started = Instant::now();
+        server.shutdown().unwrap();
+        worker.join().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(!server.disconnect_diagnostics().listener_failed);
+    }
+    #[test]
+    fn permanent_accept_error_latches_failure_and_reports_once_without_payloads() {
+        let server = diagnostic_server(Config::default());
+        let mut calls = 0;
+        let mut reports = Vec::new();
+        accept_loop(
+            server.inner.clone(),
+            || {
+                calls += 1;
+                Err(std::io::Error::from_raw_os_error(libc::EBADF))
+            },
+            |_| panic!("permanent error must not sleep/retry"),
+            |message| reports.push(message),
+        );
+        assert_eq!(calls, 1);
+        assert_eq!(reports.len(), 1);
+        assert!(reports[0].len() < 160);
+        assert_eq!(server.disconnect_diagnostics().listener_accept_io, 1);
+        assert_eq!(server.disconnect_diagnostics().listener_retry_io, 0);
+        assert!(server.disconnect_diagnostics().listener_failed);
+        assert!(
+            !server.is_stopped(),
+            "listener failure does not claim that the owner shut down"
+        );
+        server.shutdown().unwrap();
     }
 
     #[test]

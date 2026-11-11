@@ -1,6 +1,6 @@
 //! Constant-space, payload-free local close observations, not remote root-cause attribution.
 use serde_json::{json, Value};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
@@ -73,6 +73,8 @@ pub struct DisconnectDiagnostics {
     pub admission_peer_credentials: u64,
     pub admission_setup_io: u64,
     pub listener_accept_io: u64,
+    pub listener_retry_io: u64,
+    pub listener_failed: bool,
 }
 impl DisconnectDiagnostics {
     pub fn count(&self, reason: DisconnectReason) -> u64 {
@@ -92,7 +94,8 @@ impl DisconnectDiagnostics {
             "shutdowns":{"graceful":self.count(DisconnectReason::GracefulShutdown),"forced":self.count(DisconnectReason::ForcedServerDrop)},
             "errorReplyFailures":self.error_reply_failures,
             "admissionRejected":{"capacity":self.admission_capacity,"peerCredentials":self.admission_peer_credentials,"setupIo":self.admission_setup_io},
-            "listenerAcceptIo":self.listener_accept_io})
+            "listenerAcceptIo":self.listener_accept_io,
+            "listenerRetryIo":self.listener_retry_io,"listenerFailed":self.listener_failed})
     }
 }
 pub(crate) fn increment(counter: &AtomicU64) {
@@ -108,6 +111,8 @@ pub(crate) struct Counters {
     pub admission_peer_credentials: AtomicU64,
     pub admission_setup_io: AtomicU64,
     pub listener_accept_io: AtomicU64,
+    pub listener_retry_io: AtomicU64,
+    pub listener_failed: AtomicBool,
 }
 impl Counters {
     pub fn record(&self, reason: DisconnectReason) {
@@ -121,6 +126,8 @@ impl Counters {
             admission_peer_credentials: self.admission_peer_credentials.load(Ordering::Relaxed),
             admission_setup_io: self.admission_setup_io.load(Ordering::Relaxed),
             listener_accept_io: self.listener_accept_io.load(Ordering::Relaxed),
+            listener_retry_io: self.listener_retry_io.load(Ordering::Relaxed),
+            listener_failed: self.listener_failed.load(Ordering::Acquire),
         }
     }
 }
