@@ -279,10 +279,12 @@ loading keeps its locks and state and leaves it not ready; calling `open_project
 - A completed quit (`shutdown` returning `Ok`) leaves no Project ready.
 - Not ready but loaded (an open failed after loading, or a readiness check failed): provider events are kept in
   arrival order (`Started`, `StartFailed`, agent events, `Exited`, `AnswerSettled`, each with its turn), at most
-  `MAX_PARKED_EVENTS` (4096) events and `MAX_PARKED_BYTES` (16 MiB) for all such Projects together. The next
-  successful `open_project` handles them once, in order, after `ProjectReady`; what they refuse comes back from the
-  next `pump`. Never opened, or forgotten: dropped (`PROJECT_NOT_READY`), never loading or reopening it.
-- Past the budget the Project fails closed: what was kept for it is dropped (nothing is replayed), the provider
+  `MAX_PARKED_EVENTS` (4096) events and `MAX_PARKED_BYTES` (16 MiB) for all such Projects together. Bytes are a
+  conservative estimate of the heap each event holds (JSON counted node by node with container slack, not its
+  serialized size). The next successful `open_project` handles them once, in order, after `ProjectReady`; what they
+  refuse comes back from the next `pump`, at most `MAX_RELEASED_ERRORS` (256) of them listed (opens can release again
+  and again between pumps), the rest counted in one summary error. Never opened, or forgotten: dropped (`PROJECT_NOT_READY`), never loading or reopening it.
+- Past the budget the Project whose event didn't fit fails closed (another Project's kept events stay): what was kept for it is dropped (nothing is replayed), the provider
   sessions of its running turns are closed at once, later events for it are dropped, and once `open_project` succeeds
   those turns end `turn-failed` once and their answers settle as an ended turn's (`Uncertain`, messages kept). A turn
   end kept after a failed fold is folded instead of being ended this way.

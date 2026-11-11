@@ -163,10 +163,14 @@ struct HeldStaged {
     changed_files: Vec<String>,
 }
 
-/// The most provider events kept for Projects that are loaded but not ready, and their bytes (all such Projects
-/// together). Past either, the Project's kept events are dropped and its running turns end once it opens again.
+/// The most provider events kept for Projects that are loaded but not ready, and their estimated heap bytes (see
+/// `event_bytes`), all such Projects together. Past either, the Project whose event didn't fit fails closed (its kept
+/// events dropped, its running turns ended once it opens again); other Projects keep theirs.
 pub const MAX_PARKED_EVENTS: usize = 4096;
 pub const MAX_PARKED_BYTES: usize = 16 << 20;
+/// The most refusals of released events kept for the next `pump` (opens can release again and again between pumps);
+/// past it they are counted and returned as one summary error.
+pub const MAX_RELEASED_ERRORS: usize = 256;
 
 /// One not-ready Project's provider events, in arrival order, each with its counted size.
 #[derive(Default)]
@@ -178,39 +182,58 @@ struct Parked {
     lost: Option<BTreeMap<String, TurnId>>,
 }
 
-/// What one provider event costs to keep (its chat key, its JSON as written, its messages, plus a fixed overhead).
+/// What one provider event costs to keep: a conservative estimate of the heap it holds, not its serialized size. A
+/// JSON value is counted node by node (each `Value` slot, twice over for a list's or map's spare capacity, each map
+/// entry's key, hash and index, each string's bytes plus an allocation's minimum), plus the event itself, its chat key
+/// and its messages. `[0,0,…]` costs about 2 bytes a node as JSON but about 2 × `size_of::<Value>()` here.
 fn event_bytes(event: &ProviderEvent) -> usize {
-    struct Count(usize);
-    impl std::io::Write for Count {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0 += bytes.len();
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let json = |value: &Value| {
-        let mut count = Count(0);
-        let _ = serde_json::to_writer(&mut count, value);
-        count.0
-    };
-    let (chat, body) = match event {
-        ProviderEvent::Started { chat, result, .. } => (chat, json(&result.0)),
-        ProviderEvent::Agent { chat, event, .. } => (chat, json(&event.0)),
-        ProviderEvent::StartFailed { chat, error, .. }
-        | ProviderEvent::Exited { chat, error, .. } => (chat, error.message.len()),
-        ProviderEvent::AnswerSettled { chat, outcome, .. } => (
-            chat,
-            match outcome {
-                AnswerOutcome::Failed(error) | AnswerOutcome::Uncertain(error) => {
-                    error.message.len()
+    const ALLOCATION: usize = 16;
+    let slot = std::mem::size_of::<Value>();
+    let entry = slot + std::mem::size_of::<String>() + std::mem::size_of::<usize>();
+    let heap = |value: &Value| {
+        let mut total = 0usize;
+        let mut stack = vec![value];
+        while let Some(value) = stack.pop() {
+            match value {
+                Value::String(text) => total += text.len() + ALLOCATION,
+                Value::Array(items) => {
+                    total += 2 * slot * items.len() + ALLOCATION;
+                    stack.extend(items.iter());
                 }
-                _ => 0,
-            },
-        ),
+                Value::Object(map) => {
+                    // Entries (with spare capacity) and the index table.
+                    total +=
+                        map.len() * (2 * entry + 2 * std::mem::size_of::<usize>()) + 2 * ALLOCATION;
+                    for (key, value) in map {
+                        total += key.len() + ALLOCATION;
+                        stack.push(value);
+                    }
+                }
+                _ => {}
+            }
+        }
+        total + slot
     };
-    64 + chat.len() + body
+    let message = |error: &ProviderError| error.message.len() + ALLOCATION;
+    let body = match event {
+        ProviderEvent::Started { result, .. } => heap(&result.0),
+        ProviderEvent::Agent { event, .. } => heap(&event.0),
+        ProviderEvent::StartFailed { error, .. } | ProviderEvent::Exited { error, .. } => {
+            message(error)
+        }
+        ProviderEvent::AnswerSettled { outcome, .. } => match outcome {
+            AnswerOutcome::Failed(error) | AnswerOutcome::Uncertain(error) => message(error),
+            _ => 0,
+        },
+    };
+    let chat = match event {
+        ProviderEvent::Started { chat, .. }
+        | ProviderEvent::StartFailed { chat, .. }
+        | ProviderEvent::Agent { chat, .. }
+        | ProviderEvent::Exited { chat, .. }
+        | ProviderEvent::AnswerSettled { chat, .. } => chat.len() + ALLOCATION,
+    };
+    std::mem::size_of::<(ProviderEvent, usize)>() + chat + body
 }
 
 /// Where a quit stands (see [`ChatHost::shutdown`]).
@@ -856,8 +879,10 @@ pub struct ChatHost {
     parked_events: usize,
     parked_bytes: usize,
     parked_budget: (usize, usize),
-    /// What releasing parked events refused or failed: returned by the next `pump`.
+    /// What releasing parked events refused or failed (at most `MAX_RELEASED_ERRORS`, the rest counted): returned by
+    /// the next `pump`.
     released_errors: Vec<StoreError>,
+    released_uncounted: usize,
     /// Projects whose recovery changed state an open couldn't publish (its save failed): published once one succeeds.
     unpublished: HashSet<PathBuf>,
     /// Handoffs being prepared, by Chat: the turn reserved for each (its generation) and what is ready so far.
@@ -941,6 +966,7 @@ impl ChatHost {
             parked_bytes: 0,
             parked_budget: (MAX_PARKED_EVENTS, MAX_PARKED_BYTES),
             released_errors: Vec::new(),
+            released_uncounted: 0,
             unpublished: HashSet::new(),
             preparing: HashMap::new(),
             transcripts: None,
@@ -2053,6 +2079,12 @@ impl ChatHost {
     /// failed; each is also left as it was (a refused event folds nothing).
     pub fn pump(&mut self) -> Vec<StoreError> {
         let mut errors = std::mem::take(&mut self.released_errors);
+        let uncounted = std::mem::take(&mut self.released_uncounted);
+        if uncounted > 0 {
+            errors.push(StoreError::Invalid(format!(
+                "{uncounted} more agent events released after an open were refused (not listed one by one)."
+            )));
+        }
         self.drive_jobs(false);
         self.drive_briefs(None);
         errors.extend(self.retry_stuck());
@@ -2269,7 +2301,11 @@ impl ChatHost {
         self.parked_bytes -= parked.bytes;
         for (event, _) in parked.events {
             if let Err(error) = self.handle(event) {
-                self.released_errors.push(error);
+                if self.released_errors.len() < MAX_RELEASED_ERRORS {
+                    self.released_errors.push(error);
+                } else {
+                    self.released_uncounted += 1;
+                }
             }
         }
         for (chat, turn) in parked.lost.unwrap_or_default() {

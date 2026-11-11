@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use milagre_owner_store::brief::fake::FakeBriefModel;
 use milagre_owner_store::chat_host::{
     AnswerId, AnswerOutcome, AnswerResult, AnswerTicket, ChatHost, MockProvider, Notice,
-    ProviderEvent, QuitState, TurnId,
+    ProviderEvent, QuitState, TurnId, MAX_PARKED_EVENTS, MAX_RELEASED_ERRORS,
 };
 use milagre_owner_store::handover::Zone;
 use milagre_owner_store::isolation::{Isolation, Policy};
@@ -267,35 +267,38 @@ fn events_kept_while_not_ready_settle_exactly_once_after_an_explicit_open() {
 /// settles once (`Uncertain`, its message kept).
 #[test]
 fn an_overflow_fails_closed_and_ends_the_turn_once_after_open() {
-    for (events, bytes) in [(3, usize::MAX), (usize::MAX, 600)] {
+    for by_bytes in [false, true] {
         let mut c = copy(false);
         c.send("one").unwrap();
         assert!(c.host.pump().is_empty());
         c.ask("q1");
         let answer = c.answer("q1");
-        c.host.set_parked_budget_for_tests(events, bytes);
         c.lose_readiness();
         c.host.take_notices();
         let chat = c.chat();
-        for index in 0..3 {
-            c.kiro.emit(
-                &chat,
-                json!({ "type": "text-delta", "text": format!("kept {index} ") }),
-            );
+        let delta =
+            |index: usize| json!({ "type": "text-delta", "text": format!("kept {index} ") });
+        // Three same-size events fill the budget exactly (by count, or by their measured bytes).
+        c.host
+            .set_parked_budget_for_tests(if by_bytes { usize::MAX } else { 3 }, usize::MAX);
+        c.kiro.emit(&chat, delta(0));
+        assert!(c.host.pump().is_empty());
+        let (_, one) = c.host.parked_for_tests();
+        if by_bytes {
+            c.host.set_parked_budget_for_tests(usize::MAX, 3 * one);
         }
-        let kept = c.host.pump();
-        let overflowed = !kept.is_empty();
-        if !overflowed {
-            assert_eq!(c.host.parked_for_tests().0, 3);
-            c.kiro.emit(
-                &chat,
-                json!({ "type": "text-delta", "text": "one too many" }),
-            );
-            let refused = c.host.pump();
-            assert_eq!(refused.len(), 1, "{refused:?}");
-        } else {
-            assert_eq!(kept.len(), 1, "({events}, {bytes}): {kept:?}");
+        for index in 1..3 {
+            c.kiro.emit(&chat, delta(index));
         }
+        assert!(c.host.pump().is_empty());
+        assert_eq!(
+            c.host.parked_for_tests(),
+            (3, 3 * one),
+            "by_bytes {by_bytes}"
+        );
+        c.kiro.emit(&chat, delta(3));
+        let refused = c.host.pump();
+        assert_eq!(refused.len(), 1, "{refused:?}");
         assert_eq!(
             c.host.parked_for_tests(),
             (0, 0),
@@ -314,7 +317,7 @@ fn an_overflow_fails_closed_and_ends_the_turn_once_after_open() {
         assert!(c.host.pump().is_empty());
         notices.extend(c.host.take_notices());
         assert!(!c.host.is_busy(&chat));
-        assert_eq!(Copy::turn_ends(&notices), 1, "({events}, {bytes})");
+        assert_eq!(Copy::turn_ends(&notices), 1, "by_bytes {by_bytes}");
         assert!(matches!(
             Copy::settlements(&notices, answer).as_slice(),
             [AnswerResult::Uncertain(_)]
@@ -549,4 +552,250 @@ fn the_clock_writes_nothing_while_not_ready() {
     );
     c.host.open_project(&c.project).unwrap();
     assert!(String::from_utf8_lossy(&Copy::saved_at(&c.project)).contains("native-xyz"));
+}
+
+/// A transcript job that fails (here dropped unrun: it reports `Unknown`) while the Project isn't ready: nothing is
+/// written, told or started and the turn stays reserved; after an explicit open the divider fails and the turn ends,
+/// once, and nothing starts.
+#[test]
+fn a_transcript_job_failing_while_not_ready_takes_effect_only_after_open() {
+    let mut c = copy(true);
+    c.send("Next").unwrap();
+    let chat = c.chat();
+    c.lose_readiness();
+    let before = Copy::saved_at(&c.project);
+    c.host.take_notices();
+    drop(c.host.take_jobs());
+    for step in 1..=5 {
+        c.host.pump();
+        c.host.tick(c.host.states.now() + step);
+    }
+    assert!(
+        Copy::saved_at(&c.project) == before,
+        "written while not ready"
+    );
+    assert_eq!(c.divider()["context"]["status"], json!("preparing"));
+    assert!(c.host.is_busy(&chat));
+    let notices = c.host.take_notices();
+    assert!(
+        notices
+            .iter()
+            .all(|n| !matches!(n, Notice::Failed { .. }) && !matches!(n, Notice::Broadcast { .. })),
+        "{notices:?}"
+    );
+    assert_eq!(Copy::turn_ends(&notices), 0);
+    c.host.open_project(&c.project).unwrap();
+    c.host.pump();
+    let notices = c.host.take_notices();
+    assert_eq!(c.divider()["context"]["status"], json!("failed"));
+    assert!(!c.host.is_busy(&chat));
+    assert_eq!(Copy::turn_ends(&notices), 1);
+    assert_eq!(c.starts(), 0);
+    c.host.tick(c.host.states.now() + 60_000);
+    assert!(String::from_utf8_lossy(&Copy::saved_at(&c.project)).contains("\"failed\""));
+}
+
+/// Recovery's change kept in memory while the open's final save failed: the next open (which recovers nothing new)
+/// still saves it and publishes it once.
+#[test]
+fn a_recovery_whose_save_failed_is_published_by_the_open_that_succeeds() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(&base.path().join("copies"), &Policy::default()).unwrap();
+    let project = isolation.project(Path::new("p")).unwrap();
+    let milagre = project.join(".milagre");
+    std::fs::create_dir_all(&milagre).unwrap();
+    let state = json!({ "next_id": 10, "worktrees": { "1": { "id": 1, "path": "/tmp/wt" } },
+        "sessions": { "1": { "id": 1, "worktree_id": 1, "provider": "kiro" } },
+        "messages": [
+            { "id": 1, "session_id": 1, "role": "user", "body": "hi" },
+            { "id": 2, "session_id": 1, "role": "assistant", "body": "", "context": { "kind": "handoff", "from": { "provider": "kiro" }, "to": { "provider": "kiro" }, "status": "preparing" } },
+        ] });
+    std::fs::write(milagre.join("coordination.json"), state.to_string()).unwrap();
+    let mut host = ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0));
+    // Loaded and locked first (another owner's handover store refuses the first open, after loading).
+    let other_isolation = Isolation::open(project.parent().unwrap(), &Policy::default()).unwrap();
+    let other = milagre_owner_store::transcripts::TranscriptJobs::new(&other_isolation).unwrap();
+    assert_eq!(
+        host.open_project(&project).unwrap_err().code(),
+        Some("HANDOVER_STORE_BUSY")
+    );
+    drop(other);
+    // Recovery's update succeeds in memory; the final save can't write.
+    std::fs::set_permissions(&milagre, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let failed = host.open_project(&project);
+    std::fs::set_permissions(&milagre, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(failed.is_err(), "the save didn't fail");
+    assert!(!host.is_project_ready(&project));
+    let saved = std::fs::read_to_string(milagre.join("coordination.json")).unwrap()
+        + &String::from_utf8_lossy(&std::fs::read(milagre.join("chats.db")).unwrap_or_default());
+    assert!(!saved.contains("\"failed\""), "saved by the failed open");
+    assert!(host
+        .take_notices()
+        .iter()
+        .all(|n| !matches!(n, Notice::Broadcast { .. })));
+    host.open_project(&project).unwrap();
+    let notices = host.take_notices();
+    let ready_at = notices
+        .iter()
+        .position(|n| matches!(n, Notice::ProjectReady { .. }))
+        .unwrap();
+    assert_eq!(
+        notices[ready_at..]
+            .iter()
+            .filter(|n| matches!(n, Notice::Broadcast { .. }))
+            .count(),
+        1,
+        "the recovery wasn't published once: {notices:?}"
+    );
+    let saved = std::fs::read_to_string(milagre.join("coordination.json")).unwrap()
+        + &String::from_utf8_lossy(&std::fs::read(milagre.join("chats.db")).unwrap_or_default());
+    assert!(saved.contains("\"failed\""), "the recovery wasn't saved");
+    host.open_project(&project).unwrap();
+    assert!(host
+        .take_notices()
+        .iter()
+        .all(|n| !matches!(n, Notice::Broadcast { .. })));
+}
+
+/// The budget is shared, its overflow isolated: one Project overflowing drops only its own events and ends only its
+/// own turns; the other's stay kept, in order, and are handled once when it opens.
+#[test]
+fn an_overflow_in_one_project_leaves_another_projects_events_kept() {
+    let base = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(&base.path().join("copies"), &Policy::default()).unwrap();
+    let mut projects = Vec::new();
+    for name in ["p", "q"] {
+        let project = isolation.project(Path::new(name)).unwrap();
+        std::fs::create_dir_all(project.join(".milagre")).unwrap();
+        let state = json!({ "next_id": 10, "worktrees": { "1": { "id": 1, "path": "/tmp/wt", "name": "main" } },
+            "sessions": { "1": { "id": 1, "worktree_id": 1 } }, "messages": [] });
+        std::fs::write(
+            project.join(".milagre/coordination.json"),
+            state.to_string(),
+        )
+        .unwrap();
+        projects.push(project);
+    }
+    let mut host = ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0));
+    let kiro = MockProvider::new("kiro");
+    host.register(Box::new(kiro.clone()));
+    let chats: Vec<String> = projects
+        .iter()
+        .map(|p| format!("{}#1", p.display()))
+        .collect();
+    for project in &projects {
+        host.open_project(project).unwrap();
+        host.send(&json!({ "projectPath": project.display().to_string(), "sessionId": 1, "provider": "kiro", "model": "m", "body": "go", "clientMessageId": "c1" })).unwrap();
+    }
+    assert!(host.pump().is_empty());
+    for project in &projects {
+        let moved = project.with_file_name("moved");
+        std::fs::rename(project, &moved).unwrap();
+        symlink(&moved, project).unwrap();
+        assert!(host.require_project_ready(project).is_err());
+        std::fs::remove_file(project).unwrap();
+        std::fs::rename(&moved, project).unwrap();
+    }
+    host.set_parked_budget_for_tests(4, usize::MAX);
+    let (p, q) = (&chats[0], &chats[1]);
+    let delta = |text: &str| json!({ "type": "text-delta", "text": text });
+    for text in ["a0 ", "a1 ", "a2 "] {
+        kiro.emit(p, delta(text));
+    }
+    kiro.emit(q, delta("b0 "));
+    assert!(host.pump().is_empty());
+    assert_eq!(host.parked_for_tests().0, 4);
+    // q's next event doesn't fit: q fails closed, p keeps its three.
+    kiro.emit(q, delta("b1 "));
+    assert_eq!(host.pump().len(), 1);
+    assert_eq!(host.parked_for_tests().0, 3);
+    assert!(kiro.state.lock().unwrap().closed.contains(q));
+    assert!(!kiro.state.lock().unwrap().closed.contains(p));
+    // Room again for p: its fourth fits the shared budget, and more once the budget allows.
+    kiro.emit(p, delta("a3 "));
+    assert!(host.pump().is_empty());
+    assert_eq!(host.parked_for_tests().0, 4);
+    host.set_parked_budget_for_tests(MAX_PARKED_EVENTS, usize::MAX);
+    kiro.emit(p, json!({ "type": "turn-completed" }));
+    assert!(host.pump().is_empty());
+    host.open_project(&projects[0]).unwrap();
+    assert!(host.pump().is_empty());
+    let reply = |host: &ChatHost, project: &Path| {
+        host.states
+            .current(project)
+            .unwrap()
+            .message_list()
+            .iter()
+            .map(|m| m.value().clone())
+            .rev()
+            .find(|m| m["role"] == json!("assistant"))
+            .unwrap()
+    };
+    assert_eq!(reply(&host, &projects[0])["body"], json!("a0 a1 a2 a3"));
+    assert!(!host.is_busy(p));
+    assert!(host.is_busy(q), "q's turn ended before q opened");
+    host.take_notices();
+    host.open_project(&projects[1]).unwrap();
+    assert!(host.pump().is_empty());
+    assert!(!host.is_busy(q));
+    assert_eq!(Copy::turn_ends(&host.take_notices()), 1);
+    assert!(
+        !reply(&host, &projects[1])["body"]
+            .as_str()
+            .unwrap_or("")
+            .contains("b0"),
+        "q's dropped event was replayed"
+    );
+}
+
+/// Opens that release refused events again and again without a pump keep at most `MAX_RELEASED_ERRORS` of them, the
+/// rest counted in one summary error.
+#[test]
+fn released_refusals_stay_bounded_between_pumps() {
+    let mut c = copy(false);
+    let chat = c.chat();
+    for _ in 0..3 {
+        c.lose_readiness();
+        for _ in 0..200 {
+            c.host
+                .deliver(ProviderEvent::Agent {
+                    chat: chat.clone(),
+                    turn: TurnId(1),
+                    event: milagre_owner_store::jsjson::RawJson(
+                        json!({ "type": "text-delta", "text": "late" }),
+                    ),
+                })
+                .unwrap();
+        }
+        c.host.open_project(&c.project).unwrap();
+    }
+    let errors = c.host.pump();
+    assert_eq!(errors.len(), MAX_RELEASED_ERRORS + 1);
+    let summary = errors.last().unwrap().to_string();
+    assert!(
+        summary.contains(&(600 - MAX_RELEASED_ERRORS).to_string()),
+        "{summary}"
+    );
+    assert!(c.host.pump().is_empty());
+}
+
+/// The budget counts an estimate of the heap an event holds, not its JSON: a list of 100,000 zeros (about 200 KB as
+/// JSON) doesn't fit a 1 MiB budget.
+#[test]
+fn the_byte_budget_counts_heap_not_json() {
+    let mut c = copy(false);
+    c.send("one").unwrap();
+    assert!(c.host.pump().is_empty());
+    c.lose_readiness();
+    c.host.set_parked_budget_for_tests(usize::MAX, 1 << 20);
+    let chat = c.chat();
+    let zeros = vec![0; 100_000];
+    assert!(serde_json::to_vec(&zeros).unwrap().len() < 1 << 20);
+    c.kiro.emit(
+        &chat,
+        json!({ "type": "text-delta", "text": "x", "padding": zeros }),
+    );
+    assert_eq!(c.host.pump().len(), 1, "a heap-heavy event was kept");
+    assert_eq!(c.host.parked_for_tests(), (0, 0));
 }
