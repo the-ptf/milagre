@@ -5,6 +5,7 @@
 pub mod app;
 pub mod assets;
 pub mod data;
+pub mod logic;
 #[cfg(target_os = "macos")]
 pub mod snapshot;
 pub mod theme;
