@@ -224,6 +224,7 @@ class PortWatcher {
     this.groups = new Map();
     this.processes = new Map();
     this.windowsIdentities = new Map();
+    this.portIdentities = new Map();
     this.ports = {};
     this.timer = null;
     // The poll under way, if any.
@@ -258,7 +259,7 @@ class PortWatcher {
   async stopPort(chatId, pid) {
     if (!this.ports[chatId]?.some((port) => port.pid === pid)) return false;
     if (this.platform === "win32") {
-      const requestedStart = this.windowsIdentities.get(pid);
+      const requestedStart = this.portIdentities.get(pid);
       await this.poll({ fresh: true });
       if (!this.ports[chatId]?.some((port) => port.pid === pid)) return false;
       const owned = this.groups.get(chatId);
@@ -391,6 +392,10 @@ class PortWatcher {
 
   set(ports) {
     if (this.closed) return;
+    // The process table advances before the listener read completes. A Stop must
+    // capture the identity of its published row, not a replacement from that read.
+    if (this.platform === "win32")
+      this.portIdentities = new Map(Object.values(ports).flatMap((rows) => rows.map(({ pid }) => [pid, this.windowsIdentities.get(pid)])));
     if (samePorts(ports, this.ports)) return;
     this.ports = ports;
     this.publish(ports);

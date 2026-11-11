@@ -96,6 +96,42 @@ test("Windows never climbs into a reused parent PID newer than its surviving chi
   assert.deepEqual(killed, [{ pid: 30, options: { expectedStartTime: "300" } }]);
 });
 
+test("Windows binds a stop to the published identity while a poll reads a replacement PID", async (t) => {
+  let created = "300";
+  let hold = false;
+  let release;
+  const watcher = new PortWatcher({
+    platform: "win32",
+    roots: () => new Map([["chat", { pid: 10 }]]),
+    publish() {},
+    exec: async (command) => {
+      if (command === "ps") return `10 1 10 @100 agent.exe\n20 10 20 @200 cmd.exe\n30 20 30 @${created} node.exe`;
+      if (hold) {
+        hold = false;
+        await new Promise((resolve) => {
+          release = resolve;
+        });
+      }
+      return "p30\ncnode\nn*:3000";
+    },
+    stopWindowsTree: async () => assert.fail("the in-flight process table must not replace the published listener's identity"),
+  });
+  t.after(() => {
+    release?.();
+    watcher.close();
+  });
+  await watcher.poll();
+  created = "999";
+  hold = true;
+  const polling = watcher.poll({ fresh: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(watcher.windowsIdentities.get(30), "999");
+  const stopping = watcher.stopPort("chat", 30);
+  release();
+  assert.equal(await stopping, false);
+  await polling;
+});
+
 test("Windows excludes missing creation identities and protects every agent and Terminal root", async (t) => {
   const rows =
     "10 1 10 @100 agent.exe\n20 10 20 @200 cmd.exe\n30 20 30 @300 node.exe\n40 30 40 @400 cmd.exe\n50 40 50 @500 node.exe\n60 20 60 @600 pwsh.exe\n70 60 70 @700 node.exe\n80 20 80 node.exe";
