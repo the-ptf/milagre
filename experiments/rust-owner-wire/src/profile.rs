@@ -20,7 +20,8 @@ impl IsolatedProfile {
     pub fn create() -> Result<Self, RpcError> {
         let directory = tempfile::Builder::new()
             .prefix("milagre-rust-wire-")
-            .tempdir()?;
+            // Do not inherit TMPDIR: this experimental server never creates a profile in user data.
+            .tempdir_in(fs::canonicalize("/tmp")?)?;
         fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700))?;
         let real = fs::canonicalize(directory.path())?;
         let digest = hex::encode(Sha256::digest(real.as_os_str().as_encoded_bytes()));

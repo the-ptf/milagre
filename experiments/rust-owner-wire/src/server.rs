@@ -91,6 +91,11 @@ pub trait Handler: Send + Sync + 'static {
     fn invoke(&self, method: &str, args: &[Value], context: &ClientContext) -> RpcResult;
     /// Called under the publication lock. Do not publish events from inside snapshot.
     fn snapshot(&self, context: &ClientContext) -> RpcResult;
+    /// Serialize domain results. An adapter may preserve JavaScript lone surrogates using JSON escapes.
+    /// Must return one valid JSON value without literal newlines. Page fragments bypass this hook.
+    fn encode_result(&self, result: &Value) -> Result<String, RpcError> {
+        Ok(result.to_string())
+    }
     fn view_changed(&self, _context: &ClientContext) -> RpcResult {
         Ok(Value::Null)
     }
@@ -133,19 +138,32 @@ impl Publication<'_> {
             return Err(RpcError::new("INVALID_EVENT", "Invalid event channel"));
         }
         if let Some(object) = payload.as_object_mut() {
-            if object.get("state").is_some_and(|state| {
-                state.to_string().len() > self.inner.config.max_frame_bytes / 4
-            }) {
+            let state_too_large = object
+                .get("state")
+                .map(|state| self.inner.handler.encode_result(state))
+                .transpose()?
+                .is_some_and(|text| text.len() > self.inner.config.max_frame_bytes / 4);
+            if state_too_large {
                 object.remove("state");
                 object.insert("stateTooLarge".into(), Value::Bool(true));
             }
         }
         let seq = self.inner.sequence.fetch_add(1, Ordering::AcqRel) + 1;
         // Keep v/event first: production client's events:false fast path depends on this byte prefix.
-        let frame = encode(
-            &json!({"v":VERSION,"event":{"channel":channel,"payload":payload,"seq":seq}}),
-            self.inner.config.max_frame_bytes,
-        )?;
+        let payload = self.inner.handler.encode_result(&payload)?;
+        if payload.contains(['\n', '\r']) {
+            return Err(RpcError::new(
+                "INVALID_RESPONSE",
+                "Encoded event payload must fit one JSON line",
+            ));
+        }
+        let frame = format!("{{\"v\":{VERSION},\"event\":{{\"channel\":{},\"payload\":{payload},\"seq\":{seq}}}}}\n", json!(channel)).into_bytes();
+        if frame.len() > self.inner.config.max_frame_bytes {
+            return Err(RpcError::new(
+                "FRAME_TOO_LARGE",
+                "Event exceeds the local daemon size limit",
+            ));
+        }
         let clients: Vec<_> = self
             .inner
             .clients
@@ -554,8 +572,11 @@ impl Client {
             .inner
             .upgrade()
             .ok_or_else(|| RpcError::new("DAEMON_CLOSED", "Server is closed"))?;
-        let release = if valid_id(&value["id"]) {
-            let identity = request_identity(&value["id"]);
+        self.send_encoded(&value["id"], encode(value, inner.config.max_frame_bytes)?)
+    }
+    fn send_encoded(&self, id: &Value, bytes: Vec<u8>) -> Result<(), RpcError> {
+        let release = if valid_id(id) {
+            let identity = request_identity(id);
             self.inflight
                 .lock()
                 .unwrap()
@@ -565,7 +586,7 @@ impl Client {
         } else {
             None
         };
-        self.enqueue_frame(encode(value, inner.config.max_frame_bytes)?, release)
+        self.enqueue_frame(bytes, release)
     }
     fn release_request(&self, identity: &str, ticket: u64) {
         let mut inflight = self.inflight.lock().unwrap();
@@ -760,7 +781,11 @@ impl Client {
                 let seq = inner.sequence.load(Ordering::Acquire);
                 object.insert("eventSeq".into(), json!(seq));
                 if args.first().is_some_and(|arg| arg["paged"] == true) {
-                    let manifest = self.pages.lock().unwrap().capture(snapshot.to_string())?;
+                    let manifest = self
+                        .pages
+                        .lock()
+                        .unwrap()
+                        .capture(inner.handler.encode_result(&snapshot)?)?;
                     json!({"snapshotId":manifest["pageId"],"pageCount":manifest["pageCount"],"eventSeq":seq})
                 } else {
                     snapshot
@@ -834,16 +859,34 @@ impl Client {
             .inner
             .upgrade()
             .ok_or_else(|| RpcError::new("DAEMON_CLOSED", "Server is closed"))?;
-        let text = result.to_string();
         let method = request["method"].as_str().unwrap();
-        if request["pages"] == true
-            && !matches!(method, "daemon:result-page" | "daemon:snapshot-page")
-            && text.len() > inner.config.max_frame_bytes / 4
-        {
+        // A fragment is already serialized JSON text; interpreting it again can corrupt string boundaries.
+        if matches!(method, "daemon:result-page" | "daemon:snapshot-page") {
+            return self.send(&json!({"v":VERSION,"id":request["id"],"result":result}));
+        }
+        let text = inner.handler.encode_result(&result)?;
+        if text.contains(['\n', '\r']) {
+            return Err(RpcError::new(
+                "INVALID_RESPONSE",
+                "Encoded result must fit one JSON line",
+            ));
+        }
+        if request["pages"] == true && text.len() > inner.config.max_frame_bytes / 4 {
             let pages = self.pages.lock().unwrap().capture(text)?;
             self.send(&json!({"v":VERSION,"id":request["id"],"pages":pages}))
         } else {
-            self.send(&json!({"v":VERSION,"id":request["id"],"result":result}))
+            let frame = format!(
+                "{{\"v\":{VERSION},\"id\":{},\"result\":{text}}}\n",
+                request["id"]
+            )
+            .into_bytes();
+            if frame.len() > inner.config.max_frame_bytes {
+                return Err(RpcError::new(
+                    "FRAME_TOO_LARGE",
+                    "Response exceeds the local daemon size limit",
+                ));
+            }
+            self.send_encoded(&request["id"], frame)
         }
     }
 }

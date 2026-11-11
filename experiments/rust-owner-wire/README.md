@@ -2,7 +2,7 @@
 
 This crate implements Milagre's local daemon protocol in Rust and checks it with the **unchanged production Node client and desktop runtime client**. It only binds newly created temporary profiles. Its executable serves synthetic fixture commands, not a Milagre application backend.
 
-There is no connection to the installed daemon, no Project ownership acquisition, no access to existing Chat databases, and no provider execution. `milagre-owner-store` is not yet linked. The Node owner remains required by the Rust desktop. This is stage 2 of [the backend migration plan](../rust-desktop/BACKEND-MIGRATION.md), not a completed backend migration.
+There is no connection to the installed daemon, no Project ownership acquisition, no access to existing Chat databases, and no provider execution. The separate [isolated read runtime](../rust-runtime/README.md) now connects this wire layer to `milagre-owner-store` on embedded temporary copies. The Node owner remains required by the Rust desktop. This is stage 2 of [the backend migration plan](../rust-desktop/BACKEND-MIGRATION.md), not a completed backend migration.
 
 ## API and ownership boundary
 
@@ -14,19 +14,20 @@ let server = Server::bind(profile, Arc::new(my_handler), Config::default())?;
 server.shutdown()?;
 ```
 
-`IsolatedProfile` has no constructor from a path and no mutable path access. It creates a private `milagre-rust-wire-*` temporary directory. The socket name uses the same canonical-profile SHA-256 hash as `apps/daemon/src/paths.cjs`; it is a distinct endpoint under `/tmp/milagre-<uid>/`. That shared directory is validated, never chmodded or removed when it already exists. Binding refuses existing endpoints. Cleanup removes only the inode this instance bound, then drops its own temporary profile.
+`IsolatedProfile` has no constructor from a path and no mutable path access. It creates a private `milagre-rust-wire-*` temporary directory under canonical `/tmp`, independently of `TMPDIR`. The socket name uses the same canonical-profile SHA-256 hash as `apps/daemon/src/paths.cjs`; it is a distinct endpoint under `/tmp/milagre-<uid>/`. That shared directory is validated, never chmodded or removed when it already exists. Binding refuses existing endpoints. Cleanup removes only the inode this instance bound, then drops its own temporary profile.
 
 The public `Handler` trait provides:
 
 - `methods()` and `invoke(method, args, context)` for explicitly registered services. There is no unrestricted command forwarding.
 - `snapshot(context)` for an object representing one consistent handler state. This method is required; the wire layer supplies its `eventSeq` watermark.
+- `encode_result(value)` for domain JSON serialization, including JavaScript lone-surrogate escapes. Ordinary results, snapshot captures and event payloads use it; page fragments bypass it because they are already serialized text.
 - `view_changed(context)`, `disconnected(client_id)` and `shutdown()` lifecycle hooks. `disconnected` must not block, publish events or reenter the server. Resources that need draining belong in `shutdown`.
 
 `ClientContext` supplies a generated connection ID, its own `ClientView`, connection status and an `EventSink`. Request arguments never choose the acting client. View state tracks the selected Project or Link, Chat and focus. A Project switch on one socket cannot change another socket's view. Disconnect discards that socket's view and page captures.
 
 For a state mutation, use `context.events.transaction(|publication| { ... })`, acquire the handler's state lock **inside** that closure, mutate, and call `publication.emit(...)`. Snapshot holds the same publication lock while reading the handler and capturing its watermark. A handler that mutates independently of this boundary can produce inconsistent snapshots; this crate cannot make unrelated store writes atomic for it.
 
-A future adapter for `milagre-owner-store` must initially accept fixture copies only and map specific read methods to `ProjectReader`. Production profile binding, owner locks and persisted mutations require a separate ownership cutover under ADR-0003. Do not add an arbitrary profile-path constructor to bypass that work.
+The separate `rust-runtime` adapter accepts embedded fixture copies only and maps specific read methods to `ProjectReader`. Production profile binding, owner locks and persisted mutations require a separate ownership cutover under ADR-0003. Do not add an arbitrary profile-path constructor to bypass that work.
 
 ## Protocol implemented
 
@@ -56,7 +57,7 @@ node --check experiments/rust-owner-wire/tests/node-compat.cjs
 
 Cargo runs seven Rust unit checks and one Node interoperability suite. Node is required, along with this repository's production module dependencies. The suite launches the fixture executable twice, each with a fresh profile, and removes both profiles/endpoints afterward. It uses the real `apps/daemon/src/client.cjs`, `runtime-client.cjs`, `protocol.cjs`, `paths.cjs` and `local-auth.cjs`.
 
-The Node suite exercises ordinary and structured-error replies, 70 queued client calls, a held call answered out of order, Unicode/escape-heavy paging, connection-scoped captures, wrong page order, numeric result/snapshot IDs, ID reuse, duplicate IDs, 33 simultaneous requests, malformed and oversized frames, event sequence/watermark, omitted-state hydration, independent views, lost-acknowledgement no-replay behavior, reconnect restoring Project/Link/Chat/focus, mutual authentication, nonce replay rejection, pre-authentication event suppression, authentication deadline and accepted-command shutdown draining. Unit checks cover frame/ID bounds, page expiration/budgets, refusing existing endpoints, preserving a replaced endpoint, failed-shutdown retry and stalled-reader backpressure.
+The Node suite exercises ordinary and structured-error replies, 70 queued client calls, a held call answered out of order, Unicode/escape-heavy paging, lone-surrogate output through the domain serializer (inline/results/events/snapshots), connection-scoped captures, wrong page order, numeric result/snapshot IDs, ID reuse, duplicate IDs, 33 simultaneous requests, malformed and oversized frames, event sequence/watermark, omitted-state hydration, independent views, lost-acknowledgement no-replay behavior, reconnect restoring Project/Link/Chat/focus, mutual authentication, nonce replay rejection, pre-authentication event suppression, authentication deadline and accepted-command shutdown draining. Unit checks cover frame/ID bounds, page expiration/budgets, refusing existing endpoints, preserving a replaced endpoint, failed-shutdown retry and stalled-reader backpressure.
 
 This evidence covers wire interoperability with a synthetic in-memory handler on macOS. It is not evidence of migrated Chat execution, persistent state parity, a working Rust desktop connected to this server, or performance improvement.
 
@@ -65,7 +66,7 @@ This evidence covers wire interoperability with a synthetic in-memory handler on
 1. **No production owner.** There are no Project locks, registries, stores, providers, terminal processes, Git operations, account services, mobile/peer transports, update management or startup supervision. A handler that writes real data would need to implement and prove those contracts first.
 2. **No Windows transport.** The HMAC exchange is tested on a Unix socket. Named pipes, Windows ACLs and process/lifecycle handling are not ported. Linux peer-credential code exists but this run validates macOS only.
 3. **No state patches or lean projections.** Whole states and oversized-state rereads work. `daemon:state-patches`, epochs/versioned state, `state:read`, transcript tails and archived-subagent summaries belong to later services and are not advertised.
-4. **Paging bounds differ.** Rust splits at UTF-8 character boundaries rather than JavaScript UTF-16 slices; joined JSON is equivalent, but page counts need not match. It enforces byte and page-count bounds and returns `PAGES_BUSY` immediately when retained captures fill the budget. Node waits for capture slots and permits a single result larger than its ordinary budget. Rust's JSON parser also rejects unpaired surrogate escapes that Node can retain.
+4. **Paging bounds differ.** Rust splits at UTF-8 character boundaries rather than JavaScript UTF-16 slices; joined JSON is equivalent, but page counts need not match. It enforces byte and page-count bounds and returns `PAGES_BUSY` immediately when retained captures fill the budget. Node waits for capture slots and permits a single result larger than its ordinary budget. Rust's request JSON parser still rejects incoming unpaired surrogate escapes that Node can retain. The optional domain serializer preserves them in stored result/event/snapshot output.
 5. **Foundation lifecycle limits.** Each accepted handler runs on a bounded set of request threads rather than an async service runtime. The shutdown timeout bounds accepted-command draining, not an arbitrary blocking `Handler::shutdown`. Dropping the server after a failed drain closes sockets but cannot forcibly cancel arbitrary handler threads. No production data should be attached until cancellation, service cleanup and ownership release are designed together.
 
 Direct dependencies are `serde_json` (ordered objects), `sha2`, `hmac`, `hex`, `rand`, `libc` and `tempfile`. Exact versions are in this crate's `Cargo.lock`; it does not add dependencies to the desktop or the owner storage crate.

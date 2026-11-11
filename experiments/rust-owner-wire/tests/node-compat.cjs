@@ -129,6 +129,11 @@ async function interoperability() {
     const other = await connect({ dataDir: host.profile, timeoutMs: 5000 });
     clients.push(other);
     const status = await client.call("daemon:status");
+    assert.equal((await client.call("fixture:unicode-output", [false])).text, "\ud83d", "inline domain result preserves a lone surrogate");
+    assert.equal((await client.call("fixture:unicode-output", [true])).text, "\ud83d".repeat(1000), "paged domain result is not double escaped");
+    const unicodeEvent = nextEvent(client, "fixture:unicode");
+    await client.call("fixture:unicode-event");
+    assert.equal((await unicodeEvent).payload.text, "\ud83d", "event payload uses domain serialization");
     assert.equal(status.protocolVersion, 1);
     assert.deepEqual(status.capabilities, ["snapshot-pages-v1", "result-pages-v1"]);
     assert.ok(!status.capabilities.includes("desktop-v1"), "fixture must not pass as a complete production owner");
@@ -193,12 +198,14 @@ async function interoperability() {
     const event = nextEvent(client, "fixture:incremented");
     const increment = await other.call("fixture:increment");
     assert.equal((await event).seq, increment.seq);
+    assert.equal((await client.call("daemon:snapshot")).unicode, "\ud83d", "inline snapshot preserves domain UTF-16");
     const snapshot = await client.call("daemon:snapshot", [{ paged: true }]);
     assert.equal(typeof snapshot.snapshotId, "number");
     const snapshotChunks = [];
     for (let i = 0; i < snapshot.pageCount; i++) snapshotChunks.push(await client.call("daemon:snapshot-page", [snapshot.snapshotId, i]));
     const restored = JSON.parse(snapshotChunks.join(""));
     assert.equal(restored.fixtureCount, 1);
+    assert.equal(restored.unicode, "\ud83d", "snapshot pages preserve domain UTF-16");
     assert.equal(restored.eventSeq, increment.seq);
     const omitted = nextEvent(client, "project:state");
     await other.call("fixture:oversized-state");

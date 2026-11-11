@@ -26,6 +26,8 @@ impl Handler for Fixtures {
     fn methods(&self) -> Vec<String> {
         [
             "fixture:echo",
+            "fixture:unicode-output",
+            "fixture:unicode-event",
             "fixture:large",
             "fixture:failure",
             "fixture:large-error",
@@ -47,10 +49,23 @@ impl Handler for Fixtures {
         .map(str::to_string)
         .to_vec()
     }
+    fn encode_result(&self, value: &Value) -> Result<String, RpcError> {
+        // Stand-in for an owner's UTF-16-preserving domain serializer; JavaScript receives a lone high surrogate.
+        Ok(value.to_string().replace("__WIRE_UTF16__", "\\ud83d"))
+    }
     fn invoke(&self, method: &str, args: &[Value], context: &ClientContext) -> RpcResult {
         let first = args.first().cloned().unwrap_or(Value::Null);
         match method {
             "fixture:echo" => Ok(first),
+            "fixture:unicode-output" => {
+                Ok(json!({"text":"__WIRE_UTF16__".repeat(if first == true { 1000 } else { 1 })}))
+            }
+            "fixture:unicode-event" => {
+                context
+                    .events
+                    .emit("fixture:unicode", json!({"text":"__WIRE_UTF16__"}))?;
+                Ok(Value::Null)
+            }
             "fixture:large" => {
                 let count = first
                     .as_u64()
@@ -146,7 +161,7 @@ impl Handler for Fixtures {
     }
     fn snapshot(&self, _: &ClientContext) -> RpcResult {
         Ok(
-            json!({"projects":[],"links":[],"runs":{"runs":{},"seq":0},"ports":{},"fixtureCount":self.state.lock().unwrap().increments}),
+            json!({"projects":[],"links":[],"runs":{"runs":{},"seq":0},"ports":{},"unicode":"__WIRE_UTF16__","fixtureCount":self.state.lock().unwrap().increments}),
         )
     }
 }
