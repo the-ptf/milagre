@@ -291,3 +291,58 @@ fn comments_keep_the_newest_two_thousand_and_store_files_are_private() {
         0o700
     );
 }
+
+#[test]
+fn stored_fault_codes_remain_distinct_from_missing_assets_and_bad_requests() {
+    let (temp, isolation) = isolated();
+    let worktree = isolation.root().join("worktree");
+    fs::create_dir(&worktree).unwrap();
+    let source = worktree.join("photo.png");
+    fs::write(&source, b"fixture image bytes").unwrap();
+    let mut store = open(&isolation);
+    store.show(&json!({"chatId":"/fixture#7","id":"page","title":"Photo","html":"<img src=\"assets/photo.png\">","assets":[{"name":"photo.png","path":source}]}),&[worktree]).unwrap();
+    let request = json!({"chatId":"/fixture#7","name":"photo.png"});
+    let asset = store.asset(&request).unwrap();
+    let path = store
+        .asset_path(&json!({"chatId":"/fixture#7","hash":asset["hash"]}))
+        .unwrap();
+    assert_eq!(
+        store
+            .asset(&json!({"chatId":"/fixture#7","name":"missing.png"}))
+            .unwrap_err()
+            .code,
+        "CONTENT_ERROR"
+    );
+    assert_eq!(
+        store
+            .asset(&json!({"chatId":"/fixture#7","name":"photo.png","offset":-1}))
+            .unwrap_err()
+            .code,
+        "CONTENT_ERROR"
+    );
+    fs::write(&path, b"").unwrap();
+    assert_eq!(store.asset(&request).unwrap_err().code, "IO_ERROR");
+    fs::remove_file(&path).unwrap();
+    assert_eq!(store.asset(&request).unwrap_err().code, "CONTENT_ERROR");
+    fs::create_dir(&path).unwrap();
+    assert_eq!(store.asset(&request).unwrap_err().code, "UNSAFE_FILE");
+    fs::remove_dir(&path).unwrap();
+    let outside = temp.path().join("outside");
+    fs::write(&outside, b"private fixture").unwrap();
+    fs::hard_link(&outside, &path).unwrap();
+    assert_eq!(store.asset(&request).unwrap_err().code, "UNSAFE_FILE");
+    assert_eq!(fs::read(&outside).unwrap(), b"private fixture");
+    let metadata = isolation
+        .root()
+        .join("artifacts")
+        .join(chat_hash("/fixture#7"))
+        .join("page/meta.json");
+    fs::write(metadata, b"broken json").unwrap();
+    assert_eq!(
+        store
+            .list(&json!({"chatId":"/fixture#7"}))
+            .unwrap_err()
+            .code,
+        "INVALID_CONTENT_STORAGE"
+    );
+}

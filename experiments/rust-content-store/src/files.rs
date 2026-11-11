@@ -77,9 +77,11 @@ impl Dir {
             return Err(std::io::Error::last_os_error().into());
         }
         let file = unsafe { File::from_raw_fd(fd) };
-        if !file.metadata()?.is_file() {
-            return Err(Error::new(
-                "Only regular files belong in the Artifact store.",
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || std::os::unix::fs::MetadataExt::nlink(&metadata) != 1 {
+            return Err(Error::coded(
+                "UNSAFE_FILE",
+                "Only regular files with one link belong in the Artifact store.",
             ));
         }
         Ok(file)
@@ -102,12 +104,18 @@ impl Dir {
     pub fn read(&self, part: &str, limit: usize) -> Result<Vec<u8>> {
         let file = self.open(part)?;
         if file.metadata()?.len() > limit as u64 {
-            return Err(Error::new("Stored content exceeds its read limit."));
+            return Err(Error::coded(
+                "INVALID_CONTENT_STORAGE",
+                "Stored content exceeds its read limit.",
+            ));
         }
         let mut bytes = Vec::new();
         file.take(limit as u64 + 1).read_to_end(&mut bytes)?;
         if bytes.len() > limit {
-            return Err(Error::new("Stored content exceeds its read limit."));
+            return Err(Error::coded(
+                "INVALID_CONTENT_STORAGE",
+                "Stored content exceeds its read limit.",
+            ));
         }
         Ok(bytes)
     }

@@ -4,7 +4,13 @@
 mod colors;
 mod components;
 mod kit;
+mod kits;
+mod layout;
+pub use kits::{validate_kit, DesignKits, ProjectForChat};
+pub use layout::{layout, Bounds};
 mod operations;
+mod render;
+pub use render::{render_html, render_html_with_options};
 mod schema;
 mod store;
 pub use store::{KitReader, PreparedDesign, Renderer};

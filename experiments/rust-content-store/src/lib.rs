@@ -163,17 +163,20 @@ impl ArtifactStore {
             Err(error) if error.missing() => return Ok(None),
             Err(error) => return Err(error),
         };
-        let versions = legacy["versions"]
-            .as_array()
-            .ok_or_else(|| Error::new("Invalid legacy Artifact metadata."))?;
+        let versions = legacy["versions"].as_array().ok_or_else(|| {
+            Error::coded(
+                "INVALID_CONTENT_STORAGE",
+                "Invalid legacy Artifact metadata.",
+            )
+        })?;
         (self.active)()?;
         let directory = folder.child(id, true)?;
         let mut entries = Vec::new();
         for entry in versions {
             let version = positive_version(&entry["version"])?;
-            let html = entry["html"]
-                .as_str()
-                .ok_or_else(|| Error::new("Invalid legacy Artifact HTML."))?;
+            let html = entry["html"].as_str().ok_or_else(|| {
+                Error::coded("INVALID_CONTENT_STORAGE", "Invalid legacy Artifact HTML.")
+            })?;
             directory.atomic(&format!("v{version}.html"), utf8(html).as_bytes(), || {
                 (self.active)()
             })?;
@@ -704,7 +707,7 @@ impl ArtifactStore {
         let size = asset["size"]
             .as_u64()
             .filter(|size| *size <= MAX_ASSET)
-            .ok_or_else(|| Error::new("Invalid stored asset size."))?;
+            .ok_or_else(|| Error::coded("INVALID_CONTENT_STORAGE", "Invalid stored asset size."))?;
         let offset = request
             .get("offset")
             .filter(|value| !value.is_null())
@@ -721,17 +724,20 @@ impl ArtifactStore {
         let hash = asset["hash"]
             .as_str()
             .filter(|hash| validation::hash(hash))
-            .ok_or_else(|| Error::new("Invalid stored asset hash."))?;
+            .ok_or_else(|| Error::coded("INVALID_CONTENT_STORAGE", "Invalid stored asset hash."))?;
         let directory = folder
             .child(validation::id(&meta["id"])?, false)?
             .child("assets", false)?;
-        let mut file = directory
-            .open(hash)
-            .map_err(|_| Error::new("This file is no longer on the page."))?;
+        let mut file = directory.open(hash).map_err(|error| {
+            if error.missing() {
+                Error::new("This file is no longer on the page.")
+            } else {
+                error
+            }
+        })?;
         let mut bytes = vec![0; length.min(ASSET_CHUNK as u64).min(size - offset) as usize];
         file.seek(SeekFrom::Start(offset))?;
-        file.read_exact(&mut bytes)
-            .map_err(|_| Error::new("This file is no longer on the page."))?;
+        file.read_exact(&mut bytes)?;
         Ok(
             json!({"name":asset["name"],"hash":hash,"size":size,"type":asset["type"],"offset":offset,"base64":base64::engine::general_purpose::STANDARD.encode(bytes)}),
         )
@@ -779,7 +785,12 @@ fn positive_version(value: &Value) -> Result<u64> {
     integer(value)
         .filter(|version| *version >= 1)
         .map(|version| version as u64)
-        .ok_or_else(|| Error::new("Invalid stored Artifact version."))
+        .ok_or_else(|| {
+            Error::coded(
+                "INVALID_CONTENT_STORAGE",
+                "Invalid stored Artifact version.",
+            )
+        })
 }
 fn number(value: &Value) -> f64 {
     value.as_f64().unwrap_or(0.0)
@@ -798,7 +809,10 @@ fn dimension(value: &Value, previous: &Value, default: u64) -> Value {
 }
 fn check_meta(meta: &Value, id: &str) -> Result<()> {
     if meta["id"] != id || !meta["versions"].is_array() {
-        return Err(Error::new("Invalid Artifact metadata."));
+        return Err(Error::coded(
+            "INVALID_CONTENT_STORAGE",
+            "Invalid Artifact metadata.",
+        ));
     }
     for entry in meta["versions"].as_array().unwrap() {
         positive_version(&entry["version"])?;
@@ -806,7 +820,8 @@ fn check_meta(meta: &Value, id: &str) -> Result<()> {
     Ok(())
 }
 fn read_json(dir: &Dir, name: &str, limit: usize) -> Result<Value> {
-    jsjson::parse_bytes(&dir.read(name, limit)?).map_err(Error::new)
+    jsjson::parse_bytes(&dir.read(name, limit)?)
+        .map_err(|error| Error::coded("INVALID_CONTENT_STORAGE", error))
 }
 fn summary(meta: &Value, entry: &Value) -> Value {
     let mut value = json!({"id":meta["id"],"title":entry["title"],"version":entry["version"],"versions":if format_of(entry)=="html"{1}else{meta["versions"].as_array().map_or(0,Vec::len)},"width":if entry["width"].is_null(){json!(1280)}else{entry["width"].clone()},"height":if entry["height"].is_null(){json!(800)}else{entry["height"].clone()},"format":format_of(entry)});
