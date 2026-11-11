@@ -180,7 +180,7 @@ async fn a_command_approval_becomes_a_card_and_is_answered_once() {
     assert_eq!(
         without_type(card),
         json!({ "requestId": "srv-1", "kind": "command", "tool": "Shell", "title": "Run this command?", "command": "rm -rf build",
-                "cwd": "/repo", "reason": "Clean the build", "allowForChat": true, "stepId": "cmd-1" })
+                "cwd": "/repo", "reason": "Clean the build", "allowForChat": false, "stepId": "cmd-1" })
     );
     assert_eq!(session.open_requests(), ["srv-1"]);
     assert!(session.respond_to_permission("srv-1", Decision::Deny).await.unwrap());

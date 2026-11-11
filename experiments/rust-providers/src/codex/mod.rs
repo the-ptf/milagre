@@ -3,6 +3,7 @@
 pub mod approvals;
 pub mod client;
 pub mod events;
+pub mod guard;
 pub mod js;
 pub mod protocol;
 pub mod rpc;

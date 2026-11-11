@@ -73,6 +73,11 @@ fn main() {
         let Ok(line) = line else { break };
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         received.lock().unwrap().push(message.clone());
+        if let Ok(file) = std::env::var("FAKE_TRACE_FILE") {
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(file) {
+                let _ = writeln!(file, "{message}");
+            }
+        }
         let id = message.get("id").cloned().unwrap_or(Value::Null);
         let params = message.get("params").cloned().unwrap_or(json!({}));
         let Some(method) = message.get("method").and_then(Value::as_str).map(str::to_string) else {
@@ -100,6 +105,11 @@ fn main() {
             "initialized" => {}
             "account/read" if scenario == "logged-out" => out.reply(&id, json!({ "account": null, "requiresOpenaiAuth": true })),
             "account/read" => out.reply(&id, json!({ "account": { "type": "apiKey" }, "requiresOpenaiAuth": true })),
+            "config/read" if scenario == "config-error" => out.error(&id, -32601, "config discovery failed"),
+            "config/read" => out.reply(
+                &id,
+                json!({"config":{"mcp_servers":{"github":{"url":"https://invalid.test"},"milagre":{"url":"https://old.test"}}}}),
+            ),
             "model/list" => {
                 if params.get("cursor").is_none() {
                     out.reply(&id, json!({ "data": [{ "id": "gpt-fake-1", "hidden": false }], "nextCursor": "page-2" }));
@@ -107,6 +117,14 @@ fn main() {
                     // A cursor that loops back must not make the client spin.
                     out.reply(&id, json!({ "data": [{ "id": "gpt-fake-2", "hidden": true }], "nextCursor": "page-2" }));
                 }
+            }
+            "thread/start" | "thread/resume" if scenario == "exit-thread" => std::process::exit(1),
+            "thread/start" | "thread/resume" if scenario == "reject-config" => out.error(&id, -32600, "config rejected"),
+            "thread/start" | "thread/resume"
+                if scenario == "fallback"
+                    && params.pointer("/config/mcp_servers/milagre").is_some_and(|m| m.get("enabled") != Some(&Value::Bool(false))) =>
+            {
+                out.error(&id, -32600, "linked server rejected")
             }
             "thread/start" if scenario == "hang-thread" => {}
             "thread/start" => {
@@ -224,6 +242,12 @@ fn main() {
                 _ => out.error(&id, -32600, "no active turn to steer"),
             },
             "turn/interrupt" if scenario == "stubborn" => {}
+            "turn/interrupt" if scenario == "budget-late-interrupt" => {
+                // Completion arrives, but the interrupt RPC answer never does.
+                if let Some(current) = turn.take() {
+                    complete(&out, &current, "interrupted");
+                }
+            }
             "turn/interrupt" => {
                 out.reply(&id, json!({}));
                 if let Some(current) = turn.take() {
@@ -401,7 +425,7 @@ fn start_turn(scenario: &str, out: &Out, mut turn: Turn) -> Option<Turn> {
             out.send(&json!({ "id": "srv-u", "method": "item/somethingNew/request", "params": {} }));
             Some(turn)
         }
-        "stubborn" | "slow" | "steer-late" => Some(turn),
+        "stubborn" | "slow" | "steer-late" | "budget-late-interrupt" => Some(turn),
         "dup-ids" => {
             out.send(&json!({ "id": 5, "method": "item/commandExecution/requestApproval", "params": { "threadId": thread, "turnId": turn_id, "command": "/bin/zsh -lc ls" } }));
             out.send(&json!({ "id": "5", "method": "item/tool/requestUserInput", "params": { "threadId": thread, "turnId": turn_id,

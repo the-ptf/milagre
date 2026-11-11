@@ -112,6 +112,14 @@ while let Some(event) = events.recv().await {
 }
 ```
 
+## Guarded sessions
+
+[POLICY-CONTRACT.md](POLICY-CONTRACT.md) defines immutable session roles, the required owner
+`CommandClassifier`, constrained linked-tool manifests and disabled-server-preserving MCP
+fallback. Analysis, Babysit and Escalation cannot be lifted by Full mode or steering. Execution
+advisors and arbitrary extra parameters return `UnsupportedPolicy`. This is an adapter contract;
+host MCP dispatch must enforce the same constraints independently.
+
 ## Not ported yet (owner or later work)
 
 See [the owner integration inventory](INTEGRATION-GAPS.md) for policy, MCP and image contracts,
@@ -119,8 +127,8 @@ proposed boundaries and acceptance checks.
 
 - Host I/O: `images` turn input files, `saveGeneratedImage`, `toolImageEvents` (tool images as
   image steps), `sessionInstructions` text.
-- Babysit guard (`babysitDenial` / `withRefusal`; the session passes `writes_remote = |_| false`),
-  wake escalation (`EscalationTurn`), `WorkspaceAccess.answer` auto-answers and read-only roots.
+- The production babysit shell classifier, host MCP guard service, mutable per-turn role changes,
+  `WorkspaceAccess.answer` auto-answers and read-only/dynamically acquired roots.
   Auto allows an edit without a card only when `workspace::inside_workspace` (a port of Node's
   `insideWorkspace`: canonical roots, nearest existing ancestor for new files, root itself
   excluded, errors fail closed) puts every file inside cwd / `workspace_roots`; the same check
@@ -137,8 +145,8 @@ proposed boundaries and acceptance checks.
   after the asynchronous filesystem check, so a concurrent switch cannot use the old mode.
   This is a point-in-time path check, not a filesystem sandbox: a symlink swapped between the
   check and Codex's write can still redirect it. The owner must not treat Auto as isolation.
-- MCP extras / linked tools, the `requestThread` config retry ladder, advisor config
-  (`advisorCodexConfig`, `config/read` for inherited servers).
+- MCP extras discovery and linked endpoint ownership. Adapter config fallback and constrained
+  inherited-config discovery are implemented; execution advisors are explicitly unsupported.
 - `canStart` (a turn cancelled before `turn/start`), `executionAdvisor` feature overrides.
 - Windows: no Job object / tree kill (falls back to killing the child), no `.cmd` shim handling
   from `command.cjs`. Descendants that leave the process group are not tracked.
@@ -146,6 +154,9 @@ proposed boundaries and acceptance checks.
   differs); UTF-16 slicing drops a surrogate pair instead of keeping half of it.
 
 ## Tests
+
+Policy fixtures: `node experiments/rust-providers/scripts/record-guard-fixtures.cjs` records
+189 Node cases without spawning a provider. `tests/guards.rs` replays them and tests enforcement.
 
 ```
 cargo test                      # unit, conformance, event traces, transport, session (Rust + Node fakes)

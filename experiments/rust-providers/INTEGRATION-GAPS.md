@@ -5,80 +5,38 @@ These are outstanding contracts and proposed task boundaries, not implemented fe
 No owner files were changed. The event replay fixtures cover mapper behavior, not the missing
 host services or guard enforcement below.
 
-## 1. Policy and turn guards: implement before constrained runs
+## 1. Policy checkpoint implemented; host integration required
 
-Present: `codex_policy` emits Ask/Auto/Full, guarded Full and read-only sandbox shapes;
-`analysis_only` rejects approval requests and dismisses questions. Ordinary permission cards,
-mode switches, cancellation and canonical workspace checks are implemented.
+See [POLICY-CONTRACT.md](POLICY-CONTRACT.md) for the implemented session roles, trusted owner
+inputs, stricter compatibility choices and tests. The adapter now enforces immutable Analysis,
+Babysit and Escalation roles across Full mode and steering, installs constrained startup config,
+and refuses unsupported execution-advisor/custom policy inputs. Babysit requires an owner
+`CommandClassifier`; it does not contain a production Rust shell parser. Host MCP dispatch must
+independently enforce read-only tools and exact wake targets.
 
-Missing: babysit command refusal and refusal details; remote-write classification for
-`allowForChat`; escalation request allowlists, tool-call budgets and interruption; execution
-advisor restrictions; `WorkspaceAccess` read-only roots and dynamically acquired roots;
-`canStart` immediately before the actual turn start.
+Still missing: per-turn role transitions within an existing session, `WorkspaceAccess` read-only
+and dynamically acquired roots, `canStart` after host preparation, execution advisors and full
+instruction assembly. Use a separate session for a constrained Run/wake. Do not wire unsupported
+roles as ordinary sessions. Babysit MCP writes are explicitly unsupported.
 
-The distinction matters: `guarded` and `read_only` currently affect the supplied Codex policy
-only. The session has no corresponding turn guard, and Full can still auto-answer server
-requests. The ungated Milagre MCP shortcut also has no escalation check. Passing
-`analysis_only = true` does not install a read-only sandbox, disable inherited MCP servers or
-execution features, validate host tools as read-only, or clear environments. Those controls
-must be established before `thread/start` and `turn/start`; denial of later approval requests
-cannot replace them.
+## 2. MCP retry implemented; discovery and endpoint ownership remain
 
-Proposed boundary: owner supplies trusted turn purpose, guard inputs, authorized wake request
-IDs, tool metadata, current writable/read-only roots and instruction context. Adapter enforces
-guards before shortcuts, automatic answers, permission cards and mode-switch resolution;
-guards persist across steering until the owning turn ends. Host MCP dispatch must independently
-enforce the same wake restrictions. Neither guard data nor broad JSON `extra` maps should be
-accepted from an untrusted caller as authorization.
+Ordinary start/resume now use deduplicated config fallback and report linked-tool availability.
+Disabled server entries survive every attempt, and their presence forbids bare-config fallback.
+Constrained startup discovers inherited configuration, disables external servers and never
+reduces configuration on errors. Discovery failure is fatal. This intentionally closes Node's
+later-stage disabled-server downgrade.
 
-Acceptance checks: guarded Full remote writes stay denied; `allow-for-chat` cannot persist a
-remote-write permission; escalation rejects unapproved `chat_respond` targets even though the
-tool is normally ungated; tool budget stops the turn; mode switches and steering do not lift
-guards; read-only main checkouts cannot become writable through Full; advisor config discovery
-failure stops startup. Test `canStart` after delayed startup and before a turn reaches Codex.
+The owner still supplies account-specific Everywhere server definitions, off entries, endpoint
+lifetime and instructions. The adapter accepts a resolved ordinary `ThreadSettings.config` plus
+`SessionOptions.everywhere_servers`; constrained linked endpoints require validated tool
+metadata. See the [policy contract](POLICY-CONTRACT.md) before enabling any constrained session.
 
-Sources: [Rust session](src/codex/session.rs), [Rust policy](src/codex/protocol.rs),
+Sources: [Rust guards](src/codex/guard.rs), [Rust session](src/codex/session.rs),
 [Node provider](../../packages/core/src/agents/codex-provider.cjs),
-[workspace access](../../packages/core/src/agents/permissions.cjs),
-[babysit guard](../../packages/core/src/babysit-guard.cjs),
-[escalation guard](../../packages/core/src/escalation-guard.cjs),
-[advisor policy](../../packages/core/src/agents/advisor-policy.cjs).
-
-## 2. MCP bootstrap, instructions and config fallback
-
-Present: caller-supplied `ThreadSettings.config`, `developer_instructions` and top-level extras;
-base question-tool features; `CodexClient::read_config`; thread start/resume without a timeout;
-resume/unarchive retry; MCP approval translation and the ungated Milagre tool list.
-
-Missing: linked MCP endpoint startup and availability reporting; Everywhere server definitions
-and per-account disabled entries; config merge and fallback; advisor inherited-config discovery;
-execution advisor feature overrides; assembly of normal, analysis and execution instructions.
-`CodexSession::start` opens the thread internally, so a complete constrained bootstrap needs a
-pre-thread configuration stage, not a config read after the session has started.
-
-Proposed boundary: owner owns linked endpoint lifetime, account-specific MCP settings and the
-instruction inputs. Adapter consumes a resolved configuration plan, or a trusted bootstrap
-callback, and applies it before opening the thread. Preserve stdio command/args/env and HTTP
-headers without exposing credentials in diagnostics. Report whether linked tools survived a
-fallback to the owner.
-
-Node's ordinary-session fallback order is: full config; remove Everywhere servers; linked
-Milagre only; no MCP servers; no config. Deduplicate identical attempts and retry only on server
-RPC errors, never on transport failure or timeout. Analysis and execution advisors never use
-this fallback. Review disabled-server handling explicitly: Node keeps off entries in the first
-reduction but drops them in later stages, which may re-enable inherited tools. Do not silently
-copy that downgrade into a stricter owner contract.
-
-Acceptance checks: linked availability follows the successful attempt; extras read failure is
-reported once; HTTP/stdio definitions and account-off entries map correctly; duplicate stages
-are skipped; transport failures retain saved thread IDs; constrained config cannot downgrade;
-session instructions reflect the selected turn/session role.
-
-Sources: [Rust bootstrap](src/codex/session.rs), [Rust client](src/codex/client.rs),
-[Node bootstrap and retry ladder](../../packages/core/src/agents/codex-provider.cjs),
+[Node advisor restrictions](../../packages/core/src/agents/advisor-policy.cjs),
 [MCP extras](../../packages/core/src/mcp/extras.cjs),
-[MCP definitions](../../packages/core/src/mcp/definitions.cjs),
-[instruction assembly](../../packages/core/src/agents/events.cjs).
+[MCP definitions](../../packages/core/src/mcp/definitions.cjs).
 
 ## 3. Images: bounded host storage and lifecycle
 
@@ -116,8 +74,8 @@ Sources: [Rust input construction](src/codex/session.rs), [Rust image steps](src
 
 ## Suggested next task
 
-Implement policy guards and constrained bootstrap first, with fake-server tests and explicit
-owner inputs. Then add ordinary MCP bootstrap/fallback, then media storage and image lifecycle.
-Existing owner-facing settings permit plumbing, but they do not certify constrained runs as
-safe. Windows Job-object tree termination and command shims remain separate integration gaps;
-the cwd/root tests in this follow-up were executed on macOS only.
+Agree on the owner `CommandClassifier` and host MCP guard service using the policy contract,
+then integrate extras discovery and linked endpoint lifetime. Execution advisors and dynamic
+workspace access need another bounded policy checkpoint. Media storage/image lifecycle can
+proceed independently. Windows Job-object tree termination and command shims remain separate
+gaps. Current validation is fake-server/fixture testing on macOS, without live provider turns.

@@ -7,13 +7,14 @@
 //! the one terminal event of each turn, which comes as [`SessionEvent::TurnEnded`] with that JSON in
 //! `event`. Raw notifications are forwarded only with [`SessionOptions::forward_raw_notifications`].
 //!
-//! Not here (host or owner work, see README): babysit guards and wake escalation, WorkspaceAccess
-//! auto-answers beyond "auto allows edits inside the workspace", MCP extras and the config retry
-//! ladder, image files (turn input, generated and tool images), session instructions.
+//! Host/owner work still required: the babysit CommandClassifier, host MCP dispatch guards,
+//! WorkspaceAccess read-only/dynamic roots, MCP extras discovery, image storage and instructions.
+//! Session roles, constrained bootstrap and disabled-server-preserving retries live here.
 
 use crate::codex::approvals::{self, Decision, QuestionOutcome};
 use crate::codex::client::{CodexClient, ConnectError, ConnectOptions, ResumeError};
 use crate::codex::events::{crash_message, failed_with, is_terminal, map_codex_notification, CodexEventState};
+use crate::codex::guard::{self, CommandClassifier, LinkedTools, SessionRole};
 use crate::codex::protocol::{methods, CodexPolicy, PermissionMode, RequestId};
 use crate::codex::rpc::{signal_name, ExitInfo, Notification, RpcError, ServerEvent, ServerRequest};
 use crate::codex::subagents::{active as subagent_active, settle_subagents};
@@ -38,8 +39,16 @@ pub struct SessionOptions {
     pub interrupt_grace: Duration,
     /// milagre MCP tools whose Codex approval is answered "allow" without a card.
     pub ungated_milagre_tools: Vec<String>,
-    /// Advisors: every approval is refused and questions are dismissed.
+    /// Compatibility alias for AnalysisAdvisor, including its enforced constrained bootstrap.
     pub analysis_only: bool,
+    /// Immutable for this session, including all steering and mode changes.
+    pub role: SessionRole,
+    /// Trusted owner shell parser; required for Babysit, optional for ordinary persistence checks.
+    pub command_classifier: Option<Arc<dyn CommandClassifier>>,
+    /// Constrained host endpoint and complete manifest. Not provider-supplied.
+    pub linked_tools: Option<LinkedTools>,
+    /// Names of ordinary Everywhere MCP servers eligible for the first config reduction.
+    pub everywhere_servers: Vec<String>,
     /// Skip the `account/read` login check.
     pub skip_login_check: bool,
     /// Also emit every notification raw as [`SessionEvent::Notification`].
@@ -62,6 +71,10 @@ impl SessionOptions {
             interrupt_grace: Duration::from_secs(3),
             ungated_milagre_tools: approvals::MILAGRE_UNGATED_TOOLS.iter().map(|s| s.to_string()).collect(),
             analysis_only: false,
+            role: SessionRole::Ordinary,
+            command_classifier: None,
+            linked_tools: None,
+            everywhere_servers: Vec::new(),
             skip_login_check: false,
             forward_raw_notifications: false,
             subagent_poll_interval: Duration::from_millis(1500),
@@ -79,7 +92,7 @@ pub struct ThreadSettings {
     pub developer_instructions: Option<String>,
     /// Thread config (`features`, `mcp_servers`); [`crate::codex::protocol::thread_config`] is the base.
     pub config: Option<Value>,
-    /// Any further top-level params, merged last (e.g. `environments: []` for advisors).
+    /// Reserved for future validated parameters. Nonempty maps are explicitly refused.
     pub extra: serde_json::Map<String, Value>,
 }
 
@@ -95,6 +108,7 @@ pub struct TurnSettings {
     pub service_tier: String,
     /// Overrides [`SessionOptions::turn_start_timeout`] for this turn.
     pub start_timeout: Option<Duration>,
+    /// Reserved for future validated parameters. Nonempty maps are explicitly refused.
     pub extra: serde_json::Map<String, Value>,
 }
 
@@ -110,6 +124,8 @@ pub enum SessionError {
     Resume(#[from] ResumeError),
     #[error(transparent)]
     Rpc(#[from] RpcError),
+    #[error("Unsupported Codex policy: {0}")]
+    UnsupportedPolicy(String),
     #[error("No turn is running.")]
     NoTurn,
     #[error("The agent session closed before this message was sent.")]
@@ -172,6 +188,7 @@ struct Pending {
 #[derive(Default)]
 struct State {
     turn_active: bool,
+    turn_generation: u64,
     cancel_requested: bool,
     closed: bool,
     ready: bool,
@@ -188,6 +205,9 @@ struct State {
     file_changes: HashMap<String, Vec<Value>>,
     /// Why the session stopped Codex itself, for the crash message.
     stop_detail: Option<String>,
+    refused: HashMap<String, (String, String)>,
+    escalation_items: std::collections::HashSet<String>,
+    linked_tools_available: bool,
 }
 
 /// Per subagent thread: what the last poll saw (codex-provider.cjs `childHistory`).
@@ -224,9 +244,19 @@ pub struct CodexSession {
 impl CodexSession {
     /// Connects, checks login, starts or resumes the thread. Every failure stops the process.
     pub async fn start(
-        options: SessionOptions,
+        mut options: SessionOptions,
         thread: ThreadSettings,
     ) -> Result<(CodexSession, EventReceiver<SessionEvent>), SessionError> {
+        if options.analysis_only {
+            if !matches!(options.role, SessionRole::Ordinary | SessionRole::AnalysisAdvisor) {
+                return Err(SessionError::UnsupportedPolicy("analysis_only conflicts with session role".into()));
+            }
+            options.role = SessionRole::AnalysisAdvisor;
+        }
+        validate_options(&options, &thread)?;
+        if options.role.constrained() {
+            options.connect.experimental_api = true;
+        }
         let (client, rpc_events) = CodexClient::connect(options.connect.clone()).await?;
         let (events, events_rx) = queue::channel(options.event_queue);
         let mapper = CodexEventState::new(options.resume_thread_id.clone());
@@ -265,23 +295,64 @@ impl CodexSession {
                 }
             }
         }
+        let policy = inner.options.role.policy(&thread.policy);
+        let config = if inner.options.role.constrained() {
+            let inherited = inner.client.read_config(&inner.options.cwd).await?;
+            let inherited = inherited.get("config").ok_or_else(|| SessionError::UnsupportedPolicy("missing inherited config".into()))?;
+            let linked_url = inner.options.linked_tools.as_ref().map(|linked| linked.url.as_str());
+            let mut config = guard::advisor_config(inherited, linked_url).map_err(SessionError::UnsupportedPolicy)?;
+            if matches!(inner.options.role, SessionRole::Babysit { .. }) {
+                // Keep native shell/files for babysit, but prevent native subagents, external MCP,
+                // code-mode and plugins from routing around this session's command gate.
+                config["features"]["shell_tool"] = true.into();
+                config["features"]["unified_exec"] = true.into();
+            }
+            Some(config)
+        } else {
+            thread.config.clone()
+        };
         let mut params = serde_json::Map::new();
         params.insert("cwd".into(), inner.options.cwd.clone().into());
         if let Some(model) = &thread.model {
             params.insert("model".into(), model.clone().into());
         }
-        params.insert("approvalPolicy".into(), thread.policy.approval_policy.into());
-        params.insert("sandbox".into(), thread.policy.sandbox.into());
+        params.insert("approvalPolicy".into(), policy.approval_policy.into());
+        params.insert("sandbox".into(), policy.sandbox.into());
         if let Some(instructions) = &thread.developer_instructions {
             params.insert("developerInstructions".into(), instructions.clone().into());
         }
-        if let Some(config) = &thread.config {
+        if let Some(config) = &config {
             params.insert("config".into(), config.clone());
         }
         params.extend(thread.extra.clone());
+        if inner.options.role.constrained() {
+            params.insert("environments".into(), json!([]));
+        }
+        let params = Value::Object(params);
         let result = match &inner.options.resume_thread_id {
-            Some(id) => inner.client.thread_resume(id, Value::Object(params)).await?,
-            None => inner.client.thread_start(Value::Object(params)).await?,
+            Some(id) => {
+                let mut params = params;
+                params["threadId"] = id.clone().into();
+                match inner.request_thread(methods::THREAD_RESUME, &params).await {
+                    Ok(result) => result,
+                    Err(SessionError::Rpc(first)) if first.is_server_error() => {
+                        let retry = async {
+                            inner.client.rpc().request(methods::THREAD_UNARCHIVE, json!({"threadId":id})).await?;
+                            inner.request_thread(methods::THREAD_RESUME, &params).await
+                        }
+                        .await;
+                        match retry {
+                            Ok(result) => result,
+                            Err(SessionError::Rpc(second)) if second.is_server_error() => {
+                                return Err(ResumeError::ResumeFailed { thread_id: id.clone(), first, second }.into())
+                            }
+                            Err(error) => return Err(error),
+                        }
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            None => inner.request_thread(methods::THREAD_START, &params).await?,
         };
         // A new id (a fresh thread, or a resume that moved) is announced as session-started.
         if let Some(id) = result.pointer("/thread/id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
@@ -312,6 +383,11 @@ impl CodexSession {
         self.inner.mapper.lock().unwrap().turn_id.clone()
     }
 
+    /// Whether the successful thread configuration retained an enabled Milagre MCP endpoint.
+    pub fn linked_tools_available(&self) -> bool {
+        self.inner.state.lock().unwrap().linked_tools_available
+    }
+
     pub fn turn_active(&self) -> bool {
         self.inner.state.lock().unwrap().turn_active
     }
@@ -339,6 +415,7 @@ impl CodexSession {
     /// `startTurn`). A message for a turn that is stopping, has no id yet, or that Codex refuses to
     /// steer (it already ended) starts the next turn once this one ends.
     pub async fn send(&self, turn: TurnSettings) -> Result<SendOutcome, SessionError> {
+        validate_turn(&self.inner.options.role, &turn)?;
         loop {
             let (active, cancel, closed) = {
                 let state = self.inner.state.lock().unwrap();
@@ -392,6 +469,8 @@ impl CodexSession {
     /// turn id when Codex gave one. On failure the turn has already ended (`turn-failed` or
     /// `turn-cancelled`).
     pub async fn start_turn(&self, turn: TurnSettings) -> Result<SendOutcome, SessionError> {
+        validate_turn(&self.inner.options.role, &turn)?;
+        let policy = self.inner.options.role.policy(&turn.policy);
         let inner = &self.inner;
         // One lock decides: two messages at once start one turn and steer the other into it.
         let busy = {
@@ -403,6 +482,9 @@ impl CodexSession {
                 true
             } else {
                 state.turn_active = true;
+                state.turn_generation = state.turn_generation.wrapping_add(1);
+                state.escalation_items.clear();
+                state.refused.clear();
                 state.cancel_requested = false;
                 state.starting = true;
                 if let Some(mode) = turn.permission_mode {
@@ -430,9 +512,12 @@ impl CodexSession {
         }
         params.insert("summary".into(), "auto".into());
         params.insert("serviceTierForTurn".into(), turn.service_tier.into());
-        params.insert("approvalPolicy".into(), turn.policy.approval_policy.into());
-        params.insert("sandboxPolicy".into(), turn.policy.sandbox_policy);
+        params.insert("approvalPolicy".into(), policy.approval_policy.into());
+        params.insert("sandboxPolicy".into(), policy.sandbox_policy);
         params.extend(turn.extra);
+        if inner.options.role.constrained() {
+            params.insert("environments".into(), json!([]));
+        }
         let start_timeout = turn.start_timeout.unwrap_or(inner.options.turn_start_timeout);
         // A caller that stops waiting (a timeout, an aborted task) must not leave the turn open
         // forever: the guard stops it the way Stop would.
@@ -585,7 +670,7 @@ impl CodexSession {
     /// Codex fixes its approval policy when a turn starts, so a switch mid-turn is applied to open
     /// cards here (`PendingPermissions.setMode`): Full allows them all, Auto allows workspace edits.
     pub async fn set_permission_mode(&self, mode: PermissionMode) {
-        if self.inner.options.analysis_only {
+        if self.inner.options.role.denies_edits() {
             return;
         }
         let candidates: Vec<(String, Option<Vec<String>>)> = {
@@ -669,6 +754,25 @@ fn approx_size(value: &Value) -> usize {
 }
 
 impl Inner {
+    async fn request_thread(&self, method: &str, params: &Value) -> Result<Value, SessionError> {
+        let attempts = guard::config_attempts(params, &self.options.everywhere_servers, self.options.role.constrained())
+            .map_err(SessionError::UnsupportedPolicy)?;
+        let count = attempts.len();
+        for (index, attempt) in attempts.into_iter().enumerate() {
+            match self.client.rpc().request_with_timeout(method, attempt.clone(), None).await {
+                Ok(value) => {
+                    let linked = attempt.pointer("/config/mcp_servers/milagre");
+                    self.state.lock().unwrap().linked_tools_available =
+                        linked.is_some_and(|v| v.get("enabled") != Some(&Value::Bool(false)));
+                    return Ok(value);
+                }
+                Err(error) if error.is_server_error() && index + 1 < count => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        unreachable!("there is always an initial attempt")
+    }
+
     fn emit(&self, event: SessionEvent) {
         let bytes = match &event {
             SessionEvent::Agent(value) | SessionEvent::TurnEnded { event: value, .. } => approx_size(value),
@@ -695,7 +799,13 @@ impl Inner {
         }
     }
 
-    fn emit_agent(&self, event: Value) {
+    fn emit_agent(&self, mut event: Value) {
+        if event["type"] == "step-completed" {
+            let refused = event["id"].as_str().and_then(|id| self.state.lock().unwrap().refused.remove(id));
+            if let Some((command, reason)) = refused {
+                event["detail"] = format!("$ {command}\n{reason}").into();
+            }
+        }
         self.emit(SessionEvent::Agent(event));
     }
 
@@ -920,7 +1030,8 @@ impl Inner {
 
     async fn handle_request(&self, request: ServerRequest) {
         let ServerRequest { id, method, params, .. } = request;
-        let analysis = self.options.analysis_only;
+        let analysis = self.options.role == SessionRole::AnalysisAdvisor;
+        let escalation = matches!(self.options.role, SessionRole::Escalation { .. });
         match method.as_str() {
             methods::MCP_ELICITATION => {
                 let card = approvals::mcp_request(&id, &params);
@@ -929,6 +1040,24 @@ impl Inner {
                     self.reply(&id, approvals::mcp_response(Decision::Cancelled)).await;
                 } else if analysis || card.is_none() {
                     self.reply(&id, approvals::mcp_response(Decision::Deny)).await;
+                } else if let SessionRole::Escalation { requests } = &self.options.role {
+                    let tool = approvals::milagre_mcp_tool(&params).unwrap_or_default();
+                    let tools = self.options.linked_tools.as_ref().map(|l| l.tools.as_slice()).unwrap_or(&[]);
+                    let known = tools.iter().find(|t| t.name == tool);
+                    let is_milagre = params.get("serverName").and_then(Value::as_str) == Some("milagre");
+                    let calls = self.state.lock().unwrap().escalation_items.len();
+                    let denial = guard::escalation_denial(
+                        requests,
+                        calls,
+                        &tool,
+                        &params["_meta"]["tool_params"],
+                        known.is_some_and(|t| t.read_only),
+                    );
+                    let allow = is_milagre && known.is_some() && denial.is_none();
+                    self.reply(&id, approvals::mcp_response(if allow { Decision::Allow } else { Decision::Deny })).await;
+                } else if matches!(self.options.role, SessionRole::Babysit { .. }) {
+                    // This checkpoint supports babysit shell gates only, no MCP write classifier.
+                    self.reply(&id, approvals::mcp_response(Decision::Deny)).await;
                 } else if approvals::is_ungated_milagre_tool_approval(&params, &ungated) {
                     self.reply(&id, approvals::mcp_response(Decision::Allow)).await;
                 } else if let Some(card) = card {
@@ -936,14 +1065,35 @@ impl Inner {
                 }
             }
             methods::COMMAND_APPROVAL | methods::FILE_CHANGE_APPROVAL => {
-                if analysis {
+                if analysis || escalation {
                     return self.reply(&id, approvals::approval_response(Decision::Deny)).await;
                 }
                 if !self.accepting() {
                     return self.reply(&id, approvals::approval_response(Decision::Cancelled)).await;
                 }
                 if method == methods::COMMAND_APPROVAL {
-                    let card = approvals::command_request(&id, &params, |_| false);
+                    let command = params.get("command").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
+                    let actions =
+                        command.and_then(|command| self.options.command_classifier.as_ref().map(|classifier| classifier.actions(command)));
+                    let writes_remote = !matches!(&actions, Some(Ok(actions)) if actions.is_empty());
+                    if let SessionRole::Babysit { level, resolve_threads } = self.options.role {
+                        let denial = match &actions {
+                            Some(Ok(actions)) => guard::babysit_denial(actions, level, resolve_threads),
+                            _ => Some("Babysitting cannot classify this command; it was refused.".into()),
+                        };
+                        if let Some(reason) = denial {
+                            if let Some(item) = params.get("itemId").and_then(Value::as_str) {
+                                let mut state = self.state.lock().unwrap();
+                                // Denials still work after the annotation budget fills. Keep an
+                                // endless stream of refused commands from growing session memory.
+                                if state.refused.len() < 1024 {
+                                    state.refused.insert(item.into(), (approvals::cap_text(command.unwrap_or_default()), reason));
+                                }
+                            }
+                            return self.reply(&id, approvals::approval_response(Decision::Deny)).await;
+                        }
+                    }
+                    let card = approvals::command_request(&id, &params, |_| writes_remote);
                     self.add_permission(id, card, PendingKind::Approval, None).await;
                 } else {
                     let item = params.get("itemId").and_then(Value::as_str).unwrap_or_default();
@@ -958,7 +1108,7 @@ impl Inner {
             methods::REQUEST_USER_INPUT => {
                 let card = approvals::question_request(&id, &params);
                 match card {
-                    Some(mut card) if !analysis && self.accepting() => {
+                    Some(mut card) if !analysis && !escalation && self.accepting() => {
                         let question_ids = card["questions"]
                             .as_array()
                             .map(|qs| qs.iter().filter_map(|q| q["id"].as_str().map(str::to_string)).collect())
@@ -977,7 +1127,7 @@ impl Inner {
                         }
                         self.emit_agent(event);
                     }
-                    _ if analysis => self.reply(&id, approvals::question_response(&QuestionOutcome::Dismissed)).await,
+                    _ if analysis || escalation => self.reply(&id, approvals::question_response(&QuestionOutcome::Dismissed)).await,
                     _ => self.reply(&id, approvals::question_response(&QuestionOutcome::Cancelled)).await,
                 }
             }
@@ -1002,6 +1152,76 @@ impl Inner {
         }
         let method = notification.method.as_str();
         let params = &notification.params;
+        if matches!(self.options.role, SessionRole::Escalation { .. }) && method == methods::ITEM_STARTED {
+            let current = {
+                let mapper = self.mapper.lock().unwrap();
+                params.get("threadId").and_then(Value::as_str) == mapper.thread_id.as_deref()
+                    && mapper.turn_id.is_some()
+                    && params.get("turnId").and_then(Value::as_str) == mapper.turn_id.as_deref()
+            };
+            let tool = params.pointer("/item/type").and_then(Value::as_str).is_some_and(|kind| {
+                matches!(
+                    kind,
+                    "commandExecution"
+                        | "fileChange"
+                        | "mcpToolCall"
+                        | "dynamicToolCall"
+                        | "webSearch"
+                        | "imageView"
+                        | "collabAgentToolCall"
+                )
+            });
+            if current && tool {
+                if let Some(id) = params.pointer("/item/id").and_then(Value::as_str) {
+                    let stop = {
+                        let mut state = self.state.lock().unwrap();
+                        let stop = state.turn_active
+                            && !state.cancel_requested
+                            && state.escalation_items.insert(id.into())
+                            && state.escalation_items.len() == guard::ESCALATION_TOOL_CALLS + guard::ESCALATION_TOOL_GRACE + 1;
+                        if stop {
+                            state.cancel_requested = true;
+                            Some(state.turn_generation)
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(generation) = stop {
+                        // Bind interruption to this turn. A delayed task must not cancel its successor.
+                        let thread = params["threadId"].as_str().unwrap().to_string();
+                        let turn = params["turnId"].as_str().unwrap().to_string();
+                        let mut ended = self.turn_ended.subscribe();
+                        let inner = self.clone();
+                        tokio::spawn(async move {
+                            {
+                                let state = inner.state.lock().unwrap();
+                                if !state.turn_active || state.turn_generation != generation {
+                                    return;
+                                }
+                            }
+                            let deadline = tokio::time::Instant::now() + inner.options.interrupt_grace;
+                            let result = inner.client.turn_interrupt(&thread, &turn, inner.options.interrupt_grace).await;
+                            if result.is_ok() && tokio::time::timeout_at(deadline, ended.changed()).await.is_ok() {
+                                return;
+                            }
+                            let stop = {
+                                let mut state = inner.state.lock().unwrap();
+                                if state.turn_active && state.turn_generation == generation {
+                                    state.closed = true;
+                                    true
+                                } else {
+                                    false
+                                }
+                            };
+                            if stop {
+                                CodexSession { inner }.stop_now().await;
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
         if method == methods::ITEM_STARTED && params.pointer("/item/type").and_then(Value::as_str) == Some("fileChange") {
             if let Some(id) = params.pointer("/item/id") {
                 let changes = params.pointer("/item/changes").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -1405,4 +1625,91 @@ pub fn turn(input: Vec<Value>, model: Option<String>, policy: CodexPolicy) -> Tu
 fn _assert_send() {
     fn is_send<T: Send + Sync>() {}
     is_send::<CodexSession>();
+}
+
+fn validate_options(options: &SessionOptions, thread: &ThreadSettings) -> Result<(), SessionError> {
+    let fail = |text: &str| SessionError::UnsupportedPolicy(text.into());
+    if !thread.extra.is_empty() {
+        return Err(fail("unvalidated thread extra parameters"));
+    }
+    if matches!(options.role, SessionRole::ExecutionAdvisor) {
+        return Err(fail("execution advisors are not implemented"));
+    }
+    if let SessionRole::Babysit { level, .. } = options.role {
+        if !(1..=5).contains(&level) {
+            return Err(fail("babysit level must be 1 through 5"));
+        }
+        if options.command_classifier.is_none() {
+            return Err(fail("babysit requires an owner CommandClassifier"));
+        }
+        if options.linked_tools.is_some() {
+            return Err(fail("babysit MCP tools require an unimplemented MCP write guard"));
+        }
+    }
+    if let SessionRole::Escalation { requests } = &options.role {
+        if requests.is_empty() || requests.iter().any(|r| r.chat_id.is_empty() || r.request_id.is_empty()) {
+            return Err(fail("escalation requires nonempty authorized chat/request IDs"));
+        }
+    }
+    if options.role.constrained() && thread.config.as_ref().is_some_and(|c| c != &crate::codex::protocol::thread_config()) {
+        return Err(fail("constrained config is constructed by the adapter, not caller overrides"));
+    }
+    if let Some(linked) = &options.linked_tools {
+        if options.role == SessionRole::Ordinary {
+            return Err(fail("ordinary linked tools must be supplied in ThreadSettings.config"));
+        }
+        if linked.url.trim().is_empty() {
+            return Err(fail("linked MCP URL is empty"));
+        }
+        let mut names = std::collections::HashSet::new();
+        for tool in &linked.tools {
+            if tool.name.is_empty() || !names.insert(&tool.name) {
+                return Err(fail("linked tool manifest has empty or duplicate names"));
+            }
+            if !tool.read_only && !(matches!(options.role, SessionRole::Escalation { .. }) && tool.name == "chat_respond") {
+                return Err(fail("constrained host tools must be read-only except escalation chat_respond"));
+            }
+        }
+    }
+    validate_policy(&options.role, &thread.policy)?;
+    // Validate ordinary config before spawning even if the provider would accept malformed fields.
+    let params = thread.config.as_ref().map(|c| json!({"config":c})).unwrap_or(json!({}));
+    guard::config_attempts(&params, &options.everywhere_servers, false).map_err(SessionError::UnsupportedPolicy)?;
+    Ok(())
+}
+
+fn validate_policy(role: &SessionRole, policy: &CodexPolicy) -> Result<(), SessionError> {
+    // Constrained read-only roles replace every supplied sandbox/approval field.
+    if role.denies_edits() {
+        return Ok(());
+    }
+    let valid = match policy.sandbox {
+        "danger-full-access" => {
+            policy.sandbox_policy == json!({"type":"dangerFullAccess"})
+                && (policy.approval_policy == "never"
+                    || (matches!(role, SessionRole::Babysit { .. }) && policy.approval_policy == "untrusted"))
+        }
+        "workspace-write" => {
+            let roots = policy.sandbox_policy.get("writableRoots").and_then(Value::as_array);
+            matches!(policy.approval_policy, "untrusted" | "on-request")
+                && roots.is_some_and(|roots| roots.iter().all(Value::is_string))
+                && policy.sandbox_policy
+                    == json!({
+                        "type":"workspaceWrite", "writableRoots":roots, "networkAccess":false,
+                        "excludeTmpdirEnvVar":false, "excludeSlashTmp":false,
+                    })
+        }
+        _ => false,
+    };
+    if !valid {
+        return Err(SessionError::UnsupportedPolicy("sandbox/approval policy requires an explicit supported session role".into()));
+    }
+    Ok(())
+}
+
+fn validate_turn(role: &SessionRole, turn: &TurnSettings) -> Result<(), SessionError> {
+    if !turn.extra.is_empty() {
+        return Err(SessionError::UnsupportedPolicy("unvalidated turn extra parameters".into()));
+    }
+    validate_policy(role, &turn.policy)
 }
