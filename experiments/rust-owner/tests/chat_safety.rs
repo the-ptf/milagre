@@ -1581,6 +1581,7 @@ fn a_failed_close_keeps_the_host_quitting_until_a_retry_saves() {
     std::fs::set_permissions(&milagre, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(failed.is_err(), "the save should have failed");
     assert!(copy.host.is_quitting());
+    assert!(copy.host.close_pending(), "a retry is owed");
     let error = copy.send("two", "c2", json!({})).unwrap_err().to_string();
     assert!(error.contains("quitting"), "{error}");
     assert_eq!(copy.kiro.state.lock().unwrap().shutdowns, 1);
@@ -1590,6 +1591,7 @@ fn a_failed_close_keeps_the_host_quitting_until_a_retry_saves() {
     );
     // The retry saves and closes; providers aren't shut down twice.
     copy.host.shutdown(false).unwrap();
+    assert!(!copy.host.close_pending());
     assert_eq!(copy.kiro.state.lock().unwrap().shutdowns, 1);
     assert!(!ownership::project_lock(&copy.project).exists());
     let saved = std::fs::read(copy.project.join(".milagre/chats.db")).unwrap_or_default();
@@ -1705,4 +1707,70 @@ fn uncertain_at_turn_end_then_late_accepted_is_told_in_order() {
         ]
     );
     assert!(user_bodies(&copy.messages()).contains(&"Red".to_string()));
+}
+
+/// A quit refused for a running turn shuts nothing down; the forced quit after it shuts the providers down once and
+/// finishes (no close owed).
+#[test]
+fn a_refused_quit_then_a_forced_quit_shuts_providers_down_once() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    assert!(
+        copy.host.shutdown(false).is_err(),
+        "a running turn refuses the quit"
+    );
+    assert!(!copy.host.is_quitting());
+    assert!(!copy.host.close_pending());
+    assert_eq!(copy.kiro.state.lock().unwrap().shutdowns, 0);
+    copy.host.shutdown(true).unwrap();
+    assert_eq!(copy.kiro.state.lock().unwrap().shutdowns, 1);
+    assert!(copy.host.is_quitting());
+    assert!(!copy.host.close_pending());
+    copy.host.shutdown(true).unwrap();
+    assert_eq!(copy.kiro.state.lock().unwrap().shutdowns, 1);
+}
+
+/// A Project whose folder was moved away and replaced by a link can't release its lock on quit: the lock stays in the
+/// moved folder, the quit's close fails, and the next take of notices tells the stranded lock (never a token).
+#[test]
+fn a_lock_left_by_a_replaced_root_is_told() {
+    let mut copy = Copy::plain();
+    copy.send("one", "c1", json!({})).unwrap();
+    copy.host.pump();
+    copy.end("turn-completed");
+    copy.host.states.flush(Some(&copy.project)).unwrap();
+    copy.host.take_notices();
+    let moved = copy.project.with_file_name("moved-away");
+    std::fs::rename(&copy.project, &moved).unwrap();
+    std::os::unix::fs::symlink(&moved, &copy.project).unwrap();
+    let token = std::fs::read_to_string(moved.join(".milagre/runtime.lock/owner.json")).unwrap();
+    assert!(copy.host.shutdown(false).is_err());
+    let stranded: Vec<(String, String)> = copy
+        .host
+        .take_notices()
+        .into_iter()
+        .filter_map(|notice| match notice {
+            Notice::LockStranded { lock, why } => Some((lock, why)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(stranded.len(), 1, "{stranded:?}");
+    assert!(stranded[0].1.contains("Project folder"), "{stranded:?}");
+    let record: serde_json::Value = serde_json::from_str(&token).unwrap();
+    let token = record["token"].as_str().unwrap();
+    assert!(!stranded[0].0.contains(token) && !stranded[0].1.contains(token));
+    assert!(
+        moved.join(".milagre/runtime.lock/owner.json").exists(),
+        "the moved lock was removed"
+    );
+    assert!(
+        copy.host
+            .take_notices()
+            .iter()
+            .all(|n| !matches!(n, Notice::LockStranded { .. })),
+        "told once"
+    );
+    std::fs::remove_file(&copy.project).unwrap();
+    std::fs::rename(&moved, &copy.project).unwrap();
 }

@@ -102,6 +102,8 @@ pub struct ProjectStates {
     busy: HashSet<(PathBuf, ChatId)>,
     events: Vec<Event>,
     sweep_min_age: Duration,
+    /// Locks a dropped Project could not release (its root no longer holds): left on disk, told by `take_stranded`.
+    stranded: crate::ownership::StrandedLocks,
 }
 
 fn without_key(state: &ProjectState, key: &str) -> ProjectState {
@@ -137,7 +139,17 @@ impl ProjectStates {
             busy: HashSet::new(),
             events: Vec::new(),
             sweep_min_age: Duration::from_secs(60),
+            stranded: Default::default(),
         }
+    }
+
+    /// Locks left on disk since the last take because a Project was dropped while its root no longer held (moved,
+    /// replaced, a link on or above it). Nothing was removed; an operator removes them.
+    pub fn take_stranded(&self) -> Vec<crate::ownership::StrandedLock> {
+        self.stranded
+            .lock()
+            .map(|mut list| std::mem::take(&mut *list))
+            .unwrap_or_default()
     }
 
     /// Node's saveProjectState sweep age (a minute); tests that save from a fixed clock may shorten it.
@@ -245,6 +257,7 @@ impl ProjectStates {
             return Ok(());
         }
         let mut owner = OwnedProject::open(&self.isolation, key)?;
+        owner.report_stranded_to(self.stranded.clone());
         let (state, _) = match owner.load_shared() {
             Ok(read) => read,
             Err(error) => {

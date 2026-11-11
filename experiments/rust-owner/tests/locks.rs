@@ -175,8 +175,9 @@ fn an_abandoned_empty_lock_is_refused() {
 #[test]
 fn release_checks_the_token() {
     let base = tempfile::tempdir().unwrap();
-    let lock = base.path().join(".milagre/runtime.lock");
-    let mut guard = RustOwnerLock.acquire(&lock).unwrap();
+    let root = base.path().canonicalize().unwrap();
+    let lock = root.join(".milagre/runtime.lock");
+    let mut guard = RustOwnerLock.acquire(&root, &lock).unwrap();
     let record = std::fs::read_to_string(lock.join("owner.json")).unwrap();
     std::fs::write(
         lock.join("owner.json"),

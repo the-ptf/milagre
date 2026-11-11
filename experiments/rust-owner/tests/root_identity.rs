@@ -8,7 +8,10 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
 use milagre_owner_store::isolation::{Isolation, Policy};
+use milagre_owner_store::owner::OwnedProject;
+use milagre_owner_store::ownership::{test_hooks, RustOwnerLock};
 use milagre_owner_store::states::{ProjectStates, Timing};
+use milagre_owner_store::write::OwnerLock;
 use milagre_owner_store::StoreError;
 use serde_json::json;
 
@@ -252,4 +255,84 @@ fn an_unchanged_root_releases_on_close() {
     let mut open = open();
     open.states.close().unwrap();
     assert!(!open.project.join(".milagre/runtime.lock").exists());
+}
+
+/// Dropping the states after a refused release records the lock left behind (once), with why, never the token.
+#[test]
+fn a_lock_a_drop_could_not_release_is_recorded() {
+    let mut open = open();
+    let moved = swap_for_link(&open);
+    refused(open.states.close());
+    let stranded = open.states.take_stranded();
+    assert_eq!(stranded.len(), 1, "{stranded:?}");
+    assert!(stranded[0].why.contains("Project folder"), "{stranded:?}");
+    assert!(open.states.take_stranded().is_empty(), "recorded once");
+    assert!(lock_record(&moved).exists());
+}
+
+/// A lock is only taken inside a canonical root: a root spelled through a link, or a lock outside its root, is refused
+/// before anything is made.
+#[test]
+fn a_lock_needs_a_canonical_root_that_holds_it() {
+    let base = tempfile::tempdir().unwrap();
+    let real = base.path().canonicalize().unwrap().join("real");
+    std::fs::create_dir(&real).unwrap();
+    let link = real.with_file_name("link");
+    symlink(&real, &link).unwrap();
+    let before = tree(&real);
+    assert!(RustOwnerLock
+        .acquire(&link, &link.join(".milagre/runtime.lock"))
+        .is_err());
+    assert!(RustOwnerLock
+        .acquire(&real, &real.with_file_name("outside.lock"))
+        .is_err());
+    assert!(RustOwnerLock.acquire(&real, &real).is_err());
+    assert_eq!(tree(&real), before);
+    assert!(!real.with_file_name("outside.lock").exists());
+}
+
+/// The root swapped for a link after the lock is made but before it is pinned again: the open fails, the lock in the
+/// moved folder is left for an operator (never removed through the link), and the folder behind the link stays as is.
+#[test]
+fn a_root_swapped_while_its_lock_is_taken_fails_closed() {
+    let base = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(&base.path().join("copies"), &Policy::default()).unwrap();
+    let project = isolation.project(Path::new("p")).unwrap();
+    std::fs::create_dir_all(project.join(".milagre")).unwrap();
+    let moved = base.path().canonicalize().unwrap().join("moved");
+    let (from, to) = (project.clone(), moved.clone());
+    test_hooks::after_lock_written(move || {
+        std::fs::rename(&from, &to).unwrap();
+        symlink(&to, &from).unwrap();
+    });
+    let error = match OwnedProject::open(&isolation, Path::new("p")) {
+        Err(error) => error.to_string(),
+        Ok(_) => panic!("a lock taken across a swap was kept"),
+    };
+    assert!(
+        error.contains("changed while its lock was taken"),
+        "{error}"
+    );
+    assert!(
+        lock_record(&moved).exists(),
+        "the lock was removed through the swap"
+    );
+}
+
+/// The same with a real folder put in place: the open fails and the replacement holds no lock.
+#[test]
+fn a_root_replaced_by_a_folder_while_its_lock_is_taken_fails_closed() {
+    let base = tempfile::tempdir().unwrap();
+    let isolation = Isolation::create(&base.path().join("copies"), &Policy::default()).unwrap();
+    let project = isolation.project(Path::new("p")).unwrap();
+    std::fs::create_dir_all(project.join(".milagre")).unwrap();
+    let moved = base.path().canonicalize().unwrap().join("moved");
+    let (from, to) = (project.clone(), moved.clone());
+    test_hooks::after_lock_written(move || {
+        std::fs::rename(&from, &to).unwrap();
+        std::fs::create_dir_all(from.join(".milagre")).unwrap();
+    });
+    assert!(OwnedProject::open(&isolation, Path::new("p")).is_err());
+    assert!(lock_record(&moved).exists());
+    assert!(!project.join(".milagre/runtime.lock").exists());
 }

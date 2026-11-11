@@ -23,7 +23,7 @@ use crate::error::{Result, StoreError};
 use crate::isolation::Isolation;
 use crate::jsjson;
 use crate::message_store::{id_key, MessageStore, Msg, MsgRef, ProjectState, SavedMsgs, SavedRow};
-use crate::ownership::{self, OwnerGuard, RootPin, RustOwnerLock};
+use crate::ownership::{self, OwnerGuard, RustOwnerLock, StrandedLocks};
 use crate::project::{
     inside, is_sidecar_name, sha256_hex, state_file, MessageStorage, ProjectRepository,
     ProjectStateRead, ProjectStore,
@@ -80,11 +80,9 @@ impl OwnedProject {
     /// Takes the owner lock of `project` (a folder inside `isolation`). Refused when any lock is already there.
     pub fn open(isolation: &Isolation, project: &Path) -> Result<Self> {
         let root = isolation.project(project)?;
-        // The root folder as it was opened (device and inode). Every write checks it is still that folder at that
-        // canonical path, and releasing the lock (also on drop) removes nothing unless it is.
-        let pin = RootPin::take(&root)?;
-        let mut guard = RustOwnerLock.acquire(&ownership::project_lock(&root))?;
-        guard.pin_root(pin);
+        // The lock pins the root folder (device and inode) as it is taken. Every write checks it is still that folder
+        // at that canonical path, and releasing the lock (also on drop) removes nothing unless it is.
+        let guard = RustOwnerLock.acquire(&root, &ownership::project_lock(&root))?;
         Ok(OwnedProject {
             store: ProjectStore::owned(&root),
             guard,
@@ -100,6 +98,12 @@ impl OwnedProject {
 
     pub fn lock(&self) -> &OwnerGuard {
         &self.guard
+    }
+
+    /// Records the lock in `sink` if it can't be released when this Project is dropped (see
+    /// [`crate::ownership::StrandedLock`]).
+    pub fn report_stranded_to(&mut self, sink: StrandedLocks) {
+        self.guard.report_stranded_to(sink);
     }
 
     /// What chats.db holds for the Chats in memory, as the next save will use it.
@@ -120,7 +124,7 @@ impl OwnedProject {
         };
         // The root first: still the folder that was opened, at its canonical path. A Project moved away (its lock with
         // it) and a link put in its place, or a link above it, would otherwise send every write below elsewhere.
-        if let Some(why) = self.guard.root().and_then(|root| root.check().err()) {
+        if let Err(why) = self.guard.root().check() {
             return Err(lost(why));
         }
         self.guard.verify()?;

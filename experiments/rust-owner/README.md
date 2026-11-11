@@ -86,7 +86,7 @@ pub struct ProviderError { pub kind: ProviderErrorKind, pub message: String } //
 - **Open Projects only.** `receive` drops events for a Project that isn't open here, so a late event can't open (and lock) a closed Project.
 - **One owner.** The host is `&mut self` throughout and `Send`: the runtime keeps it, with its `ProjectStates` and clock, in one task (commands and provider events through one channel, a periodic `tick`). Notices are bounded (`MAX_NOTICES` in a ring, the oldest dropped and counted in the next take; the cap counts notices, not bytes) and a pump stops after `MAX_PUMP_ROUNDS`, keeping the rest for the next pump, which handles them first.
 - **One spelling per Project.** Chat keys, runs and busy marks are keyed by the Project text, so `send`, `receive`, `interrupt` and the queue commands refuse any spelling of the path other than the states key (`ProjectStates::canonical`): `/p/` or `/x/../p` would otherwise make one Chat two.
-- **Nothing left busy by a failure.** Runs and sequence numbers change only when their fold was kept. A turn end of the running turn whose fold fails (a save, a load, a Project that isn't open) is kept, through retries that fail before the fold too, and folded again by `tick`/`pump`/`retry_stuck` (`stuck_ends()` lists them); the Chat stays busy until then. Failures of work the host does on its own (a queued start, the `turn-failed` of a failed start) come back as `Notice::Failed`, never dropped. Busy marks (no unload by a sweep) cover runs, starts and kept ends. See Liveness for `forget` and `shutdown`. A `shutdown` whose final save fails returns the error and leaves the host quitting for good (sends and starts refused, providers shut down, unsaved changes and locks kept); calling `shutdown` again retries only the save and the close (`is_quitting()` tells).
+- **Nothing left busy by a failure.** Runs and sequence numbers change only when their fold was kept. A turn end of the running turn whose fold fails (a save, a load, a Project that isn't open) is kept, through retries that fail before the fold too, and folded again by `tick`/`pump`/`retry_stuck` (`stuck_ends()` lists them); the Chat stays busy until then. Failures of work the host does on its own (a queued start, the `turn-failed` of a failed start) come back as `Notice::Failed`, never dropped. Busy marks (no unload by a sweep) cover runs, starts and kept ends. See Liveness for `forget` and `shutdown`. A `shutdown` whose final save fails returns the error and leaves the host quitting for good (sends and starts refused, providers shut down, unsaved changes and locks kept); calling `shutdown` again retries only the save and the close (`is_quitting()` tells a quit began, `close_pending()` that its close is still owed: never drop the host while it is true).
 - **Sends.**
   - `send(request)` and `call("chat:send", [request])` take the daemon's request shape.
   - A `clientMessageId` already saved, or waiting in a queue, answers `{ sessionId, duplicate }` and starts nothing. This is checked before the save and again inside it.
@@ -165,7 +165,18 @@ because the state is plain JSON values. Sharing sessions behind `Arc` is the nex
 
 `ProjectStates::fail_next_commit` (fail the next kept change after its closure ran, to check rollback) exists only
 with the `test-fixtures` feature. The crate's own tests enable it through a dev-dependency on the crate itself; no
-build of the owner does, so it isn't in a release library or any wire surface.
+build of the owner does, so it isn't in a release library or any wire surface. `ownership::test_hooks` (run a closure
+between writing a lock's record and pinning its root again, to swap the root in that gap) is gated the same way. A
+crate that depends on the owner and enables `test-fixtures` gets both, so only test builds may enable it.
+
+## Locks and their root
+
+`OwnerLock::acquire(root, lock)` takes the lock inside a canonical `root` and pins the root (device, inode, canonical
+path); a guard without a pin can't be built. After the record is written the root is pinned again and the lock path
+checked to lead to the folder just made; a root that changed in that gap fails the open with `OwnershipLost` and the
+lock is left for an operator. Release (also on drop) removes nothing unless the pin holds. A guard dropped without
+releasing records a `StrandedLock` (path and why, never the token), drained by `ProjectStates::take_stranded` and told
+by the host as `Notice::LockStranded` on the next `take_notices`.
 
 ## Unpaired surrogates
 

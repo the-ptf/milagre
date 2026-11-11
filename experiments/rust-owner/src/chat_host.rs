@@ -501,6 +501,12 @@ pub enum Notice {
         chat: String,
         answer: AnswerId,
     },
+    /// A Project's lock was left on disk when the Project was dropped: its root no longer held (moved, replaced, a link
+    /// on or above it), so nothing was removed there. An operator removes it. Paths are jsjson-encoded; never a token.
+    LockStranded {
+        lock: String,
+        why: String,
+    },
     /// A later definitive settlement of an answer told `Uncertain` before: `Accepted` (it stays), or `NotWaiting` /
     /// `Failed` (its answers message was taken back). The command was answered already; this is for the Chat.
     AnswerResolved {
@@ -674,6 +680,8 @@ pub struct ChatHost {
     pub steering: SteeringMode,
     /// The providers were shut down by `shutdown`: a later call only retries closing the states.
     providers_shut_down: bool,
+    /// The quit's final save and close succeeded.
+    closed: bool,
     /// Completed turns whose queue waited on a quit or close, replayed if the quit is refused.
     deferred: Vec<(String, Value)>,
     /// Set from the start of `shutdown`: no queued message starts and no send is taken.
@@ -735,6 +743,7 @@ impl ChatHost {
             steering: SteeringMode::Gated,
             deferred: Vec::new(),
             providers_shut_down: false,
+            closed: false,
             quitting: false,
             closing: HashSet::new(),
             stuck: BTreeMap::new(),
@@ -779,6 +788,12 @@ impl ChatHost {
     /// What the clients would hear since the last take. Notices past `MAX_NOTICES` drop the oldest, and the take
     /// ends with a `Failed` notice that counts them.
     pub fn take_notices(&mut self) -> Vec<Notice> {
+        for stranded in self.states.take_stranded() {
+            self.notice(Notice::LockStranded {
+                lock: jsjson::js_string(&stranded.lock.to_string_lossy()),
+                why: jsjson::js_string(&stranded.why),
+            });
+        }
         let mut notices: Vec<Notice> = std::mem::take(&mut self.notices).into();
         if self.dropped_notices > 0 {
             notices.push(Notice::Failed {
@@ -835,6 +850,12 @@ impl ChatHost {
     /// `shutdown`).
     pub fn is_quitting(&self) -> bool {
         self.quitting
+    }
+
+    /// Whether a quit got past the providers but its final save and close failed: the quit isn't finished, and
+    /// `shutdown` must be called again (it retries only the save and close). Never drop a host while this is true.
+    pub fn close_pending(&self) -> bool {
+        self.providers_shut_down && !self.closed
     }
 
     /// The turn running in a Chat, if any.
@@ -2620,7 +2641,9 @@ impl ChatHost {
     /// it only retries the save and the close, and the quit is complete once it returns `Ok`.
     pub fn shutdown(&mut self, force: bool) -> Result<()> {
         if self.providers_shut_down {
-            return self.states.close();
+            self.states.close()?;
+            self.closed = true;
+            return Ok(());
         }
         // From here no queued message starts and no send is taken, not even from the events handled below.
         self.quitting = true;
@@ -2684,7 +2707,9 @@ impl ChatHost {
         self.release_waiters(None);
         self.latest.clear();
         self.sync_busy();
-        self.states.close()
+        self.states.close()?;
+        self.closed = true;
+        Ok(())
     }
 
     /// chat:send-status with nothing in flight (sends here finish before the next call).

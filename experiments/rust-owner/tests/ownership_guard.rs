@@ -57,8 +57,9 @@ fn lost(error: &StoreError, why: &str, secrets: &[&str]) {
 #[test]
 fn verify_follows_the_lock_and_never_shows_its_token() {
     let base = tempfile::tempdir().unwrap();
-    let lock = base.path().join(".milagre/runtime.lock");
-    let mut guard = RustOwnerLock.acquire(&lock).unwrap();
+    let root = base.path().canonicalize().unwrap();
+    let lock = root.join(".milagre/runtime.lock");
+    let mut guard = RustOwnerLock.acquire(&root, &lock).unwrap();
     guard.verify().unwrap();
     let token = guard.token().to_string();
     let record = std::fs::read_to_string(lock.join("owner.json")).unwrap();

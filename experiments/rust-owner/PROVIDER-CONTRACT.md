@@ -99,7 +99,7 @@ Host side (`ChatHost::respond_permission` / `answer_question` return an `AnswerT
   ends, and when its session closes (forced end, `Exited` naming its latest turn, `forget`, quit, which release every
   answer of the Chat up to that turn), answers still on their way settle `Uncertain` and uncertain ones are released.
   Their messages stay shown. They move to a history (no slot, no block; `MAX_HISTORICAL_ANSWERS`, 1,024, oldest
-  dropped, each told as `Notice::AnswerForgotten`; `ChatHost::answer_history` sets the bound) where a late definitive settlement still resolves them (`AnswerResolved`; proven non-delivery takes the
+  dropped, each told as `Notice::AnswerForgotten`, whose delivery stays unknown, so a client shows it as unknown; `ChatHost::answer_history` sets the bound, and lowering it trims the excess, oldest first, at the next release, each told) where a late definitive settlement still resolves them (`AnswerResolved`; proven non-delivery takes the
   message back). A retry after the turn ended is admitted and the provider says whether anything waits.
 - **Slots.** Answers on their way and kept uncertain answers share one capacity: `ChatHost::answer_capacity`
   (default `ANSWER_CAPACITY`, 256; the runtime may set it lower, e.g. 32).

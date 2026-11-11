@@ -219,13 +219,26 @@ pub struct OwnerGuard {
     lock: PathBuf,
     token: String,
     released: bool,
-    /// The folder the lock lives in, pinned when its owner opened it. Release removes nothing unless it still holds.
-    root: Option<RootPin>,
+    /// The folder the lock lives in, pinned as the lock was taken. Release removes nothing unless it still holds.
+    root: RootPin,
+    /// Where a lock this guard could not release on drop is recorded (see [`StrandedLock`]).
+    stranded: Option<StrandedLocks>,
 }
+
+/// A lock a dropped guard could not release (its root no longer holds, another owner's record, an I/O error): it
+/// stays on disk for an operator. `why` never holds the token.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StrandedLock {
+    pub lock: PathBuf,
+    pub why: String,
+}
+
+/// Shared list of [`StrandedLock`]s, filled by guards as they drop and drained by their owner.
+pub type StrandedLocks = std::sync::Arc<std::sync::Mutex<Vec<StrandedLock>>>;
 
 /// A folder as it was opened: its path and its device and inode. It still holds while the path is a real folder (not a
 /// link) with that identity and its canonical path is still its own (no link on it or above it).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RootPin {
     path: PathBuf,
     identity: (u64, u64),
@@ -276,14 +289,14 @@ impl OwnerGuard {
         &self.token
     }
 
-    /// Pins the folder the lock lives in: from now on [`OwnerGuard::release`] (and so `Drop`) removes nothing unless
-    /// that folder is still the one pinned.
-    pub fn pin_root(&mut self, root: RootPin) {
-        self.root = Some(root);
+    /// The folder the lock lives in, as pinned when it was taken.
+    pub fn root(&self) -> &RootPin {
+        &self.root
     }
 
-    pub fn root(&self) -> Option<&RootPin> {
-        self.root.as_ref()
+    /// Records a lock this guard can't release when dropped in `sink` instead of dropping the failure silently.
+    pub fn report_stranded_to(&mut self, sink: StrandedLocks) {
+        self.stranded = Some(sink);
     }
 
     /// Whether this process still owns the lock: not released, the lock a real folder (not a link), its
@@ -329,20 +342,18 @@ impl OwnerGuard {
     /// ownership.cjs release: removes the record and the lock when the record still holds our token. A record already
     /// gone counts as released (the empty lock stays for an operator); another token is an error and nothing is removed.
     ///
-    /// With a pinned root, a root that no longer holds ([`RootPin::check`]: moved and replaced by a link or another
+    /// A root that no longer holds ([`RootPin::check`]: moved and replaced by a link or another
     /// folder, a link above it) is `OwnershipLost` and nothing is removed anywhere: the lock path now leads outside
     /// what was opened. The guard stays unreleased, so a later call (or `Drop`) checks again.
     pub fn release(&mut self) -> crate::Result<()> {
         if self.released {
             return Ok(());
         }
-        if let Some(root) = &self.root {
-            if let Err(why) = root.check() {
-                return Err(crate::StoreError::OwnershipLost {
-                    lock: self.lock.clone(),
-                    why: why.into(),
-                });
-            }
+        if let Err(why) = self.root.check() {
+            return Err(crate::StoreError::OwnershipLost {
+                lock: self.lock.clone(),
+                why: why.into(),
+            });
         }
         let file = self.lock.join("owner.json");
         let current = match std::fs::read(&file) {
@@ -372,16 +383,68 @@ impl OwnerGuard {
 }
 
 impl Drop for OwnerGuard {
+    /// Best-effort release. A refusal leaves the lock on disk (nothing outside the pinned root is ever removed) and is
+    /// recorded as a [`StrandedLock`] when the guard has a sink.
     fn drop(&mut self) {
-        let _ = self.release();
+        if let Err(error) = self.release() {
+            let why = match &error {
+                crate::StoreError::OwnershipLost { why, .. } => why.clone(),
+                other => other.to_string(),
+            };
+            if let Some(sink) = &self.stranded {
+                if let Ok(mut list) = sink.lock() {
+                    list.push(StrandedLock {
+                        lock: self.lock.clone(),
+                        why,
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Test hooks for the gap between taking a lock and pinning its root.
+#[cfg(feature = "test-fixtures")]
+pub mod test_hooks {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static AFTER_LOCK_WRITTEN: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    }
+
+    /// Runs `hook` once, on this thread, right after the next lock's record is written and before its root is pinned
+    /// again.
+    pub fn after_lock_written(hook: impl FnOnce() + 'static) {
+        AFTER_LOCK_WRITTEN.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+    }
+
+    pub(super) fn run() {
+        if let Some(hook) = AFTER_LOCK_WRITTEN.with(|slot| slot.borrow_mut().take()) {
+            hook();
+        }
     }
 }
 
 impl crate::write::OwnerLock for RustOwnerLock {
     type Guard = OwnerGuard;
 
-    fn acquire(&self, lock: &Path) -> crate::Result<OwnerGuard> {
-        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    /// Takes `lock`, inside `root`, and pins `root` (device, inode, canonical path). `root` must be canonical and hold
+    /// the lock; both are checked before anything is made. After the record is written the root is pinned again and
+    /// the lock path checked to lead to the folder just made: if the root changed in between, the lock (now somewhere
+    /// that can't be trusted) is left for an operator and the acquire fails with `OwnershipLost`.
+    fn acquire(&self, root: &Path, lock: &Path) -> crate::Result<OwnerGuard> {
+        use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+        if lock == root || !lock.starts_with(root) {
+            return Err(crate::StoreError::Invalid(
+                "A lock must be inside the folder it guards.".into(),
+            ));
+        }
+        let pin = RootPin::take(root)?;
+        let lost = |why: &str| crate::StoreError::OwnershipLost {
+            lock: lock.to_path_buf(),
+            why: why.into(),
+        };
+        pin.check().map_err(lost)?;
         let parent = lock
             .parent()
             .ok_or_else(|| crate::StoreError::Invalid("A lock needs a parent folder.".into()))?;
@@ -439,14 +502,28 @@ impl crate::write::OwnerLock for RustOwnerLock {
             .open(&file)
             .and_then(|mut handle| std::io::Write::write_all(&mut handle, record.as_bytes()));
         if let Err(error) = written {
-            let _ = std::fs::remove_dir_all(lock);
+            // Removed only while the root is still the one checked: never through a swapped path.
+            if pin.check().is_ok() {
+                let _ = std::fs::remove_dir_all(lock);
+            }
             return Err(crate::StoreError::io(error, "open", &file));
+        }
+        let made = std::fs::symlink_metadata(lock).map(|meta| (meta.dev(), meta.ino()));
+        #[cfg(feature = "test-fixtures")]
+        test_hooks::run();
+        let changed =
+            "the Project folder changed while its lock was taken; the lock is left for an operator";
+        let again = RootPin::take(root).map_err(|_| lost(changed))?;
+        let still = std::fs::symlink_metadata(lock).map(|meta| (meta.dev(), meta.ino()));
+        if again != pin || again.check().is_err() || made.is_err() || made.ok() != still.ok() {
+            return Err(lost(changed));
         }
         Ok(OwnerGuard {
             lock: lock.to_path_buf(),
             token,
             released: false,
-            root: None,
+            root: pin,
+            stranded: None,
         })
     }
 }

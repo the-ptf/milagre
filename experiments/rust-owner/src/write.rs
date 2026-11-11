@@ -119,5 +119,6 @@ pub trait ProjectStateWriter: ProjectRepository {
 /// each other through the same paths. Unlike Node, the Rust implementation never takes a lock over, stale or not.
 pub trait OwnerLock {
     type Guard;
-    fn acquire(&self, lock: &Path) -> Result<Self::Guard>;
+    /// Takes `lock` (a path inside `root`) and pins `root`, so the guard never removes anything outside it.
+    fn acquire(&self, root: &Path, lock: &Path) -> Result<Self::Guard>;
 }
