@@ -102,7 +102,9 @@ messages already round-trip through storage and reads.
 
 **Needed.**
 
-- Content writes: the transcript file through the owner's isolated content path with `assert_owned` before writing.
+- Formatting: ported and checked against Node (`src/handover.rs`, `tests/handover.rs`).
+- Content writes: Node writes the transcript to `<dataDir>/handovers`, outside the Project; the owner writes it only
+  inside its Isolation, after path checks. Lifecycle and the brief model API: `HANDOFF-PROPOSAL.md`.
 - A brief job: a nonblocking provider (or model) call with cancel, settling as an event (`BriefReady` / `BriefFailed`),
   bounded by a deadline like answers.
 - Session state: `native_sessions` parking (`applySwitch`, `revertSwitch`), divider patches (`updateDivider`,
