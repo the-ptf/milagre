@@ -36,6 +36,8 @@ pub const COLUMN_WIDTH: f32 = 536.0;
 pub const BOTTOM_CLEARANCE: f32 = 48.0;
 /// The gap between the last item and the running row.
 pub const RUNNING_GAP: f32 = 12.0;
+/// Padding above the list's first item.
+pub const LIST_TOP_PAD: f32 = 16.0;
 const USER_MAX_WIDTH: f32 = 420.0;
 const MARK_SIZE: f32 = 20.0;
 const MARK_OVERLAP: f32 = 6.0;
@@ -640,7 +642,12 @@ impl Render for Transcript {
             .size_full()
             .relative()
             .capture_action(cx.listener(Self::copy_selection))
-            .child(list(self.list.clone(), cx.processor(Self::render_item)).size_full().pt(px(16.0)).pb(px(BOTTOM_CLEARANCE) + self.footer))
+            .child(
+                list(self.list.clone(), cx.processor(Self::render_item))
+                    .size_full()
+                    .pt(px(LIST_TOP_PAD))
+                    .pb(px(BOTTOM_CLEARANCE) + self.footer),
+            )
             .child(Keeper::new(self.tracker.clone(), self.painted.clone(), kept))
             .children(frame.map(|frame| {
                 // Zero-size and last: its paint runs after every item of this frame has painted.

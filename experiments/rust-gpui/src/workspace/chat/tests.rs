@@ -257,3 +257,39 @@ fn modality_switches_redraw_every_view_once(cx: &mut TestAppContext) {
     cx.simulate_mouse_move(gpui::point(px(700.0), px(30.0)), None, Modifiers::none());
     assert!(renders(cx) > first_key, "the first mouse move after typing refreshes it again");
 }
+
+/// The running row follows the last item: pinned to the bottom it sits under it, and scrolled up it moves with the
+/// content instead of floating over the messages (it was a view over the list's bottom edge).
+#[gpui::test]
+fn the_running_row_scrolls_with_the_content_and_never_overlaps_an_item(cx: &mut TestAppContext) {
+    let (transcript, _, cx) = mount(cx);
+    let visible_items = |cx: &mut VisualTestContext, transcript: &Entity<Transcript>| {
+        let count = transcript.read_with(cx, |t, _| t.items().len());
+        (count.saturating_sub(60)..count).filter_map(|ix| cx.debug_bounds(leak(format!("transcript-item-{ix}")))).collect::<Vec<_>>()
+    };
+    let last = transcript.read_with(cx, |t, _| t.items().len() - 1);
+    let pinned = cx.debug_bounds("running-row").expect("running row drawn");
+    let last_item = cx.debug_bounds(leak(format!("transcript-item-{last}"))).expect("last item drawn");
+    assert!(pinned.top() >= last_item.bottom(), "pinned, the row sits after the last item ({:?} vs {:?})", pinned, last_item);
+
+    let wheel = gpui::point(px(700.0), px(300.0));
+    let mut shown = 0;
+    for step in [60.0_f32, 140.0, 400.0, 1500.0] {
+        // A wheel step up the way a trackpad delivers it: it moves the list and re-renders the transcript.
+        cx.simulate_event(gpui::ScrollEvent {
+            position: wheel,
+            delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(step))),
+            ..Default::default()
+        });
+        cx.run_until_parked();
+        let items = visible_items(cx, &transcript);
+        if let Some(row) = cx.debug_bounds("running-row") {
+            shown += 1;
+            for item in &items {
+                assert!(!row.intersects(item), "scrolled up {step}: running row {row:?} overlaps item {item:?}");
+            }
+            assert!(row.top() > pinned.top(), "scrolled up, the row moved down with the content");
+        }
+    }
+    assert!(shown > 0, "the row is still drawn for the first scroll steps");
+}

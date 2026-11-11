@@ -19,13 +19,14 @@ mod tests;
 mod transcript_tests;
 
 use gpui::{
-    AnyView, Context, Entity, FocusHandle, Focusable, FontWeight, SharedString, StyleRefinement, Subscription, Window, div, prelude::*, px,
+    AnyView, Context, Entity, FocusHandle, Focusable, FontWeight, ListState, Pixels, SharedString, StyleRefinement, Subscription, Window,
+    div, prelude::*, px,
 };
 
 use crate::theme::{ActiveTheme, CONTROL_SM, CONTROL_XS, TEXT_12, TEXT_13, TextStepExt, Theme};
 use crate::workspace::chat::composer::{Composer, ComposerEvent};
 use crate::workspace::chat::running::RunningRow;
-use crate::workspace::chat::transcript::{BOTTOM_CLEARANCE, COLUMN_WIDTH, Transcript};
+use crate::workspace::chat::transcript::{BOTTOM_CLEARANCE, COLUMN_WIDTH, LIST_TOP_PAD, RUNNING_GAP, Transcript};
 use crate::workspace::chrome;
 
 const COMPOSER_BOTTOM: f32 = 24.0;
@@ -81,6 +82,7 @@ impl Render for ChatView {
             });
         }
         let theme = *cx.theme();
+        let running_offset = running_offset(self.transcript.read(cx).list_state());
         div()
             .flex()
             .flex_col()
@@ -106,24 +108,46 @@ impl Render for ChatView {
                 div()
                     .id("transcript")
                     .relative()
+                    .overflow_hidden()
                     .flex_1()
                     .min_h_0()
                     .child(AnyView::from(self.transcript.clone()).cached(StyleRefinement::default().size_full()))
-                    .when_some(self.running.clone(), |el, running| el.child(running_row(running)))
+                    .when_some(self.running.clone().zip(running_offset), |el, (running, offset)| el.child(running_row(running, offset)))
                     .child(pills(&theme)),
             )
             .child(div().flex_none().flex().justify_center().px_4().pb(px(COMPOSER_BOTTOM)).child(self.composer.clone()))
     }
 }
 
-/// The running row over the bottom of the transcript, where its last item would be: in the column, just
-/// above the pills. The transcript keeps room for it (`Transcript::set_running_row`).
-fn running_row(running: Entity<RunningRow>) -> impl IntoElement {
+/// How far the reader has scrolled up from the end of the list, which is how far the running row sits below its
+/// pinned spot: it follows the last item, so it moves with the content (the transcript's box clips it once it is
+/// out of view) instead of floating over the messages. `None` when the last items are far out of view: the list
+/// has not measured the items between, so the distance is unknown, and the row is long gone anyway.
+///
+/// The row stays a view outside the list so that its animation never re-renders the transcript's items; the
+/// scroll that moved the list re-rendered this view, so the distance is current.
+fn running_offset(list: &ListState) -> Option<Pixels> {
+    const FAR: usize = 40;
+    let top = list.logical_scroll_top().item_ix;
+    let count = list.item_count();
+    if top >= count {
+        return Some(px(0.0));
+    }
+    if count - top > FAR {
+        return None;
+    }
+    // The list's own maximum leaves out its padding, which the scroll range includes.
+    let padding = px(LIST_TOP_PAD + BOTTOM_CLEARANCE + RUNNING_GAP) + CONTROL_XS;
+    Some((list.max_offset_for_scrollbar().y + padding + list.scroll_px_offset_for_scrollbar().y).max(px(0.0)))
+}
+
+/// The running row after the last item, and over the pills' strip when the list is pinned to the bottom.
+fn running_row(running: Entity<RunningRow>, offset: Pixels) -> impl IntoElement {
     div()
         .absolute()
         .left_0()
         .right_0()
-        .bottom(px(BOTTOM_CLEARANCE))
+        .bottom(px(BOTTOM_CLEARANCE) - offset)
         .h(CONTROL_XS)
         .flex()
         .justify_center()
