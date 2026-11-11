@@ -6,7 +6,7 @@ use super::*;
 fn num(value: f64) -> String {
     jsjson::to_string(&json!(value))
 }
-fn escape(value: &str) -> String {
+pub(super) fn escape(value: &str) -> String {
     utf8(value)
         .chars()
         .map(|c| match c {

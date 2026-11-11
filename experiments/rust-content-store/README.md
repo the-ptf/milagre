@@ -111,7 +111,7 @@ Stored faults expose `UNSAFE_FILE`, `INVALID_CONTENT_STORAGE` or `IO_ERROR`; ord
 
 Saved Design reads accept `fonts.have`. Only the known generated HTML head is optimized: it is returned without the font style block, with its SHA-256 `fontKey`, plus `fontCss` on a cache miss. Custom or legacy HTML remains self-contained. Stored kit schema violations are classified as `INVALID_CONTENT_STORAGE`, preserving their issue paths; invalid requested versions remain ordinary domain errors.
 
-The SVG suite compares 144 generated outputs byte for byte with production, including all catalog font families and both embedded-font modes. Diagnostics and diff fixtures compare warnings, measurements, suggestions, contrast checks and operation arrays with the shared Node modules; floating-point contrast ratios allow a 1e-12 tolerance. Store tests compare font-cache hit/miss responses and JSON/SVG exports with Node. The full crate has 22 passing tests.
+The SVG suite compares 144 generated outputs byte for byte with production, including all catalog font families and both embedded-font modes. Diagnostics and diff fixtures compare warnings, measurements, suggestions, contrast checks and operation arrays with the shared Node modules; floating-point contrast ratios allow a 1e-12 tolerance. Store tests compare font-cache hit/miss responses and JSON/SVG exports with Node. This checkpoint had 22 passing tests before the raster suite below.
 
 ## Declared edit intent
 
@@ -119,6 +119,23 @@ The SVG suite compares 144 generated outputs byte for byte with production, incl
 
 Thirty-three additional Node scenarios compare success values and intent error codes, paths, messages and diagnostics. They include missing scope/targets, schema rejection, component propagation, fixed-size clipped text, implicit hug changes and scoped repair. Persistence tests compare an accepted and rejected declared edit against Node and verify a rejected intent leaves stored files unchanged. No automatic repair or silent widening of the edit scope occurs.
 
+## Native PNG helper
+
+`design::raster::RasterRenderer::new(absolute_helper_path)` exposes async `render(document, crop)` and `resize(data_url, width, height)`. Package the `milagre-design-raster` binary alongside the owner, pass its trusted absolute path, and share one renderer instance across owner requests. The helper path is never accepted from a client. Rendering produces `{mime, base64, width, height}`; resizing returns a PNG data URL. This crate has no Node subprocess or WASM dependency at runtime.
+
+The native renderer pins [resvg 0.34.1 at 3495d870](https://github.com/zimond/resvg/tree/3495d870), the exact fork used by [production @resvg/resvg-wasm 2.6.2](https://github.com/yisibl/resvg-js/blob/v2.6.2/Cargo.toml). That dependency is MPL-2.0; its source is fetched by Cargo, not copied into this crate. It loads only the bundled Inter faces and requested catalog fonts, with no system font lookup. Both local-file and remote image resolution are disabled. Remote images and inline images whose header exceeds 4096 pixels become the production placeholder. Rendering scales to a 1568-pixel maximum edge. Crop requests rasterize the original canvas before clipping, preserving the production text workaround. Resize rejects unreadable headers or inputs over 8192 pixels.
+
+Requests share one active lane with at most 16 admitted calls, including the active one. Input is capped at 4 MiB and output at 16 MiB. A child gets an empty environment and `/` working directory; it receives only the request over stdin. Timeout after 10 seconds, malformed output, output overflow and dropped request futures terminate it. Every render uses a fresh process, so all native allocations are reclaimed. This deliberately trades process startup cost for simpler cancellation and memory reclamation; Node reuses its worker for up to 50 renders. The deadline starts after queue admission to the active lane, as in Node.
+
+Additional deliberate bounds: documents may reference at most 64 Mi decoded pixels in total, and resize output cannot exceed 3840 pixels per edge. These fail explicitly instead of attempting arbitrarily large allocations. These are input/pixel budgets, not an OS-enforced resident-memory limit. The synchronous `helper_request` entry point exists for the helper only; owners must use `RasterRenderer` to retain termination and queue limits.
+
+Five new tests compare 49 actual Node render/resize scenarios (including every catalog font family, crop, scale, image placeholders and error cases), 63 image-header cases, timeout/drop cleanup, queued cancellation, queue saturation, input/output caps, invalid replies, recovery and the decoded-image budget. Successful PNGs have exactly equal dimensions and decoded RGBA bytes; PNG compression bytes are not compared. Fixtures call the production Node WASM worker in a disposable process and never access live Projects. This proves native raster parity on macOS arm64; it does not prove daemon tool wiring or installed WebKit behavior.
+
+```sh
+cargo build --manifest-path experiments/rust-content-store/Cargo.toml --bin milagre-design-raster
+cargo test --manifest-path experiments/rust-content-store/Cargo.toml --test raster
+```
+
 ## Remaining boundaries
 
-Native raster previews and image resizing remain unimplemented. Public `pageSnapshot`/publishing, Mermaid/Pele injection, Design deletion, Chat removal, UI/remote event dispatch and daemon command registration are also outside this crate. Integration must preserve the single live owner, provide authoritative kit access and call only implemented operations. There is no live-data writer switch here.
+Raster preview/resize command registration and packaged helper installation remain owner work. Public `pageSnapshot`/publishing, Mermaid/Pele injection, Design deletion, Chat removal, UI/remote event dispatch and daemon command registration are also outside this crate. Integration must preserve the single live owner, provide authoritative kit access and call only implemented operations. There is no live-data writer switch here.
