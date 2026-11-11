@@ -280,7 +280,7 @@ fn to_number(value: Option<&Value>) -> f64 {
 
 /// `a > b` (the abstract relational comparison): two strings (after `ToPrimitive`) compare by code units, anything
 /// else as numbers.
-fn greater(a: Option<&Value>, b: Option<&Value>) -> bool {
+pub(crate) fn greater(a: Option<&Value>, b: Option<&Value>) -> bool {
     let primitive = |value: Option<&Value>| match defined(value) {
         Some(Value::String(text)) => Some(text.clone()),
         Some(other @ (Value::Array(_) | Value::Object(_))) => Some(property_key(Some(other))),
@@ -674,6 +674,52 @@ pub fn render_transcript(
     after: Option<&Value>,
     now: &Clock,
 ) -> Result<String> {
+    render(state, session_id, after, now, None)
+}
+
+/// [`render_transcript`] that stops with an error once its output passes `limit` UTF-8 bytes, checked as each
+/// message is added (so at most one message past the limit is ever held).
+pub fn render_transcript_bounded(
+    state: &Value,
+    session_id: &Value,
+    after: Option<&Value>,
+    now: &Clock,
+    limit: usize,
+) -> Result<String> {
+    render(state, session_id, after, now, Some(limit))
+}
+
+/// The transcript's parts joined as they come (`parts.join("\n\n")`), with an optional byte limit.
+struct Parts {
+    out: String,
+    limit: Option<usize>,
+}
+
+impl Parts {
+    fn push(&mut self, part: String) {
+        if !self.out.is_empty() {
+            self.out.push_str("\n\n");
+        }
+        self.out.push_str(&part);
+    }
+
+    fn check(&self) -> Result<()> {
+        match self.limit {
+            Some(limit) if self.out.len() > limit => Err(StoreError::Invalid(format!(
+                "The transcript is larger than {limit} bytes."
+            ))),
+            _ => Ok(()),
+        }
+    }
+}
+
+fn render(
+    state: &Value,
+    session_id: &Value,
+    after: Option<&Value>,
+    now: &Clock,
+    limit: Option<usize>,
+) -> Result<String> {
     let session = session_of(prop(Some(state), "sessions")?, session_id)?;
     let messages = match prop(Some(state), "messages")? {
         Some(Value::Array(items)) => items,
@@ -702,17 +748,21 @@ pub fn render_transcript(
         .filter(|path| !nullish(Some(path)))
         .or_else(|| opt_prop(session, "workspacePath").filter(|path| !nullish(Some(path))));
     let workspace = workspace.map_or("unknown".into(), |path| s(Some(path)));
-    let mut parts = vec![
-        format!("# Chat transcript: {}", chat_title(session, &all)?),
-        format!(
-            "Provider: {} · Worktree: {workspace}",
-            provider_name(opt_prop(session, "provider"))
-        ),
-    ];
+    let mut parts = Parts {
+        out: String::new(),
+        limit,
+    };
+    parts.push(format!("# Chat transcript: {}", chat_title(session, &all)?));
+    parts.push(format!(
+        "Provider: {} · Worktree: {workspace}",
+        provider_name(opt_prop(session, "provider"))
+    ));
+    parts.check()?;
     if after.is_some() {
         parts.push("Earlier messages are left out: you already know them.".into());
     }
     for message in shown {
+        parts.check()?;
         let context = opt_prop(Some(message), "context");
         let kind = opt_prop(context, "kind");
         if is_str(kind, "handoff") {
@@ -782,11 +832,14 @@ pub fn render_transcript(
             parts.push(content.join("\n\n"));
         }
     }
-    // Joined as JavaScript joins strings: two halves that meet make one pair again.
-    Ok(jsjson::from_utf16(&jsjson::to_utf16(&format!(
-        "{}\n",
-        parts.join("\n\n")
-    ))))
+    parts.check()?;
+    let mut out = parts.out;
+    out.push('\n');
+    // Joined as JavaScript joins strings: two halves that meet make one pair again (only halves can meet).
+    if jsjson::has_lone_surrogate(&out) {
+        out = jsjson::from_utf16(&jsjson::to_utf16(&out));
+    }
+    Ok(out)
 }
 
 /// `cutTranscript(transcript)`: within TRANSCRIPT_LIMIT code units, its first message and the most recent part, with

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use milagre_owner_store::handover::{self, Clock, Zone};
 use milagre_owner_store::isolation::{Isolation, Policy};
 use milagre_owner_store::transcripts::{
-    test_hooks, JobOutcome, TranscriptInput, TranscriptJobs, MAX_TRANSCRIPT_JOBS,
+    test_hooks, JobOutcome, TranscriptJobs, TranscriptSource, MAX_TRANSCRIPT_JOBS,
 };
 use milagre_owner_store::StoreError;
 use serde_json::{json, Value};
@@ -71,13 +71,20 @@ fn state() -> Value {
     })
 }
 
-fn input(after: Option<Value>) -> TranscriptInput {
-    TranscriptInput {
-        state: state(),
+/// A source over a state that lives for the test (leaked: tests only).
+fn source_of(state: Value, after: Option<Value>) -> TranscriptSource<'static> {
+    TranscriptSource {
+        state: Box::leak(Box::new(state)),
         session: 7,
+        before: None,
+        provider: None,
         catch_up_after: after,
         clock: CLOCK,
     }
+}
+
+fn input(after: Option<Value>) -> TranscriptSource<'static> {
+    source_of(state(), after)
 }
 
 fn temporaries(dir: &Path) -> Vec<PathBuf> {
@@ -96,16 +103,18 @@ fn a_staged_transcript_commits_where_node_would_name_it() {
     assert_eq!(outcomes.len(), 1);
     let JobOutcome::Staged {
         staged,
-        brief_transcript,
+        brief_prompt,
     } = outcomes.remove(0)
     else {
         panic!("not staged")
     };
+    let brief_prompt = brief_prompt.expect("a prompt").prompt;
     assert!(
-        brief_transcript.contains("Earlier messages are left out"),
-        "{brief_transcript}"
+        brief_prompt.contains("Earlier messages are left out"),
+        "{brief_prompt}"
     );
-    assert!(!brief_transcript.contains("Make the tests pass"));
+    assert!(!brief_prompt.contains("Make the tests pass"));
+    assert!(brief_prompt.starts_with("<transcript>\n"));
     let path = staged.commit().unwrap();
     let node_path = handover::transcript_path(
         &s.jobs.folder().to_string_lossy(),
@@ -190,8 +199,10 @@ fn a_job_that_panics_after_creating_its_file_reports_it_for_discard() {
 #[test]
 fn a_job_that_can_t_render_fails_without_a_file() {
     let mut s = setup();
-    let mut bad = input(None);
-    bad.state = json!({ "sessions": {}, "messages": "not a list" });
+    let bad = source_of(
+        json!({ "sessions": { "7": { "title": 5 } }, "messages": [] }),
+        None,
+    );
     s.jobs.job(&s.project, bad).unwrap().run();
     let outcomes = s.jobs.take_outcomes();
     assert!(matches!(

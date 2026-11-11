@@ -48,7 +48,7 @@ use crate::jsjson::{self, RawJson};
 use crate::message_store::{Msg, MsgRef, ProjectState};
 use crate::states::ProjectStates;
 use crate::transcripts::{
-    JobId, JobOutcome, StagedTranscript, TranscriptInput, TranscriptJob, TranscriptJobs,
+    JobId, JobOutcome, StagedTranscript, TranscriptJob, TranscriptJobs, TranscriptSource,
 };
 
 /// What each provider can do (shared/provider-capabilities.mjs).
@@ -113,9 +113,9 @@ struct Preparing {
     /// The turn reserved when the handoff was staged: its generation. Nothing of another turn touches it.
     turn: TurnId,
     project: PathBuf,
-    /// The transcript once committed, and what the brief's model is to read.
+    /// The transcript once committed, and what the brief's model is asked (`None`: the minimal brief).
     transcript: Option<PathBuf>,
-    brief_transcript: Option<String>,
+    brief_prompt: Option<handover::BriefRequest>,
     /// The provider handed over from (encoded), whether the brief catches up, and the last request (for the minimal
     /// brief).
     provider: String,
@@ -2738,7 +2738,7 @@ impl ChatHost {
         project: &Path,
         chat: &str,
         turn: TurnId,
-        input: TranscriptInput,
+        source: TranscriptSource<'_>,
     ) -> Result<JobId> {
         self.transcript_capacity()?;
         if self.transcripts.is_none() {
@@ -2748,7 +2748,7 @@ impl ChatHost {
             .transcripts
             .as_mut()
             .expect("opened above")
-            .job(project, input)?;
+            .job(project, source)?;
         let id = job.id();
         self.job_slots.insert(
             id,
@@ -2813,7 +2813,7 @@ impl ChatHost {
         match outcome {
             JobOutcome::Staged {
                 staged,
-                brief_transcript,
+                brief_prompt,
             } if current => {
                 // The generation and the Project are checked here, on the actor, right before the one rename.
                 match self
@@ -2823,7 +2823,7 @@ impl ChatHost {
                 {
                     Ok(path) => {
                         self.end_job(id);
-                        self.transcript_ready(&chat, turn, path, brief_transcript);
+                        self.transcript_ready(&chat, turn, path, brief_prompt);
                     }
                     Err(error) => {
                         // It may be renamed already: never renamed, rendered or written again. The handoff ends.
@@ -2907,11 +2907,11 @@ impl ChatHost {
         chat: &str,
         turn: TurnId,
         path: PathBuf,
-        brief_transcript: String,
+        brief_prompt: Option<handover::BriefRequest>,
     ) {
         if let Some(preparing) = self.preparing.get_mut(chat).filter(|p| p.turn == turn) {
             preparing.transcript = Some(path);
-            preparing.brief_transcript = Some(brief_transcript);
+            preparing.brief_prompt = brief_prompt;
             self.ask_brief(chat, turn);
         }
     }
@@ -2928,22 +2928,21 @@ impl ChatHost {
         let Some(preparing) = self.preparing.get(chat).filter(|p| p.turn == turn) else {
             return;
         };
-        let prompt = handover::safe_brief_request(
-            preparing.brief_transcript.as_deref().unwrap_or_default(),
-            preparing.catch_up,
-        );
         self.next_brief += 1;
         let id = BriefId(self.next_brief);
-        let request = prompt.and_then(|prompt| {
-            BriefRequest::outbound(
+        let request = match &preparing.brief_prompt {
+            Some(prompt) => BriefRequest::outbound(
                 id,
                 chat,
                 turn,
                 &preparing.provider,
                 preparing.catch_up,
-                &prompt,
-            )
-        });
+                prompt,
+            ),
+            None => Err(StoreError::Invalid(
+                "The brief's prompt couldn't be made.".into(),
+            )),
+        };
         let asked = match (request, &mut self.brief_model) {
             (Ok(request), Some(model)) if self.briefs.len() < MAX_BRIEFS => {
                 model.ask(request).is_ok()
@@ -3098,9 +3097,9 @@ impl ChatHost {
         &mut self,
         project: &Path,
         chat: &str,
-        input: TranscriptInput,
+        source: TranscriptSource<'_>,
     ) -> Result<(TurnId, JobId)> {
-        self.test_prepare_handoff(project, chat, "kiro", None, input)
+        self.test_prepare_handoff(project, chat, "kiro", None, source)
     }
 
     /// Tests only: [`ChatHost::test_prepare_transcript`] handing over from `provider`, `last_user_message` the last
@@ -3112,9 +3111,9 @@ impl ChatHost {
         chat: &str,
         provider: &str,
         last_user_message: Option<Value>,
-        input: TranscriptInput,
+        source: TranscriptSource<'_>,
     ) -> Result<(TurnId, JobId)> {
-        let catch_up = input.catch_up_after.is_some();
+        let catch_up = source.catch_up_after.is_some();
         self.next_turn += 1;
         let turn = TurnId(self.next_turn);
         self.preparing.insert(
@@ -3123,7 +3122,7 @@ impl ChatHost {
                 turn,
                 project: project.to_path_buf(),
                 transcript: None,
-                brief_transcript: None,
+                brief_prompt: None,
                 provider: provider.to_string(),
                 catch_up,
                 last_user_message,
@@ -3131,7 +3130,13 @@ impl ChatHost {
                 brief: None,
             },
         );
-        let job = self.reserve_transcript(project, chat, turn, input)?;
+        let job = match self.reserve_transcript(project, chat, turn, source) {
+            Ok(job) => job,
+            Err(error) => {
+                self.preparing.remove(chat);
+                return Err(error);
+            }
+        };
         Ok((turn, job))
     }
 
@@ -3141,9 +3146,13 @@ impl ChatHost {
         &self,
         chat: &str,
     ) -> Option<(TurnId, Option<PathBuf>, Option<String>)> {
-        self.preparing
-            .get(chat)
-            .map(|p| (p.turn, p.transcript.clone(), p.brief_transcript.clone()))
+        self.preparing.get(chat).map(|p| {
+            (
+                p.turn,
+                p.transcript.clone(),
+                p.brief_prompt.as_ref().map(|prompt| prompt.prompt.clone()),
+            )
+        })
     }
 
     /// Tests only: the brief written for the handoff being prepared in `chat`, once settled.

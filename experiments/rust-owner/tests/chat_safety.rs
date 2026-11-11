@@ -1788,13 +1788,22 @@ fn a_lock_left_by_a_replaced_root_is_told() {
 
 // ---- handoff transcript jobs (host plumbing) ---------------------------------------------------------------------
 
-fn transcript_input() -> milagre_owner_store::transcripts::TranscriptInput {
-    milagre_owner_store::transcripts::TranscriptInput {
-        state: json!({
+fn transcript_input() -> milagre_owner_store::transcripts::TranscriptSource<'static> {
+    transcript_input_with("hello")
+}
+
+/// A source over a state that lives for the test (leaked: tests only).
+fn transcript_input_with(
+    body: &str,
+) -> milagre_owner_store::transcripts::TranscriptSource<'static> {
+    milagre_owner_store::transcripts::TranscriptSource {
+        state: Box::leak(Box::new(json!({
             "sessions": { "1": { "title": "T", "provider": "kiro", "worktree_id": 1 } },
-            "messages": [{ "id": 1, "session_id": 1, "role": "user", "body": "hello" }],
-        }),
+            "messages": [{ "id": 1, "session_id": 1, "role": "user", "body": body }],
+        }))),
         session: 1,
+        before: None,
+        provider: None,
         catch_up_after: None,
         clock: milagre_owner_store::handover::Clock {
             zone: milagre_owner_store::handover::Zone::Utc,
@@ -2041,8 +2050,7 @@ fn briefed(model: bool, body: &str) -> (Copy, String, FakeBriefModel) {
         copy.host.register_brief_model(Box::new(fake.clone()));
     }
     let chat = copy.chat();
-    let mut input = transcript_input();
-    input.state["messages"][0]["body"] = json!(body);
+    let input = transcript_input_with(body);
     copy.host
         .test_prepare_handoff(
             &copy.project,

@@ -28,6 +28,7 @@ use sha1::{Digest, Sha1};
 
 use crate::handover::{self, Clock};
 use crate::isolation::Isolation;
+use crate::jsjson;
 use crate::ownership::RootPin;
 use crate::{Result, StoreError};
 
@@ -39,22 +40,145 @@ pub const MAX_TRANSCRIPT_BYTES: usize = 32 << 20;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct JobId(pub u64);
 
-/// What a job renders: the state before the handoff's divider (the session's provider set to the one handed from), the
-/// Chat's session id, and the message id the brief catches up after.
-pub struct TranscriptInput {
-    pub state: Value,
+/// The most a job's input may weigh (its session, worktree and messages, as JSON bytes); a larger one is refused
+/// before anything is copied.
+pub const MAX_TRANSCRIPT_INPUT_BYTES: usize = 32 << 20;
+/// The most all reserved jobs' inputs may weigh together; past it a new job is refused (`TRANSCRIPTS_AT_CAPACITY`)
+/// before anything is copied. A running job also holds its rendered transcript (at most MAX_TRANSCRIPT_BYTES) until it
+/// is written; once staged it keeps only its brief prompt (at most 256 KiB).
+pub const MAX_TRANSCRIPT_BUDGET_BYTES: usize = 64 << 20;
+
+/// What a job renders, borrowed from the owner's state: only the Chat's session, its worktree and its messages before
+/// the handoff's divider are measured, then copied (the session's provider set to the one handed from).
+pub struct TranscriptSource<'a> {
+    pub state: &'a Value,
     pub session: u64,
+    /// Node's `before`: only messages whose id is less than the divider's.
+    pub before: Option<f64>,
+    /// The provider handed from (Node sets the session's provider to it for the transcript).
+    pub provider: Option<&'a str>,
+    /// The message id the brief catches up after.
     pub catch_up_after: Option<Value>,
     pub clock: Clock,
 }
 
+/// What a job owns: the copied part of the state.
+struct TranscriptInput {
+    state: Value,
+    session: u64,
+    catch_up_after: Option<Value>,
+    clock: Clock,
+    bytes: usize,
+}
+
+/// Counts what `serde_json` would write, without keeping it.
+struct Counter(usize);
+
+impl std::io::Write for Counter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn weight(value: &Value) -> usize {
+    let mut counter = Counter(0);
+    let _ = serde_json::to_writer(&mut counter, value);
+    counter.0
+}
+
+/// The parts of `source.state` a transcript of its session reads, measured, then copied only within `budget` bytes.
+fn take_input(source: &TranscriptSource<'_>, budget: usize) -> Result<TranscriptInput> {
+    let state = source.state;
+    let key = source.session.to_string();
+    let session_id = Value::from(source.session);
+    let session = state
+        .get("sessions")
+        .and_then(|sessions| sessions.get(&key))
+        .filter(|session| !jsjson::is_undefined(session))
+        .ok_or_else(|| StoreError::Invalid(format!("Chat {key} isn't in the state.")))?;
+    let worktree_key = jsjson::property_key(session.get("worktree_id"));
+    let worktree = state
+        .get("worktrees")
+        .and_then(|worktrees| worktrees.as_object())
+        .and_then(|worktrees| worktrees.get(&worktree_key));
+    let Some(Value::Array(messages)) = state.get("messages") else {
+        return Err(StoreError::Invalid(
+            "The state's messages aren't a list.".into(),
+        ));
+    };
+    let before = source.before.map(Value::from);
+    let mut kept = Vec::new();
+    for message in messages {
+        // Node reads `session_id` of every message: one that is null or undefined throws there.
+        if message.is_null() || jsjson::is_undefined(message) {
+            return Err(StoreError::Invalid(
+                "A message of the state is null.".into(),
+            ));
+        }
+        let ours = jsjson::strict_equals(
+            message.get("session_id").unwrap_or(&jsjson::undefined()),
+            &session_id,
+        );
+        let earlier = before
+            .as_ref()
+            .is_none_or(|before| crate::handover::greater(Some(before), message.get("id")));
+        if ours && earlier {
+            kept.push(message);
+        }
+    }
+    let mut bytes = weight(session) + worktree.map_or(0, weight) + 64;
+    for message in &kept {
+        bytes += weight(message) + 1;
+        if bytes > MAX_TRANSCRIPT_INPUT_BYTES {
+            return Err(StoreError::Invalid(format!(
+                "The Chat is too large to hand over (more than {} MiB).",
+                MAX_TRANSCRIPT_INPUT_BYTES >> 20
+            )));
+        }
+    }
+    if bytes > budget {
+        return Err(StoreError::TranscriptsAtCapacity(format!(
+            "Handoffs being prepared hold {} MiB already; try again once one has started.",
+            (MAX_TRANSCRIPT_BUDGET_BYTES - budget) >> 20
+        )));
+    }
+    let mut session = session.clone();
+    if let (Some(provider), Some(map)) = (source.provider, session.as_object_mut()) {
+        map.insert("provider".into(), Value::String(provider.into()));
+    }
+    let mut sessions = serde_json::Map::new();
+    sessions.insert(key, session);
+    let mut copy = serde_json::Map::new();
+    copy.insert("sessions".into(), Value::Object(sessions));
+    if let Some(worktree) = worktree {
+        let mut worktrees = serde_json::Map::new();
+        worktrees.insert(worktree_key, worktree.clone());
+        copy.insert("worktrees".into(), Value::Object(worktrees));
+    }
+    copy.insert(
+        "messages".into(),
+        Value::Array(kept.into_iter().cloned().collect()),
+    );
+    Ok(TranscriptInput {
+        state: Value::Object(copy),
+        session: source.session,
+        catch_up_after: source.catch_up_after.clone(),
+        clock: source.clock,
+        bytes,
+    })
+}
+
 /// How a job ended, reported once per job.
 pub enum JobOutcome {
-    /// The temporary file is written; `brief_transcript` is what the brief's model reads (rendered after the catch-up
-    /// id, not yet cut).
+    /// The temporary file is written; `brief_prompt` is what the brief's model is asked (`safe_brief_request` over the
+    /// transcript after the catch-up id), `None` if it couldn't be made (the minimal brief then).
     Staged {
         staged: StagedTranscript,
-        brief_transcript: String,
+        brief_prompt: Option<handover::BriefRequest>,
     },
     /// The job failed. A temporary file it may have made is in `leftover`, to discard.
     Failed {
@@ -87,6 +211,8 @@ pub struct TranscriptJobs {
     dir: Arc<OwnedFd>,
     inbox: Inbox,
     out: HashSet<JobId>,
+    /// The input bytes each reserved job holds, charged against MAX_TRANSCRIPT_BUDGET_BYTES until it is finished.
+    charged: std::collections::HashMap<JobId, usize>,
     next: u64,
 }
 
@@ -124,6 +250,7 @@ impl TranscriptJobs {
             dir: Arc::new(dir),
             inbox: Arc::default(),
             out: HashSet::new(),
+            charged: std::collections::HashMap::new(),
             next: 0,
         })
     }
@@ -140,18 +267,21 @@ impl TranscriptJobs {
 
     /// Reserves a job for `project`'s session `input.session`. Refused at [`MAX_TRANSCRIPT_JOBS`] with
     /// `TRANSCRIPTS_AT_CAPACITY`, and for a session id of 0, before anything is made.
-    pub fn job(&mut self, project: &Path, input: TranscriptInput) -> Result<TranscriptJob> {
+    pub fn job(&mut self, project: &Path, source: TranscriptSource<'_>) -> Result<TranscriptJob> {
         if self.out.len() >= MAX_TRANSCRIPT_JOBS {
             return Err(StoreError::TranscriptsAtCapacity(format!(
                 "{MAX_TRANSCRIPT_JOBS} handoffs are being prepared; try again once one has started."
             )));
         }
-        if input.session == 0 {
+        if source.session == 0 {
             return Err(StoreError::Invalid("A transcript needs a Chat id.".into()));
         }
+        let used: usize = self.charged.values().sum();
+        let input = take_input(&source, MAX_TRANSCRIPT_BUDGET_BYTES.saturating_sub(used))?;
         self.next += 1;
         let id = JobId(self.next);
         self.out.insert(id);
+        self.charged.insert(id, input.bytes);
         let digest = Sha1::digest(project.as_os_str().as_encoded_bytes());
         Ok(TranscriptJob {
             id,
@@ -180,6 +310,12 @@ impl TranscriptJobs {
     /// Ends a job's reservation: only once its outcome is taken and anything it left is committed or discarded.
     pub fn finish(&mut self, id: JobId) {
         self.out.remove(&id);
+        self.charged.remove(&id);
+    }
+
+    /// Input bytes the reserved jobs hold now.
+    pub fn charged_bytes(&self) -> usize {
+        self.charged.values().sum()
     }
 }
 
@@ -203,36 +339,35 @@ impl TranscriptJob {
     pub fn run(mut self) {
         let outcome = self.stage();
         let id = self.id;
-        let leftover = self.guard.leftover.take();
-        self.guard.report(match outcome {
-            Ok((staged, brief_transcript)) => JobOutcome::Staged {
+        match outcome {
+            // The staged file travels in the outcome; the guard's copy is dropped only once it is reported.
+            Ok((staged, brief_prompt)) => self.guard.report(JobOutcome::Staged {
                 staged,
-                brief_transcript,
-            },
-            Err(error) => JobOutcome::Failed {
-                id,
-                error: error.to_string(),
-                leftover,
-            },
-        });
+                brief_prompt,
+            }),
+            Err(error) => {
+                let leftover = self.guard.leftover.take();
+                self.guard.report(JobOutcome::Failed {
+                    id,
+                    error: error.to_string(),
+                    leftover,
+                });
+            }
+        }
+        self.guard.leftover = None;
     }
 
-    fn stage(&mut self) -> Result<(StagedTranscript, String)> {
+    fn stage(&mut self) -> Result<(StagedTranscript, Option<handover::BriefRequest>)> {
         let input = &self.input;
         let session = Value::from(input.session);
-        let full = handover::render_transcript(&input.state, &session, None, &input.clock)?;
-        if full.len() > MAX_TRANSCRIPT_BYTES {
-            return Err(StoreError::Invalid(format!(
-                "The transcript is larger than {} MiB.",
-                MAX_TRANSCRIPT_BYTES >> 20
-            )));
-        }
-        let brief_transcript = match &input.catch_up_after {
-            None => full.clone(),
-            Some(after) => {
-                handover::render_transcript(&input.state, &session, Some(after), &input.clock)?
-            }
-        };
+        let full = handover::render_transcript_bounded(
+            &input.state,
+            &session,
+            None,
+            &input.clock,
+            MAX_TRANSCRIPT_BYTES,
+        )?;
+        let temporary_id = random()?;
         let folder = self.folder.path().join(&self.project);
         match rustix::fs::mkdirat(
             &*self.dir,
@@ -251,7 +386,7 @@ impl TranscriptJob {
         .map_err(|error| io(error, "open", &folder))?;
         let sub = Arc::new(sub);
         let name = format!("{}.md", input.session);
-        let temporary = format!(".{}.{}.{:016x}.tmp", input.session, self.id.0, random());
+        let temporary = format!(".{}.{}.{temporary_id:016x}.tmp", input.session, self.id.0);
         let staged = StagedTranscript {
             id: self.id,
             folder: self.folder.clone(),
@@ -275,16 +410,37 @@ impl TranscriptJob {
         file.write_all(full.as_bytes())
             .and_then(|()| file.sync_all())
             .map_err(|error| StoreError::io(error, "write", &folder.join(&temporary)))?;
-        self.guard.leftover = None;
-        Ok((staged, brief_transcript))
+        drop(file);
+        // Only the brief's prompt (at most 256 KiB) outlives the job: the transcript is dropped once it is cut.
+        let catch_up = input.catch_up_after.is_some();
+        let brief_prompt = match &input.catch_up_after {
+            None => handover::safe_brief_request(&full, false).ok(),
+            Some(after) => {
+                drop(full);
+                handover::render_transcript_bounded(
+                    &input.state,
+                    &session,
+                    Some(after),
+                    &input.clock,
+                    MAX_TRANSCRIPT_BYTES,
+                )
+                .ok()
+                .and_then(|text| handover::safe_brief_request(&text, catch_up).ok())
+            }
+        };
+        Ok((staged, brief_prompt))
     }
 }
 
-fn random() -> u64 {
+/// A random part for a temporary name; the job fails rather than fall back to a predictable one.
+fn random() -> Result<u64> {
     let mut bytes = [0u8; 8];
     use std::io::Read;
-    let _ = std::fs::File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut bytes));
-    u64::from_le_bytes(bytes)
+    let path = Path::new("/dev/urandom");
+    std::fs::File::open(path)
+        .and_then(|mut file| file.read_exact(&mut bytes))
+        .map_err(|error| StoreError::io(error, "read", path))?;
+    Ok(u64::from_le_bytes(bytes))
 }
 
 /// Reports exactly one outcome per job: the job's own, or `Unknown` when it is dropped without one (unrun, a panic,

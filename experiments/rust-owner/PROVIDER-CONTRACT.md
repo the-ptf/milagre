@@ -190,5 +190,12 @@ agreed lifecycle, job and brief contracts are in `HANDOFF-PROPOSAL.md` and the n
   unknown id's later answer is dropped. The changed files of the minimal brief need a hardened Git job (cleared
   environment, `GIT_OPTIONAL_LOCKS=0`, no hooks or fsmonitor, timeout, output cap, admitted Worktrees only): not
   ported, so the minimal brief says `(none)` until it is; a gate condition.
+- **Job memory.** `TranscriptJobs::job` takes a borrowed `TranscriptSource`: it measures only the Chat's session,
+  worktree and messages before the divider (a counting serializer, nothing copied) and refuses a Chat over
+  `MAX_TRANSCRIPT_INPUT_BYTES` (32 MiB) or a job that would take the reserved jobs' inputs over
+  `MAX_TRANSCRIPT_BUDGET_BYTES` (64 MiB, `TRANSCRIPTS_AT_CAPACITY`) before copying; then it copies only those parts.
+  The job renders with a byte limit (`render_transcript_bounded`, checked per message), writes the file, and keeps
+  only the brief's prompt (at most 256 KiB). A temporary name needs a random part from `/dev/urandom`; the job fails
+  rather than use a predictable one.
 - **Transcripts** go to `<copy>/.owner/handovers/<sha1(project)[..12]>/<session>.md` through `transcripts::TranscriptJob`
   (bounded, owned, one outcome per job, pinned folder descriptors; see the module docs).
