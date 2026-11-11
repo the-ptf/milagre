@@ -488,3 +488,48 @@ fn a_restore_with_an_unusable_next_id_is_refused_before_staging() {
         assert!(c.host.take_jobs().is_empty());
     }
 }
+
+/// The done divider waits for its save; a failing save is told once, however many ticks try again. A Stop then
+/// fails the divider (done, not saved yet) and cancels the turn; nothing starts once the save would hold again.
+#[test]
+fn stop_while_the_done_divider_is_saving_fails_it_and_starts_nothing() {
+    let mut c = copy(1);
+    c.send(1, "Next").unwrap();
+    c.run_jobs();
+    let milagre = c.project.join(".milagre");
+    std::fs::set_permissions(&milagre, std::fs::Permissions::from_mode(0o555)).unwrap();
+    c.host.take_notices();
+    c.brief
+        .reply(c.brief.asked()[0].brief, "{\"brief\": \"b\"}");
+    c.host.pump();
+    for step in 1..=4 {
+        c.host.tick(c.host.states.now() + step);
+    }
+    let told = c
+        .host
+        .take_notices()
+        .into_iter()
+        .filter(
+            |n| matches!(n, Notice::Failed { what, .. } if what.starts_with("saving the handoff")),
+        )
+        .count();
+    assert_eq!(c.divider(1)["context"]["status"], json!("done"));
+    c.host.interrupt(&c.chat(1)).unwrap();
+    std::fs::set_permissions(&milagre, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(told, 1, "a failing save was told more than once");
+    assert_eq!(c.divider(1)["context"]["status"], json!("failed"));
+    let events = c.events();
+    assert!(
+        events
+            .iter()
+            .any(|(_, e)| e["type"] == json!("turn-cancelled")),
+        "{events:?}"
+    );
+    c.host.tick(c.host.states.now() + 10);
+    assert!(c.starts().is_empty(), "a cancelled handoff started");
+    c.host.states.flush(Some(&c.project)).unwrap();
+    assert!(
+        !c.saved().contains("\"done\""),
+        "the done divider was saved after the Stop"
+    );
+}

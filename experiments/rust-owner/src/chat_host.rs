@@ -132,6 +132,8 @@ struct Preparing {
     start: Map<String, Value>,
     /// The divider is marked done in memory and waits for a save before the turn starts (retried on `tick`).
     saving: bool,
+    /// A failed save of the done divider was told (once per handoff).
+    told_saving: bool,
 }
 
 /// A transcript job out: whose it is, whether its handoff was cancelled (its result is then only cleaned up), and a
@@ -2967,6 +2969,7 @@ impl ChatHost {
                 turn_fields,
                 start,
                 saving: false,
+                told_saving: false,
             },
         );
         self.sync_busy();
@@ -3059,11 +3062,16 @@ impl ChatHost {
         };
         let project = preparing.project.clone();
         if let Err(error) = self.states.flush(Some(&project)) {
-            self.notice(Notice::Failed {
-                chat: chat.to_string(),
-                what: "saving the handoff before its turn starts (tried again on each tick)".into(),
-                error: error.to_string(),
-            });
+            // Told once: the same save is tried again on every tick until it holds or the handoff is stopped.
+            let preparing = self.preparing.get_mut(chat).expect("checked above");
+            if !std::mem::replace(&mut preparing.told_saving, true) {
+                self.notice(Notice::Failed {
+                    chat: chat.to_string(),
+                    what: "saving the handoff before its turn starts (tried again on each tick)"
+                        .into(),
+                    error: error.to_string(),
+                });
+            }
             return;
         }
         let preparing = self.preparing.remove(chat).expect("checked above");
@@ -3091,7 +3099,7 @@ impl ChatHost {
     }
 
     /// Marks a handoff's divider failed (only while it is preparing; Node's failHandoff, a restore reverting nothing).
-    fn fail_divider(&mut self, project: &Path, session: i64, divider: i64) {
+    fn fail_divider(&mut self, project: &Path, session: i64, divider: i64, statuses: &[&str]) {
         let failed = self
             .states
             .update(project, Some(&[session]), true, |latest| {
@@ -3100,7 +3108,7 @@ impl ChatHost {
                     .message_list()
                     .iter()
                     .map(|m| {
-                        if !is_divider(m, divider, &["preparing"]) {
+                        if !is_divider(m, divider, statuses) {
                             return m.clone();
                         }
                         changed = true;
@@ -3490,7 +3498,12 @@ impl ChatHost {
         });
         // Node: abandonHandoff (the divider failed), then the start's `.catch` folds `turn-failed` with the message.
         if let Some(divider) = preparing.divider {
-            self.fail_divider(&preparing.project, preparing.session, divider);
+            self.fail_divider(
+                &preparing.project,
+                preparing.session,
+                divider,
+                &["preparing"],
+            );
         }
         if self.active_turn(chat) == Some(turn) {
             self.fail_turn(
@@ -3549,8 +3562,14 @@ impl ChatHost {
                 }
             }
             self.drop_brief(preparing.brief_id);
+            // Node's abandonHandoff with `aborted`: a divider already marked done (its save still pending) fails too.
             if let Some(divider) = preparing.divider {
-                self.fail_divider(&preparing.project, preparing.session, divider);
+                let statuses: &[&str] = if preparing.saving {
+                    &["preparing", "done"]
+                } else {
+                    &["preparing"]
+                };
+                self.fail_divider(&preparing.project, preparing.session, divider, statuses);
             }
             if self.active_turn(&chat) == Some(preparing.turn) {
                 if let Err(error) =
@@ -3641,6 +3660,7 @@ impl ChatHost {
                 turn_fields: Map::new(),
                 start: Map::new(),
                 saving: false,
+                told_saving: false,
             },
         );
         let job = match self.reserve_transcript(project, chat, turn, source) {
