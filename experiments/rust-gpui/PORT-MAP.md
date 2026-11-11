@@ -1054,6 +1054,74 @@ source (tables, strings, palettes); **Host** means ask the daemon (it already co
 
 ## 6. Work packages
 
+### Status
+
+Where each package stands on `milagre/chat-tie0` (checked 2026-11-11, after the wiring round: icons `3054f22a`, loose
+hooks `a27dbe2d`, Appearance applied `b87927ab`). Everything runs on fixture data in the headless tests and the
+snapshot mode; nothing talks to the daemon in the app. "Partial" says what is missing.
+
+| WP    | Status   | Commit(s) and what is missing                                                                                                                |
+| ----- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| WP-01 | done     | `d1febf7b` (COMPONENT-FIT.md), Root as window root `f28c1b6c`                                                                                |
+| WP-02 | done     | tokens `50ad41a2`, component bridge `b44ef499`; fonts and sizes now follow Appearance (`b87927ab`)                                           |
+| WP-03 | done     | `6b6ca9e8`; the stand-in icons were replaced with the real ones in `3054f22a`                                                                |
+| WP-04 | partial  | `c4ad080e` (`DataSource`, `FixtureSource`), `094fa785` (off-by-default `DaemonAdapter`, `daemon-check/`); the app runs on the fixture        |
+| WP-05 | partial  | `9a50ea52`, `801f9fee` (bounded live event fold behind the snapshot barrier); held states with patches and resync are not wired              |
+| WP-06 | partial  | `801f9fee` (runs reducer); per-Chat message windows and remote warm-up are not built                                                         |
+| WP-07 | done     | `5e7e7557`, `6978ef44`                                                                                                                       |
+| WP-08 | done     | `6978ef44` (popover, menu, select, dialog, tooltip, toast); dialogs and palette `a3eac5f5`                                                   |
+| WP-09 | done     | `279dab5c` (text area on gpui-component's input), `6978ef44` (fields)                                                                        |
+| WP-10 | partial  | scroll area, range slider, status pill in `5e7e7557` and `6978ef44`; the shared motion helper is per view, not a `motion/` module            |
+| WP-11 | done     | `259e5343`                                                                                                                                   |
+| WP-12 | done     | `67ced21c`, `4f5a56a5`                                                                                                                       |
+| WP-13 | done     | `167bccf2`                                                                                                                                   |
+| WP-14 | done     | `67528e40`, `7f24f5c5`                                                                                                                       |
+| WP-15 | done     | `67528e40` (Shiki colours, code blocks)                                                                                                      |
+| WP-16 | done     | `58ba47ad`                                                                                                                                   |
+| WP-17 | partial  | web host `abedf8a2`, updates and bundling `c289c2a7`, `platform/`; daemon-backed host calls (editors, clipboard, notify, audio) are fixtures |
+| WP-18 | done     | `34422055`; key bindings and menus live in `workspace/shell/keys.rs`                                                                         |
+| WP-19 | done     | `6b6ca9e8`, `30488c9c`                                                                                                                       |
+| WP-20 | done     | `0858cff2`                                                                                                                                   |
+| WP-21 | done     | `7f24f5c5`, `27f5fd15`                                                                                                                       |
+| WP-22 | done     | `456ecede`                                                                                                                                   |
+| WP-23 | done     | `b7fafdce`                                                                                                                                   |
+| WP-24 | done     | `279dab5c`                                                                                                                                   |
+| WP-25 | done     | `b243bec6`                                                                                                                                   |
+| WP-26 | done     | `2a404c2e`; the context card opens on hover and focus (`a27dbe2d`)                                                                           |
+| WP-27 | done     | `0b23fbbd`                                                                                                                                   |
+| WP-28 | done     | `fd8af07a`                                                                                                                                   |
+| WP-29 | done     | `b1e1aeab`; `simulator.toggle` is bound (`a27dbe2d`)                                                                                         |
+| WP-30 | done     | `b1e1aeab`                                                                                                                                   |
+| WP-31 | done     | `0b10316e`, over the Chat column `3ffdd6f4`; Refresh re-reads the Worktree (`a27dbe2d`)                                                      |
+| WP-32 | done     | `607b08a3`                                                                                                                                   |
+| WP-33 | partial  | `9b7c7a35`, `930ee7cf`; the local PTY is interim until the daemon PTY client                                                                 |
+| WP-34 | done     | `abedf8a2`; the Artifact page hides under menus, popovers, the palette and dialogs (`a27dbe2d`)                                              |
+| WP-35 | not done | out of scope (Victor, 2026-11-11)                                                                                                            |
+| WP-36 | done     | `3697d72c`                                                                                                                                   |
+| WP-37 | done     | `36866ca6`                                                                                                                                   |
+| WP-38 | done     | `320544be`                                                                                                                                   |
+| WP-39 | done     | `237be677`                                                                                                                                   |
+| WP-40 | done     | `43abe37e`; the choices reach the real views in `b87927ab` (Panel animations speed is still preview only)                                    |
+| WP-41 | partial  | Keybindings `9820d1b1`; Voice settings are not built (Dictation is out of scope)                                                             |
+| WP-42 | done     | `56d7b984`                                                                                                                                   |
+| WP-43 | done     | `a17ea3d2`                                                                                                                                   |
+| WP-44 | done     | `70a56b6d`                                                                                                                                   |
+| WP-45 | done     | `2c73ccd6`                                                                                                                                   |
+| WP-46 | done     | `d9591bd5`                                                                                                                                   |
+| WP-47 | not done | out of scope (Victor, 2026-11-11)                                                                                                            |
+| WP-48 | done     | `6cd1876f`                                                                                                                                   |
+| WP-49 | done     | `f2d41666`                                                                                                                                   |
+| WP-50 | done     | `a3eac5f5`, `a84a501f`                                                                                                                       |
+| WP-51 | partial  | `f43767ce`; shows when the data source has no Project (`a27dbe2d`); the Dawn intro and Welcome sky are not built                             |
+| WP-52 | done     | `f8c67f23`; Settings › About drives the card with `UpdateMachine` (`a27dbe2d`)                                                               |
+| WP-53 | not done | out of scope (Victor, 2026-11-11)                                                                                                            |
+| WP-54 | not done | out of scope (Victor, 2026-11-11)                                                                                                            |
+| WP-55 | done     | `4d6ef727`                                                                                                                                   |
+| WP-56 | partial  | `c289c2a7`, `375613c0` (bundle script, update state machine); there is no update feed                                                        |
+
+Where the code landed differs from the layout below in two places: onboarding is `src/onboarding/` and notices are
+`src/notices/` (both top level, not under `src/overlays/`).
+
 ### Decisions to make first
 
 | ID  | Decision             | Options                                                                                                         | Recommendation                                                                    | Blocks |
@@ -1094,7 +1162,8 @@ experiments/rust-gpui/
     workspace/panel/        (exists: mod.rs, tests.rs) add dock, changes/, diff/, pr/, terminal/, browser/, designs/, artifacts/, simulator/
     workspace/grid/  workspace/link/
     canvas/  settings/  routines/  inbox/
-    overlays/               palette, dialogs/, onboarding/, notices/
+    overlays/               palette, dialogs/
+    onboarding/  notices/   (top level, as built)
 ```
 
 Rules that keep parallel packages from colliding:
@@ -1566,13 +1635,13 @@ WP-34 when needed; WP-38 any time after WP-14.
 
 **WP-51 Onboarding** · Sonnet · M
 
-- Surfaces: O-02, O-03, O-04. Owns: `src/overlays/onboarding/*`, `assets/onboarding/`.
+- Surfaces: O-02, O-03, O-04. Owns: `src/onboarding/*` (not `src/overlays/onboarding/`), `assets/onboarding/` (not yet used).
 - Goal: agent and Project steps, first-Chat starters, the Dawn intro from pre-rendered layers, the welcome sky.
 - Depends on: WP-08, WP-09. Verify: step flow with a FixtureSource that has no Projects.
 
 **WP-52 Notices and update card** · Sonnet · M
 
-- Surfaces: O-16, O-19, C-08, K-16. Owns: `src/overlays/notices/*`.
+- Surfaces: O-16, O-19, C-08, K-16. Owns: `src/notices/*` (not `src/overlays/notices/`).
 - Goal: update pill and card morph, provider update card, host and save notices, editor toast, Ultracode Fatality
   (optional).
 - Depends on: WP-10. Verify: each `UpdateState` rendered.

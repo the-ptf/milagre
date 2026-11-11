@@ -5,20 +5,21 @@ How this crate is laid out and the rules every agent working on it follows. The 
 
 ## Module layout
 
-| Path                     | What lives there                                                                                 |
-| ------------------------ | ------------------------------------------------------------------------------------------------ |
-| `src/main.rs`            | Calls `app::run()`. Nothing else.                                                                |
-| `src/app.rs`             | Startup, globals, app-wide actions, key bindings, menus, window options, snapshot mode           |
-| `src/assets/`            | The `AssetSource`: files under `assets/` embedded at build time (`embedded.rs` is generated)     |
-| `src/theme/`             | Tokens: `colors.rs` (`Theme`), `typography.rs`, `metrics.rs`, `elevation.rs`; `tests.rs`         |
-| `src/ui/`                | Shared primitives (`Icon`, `Button`, `IconButton`, `Chip`, `Tab`, `ScrollArea`, `Tooltip`, ...)  |
-| `src/data/`              | Domain types by domain (`chat.rs`, `project.rs`, ...), `DataSource` (`source.rs`), the fixture   |
-| `src/workspace/`         | The window: `mod.rs` (root), `chrome.rs` (title-bar headers), one folder per column              |
-| `src/workspace/sidebar/` | `mod.rs` (the view), `list.rs` (rows from data), `row.rs` (`ChatRow`), `bottom.rs`, `tests.rs`   |
-| `src/workspace/chat/`    | `mod.rs` (`ChatView`), `transcript.rs`, `running.rs`, `composer.rs`, `markdown.rs`, `fixture.rs` |
-| `src/workspace/panel/`   | The side panel and its tabs                                                                      |
-| `src/testing/`           | Helpers for headless tests (`mount_workspace`, `mount_in_root`, `mount_element`, `bounds`)       |
-| `tools/gen-icons.mjs`    | Generates `assets/hugeicons/`, `assets/logos/`, `src/ui/icon_name.rs`, `src/assets/embedded.rs`  |
+| Path                     | What lives there                                                                                          |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `src/main.rs`            | Calls `app::run()`. Nothing else.                                                                         |
+| `src/app.rs`             | Startup, globals, window options, snapshot mode (key bindings and menus are in `workspace/shell/keys.rs`) |
+| `src/assets/`            | The `AssetSource`: files under `assets/` embedded at build time (`embedded.rs` is generated)              |
+| `src/theme/`             | Tokens: `colors.rs` (`Theme`), `typography.rs`, `metrics.rs`, `elevation.rs`; `tests.rs`                  |
+| `src/ui/`                | Shared primitives (`Icon`, `Button`, `IconButton`, `Chip`, `Tab`, `ScrollArea`, `Tooltip`, ...)           |
+| `src/data/`              | Domain types by domain (`chat.rs`, `project.rs`, ...), `DataSource` (`source.rs`), the fixture            |
+| `src/workspace/`         | The window: `mod.rs` (root), `chrome.rs` (title-bar headers), one folder per column                       |
+| `src/workspace/sidebar/` | `mod.rs` (the view), `list.rs` (rows from data), `row.rs` (`ChatRow`), `bottom.rs`, `tests.rs`            |
+| `src/workspace/chat/`    | `mod.rs` (`ChatView`), `transcript.rs`, `running.rs`, `composer.rs`, `markdown.rs`, `fixture.rs`          |
+| `src/workspace/shell/`   | The window shell: `keys.rs` (every shell key binding and the menu bar), `top_bar.rs`, `window_state.rs`   |
+| `src/workspace/panel/`   | The side panel and its tabs                                                                               |
+| `src/testing/`           | Helpers for headless tests (`mount_workspace`, `mount_in_root`, `mount_element`, `bounds`)                |
+| `tools/gen-icons.mjs`    | Generates `assets/hugeicons/`, `assets/logos/`, `src/ui/icon_name.rs`, `src/assets/embedded.rs`           |
 
 A new screen or column gets its own folder under `src/workspace/` (`mod.rs` for the view, `tests.rs` beside it). A
 new primitive is one file in `src/ui/` with its test in `src/ui/tests.rs`. Domain types go in `src/data/`, one file per
@@ -50,6 +51,9 @@ div().h(CONTROL_SM).rounded(RADIUS_CONTROL).text_step(TEXT_12).bg(theme.surface)
   `src/theme/` with its DESIGN.md row, and to `theme/tests.rs`.
 - Colours: `theme.page`, `theme.ink3`, `theme.hover2`, ... (DESIGN.md names in snake case). Shadows:
   `theme.shadow_btn()`, `theme.shadow_raised()`. Fonts: `SANS`, `mono()`. Chat text: `CHAT_TEXT`.
+- Settings › Appearance (fonts, Chat and code sizes, Chat width, sidebar size, icon style, usage layout) is read in
+  `render` through `theme::live`: `ui_font()`, `mono()`, `chat_text()`, `code_text()`, `column_width()`, `sidebar_step(..)`.
+  Never use the `CHAT_TEXT` and `CODE_TEXT` constants in a view: they are the defaults, not what the user chose.
 - `Theme::dark()` and `Theme::light()` are both checked against DESIGN.md; run a snapshot in both.
 
 ## Adding a view that does not repaint its siblings
