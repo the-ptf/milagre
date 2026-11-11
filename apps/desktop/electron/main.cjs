@@ -19,6 +19,7 @@ const {
 } = require("electron");
 const path = require("node:path");
 const { readFileSync } = require("node:fs");
+const decideSimpleIntro = require("./intro-motion.cjs").createIntroMotionDecision({ app, platform: process.platform });
 
 // Whether this computer had opened a Project before this launch: recent-projects.json lists one, even a folder deleted
 // since. Onboarding plays its first-launch intro only when it hadn't. Read once, the first time a window opens, which is
@@ -500,6 +501,8 @@ async function startDesktop() {
     createMediaHandler((url, options) => net.fetch(url, options)),
   );
   app.setName("Milagre");
+  // Returning users never wait on GPU discovery. First launch waits at most 1.5 s, after preferences are ready.
+  const simpleIntro = await decideSimpleIntro(hasOpenedProjectsBefore());
   // Before the window: closing it only hides it, so a Dock click during the connect has to bring it back.
   app.on("activate", () => {
     if (floating.owns(BrowserWindow.getFocusedWindow())) return;
@@ -720,7 +723,11 @@ async function startDesktop() {
         nodeIntegration: false,
         // The Browser panel's pages; browser-guests.cjs locks each one down before it attaches.
         webviewTag: true,
-        additionalArguments: [`--milagre-window-controls=${chrome.controls}`, `--milagre-opened-projects-before=${hasOpenedProjectsBefore() ? 1 : 0}`],
+        additionalArguments: [
+          `--milagre-window-controls=${chrome.controls}`,
+          `--milagre-opened-projects-before=${hasOpenedProjectsBefore() ? 1 : 0}`,
+          `--milagre-simple-intro=${simpleIntro ? 1 : 0}`,
+        ],
       },
     });
     mainWindow = window;
