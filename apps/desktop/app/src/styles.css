@@ -1314,6 +1314,13 @@ code.step-running.step-sweep {
   animation-name: step-shimmer-code;
 }
 
+/* Collapsed activity keeps its rows mounted. Opacity and clipping hide their
+ * pixels but do not stop the text gradients from repainting. Keep the sweep's
+ * position while closed; the visible summary continues to animate. */
+[data-slot="activity"] > [inert] .step-sweep {
+  animation-play-state: paused;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .step-running.step-sweep,
   code.step-running.step-sweep {
