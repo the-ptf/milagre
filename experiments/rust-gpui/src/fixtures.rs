@@ -29,18 +29,53 @@ pub struct ChatRow {
     pub status: ChatStatus,
 }
 
+/// Stand-in logo drawn for a provider (see `icons::ProviderLogo`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogoKind {
+    Claude,
+    Codex,
+    Antigravity,
+}
+
+/// One usage window of a provider: its label and the percent used.
+#[derive(Clone, Copy, Debug)]
+pub struct UsageWindow {
+    pub label: &'static str,
+    pub percent: u32,
+}
+
 /// One provider line in the usage block.
 #[derive(Clone, Copy, Debug)]
 pub struct UsageRow {
     pub name: &'static str,
     pub color: Rgba,
-    pub value: &'static str,
+    pub logo: LogoKind,
+    pub warning: bool,
+    pub windows: &'static [UsageWindow],
 }
 
 pub const USAGE: [UsageRow; 3] = [
-    UsageRow { name: "Claude", color: hex("#d97757"), value: "2% wk · 3% wk" },
-    UsageRow { name: "Codex", color: hex("#7c8cff"), value: "46% wk" },
-    UsageRow { name: "Antigravity", color: hex("#4f9cf9"), value: "0% 5h · 0% wk" },
+    UsageRow {
+        name: "Claude",
+        color: hex("#d97757"),
+        logo: LogoKind::Claude,
+        warning: true,
+        windows: &[UsageWindow { label: "2% wk", percent: 2 }, UsageWindow { label: "3% wk", percent: 3 }],
+    },
+    UsageRow {
+        name: "Codex",
+        color: hex("#7c8cff"),
+        logo: LogoKind::Codex,
+        warning: false,
+        windows: &[UsageWindow { label: "46% wk", percent: 46 }],
+    },
+    UsageRow {
+        name: "Antigravity",
+        color: hex("#4f9cf9"),
+        logo: LogoKind::Antigravity,
+        warning: false,
+        windows: &[UsageWindow { label: "0% 5h", percent: 0 }, UsageWindow { label: "0% wk", percent: 0 }],
+    },
 ];
 
 fn row(initial: char, tile: Option<Rgba>, title: &str, detail: &str, status: ChatStatus) -> ChatRow {

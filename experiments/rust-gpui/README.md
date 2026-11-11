@@ -147,3 +147,11 @@ re-renders only that one.
 - Icons are Lucide-style strokes on a 24 grid (`src/icons.rs`), painted with `PathBuilder` at 14px / 1.8px stroke (tabs) and 16px / 1.5px (buttons).
 - At 518px the PR tab is mostly clipped at rest, as intended. A clipped tab is not clickable where it is clipped, so `tests.rs` clicks Artifact
   instead of PR; `panel_tests.rs` scrolls the list with the wheel first, then clicks PR.
+
+## Usage block notes
+
+- The usage block (`usage_row` in `src/sidebar.rs`) has three 32px rows: provider logo (16px, x 12), name (x 40), a 12px orange warning
+  triangle after "Claude", then per usage window a right-aligned 12px label over a 2px track (`line`) with an `ink3` fill. Two windows
+  use 68px meters at x 132 and 208; one window uses one 144px track from x 132 to 276. The block pads 8px top and bottom only, since
+  the x positions are relative to the 288px inner area. Fills are at least 2px above 0% and absent at 0%. Data is in `fixtures.rs` (`USAGE`).
+- The logos (`ProviderLogo` in `src/icons.rs`) are stand-ins drawn as stroked vector paths (starburst, cloud, arch), not the real marks.

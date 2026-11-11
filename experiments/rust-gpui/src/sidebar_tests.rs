@@ -66,7 +66,7 @@ fn the_bottom_group_is_pinned_under_the_list(cx: &mut TestAppContext) {
     let footer = cx.debug_bounds("sidebar-footer").expect("footer is drawn");
     let window = cx.update(|window, _| window.viewport_size());
     assert_eq!(done.size.height, px(40.0));
-    assert_eq!(usage.size.height, px(100.0), "8 + 3 x 28 + 8");
+    assert_eq!(usage.size.height, px(112.0), "8 + 3 x 32 + 8 (was 100 with 28px rows)");
     assert_eq!(footer.size.height, px(44.0));
     assert!(done.bottom() <= usage.top(), "Done above usage");
     assert!(usage.bottom() <= footer.top(), "usage above footer");
@@ -81,4 +81,24 @@ fn header_buttons_sit_at_their_x_positions(cx: &mut TestAppContext) {
         assert_eq!(b.origin.x + px(4.0), px(x), "{name} glyph left edge");
         assert_eq!(b.size.width, px(24.0));
     }
+}
+
+#[gpui::test]
+fn usage_rows_are_32px_with_meters(cx: &mut TestAppContext) {
+    let (_sidebar, cx) = mount(cx);
+    for name in ["usage-row-Claude", "usage-row-Codex", "usage-row-Antigravity"] {
+        let row = cx.debug_bounds(name).expect("usage row is drawn");
+        assert_eq!(row.size.height, px(32.0), "{name} height");
+    }
+    assert!(cx.debug_bounds("usage-meter-Claude-0").is_some() && cx.debug_bounds("usage-meter-Claude-1").is_some());
+    assert!(cx.debug_bounds("usage-meter-Codex-0").is_some() && cx.debug_bounds("usage-meter-Codex-1").is_none());
+    let a = cx.debug_bounds("usage-track-Claude-0").unwrap();
+    let b = cx.debug_bounds("usage-track-Claude-1").unwrap();
+    assert_eq!(a.size.width, px(68.0));
+    assert_eq!(b.origin.x - a.origin.x, px(76.0), "meters at x 132 and 208");
+    let track = cx.debug_bounds("usage-track-Codex-0").unwrap();
+    let fill = cx.debug_bounds("usage-fill-Codex-0").expect("Codex fill is drawn");
+    assert_eq!(track.size.width, px(144.0));
+    assert!((fill.size.width - track.size.width * 0.46).abs() <= px(1.0), "fill is 46% of the track");
+    assert!(cx.debug_bounds("usage-fill-Antigravity-0").is_none() && cx.debug_bounds("usage-fill-Antigravity-1").is_none());
 }

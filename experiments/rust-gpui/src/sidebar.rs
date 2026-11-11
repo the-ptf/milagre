@@ -20,9 +20,10 @@ use gpui::{
 
 use crate::chrome;
 pub use crate::fixtures::{ChatRow, ChatStatus};
-use crate::fixtures::{USAGE, chat_fixtures};
+use crate::fixtures::{LogoKind, USAGE, UsageRow, chat_fixtures};
+use crate::icons::{ProviderLogo, provider_logo};
 use crate::theme::{
-    ActiveTheme, CONTROL_MD, hex, CONTROL_SM, CONTROL_XS, RADIUS_CHIP, RADIUS_CONTROL, ROW_TWO_LINE, StyledText, TEXT_11, TEXT_12, TEXT_13, Theme,
+    ActiveTheme, CONTROL_MD, CONTROL_XS, RADIUS_CHIP, RADIUS_CONTROL, ROW_TWO_LINE, StyledText, TEXT_11, TEXT_12, TEXT_13, Theme, hex,
 };
 
 pub const SIDEBAR_WIDTH: f32 = 304.0;
@@ -199,13 +200,7 @@ impl Render for Sidebar {
                     .h(px(SECTION_HEIGHT))
                     .pl(px(20.0))
                     .pr(px(16.0))
-                    .child(
-                        div()
-                            .text_step(TEXT_12)
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme.ink3)
-                            .child("All Chats"),
-                    )
+                    .child(div().text_step(TEXT_12).font_weight(FontWeight::MEDIUM).text_color(theme.ink3).child("All Chats"))
                     .child(icon(Icon::Filter, theme.ink3)),
             )
             .child(
@@ -261,14 +256,7 @@ fn destination(id: &'static str, label: &'static str, kind: Icon, dot: bool, the
             .cursor_pointer()
             .hover(move |style| style.bg(hover))
             .child(icon(kind, theme.ink3))
-            .child(
-                div()
-                    .flex_1()
-                    .text_step(TEXT_13)
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.ink2)
-                    .child(label),
-            )
+            .child(div().flex_1().text_step(TEXT_13).font_weight(FontWeight::MEDIUM).text_color(theme.ink2).child(label))
             .when(dot, |el| el.child(dot_mark(theme.accent))),
     )
 }
@@ -297,26 +285,8 @@ fn bottom_group(theme: &Theme) -> impl IntoElement + use<> {
         .flex()
         .flex_col()
         .flex_none()
-        .p(px(8.0))
-        .children(USAGE.iter().map(|row| {
-            div()
-                .flex()
-                .items_center()
-                .h(CONTROL_SM)
-                .pl(px(8.0))
-                .pr(px(20.0))
-                .child(div().flex_none().size(px(8.0)).rounded_full().bg(row.color))
-                .child(
-                    div()
-                        .flex_1()
-                        .ml(px(16.0))
-                        .text_step(TEXT_12)
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme.ink2)
-                        .child(row.name),
-                )
-                .child(div().flex_none().text_step(TEXT_12).text_color(theme.ink3).child(row.value))
-        }));
+        .py(px(8.0))
+        .children(USAGE.iter().map(|row| usage_row(row, theme)));
     let footer = div()
         .id("sidebar-footer")
         .debug_selector(|| "sidebar-footer".to_string())
@@ -427,10 +397,17 @@ fn strokes(kind: Icon) -> Vec<Stroke> {
             Line(vec![(9.0, 3.0), (5.0, 3.0), (3.0, 5.0), (3.0, 11.0), (5.0, 13.0), (11.0, 13.0), (13.0, 11.0), (13.0, 7.0)]),
             Line(vec![(7.0, 9.0), (7.4, 7.4), (12.2, 2.6), (13.4, 3.8), (8.6, 8.6), (7.0, 9.0)]),
         ],
-        Icon::Canvas => vec![rrect(2.5, 2.5, 7.0, 7.0, 1.0), rrect(9.0, 2.5, 13.5, 7.0, 1.0), rrect(2.5, 9.0, 7.0, 13.5, 1.0), rrect(9.0, 9.0, 13.5, 13.5, 1.0)],
+        Icon::Canvas => vec![
+            rrect(2.5, 2.5, 7.0, 7.0, 1.0),
+            rrect(9.0, 2.5, 13.5, 7.0, 1.0),
+            rrect(2.5, 9.0, 7.0, 13.5, 1.0),
+            rrect(9.0, 9.0, 13.5, 13.5, 1.0),
+        ],
         Icon::Clock => vec![circle(8.0, 8.0, 5.5), Line(vec![(8.0, 5.0), (8.0, 8.0), (10.0, 9.5)])],
         Icon::Link => vec![circle(4.0, 8.0, 2.0), circle(12.0, 8.0, 2.0), Line(vec![(6.0, 8.0), (10.0, 8.0)])],
-        Icon::Filter => vec![Line(vec![(2.0, 4.0), (14.0, 4.0)]), Line(vec![(4.0, 8.0), (12.0, 8.0)]), Line(vec![(6.0, 12.0), (10.0, 12.0)])],
+        Icon::Filter => {
+            vec![Line(vec![(2.0, 4.0), (14.0, 4.0)]), Line(vec![(4.0, 8.0), (12.0, 8.0)]), Line(vec![(6.0, 12.0), (10.0, 12.0)])]
+        }
         Icon::ChevronRight => vec![Line(vec![(6.0, 4.0), (10.0, 8.0), (6.0, 12.0)])],
         Icon::FolderPlus => vec![
             Closed(vec![(2.0, 4.5), (6.0, 4.5), (7.5, 6.0), (14.0, 6.0), (14.0, 12.5), (2.0, 12.5)]),
@@ -473,4 +450,86 @@ fn icon(kind: Icon, color: Rgba) -> impl IntoElement + use<> {
     )
     .flex_none()
     .size(px(ICON))
+}
+
+const USAGE_ROW_HEIGHT: f32 = 32.0;
+const METER_WIDTH: f32 = 68.0;
+
+/// One provider row: logo at x 12, name at x 40, then one or two meters ending at x 276.
+fn usage_row(row: &UsageRow, theme: &Theme) -> impl IntoElement + use<> {
+    let logo = match row.logo {
+        LogoKind::Claude => ProviderLogo::Claude,
+        LogoKind::Codex => ProviderLogo::Codex,
+        LogoKind::Antigravity => ProviderLogo::Antigravity,
+    };
+    let single = row.windows.len() == 1;
+    let mut el = div()
+        .relative()
+        .flex_none()
+        .w(px(288.0))
+        .h(px(USAGE_ROW_HEIGHT))
+        .debug_selector({
+            let name = row.name;
+            move || format!("usage-row-{name}")
+        })
+        .child(div().absolute().left(px(12.0)).top(px(8.0)).child(provider_logo(logo, 16.0, 1.6, row.color)))
+        .child(
+            div()
+                .absolute()
+                .left(px(40.0))
+                .top(px(8.0))
+                .text_step(TEXT_12)
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme.ink2)
+                .child(row.name),
+        );
+    if row.warning {
+        el = el.child(div().absolute().left(px(86.0)).top(px(10.0)).child(provider_logo(ProviderLogo::Warning, 12.0, 1.5, theme.orange)));
+    }
+    for (i, w) in row.windows.iter().enumerate() {
+        let (x, width) = if single { (132.0, 144.0) } else { (132.0 + 76.0 * i as f32, METER_WIDTH) };
+        let fill = if w.percent == 0 { 0.0 } else { (width * w.percent as f32 / 100.0).max(2.0) };
+        let id = format!("usage-meter-{}-{i}", row.name);
+        let track_id = format!("usage-track-{}-{i}", row.name);
+        let fill_id = format!("usage-fill-{}-{i}", row.name);
+        el = el
+            .child(
+                div()
+                    .absolute()
+                    .left(px(x))
+                    .top(px(3.0))
+                    .w(px(width))
+                    .debug_selector(move || id.clone())
+                    .text_step(TEXT_12)
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme.ink3)
+                    .text_right()
+                    .child(w.label),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(x))
+                    .top(px(23.0))
+                    .w(px(width))
+                    .h(px(2.0))
+                    .rounded(px(1.0))
+                    .bg(theme.line)
+                    .debug_selector(move || track_id.clone()),
+            );
+        if fill > 0.0 {
+            el = el.child(
+                div()
+                    .absolute()
+                    .left(px(x))
+                    .top(px(23.0))
+                    .w(px(fill))
+                    .h(px(2.0))
+                    .rounded(px(1.0))
+                    .bg(theme.ink3)
+                    .debug_selector(move || fill_id.clone()),
+            );
+        }
+    }
+    el
 }

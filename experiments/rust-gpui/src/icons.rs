@@ -127,3 +127,68 @@ pub fn icon(kind: PanelIcon, size: f32, stroke: f32, color: Rgba) -> impl IntoEl
     .flex_none()
     .size(px(size))
 }
+
+/// Stand-in provider logos (not the real marks) and the usage warning triangle, on the same 24 grid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderLogo {
+    /// Eight-ray starburst.
+    Claude,
+    /// Cloud outline.
+    Codex,
+    /// Rounded arch with a crossbar.
+    Antigravity,
+    /// Triangle with an exclamation mark.
+    Warning,
+}
+
+fn logo_strokes(kind: ProviderLogo) -> Vec<Stroke> {
+    match kind {
+        ProviderLogo::Claude => (0..8)
+            .map(|i| {
+                let a = i as f32 * PI / 4.0;
+                Line(vec![(12.0 + 3.0 * a.cos(), 12.0 + 3.0 * a.sin()), (12.0 + 10.0 * a.cos(), 12.0 + 10.0 * a.sin())])
+            })
+            .collect(),
+        ProviderLogo::Codex => {
+            let mut p = arc(8.0, 14.0, 4.5, 4.5, PI / 2.0, 3.0 * PI / 2.0, 8);
+            p.extend(arc(12.0, 9.5, 5.0, 5.0, PI, 1.75 * PI, 10));
+            p.extend(arc(17.0, 14.0, 4.5, 4.5, -PI / 2.0, PI / 2.0, 8));
+            vec![Closed(p)]
+        }
+        ProviderLogo::Antigravity => {
+            let mut p = vec![(3.5, 20.0)];
+            p.extend(arc(12.0, 11.0, 8.5, 8.5, PI, TAU, 16));
+            p.push((20.5, 20.0));
+            vec![Line(p), Line(vec![(7.5, 15.0), (16.5, 15.0)])]
+        }
+        ProviderLogo::Warning => vec![
+            Closed(vec![(12.0, 3.0), (22.0, 20.5), (2.0, 20.5)]),
+            Line(vec![(12.0, 9.5), (12.0, 14.5)]),
+            Line(vec![(12.0, 17.5), (12.0, 17.6)]),
+        ],
+    }
+}
+
+/// A square provider logo, `size` px wide, stroked `stroke` px in `color`.
+pub fn provider_logo(kind: ProviderLogo, size: f32, stroke: f32, color: Rgba) -> impl IntoElement + use<> {
+    canvas(
+        |_, _, _| (),
+        move |bounds, (), window, _| {
+            let unit: Pixels = bounds.size.width / 24.0;
+            let mut builder = PathBuilder::stroke(px(stroke));
+            for s in logo_strokes(kind) {
+                let (points, closed) = match &s {
+                    Line(p) => (p, false),
+                    Closed(p) => (p, true),
+                };
+                let mapped: Vec<_> = points.iter().map(|&(x, y)| point(bounds.origin.x + unit * x, bounds.origin.y + unit * y)).collect();
+                builder.add_polygon(&mapped, closed);
+            }
+            if let Ok(path) = builder.build() {
+                window.paint_path(path, color);
+            }
+        },
+    )
+    .flex_none()
+    .size(px(size))
+}
