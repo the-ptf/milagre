@@ -177,16 +177,27 @@ async function run() {
     await client.call("agent:interrupt", [chatId]);
     await client.call("daemon:stop");
   });
-  await fixture(async ({ client, runtime, project, events, send, disk }) => {
+  await fixture(async ({ client, runtime, project, events, send, disk, metadata }) => {
     await assert.rejects(client.call("chat:send", [{ projectPath: project, sessionId: 1, provider: "codex", body: "never" }]), { code: "ISOLATED_SCOPE_ONLY" });
     await assert.rejects(client.call("project:open", [process.cwd()]), { code: "ISOLATED_SCOPE_ONLY" });
     await send(1, "hello", "actor-first");
     // No further RPC: periodic provider pumping and persistence must progress by themselves.
     await until("saved reply without reads", () => disk().some((row) => row.role === "assistant" && row.body === "Scripted isolated reply"));
     assert.equal(disk().filter((row) => row.clientMessageId === "actor-first").length, 1);
-    await until("idle unload without reads", () =>
-      events.some(({ channel, payload }) => channel === "project:state" && payload.state && payload.state.messages?.length === 0),
-    );
+    const savedMessages = disk();
+    const beforeIdle = events.length;
+    // No RPC keeps this Chat loaded. Unit coverage separately proves the owner
+    // unloaded it; the wire must still present a whole state, as Node does for
+    // a client without chat-pages-v1. Empty messages are not an unload marker.
+    await delay(metadata.actor.idleMs * 2 + 100);
+    const afterIdle = events.slice(beforeIdle).filter(({ channel }) => channel === "project:state");
+    assert.ok(afterIdle.length, "idle unload publishes a state notification without another RPC");
+    for (const { payload } of afterIdle) {
+      if (payload.state) assert.deepEqual(payload.state.messages, savedMessages);
+      else assert.equal(payload.stateTooLarge, true, "large whole states require explicit hydration");
+    }
+    const idleSnapshot = await client.call("daemon:snapshot");
+    assert.deepEqual(idleSnapshot.projects[0].state.messages, savedMessages, "snapshot retains every message after idle unload");
     const sequences = events.map((event) => event.seq);
     assert.deepEqual(
       sequences,

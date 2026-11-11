@@ -426,7 +426,7 @@ impl State {
             json!({"path":self.project,"name":self.project_name(),"git":false,"state":self.host.states.whole_state(&self.project).map_err(convert)?}),
         )
     }
-    fn cache(&mut self, shared: &Shared) {
+    fn cache(&mut self, shared: &Shared) -> Result<(), RpcError> {
         #[cfg(test)]
         shared
             .parked_events
@@ -438,11 +438,32 @@ impl State {
         self.sync_readiness();
         let ready = self.host.is_project_ready(&self.project);
         let state = if ready {
-            self.host
-                .states
-                .current(&self.project)
-                .map(|state| state.to_value())
-                .unwrap_or_else(|| self.last.clone())
+            // This transport has not negotiated chat-pages-v1. Node's whole
+            // clients receive unloaded messages hydrated from chats.db too.
+            // Publishing current() here silently replaced a visible Chat with
+            // an empty transcript when its idle messages left owner memory.
+            match self.host.states.current_whole_state(&self.project) {
+                Ok(Some(state)) => state,
+                Ok(None) => {
+                    return Err(RpcError::new(
+                        "PROJECT_NOT_READY",
+                        "The ready Project has no owned state",
+                    ))
+                }
+                Err(error) => {
+                    // Ownership loss remains recoverable by an explicit open,
+                    // just like the readiness check on commands and ticks.
+                    // Other hydration failures latch publication closed instead
+                    // of exposing an incomplete or stale whole-state result.
+                    if self.host.require_project_ready(&self.project).is_err() {
+                        record_failure(shared, error.to_string());
+                        self.sync_readiness();
+                        Value::Null
+                    } else {
+                        return Err(convert(error));
+                    }
+                }
+            }
         } else {
             Value::Null
         };
@@ -455,12 +476,13 @@ impl State {
         } else {
             vec![]
         };
-        let runs = if ready {
+        let runs = if self.host.is_project_ready(&self.project) {
             json!(self.host.runs())
         } else {
             json!({})
         };
         *shared.snapshot.lock().unwrap() = json!({"projects":projects,"links":[],"runs":{"runs":runs,"seq":self.run_seq},"ports":{}});
+        Ok(())
     }
     fn call(&mut self, method: &str, args: &[Value]) -> RpcResult {
         #[cfg(feature = "app-fixture")]
@@ -647,7 +669,9 @@ impl State {
     fn publish(&mut self, shared: &Shared, publication: &Publication<'_>) -> Result<(), RpcError> {
         self.sync_readiness();
         if shared.delivery_failed.load(Ordering::Acquire) {
-            self.cache(shared);
+            // The original delivery fault stays authoritative, even if a later
+            // best-effort hidden-cache refresh cannot hydrate saved messages.
+            let _ = self.cache(shared);
             return Err(delivery_failed());
         }
         let notices = self.host.take_notices();
@@ -665,7 +689,7 @@ impl State {
         }
         // Cache and events are committed under one publication lock. No state is
         // read via the actor from Handler::snapshot, including during shutdown.
-        self.cache(shared);
+        self.cache(shared)?;
         let mut state_queued = false;
         for notice in notices {
             match notice {
@@ -1205,7 +1229,7 @@ fn start_provider(
         bootstrap,
         _profile: profile_lease,
     };
-    state.cache(&shared);
+    state.cache(&shared)?;
     let server = Server::bind(
         profile,
         actor.clone(),
@@ -1617,8 +1641,7 @@ mod publication_tests {
             Ok(Value::Null)
         }
     }
-    #[test]
-    fn failed_publication_retains_unsent_events_and_closes_admission() {
+    fn fixture() -> (IsolatedProfile, State, Shared) {
         let profile = IsolatedProfile::create().unwrap();
         let isolation = Isolation::create(profile.path(), &Policy::default()).unwrap();
         let shared = Shared {
@@ -1646,7 +1669,7 @@ mod publication_tests {
             #[cfg(test)]
             stuck_ends: AtomicUsize::new(0),
         };
-        let mut state = State {
+        let state = State {
             host: ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0)),
             jobs: crate::jobs::Workers::default(),
             provider: "kiro",
@@ -1664,6 +1687,73 @@ mod publication_tests {
             bootstrap: None,
             _profile: profile.lease(),
         };
+        (profile, state, shared)
+    }
+
+    #[test]
+    fn idle_unload_keeps_whole_client_cache_without_reloading_owner_messages() {
+        let (_profile, mut state, shared) = fixture();
+        fs::create_dir(&state.project).unwrap();
+        fs::create_dir(state.project.join(".milagre")).unwrap();
+        fs::write(
+            state.project.join(".milagre/coordination.json"),
+            json!({"next_id":3,"sessions":{"1":{"id":1}},"worktrees":{},"messages":[
+                {"id":1,"session_id":1,"role":"user","body":"Keep this transcript"},
+                {"id":2,"session_id":1,"role":"assistant","body":"Saved reply","outcome":"completed"}
+            ]}).to_string(),
+        ).unwrap();
+        state.host.open_project(&state.project).unwrap();
+        // A kept change settles legacy coordination messages into chats.db;
+        // unloading refuses messages that have not been saved there yet.
+        state
+            .host
+            .states
+            .update(&state.project, None, true, |current| {
+                Some(current.with_field("saved", json!(true)))
+            })
+            .unwrap();
+        state.host.states.flush(Some(&state.project)).unwrap();
+        state.opened = true;
+        state.cache(&shared).unwrap();
+        let before = state.last.clone();
+        let version = state.version;
+        assert_eq!(before["messages"].as_array().unwrap().len(), 2);
+        assert!(state.host.tick(10 * 60 * 1000 + 1).is_empty());
+        let unloaded = state.host.states.current(&state.project).unwrap();
+        assert!(unloaded.message_list().is_empty());
+        assert!(unloaded.unloaded.contains(&1));
+        assert!(state
+            .host
+            .states
+            .take_events()
+            .iter()
+            .any(|event| matches!(event, Event::Unloaded { .. })));
+        state.cache(&shared).unwrap();
+        assert_eq!(state.last, before);
+        assert_eq!(
+            shared.snapshot.lock().unwrap()["projects"][0]["state"],
+            before
+        );
+        assert_eq!(
+            state.version, version,
+            "storage unloading is not a visible content change"
+        );
+        assert!(
+            state
+                .host
+                .states
+                .current(&state.project)
+                .unwrap()
+                .message_list()
+                .is_empty(),
+            "publication must not reload or touch the owner Chat"
+        );
+        state.host.shutdown(true).unwrap();
+    }
+
+    #[test]
+    fn failed_publication_retains_unsent_events_and_closes_admission() {
+        let (profile, mut state, shared) = fixture();
         state.pending.push_back((
             "agent:event".into(),
             json!({"seq":7,"event":{"type":"text","text":"published"}}),
@@ -1897,7 +1987,7 @@ mod job_tests {
             bootstrap: None,
             _profile: profile_lease,
         };
-        state.cache(&shared);
+        state.cache(&shared).unwrap();
         let server = Arc::new(Server::bind(profile, actor.clone(), Config::default()).unwrap());
         *shared.events.lock().unwrap() = Some(server.events());
         *actor.thread.lock().unwrap() = Some(thread::spawn(move || {

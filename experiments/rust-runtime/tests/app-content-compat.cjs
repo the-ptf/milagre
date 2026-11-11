@@ -136,6 +136,7 @@ async function main() {
     await runtime.openProject(project);
     assert.deepEqual(await runtime.invoke("artifact:get", [{ chatId, id: "fixture-screen" }]), kept);
     const original = `${project}.retained`;
+    assert.equal(stderr, "", "no diagnostic before the intentional ownership-loss probe");
     fs.renameSync(project, original);
     fs.mkdirSync(project, { mode: 0o700 });
     try {
@@ -153,7 +154,11 @@ async function main() {
     child.stdin.end();
     const [code] = await exited;
     assert.equal(code, 0, stderr);
-    assert.equal(stderr, "");
+    // The owner may detect the deliberately replaced root during its periodic
+    // whole-state publication before our RPC does. Only that exact diagnostic
+    // is allowed; its presence is timing-dependent, readiness revocation is not.
+    const ownershipDiagnostic = `isolated owner transition failed: This process no longer owns the Project (the Project folder was replaced: ${project}/.milagre/runtime.lock); nothing was written.\n`;
+    assert.ok(stderr === "" || stderr === ownershipDiagnostic, `Unexpected stderr: ${stderr}`);
     assert.equal(fs.existsSync(metadata.profile), false);
     assert.equal(fs.existsSync(metadata.socket), false);
     console.log("app content conformance passed");
