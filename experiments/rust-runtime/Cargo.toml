@@ -27,6 +27,9 @@ serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 hex = "0.4"
 
+[dev-dependencies]
+milagre-owner-store = { path = "../rust-owner", features = ["test-fixtures"] }
+
 [workspace]
 
 [[bin]]

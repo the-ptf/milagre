@@ -1,7 +1,7 @@
 //! This binary accepts no path arguments and never connects to a live owner.
 use serde_json::json;
 use std::{
-    io::{self, BufRead, Write},
+    io::{self, Write},
     sync::Arc,
     thread,
     time::Duration,
@@ -17,13 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         json!({"profile":server.profile_path(),"socket":server.socket_path(),"fixture":true,"scriptedOwner":true,"ownedCopies":true,"actor":actor})
     );
     io::stdout().flush()?;
-    let stopping = Arc::downgrade(&server);
-    thread::spawn(move || {
-        let _ = io::stdin().lock().read_line(&mut String::new());
-        if let Some(server) = stopping.upgrade() {
-            let _ = server.shutdown();
-        }
-    });
+    milagre_rust_runtime::actor::stop_on_stdin(Arc::downgrade(&server));
     while !server.is_stopped() {
         thread::sleep(Duration::from_millis(10));
     }

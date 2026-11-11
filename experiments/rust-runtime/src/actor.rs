@@ -3,7 +3,7 @@ use milagre_owner_store::{
     agent_runs,
     chat_host::{
         AnswerId, AnswerOutcome, AnswerResult, ChatHost, Notice, Provider, ProviderError,
-        ProviderErrorKind, ProviderEvent, TurnId,
+        ProviderErrorKind, ProviderEvent, QuitState, TurnId,
     },
     jsjson::{self, RawJson},
     states::{Event, ProjectStates, Timing},
@@ -53,7 +53,7 @@ const METHODS: &[&str] = &[
 
 enum Command {
     Call(String, Vec<Value>),
-    Shutdown,
+    Shutdown { force: bool },
 }
 struct Request {
     command: Command,
@@ -80,7 +80,7 @@ struct Actor {
 }
 impl Actor {
     fn call(&self, command: Command) -> RpcResult {
-        let shutdown = matches!(command, Command::Shutdown);
+        let shutdown = matches!(command, Command::Shutdown { .. });
         if self.shared.stop.load(Ordering::Acquire) {
             return Err(closed());
         }
@@ -89,7 +89,7 @@ impl Actor {
         }
         let bytes = match &command {
             Command::Call(method, args) => method.len() + jsjson::to_string(&json!(args)).len(),
-            Command::Shutdown => 0,
+            Command::Shutdown { .. } => 0,
         };
         if self
             .shared
@@ -192,7 +192,7 @@ impl Handler for Actor {
         diagnostic_snapshot(&self.shared)
     }
     fn shutdown(&self) -> RpcResult {
-        self.call(Command::Shutdown)
+        self.call(Command::Shutdown { force: false })
     }
 }
 fn record_forgotten_answer(shared: &Shared) {
@@ -248,6 +248,49 @@ fn delivery_failed() -> RpcError {
 fn closed() -> RpcError {
     RpcError::new("OWNER_CLOSING", "The isolated owner is closing")
 }
+/// Retry only the owner's pending-job result, from outside its actor. The
+/// caller retains the Server on timeout; a pending result is never a stop ack.
+pub fn shutdown_pending(server: &Server, budget: Duration) -> Result<(), RpcError> {
+    let deadline = Instant::now() + budget;
+    loop {
+        match server.shutdown() {
+            Err(error) if error.code == "QUIT_PENDING" => {
+                if Instant::now() >= deadline {
+                    return Err(error);
+                }
+                thread::sleep(TICK.min(deadline.saturating_duration_since(Instant::now())));
+            }
+            result => return result,
+        }
+    }
+}
+
+/// Fixture executable EOF driver. A pending owner remains retained and ticked;
+/// failed saves and busy refusal are reported, not silently forced or retried.
+pub fn stop_on_stdin(server: std::sync::Weak<Server>) {
+    thread::spawn(move || {
+        let _ = std::io::stdin().read_line(&mut String::new());
+        let Some(server) = server.upgrade() else {
+            return;
+        };
+        let mut reported = false;
+        loop {
+            match shutdown_pending(&server, Duration::from_secs(1)) {
+                Err(error) if error.code == "QUIT_PENDING" => {
+                    if !reported {
+                        eprintln!("QUIT_PENDING: retaining the isolated owner until transcript cleanup completes");
+                        reported = true;
+                    }
+                }
+                Err(error) => {
+                    eprintln!("{}: isolated owner shutdown refused", error.code);
+                    return;
+                }
+                Ok(()) => return,
+            }
+        }
+    });
+}
 fn convert(error: milagre_owner_store::StoreError) -> RpcError {
     let code = match &error {
         milagre_owner_store::StoreError::AnswerDeliveryUnknown(_) => "ANSWER_DELIVERY_UNKNOWN",
@@ -264,6 +307,7 @@ fn convert(error: milagre_owner_store::StoreError) -> RpcError {
 
 struct State {
     host: ChatHost,
+    jobs: crate::jobs::Workers,
     provider: &'static str,
     content: Option<Arc<crate::claude_content::SharedContent>>,
     project: PathBuf,
@@ -274,6 +318,13 @@ struct State {
     pending: VecDeque<(String, Value)>,
     answers: HashMap<AnswerId, SyncSender<RpcResult>>,
     settled_answers: Vec<(SyncSender<RpcResult>, RpcResult)>,
+}
+impl Drop for State {
+    fn drop(&mut self) {
+        // A forced actor drop is still a crash boundary, but its job workers must
+        // finish before host locks and the private profile can be destroyed.
+        self.jobs.join();
+    }
 }
 impl State {
     fn project(&mut self) -> RpcResult {
@@ -547,7 +598,12 @@ impl State {
             }
         })
     }
-    fn shutdown(&mut self, shared: &Shared, publication: &Publication<'_>) -> RpcResult {
+    fn shutdown(
+        &mut self,
+        shared: &Shared,
+        publication: &Publication<'_>,
+        force: bool,
+    ) -> RpcResult {
         // This fixture explicitly cancels its synthetic turns. Production quit-time
         // suspend/resume remains unported and must not reuse this policy.
         let chats: Vec<_> = self.host.runs().keys().cloned().collect();
@@ -561,7 +617,19 @@ impl State {
         if !shared.delivery_failed.load(Ordering::Acquire) {
             self.publish_or_latch(shared, publication)?;
         }
-        self.host.shutdown(false).map_err(convert)?;
+        let closed = self.host.shutdown(force).map_err(convert);
+        // Closing may produce stranded-lock or failure notices on every retry,
+        // including the final one. Drain them before returning any close result.
+        if !shared.delivery_failed.load(Ordering::Acquire) {
+            self.publish_or_latch(shared, publication)?;
+        }
+        closed?;
+        if self.host.quit_state() != QuitState::Done || !self.jobs.is_empty() {
+            return Err(RpcError::new(
+                "QUIT_PENDING",
+                "Transcript worker cleanup is still pending",
+            ));
+        }
         if let Some(content) = &self.content {
             content.shutdown();
         }
@@ -578,6 +646,7 @@ fn run(
 ) {
     let mut next = Instant::now() + TICK;
     while !shared.stop.load(Ordering::Acquire) {
+        state.jobs.drive(&mut state.host);
         let request = match requests.recv_timeout(next.saturating_duration_since(Instant::now())) {
             Ok(request) => Some(request),
             Err(RecvTimeoutError::Timeout) => None,
@@ -594,7 +663,7 @@ fn run(
         };
         if let Some(request) = request {
             shared.bytes.fetch_sub(request.bytes, Ordering::AcqRel);
-            let shutdown = matches!(request.command, Command::Shutdown);
+            let shutdown = matches!(request.command, Command::Shutdown { .. });
             let state_read =
                 matches!(&request.command,Command::Call(method,_) if method=="state:read");
             let mut reply = Some(request.reply);
@@ -608,9 +677,9 @@ fn run(
                             state.call(&method, &args)
                         }
                     }
-                    Command::Shutdown => {
+                    Command::Shutdown { force } => {
                         shared.closing.store(true, Ordering::Release);
-                        state.shutdown(&shared, publication)
+                        state.shutdown(&shared, publication, force)
                     }
                 };
                 if answer_call {
@@ -779,6 +848,7 @@ fn start_provider(
         run(
             State {
                 host,
+                jobs: crate::jobs::Workers::default(),
                 provider: provider_name,
                 content,
                 project,
@@ -1038,7 +1108,7 @@ mod tests {
             actor
                 .send
                 .try_send(Request {
-                    command: Command::Shutdown,
+                    command: Command::Shutdown { force: false },
                     reply,
                     bytes: 0,
                 })
@@ -1194,6 +1264,7 @@ mod publication_tests {
         };
         let mut state = State {
             host: ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0)),
+            jobs: crate::jobs::Workers::default(),
             provider: "kiro",
             content: None,
             project: profile.path().join("fixture"),
@@ -1238,5 +1309,229 @@ mod publication_tests {
         );
         assert_eq!(state.pending.len(), 2);
         server.shutdown().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod job_tests {
+    use super::*;
+    use milagre_owner_store::{
+        handover::{Clock, Zone},
+        transcripts::TranscriptSource,
+    };
+    use std::sync::Condvar;
+
+    fn prepare(host: &mut ChatHost, project: &std::path::Path, count: u64) {
+        let state = host.states.whole_state(project).unwrap();
+        for session in 1..=count {
+            host.test_prepare_transcript(
+                project,
+                &format!("{}#{session}", project.display()),
+                TranscriptSource {
+                    state: &state,
+                    session,
+                    before: None,
+                    provider: Some("kiro"),
+                    catch_up_after: None,
+                    clock: Clock {
+                        zone: Zone::Utc,
+                        now_ms: 0.0,
+                    },
+                },
+            )
+            .unwrap();
+        }
+    }
+    fn seeded() -> (IsolatedProfile, PathBuf, ChatHost) {
+        let profile = IsolatedProfile::create().unwrap();
+        let isolation = Isolation::create(profile.path(), &Policy::default()).unwrap();
+        let project = isolation.project(std::path::Path::new("fixture")).unwrap();
+        fs::create_dir(project.join(".milagre")).unwrap();
+        let mut sessions = serde_json::Map::new();
+        for id in 1..=5 {
+            sessions.insert(
+                id.to_string(),
+                json!({"id":id,"worktree_id":1,"title":"Jobs"}),
+            );
+        }
+        fs::write(project.join(".milagre/coordination.json"), json!({"next_id":10,"worktrees":{"1":{"id":1,"path":project}},"sessions":sessions,"messages":[{"id":1,"session_id":1,"role":"user","body":"Transcript input"}]}).to_string()).unwrap();
+        let mut host = ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0));
+        host.states.get(&project).unwrap();
+        (profile, project, host)
+    }
+    struct Gate {
+        released: Mutex<bool>,
+        signal: Condvar,
+    }
+    impl Gate {
+        fn release(&self) {
+            *self.released.lock().unwrap() = true;
+            self.signal.notify_all();
+        }
+    }
+    struct ReleaseOnDrop(Arc<Gate>);
+    impl Drop for ReleaseOnDrop {
+        fn drop(&mut self) {
+            self.0.release();
+        }
+    }
+    fn workers(mode: u8) -> (crate::jobs::Workers, Arc<Gate>, Receiver<()>) {
+        let gate = Arc::new(Gate {
+            released: Mutex::new(false),
+            signal: Condvar::new(),
+        });
+        let held = gate.clone();
+        let (entered, receive) = mpsc::sync_channel(4);
+        let mut worker = crate::jobs::Workers::default();
+        worker.before_run = Some(Arc::new(move || {
+            entered.send(()).unwrap();
+            let mut released = held.released.lock().unwrap();
+            while !*released {
+                released = held.signal.wait(released).unwrap();
+            }
+            drop(released);
+            if mode == 1 {
+                panic!("fixture transcript worker panic");
+            }
+            mode != 2
+        }));
+        (worker, gate, receive)
+    }
+    #[test]
+    fn forced_forget_retains_project_until_each_job_returns_including_panic_and_drop() {
+        for mode in 0..=2 {
+            let (_profile, project, mut host) = seeded();
+            prepare(&mut host, &project, 1);
+            let (mut workers, gate, entered) = workers(mode);
+            let _release = ReleaseOnDrop(gate.clone());
+            workers.drive(&mut host);
+            entered.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert_eq!(
+                host.forget(&project, true).unwrap_err().code(),
+                Some("QUIT_PENDING")
+            );
+            assert!(project.join(".milagre/runtime.lock").exists());
+            assert!(host.states.current(&project).is_some());
+            assert!(host.pump().is_empty());
+            gate.release();
+            workers.join();
+            assert!(host.pump().is_empty());
+            host.forget(&project, true).unwrap();
+            assert!(!project.join(".milagre/runtime.lock").exists());
+            assert!(host.take_jobs().is_empty());
+            host.shutdown(true).unwrap();
+        }
+    }
+    #[test]
+    fn quit_keeps_socket_profile_and_locks_until_four_workers_are_joined() {
+        let (profile, project, mut host) = seeded();
+        prepare(&mut host, &project, 4);
+        let state = host.states.whole_state(&project).unwrap();
+        assert_eq!(
+            host.test_prepare_transcript(
+                &project,
+                &format!("{}#5", project.display()),
+                TranscriptSource {
+                    state: &state,
+                    session: 5,
+                    before: None,
+                    provider: None,
+                    catch_up_after: None,
+                    clock: Clock {
+                        zone: Zone::Utc,
+                        now_ms: 0.0
+                    },
+                }
+            )
+            .unwrap_err()
+            .code(),
+            Some("TRANSCRIPTS_AT_CAPACITY")
+        );
+        let (workers, gate, entered) = workers(0);
+        let shared = Arc::new(Shared {
+            snapshot: Mutex::new(json!({})),
+            events: Mutex::new(None),
+            bytes: AtomicUsize::new(0),
+            closing: AtomicBool::new(false),
+            stop: AtomicBool::new(false),
+            failure: Mutex::new(None),
+            delivery_failed: AtomicBool::new(false),
+            forgotten_answers: AtomicU64::new(0),
+            stranded_lock_notices: AtomicU64::new(0),
+        });
+        let (send, requests) = mpsc::sync_channel(QUEUE);
+        let actor = Arc::new(Actor {
+            send,
+            shared: shared.clone(),
+            thread: Mutex::new(None),
+            project: project.to_string_lossy().into(),
+            content: false,
+        });
+        let server = Arc::new(Server::bind(profile, actor.clone(), Config::default()).unwrap());
+        *shared.events.lock().unwrap() = Some(server.events());
+        let state = State {
+            host,
+            jobs: workers,
+            provider: "kiro",
+            content: None,
+            project: project.clone(),
+            opened: true,
+            version: 0,
+            last: Value::Null,
+            run_seq: 0,
+            pending: VecDeque::new(),
+            answers: HashMap::new(),
+            settled_answers: vec![],
+        };
+        *actor.thread.lock().unwrap() = Some(thread::spawn(move || {
+            run(state, shared, requests, Instant::now(), 0)
+        }));
+        let _release = ReleaseOnDrop(gate.clone());
+        for _ in 0..4 {
+            entered.recv_timeout(Duration::from_secs(2)).unwrap();
+        }
+        // Ordinary busy quit refuses; only this explicit test force cancels staging.
+        assert!(server.shutdown().is_err());
+        assert_eq!(
+            actor
+                .call(Command::Shutdown { force: true })
+                .unwrap_err()
+                .code,
+            "QUIT_PENDING"
+        );
+        for _ in 0..2 {
+            assert_eq!(
+                shutdown_pending(&server, Duration::from_millis(30))
+                    .unwrap_err()
+                    .code,
+                "QUIT_PENDING"
+            );
+            assert!(!server.is_stopped());
+            assert!(server.socket_path().exists());
+            assert!(server.profile_path().exists());
+            assert!(project.join(".milagre/runtime.lock").exists());
+        }
+        let node = std::process::Command::new("node")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/jobs-stop-compat.cjs"
+            ))
+            .arg(server.profile_path())
+            .arg(&project)
+            .output()
+            .unwrap();
+        assert!(
+            node.status.success(),
+            "{}",
+            String::from_utf8_lossy(&node.stderr)
+        );
+        assert!(String::from_utf8_lossy(&node.stdout).contains("conformance passed"));
+        gate.release();
+        shutdown_pending(&server, Duration::from_secs(3)).unwrap();
+        assert!(server.is_stopped());
+        assert!(!project.join(".milagre/runtime.lock").exists());
+        server.shutdown().unwrap();
+        drop(actor);
+        Server::finish(server).unwrap();
     }
 }
