@@ -12,7 +12,10 @@ use std::{
     },
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -262,6 +265,11 @@ pub struct LaunchContext {
     storage: Arc<tempfile::TempDir>,
     _lock: File,
     preferences: Mutex<Map<String, Value>>,
+    clean: AtomicBool,
+    failure_exit: AtomicBool,
+    shell_io: Mutex<()>,
+    storage_identity: Identity,
+    storage_removed: AtomicBool,
 }
 impl LaunchContext {
     pub fn spawn_fixed() -> Result<Arc<Self>> {
@@ -301,6 +309,7 @@ impl LaunchContext {
         if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
             return Err(io(std::io::Error::last_os_error()));
         }
+        let storage_identity = Identity::read(storage.path(), false)?;
         let mut child = Command::new(executable)
             .env_clear()
             .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
@@ -326,7 +335,12 @@ impl LaunchContext {
         let endpoint = match admitted {
             Ok(v) => v,
             Err(e) => {
-                reap_after_crash(child, storage);
+                // Admission has not entered a UI loop. Do not return while a detached
+                // reaper races main's process exit; finish bounded cleanup here.
+                if !crash_exit_bounded(&mut child, Duration::from_secs(3)) {
+                    std::mem::forget(storage);
+                    return Err(fail("FIXTURE_START_CLEANUP_UNKNOWN", "Child startup failed and exit could not be confirmed; private shell storage retained"));
+                }
                 return Err(e);
             }
         };
@@ -339,9 +353,14 @@ impl LaunchContext {
                 clean: false,
             })),
             endpoint,
+            storage_identity,
             storage,
             _lock: lock,
             preferences: Mutex::new(Map::new()),
+            clean: AtomicBool::new(false),
+            failure_exit: AtomicBool::new(false),
+            shell_io: Mutex::new(()),
+            storage_removed: AtomicBool::new(false),
         }))
     }
     pub fn connect(&self) -> Result<UnixStream> {
@@ -357,24 +376,65 @@ impl LaunchContext {
         &self.endpoint.project
     }
     pub fn clean(&self) -> bool {
-        self.child
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .as_ref()
-            .is_some_and(|c| c.clean)
+        self.clean.load(Ordering::Acquire)
+    }
+    pub fn failure_exit_allowed(&self) -> bool {
+        self.failure_exit.load(Ordering::Acquire)
+    }
+    /// Tauri/tao can process::exit without returning from App::run. Call explicitly
+    /// from RunEvent::Exit; retained Arcs and destructor timing do not control cleanup.
+    pub fn remove_shell_storage(&self) -> Result<()> {
+        if !self.clean() {
+            return Err(fail(
+                "FIXTURE_NOT_CLEAN",
+                "Owner shutdown has not completed cleanly",
+            ));
+        }
+        let _io = self.shell_io.try_lock().map_err(|_| {
+            fail(
+                "FIXTURE_STORAGE_BUSY",
+                "A shell write is still active; cleanup is unconfirmed",
+            )
+        })?;
+        if self.storage_removed.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        if Identity::read(self.storage.path(), false)? != self.storage_identity {
+            return Err(invalid());
+        }
+        fs::remove_dir_all(self.storage.path()).map_err(io)?;
+        self.storage_removed.store(true, Ordering::Release);
+        Ok(())
+    }
+    fn writable(&self) -> Result<()> {
+        if self.clean() || self.failure_exit_allowed() {
+            Err(fail("FIXTURE_CLOSED", "Fixture shell storage is closed"))
+        } else {
+            Ok(())
+        }
     }
     /// Startup/build failure is a crash boundary, never a graceful completion.
-    pub fn abandon_on_shell_failure(&self) {
+    pub fn abandon_on_shell_failure(&self) -> bool {
         if let Some(state) = self.child.lock().unwrap_or_else(|p| p.into_inner()).take() {
             if !state.clean {
-                reap_after_crash(state.child, self.storage.clone());
+                let mut child = state.child;
+                if !crash_exit_bounded(&mut child, Duration::from_secs(3)) {
+                    // Never ask Drop to signal an identity whose wait became unknown.
+                    std::mem::forget(self.storage.clone());
+                    return false;
+                }
             }
+            self.failure_exit.store(true, Ordering::Release);
+            return true;
         }
+        self.failure_exit_allowed()
     }
     pub fn preferences(&self) -> Result<Value> {
         Ok(json!(*self.preferences.lock().map_err(|_| invalid())?))
     }
     pub fn write_preference(&self, key: String, value: Value) -> Result<()> {
+        let _io = self.shell_io.lock().map_err(|_| invalid())?;
+        self.writable()?;
         if !(key.starts_with("milagre-")
             || key.starts_with("milagre.")
             || key.starts_with("milagre:"))
@@ -407,6 +467,8 @@ impl LaunchContext {
         Ok(())
     }
     pub fn save_window(&self, value: &Value) -> Result<()> {
+        let _io = self.shell_io.lock().map_err(|_| invalid())?;
+        self.writable()?;
         fs::write(
             self.storage.path().join("window/state.json"),
             serde_json::to_vec(value).map_err(|_| invalid())?,
@@ -462,6 +524,7 @@ impl LaunchContext {
                 state.stdin.take();
                 if status.success() {
                     state.clean = true;
+                    self.clean.store(true, Ordering::Release);
                     return Ok(());
                 }
                 return Err(fail(
@@ -503,6 +566,26 @@ fn crash_exit_confirmed(child: &mut impl CleanupChild) -> bool {
             let _ = child.kill_owned();
             child.reap().is_ok()
         }
+    }
+}
+fn crash_exit_bounded(child: &mut impl CleanupChild, budget: Duration) -> bool {
+    match child.probe() {
+        Ok(Some(_)) => return true,
+        Err(_) => return false,
+        Ok(None) => {}
+    }
+    let until = Instant::now() + budget;
+    let signalled = child.kill_owned().is_ok();
+    loop {
+        match child.probe() {
+            Ok(Some(_)) => return true,
+            Err(_) => return false,
+            Ok(None) => {}
+        }
+        if !signalled || Instant::now() >= until {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(10));
     }
 }
 fn reap_after_crash(mut child: Child, storage: Arc<tempfile::TempDir>) {
@@ -751,5 +834,130 @@ mod tests {
             child.id() as libc::pid_t
         );
         assert!(!crash_exit_confirmed(&mut child));
+    }
+    #[test]
+    fn explicit_clean_cleanup_works_with_retained_arcs_and_clean_check_never_locks_child() {
+        let context = fixture();
+        let retained = context.clone();
+        let retained_storage = context.storage.clone();
+        let root = context.storage.path().to_owned();
+        assert_eq!(
+            context.remove_shell_storage().unwrap_err()["code"],
+            "FIXTURE_NOT_CLEAN"
+        );
+        let child_lock = context.child.lock().unwrap();
+        let observed = context.clone();
+        let (send, receive) = std::sync::mpsc::sync_channel(1);
+        let check = thread::spawn(move || {
+            send.send(observed.clean()).unwrap();
+        });
+        let answer = receive.recv_timeout(Duration::from_secs(1));
+        drop(child_lock);
+        check.join().unwrap();
+        assert!(!answer.unwrap());
+        context.request_quit().unwrap();
+        assert!(root.exists());
+        let write = context.shell_io.lock().unwrap();
+        assert_eq!(
+            context.remove_shell_storage().unwrap_err()["code"],
+            "FIXTURE_STORAGE_BUSY"
+        );
+        drop(write);
+        let held = root.with_extension("held");
+        fs::rename(&root, &held).unwrap();
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("sentinel"), b"not the owned shell root").unwrap();
+        assert_eq!(
+            context.remove_shell_storage().unwrap_err()["code"],
+            "FIXTURE_ENDPOINT_INVALID"
+        );
+        assert_eq!(
+            fs::read(root.join("sentinel")).unwrap(),
+            b"not the owned shell root"
+        );
+        fs::remove_dir_all(&root).unwrap();
+        fs::rename(&held, &root).unwrap();
+        context.remove_shell_storage().unwrap();
+        assert!(!root.exists());
+        assert!(Arc::strong_count(&context) >= 2);
+        assert!(Arc::strong_count(&retained_storage) >= 2);
+        assert_eq!(
+            retained
+                .write_preference("milagre-fixture".into(), json!("late"))
+                .unwrap_err()["code"],
+            "FIXTURE_CLOSED"
+        );
+        assert_eq!(
+            retained.save_window(&json!({})).unwrap_err()["code"],
+            "FIXTURE_CLOSED"
+        );
+        retained.remove_shell_storage().unwrap();
+        assert!(!root.exists());
+    }
+    #[test]
+    fn setup_failure_reaps_before_return_and_never_claims_graceful_cleanup() {
+        let context = fixture();
+        let pid = context.endpoint.pid;
+        assert!(context.abandon_on_shell_failure());
+        assert!(context.failure_exit_allowed());
+        assert!(!context.clean());
+        assert!(context.abandon_on_shell_failure());
+        assert_eq!(
+            context.remove_shell_storage().unwrap_err()["code"],
+            "FIXTURE_NOT_CLEAN"
+        );
+        assert_eq!(
+            unsafe { libc::waitpid(pid as libc::pid_t, std::ptr::null_mut(), libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+        // Abrupt child termination may leave only this freshly generated daemon profile.
+        let profile = &context.endpoint.pins[0].0;
+        if profile.exists() {
+            fs::remove_dir_all(profile).unwrap();
+        }
+        let _ = fs::remove_file(&context.endpoint.socket);
+    }
+    #[test]
+    fn bounded_failure_reap_stops_on_unknown_and_does_not_use_blocking_wait() {
+        use std::{collections::VecDeque, os::unix::process::ExitStatusExt};
+        struct Probe {
+            states: VecDeque<i32>,
+            calls: Vec<&'static str>,
+        }
+        impl CleanupChild for Probe {
+            fn probe(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+                self.calls.push("probe");
+                match self.states.pop_front().unwrap_or(0) {
+                    -1 => Err(std::io::Error::from_raw_os_error(libc::ECHILD)),
+                    1 => Ok(Some(std::process::ExitStatus::from_raw(9))),
+                    _ => Ok(None),
+                }
+            }
+            fn kill_owned(&mut self) -> std::io::Result<()> {
+                self.calls.push("kill");
+                Ok(())
+            }
+            fn reap(&mut self) -> std::io::Result<std::process::ExitStatus> {
+                panic!("bounded setup path must not block in wait")
+            }
+        }
+        for (states, expected, calls) in [
+            (vec![-1], false, vec!["probe"]),
+            (vec![1], true, vec!["probe"]),
+            (vec![0, -1], false, vec!["probe", "kill", "probe"]),
+            (vec![0, 0], false, vec!["probe", "kill", "probe"]),
+            (vec![0, 1], true, vec!["probe", "kill", "probe"]),
+        ] {
+            let mut child = Probe {
+                states: states.into(),
+                calls: vec![],
+            };
+            assert_eq!(crash_exit_bounded(&mut child, Duration::ZERO), expected);
+            assert_eq!(child.calls, calls);
+        }
     }
 }

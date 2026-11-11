@@ -139,6 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app=tauri::Builder::default().manage(context.clone()).manage(Quit(AtomicBool::new(false)))
         .invoke_handler(tauri::generate_handler![daemon,native_call,preferences_read,preferences_write,smoke_result])
         .setup(move|app|{
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), Box<dyn std::error::Error>> {
             app.manage(transport::start_fixture(app.handle().clone(),owned.clone()));
             if background{app.set_activation_policy(tauri::ActivationPolicy::Accessory);}
             let window=tauri::WebviewWindowBuilder::from_config(app.handle(),&app.config().app.windows[0])?
@@ -159,6 +160,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }else if !background{let _=visible.show();}
             })?;
             Ok(())
+            }));
+            if !matches!(outcome, Ok(Ok(()))) {
+                // Returning an Err here makes Tauri panic inside App::run. Classify
+                // failure here and finish bounded child cleanup before permitting exit.
+                shortcuts::uninstall_fixture();
+                if owned.abandon_on_shell_failure() {
+                    app.handle().exit(1);
+                } else {
+                    eprintln!("Fixture setup failed; child exit is unknown, shell remains alive and private storage is retained");
+                }
+            }
+            Ok(())
         })
         .on_window_event(|window,event|if let tauri::WindowEvent::CloseRequested{api,..}=event{
             api.prevent_close();
@@ -169,23 +182,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = match app {
         Ok(app) => app,
         Err(error) => {
-            context.abandon_on_shell_failure();
+            if !context.abandon_on_shell_failure() {
+                eprintln!(
+                    "Fixture build failed; child exit is unknown and private storage is retained"
+                );
+            }
             return Err(error.into());
         }
     };
     app.run(|app, event| {
         if let tauri::RunEvent::Exit = event {
             shortcuts::uninstall_fixture();
+            let context = app.state::<Arc<fixture_launch::LaunchContext>>();
+            if context.clean() {
+                if let Err(error) = context.remove_shell_storage() {
+                    eprintln!(
+                        "Fixture clean exit could not remove private storage: {}",
+                        error["code"]
+                    );
+                }
+            }
         }
         if let tauri::RunEvent::ExitRequested { api, .. } = event {
-            if !app.state::<Arc<fixture_launch::LaunchContext>>().clean() {
+            let context = app.state::<Arc<fixture_launch::LaunchContext>>();
+            if !context.clean() && !context.failure_exit_allowed() {
                 api.prevent_exit();
                 request_quit(app, 0);
             }
         }
     });
-    // Retain the main shell storage lease through the run loop. Native WebKit release
-    // ordering still requires real-window validation before installation.
+    // tao may process::exit, so no cleanup relies on reaching this line.
     drop(context);
     Ok(())
 }
