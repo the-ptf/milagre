@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, ArrowRight01Icon, ComputerIcon, HardDriveIcon, LaptopIcon, Loading03Icon, RamMemoryIcon } from "@hugeicons/core-free-icons";
 import {
   BREAKDOWN_TITLE,
+  computerPlatformLabel,
   MEASURING_TOOLTIP,
   RESOURCES_REFRESH_MS,
   UNREADABLE,
@@ -171,6 +172,7 @@ const isDesktop = (name: string) => /studio|mini|imac/i.test(name);
 
 function ComputerResourceRow({ computer, open, onToggle }: { computer: ResourceComputer; open: boolean; onToggle: () => void }) {
   const { resources, error } = useComputerResources(computer.bridge, computer.online);
+  if (computer.id === "this-mac") computer = { ...computer, detail: computerPlatformLabel(resources?.platform) };
   const [cleaning, setCleaning] = useState(false);
   const gauges = resources ? resourceGauges(resources) : null;
   const icon = isDesktop(computer.name) ? ComputerIcon : LaptopIcon;
