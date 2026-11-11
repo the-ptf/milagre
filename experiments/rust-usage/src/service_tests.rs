@@ -301,7 +301,7 @@ async fn shutdown_waits_for_scan_before_final_export_and_disk_lease_release() {
     stopping.await.unwrap();
     assert!(h.events.lock().unwrap().iter().all(|e| e[0] != "token-usage:changed"));
     let reopened = cap.open().unwrap();
-    assert!(reopened.load_scan().unwrap().finished_at.is_some());
+    assert!(reopened.load_scan().unwrap().finished_at.is_none());
     reopened.shutdown().await.unwrap();
 }
 #[tokio::test]
@@ -562,4 +562,126 @@ async fn retry_is_idle_when_clean_and_bounds_failed_write_attempts_over_sixty_se
     tokio::time::resume();
     fs::remove_dir(obstruction).unwrap();
     stop(&service).await;
+}
+
+#[tokio::test]
+async fn concurrent_bounded_shutdown_reports_retain_quota_scan_and_price_ownership() {
+    let cap = TempCache::fresh().unwrap();
+    let h = Harness::new();
+    let mut options = h.options();
+    let pending = Arc::new(AtomicBool::new(false));
+    let started = Arc::new(tokio::sync::Semaphore::new(0));
+    let dropped = Arc::new(AtomicUsize::new(0));
+    struct Count(Arc<AtomicUsize>);
+    impl Drop for Count {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let original = options.accounts.read.clone();
+    let p = pending.clone();
+    let e = started.clone();
+    let d = dropped.clone();
+    options.accounts.read = Arc::new(move |provider, id| {
+        if !p.load(Ordering::SeqCst) {
+            return original(provider, id);
+        }
+        let e = e.clone();
+        let guard = Count(d.clone());
+        Box::pin(async move {
+            let _guard = guard;
+            e.add_permits(1);
+            std::future::pending().await
+        })
+    });
+    let e = started.clone();
+    let d = dropped.clone();
+    options.fetch_catalog = Arc::new(move || {
+        let e = e.clone();
+        let guard = Count(d.clone());
+        Box::pin(async move {
+            let _guard = guard;
+            e.add_permits(1);
+            std::future::pending().await
+        })
+    });
+    let service = UsageService::open(&cap, options).await.unwrap();
+    let before = service.handle("usage:read", &Value::Null).await.unwrap();
+    pending.store(true, Ordering::SeqCst);
+    h.events.lock().unwrap().clear();
+    let (tx, entered) = std::sync::mpsc::channel();
+    let (resume, rx) = std::sync::mpsc::channel();
+    *service.scan.gate.lock().unwrap() = Some((tx, rx));
+    let s = service.clone();
+    let quota = tokio::spawn(async move { s.handle("usage:read", &Value::Null).await });
+    service.handle("token-usage:read", &Value::Null).await.unwrap();
+    entered_async(entered).await;
+    started.acquire_many(5).await.unwrap().forget();
+    let a = service.clone();
+    let b = service.clone();
+    let first = tokio::spawn(async move { a.shutdown_report(Duration::from_millis(20)).await });
+    let second = tokio::spawn(async move { b.shutdown_report(Duration::from_millis(20)).await });
+    assert_eq!(first.await.unwrap(), ShutdownReport::Pending);
+    assert_eq!(second.await.unwrap(), ShutdownReport::Pending);
+    assert_eq!(dropped.load(Ordering::SeqCst), 5);
+    assert!(quota.await.unwrap().is_err());
+    assert!(cap.open().is_err());
+    resume.send(()).unwrap();
+    assert_eq!(service.shutdown_report(Duration::from_secs(2)).await, ShutdownReport::Complete(Ok(())));
+    assert!(h.events.lock().unwrap().is_empty());
+    let reopened = UsageService::open(&cap, h.options()).await.unwrap();
+    let cached = reopened.handle("usage:cached", &Value::Null).await.unwrap();
+    for provider in before["providers"].as_array().unwrap() {
+        assert_eq!(
+            cached["providers"].as_array().unwrap().iter().find(|p| p["provider"] == provider["provider"]).unwrap()["windows"],
+            provider["windows"]
+        );
+    }
+    assert!(!reopened.scan.scanner.lock().unwrap().finished());
+    assert!(reopened.prices.pricing.lock().unwrap().current().is_none());
+    stop(&reopened).await;
+}
+#[tokio::test]
+async fn dropped_service_requests_cleanup_and_keeps_capability_until_scan_exits() {
+    let cap = TempCache::fresh().unwrap();
+    let h = Harness::new();
+    let service = UsageService::open(&cap, h.options()).await.unwrap();
+    let (tx, entered) = std::sync::mpsc::channel();
+    let (resume, rx) = std::sync::mpsc::channel();
+    *service.scan.gate.lock().unwrap() = Some((tx, rx));
+    service.handle("token-usage:read", &Value::Null).await.unwrap();
+    entered_async(entered).await;
+    drop(service);
+    assert!(cap.open().is_err());
+    resume.send(()).unwrap();
+    let cache = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match cap.open() {
+                Ok(c) => return c,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => tokio::time::sleep(Duration::from_millis(1)).await,
+                Err(e) => panic!("{e}"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+    cache.shutdown().await.unwrap();
+}
+#[test]
+fn cooperative_scan_cancellation_keeps_only_complete_line_offsets_and_resumes() {
+    let fixture: Value = serde_json::from_str(include_str!("../tests/fixtures/persistence.json")).unwrap();
+    let copy = tempfile::tempdir().unwrap();
+    let bytes = fixture["line"].as_str().unwrap().repeat(25_000);
+    fs::write(copy.path().join("fixture.jsonl"), bytes.as_bytes()).unwrap();
+    let root = CopiedRoot::new("claude", fs::canonicalize(copy.path()).unwrap()).unwrap();
+    let mut scanner = Scanner::new(vec![root], crate::scan::ScanCache::default());
+    let cancel = ScanCancellation::default();
+    cancel.test_cancel_after_chunks(1);
+    assert_eq!(scanner.scan_cancellable(NOW, &cancel).unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+    let entry = scanner.cache().files.values().next().unwrap();
+    assert!(entry.offset > 0 && entry.offset < bytes.len() as u64);
+    assert!(!scanner.finished());
+    assert!(scanner.scan(NOW).unwrap());
+    assert!(scanner.finished());
+    assert_eq!(scanner.rows()[0]["requests"], 1.0);
 }

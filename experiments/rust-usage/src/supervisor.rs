@@ -81,6 +81,13 @@ impl Supervisor {
     pub fn active(&self) -> usize {
         self.state.lock().unwrap().tasks.len()
     }
+    pub fn cancel(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        for task in state.tasks.values() {
+            task.abort();
+        }
+    }
     pub async fn shutdown(&self) {
         let _serial = self.shutdown.lock().await;
         let changed = {

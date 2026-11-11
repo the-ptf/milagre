@@ -5,7 +5,7 @@ use crate::{
     owner::{self, FutureResult, Projects, ScanResult, TokenUsage, TokenUsageOptions},
     persistence::{CacheDiagnostic, CacheOwner, LoadBudget, TempCache},
     pricing::Pricing,
-    scan::{CopiedRoot, Scanner},
+    scan::{CopiedRoot, ScanCancellation, Scanner},
     supervisor::{self, guarded, guarded_sync, Supervisor},
 };
 use serde_json::{json, Value};
@@ -39,6 +39,11 @@ impl Default for ServiceLimits {
     fn default() -> Self {
         Self { cache_load_bytes: 64 * 1024 * 1024 }
     }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ShutdownReport {
+    Complete(Result<(), String>),
+    Pending,
 }
 pub struct UsageService {
     accounts: Arc<UsageAccounts>,
@@ -132,6 +137,7 @@ impl UsageService {
         let scan = Arc::new(ScanOwner {
             scanner: Arc::new(Mutex::new(scanner)),
             state: Mutex::new(ScanState::default()),
+            cancel: ScanCancellation::default(),
             cache: cache.clone(),
             #[cfg(test)]
             gate: Arc::new(Mutex::new(None)),
@@ -264,11 +270,33 @@ impl UsageService {
     /// Seals immediately. The retained shutdown task survives dropped waiters; cache closes only after callbacks
     /// stop, the non-cancellable scanner finishes and every final state has been staged.
     pub fn shutdown(self: &Arc<Self>) -> impl std::future::Future<Output = ResultValue<()>> + Send + 'static {
+        let report = self.shutdown_report(std::time::Duration::from_secs(2));
+        async move {
+            match report.await {
+                ShutdownReport::Complete(result) => result,
+                ShutdownReport::Pending => Err("Usage shutdown is still running; worker ownership and cache lease retained".into()),
+            }
+        }
+    }
+    pub fn shutdown_report(
+        self: &Arc<Self>,
+        timeout: std::time::Duration,
+    ) -> impl std::future::Future<Output = ShutdownReport> + Send + 'static {
+        let rx = self.begin_shutdown();
+        async move {
+            match tokio::time::timeout(timeout, wait(rx)).await {
+                Ok(result) => ShutdownReport::Complete(result),
+                Err(_) => ShutdownReport::Pending,
+            }
+        }
+    }
+    fn begin_shutdown(self: &Arc<Self>) -> Signal<()> {
         let mut pending = self.shutdown.lock().unwrap();
         let rx = if let Some(rx) = pending.as_ref() {
             rx.clone()
         } else {
             self.closing.store(true, Ordering::Release);
+            self.scan.cancel.cancel();
             let (tx, rx) = watch::channel(None);
             let this = self.clone();
             tokio::spawn(async move {
@@ -280,36 +308,71 @@ impl UsageService {
             *pending = Some(rx.clone());
             rx
         };
-        wait(rx)
+        rx
     }
     async fn finish(&self) -> ResultValue<()> {
         self.retry.shutdown().await;
         self.commands.shutdown().await;
-        self.accounts.shutdown().await;
-        self.token.shutdown().await;
-        self.prices.tasks.shutdown().await;
-        self.scan.close().await;
-        self.jobs.close().await;
+        finalize(self.accounts.clone(), self.token.clone(), self.prices.clone(), self.scan.clone(), self.jobs.clone(), self.cache.clone())
+            .await
+    }
+}
+impl Drop for UsageService {
+    fn drop(&mut self) {
+        if self.closing.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        self.scan.cancel.cancel();
+        self.retry.cancel();
+        self.commands.cancel();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let (accounts, token, prices, scan, jobs, cache) =
+                (self.accounts.clone(), self.token.clone(), self.prices.clone(), self.scan.clone(), self.jobs.clone(), self.cache.clone());
+            runtime.spawn(async move {
+                let _ = finalize(accounts, token, prices, scan, jobs, cache).await;
+            });
+        }
+    }
+}
+async fn finalize(
+    accounts: Arc<UsageAccounts>,
+    token: Arc<TokenUsage>,
+    prices: Arc<PriceOwner>,
+    scan: Arc<ScanOwner>,
+    jobs: Arc<crate::blocking::Jobs>,
+    cache: Arc<CacheOwner>,
+) -> ResultValue<()> {
+    accounts.shutdown().await;
+    token.shutdown().await;
+    prices.tasks.shutdown().await;
+    scan.close().await;
+    jobs.close().await;
+    let disk = cache.clone();
+    let mut errors = tokio::task::spawn_blocking(move || {
         let mut errors = Vec::new();
         for result in [
-            self.cache.save_accounts(&self.accounts.stores()),
-            self.cache.save_scan(self.scan.scanner.lock().unwrap().cache()),
-            self.cache.save_pricing(&self.prices.pricing.lock().unwrap()),
+            disk.save_accounts(&accounts.stores()),
+            disk.save_scan(scan.scanner.lock().unwrap().cache()),
+            disk.save_pricing(&prices.pricing.lock().unwrap()),
         ] {
             if let Err(error) = result {
                 errors.push(error.to_string());
             }
         }
-        if let Err(error) = self.cache.shutdown().await {
-            errors.push(error);
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors.join("; "))
-        }
+        errors
+    })
+    .await
+    .unwrap_or_else(|_| vec!["Final cache export panicked".into()]);
+    if let Err(error) = cache.shutdown().await {
+        errors.push(error);
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
     }
 }
+
 fn service_error(error: supervisor::TaskError) -> String {
     match error {
         supervisor::TaskError::Stopped => "Usage service stopped",
@@ -383,6 +446,7 @@ struct ScanState {
     pending: Option<Signal<(Value, bool)>>,
 }
 struct ScanOwner {
+    cancel: ScanCancellation,
     scanner: Arc<Mutex<Scanner>>,
     state: Mutex<ScanState>,
     cache: Arc<CacheOwner>,
@@ -400,6 +464,7 @@ impl ScanOwner {
         }
         let (tx, rx) = watch::channel(None);
         let scanner = self.scanner.clone();
+        let cancel = self.cancel.clone();
         let cache = self.cache.clone();
         #[cfg(test)]
         let gate = self.gate.clone();
@@ -413,7 +478,7 @@ impl ScanOwner {
                         resume.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
                     }
                     let mut scanner = scanner.lock().unwrap();
-                    let changed = scanner.scan(now).map_err(|e| e.to_string())?;
+                    let changed = scanner.scan_cancellable(now, &cancel).map_err(|e| e.to_string())?;
                     if changed {
                         if let Err(error) = cache.save_scan(scanner.cache()) {
                             cache.record_diagnostic("scanner", &error.to_string());
@@ -429,6 +494,7 @@ impl ScanOwner {
         Ok(wait(rx))
     }
     async fn close(&self) {
+        self.cancel.cancel();
         let pending = {
             let mut state = self.state.lock().unwrap();
             state.closed = true;

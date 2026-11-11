@@ -8,7 +8,50 @@ use std::{
     fs::File,
     io::{self, Read, Seek, SeekFrom},
     path::{Component, Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
+
+#[derive(Clone)]
+pub struct ScanCancellation {
+    cancelled: Arc<AtomicBool>,
+    #[cfg(test)]
+    chunks: Arc<std::sync::atomic::AtomicUsize>,
+}
+impl Default for ScanCancellation {
+    fn default() -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            chunks: Arc::new(std::sync::atomic::AtomicUsize::new(usize::MAX)),
+        }
+    }
+}
+impl ScanCancellation {
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+    fn check(&self) -> io::Result<()> {
+        if self.cancelled.load(Ordering::Acquire) {
+            Err(io::Error::new(io::ErrorKind::Interrupted, "copied-root scan cancelled"))
+        } else {
+            Ok(())
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn test_cancel_after_chunks(&self, chunks: usize) {
+        self.chunks.store(chunks, Ordering::SeqCst);
+    }
+    fn chunk_complete(&self) -> io::Result<()> {
+        #[cfg(test)]
+        if self.chunks.load(Ordering::SeqCst) != usize::MAX && self.chunks.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.cancel();
+        }
+        self.check()
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct CopiedRoot {
@@ -75,6 +118,10 @@ impl Scanner {
         self.scanned_at
     }
     pub fn scan(&mut self, now: i64) -> io::Result<bool> {
+        self.scan_cancellable(now, &ScanCancellation::default())
+    }
+    pub fn scan_cancellable(&mut self, now: i64, cancel: &ScanCancellation) -> io::Result<bool> {
+        cancel.check()?;
         #[cfg(not(unix))]
         {
             let _ = now;
@@ -85,13 +132,15 @@ impl Scanner {
             let mut changed = false;
             let mut seen = std::collections::HashSet::new();
             for root in &self.roots {
+                cancel.check()?;
                 let directory = match open_absolute_directory(&root.dir) {
                     Ok(d) => d,
                     Err(_) => continue,
                 };
                 let mut files = Vec::new();
-                walk(&directory, Path::new(""), 5, &mut files);
+                walk(&directory, Path::new(""), 5, &mut files, cancel)?;
                 for relative in files {
+                    cancel.check()?;
                     let id = if root.provider == "claude" {
                         format!("claude:{}", relative.display())
                     } else {
@@ -119,12 +168,13 @@ impl Scanner {
                     }
                     entry.file = Some(full);
                     if entry.offset < size {
-                        read_from(&mut file, entry, size)?;
+                        read_from(&mut file, entry, size, cancel)?;
                     }
                     entry.prune(now);
                     changed = true;
                 }
             }
+            cancel.check()?;
             self.scanned_at = now;
             if !self.finished() {
                 changed = true;
@@ -134,12 +184,13 @@ impl Scanner {
         }
     }
 }
-fn read_from(file: &mut File, entry: &mut Entry, size: u64) -> io::Result<()> {
+fn read_from(file: &mut File, entry: &mut Entry, size: u64, cancel: &ScanCancellation) -> io::Result<()> {
     file.seek(SeekFrom::Start(entry.offset))?;
     let mut remaining = size - entry.offset;
     let mut pending = Vec::new();
     let mut chunk = vec![0; 4 * 1024 * 1024];
     while remaining > 0 {
+        cancel.check()?;
         let want = (remaining as usize).min(chunk.len());
         let count = file.read(&mut chunk[..want])?;
         if count == 0 {
@@ -152,6 +203,7 @@ fn read_from(file: &mut File, entry: &mut Entry, size: u64) -> io::Result<()> {
             entry.offset += (last + 1) as u64;
             pending.drain(..=last);
         }
+        cancel.chunk_complete()?;
     }
     Ok(())
 }
@@ -193,10 +245,11 @@ fn open_relative(dir: &File, path: &Path) -> io::Result<File> {
     Ok(current)
 }
 #[cfg(unix)]
-fn walk(dir: &File, relative: &Path, depth: usize, found: &mut Vec<PathBuf>) {
+fn walk(dir: &File, relative: &Path, depth: usize, found: &mut Vec<PathBuf>, cancel: &ScanCancellation) -> io::Result<()> {
+    cancel.check()?;
     use std::os::unix::ffi::OsStrExt;
     // fdopendir takes ownership of its fd; open '.' for an independent directory cursor.
-    let Ok(cursor) = open_at(dir, std::ffi::OsStr::new("."), true) else { return };
+    let Ok(cursor) = open_at(dir, std::ffi::OsStr::new("."), true) else { return Ok(()) };
     use std::os::fd::IntoRawFd;
     let fd = cursor.into_raw_fd();
     let stream = unsafe { libc::fdopendir(fd) };
@@ -204,11 +257,21 @@ fn walk(dir: &File, relative: &Path, depth: usize, found: &mut Vec<PathBuf>) {
         unsafe {
             libc::close(fd);
         }
-        return;
+        return Ok(());
     }
+    struct Stream(*mut libc::DIR);
+    impl Drop for Stream {
+        fn drop(&mut self) {
+            unsafe {
+                libc::closedir(self.0);
+            }
+        }
+    }
+    let stream = Stream(stream);
     let mut names = Vec::new();
     loop {
-        let entry = unsafe { libc::readdir(stream) };
+        cancel.check()?;
+        let entry = unsafe { libc::readdir(stream.0) };
         if entry.is_null() {
             break;
         }
@@ -217,20 +280,20 @@ fn walk(dir: &File, relative: &Path, depth: usize, found: &mut Vec<PathBuf>) {
             names.push(std::ffi::OsStr::from_bytes(name).to_os_string());
         }
     }
-    unsafe {
-        libc::closedir(stream);
-    }
+    drop(stream);
     names.sort();
     for name in names {
+        cancel.check()?;
         let path = relative.join(&name);
         let Ok(child) = open_at(dir, &name, false) else { continue };
         let Ok(meta) = child.metadata() else { continue };
         if meta.is_dir() && depth > 0 {
-            walk(&child, &path, depth - 1, found);
+            walk(&child, &path, depth - 1, found, cancel)?;
         } else if meta.is_file() && name.to_string_lossy().ends_with(".jsonl") {
             found.push(path);
         }
     }
+    Ok(())
 }
 /// Helper for the runtime's token-usage:read envelope. Scheduling and event emission belong to the owner.
 pub fn report_envelope(mut report: Value, refreshing: bool, first_scan: bool, pricing: Value) -> Value {

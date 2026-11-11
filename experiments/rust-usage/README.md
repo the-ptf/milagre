@@ -136,7 +136,10 @@ Use a Tokio runtime with timers; this crate enables the `time` feature.
   ready accounts are checked again on the next read; readiness failures are not negatively cached by this guard.
   Global environment readiness still uses Node's once-only catch behavior. Preparation is never treated as login.
 - Token reads use `TokenUsage`'s existing 30-second scan/attribution behavior. A dedicated scanner thread coalesces
-  scans over only the supplied copied roots and stages changed cache exports. It is not aborted mid-file. Pricing
+  scans over only the supplied copied roots and stages changed cache exports. `scan_cancellable(now,
+  &ScanCancellation)` checks cancellation between roots, directory entries, files and 4 MiB reads. A cancelled
+  scan retains only complete-line offsets and parsed rows; it does not advance the completed-scan timestamp.
+  Directory cursors close on early return, and a later scan resumes safely. Pricing
   starts from supplied `fetch_catalog` on demand and stages successful refreshes. Price-change events follow
   committed pricing versions, including a later successful retry after the original flush failed; each observed
   committed version is notified once. No new catalog fetch is required for that event. `refresh_prices().await -> Result<bool, String>` explicitly waits for the same refresh
@@ -148,18 +151,25 @@ Use a Tokio runtime with timers; this crate enables the `time` feature.
   second with 20% jitter and a 60-second cap; success resets it. It retries while the service is open without
   restarting provider callbacks. Cached quota commands do not stage new writes. Stopped and panicked commands
   return distinct errors.
-- **Await `shutdown()` before releasing the service or stopping Tokio.** Calling it seals commands and suppresses
-  new event delivery immediately, even if its returned future is never polled. The retained shutdown task stops
-  retries, cancels/awaits command, account, token and pricing callbacks, waits for the scanner thread, exports every
-  final quota/scan/pricing state, then awaits cache shutdown. Completed provider results survive cancellation of
-  another provider or a command waiter. Failed final writes remain in the capability for a new service to retry.
-  Repeated shutdown calls observe the same result. Dropping the service alone does not promise final export or
-  callback cancellation; keeping Tokio alive through shutdown is part of the owner contract.
+- **Request shutdown before releasing the service or stopping Tokio.** `shutdown()` seals commands, requests scan
+  cancellation and suppresses new event delivery immediately, even if its future is never polled. It reports within
+  two seconds: success/final error when finished, or a distinct still-running error. `shutdown_report(Duration)`
+  returns typed `ShutdownReport::Complete(Result<(), String>)` or `Pending` using a caller-supplied deadline.
+  Concurrent callers share the same finalizer. A timeout cancels only the wait; it never abandons a worker, releases
+  the cache lease early, or permits a second owner. Call again to observe completion and keep Tokio running.
+  The finalizer stops retries, cancels/awaits command/account/token/pricing callbacks, waits for blocking loads and
+  the scanner to exit, exports all final state on a blocking worker, then closes the cache. Completed quota results
+  survive cancellation of other providers. Failed final writes remain in the capability for reopen/retry.
+  Drop requests the same cleanup when a Tokio runtime is available, without exposing its result; it is a fallback,
+  not a replacement for explicit shutdown. Active commands hold their own service references, so dropping an
+  external Arc alone cannot revoke an outstanding command. Without a live runtime, final export is not promised.
 
 Snapshot guards do not revoke an already-running read when metadata changes. Removed cache entries are retained
 for compatibility, so privacy-driven cache deletion needs a separate explicit API. Copied roots are fixed for the
 service lifetime; changing them requires closing and reopening the service. Blocking OS I/O cannot be forcibly
-cancelled; shutdown waits for its scanner/cache workers. Events are fully quiescent when shutdown completes.
+cancelled; a bounded shutdown report can remain `Pending` until its workers exit. Injected async callbacks must
+remain cooperative, and synchronous callbacks must not block the Tokio worker. Events are fully quiescent when
+shutdown completes.
 
 ## Temporary persistence API
 
@@ -247,8 +257,8 @@ Preserved Node behavior:
 
 ## Verification
 
-On macOS arm64: **61 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
-command traces**, account isolation, callback lifecycle and **14 persistence tests**, plus **16 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
+On macOS arm64: **64 tests**, including 10 fixture replay suites with **109 Node cases**, plus **19 original Node
+command traces**, account isolation, callback lifecycle and **14 persistence tests**, plus **19 service tests**. Fixtures come from the original Node functions (selected existing report tests run with assertions), not
 from Rust output. Codex is an EventEmitter fixture; Claude uses supplied synthetic credential text and a fake fetch.
 No provider process, keychain access or network transport is available to the fixture sandbox.
 
