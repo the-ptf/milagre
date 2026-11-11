@@ -283,10 +283,14 @@ fn process_name(pgid: i32) -> Option<String> {
     }
 }
 
+fn own_name() -> Option<String> {
+    static NAME: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| process_name(std::process::id() as i32)).clone()
+}
+
 impl PtySpawner for UnixPtySpawner {
     fn spawn(&self, request: SpawnRequest, output: Arc<dyn PtyOutput>) -> Result<Box<dyn PtyProcess>, String> {
         let size = PtySize { rows: request.rows, cols: request.cols, pixel_width: 0, pixel_height: 0 };
-        let pair = native_pty_system().openpty(size).map_err(|error| error.to_string())?;
         let mut command = CommandBuilder::new(&request.file);
         command.args(&request.args);
         command.env_clear();
@@ -294,10 +298,17 @@ impl PtySpawner for UnixPtySpawner {
             command.env(key, value);
         }
         command.cwd(&request.cwd);
-        let child = pair.slave.spawn_command(command).map_err(|error| error.to_string())?;
-        drop(pair.slave);
+        let (master, child) = {
+            // openpty(3) is not thread-safe on macOS (concurrent calls fail with "Unknown error: -6"); node-pty never
+            // meets this because Node opens PTYs on one thread. One open-and-spawn at a time.
+            static OPEN: Mutex<()> = Mutex::new(());
+            let _open = OPEN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let pair = native_pty_system().openpty(size).map_err(|error| error.to_string())?;
+            let child = pair.slave.spawn_command(command).map_err(|error| error.to_string())?;
+            drop(pair.slave);
+            (pair.master, child)
+        };
         let pid = child.process_id();
-        let master = pair.master;
         let master_fd = master.as_raw_fd().ok_or("The PTY has no descriptor.")?;
         let raw = unsafe { libc::fcntl(master_fd, libc::F_DUPFD_CLOEXEC, 0) };
         if raw < 0 {
@@ -352,8 +363,12 @@ impl PtyProcess for UnixPty {
     }
 
     fn process(&self) -> String {
-        match self.shared.foreground_group().and_then(process_name) {
-            Some(name) if !(cfg!(target_os = "macos") && name == "kernel_task") => name,
+        let foreground = self.shared.foreground_group();
+        let name = foreground.and_then(process_name);
+        // Between fork and exec the shell is still a copy of this process and carries its name; it is the shell.
+        let pre_exec = foreground.is_some_and(|pgid| Some(pgid as u32) == self.shared.pid) && name.is_some() && name == own_name();
+        match name {
+            Some(name) if !pre_exec && !(cfg!(target_os = "macos") && name == "kernel_task") => name,
             _ => self.shared.shell_file.clone(),
         }
     }
