@@ -38,6 +38,8 @@ pub enum Scenario {
     Subagent,
     Unicode,
     Content,
+    ContentAllow,
+    ContentDeny,
     Design,
     Queue,
 }
@@ -268,7 +270,10 @@ impl ClaudeFixture {
                 project.clone(),
                 Some(raster),
             )?)
-        } else if matches!(scenario, Scenario::Content) {
+        } else if matches!(
+            scenario,
+            Scenario::Content | Scenario::ContentAllow | Scenario::ContentDeny
+        ) {
             Some(crate::claude_content::SharedContent::new(
                 isolation.clone(),
                 project.clone(),
@@ -899,11 +904,16 @@ fn script_for(scenario: Scenario, queue_release: &Path) -> Value {
    },
    Scenario::Design => { steps.extend(design_steps()); },
    Scenario::Queue => { if turn==0 {steps.push(json!({"wait_file":queue_release}));} },
-   Scenario::Content => {
-    steps.extend([
+   Scenario::Content | Scenario::ContentAllow | Scenario::ContentDeny => {
+    if matches!(scenario, Scenario::ContentAllow | Scenario::ContentDeny) {
+     let behavior=if matches!(scenario, Scenario::ContentDeny){"deny"}else{"allow"};
+     steps.push(json!({"request":{"id":"content-permission","request":{"subtype":"can_use_tool","tool_name":"mcp__milagre__artifact_show","input":{"title":"Native Claude artifact","html":"<main>Native shared content</main>"}}}}));
+     steps.push(json!({"expect":{"type":"control_response","fields":{"/response/request_id":"content-permission","/response/response/behavior":behavior}}}));
+    }
+    if !matches!(scenario, Scenario::ContentDeny) {steps.extend([
      json!({"request":{"id":"content-show","request":{"subtype":"mcp_message","server_name":"milagre","message":{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"artifact_show","arguments":{"title":"Native Claude artifact","html":"<main>Native shared content</main>"}}}}}}),
      json!({"expect":{"type":"control_response","fields":{"/response/response/mcp_response/id":1,"/response/response/mcp_response/result/isError":false}}})
-    ]);
+    ]);}
    },
    Scenario::Subagent => {
     steps.extend([

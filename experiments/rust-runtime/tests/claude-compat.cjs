@@ -71,10 +71,13 @@ async function scenario(name) {
       assert.equal(pendingState.state.sessions["1"].queued[0].body, "second queued input");
       fs.writeFileSync(path.join(path.dirname(project), "queue-release"), "release", { flag: "wx", mode: 0o600 });
     }
-    if (name === "permission") {
+    if (["permission", "content-allow", "content-deny"].includes(name)) {
       await until("permission card", () => events.some((e) => e.type === "permission-request"));
       const card = events.find((e) => e.type === "permission-request");
-      assert.equal(await client.call("agent:respond-permission", [{ chatId, requestId: card.requestId, decision: "allow" }]), true);
+      assert.equal(
+        await client.call("agent:respond-permission", [{ chatId, requestId: card.requestId, decision: name === "content-deny" ? "deny" : "allow" }]),
+        true,
+      );
     }
     if (["question", "unicode"].includes(name)) {
       await until("question card", () => events.some((e) => e.type === "question-request"));
@@ -122,6 +125,17 @@ async function scenario(name) {
         assert.equal(step.artifact.id, "native-screen");
       }
       assert.ok(!steps.some((step) => step.kind === "image"), "MCP PNG is model feedback; image persistence is not wired");
+    }
+    if (["content-allow", "content-deny"].includes(name)) {
+      const artifacts = await runtime.invoke("artifact:list", [{ chatId }]);
+      assert.equal(artifacts.length, name === "content-deny" ? 0 : 1, JSON.stringify(artifacts));
+      if (name === "content-allow") {
+        const page = await runtime.invoke("artifact:get", [{ chatId, id: artifacts[0].id }]);
+        assert.equal(page.version, 1);
+        assert.ok(JSON.stringify(page).includes("Native shared content"));
+      }
+      assert.equal(events.filter((event) => event.type === "permission-request").length, 1);
+      assert.equal(events.filter((event) => event.type === "turn-completed").length, 1);
     }
     if (name === "content") {
       const listed = await runtime.invoke("artifact:list", [{ chatId }]);
@@ -202,8 +216,9 @@ async function scenario(name) {
   }
 }
 (async () => {
-  for (const name of ["reply", "permission", "question", "stop", "crash", "unicode", "content", "queue", "design"]) await scenario(name);
-  console.log("Claude owner Node client conformance passed (9 scenarios)");
+  for (const name of ["reply", "permission", "question", "stop", "crash", "unicode", "content", "queue", "design", "content-allow", "content-deny"])
+    await scenario(name);
+  console.log("Claude owner Node client conformance passed (11 scenarios)");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

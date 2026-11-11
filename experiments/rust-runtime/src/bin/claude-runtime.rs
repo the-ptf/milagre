@@ -19,6 +19,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "crash" => Scenario::Crash,
             "unicode" => Scenario::Unicode,
             "content" => Scenario::Content,
+            "content-allow" => Scenario::ContentAllow,
+            "content-deny" => Scenario::ContentDeny,
             "queue" => Scenario::Queue,
             "design" => Scenario::Design,
             _ => return Err("Unknown fixture scenario".into()),

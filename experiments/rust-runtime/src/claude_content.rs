@@ -157,8 +157,8 @@ impl SharedContent {
             .renderer(&scope, method, request)
             .map_err(convert)
     }
-    fn dispatcher(&self, chat: &str) -> Result<Dispatcher, Error> {
-        let caller = Caller {
+    fn caller(&self, chat: &str) -> Caller {
+        Caller {
             chat_id: chat.into(),
             project_id: self.project.clone(),
             roots: vec![PathBuf::from(&self.project)],
@@ -170,8 +170,10 @@ impl SharedContent {
             design_scope: DesignScope::All,
             bundled_skills: self.skills.clone(),
             assert_active: self.caller_guard(),
-        };
-        self.owner.session(caller)
+        }
+    }
+    fn dispatcher(&self, chat: &str) -> Result<Dispatcher, Error> {
+        self.owner.session(self.caller(chat))
     }
     pub(crate) fn attach(
         &self,
@@ -232,6 +234,43 @@ mod tests {
     use milagre_owner_store::{jsjson, Policy};
     use milagre_owner_wire::IsolatedProfile;
     use serde_json::json;
+
+    #[test]
+    fn read_only_dispatcher_refuses_native_write_even_without_a_cli_permission_gate() {
+        let profile = IsolatedProfile::create().unwrap();
+        let isolation = Isolation::create(profile.path(), &Policy::system()).unwrap();
+        let project = isolation.project(std::path::Path::new("fixture")).unwrap();
+        let content = SharedContent::new(isolation, project.clone()).unwrap();
+        content.opened(true);
+        let chat = format!("{}#1", project.display());
+        let mut caller = content.caller(&chat);
+        caller.write = false;
+        let read_only = content.owner.session(caller).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let result = rt.block_on(read_only.call(
+            "artifact_show",
+            &json!({"title":"Denied","html":"<main>never saved</main>"}),
+        ));
+        assert!(result["isError"] == true, "{result:?}");
+        let saved = content
+            .renderer("artifact:list", &json!({"chatId":chat}))
+            .unwrap();
+        assert_eq!(saved, json!([]));
+        // A separate ordinary grant still works; the rejected caller cannot fault the owner.
+        let writer = content.dispatcher(&chat).unwrap();
+        let written = rt.block_on(writer.call(
+            "artifact_show",
+            &json!({"title":"Allowed","html":"<main>saved once</main>"}),
+        ));
+        assert_eq!(written["isError"], false, "{written:?}");
+        let saved = content
+            .renderer("artifact:list", &json!({"chatId":chat}))
+            .unwrap();
+        assert_eq!(saved.as_array().unwrap().len(), 1);
+    }
 
     #[test]
     fn retained_grants_do_not_revive_on_reopen_and_one_store_is_shared() {
