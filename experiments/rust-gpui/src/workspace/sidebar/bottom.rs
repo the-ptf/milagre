@@ -13,8 +13,9 @@ use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize};
 /// The Done footer (design `gpui-sidebar-v-a`: 36px, 16px in, no rule above it).
 const DONE_HEIGHT: f32 = 36.0;
 const DONE_PAD: f32 = 16.0;
-/// A Done row (`h-[30px]`), and the list's most height (`max-h-[186px]`).
-pub const DONE_ROW: f32 = 30.0;
+/// A Done row, two lines (`h-[42px]`, the desktop's height with the computer), and the list's most height
+/// (`max-h-[186px]`).
+pub const DONE_ROW: f32 = 42.0;
 pub const DONE_LIST_HEIGHT: f32 = 186.0;
 
 /// The Done section: the footer row with its count, and the list under it while it is open.

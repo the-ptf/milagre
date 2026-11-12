@@ -108,6 +108,8 @@ pub struct ChatRow {
     pub recency: Option<SharedString>,
     /// Marked Done (only the Done list's rows are).
     pub done: bool,
+    /// How long the Chat ran, first message to last ("20:20", "1:02:10"): a Done row's right edge.
+    pub ran: Option<SharedString>,
 }
 
 impl Default for ChatRow {
@@ -129,6 +131,7 @@ impl Default for ChatRow {
             prs: None,
             recency: None,
             done: false,
+            ran: None,
         }
     }
 }
@@ -243,6 +246,7 @@ impl ChatRow {
             prs: prs_label.map(Into::into),
             recency: recency.map(Into::into),
             done: chat.is_done(),
+            ran: listed.first_at.zip(listed.last_at).map(|(first, last)| ran_label(last - first).into()),
         }
     }
 
@@ -283,6 +287,13 @@ pub enum RowState {
     Idle {
         unread: bool,
     },
+}
+
+/// A run's length as a clock: "m:ss" under an hour, "h:mm:ss" from one.
+pub fn ran_label(ms: i64) -> String {
+    let secs = ms.max(0) / 1000;
+    let (h, m, s) = (secs / 3600, secs / 60 % 60, secs % 60);
+    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }
 }
 
 /// How long ago `at` (ms since the epoch) was, as the desktop's second line says it.
@@ -568,9 +579,22 @@ fn state_mark(ix: usize, row: &ChatRow, theme: &Theme) -> gpui::AnyElement {
     }
 }
 
+/// How a Project mark is drawn: in its colour, or greyed until the pointer is on the element of this group (a Done
+/// row).
+#[derive(Clone, PartialEq, Eq)]
+pub(super) enum MarkLook {
+    Colour,
+    GreyUntilHover(SharedString),
+}
+
 /// The second line's Project mark: the Project's colour (or the neutral `line-strong`) with its letter, or for a Chat
 /// without a Project a grey bubble.
 fn project_mark(row: &ChatRow, theme: &Theme) -> gpui::AnyElement {
+    project_mark_as(row, theme, MarkLook::Colour)
+}
+
+/// [`project_mark`] in a [`MarkLook`]. Greyed, the fill is `hover-2` and the letter `ink-4`.
+pub(super) fn project_mark_as(row: &ChatRow, theme: &Theme, look: MarkLook) -> gpui::AnyElement {
     if row.chats_home {
         return Icon::new(IconName::BubbleChat).size(IconSize::S14).color(theme.ink4).into_any_element();
     }
@@ -578,20 +602,25 @@ fn project_mark(row: &ChatRow, theme: &Theme) -> gpui::AnyElement {
         Some(color) => (color, hex("#ffffff")),
         None => (theme.line_strong, theme.ink),
     };
+    let (grey_fill, grey_ink) = (theme.hover2, theme.ink4);
     let letter = row.initial.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_default();
-    div()
+    let mark = div()
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
         .size(px(MARK_SIZE))
         .rounded(px(MARK_RADIUS))
-        .bg(fill)
-        .text_color(ink)
         .text_step(MARK_LETTER)
-        .font_weight(FontWeight::BOLD)
-        .child(letter)
-        .into_any_element()
+        .font_weight(FontWeight::BOLD);
+    match look {
+        MarkLook::Colour => mark.bg(fill).text_color(ink),
+        MarkLook::GreyUntilHover(group) => {
+            mark.bg(grey_fill).text_color(grey_ink).group_hover(group, move |style| style.bg(fill).text_color(ink))
+        }
+    }
+    .child(letter)
+    .into_any_element()
 }
 
 /// A project tile: the project's identity colour, or `field`, with its initial at 600. (The spike's look;

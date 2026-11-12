@@ -261,7 +261,10 @@ fn rows_come_from_the_domain_data_through_the_list_and_mark_rules() {
     assert_eq!(rows[4].computer.as_deref(), Some("tianxu, offline"));
     assert!(rows[4].tile.is_some() && rows[2].tile.is_none(), "milagre has an identity colour, milagre-ade the neutral tile");
     assert!(rows.iter().all(|row| row.title.as_ref() != "Scratch idea 0"), "a hidden Project's Chats are left out");
-    assert!(rows.iter().all(|row| !row.title.starts_with("Finished:") && !row.title.starts_with("Archived")), "Done and archived Chats");
+    assert!(
+        rows.iter().all(|row| row.title.as_ref() != "Mac Disk Cleanup" && !row.title.starts_with("Archived")),
+        "Done and archived Chats"
+    );
 }
 
 #[gpui::test]
@@ -286,8 +289,8 @@ fn the_done_footer_opens_a_list_and_a_done_row_opens_its_chat(cx: &mut TestAppCo
     assert!(sidebar.read_with(cx, |s, _| s.done_open()));
     let first = cx.debug_bounds("done-row-0").expect("the list is open");
     assert!(cx.debug_bounds("done-row-1").is_some());
-    assert!(cx.debug_bounds("done-row-30").is_none(), "the list is virtualized");
-    assert!(first.size.height <= px(30.0));
+    assert!(cx.debug_bounds("done-row-10").is_none(), "the list is virtualized");
+    assert_eq!(first.size.height, px(42.0), "two lines: the title, then the computer");
     let key = sidebar.read_with(cx, |s, _| s.done_rows()[0].key.to_string());
     cx.simulate_click(first.center(), Modifiers::none());
     assert_eq!(sidebar.read_with(cx, |s, _| s.selected_row().map(|row| row.key.to_string())), Some(key.clone()));
@@ -303,6 +306,37 @@ fn the_done_footer_opens_a_list_and_a_done_row_opens_its_chat(cx: &mut TestAppCo
     let footer = cx.debug_bounds("sidebar-done").expect("the Done footer").center();
     cx.simulate_click(footer, Modifiers::none());
     assert!(cx.debug_bounds("done-row-0").is_none());
+}
+
+/// A Done row says how long its Chat ran and on which computer; under the pointer Reopen takes the run's place, and
+/// clicking it brings the Chat back to the list (⌘Z sends it back to Done).
+#[gpui::test]
+fn a_done_row_shows_the_run_and_reopens_under_the_pointer(cx: &mut TestAppContext) {
+    let (sidebar, cx) = mount(cx);
+    let first = sidebar.read_with(cx, |s, _| s.done_rows()[0].clone());
+    assert_eq!(first.title.as_ref(), "Ship the Lighthouse budget");
+    assert_eq!(first.ran.as_deref(), Some("14:02"));
+    let settings = sidebar.read_with(cx, |s, _| s.done_rows().iter().find(|row| row.title.starts_with("GPUI Settings")).cloned());
+    assert_eq!(settings.and_then(|row| row.ran).as_deref(), Some("1:02:10"), "an hour or more: h:mm:ss");
+    assert_eq!(super::row::ran_label(62_000), "1:02");
+    assert_eq!(first.computer.as_deref(), Some("Victor XPro"));
+    cx.update(|_, cx| sidebar.update(cx, |s, cx| s.toggle_done(cx)));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("done-ran-0").is_some(), "the run's length at rest");
+    assert!(cx.debug_bounds("done-computer-0").is_some(), "the computer on the second line");
+    let row = cx.debug_bounds("done-row-0").expect("the first Done row");
+    cx.simulate_mouse_move(row.center(), None, Modifiers::none());
+    cx.run_until_parked();
+    let reopen = cx.debug_bounds("done-reopen-0").expect("Reopen under the pointer");
+    assert!(reopen.right() <= row.right() && reopen.left() > row.center().x, "at the right edge");
+    let (rows, done) = sidebar.read_with(cx, |s, _| (s.row_count(), s.done_count()));
+    cx.simulate_click(reopen.center(), Modifiers::none());
+    assert!(!sidebar.read_with(cx, |s, _| s.is_done_key(&first.key)), "reopened");
+    assert_eq!(sidebar.read_with(cx, |s, _| (s.row_count(), s.done_count())), (rows + 1, done - 1));
+    assert_eq!(sidebar.read_with(cx, |s, _| s.picked_key()), None, "Reopen does not open the Chat");
+    assert_eq!(sidebar.read_with(cx, |s, _| s.toast_text()), Some("Back in Chats".into()));
+    cx.simulate_keystrokes("cmd-z");
+    assert!(sidebar.read_with(cx, |s, _| s.is_done_key(&first.key)), "⌘Z sends it back to Done");
 }
 
 /// Resting on a row swaps its state for "Done" (never "Reopen": that is the Done list's); clicking it moves the Chat

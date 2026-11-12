@@ -467,10 +467,10 @@ fn the_card_model_reads_state_prs_diff_branch_and_folder(cx: &mut TestAppContext
     });
     assert_eq!(model.title, "Release train v0.233");
     assert_eq!(model.branch.as_deref(), Some("milagre/release-train-v0-233"));
-    assert_eq!(model.folder.as_deref(), Some("release-train-v0-233-61"));
+    assert_eq!(model.folder.as_deref(), Some("release-train-v0-233-62"));
     assert_eq!(model.linked, ["Relay"]);
     let home = sidebar.read_with(cx, |s, _| {
-        let ix = s.row_keys().iter().position(|k| k.ends_with("chats#70")).expect("the Chats home row");
+        let ix = (0..s.row_count()).find(|ix| s.row(*ix).is_some_and(|row| row.chats_home)).expect("a Chats home row");
         super::hover_card::CardModel::build(s.row(ix).unwrap(), s.meta[ix], &s.data, Vec::new())
     });
     assert!(home.branch.is_none() && home.folder.is_none(), "a Chat without a Project has no folder to show");

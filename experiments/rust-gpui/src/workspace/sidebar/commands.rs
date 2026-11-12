@@ -758,6 +758,11 @@ impl Sidebar {
             "filters-projects" => self.filters_open = Some(Some(Sub::Projects)),
             "filters-computers" => self.filters_open = Some(Some(Sub::Computers)),
             "done-open" => self.done_open = true,
+            // The Done list open with its first row under the pointer: Reopen in place of the run's length.
+            "done-hover" => {
+                self.done_open = true;
+                self.done_hover = Some(0);
+            }
             "toast" => {
                 let key = self.rows[8].key.to_string();
                 self.mark_done(&key, true, cx);

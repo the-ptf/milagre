@@ -26,6 +26,7 @@
 pub mod actions;
 mod bottom;
 mod commands;
+mod done_row;
 pub mod drag;
 pub mod filters;
 mod hooks;
@@ -58,8 +59,8 @@ use gpui::{
 use crate::data::{Data, Polled, poll_once};
 use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::lists::order::ChatOrder;
-use crate::theme::{ActiveTheme, TEXT_13, TextStepExt, sidebar_step};
-use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize};
+use crate::theme::ActiveTheme;
+use crate::ui::{IconButton, IconButtonSize, IconName, IconSize};
 use crate::workspace::chat::pills::bookmark::FamilyChat;
 use crate::workspace::chrome::{self, NoDrag};
 pub use actions::{Actions, ArchiveMode, ChatPatch, RecordingActions, SidebarActions, SidebarCall};
@@ -138,6 +139,8 @@ pub struct Sidebar {
     demo: Option<String>,
     /// Snapshot seed: the row drawn as hovered, its Done action showing (`MILAGRE_GPUI_SIDEBAR_DEMO=hover-done`).
     show_hover: Option<usize>,
+    /// Snapshot seed: the Done row drawn as hovered, Reopen showing (`MILAGRE_GPUI_SIDEBAR_DEMO=done-hover`).
+    done_hover: Option<usize>,
     /// The row being dragged and where it would land (`drag.rs`), and what the keyboard drag last announced.
     drag: Option<drag::DragState>,
     announcement: String,
@@ -204,6 +207,7 @@ impl Sidebar {
             usage_task: None,
             demo: if cfg!(test) { None } else { std::env::var("MILAGRE_GPUI_SIDEBAR_DEMO").ok() },
             show_hover: None,
+            done_hover: None,
             drag: None,
             announcement: String::new(),
             links: Vec::new(),
@@ -279,6 +283,11 @@ impl Sidebar {
             Some(ix) => self.rows.get(ix),
             None => self.picked.as_ref(),
         }
+    }
+
+    /// The Chat on screen without a list row (a Done row opened, a Chat just marked Done).
+    pub fn picked_key(&self) -> Option<String> {
+        self.picked.as_ref().map(|row| row.key.to_string())
     }
 
     pub fn done_open(&self) -> bool {
@@ -541,49 +550,6 @@ impl Sidebar {
 }
 
 impl Sidebar {
-    /// The Done list's rows `range`: a check, the title, and the row's menu (Reopen) on a right press.
-    fn render_done_rows(&mut self, range: Range<usize>, _window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let theme = *cx.theme();
-        range
-            .filter_map(|ix| {
-                let row = self.done_rows.get(ix)?.clone();
-                let selected = self.picked.as_ref().is_some_and(|picked| picked.key == row.key);
-                let hover = theme.hover2;
-                Some(
-                    div()
-                        .id(("done-row", ix))
-                        .debug_selector(move || format!("done-row-{ix}"))
-                        .flex()
-                        .items_center()
-                        .gap(px(10.0))
-                        .h(px(bottom::DONE_ROW))
-                        .mx(px(8.0))
-                        .px(px(8.0))
-                        .rounded(crate::theme::RADIUS_CONTROL)
-                        .cursor_pointer()
-                        .when(selected, |el| el.bg(hover))
-                        .when(!selected, |el| el.hover(move |style| style.bg(hover)))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            window.focus(&this.focus, cx);
-                            this.select_done(ix, cx);
-                        }))
-                        .on_mouse_down(
-                            MouseButton::Right,
-                            cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
-                                cx.stop_propagation();
-                                this.select_done(ix, cx);
-                                let key = this.done_rows[ix].key.to_string();
-                                this.open_menu_key(&key, event.position, window, cx);
-                            }),
-                        )
-                        .child(Icon::new(IconName::CheckmarkCircle02).size(IconSize::S14).color(theme.ink4))
-                        .child(div().min_w_0().truncate().text_step(sidebar_step(TEXT_13)).text_color(theme.ink3).child(row.title.clone()))
-                        .into_any_element(),
-                )
-            })
-            .collect()
-    }
-
     /// The collapsed rail's icons for the list rows `range`.
     fn render_rail(&mut self, range: Range<usize>, _window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         range

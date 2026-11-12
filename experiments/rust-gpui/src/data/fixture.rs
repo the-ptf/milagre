@@ -21,7 +21,30 @@ use crate::theme::hex;
 /// Rows in the sidebar's All Chats list, pinned ones included, with the fixture's opened families.
 pub const LISTED_ROWS: usize = 500;
 /// Chats in the Done list: every Done Chat, the two marked minutes ago included.
-pub const DONE_CHATS: usize = 37;
+pub const DONE_CHATS: usize = 2 + DONE_TABLE.len();
+
+/// The Done list after the two Chats marked minutes ago: (scope, title, created and marked Done, minutes ago, how long
+/// it ran in seconds, provider), most recently marked first. Across this Mac, the offline tianxu and deer.
+const DONE_TABLE: [(usize, &str, i64, i64, i64, Provider); 18] = [
+    (HOME, "Mac Disk Cleanup", 95, 41, 1_220, Provider::Claude),
+    (ADE, "GPUI Settings package (Antigravity)", 240, 77, 3_730, Provider::Antigravity),
+    (HOME, "Find 1Password recovery codes", 180, 130, 953, Provider::Claude),
+    (MILAGRE, "Reproduce Windows NSIS Daemon crash on first launch", 420, 205, 5_404, Provider::Codex),
+    (HAPPIERGYM, "HealthKit workout export drops heart rate", 600, 290, 2_412, Provider::Claude),
+    (RD_CAR, "Fleet report plan options", 700, 380, 618, Provider::Claude),
+    (SITE, "Landing Dawn hero polish", 900, 515, 1_847, Provider::Claude),
+    (ADE, "Relay Durable Object duration probe", 1_100, 640, 3_011, Provider::Codex),
+    (ADE_COPY, "Subchat bookmark escalation", 1_300, 790, 4_929, Provider::Claude),
+    (DEER_HOME, "Rotate the Cloudflare token", 1_500, 960, 301, Provider::Claude),
+    (HAPPIERGYM, "Expo SDK 58 upgrade check", 1_800, 1_210, 7_225, Provider::Claude),
+    (NOTES, "Weekly planning notes", 2_000, 1_480, 412, Provider::Antigravity),
+    (ADE, "Sidebar filters per device", 2_600, 1_890, 2_655, Provider::Claude),
+    (MILAGRE, "Windows installer signing", 3_000, 2_300, 1_533, Provider::Kiro),
+    (SITE, "Docs pages from the CLI help", 3_500, 2_760, 3_390, Provider::Claude),
+    (RD_CAR, "Tailscale tailnet dial from the phone", 4_200, 3_350, 2_046, Provider::Codex),
+    (HOME, "Plan the Lisbon trip", 5_000, 4_100, 845, Provider::Claude),
+    (ADE, "Archive progress row overlay", 6_000, 5_300, 1_204, Provider::Claude),
+];
 /// The fixture's clock: 2026-11-11T10:00:00Z.
 pub const NOW: Millis = 1_794_391_200_000;
 const MINUTE: Millis = 60_000;
@@ -122,6 +145,8 @@ struct Spec {
     background: usize,
     /// Background commands still running.
     commands: Vec<&'static str>,
+    /// How long it ran, first message to last, in seconds (else up to half an hour, from its age).
+    ran: Option<i64>,
 }
 
 impl Default for Spec {
@@ -143,6 +168,7 @@ impl Default for Spec {
             provider: Provider::Claude,
             background: 0,
             commands: Vec::new(),
+            ran: None,
         }
     }
 }
@@ -310,7 +336,7 @@ impl FixtureData {
         push(Spec { live: Live::Working, outcome: None, prs: vec![557, 561, 562], ..named(RD_CAR, "Tailscale routes for phone", 22) });
         push(Spec { unread: true, ..named(DEER_HOME, "Gestor RDCar", 25) });
         // Marked Done minutes ago: at the top of the Done list (one in a Chats home, without a Project).
-        push(Spec { done: Some(12), prs: vec![1011], ..named(SITE, "Ship the Lighthouse budget", 26) });
+        push(Spec { done: Some(12), ran: Some(842), prs: vec![1011], ..named(SITE, "Ship the Lighthouse budget", 26) });
         let issues = push(named(ADE, "Identify issues to close", 27));
         push(Spec { parent: Some(issues), ..named(ADE, "Close stale Linear issues", 26) });
         push(Spec {
@@ -319,7 +345,7 @@ impl FixtureData {
             outcome: None,
             ..named(ADE, "Triage GitHub issues", 25)
         });
-        push(Spec { done: Some(18), ..named(HOME, "What's a good name for a CLI?", 28) });
+        push(Spec { done: Some(18), ran: Some(62), ..named(HOME, "What's a good name for a CLI?", 28) });
         // A Routine's Run: hidden, but listed while it waits on an approval.
         push(Spec {
             routine: Some(Some(true)),
@@ -336,13 +362,9 @@ impl FixtureData {
         push(Spec { provider: Provider::Kiro, prs: vec![1005], ..named(ADE_COPY, "Chat switch panel flash", 90) });
         push(Spec { provider: Provider::Antigravity, ..named(NOTES, "Meeting notes cleanup", 110) });
 
-        // Done: marked from yesterday on, most recent first in the Done list (after the two above).
-        for i in 0..DONE_CHATS - 2 {
-            let scope = FILLER_SCOPES[i % FILLER_SCOPES.len()];
-            push(Spec {
-                done: Some(24 * 60 + 10 + i as i64 * 17),
-                ..named(scope, &format!("Finished: release note {}", 100 + i), 900 + i as i64 * 41)
-            });
+        // Done: most recently marked first in the Done list (after the two above).
+        for (scope, title, created, done, ran, provider) in DONE_TABLE {
+            push(Spec { done: Some(done), ran: Some(ran), provider, ..named(scope, title, created) });
         }
         // Archived, and never listed.
         for (i, scope) in FILLER_SCOPES.iter().take(5).enumerate() {
@@ -526,7 +548,7 @@ fn chat_for(spec: &Spec, id: ChatId, parent: Option<ChatId>, worktree: &Worktree
             first_id: Some(id * 1000),
             last_id: Some(id * 1000 + spec.count as u64 - 1),
             first_at: Some(first_at),
-            last_at: Some(first_at + (spec.created / 2).min(30) * MINUTE),
+            last_at: Some(first_at + spec.ran.map_or((spec.created / 2).min(30) * MINUTE, |secs| secs * 1000)),
             title_line: Some(spec.title.clone().into()),
             last_outcome: spec.outcome,
             pull_requests: spec.prs.iter().map(|number| pull_request_url(&PROJECTS[spec.scope], *number).into()).collect(),
