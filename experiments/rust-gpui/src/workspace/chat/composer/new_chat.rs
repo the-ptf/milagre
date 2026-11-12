@@ -104,6 +104,10 @@ impl Composer {
 
     /// The tray's chips; the caller puts the composer box under them.
     pub(super) fn render_tray_header(&self, theme: &Theme, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        // Preview mode: the Project, computer and branch chips are fixture lists no live data layer backs yet.
+        if crate::workspace::preview::is_on(cx) {
+            return None;
+        }
         let state = self.new_chat.clone()?;
         let composer = cx.entity();
         let open = self.bar.open;

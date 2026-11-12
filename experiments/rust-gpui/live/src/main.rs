@@ -1,15 +1,23 @@
-//! The live GPUI app ("Milagre GPUI Preview"): the base crate's window on the owned dedicated Chat runtime.
+//! The live GPUI app ("Milagre GPUI Preview"): the base crate's window on the installed Milagre's running Node daemon
+//! (the default), or on the owned dedicated Chat runtime.
 //!
 //! ```text
-//! milagre-gpui-live                                   # the Preview: its base folder, set up on first launch
-//! milagre-gpui-live --base DIR                        # the same with another base folder
+//! milagre-gpui-live                                   # the Preview on Milagre's running daemon (its Projects and Chats)
+//!     [--snapshot PNG]                                # read-only: open, draw, save the window, quit (writes nothing)
+//!     [--read-only] [--profile DIR]                   # refuse every write; another Milagre data folder (tests)
+//! milagre-gpui-live --owned                           # the owned runtime: its base folder, set up on first launch
+//! milagre-gpui-live --owned --base DIR                # the same with another base folder
 //! milagre-gpui-live --root ROOT [--create LAUNCH.json] # an explicit dedicated root (create it from a manifest)
 //!     [--smoke PROMPT]... [--approve] --smoke-report NEW.json   # drive a few turns, write a report, quit
 //! milagre-gpui-live setup --base DIR --claude PATH --config-dir DIR --account-id ID [--account-label L]
 //!                         [--model sonnet] [--skills DIR] [--user NAME] [--path PATH]
 //! ```
 //!
-//! The base folder (default `~/Library/Application Support/Milagre GPUI Preview`) holds `launch.json` (the private
+//! Daemon mode never launches, stops or signals Milagre's daemon; quitting closes only this window's connections, and
+//! with no daemon running the window says "Open Milagre first" and connects once it runs. No setup window: the daemon
+//! owns the accounts.
+//!
+//! Owned mode: the base folder (default `~/Library/Application Support/Milagre GPUI Preview`) holds `launch.json` (the private
 //! manifest: which Claude, which signed-in account folder, which model) and `root/` (the dedicated data root the
 //! runtime creates from it on first launch and opens afterwards). The runtime is the fixed sibling `chat-runtime` of
 //! this executable (in the bundle: `Contents/MacOS/chat-runtime`). No production profile, socket or account is ever
@@ -21,7 +29,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::App;
-use milagre_gpui_live::controller::{LiveController, install_globals};
+use milagre_gpui_live::controller::{DaemonSession, LiveController, install_daemon_globals, install_globals};
+use milagre_gpui_live::daemon::Daemon;
 use milagre_gpui_live::session::{self, Root, Session};
 use milagre_gpui_live::setup::{self, Detected};
 
@@ -56,6 +65,15 @@ fn run(args: &[String]) -> anyhow::Result<()> {
         };
         let manifest = setup::write_manifest(&base, &detected)?;
         println!("{}", manifest.display());
+        return Ok(());
+    }
+    let owned = ["--owned", "--root", "--base", "--create"].iter().any(|name| args.iter().any(|a| a == name));
+    if !owned {
+        let snapshot = flag(args, "--snapshot").map(PathBuf::from);
+        let read_only = snapshot.is_some() || args.iter().any(|a| a == "--read-only");
+        let daemon = Daemon::new(flag(args, "--profile").map(PathBuf::from), read_only);
+        let session = DaemonSession::start(daemon);
+        run_daemon_app(session, snapshot);
         return Ok(());
     }
     let (root, manifest) = match flag(args, "--root") {
@@ -133,7 +151,7 @@ fn run_app(
     let reader = session.reader.clone();
     // Snapshot: the open Chat's first page is read before the window opens, so its first frames show it.
     let preloaded = snapshot.as_ref().and_then(|_| {
-        let key = milagre_gpui_live::controller::newest_chat(&session)?;
+        let key = milagre_gpui_live::controller::newest_chat(&session.store, Some(&session.project))?;
         let id = milagre_gpui_live::sinks::chat_id(&session.project, &key)?;
         let adapter = milagre_gpui_live::DaemonAdapter::new(session.client.clone());
         let scope = milagre_gpui_spike::data::ScopeKey::project(milagre_gpui_spike::data::LOCAL, &session.project);
@@ -176,6 +194,65 @@ fn run_app(
         .detach();
         quit_on_signals(cx);
         // `MILAGRE_GPUI_NO_ACTIVATE=1` (checks on a Mac someone is using) and snapshots: the window opens behind.
+        if std::env::var_os("MILAGRE_GPUI_NO_ACTIVATE").is_none() && snapshot.is_none() {
+            cx.activate(true);
+        }
+    });
+}
+
+fn run_daemon_app(session: DaemonSession, snapshot: Option<PathBuf>) {
+    let daemon = session.daemon.clone();
+    // Snapshot: the newest Chat's first page is read before the window opens (a read on its Project's client).
+    let preloaded = snapshot.as_ref().and_then(|_| {
+        let key = milagre_gpui_live::controller::newest_chat(&session.store, None)?;
+        let (project, id) = milagre_gpui_live::sinks::split_key(&key)?;
+        let source = milagre_gpui_live::source::LiveSource::daemon(session.store.clone(), daemon.clone());
+        let scope = milagre_gpui_spike::data::ScopeKey::project(milagre_gpui_spike::data::LOCAL, &project);
+        use milagre_gpui_spike::data::DataSource as _;
+        match futures::executor::block_on(source.chat_messages(scope, id, milagre_gpui_spike::data::PageRequest::OPEN)) {
+            Ok(page) => Some((key, page)),
+            Err(error) => {
+                eprintln!("live: couldn't read {key}: {error:#}");
+                None
+            }
+        }
+    });
+    gpui_platform::application().with_assets(milagre_gpui_spike::assets::Assets).run(move |cx: &mut App| {
+        milagre_gpui_spike::app::init(cx);
+        let mut wiring = install_daemon_globals(&session, cx);
+        wiring.preloaded = preloaded;
+        if snapshot.is_some() {
+            for _ in 0..200 {
+                if milagre_gpui_spike::ui::preload_logos(cx) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        let window = milagre_gpui_spike::app::open_main_window(cx);
+        let workspace = window.read_with(cx, |root, _| milagre_gpui_spike::app::workspace_of(root)).ok().flatten().expect("the workspace");
+        let controller = window
+            .update(cx, |_, window, cx| LiveController::attach_daemon(&workspace, session, wiring, window, cx))
+            .expect("attach the live controller");
+        if let Some(path) = snapshot.clone() {
+            let refused = controller.clone();
+            cx.on_app_quit(move |cx| {
+                let refused = refused.read(cx).refused().to_vec();
+                eprintln!("live: read-only check: {} write(s) refused before reaching the daemon: {refused:?}", refused.len());
+                async {}
+            })
+            .detach();
+            snapshot_then_quit(window.into(), path, cx);
+        }
+        std::mem::forget(controller);
+        cx.on_app_quit(move |_| {
+            // Only this window's connections close: Milagre's daemon keeps running.
+            daemon.disconnect();
+            eprintln!("live: disconnected from Milagre's daemon (left running)");
+            async {}
+        })
+        .detach();
+        quit_on_signals(cx);
         if std::env::var_os("MILAGRE_GPUI_NO_ACTIVATE").is_none() && snapshot.is_none() {
             cx.activate(true);
         }

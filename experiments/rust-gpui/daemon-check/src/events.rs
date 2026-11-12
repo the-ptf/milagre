@@ -359,6 +359,18 @@ impl LiveStore {
         Some(receiver)
     }
 
+    /// Puts `reducer` (a new connection's applied snapshot) in place of the held one and signals every subscriber: a
+    /// reconnect replaces the whole state rather than patching the old one.
+    pub fn replace(&self, reducer: Reducer) {
+        let mut inner = self.lock();
+        let version = inner.reducer.version().max(reducer.version()) + 1;
+        inner.reducer = Reducer { version, ..reducer };
+        inner.subscribers.retain_mut(|sender| match sender.try_send(version) {
+            Ok(()) => true,
+            Err(error) => error.is_full(),
+        });
+    }
+
     /// Applies one notice and signals subscribers when the version moved.
     pub fn apply_notice(&self, notice: Notice) -> Result<Effect, SyncError> {
         let mut inner = self.lock();

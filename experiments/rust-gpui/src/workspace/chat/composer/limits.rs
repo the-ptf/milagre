@@ -38,6 +38,11 @@ impl Composer {
         self.bar.permission
     }
 
+    /// The model the chip shows (provider and model id), sent with a new Chat's first message.
+    pub fn model(&self) -> (crate::data::Provider, gpui::SharedString) {
+        (self.bar.provider, self.bar.model_id.clone())
+    }
+
     /// The thinking effort picked for the next send (`None`: the model's default).
     pub fn effort_id(&self) -> Option<&'static str> {
         self.bar.effort_id

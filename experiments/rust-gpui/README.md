@@ -763,7 +763,7 @@ removes the stage; the log is `daemon-check/target/check-gpui-adapter.log`.
 
 Not done in this stage: wiring the live state into the app's views, state patches, `applyAgentEvent`'s own state
 folding for events that carry no `state`, the viewed-image step cap, content writes and any write beyond the
-backend's fixture-only `ScriptedActions`, Links, other computers. Not decoded yet: subagent transcripts and progress (a non-empty one is an error),
+backend's fixture-only `ScriptedActions`, Links, other computers. Not decoded yet: subagent transcripts and progress (a sent one is counted as `transcriptLength` with `detailsOnDemand`, never shown as empty),
 typed message contexts other than `reload`, `git-action`, `limit-reset` and `handover` (the rest stay whole in
 `ChatContext::Other`), `native_sessions`, `plan`, `limitResume`, `limitTurn`, `openSuggestions`, queued messages'
 images and context. The fixture's two Chats have no messages, so the sidebar mounted from the adapter lists no row

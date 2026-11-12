@@ -36,7 +36,7 @@ mod limits;
 mod mentions;
 mod menu;
 mod model_picker;
-mod models;
+pub mod models;
 pub mod new_chat;
 mod permission;
 mod pick_list;
@@ -753,6 +753,9 @@ impl Composer {
             files,
             images,
             delivery: action,
+            provider: self.bar.provider,
+            model: self.bar.model_id.clone(),
+            permission: self.bar.permission,
         };
         if self.prompt_history.last() != Some(&message) && !message.is_empty() {
             self.prompt_history.push(message.clone());

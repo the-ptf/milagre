@@ -5,6 +5,8 @@
 //!   which Chat the composer is for ([`Target`]) and the permission mode and effort the picker shows.
 //! - [`LiveSidebarActions`] is the sidebar's `SidebarActions`: unread, Done, Reopen and Rename go to the runtime (its
 //!   `chat:patch` writes); every other call is recorded, as the fixture does, and changes nothing on the runtime.
+//!
+//! A Chat is named by [`ChatRef`] (its Project and id): one Project on the owned runtime, any of the daemon's.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -12,16 +14,29 @@ use std::sync::Arc;
 
 use futures::channel::mpsc::UnboundedSender;
 use milagre_daemon_client::PermissionMode as WireMode;
-use milagre_gpui_spike::data::PermissionMode;
+use milagre_gpui_spike::data::{PermissionMode, Provider};
 use milagre_gpui_spike::workspace::chat::composer::{MessageSink, OutgoingMessage, SendAction};
 use milagre_gpui_spike::workspace::sidebar::{ChatPatch, RecordingActions, SidebarActions, SidebarCall};
 
+/// One Chat: its Project (scope key on this computer) and its id there.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ChatRef {
+    pub project: String,
+    pub id: u64,
+}
+
+impl ChatRef {
+    pub fn key(&self) -> String {
+        format!("{}#{}", self.project, self.id)
+    }
+}
+
 /// Where a composer send goes, as the Chat column stood when it was sent.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     /// The empty new-Chat screen: the runtime makes (or reuses its starter) Chat on this first send.
     NewChat,
-    Existing(u64),
+    Existing(ChatRef),
     /// No Chat of this runtime is on screen (nothing is sent).
     None,
 }
@@ -34,28 +49,30 @@ pub enum Command {
         queue: bool,
         mode: PermissionMode,
         effort: Option<&'static str>,
+        /// The composer's provider and model id (a new Chat starts on them in Node-daemon mode).
+        model: (Provider, String),
     },
-    Interrupt(u64),
+    Interrupt(ChatRef),
     SendQueuedNow {
-        chat: u64,
+        chat: ChatRef,
         id: String,
     },
     RemoveQueued {
-        chat: u64,
+        chat: ChatRef,
         id: String,
     },
     MarkUnread {
-        chat: u64,
+        chat: ChatRef,
         unread: bool,
     },
     /// Done (`true`, which also clears unread) or Reopen (`false`).
     MarkDone {
-        chat: u64,
+        chat: ChatRef,
         done: bool,
     },
     /// An explicit title; empty puts the generated one back.
     Rename {
-        chat: u64,
+        chat: ChatRef,
         title: String,
     },
     /// A send the runtime cannot take (attachments, `/compact`): shown as an error, nothing is sent.
@@ -73,14 +90,20 @@ pub fn wire_mode(mode: PermissionMode) -> WireMode {
 /// The composer's side, read when it calls.
 #[derive(Clone)]
 pub struct SinkState {
-    pub target: Rc<Cell<Target>>,
+    pub target: Rc<RefCell<Target>>,
     pub mode: Rc<Cell<PermissionMode>>,
     pub effort: Rc<Cell<Option<&'static str>>>,
+    pub model: Rc<RefCell<(Provider, String)>>,
 }
 
 impl Default for SinkState {
     fn default() -> Self {
-        Self { target: Rc::new(Cell::new(Target::None)), mode: Rc::new(Cell::new(PermissionMode::Ask)), effort: Rc::new(Cell::new(None)) }
+        Self {
+            target: Rc::new(RefCell::new(Target::None)),
+            mode: Rc::new(Cell::new(PermissionMode::Ask)),
+            effort: Rc::new(Cell::new(None)),
+            model: Rc::new(RefCell::new((Provider::Claude, String::new()))),
+        }
     }
 }
 
@@ -94,9 +117,9 @@ impl LiveSink {
         let _ = self.commands.unbounded_send(command);
     }
 
-    fn chat(&self) -> Option<u64> {
-        match self.state.target.get() {
-            Target::Existing(id) => Some(id),
+    fn chat(&self) -> Option<ChatRef> {
+        match &*self.state.target.borrow() {
+            Target::Existing(chat) => Some(chat.clone()),
             _ => None,
         }
     }
@@ -111,12 +134,20 @@ impl MessageSink for LiveSink {
             return self.push(Command::Refused("Compact is not available on this runtime yet".into()));
         }
         let queue = matches!(message.delivery, SendAction::Queue | SendAction::Steer);
+        let target = self.state.target.borrow().clone();
+        // A new Chat starts on the picker's model; an open one keeps its own (the controller's, set when it opened).
+        let model = match target {
+            Target::NewChat => (message.provider, message.model.to_string()),
+            _ => self.state.model.borrow().clone(),
+        };
         self.push(Command::Send {
-            target: self.state.target.get(),
+            target,
             text: message.prompt,
             queue,
-            mode: self.state.mode.get(),
+            // The permission mode the picker shows at the send.
+            mode: message.permission,
             effort: self.state.effort.get(),
+            model,
         });
     }
 
@@ -145,8 +176,22 @@ pub fn chat_id(project: &str, key: &str) -> Option<u64> {
     (scope == project).then(|| id.parse().ok()).flatten()
 }
 
+/// A Chat key `<project>#<id>` on this computer, split (no other computer's qualified keys).
+pub fn split_key(key: &str) -> Option<(String, u64)> {
+    let (scope, id) = key.rsplit_once('#')?;
+    (scope.starts_with('/') && !scope.contains('|')).then_some(())?;
+    Some((scope.to_owned(), id.parse().ok()?))
+}
+
+/// The Chat a key names: of `project` only (the owned runtime), or of any Project here (`None`, Node-daemon mode).
+pub fn chat_ref(project: Option<&str>, key: &str) -> Option<ChatRef> {
+    let (scope, id) = split_key(key)?;
+    project.is_none_or(|project| project == scope).then_some(ChatRef { project: scope, id })
+}
+
 pub struct LiveSidebarActions {
-    pub project: String,
+    /// The owned Project; `None` takes a Chat of any Project (Node-daemon mode).
+    pub project: Option<String>,
     pub commands: UnboundedSender<Command>,
     pub recorded: Arc<RecordingActions>,
 }
@@ -154,7 +199,7 @@ pub struct LiveSidebarActions {
 impl SidebarActions for LiveSidebarActions {
     fn call(&self, call: SidebarCall) {
         if let SidebarCall::Patch { chat, patch } = &call
-            && let Some(id) = chat_id(&self.project, chat)
+            && let Some(id) = chat_ref(self.project.as_deref(), chat)
         {
             let command = match patch {
                 ChatPatch::Unread(unread) => Some(Command::MarkUnread { chat: id, unread: *unread }),

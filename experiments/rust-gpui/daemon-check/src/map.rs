@@ -288,13 +288,13 @@ fn context_usage(c: Obj<'_>) -> Result<ContextUsage> {
     })
 }
 
-/// `Subagent`, without its transcript entries and progress (not decoded in this stage: a non-empty `transcript`
-/// is an error rather than a silently empty one).
+/// `Subagent`, without its transcript entries and progress (not decoded in this stage). A sent transcript is
+/// counted, never shown as empty: `transcriptLength` is its length when the host did not send one, and
+/// `detailsOnDemand` is set, so a view reads the entries when it needs them. (Milagre's Node daemon sends them in
+/// the desktop snapshot; the owned runtime never does.)
 fn subagent(value: &Value, path: &str) -> Result<Subagent> {
     let o = obj(value, path)?;
-    if !o.array("transcript")?.is_empty() || o.get("progress").is_some() {
-        bail!("{path}: subagent transcript/progress are not decoded in this adapter stage");
-    }
+    let sent = o.array("transcript")?.len();
     Ok(Subagent {
         id: o.str("id")?,
         source: o.opt_str("source")?,
@@ -344,8 +344,8 @@ fn subagent(value: &Value, path: &str) -> Result<Subagent> {
         })?,
         progress: None,
         transcript: Vec::new(),
-        transcript_length: o.opt_u64("transcriptLength")?.map(|n| n as usize),
-        details_on_demand: o.flag("detailsOnDemand")?,
+        transcript_length: o.opt_u64("transcriptLength")?.map(|n| n as usize).or((sent > 0).then_some(sent)),
+        details_on_demand: o.flag("detailsOnDemand")? || sent > 0 || o.get("progress").is_some(),
     })
 }
 

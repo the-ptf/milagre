@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Package the live GPUI app as "Milagre GPUI Preview.app" (macOS, arm64): the GPUI UI on the backend's owned Chat
-# runtime, shipped inside the bundle.
+# Package the live GPUI app as "Milagre GPUI Preview.app" (macOS, arm64): the GPUI UI on the installed Milagre's
+# running Node daemon by default (its Projects and Chats; never launched, stopped or signalled from here), or with
+# --owned / --root on the backend's owned Chat runtime, shipped inside the bundle.
 #
 #   scripts/bundle-preview-macos.sh --backend <backend worktree> [--out DIR] [--install] [--sha256 <runtime sha>]
 #
@@ -14,8 +15,8 @@
 # The runtime comes only from daemon-check/target/owned-runtime-<sha8>/ (staged and checked by check-gpui-live.py
 # stage-runtime); default: the newest agreed one. Its hash is recorded before and after signing in
 # Contents/Resources/runtime.json. Ad-hoc signed; scripts/dist-macos.sh re-signs for distribution.
-# The app keeps its data in ~/Library/Application Support/Milagre GPUI Preview/ (launch.json + root/), set up on first
-# launch. --install replaces ~/Applications/"Milagre GPUI Preview.app" after quitting a running copy by bundle id.
+# Owned mode keeps its data in ~/Library/Application Support/Milagre GPUI Preview/ (launch.json + root/), set up on its
+# first launch; the default (daemon) mode keeps none and has no setup window. --install replaces ~/Applications/"Milagre GPUI Preview.app" after quitting a running copy by bundle id.
 # Env: CARGO_TARGET_DIR  build cache (default: ~/.cache/milagre-gpui-preview/target)
 set -euo pipefail
 
@@ -59,7 +60,7 @@ src="$work/experiments/rust-gpui"
 echo "==> exporting the shared client"
 python3 "$check" export --backend "$backend" >/dev/null
 mkdir -p "$src/target"
-cp -R "$crate/target/daemon-client-f946e184" "$src/target/"
+cp -R "$crate/target/daemon-client-5341ec75" "$src/target/"
 
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cache/milagre-gpui-preview/target}"
 echo "==> cargo build --release (target $CARGO_TARGET_DIR)"
@@ -89,7 +90,7 @@ codesign --force -s - "$app/Contents/MacOS/chat-runtime"
 codesign --force -s - "$app"
 codesign --verify --deep --strict "$app"
 signed="$(shasum -a 256 "$app/Contents/MacOS/chat-runtime" | cut -d' ' -f1)"
-printf '{"runtimeSha256":"%s","signedRuntimeSha256":"%s","gpuiHead":"%s","client":"f946e184"}\n' "$sha" "$signed" "$head" \
+printf '{"runtimeSha256":"%s","signedRuntimeSha256":"%s","gpuiHead":"%s","client":"5341ec75"}\n' "$sha" "$signed" "$head" \
   > "$app/Contents/Resources/runtime.json"
 # The resource changed after signing the bundle: sign once more so the seal covers it.
 codesign --force -s - "$app"

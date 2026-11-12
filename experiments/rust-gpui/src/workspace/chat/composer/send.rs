@@ -135,6 +135,10 @@ pub struct OutgoingMessage {
     pub files: Vec<OutgoingAttachment>,
     pub images: Vec<OutgoingImage>,
     pub delivery: SendAction,
+    /// What the bar showed at the send: the model chip's provider and model id, and the permission mode.
+    pub provider: crate::data::Provider,
+    pub model: SharedString,
+    pub permission: crate::data::PermissionMode,
 }
 
 /// The data layer's side of the composer: a send, the Stop button, and the queue's Send now and Remove.

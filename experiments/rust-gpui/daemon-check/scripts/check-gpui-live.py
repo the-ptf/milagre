@@ -6,8 +6,8 @@
     python3 scripts/check-gpui-live.py run --backend <backend worktree>
 
 `export` writes `git archive <CLIENT_COMMIT> experiments/rust-daemon-client` into the GPUI crate's ignored
-target/daemon-client-f946e184/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
-(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-f946e184/,
+target/daemon-client-5341ec75/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
+(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-5341ec75/,
 checking every exported file against the commit's blobs. The app-fixture adapter keeps its own client at 9aa5deb3
 (scripts/check-gpui-adapter.py); nothing here touches that export or its pins.
 
@@ -37,13 +37,15 @@ import tempfile
 CRATE = Path(__file__).resolve().parents[1]
 GPUI = CRATE.parent
 LIVE = GPUI / "live"
-CLIENT_COMMIT = "f946e1848e46e89b9013157e1960deac1ab9b363"
-CLIENT_TREE = "cf8a21e5b66fa08bca723a7ae1a9685c8c597b8e"
+# 5341ec75 = f946e184 plus the off-by-default `installed-owner` feature (the installed Node daemon); the owned path is
+# unchanged, so the runtimes agreed for f946e184 still apply.
+CLIENT_COMMIT = "5341ec75211d1793dd7e27b9c7fe6115dba1605e"
+CLIENT_TREE = "159258dd5ea449694ad542fd445f0eb65f60aa1e"
 CLIENT_PATH = "experiments/rust-daemon-client"
-EXPORT = GPUI / "target/daemon-client-f946e184"
+EXPORT = GPUI / "target/daemon-client-5341ec75"
 FAKE_PATH = "experiments/rust-claude/src/bin/fake_claude.rs"
 FAKE_BLOB = "7508b11e3e7245fcadd4d596f995f2f4289d800f"
-FAKE_CRATE = CRATE / "target/fake-claude-f946e184"
+FAKE_CRATE = CRATE / "target/fake-claude-5341ec75"
 # The agreed dedicated runtimes, newest first: 30bdfd09 (backend's signed runtime for client f946e184: typed Git
 # reads and local PR diffs), 6054d7d6 (backend's signed runtime for client 1b180e46: Chat metadata
 # patch for rename, Done and Reopen), 862f4cd2 (backend's signed "Milagre Rust Preview" runtime for client

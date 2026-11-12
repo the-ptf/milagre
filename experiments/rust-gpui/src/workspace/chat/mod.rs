@@ -59,6 +59,9 @@ pub enum ChatEvent {
     OpenChat(String),
     /// The first message sent from the empty new-Chat screen: the window makes the Chat.
     StartChat(String),
+    /// Another Chat (or the new-Chat screen) is on screen. A data layer follows the column with this: the window
+    /// switches Chats while it draws, when an observer of the view is not called.
+    Switched,
 }
 
 impl EventEmitter<ChatEvent> for ChatView {}
@@ -232,6 +235,7 @@ impl ChatView {
             self.transcript.update(cx, |transcript, cx| transcript.set_running_row(running, cx));
             self.composer.update(cx, |composer, cx| composer.set_running(running, cx));
         }
+        cx.emit(ChatEvent::Switched);
         cx.notify();
     }
 
@@ -268,6 +272,7 @@ impl ChatView {
         let title = self.title.clone();
         self.pills.update(cx, |pills, cx| pills.set_chat("", &title, cx));
         self.refocus_composer = true;
+        cx.emit(ChatEvent::Switched);
         cx.notify();
     }
 

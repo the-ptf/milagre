@@ -2,6 +2,10 @@
 //! live reducer (already current: the snapshot plus every released event), so a sidebar reload answers at once and
 //! never races the stream. Messages come from the client (`chat:messages`). Everything else this runtime does not
 //! serve answers a typed [`NotAvailable`], never made-up data.
+//!
+//! On Milagre's daemon ([`LiveSource::daemon`]) the reducer holds every Project the daemon has loaded (the primary
+//! connection's snapshot); they are listed in `project:known` order. A transcript is read on its own Project's client
+//! (`Daemon::reader`). Nothing here opens a Project.
 
 use gpui::SharedString;
 use milagre_daemon_client::Client;
@@ -10,21 +14,41 @@ use milagre_gpui_spike::data::{
     PullRequestSnapshot, ScopeKey, StateRead, UsageSnapshot, ready,
 };
 
+use std::sync::Arc;
+
+use crate::daemon::Daemon;
 use crate::{DaemonAdapter, LiveStore, NotAvailable};
+
+#[derive(Clone)]
+enum Reads {
+    Owned(DaemonAdapter),
+    Daemon(Arc<Daemon>),
+}
 
 #[derive(Clone)]
 pub struct LiveSource {
     store: LiveStore,
-    adapter: DaemonAdapter,
+    reads: Reads,
 }
 
 impl LiveSource {
     pub fn new(store: LiveStore, client: Client) -> Self {
-        Self { store, adapter: DaemonAdapter::new(client) }
+        Self { store, reads: Reads::Owned(DaemonAdapter::new(client)) }
+    }
+
+    pub fn daemon(store: LiveStore, daemon: Arc<Daemon>) -> Self {
+        Self { store, reads: Reads::Daemon(daemon) }
     }
 
     fn projects(&self) -> anyhow::Result<Vec<OpenProject>> {
-        self.store.read(|reducer| reducer.state().map(|applied| applied.projects.clone())).map_err(Into::into)
+        let mut projects = self.store.read(|reducer| reducer.state().map(|applied| applied.projects.clone()))?;
+        if let Reads::Daemon(daemon) = &self.reads {
+            // `project:known` order (most recently opened first); a loaded scope it does not name (the Chats home) last.
+            let known = daemon.known();
+            let rank = |open: &OpenProject| known.iter().position(|k| k.path == open.project.path.as_ref()).unwrap_or(usize::MAX);
+            projects.sort_by_key(rank);
+        }
+        Ok(projects)
     }
 
     fn project(&self, path: &str) -> anyhow::Result<OpenProject> {
@@ -57,10 +81,12 @@ impl DataSource for LiveSource {
     }
 
     fn open_project(&self, computer: ComputerId, folder: SharedString) -> DataFuture<OpenProject> {
-        if self.project(&folder).is_err() {
-            return not_available("project:open (only the owned Project)");
+        match &self.reads {
+            Reads::Owned(_) if self.project(&folder).is_err() => not_available("project:open (only the owned Project)"),
+            Reads::Owned(adapter) => adapter.open_project(computer, folder),
+            // project:open registers, reorders the recent list and focuses: Electron's to do.
+            Reads::Daemon(_) => not_available("project:open (Milagre's own window opens Projects)"),
         }
-        self.adapter.open_project(computer, folder)
     }
 
     fn read_project(&self, computer: ComputerId, path: SharedString, with_state: bool) -> DataFuture<OpenProject> {
@@ -93,7 +119,19 @@ impl DataSource for LiveSource {
     }
 
     fn chat_messages(&self, scope: ScopeKey, chat: u64, page: PageRequest) -> DataFuture<MessagePage> {
-        self.adapter.chat_messages(scope, chat, page)
+        match &self.reads {
+            Reads::Owned(adapter) => adapter.chat_messages(scope, chat, page),
+            Reads::Daemon(daemon) => {
+                if scope.computer() != LOCAL {
+                    return not_available("computers:invoke");
+                }
+                let daemon = daemon.clone();
+                Box::pin(async move {
+                    let lease = daemon.reader(scope.as_str()).await?;
+                    DaemonAdapter::new(lease.client.clone()).chat_messages(scope, chat, page).await
+                })
+            }
+        }
     }
 
     fn pull_requests(&self, _scope: ScopeKey) -> DataFuture<PullRequestSnapshot> {

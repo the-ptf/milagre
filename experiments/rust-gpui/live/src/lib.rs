@@ -1,6 +1,7 @@
-//! The GPUI app on real Chats: the base crate's views, fed by the backend's owned dedicated Chat runtime through the
-//! shared client (`milagre-daemon-client` at f946e184, feature `owned-chat`). Off by default: the base crate's
-//! manifest, lock and app know nothing of this crate. See `README.md` ("Live app") in the GPUI crate.
+//! The GPUI app on real Chats: the base crate's views, fed through the shared client (`milagre-daemon-client` at
+//! 5341ec75, feature `installed-owner`) by the installed Milagre's running Node daemon ([`daemon`], the default) or by
+//! the backend's owned dedicated Chat runtime (`--owned`, `--root`). Off by default: the base crate's manifest, lock
+//! and app know nothing of this crate. See `README.md` ("Live app") in the GPUI crate.
 //!
 //! - The adapter's decoding and live reducer are `daemon-check`'s own source files, compiled here against the newer
 //!   client (`#[path]`): one source, two client pins. `daemon-check` keeps the app-fixture at 9aa5deb3.
@@ -23,6 +24,7 @@ pub mod map;
 pub mod view;
 
 pub mod controller;
+pub mod daemon;
 pub mod git;
 pub mod session;
 pub mod setup;
