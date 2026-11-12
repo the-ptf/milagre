@@ -28,6 +28,13 @@ use serde_json::{Value, json};
 /// [{commands: true}]`, as the Node daemon does (`desktop-commands-v1`, the client's two-step handshake).
 const METHODS: &[&str] = &[
     "project:known",
+    // The Designs and Artifact tabs (`canvas`).
+    "artifact:list",
+    "artifact:get",
+    "artifact:asset",
+    "artifact:comments",
+    "artifact:delete",
+    "artifact:add-comments",
     // The new-Chat tray's reads and its new Worktree.
     "project:branches",
     "project-git:read",
@@ -181,6 +188,8 @@ pub struct World {
     pub scope_accounts: Value,
     /// `computers:vault-status` and `computers:list`; `remote` answers `computers:invoke` by `"<id> <method>"`.
     pub vault: Value,
+    /// The Chats' designs and pages (`artifact:*`), by Chat key ([`Canvas`]).
+    pub canvases: BTreeMap<String, Canvas>,
     /// The key `computers:unlock` first opened the vault with; a later unlock must send the same one.
     pub vault_key: Option<String>,
     pub computers: Value,
@@ -194,6 +203,16 @@ pub struct World {
     terminals: BTreeMap<String, String>,
     snapshots: BTreeMap<String, String>,
     writers: Vec<Arc<Mutex<UnixStream>>>,
+}
+
+/// One Chat's designs and page as the artifact store keeps them: `list` (summaries), each version's `artifact:get`
+/// answer by `"<id> <version>"` (`"<id>"` for the page), files by name, and comments.
+#[derive(Clone, Debug, Default)]
+pub struct Canvas {
+    pub list: Vec<Value>,
+    pub gets: BTreeMap<String, Value>,
+    pub files: BTreeMap<String, Vec<u8>>,
+    pub comments: Vec<Value>,
 }
 
 #[derive(Clone)]
@@ -313,7 +332,7 @@ impl World {
         self.emit("project:state", json!({"path":path,"state":state}));
     }
 
-    fn agent(&mut self, key: &str, event: Value) {
+    pub fn agent(&mut self, key: &str, event: Value) {
         self.runs_seq += 1;
         let seq = self.runs_seq;
         self.emit("agent:event", json!({"chatId":key,"event":event,"seq":seq}));
@@ -636,6 +655,42 @@ impl World {
             "limits:resume-at-reset:read" => json!({"resumeAtReset": true}),
             "chat:limit-switch" => json!({"continued": true, "label": "work@example.com"}),
             "chat:limit-resume" | "chat:limit-resume:cancel" => json!(true),
+            "artifact:list" | "artifact:comments" | "artifact:get" | "artifact:asset" | "artifact:delete" | "artifact:add-comments" => {
+                let key = arg["chatId"].as_str().ok_or("chatId")?.to_owned();
+                let canvas = self.canvases.entry(key).or_default();
+                match method {
+                    "artifact:list" => Value::Array(canvas.list.clone()),
+                    "artifact:comments" => Value::Array(canvas.comments.clone()),
+                    "artifact:get" => {
+                        let id = arg["id"].as_str().ok_or("id")?;
+                        let at = match arg["version"].as_u64() {
+                            Some(version) => format!("{id} {version}"),
+                            None => id.to_owned(),
+                        };
+                        canvas.gets.get(&at).cloned().ok_or_else(|| "This design is no longer available.".to_owned())?
+                    }
+                    "artifact:asset" => {
+                        let name = arg["name"].as_str().ok_or("name")?;
+                        let bytes = canvas.files.get(name).ok_or("This file is no longer on the page.")?;
+                        let offset = arg["offset"].as_u64().unwrap_or(0) as usize;
+                        // Two-byte chunks, so a file takes several reads as a large one does on the real host.
+                        let part = &bytes[offset.min(bytes.len())..(offset + 2).min(bytes.len())];
+                        use base64::Engine as _;
+                        json!({"name": name, "size": bytes.len(), "offset": offset, "base64": base64::engine::general_purpose::STANDARD.encode(part)})
+                    }
+                    "artifact:delete" => {
+                        let id = arg["id"].as_str().ok_or("id")?.to_owned();
+                        canvas.list.retain(|s| s["id"] != id.as_str());
+                        canvas.comments.retain(|c| c["design"]["id"] != id.as_str());
+                        json!({"id": id})
+                    }
+                    _ => {
+                        let added = arg["comments"].as_array().cloned().unwrap_or_default();
+                        canvas.comments.extend(added.iter().cloned());
+                        Value::Array(added)
+                    }
+                }
+            }
             "computers:vault-status" => self.vault.clone(),
             "computers:list" => self.computers.clone(),
             // The client's unlock (stand-in password in tests) sends the vault key it opened; a first key makes the vault.

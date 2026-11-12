@@ -635,6 +635,11 @@ pub const READS: &[&str] = &[
     "keybindings:read",
     "main-sync:default:read",
     "storage:worktrees",
+    // The Designs and Artifact tabs ([`crate::canvas`]): the Chat's designs and page, their versions, files and comments.
+    "artifact:list",
+    "artifact:get",
+    "artifact:asset",
+    "artifact:comments",
 ];
 
 /// The Project whose state is largest in a snapshot body (serialized size).

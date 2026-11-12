@@ -26,6 +26,7 @@ pub mod map;
 pub mod view;
 
 pub mod accounts;
+pub mod canvas;
 pub mod computers;
 pub mod controller;
 pub mod daemon;

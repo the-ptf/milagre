@@ -322,3 +322,40 @@ folder, `computers:unlock` with the key it opens); `Unlocker::Fail` stands in on
 the stand-in cannot produce. Test builds with no stand-in still never call the real unlock (the vault stays locked).
 `KEYCHAIN_OTHER_PROFILE` is shown as a locked vault: computers hidden, no sidebar notice; pairing says "Paired computers
 are unavailable here: this daemon doesn't use Milagre's own profile."
+
+## Designs and Artifact tabs, PR skeleton (2026-11-12)
+
+The Designs and Artifact tabs now run on Milagre's daemon in daemon mode (`live/src/canvas.rs`), with the commands
+Electron's `ArtifactsProvider` / `ArtifactCanvas` / `ArtifactPage` send through `window.milagre.artifacts`. No client
+gap: every read is a renderer command the daemon serves, sent with `InstalledProject::call`.
+
+| What | Command | Status |
+| --- | --- | --- |
+| The Chat's designs and page | `artifact:list [{chatId}]` (inline replies left out) | works; decides whether each tab shows (`Panel::set_live_canvas`) |
+| Every kept version of a design | `artifact:get [{chatId, id, version}]` (`document`), versions `version - versions + 1 ..= version` | works; versions are immutable, read once per Chat |
+| The page, its tabs and files | `artifact:get [{chatId, id}]`, then `artifact:asset [{chatId, name, offset}]` per file in 256 KiB chunks (base64) | works; served from the `milagre-artifact` protocol under Electron's CSP (`document.rs`, the page helper first), as before |
+| Sent comments | `artifact:comments [{chatId}]` | works; design pins numbered per design, green once resolved; page pins drawn by the page's helper |
+| Refresh | the live stream's `agent:event`: an `artifact` step (or `design_*` / `artifact_*` tool, `design_delete`, "Resolved a design comment") in the shown Chat, then its `step-completed` or the turn's end, as Electron's `revisionKey` / `designActivity`; Chat open; resync; after a write | works |
+| Delete a design | `artifact:delete [{chatId, id}]` on a write connection | works (fake daemon only); refused in read-only mode, the board comes back with the read |
+| Choose a variant + Send | the composer's `chat:send` with Electron's `designFeedbackMessage`: `I chose the design "<title>" (<id>, version <n>). Continue from this one.` | works (fake daemon only) |
+| While reading | skeletons (`panel::skeletons`), and the PR panel's "Loading the PR…" line is now a skeleton of its layout | works |
+
+Gaps (not wired, recorded):
+
+- **Resolve a comment**: there is no renderer command. Resolving is the agent's `artifact_resolve_comment` tool
+  (`chat-artifacts.cjs` `resolveComment`), which Electron's window never sends either; the window only shows the
+  resolved state it reads. A client/daemon method would be needed for a person to resolve one.
+- **Add a comment**: `artifact:add-comments [{chatId, comments}]` is reachable (and the fake daemon answers it), but
+  the base crate has no comment mode yet (pin placement, the bubble, the text field) on the board or the page, so
+  nothing sends it; Send carries the choice only.
+- **Edit / design editor Save** needs `artifact:apply [{chatId, id, expectedVersion, operations}]`; the base editor
+  saves whole documents, not operations. Edit is hidden in daemon mode.
+- **Share** (`artifact:share-page`, `artifact:page-shares`, …) is confined to the desktop (`confine.cjs` denies it
+  remotely) and not ported.
+- **Live agent drafts** (`useLiveDesignFeed`: designs drawn while the agent writes them) are not ported; the board
+  updates when the step ends.
+- **Snapshots of the page**: the Artifact page is a native WKWebView over the GPUI window; `CGWindowListCreateImage`
+  of a window that is never activated (snapshot mode) shows the tab, its pills and the page area, but not the page's
+  own drawing. The webview probe (`MILAGRE_GPUI_WEBVIEW_PROBE=1`) on the real page confirmed it loaded with the helper
+  and is placed over the body.
+- Snapshot seeds only open a Chat the sidebar lists (or `MILAGRE_GPUI_LIVE_CHAT=<key>`, which may be a Subchat).

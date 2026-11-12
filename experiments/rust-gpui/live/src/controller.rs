@@ -384,6 +384,9 @@ pub struct LiveController {
     /// Milagre's daemon: the PR panel's driver ([`crate::pr`]), the PR picked for a Chat (the sidebar's chip), the Chat
     /// whose PR tab opens once it shows, and each Chat's blockers already sent (`updateBlockerDismissals`).
     live_pr: Option<Entity<crate::pr::LivePr>>,
+    /// Milagre's daemon: the Designs and Artifact tabs' driver ([`crate::canvas`]), and the tab a snapshot opens on.
+    live_canvas: Option<Entity<crate::canvas::LiveCanvas>>,
+    canvas_tab: Option<(String, milagre_gpui_spike::workspace::panel::PanelTab)>,
     pr_picks: HashMap<String, u32>,
     pr_tab: Option<String>,
     pr_dismissed: HashMap<String, Vec<String>>,
@@ -460,6 +463,14 @@ impl LiveController {
                 }
             }
             c.live_pr = Some(live_pr);
+            // The Designs and Artifact tabs; a snapshot's Chat and its read made before the window opened.
+            let canvas = cx.new(|cx| crate::canvas::LiveCanvas::new(writes.0.clone(), panel.clone(), cx));
+            if let Some(seed) = cx.try_global::<crate::canvas::Seed>().cloned() {
+                canvas.update(cx, |canvas, _| canvas.seed(&seed.key, seed.fetched.clone()));
+                c.pending_open = Some(seed.key.clone());
+                c.canvas_tab = Some((seed.key.clone(), seed.tab));
+            }
+            c.live_canvas = Some(canvas);
             let scope = c.open.as_ref().map(|open| open.project.clone());
             accounts.update(cx, |a, cx| a.set_scope(scope, cx));
             c.accounts = Some(accounts);
@@ -709,6 +720,8 @@ impl LiveController {
                 computers_refused: None,
                 notifier: None,
                 live_pr: None,
+                live_canvas: None,
+                canvas_tab: None,
                 pr_picks: HashMap::new(),
                 pr_tab: None,
                 pr_dismissed: HashMap::new(),
@@ -744,7 +757,11 @@ impl LiveController {
         cx.set_global(PreviewMode { account, model });
         // The first sync after a window that opened with no daemon: the newest Chat opens, as on a normal launch.
         let nothing_open = self.open.is_none() && self.workspace.read(cx).sidebar.read(cx).selected_row().is_none();
-        if nothing_open && let Some(key) = newest_chat(&self.store, None) {
+        // (A Chat already waiting to open, a snapshot's, keeps its place.)
+        if nothing_open
+            && self.pending_open.is_none()
+            && let Some(key) = newest_chat(&self.store, None)
+        {
             self.pending_open = Some(key);
         }
         // A daemon that restarted: the open Chat's transcript is read again from it.
@@ -762,6 +779,9 @@ impl LiveController {
         self.read_project_images(cx);
         if let Some(accounts) = self.accounts.clone() {
             accounts.update(cx, |a, cx| a.changed(cx));
+        }
+        if let Some(canvas) = self.live_canvas.clone() {
+            canvas.update(cx, |c, cx| c.resynced(cx));
         }
         cx.notify();
     }
@@ -831,6 +851,11 @@ impl LiveController {
                 }
             }
             _ => {}
+        }
+        if channel == "agent:event"
+            && let Some(canvas) = self.live_canvas.clone()
+        {
+            canvas.update(cx, |c, cx| c.agent_event(payload, cx));
         }
         self.events.push(channel.to_owned());
         if let Some(notifier) = self.notifier.clone()
@@ -1245,6 +1270,11 @@ impl LiveController {
     /// Writes this read-only window refused before reaching a connection.
     pub fn refused(&self) -> &[String] {
         &self.refused
+    }
+
+    /// Milagre's daemon: the Designs and Artifact tabs' driver.
+    pub fn live_canvas(&self) -> Option<&Entity<crate::canvas::LiveCanvas>> {
+        self.live_canvas.as_ref()
     }
 
     /// Milagre's daemon: follows Projects asked to load ([`Self::load_project`]) until their Chats arrive, then opens
@@ -1706,6 +1736,16 @@ impl LiveController {
         let changed = panel.read(cx).details().read(cx).key() != key || panel.read(cx).details().read(cx).data() != &details;
         if changed {
             panel.update(cx, |panel, cx| panel.set_live_details(key.clone().into(), details, cx));
+        }
+        if let Some(canvas) = self.live_canvas.clone() {
+            canvas.update(cx, |c, cx| c.show(&key, &project, cx));
+            if let Some((seeded, tab)) = self.canvas_tab.clone()
+                && seeded == key
+                && panel.read(cx).visible_tabs().contains(&tab)
+            {
+                self.canvas_tab = None;
+                panel.update(cx, |panel, cx| panel.activate(tab, cx));
+            }
         }
         let mut review_comments = 0;
         if let Some(live_pr) = self.live_pr.clone() {

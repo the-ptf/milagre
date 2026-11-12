@@ -87,8 +87,9 @@ fn run(args: &[String]) -> anyhow::Result<()> {
         }
         let daemon = Daemon::starting(flag(args, "--profile").map(PathBuf::from), read_only, start);
         let pr_seed = pr_seed(&daemon, snapshot.as_ref());
+        let canvas_seed = canvas_seed(&daemon, snapshot.as_ref());
         let session = DaemonSession::start(daemon);
-        run_daemon_app(session, snapshot, pr_seed);
+        run_daemon_app(session, snapshot, pr_seed, canvas_seed);
         return Ok(());
     }
     let (root, manifest) = match flag(args, "--root") {
@@ -215,12 +216,17 @@ fn run_app(
     });
 }
 
-fn run_daemon_app(session: DaemonSession, snapshot: Option<PathBuf>, pr_seed: Option<milagre_gpui_live::pr::Seed>) {
+fn run_daemon_app(
+    session: DaemonSession,
+    snapshot: Option<PathBuf>,
+    pr_seed: Option<milagre_gpui_live::pr::Seed>,
+    canvas_seed: Option<milagre_gpui_live::canvas::Seed>,
+) {
     let daemon = session.daemon.clone();
     // Snapshot: the newest Chat's first page is read before the window opens (a read on its Project's client).
     let preloaded = snapshot.as_ref().and_then(|_| {
         let key =
-            pr_seed.as_ref().map(|seed| seed.key.clone()).or_else(|| milagre_gpui_live::controller::newest_chat(&session.store, None))?;
+            pr_seed.as_ref().map(|seed| seed.key.clone()).or_else(|| canvas_seed.as_ref().map(|seed| seed.key.clone())).or_else(|| milagre_gpui_live::controller::newest_chat(&session.store, None))?;
         let (project, id) = milagre_gpui_live::sinks::split_key(&key)?;
         let source = milagre_gpui_live::source::LiveSource::daemon(session.store.clone(), daemon.clone());
         let scope = milagre_gpui_spike::data::ScopeKey::project(milagre_gpui_spike::data::LOCAL, &project);
@@ -250,6 +256,11 @@ fn run_daemon_app(session: DaemonSession, snapshot: Option<PathBuf>, pr_seed: Op
         }
         wiring.preloaded = preloaded;
         if let Some(seed) = pr_seed {
+            cx.set_global(seed);
+        }
+        if let Some(seed) = canvas_seed {
+            // The sidebar opens on the snapshot's Chat, not the newest.
+            cx.set_global(milagre_gpui_spike::workspace::sidebar::SidebarSeed { open_chat: Some(seed.key.clone()) });
             cx.set_global(seed);
         }
         if snapshot.is_some() {
@@ -380,6 +391,78 @@ fn pr_seed(daemon: &std::sync::Arc<Daemon>, snapshot: Option<&PathBuf>) -> Optio
                 .map(|answer| (folder, number, answer));
         eprintln!("live: snapshot of {key} on PR #{number}");
         Some(milagre_gpui_live::pr::Seed { key, prs, detail })
+    })();
+    daemon.disconnect();
+    seed
+}
+
+/// Evidence snapshots of the Designs or Artifact tab (`MILAGRE_GPUI_LIVE_PANEL=Designs|Artifact`): the newest Chats are
+/// asked `artifact:list` (up to 200) until one has two or more designs (Designs; else the one with most) or a page
+/// (Artifact), then that Chat's designs, page and comments are read (`canvas::fetch`) on a sync of its own before the
+/// window's. `MILAGRE_GPUI_LIVE_CHAT=<key>` names the Chat instead. Reads only.
+fn canvas_seed(daemon: &std::sync::Arc<Daemon>, snapshot: Option<&PathBuf>) -> Option<milagre_gpui_live::canvas::Seed> {
+    use milagre_gpui_spike::workspace::panel::PanelTab;
+    snapshot?;
+    let tab = match std::env::var("MILAGRE_GPUI_LIVE_PANEL").as_deref() {
+        Ok("Designs") => PanelTab::Designs,
+        Ok("Artifact") => PanelTab::Artifact,
+        _ => return None,
+    };
+    let session = DaemonSession::start(daemon.clone());
+    let seed = (|| {
+        let named = std::env::var("MILAGRE_GPUI_LIVE_CHAT").ok().filter(|k| !k.is_empty());
+        let candidates: Vec<String> = match named {
+            Some(key) => vec![key],
+            None => session.store.read(|reducer| {
+                let Ok(applied) = reducer.state() else { return Vec::new() };
+                let mut chats: Vec<(i64, String)> = applied
+                    .projects
+                    .iter()
+                    .filter(|open| !open.project.is_chats_home())
+                    .filter_map(|open| Some((open, open.state.as_ref()?)))
+                    .flat_map(|(open, state)| {
+                        // Chats the sidebar lists (the snapshot opens the Chat through its row): not Done, not Subchats.
+                        state.sessions.values().filter(|chat| !chat.archived && !chat.is_done() && chat.parent.is_none()).map(move |chat| {
+                            (chat.summary.as_ref().and_then(|s| s.last_at).unwrap_or(0), open.project.scope().chat_key(chat.id))
+                        })
+                    })
+                    .collect();
+                chats.sort_by_key(|chat| std::cmp::Reverse(chat.0));
+                chats.into_iter().take(200).map(|(_, key)| key).collect()
+            }),
+        };
+        let mut best: Option<(usize, String)> = None;
+        for key in candidates {
+            let Some((project, _)) = milagre_gpui_live::sinks::split_key(&key) else { continue };
+            let Ok(list) = futures::executor::block_on(daemon.read(&project, "artifact:list", serde_json::json!([{"chatId": key}]))) else {
+                continue;
+            };
+            let items: Vec<&serde_json::Value> = list.as_array().into_iter().flatten().filter(|s| s["inline"] != true).collect();
+            let count = match tab {
+                PanelTab::Designs => items.iter().filter(|s| s["format"] == "design").count(),
+                _ => items.iter().filter(|s| s["format"] == "html").count(),
+            };
+            if count > best.as_ref().map_or(0, |(n, _)| *n) {
+                best = Some((count, key));
+            }
+            if count >= 2 || (count >= 1 && tab == PanelTab::Artifact) {
+                break;
+            }
+        }
+        let (_, key) = best?;
+        let (project, _) = milagre_gpui_live::sinks::split_key(&key)?;
+        let cache = std::sync::Mutex::new(milagre_gpui_live::canvas::Cache::default());
+        let fetched = futures::executor::block_on(milagre_gpui_live::canvas::fetch(daemon, &project, &key, &cache));
+        eprintln!(
+            "live: snapshot of {key} on its {} tab: {} design(s), {} pin(s), page {}, {} request(s), errors {:?}",
+            tab.label(),
+            fetched.designs.len(),
+            fetched.pins.len(),
+            fetched.page.as_ref().map_or("none".to_owned(), |p| format!("{} v{} ({} tab(s), {} file(s))", p.id, p.version, p.tabs.len(), p.assets.len())),
+            fetched.asked.len(),
+            fetched.errors
+        );
+        Some(milagre_gpui_live::canvas::Seed { key, project, fetched, tab })
     })();
     daemon.disconnect();
     seed
