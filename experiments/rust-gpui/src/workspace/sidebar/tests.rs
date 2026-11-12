@@ -358,7 +358,7 @@ fn the_hover_action_moves_the_chat_to_done_and_cmd_z_brings_it_back(cx: &mut Tes
     assert!(cx.debug_bounds(selector).is_none(), "the pointer on the row swaps the state for the action");
     let action = cx.debug_bounds("chat-row-action-10").expect("Done shows on hover");
     assert!(action.right() <= row.right() - px(13.0) && action.left() > row.center().x, "at the right edge, inside the padding");
-    let done_hovered = |cx: &mut gpui::VisualTestContext| sidebar.read_with(cx, |s, cx| s.row_views[&ix].0.read(cx).done_hovered());
+    let done_hovered = |cx: &mut gpui::VisualTestContext| sidebar.read_with(cx, |s, cx| s.view_at(ix).unwrap().read(cx).done_hovered());
     assert!(!done_hovered(cx), "on the row, the action rests in ink-2");
     cx.simulate_mouse_move(action.center(), None, Modifiers::none());
     cx.run_until_parked();
@@ -461,4 +461,82 @@ fn the_pr_chip_names_its_pr_in_a_tooltip(cx: &mut TestAppContext) {
     cx.executor().advance_clock(std::time::Duration::from_secs(2));
     cx.run_until_parked();
     assert!(cx.debug_bounds("chat-row-pr-tooltip").is_some(), "the PR's tooltip shows");
+}
+
+/// Every live row view draws the row its slot holds now, and a slot has one view: views are keyed by the Chat, so
+/// rebuilding the rows (a live event, the PR poll) or reordering them never paints one Chat's view over another's slot.
+fn assert_views_match_rows(sidebar: &gpui::Entity<Sidebar>, cx: &mut gpui::VisualTestContext) {
+    sidebar.read_with(cx, |s, cx| {
+        let mut slots = std::collections::HashSet::new();
+        for (key, (view, _)) in &s.row_views {
+            let view = view.read(cx);
+            let ix = s.rows.iter().position(|row| row.key == *key).expect("a live view's Chat is listed");
+            assert_eq!(view.ix, ix, "{key}: the view sits at its row's index");
+            assert!(view.row == s.rows[ix], "{key}: the view draws its row as built now");
+            assert!(slots.insert(ix), "slot {ix} has one view");
+        }
+    });
+}
+
+/// Scrolled far down (past the views' keep margin) with the pointer on a row's Done action, the rows rebuilt again and
+/// again (each live event reloads them) and reordered (a Chat above it marked Done): the hovered row keeps its view and
+/// its Done action, no view is ever built for another Chat's slot, and a refresh renders no row. Before, every
+/// rebuild (and, scrolled that far, every sidebar render: `uniform_list` measures `0..1`, which evicted the visible
+/// views) made a new view per row, which lost the hover (Done flickered) and drew stale rows.
+#[gpui::test]
+fn rows_keep_their_views_and_hover_while_rebuilt_and_reordered(cx: &mut TestAppContext) {
+    let (sidebar, cx) = mount(cx);
+    sidebar.update(cx, |s, _| s.scroll.scroll_to_item(200, gpui::ScrollStrategy::Top));
+    cx.run_until_parked();
+    sidebar.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    let first = sidebar.read_with(cx, |s, _| s.visible.start);
+    assert!(first > 100, "scrolled past the keep margin: {first}");
+    let ix = first + 3;
+    let key = sidebar.read_with(cx, |s, _| s.row(ix).unwrap().key.to_string());
+    let selector: &'static str = Box::leak(format!("chat-row-{ix}").into_boxed_str());
+    let row = cx.debug_bounds(selector).expect("the row is drawn");
+    cx.simulate_mouse_move(row.center(), None, Modifiers::none());
+    cx.run_until_parked();
+    let action: &'static str = Box::leak(format!("chat-row-action-{ix}").into_boxed_str());
+    let done = cx.debug_bounds(action).expect("Done shows under the pointer");
+    cx.simulate_mouse_move(done.center(), None, Modifiers::none());
+    cx.run_until_parked();
+    let view_id = sidebar.read_with(cx, |s, _| s.view_at(ix).unwrap().entity_id());
+    assert!(sidebar.read_with(cx, |s, cx| s.view_at(ix).unwrap().read(cx).done_hovered()));
+
+    // Rebuilt again and again with the same data: same view, still hovered, no row renders.
+    let before = sidebar.read_with(cx, |s, _| s.rows_built());
+    for _ in 0..5 {
+        sidebar.update(cx, |s, cx| {
+            s.rebuild(None, cx);
+            cx.notify();
+        });
+        cx.run_until_parked();
+        cx.simulate_mouse_move(done.center() + gpui::point(px(1.0), px(0.0)), None, Modifiers::none());
+        cx.run_until_parked();
+        cx.simulate_mouse_move(done.center(), None, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(sidebar.read_with(cx, |s, _| s.view_at(ix).unwrap().entity_id()), view_id, "the hovered row keeps its view");
+        assert!(cx.debug_bounds(action).is_some(), "Done stays");
+        assert!(sidebar.read_with(cx, |s, cx| s.view_at(ix).unwrap().read(cx).done_hovered()), "and stays bright");
+        assert_views_match_rows(&sidebar, cx);
+    }
+    assert_eq!(sidebar.read_with(cx, |s, _| s.rows_built()), before, "a rebuild with nothing new renders no row");
+
+    // Reordered: a Chat above it goes to Done, so every row below moves up one slot under the pointer.
+    let above = sidebar.read_with(cx, |s, _| s.row(first).unwrap().key.to_string());
+    sidebar.update(cx, |s, cx| s.mark_done(&above, false, cx));
+    cx.run_until_parked();
+    assert_views_match_rows(&sidebar, cx);
+    assert_eq!(sidebar.read_with(cx, |s, _| s.row(ix - 1).unwrap().key.to_string()), key, "the hovered Chat moved up one");
+    assert_eq!(sidebar.read_with(cx, |s, _| s.view_at(ix - 1).unwrap().entity_id()), view_id, "with its own view");
+    cx.simulate_mouse_move(done.center() + gpui::point(px(1.0), px(0.0)), None, Modifiers::none());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds(action).is_some(), "the Chat now under the pointer shows Done");
+    assert_views_match_rows(&sidebar, cx);
+    let under = sidebar.read_with(cx, |s, _| s.row(ix).unwrap().key.to_string());
+    assert_ne!(under, key);
+    assert!(sidebar.read_with(cx, |s, cx| s.view_at(ix).unwrap().read(cx).hovered), "the row under the pointer is hovered");
+    assert!(!sidebar.read_with(cx, |s, cx| s.view_at(ix - 1).unwrap().read(cx).hovered), "the one that moved away is not");
 }

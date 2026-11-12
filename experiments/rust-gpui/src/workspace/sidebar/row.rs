@@ -121,6 +121,37 @@ pub struct ChatRow {
     pub ran: Option<SharedString>,
 }
 
+/// Equal when a row would draw the same: the picture compares by identity (one read shares one `Arc`).
+impl PartialEq for ChatRow {
+    fn eq(&self, other: &Self) -> bool {
+        let same_image = match (&self.image, &other.image) {
+            (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        same_image
+            && self.key == other.key
+            && self.initial == other.initial
+            && self.tile == other.tile
+            && self.title == other.title
+            && self.detail == other.detail
+            && self.offline == other.offline
+            && self.mark == other.mark
+            && self.failed == other.failed
+            && self.background == other.background
+            && self.project == other.project
+            && self.chats_home == other.chats_home
+            && self.extra == other.extra
+            && self.computer == other.computer
+            && self.prs == other.prs
+            && self.pr_number == other.pr_number
+            && self.pr_look == other.pr_look
+            && self.recency == other.recency
+            && self.done == other.done
+            && self.ran == other.ran
+    }
+}
+
 impl Default for ChatRow {
     fn default() -> Self {
         Self {
@@ -322,8 +353,8 @@ fn since(at: i64) -> String {
 }
 
 pub struct ChatRowView {
-    ix: usize,
-    row: ChatRow,
+    pub(super) ix: usize,
+    pub(super) row: ChatRow,
     selected: bool,
     /// Shared with the sidebar: every `render` of any row, to check what a frame rebuilt.
     renders: Rc<Cell<usize>>,
@@ -338,7 +369,7 @@ pub struct ChatRowView {
     /// The pointer is on the row: the state gives way to the Done action. Kept here, not in a hover style, because
     /// the swap changes the layout (the title gets shorter) and a hover style must not change it between prepaint and
     /// paint.
-    hovered: bool,
+    pub(super) hovered: bool,
     /// The pointer is on the Done action itself: it brightens from ink-2 to ink, as the desktop's `hover:text-ink`.
     done_hovered: bool,
     /// Snapshot seed: draw the row as hovered, its Done action showing.
@@ -346,6 +377,16 @@ pub struct ChatRowView {
 }
 
 impl EventEmitter<RowEvent> for ChatRowView {}
+
+/// Where a row view sits in the list as the rows were last built (`ChatRowView::place`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Place {
+    pub ix: usize,
+    pub selected: bool,
+    pub pinned: bool,
+    pub dragging: bool,
+    pub show_hover: bool,
+}
 
 impl ChatRowView {
     pub fn new(ix: usize, row: ChatRow, selected: bool, renders: Rc<Cell<usize>>) -> Self {
@@ -406,6 +447,28 @@ impl ChatRowView {
     /// Sets the field a new view starts with (no repaint to ask for yet).
     pub fn set_rename_silently(&mut self, field: Option<gpui::AnyView>) {
         self.rename = field;
+    }
+
+    /// The rows were built again: this Chat's row now sits at `place.ix` and shows `row`. Renders again only when
+    /// something it draws changed; the pointer's hover stays (the view is the same, keyed by the Chat).
+    pub fn place(&mut self, place: Place, row: &ChatRow, rename: Option<gpui::AnyView>, cx: &mut Context<Self>) {
+        let renaming_changed = self.rename.as_ref().map(|v| v.entity_id()) != rename.as_ref().map(|v| v.entity_id());
+        let now = Place { ix: self.ix, selected: self.selected, pinned: self.pinned, dragging: self.dragging, show_hover: self.show_hover };
+        if now == place && self.row == *row && !renaming_changed {
+            return;
+        }
+        self.ix = place.ix;
+        self.selected = place.selected;
+        self.pinned = place.pinned;
+        self.dragging = place.dragging;
+        if self.show_hover != place.show_hover {
+            self.set_show_hover(place.show_hover);
+        }
+        if self.row != *row {
+            self.row = row.clone();
+        }
+        self.rename = rename;
+        cx.notify();
     }
 
     pub fn set_selected(&mut self, selected: bool, cx: &mut Context<Self>) {
@@ -504,7 +567,7 @@ impl Render for ChatRowView {
                     look.as_ref().map_or((IconName::GitPullRequest, theme.green), |look| (look.glyph(), look.color(&theme)));
                 let ink = theme.ink;
                 div()
-                    .id(("chat-row-prs", ix))
+                    .id("chat-row-prs")
                     .debug_selector(move || format!("chat-row-prs-{ix}"))
                     // `PullRequestChip`: the number underlined in ink under the pointer, and the PR named in a tooltip.
                     .hover(move |style| style.text_color(ink).underline())
@@ -532,7 +595,9 @@ impl Render for ChatRowView {
         // Outer box: the 8px side inset and half a gap above and below, so the rounded fill stops short of the edges.
         div().relative().w_full().h(px(ROW_PITCH)).px(px(ROW_INSET)).py(px(ROW_GAP / 2.0)).child(
             div()
-                .id(("chat-row", ix))
+                // A fixed id inside the row's own view (keyed by its Chat): the element keeps its hover and click
+                // state when the row moves to another index.
+                .id("chat-row")
                 .debug_selector(move || format!("chat-row-{ix}"))
                 .h(px(ROW_HEIGHT))
                 .px(px(ROW_PAD_X))
@@ -651,7 +716,7 @@ fn right_edge(
     }
     let ink = if done_hovered { theme.ink } else { theme.ink2 };
     div()
-        .id(("chat-row-action", ix))
+        .id("chat-row-action")
         .debug_selector(move || format!("chat-row-action-{ix}"))
         .flex()
         .flex_none()

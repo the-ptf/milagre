@@ -436,7 +436,7 @@ impl Sidebar {
         };
         self.book.link_created(&toast, &created.id);
         self.after_book(cx);
-        self.row_views.clear();
+        self.refresh_row_views(cx);
         cx.notify();
     }
 
@@ -450,7 +450,7 @@ impl Sidebar {
             self.book.link_removed(&link);
             self.after_book(cx);
         }
-        self.row_views.clear();
+        self.refresh_row_views(cx);
         cx.notify();
     }
 
@@ -462,7 +462,7 @@ impl Sidebar {
         self.send(SidebarCall::RestoreLink { link: link.clone() });
         self.links.push(link);
         self.relabel_links();
-        self.row_views.clear();
+        self.refresh_row_views(cx);
         cx.notify();
     }
 
@@ -479,8 +479,8 @@ impl Sidebar {
     /// The row's top in the window, for a popover opened from it (its menu, a drop on it).
     pub(super) fn row_top(&self, key: &str, cx: &gpui::App) -> Pixels {
         let ix = self.rows.iter().position(|row| row.key.as_ref() == key);
-        ix.and_then(|ix| self.row_views.get(&ix))
-            .map(|(view, _)| view.read(cx).bounds())
+        ix.and_then(|ix| self.view_at(ix))
+            .map(|view| view.read(cx).bounds())
             .filter(|bounds: &Bounds<Pixels>| bounds.size.height > gpui::px(0.0))
             .map_or(gpui::px(8.0), |bounds| bounds.origin.y)
     }

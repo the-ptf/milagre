@@ -23,7 +23,7 @@ impl Sidebar {
         self.list_filters.pins = pins;
         self.list_filters.hidden_computers = hidden_computers;
         self.show = show;
-        self.rebuild(None);
+        self.rebuild(None, cx);
         cx.notify();
     }
 }

@@ -155,7 +155,7 @@ impl Sidebar {
     /// Where row `ix` was last painted, in the window. A pinned row not painted yet (a snapshot's first frame) is
     /// where the layout puts it: under the header.
     fn row_bounds(&self, ix: usize, cx: &App) -> Option<Bounds<Pixels>> {
-        let painted = self.row_views.get(&ix).map(|(view, _)| view.read(cx).bounds()).filter(|bounds| bounds.size.height > px(0.0));
+        let painted = self.view_at(ix).map(|view| view.read(cx).bounds()).filter(|bounds| bounds.size.height > px(0.0));
         painted.or_else(|| {
             (ix < self.pinned && !self.collapsed).then(|| {
                 let top = px(super::header_height() + PINNED_PAD + ix as f32 * super::row::ROW_PITCH);
@@ -212,8 +212,8 @@ impl Sidebar {
     }
 
     fn mark_dragging(&mut self, key: Option<&str>, cx: &mut Context<Self>) {
-        for (ix, (view, _)) in &self.row_views {
-            let dragging = key.is_some_and(|key| self.rows.get(*ix).is_some_and(|row| row.key.as_ref() == key));
+        for (row, (view, _)) in &self.row_views {
+            let dragging = key.is_some_and(|key| row.as_ref() == key);
             view.update(cx, |view, cx| view.set_dragging(dragging, cx));
         }
     }
@@ -385,7 +385,7 @@ impl Sidebar {
     fn pin_at(&mut self, key: &str, order: Option<f64>, cx: &mut Context<Self>) {
         let Some((scope, id)) = self.locate(key) else { return };
         let before = super::pins::pin_of(&self.data, &self.list_filters.pins, scope, id);
-        self.set_pin_order(key, order);
+        self.set_pin_order(key, order, cx);
         self.book.pin(key, before, order);
         self.after_book(cx);
     }

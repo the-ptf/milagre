@@ -285,7 +285,7 @@ impl Sidebar {
         }
         chat.done_at = Some(at);
         self.send(SidebarCall::Patch { chat: key.to_owned(), patch: ChatPatch::DoneAt(Some(at)) });
-        self.rebuild(None);
+        self.rebuild(None, cx);
         if record {
             self.book.done(key);
             self.after_book(cx);
@@ -300,7 +300,7 @@ impl Sidebar {
         }
         chat.done_at = None;
         self.send(SidebarCall::Patch { chat: key.to_owned(), patch: ChatPatch::DoneAt(None) });
-        self.rebuild(None);
+        self.rebuild(None, cx);
         if record {
             self.book.reopen(key);
             self.after_book(cx);
@@ -316,7 +316,7 @@ impl Sidebar {
         let Some(chat) = self.chat_mut(key) else { return };
         chat.archived = true;
         self.send(SidebarCall::Archive { chat: key.to_owned(), mode: ArchiveMode::HideOnly });
-        self.rebuild(None);
+        self.rebuild(None, cx);
         if record {
             self.book.delete(key);
             self.after_book(cx);
@@ -324,11 +324,11 @@ impl Sidebar {
         cx.notify();
     }
 
-    fn undo_delete(&mut self, key: &str) {
+    fn undo_delete(&mut self, key: &str, cx: &mut Context<Self>) {
         let Some(chat) = self.chat_mut(key) else { return };
         chat.archived = false;
         self.send(SidebarCall::UndoArchive { chat: key.to_owned() });
-        self.rebuild(None);
+        self.rebuild(None, cx);
     }
 
     /// Pins (after the Chats pinned in its scope) or unpins on this device.
@@ -339,7 +339,7 @@ impl Sidebar {
         let Some((scope, id)) = self.locate(key) else { return };
         let before = pins::pin_of(&self.data, &self.list_filters.pins, scope, id);
         let after = pinned.then(|| pins::next_order(&self.data, &self.list_filters.pins, scope, id));
-        self.set_pin_order(key, after);
+        self.set_pin_order(key, after, cx);
         if record {
             self.book.pin(key, before, after);
             self.after_book(cx);
@@ -347,18 +347,18 @@ impl Sidebar {
         cx.notify();
     }
 
-    pub(super) fn set_pin_order(&mut self, key: &str, order: Option<f64>) {
+    pub(super) fn set_pin_order(&mut self, key: &str, order: Option<f64>, cx: &mut Context<Self>) {
         let Some((scope, id)) = self.locate(key) else { return };
         self.list_filters.pins = pins::with_order(&self.data, &self.list_filters.pins, scope, id, order);
         self.send(SidebarCall::Pin { chat: key.to_owned(), order });
-        self.rebuild(None);
+        self.rebuild(None, cx);
     }
 
     fn set_unread(&mut self, key: &str, unread: bool, cx: &mut Context<Self>) {
         let Some(chat) = self.chat_mut(key) else { return };
         chat.unread = unread;
         self.send(SidebarCall::Patch { chat: key.to_owned(), patch: ChatPatch::Unread(unread) });
-        self.rebuild(None);
+        self.rebuild(None, cx);
         cx.notify();
     }
 
@@ -366,7 +366,7 @@ impl Sidebar {
         let Some(chat) = self.chat_mut(key) else { return };
         chat.parent = None;
         self.send(SidebarCall::Patch { chat: key.to_owned(), patch: ChatPatch::Detach });
-        self.rebuild(None);
+        self.rebuild(None, cx);
         cx.notify();
     }
 
@@ -385,7 +385,7 @@ impl Sidebar {
         let view = renaming.view();
         self.renaming = Some(renaming);
         if let Some(ix) = self.rows.iter().position(|row| row.key.as_ref() == key)
-            && let Some((row, _)) = self.row_views.get(&ix)
+            && let Some(row) = self.view_at(ix).cloned()
         {
             row.update(cx, |row, cx| row.set_rename(Some(view), cx));
         }
@@ -398,7 +398,7 @@ impl Sidebar {
         }
         self.renaming = None;
         if let Some(ix) = self.rows.iter().position(|row| row.key.as_ref() == key)
-            && let Some((row, _)) = self.row_views.get(&ix)
+            && let Some(row) = self.view_at(ix).cloned()
         {
             row.update(cx, |row, cx| row.set_rename(None, cx));
         }
@@ -410,7 +410,7 @@ impl Sidebar {
             // An emptied name puts the generated title back.
             chat.title = (!name.is_empty()).then(|| name.clone().into());
             self.send(SidebarCall::Patch { chat: key.to_owned(), patch: ChatPatch::Title(name.into()) });
-            self.rebuild(None);
+            self.rebuild(None, cx);
         }
         cx.notify();
     }
@@ -438,9 +438,9 @@ impl Sidebar {
             match op {
                 Op::Done(key) => self.mark_done(&key, false, cx),
                 Op::Reopen(key) => self.reopen(&key, false, cx),
-                Op::Pin(key, order) => self.set_pin_order(&key, order),
+                Op::Pin(key, order) => self.set_pin_order(&key, order, cx),
                 Op::Archive(key) => self.delete(&key, false, cx),
-                Op::UndoArchive(key) => self.undo_delete(&key),
+                Op::UndoArchive(key) => self.undo_delete(&key, cx),
                 Op::RemoveLink(id) => self.remove_link(&id, false, cx),
                 Op::RestoreLink(link) => self.restore_link(link, cx),
             }
@@ -547,7 +547,7 @@ impl Sidebar {
                     self.list_filters.hidden_computers.remove(&id);
                 }
                 self.send(SidebarCall::SetComputerHidden { computer: id, hidden });
-                self.rebuild(None);
+                self.rebuild(None, cx);
             }
             FilterAction::ToggleProject(scope) => {
                 if let Some(data) = self.data.scopes.get_mut(scope) {
@@ -555,14 +555,14 @@ impl Sidebar {
                     let call =
                         SidebarCall::SetProjectHidden { scope: data.project.scope().as_str().to_owned(), hidden: data.project.hidden };
                     self.send(call);
-                    self.rebuild(None);
+                    self.rebuild(None, cx);
                 }
             }
             FilterAction::ToggleField(field) => {
                 let on = !self.show.get(field);
                 self.show = filters::with_field(self.show, field, on);
                 self.send(SidebarCall::SetRowField { field: field.id(), shown: on });
-                self.rebuild(None);
+                self.rebuild(None, cx);
             }
             FilterAction::AddComputer => {
                 self.filters_open = None;
@@ -768,7 +768,7 @@ impl Sidebar {
             // The hovered row of the design: its state swapped for the Done action.
             "hover-done" => {
                 self.show_hover = Some(3);
-                self.row_views.remove(&3);
+                self.sync_row_views(cx);
             }
             "filters" => self.filters_open = Some(None),
             "filters-show" => self.filters_open = Some(Some(Sub::Show)),

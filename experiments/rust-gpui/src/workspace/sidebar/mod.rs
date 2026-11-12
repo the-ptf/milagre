@@ -108,8 +108,9 @@ pub struct Sidebar {
     /// The edge fades of the Chat list and the Done list: canvases over them that read the scroll handles as they paint.
     fade: ScrollFade,
     done_fade: ScrollFade,
-    /// The views of the rows in and near the viewport, by row index, with their click subscriptions.
-    row_views: HashMap<usize, (Entity<ChatRowView>, Subscription)>,
+    /// The views of the rows in and near the viewport, by Chat key (never by index: a row keeps its view, its hover
+    /// and its cached paint when the rows are built again or reorder), with their click subscriptions.
+    row_views: HashMap<gpui::SharedString, (Entity<ChatRowView>, Subscription)>,
     /// The list's rows built in the last frame, as row indices (the pinned rows are always built), to see
     /// virtualization.
     visible: Range<usize>,
@@ -243,13 +244,13 @@ impl Sidebar {
         let Some(source) = cx.try_global::<Data>().map(|data| data.0.clone()) else { return this };
         // A source that answers at once (the fixture) fills the first frame; any other is read in the background.
         match poll_once(SidebarData::load(source)) {
-            Polled::Ready(Ok(data)) => this.set_data(data, open_chat.as_deref()),
+            Polled::Ready(Ok(data)) => this.set_data(data, open_chat.as_deref(), cx),
             Polled::Ready(Err(error)) => eprintln!("sidebar: couldn't read the Chats: {error}"),
             Polled::Pending(load) => {
                 this._load = Some(cx.spawn(async move |this, cx| {
                     let Ok(data) = load.await else { return };
                     let _ = this.update(cx, |this, cx| {
-                        this.set_data(data, open_chat.as_deref());
+                        this.set_data(data, open_chat.as_deref(), cx);
                         cx.notify();
                     });
                 }));
@@ -266,7 +267,7 @@ impl Sidebar {
         match poll_once(SidebarData::load(source)) {
             Polled::Ready(Ok(data)) => {
                 self.data = data;
-                self.rebuild(None);
+                self.rebuild(None, cx);
                 cx.notify();
             }
             Polled::Ready(Err(error)) => eprintln!("sidebar: couldn't read the Chats: {error}"),
@@ -275,7 +276,7 @@ impl Sidebar {
                     let Ok(data) = load.await else { return };
                     let _ = this.update(cx, |this, cx| {
                         this.data = data;
-                        this.rebuild(None);
+                        this.rebuild(None, cx);
                         cx.notify();
                     });
                 }));
@@ -353,20 +354,21 @@ impl Sidebar {
         cx.notify();
     }
 
-    fn set_data(&mut self, data: SidebarData, select: Option<&str>) {
+    fn set_data(&mut self, data: SidebarData, select: Option<&str>, cx: &mut Context<Self>) {
         self.data = data;
-        self.rebuild(select);
+        self.rebuild(select, cx);
         // Snapshot seed (never in tests): open on another row.
         if let Some(ix) =
             std::env::var("MILAGRE_GPUI_SELECT_ROW").ok().and_then(|v| v.parse::<usize>().ok()).filter(|ix| *ix < self.rows.len())
         {
             self.selected = Some(ix);
+            self.sync_row_views(cx);
         }
     }
 
     /// Builds the rows again from the data, keeping the Chat on screen (or `select`): selected while it has a row,
     /// picked while it has none (a Chat just marked Done, a Done row opened, a Subchat).
-    fn rebuild(&mut self, select: Option<&str>) {
+    fn rebuild(&mut self, select: Option<&str>, cx: &mut Context<Self>) {
         let on_screen = select.map(str::to_owned).or_else(|| self.selected_row().map(|row| row.key.to_string()));
         let lists = list::chat_lists_with(&self.data, CHAT_ORDER, &self.list_filters);
         self.pinned = lists.pinned.len();
@@ -380,7 +382,43 @@ impl Sidebar {
             (Some(key), None) => self.row_of(key),
             _ => None,
         };
-        self.row_views.clear();
+        self.sync_row_views(cx);
+    }
+
+    /// Brings every live row view to its Chat's row as built now: its index, data, selection, pin and drag state
+    /// (a view renders again only when one of them changed). A Chat no longer listed loses its view. Views are never
+    /// rebuilt for a refresh: a new entity per row per live event lost the hovered row's Done action (it flickered
+    /// while the pointer moved) and churned every cached row paint.
+    fn sync_row_views(&mut self, cx: &mut Context<Self>) {
+        let dragging = self.dragging().map(str::to_owned);
+        let renaming = self.renaming.as_ref().map(|renaming| (renaming.key.clone(), renaming.view()));
+        let mut kept = HashMap::with_capacity(self.row_views.len());
+        for (ix, row) in self.rows.iter().enumerate() {
+            let Some((view, events)) = self.row_views.remove(&row.key) else { continue };
+            let place = row::Place {
+                ix,
+                selected: self.selected == Some(ix),
+                pinned: ix < self.pinned,
+                dragging: dragging.as_deref() == Some(row.key.as_ref()),
+                show_hover: self.show_hover == Some(ix),
+            };
+            let rename = renaming.as_ref().filter(|(key, _)| key == row.key.as_ref()).map(|(_, view)| view.clone());
+            view.update(cx, |view, cx| view.place(place, row, rename, cx));
+            kept.insert(row.key.clone(), (view, events));
+        }
+        self.row_views = kept;
+    }
+
+    /// The live view of row `ix`, if it has one.
+    pub(super) fn view_at(&self, ix: usize) -> Option<&Entity<ChatRowView>> {
+        self.rows.get(ix).and_then(|row| self.row_views.get(&row.key)).map(|(view, _)| view)
+    }
+
+    /// Every live row renders again (what it shows changed outside its row, e.g. the Links).
+    pub(super) fn refresh_row_views(&mut self, cx: &mut Context<Self>) {
+        for (view, _) in self.row_views.values() {
+            view.update(cx, |_, cx| cx.notify());
+        }
     }
 
     pub fn selected(&self) -> Option<usize> {
@@ -438,7 +476,7 @@ impl Sidebar {
 
     /// Shows a Chat that has no list row: nothing in the list is selected.
     fn pick(&mut self, row: ChatRow, cx: &mut Context<Self>) {
-        if let Some((view, _)) = self.selected.and_then(|row| self.row_views.get(&row)) {
+        if let Some(view) = self.selected.and_then(|row| self.view_at(row)).cloned() {
             view.update(cx, |view, cx| view.set_selected(false, cx));
         }
         self.selected = None;
@@ -448,7 +486,7 @@ impl Sidebar {
 
     /// New Chat: nothing is selected, in the list or among the Done rows.
     pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
-        if let Some((view, _)) = self.selected.and_then(|row| self.row_views.get(&row)) {
+        if let Some(view) = self.selected.and_then(|row| self.view_at(row)).cloned() {
             view.update(cx, |view, cx| view.set_selected(false, cx));
         }
         self.selected = None;
@@ -486,7 +524,7 @@ impl Sidebar {
         });
         let key = scope.project.scope().chat_key(id);
         scope.state.sessions.insert(id, chat);
-        self.rebuild(Some(&key));
+        self.rebuild(Some(&key), cx);
         cx.notify();
         self.rows.iter().find(|row| row.key.as_ref() == key).cloned()
     }
@@ -589,7 +627,7 @@ impl Sidebar {
         }
         // Only the two rows that changed render again; the list itself does not need to.
         for (row, selected) in [(self.selected, false), (Some(ix), true)] {
-            if let Some((view, _)) = row.and_then(|row| self.row_views.get(&row)) {
+            if let Some(view) = row.and_then(|row| self.view_at(row)).cloned() {
                 view.update(cx, |view, cx| view.set_selected(selected, cx));
             }
         }
@@ -628,16 +666,19 @@ impl Sidebar {
         cx.stop_propagation();
     }
 
-    /// The row at `ix` as a cached view, created when missing.
+    /// The row at `ix` as a cached view, created when missing. Views are keyed by the Chat, so a slot never draws a
+    /// view made for another row; their events find the row's index by its key when they fire.
     fn row_view(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let view = match self.row_views.get(&ix) {
+        let row = self.rows[ix].clone();
+        let view = match self.row_views.get(&row.key) {
             Some((view, _)) => view.clone(),
             None => {
-                let (row, selected, renders) = (self.rows[ix].clone(), self.selected == Some(ix), self.rows_built.clone());
+                let (selected, renders) = (self.selected == Some(ix), self.rows_built.clone());
                 let renaming = self.renaming.as_ref().filter(|renaming| renaming.key == row.key.as_ref()).map(|renaming| renaming.view());
                 let dragging = self.dragging() == Some(row.key.as_ref());
                 let pinned = ix < self.pinned;
                 let show_hover = self.show_hover == Some(ix);
+                let key = row.key.clone();
                 let view = cx.new(|_| {
                     let mut view = ChatRowView::new(ix, row, selected, renders);
                     view.set_rename_silently(renaming);
@@ -645,23 +686,24 @@ impl Sidebar {
                     view.set_show_hover(show_hover);
                     view
                 });
-                let events = cx.subscribe_in(&view, window, move |this, _, event: &RowEvent, window, cx| match event {
-                    RowEvent::Clicked => {
-                        window.focus(&this.focus, cx);
-                        this.select(ix, cx);
-                    }
-                    RowEvent::ContextMenu(at) => this.open_menu(ix, *at, window, cx),
-                    RowEvent::Hover(bounds) => this.hover_row(ix, *bounds, cx),
-                    RowEvent::ToggleDone => this.toggle_done_row(ix, cx),
-                    RowEvent::OpenPullRequest(number) => {
-                        window.focus(&this.focus, cx);
-                        this.select(ix, cx);
-                        if let Some(key) = this.rows.get(ix).map(|row| row.key.clone()) {
-                            cx.emit(SidebarEvent::OpenPullRequest { key, number: *number });
+                let events = cx.subscribe_in(&view, window, move |this, _, event: &RowEvent, window, cx| {
+                    let Some(ix) = this.rows.iter().position(|row| row.key == key) else { return };
+                    match event {
+                        RowEvent::Clicked => {
+                            window.focus(&this.focus, cx);
+                            this.select(ix, cx);
+                        }
+                        RowEvent::ContextMenu(at) => this.open_menu(ix, *at, window, cx),
+                        RowEvent::Hover(bounds) => this.hover_row(ix, *bounds, cx),
+                        RowEvent::ToggleDone => this.toggle_done_row(ix, cx),
+                        RowEvent::OpenPullRequest(number) => {
+                            window.focus(&this.focus, cx);
+                            this.select(ix, cx);
+                            cx.emit(SidebarEvent::OpenPullRequest { key: key.clone(), number: *number });
                         }
                     }
                 });
-                self.row_views.insert(ix, (view.clone(), events));
+                self.row_views.insert(self.rows[ix].key.clone(), (view.clone(), events));
                 view
             }
         };
@@ -673,9 +715,14 @@ impl Sidebar {
     fn render_rows(&mut self, range: Range<usize>, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let pinned = self.pinned;
         let rows = range.start + pinned..range.end + pinned;
-        self.visible = rows.clone();
-        let keep = rows.start.saturating_sub(KEEP_ROWS)..rows.end + KEEP_ROWS;
-        self.row_views.retain(|ix, _| *ix < pinned || keep.contains(ix));
+        // `uniform_list` also asks for one row (`0..1`) to measure it: that call never evicts the visible rows' views
+        // (scrolled further than the margin, it dropped them all and a new entity per row was built every frame).
+        if range.len() > 1 {
+            self.visible = rows.clone();
+            let keep = rows.start.saturating_sub(KEEP_ROWS)..rows.end + KEEP_ROWS;
+            let listed: HashMap<&gpui::SharedString, usize> = self.rows.iter().enumerate().map(|(ix, row)| (&row.key, ix)).collect();
+            self.row_views.retain(|key, _| listed.get(key).is_some_and(|ix| *ix < pinned || keep.contains(ix)));
+        }
         rows.map(|ix| self.row_view(ix, window, cx)).collect()
     }
 }
