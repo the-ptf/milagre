@@ -6,6 +6,37 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 07:00 Toronto, combined integration `f946e184` is accepted and the separate
+normal Rust Preview is refreshed. Three independent source/log reviews report
+no remaining P1/P2. Root's combined full runs pass 157 runtime and 236 owner
+checks, strict normal/feature Clippy and all four touched crate format checks.
+The shared client passes 86 ordinary tests plus seven doctests and four actual
+owned-child checks. Git passes 24 tests including 22 new Node comparison cases.
+
+The normal dedicated entrypoint now supports explicitly captured Codex alongside
+legacy default-Claude manifests. Actual fake-CLI/wire evidence covers selected
+environment/instructions, streaming, persistence, reopen without send and native
+resume. Real Codex/account interoperability is NOT verified. Ask/text/fixed TLDR
+limits remain, and no Milagre content MCP endpoint is advertised to Codex. Local
+`pr:diff-files`/`pr:diff-file` now route through the actor and typed shared client;
+they never fetch/authenticate and do not supply remote PR metadata. The routine
+reply-extraction P2 is closed with one Node-compatible live/saved extractor and
+nine differential vectors; automatic routine execution remains synthetic-only.
+
+Staged `rOvSo4` and installed `rJ5kT6` observers pass saved reads, Sidebar edits,
+native Quit/exit 0 and actual socket/profile/shell cleanup with zero model sends.
+Reports use `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-<id>/report.json`.
+Package/provenance/retained rollback:
+`/private/tmp/milagre-rust-preview-package-ch1uct_1/install-report.json`.
+Installed shell SHA-256:
+`5873ba6c06b27b53924236127fbc6439c806b96a81e7470a204001935f83b761`.
+Installed runtime SHA-256:
+`30bdfd09631b4a223b6f560a690fa71034714cee684a4d5b6201f00c77f2e389`.
+GPUI received matching client revision/API/hash for its own staged repin. Earlier
+real Claude acceptance remains tied to its original hashes; it was not repeated
+or reclassified. Production start times are unchanged; full services, phone and
+existing-data upgrade remain unfinished.
+
 At 06:30 Toronto, broader integration lanes resumed their saved implementation
 without repeating completed work. The captured Codex bridge passes three native
 child tests, sixteen existing bridge tests and 93 default runtime checks; it

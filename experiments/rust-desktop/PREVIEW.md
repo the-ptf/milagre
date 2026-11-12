@@ -268,3 +268,16 @@ temporary-directory prefix as the preceding checks. Shell-only provenance and
 retained rollback bundle: `/private/tmp/milagre-rust-preview-package-5vz_p3g4/shell-refresh-install.json`.
 Preference values survive actual owned-child restart in the shell harness; these
 normal-package observers do not click Settings or write a preference value.
+
+## Combined Codex and PR-read refresh
+
+Integration `f946e184` is installed after combined checks and independent review.
+The existing dedicated root keeps its selected Claude account and manifest. The
+runtime additionally accepts explicit Codex manifests, with fixed-child evidence
+only; no real Codex request or credential adoption was performed. Local PR diff
+reads are exposed through the daemon/client without fetch or authentication.
+Staged `rOvSo4` and installed `rJ5kT6` native lifecycle observers pass with zero
+model sends and actual child/socket/profile/shell cleanup. Full report paths and
+current hashes are in MIGRATION-STATUS.md. Package and retained prior bundle:
+`/private/tmp/milagre-rust-preview-package-ch1uct_1/install-report.json`.
+The earlier one-real-turn acceptance remains evidence for its original binary.
