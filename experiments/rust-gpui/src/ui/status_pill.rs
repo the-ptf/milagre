@@ -3,20 +3,21 @@
 //! (`count` or `count/total`, tabular figures), tinted by tone: `ink` (`ink-2` text), or `orange`, `green`, `red` with
 //! the `-ink` text shade and a 25% ring of the tone.
 //!
-//! The desktop draws it as frosted glass over the transcript (`.status-pill`: a blur behind it); GPUI has no
-//! backdrop blur, so it is the `surface` at 68% (the CSS's own mix) with a 1px `line` ring; hover lays `hover` over
-//! the whole pill. The pill hugs its content: [`StatusPill::width`] measures it.
+//! Frosted glass over the transcript, as the desktop's `.status-pill`: a [`Glass`] layer blurs what is behind it under
+//! the `surface` at 68% (the CSS's own mix), with the 1px tone ring just outside; hover lays `hover` over the whole
+//! pill, above the glass. The pill hugs its content: [`StatusPill::width`] measures it.
 //! `.bare()` is the pill inside a morphing surface: no fill or ring, `hover` on hover. Not built: the rolling digits
 //! and the letters rising in when the label changes (motion, WP-10), the slot's grow-in. Our own.
 
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, ClickEvent, ElementId, FontWeight, Hsla, IntoElement, RenderOnce, Rgba, SharedString, TextRun, Window, div, font,
+    AnyElement, App, ClickEvent, ElementId, FontWeight, Hsla, IntoElement, RenderOnce, SharedString, TextRun, Window, div, font,
     prelude::*, px,
 };
 
-use super::{Icon, IconName, IconSize};
+use super::glass::GLASS_BLUR;
+use super::{Glass, Icon, IconName, IconSize};
 use crate::theme::{ActiveTheme, CONTROL_SM, TEXT_12, TextStepExt, Theme};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -65,14 +66,6 @@ pub struct StatusPill {
 const FILL: f32 = 0.68;
 /// `px-2.5`: the pill's horizontal padding.
 const PAD: f32 = 10.0;
-
-/// `over` laid on `under`, as the compositor does.
-fn over(over: Rgba, under: Hsla) -> Hsla {
-    let under: Rgba = under.into();
-    let alpha = over.a + under.a * (1.0 - over.a);
-    let mix = |top: f32, bottom: f32| (top * over.a + bottom * under.a * (1.0 - over.a)) / alpha.max(f32::EPSILON);
-    Rgba { r: mix(over.r, under.r), g: mix(over.g, under.g), b: mix(over.b, under.b), a: alpha }.into()
-}
 
 /// The width of `text` at 12px in the UI font.
 pub(crate) fn text_width(window: &Window, text: &str) -> f32 {
@@ -198,9 +191,9 @@ impl RenderOnce for StatusPill {
         let selector = self.id.to_string();
         let enabled = !self.disabled;
         let hover = theme.hover;
-        let glass: Hsla = Hsla::from(theme.surface).opacity(FILL);
-        // The hover is translucent ink over the fill, over the whole pill.
-        let hovered = over(theme.hover, glass);
+        // The glass (blur, tint, ring) is the first child; the hover is translucent ink over it, over the whole pill.
+        let glass = Glass::new(GLASS_BLUR, Hsla::from(theme.surface).opacity(FILL)).edge(ring).outset().radius(px(f32::MAX));
+        let group: SharedString = format!("{selector}-glass").into();
         let count = self.count_text();
         let leading = self.leading;
         div()
@@ -217,8 +210,17 @@ impl RenderOnce for StatusPill {
             .text_step(TEXT_12)
             .text_color(text)
             .when(self.medium, |el| el.font_weight(FontWeight::MEDIUM))
-            .when(!self.bare, |el| el.bg(glass).shadow(vec![gpui::BoxShadow::new(px(0.0), px(0.0), ring).spread_radius(px(1.0))]))
-            .when(!self.bare && enabled, |el| el.hover(move |style| style.bg(hovered)))
+            .when(!self.bare, |el| {
+                el.relative().group(group.clone()).child(glass).child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full()
+                        .rounded_full()
+                        .when(enabled, |el| el.group_hover(group, move |style| style.bg(hover))),
+                )
+            })
             .when(self.bare && enabled, |el| el.hover(move |style| style.bg(hover)))
             .when(enabled, |el| el.cursor_pointer())
             .when_some(self.tooltip, |el, label| el.tooltip(super::Tooltip::text(label)))

@@ -57,6 +57,16 @@ side panel, under the panel's tab strip, and between Details sections. It is `px
 Details sections are 12px apart (`SECTION_GAP`) instead. Set it back to `px(1.0)` to bring the lines back. The sidebar's
 own usage-block dividers are not covered by it.
 
+## Glass (backdrop blur)
+
+The composer and the pills above it are frosted glass over the transcript (`src/ui/glass.rs`): a [`Glass`] layer paints
+one quad marked for a 24pt backdrop blur under the surface at 62% (composer) or 68% (pills). gpui-pre has no backdrop
+blur, so `vendor/gpui-pre-apple` is the published 0.3.12 with MonoCode's blur ported in (`vendor/PATCHES.md`, notices in
+`THIRD_PARTY_NOTICES.md`): the renderer copies what is drawn under the marked quad, blurs it with
+`MPSImageGaussianBlur` and writes it back before drawing the quad. Live window and headless snapshots both blur; the test
+platform draws nothing. `MILAGRE_GPUI_GLASS=0` keeps the tint only. Frame time with it on and off:
+`cargo test --release glass_frame_time -- --ignored --nocapture`.
+
 ## Package and install (macOS)
 
 ```sh

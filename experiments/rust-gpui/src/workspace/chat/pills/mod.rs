@@ -39,7 +39,8 @@ use gpui::{
 use self::data::PillsData;
 use self::morph::{Frame, PILL_HEIGHT};
 use crate::theme::{ActiveTheme, TEXT_12, TextStepExt, Theme};
-use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, ScrollArea, SectionLabel, StatusPill};
+use crate::ui::glass::{GLASS_BLUR, GLASS_PILL_FILL};
+use crate::ui::{Glass, Icon, IconButton, IconButtonSize, IconName, IconSize, ScrollArea, SectionLabel, StatusPill};
 
 /// Room under the panel's pill that the transcript's box keeps for the header and the composer, when sizing a panel.
 const COMPOSER_ALLOWANCE: f32 = 44.0 + 120.0;
@@ -280,7 +281,10 @@ impl PillRow {
         let panel = self.panel_size(kind);
         let (width, height, radius) = morph::surface(pill, panel, frame.grown);
         let mounted = self.open == Some(kind);
-        let glass: Hsla = Hsla::from(theme.surface).opacity(lerp_f(0.68, 1.0, frame.grown));
+        // Frosted glass while it is a pill or growing; open, the panel is opaque and needs no blur behind it.
+        let fill = lerp_f(GLASS_PILL_FILL, 1.0, frame.grown);
+        let blur = if fill < 1.0 { GLASS_BLUR } else { px(0.0) };
+        let glass = Glass::new(blur, Hsla::from(theme.surface).opacity(fill)).radius(px(radius));
         let ring: Hsla = Hsla::from(theme.line);
         let surface = div()
             .id(ElementId::from(kind.panel_id()))
@@ -292,7 +296,7 @@ impl PillRow {
             .h(px(height))
             .rounded(px(radius))
             .overflow_hidden()
-            .bg(glass)
+            .child(glass)
             // The pill's ring is a border (a shadow would show through the translucent glass); open, the raised
             // shadow draws its own.
             .border_1()
@@ -345,7 +349,8 @@ impl PillRow {
 
     fn jump_pill(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = *cx.theme();
-        let glass: Hsla = Hsla::from(theme.surface).opacity(0.68);
+        let glass =
+            Glass::new(GLASS_BLUR, Hsla::from(theme.surface).opacity(GLASS_PILL_FILL)).edge(theme.line).outset().radius(px(f32::MAX));
         div()
             .id("pill-jump")
             .debug_selector(|| "pill-jump".into())
@@ -354,9 +359,9 @@ impl PillRow {
             .items_center()
             .justify_center()
             .size(crate::theme::CONTROL_SM)
+            .relative()
             .rounded_full()
-            .bg(glass)
-            .shadow(vec![gpui::BoxShadow::new(px(0.0), px(0.0), Hsla::from(theme.line)).spread_radius(px(1.0))])
+            .child(glass)
             .text_color(theme.ink2)
             .cursor_pointer()
             .hover(move |style| style.text_color(theme.ink))

@@ -78,6 +78,8 @@ use crate::logic::prompts::parts::{
 use crate::theme::{
     ActiveTheme, CONTROL_MD, CONTROL_XS, RADIUS_CONTROL, RADIUS_INLINE, RADIUS_WINDOW, TEXT_11, TEXT_12, TextStepExt, Theme,
 };
+use crate::ui::Glass;
+use crate::ui::glass::GLASS_COMPOSER_FILL;
 use crate::ui::{Icon, IconName, IconSize};
 
 /// The prompt's text: the Chat size plus one on a 20px line (`text-[calc(var(--chat-size)+1px)] leading-5`).
@@ -915,13 +917,13 @@ impl Render for Composer {
             .gap(px(ROW_GAP))
             .w_full()
             .min_h(px(COMPOSER_MIN_HEIGHT))
-            .pt(px(FRAME_PAD))
-            .pb(px(FRAME_PAD))
-            .px(px(FRAME_PAD_X))
+            // The 1px the border took is padding now: the glass draws its own edge inside the box.
+            .pt(px(FRAME_PAD + 1.0))
+            .pb(px(FRAME_PAD + 1.0))
+            .px(px(FRAME_PAD_X + 1.0))
             .rounded(RADIUS_WINDOW)
-            .bg(theme.surface)
-            .border_1()
-            .border_color(theme.line)
+            // Liquid glass: the transcript runs on behind the composer, blurred under a translucent surface.
+            .child(Glass::surface(&theme, GLASS_COMPOSER_FILL).radius(RADIUS_WINDOW))
             .when(!self.quotes.is_empty(), |el| el.child(self.render_quotes(&theme, cx)))
             .when_some(tray, |el, tray| el.child(tray))
             .child(
