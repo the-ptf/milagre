@@ -30,6 +30,13 @@ service parity. Routines are out of scope for the Preview in this mode.
   file-keyed vaults are left alone; a missing wrapper for an existing vault is an error, never a new
   key. Reading the Keychain item from another app shows the macOS prompt once per app signature (an
   ad-hoc re-signed build asks again). `computers_vault_status(&client)` is the typed status read.
+- `DaemonLaunch::bundle(dir)` starts a daemon from `scripts/bundle-node-daemon.sh <out> --version
+  <v>` output, for a computer without Milagre.app: Node 24 (`bin/node`), daemon + core + shared with
+  production dependencies from the npm cache, and `manifest.json`. 285 MB on disk, 96 MB as
+  tar.gz (Milagre.app is 599 MB). The SDK's bundled Claude binary is dropped (Milagre runs the
+  user's installed `claude`), node-pty keeps only macOS prebuilds and gets its `spawn-helper`
+  marked executable; the script fails unless a real pseudo-terminal opens under that Node. No
+  `cloudflared` is bundled, so tunnel features need Milagre.app's `bin/`.
 - There is no shutdown, stop or restart method. The Node daemon stays the single writer.
 - `known_projects()` reads `project:known`. `project(path)` mints a Project-scoped authority; open
   one Client per Project shown, as with owned runtimes.
@@ -98,3 +105,7 @@ v10, wrong password and malformed seals refused, locked vault unlocked with the 
 unlocked and file-keyed vaults untouched, missing wrapper never replaced, world-readable key file
 refused, legacy pairings imported. Not yet run against the real Keychain item (needs the macOS
 prompt answered on this computer); the real vault is already unlocked by Electron.
+
+Round 7 (2026-11-12): bundled Node. Real check: the bundle's daemon started on a throwaway profile
+in 0.49 s from its own Node (parent PID 1, 14 capabilities), then stopped and deleted. First build
+caught node-pty's `posix_spawnp failed` (spawn-helper not executable without install scripts).

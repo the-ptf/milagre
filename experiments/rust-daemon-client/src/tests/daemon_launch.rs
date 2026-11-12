@@ -126,3 +126,30 @@ fn the_installed_app_launch_runs_its_own_daemon_in_node_mode() {
     assert!(debug.contains("app.asar/node_modules/@milagre/daemon/src/cli.cjs"));
     assert!(!launch.version().is_empty());
 }
+
+#[test]
+fn a_bundle_manifest_stays_inside_its_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("bin")).unwrap();
+    std::fs::create_dir_all(root.join("app")).unwrap();
+    std::fs::write(root.join("bin/node"), "").unwrap();
+    std::fs::write(root.join("app/cli.cjs"), "").unwrap();
+    let write =
+        |manifest: Value| std::fs::write(root.join("manifest.json"), manifest.to_string()).unwrap();
+    write(json!({"schema":1,"version":"1.2.3","node":"bin/node","entry":"app/cli.cjs"}));
+    let launch = DaemonLaunch::bundle(root).unwrap();
+    assert_eq!(launch.version(), "1.2.3");
+    assert!(format!("{launch:?}").contains("electron_node: false"));
+    for bad in [
+        json!({"schema":1,"version":"1","node":"../bin/node","entry":"app/cli.cjs"}),
+        json!({"schema":1,"version":"1","node":"/usr/bin/python3","entry":"app/cli.cjs"}),
+        json!({"schema":1,"version":"1","node":"bin/missing","entry":"app/cli.cjs"}),
+        json!({"schema":2,"version":"1","node":"bin/node","entry":"app/cli.cjs"}),
+        json!({"schema":1,"version":"1 2","node":"bin/node","entry":"app/cli.cjs"}),
+    ] {
+        write(bad);
+        assert!(DaemonLaunch::bundle(root).is_err());
+    }
+    assert!(DaemonLaunch::bundle(&root.join("missing")).is_err());
+}

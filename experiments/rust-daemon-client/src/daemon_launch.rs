@@ -114,6 +114,45 @@ impl DaemonLaunch {
         })
     }
 
+    /// A daemon bundle made by `scripts/bundle-node-daemon.sh`: `manifest.json` names its Node, daemon entry and
+    /// app version, all inside `dir`. For a computer without Milagre.app.
+    pub fn bundle(dir: &Path) -> Result<Self> {
+        let unavailable = |message: &'static str| failure("BUNDLE_UNAVAILABLE", message);
+        let dir = fs::canonicalize(dir)
+            .map_err(|_| unavailable("The daemon bundle folder is missing"))?;
+        let text = fs::read(dir.join("manifest.json"))
+            .map_err(|_| unavailable("The daemon bundle has no manifest"))?;
+        let manifest: serde_json::Value = serde_json::from_slice(&text)
+            .map_err(|_| unavailable("The daemon bundle manifest is damaged"))?;
+        let inside = |key: &str| -> Result<PathBuf> {
+            let relative = manifest[key].as_str().filter(|path| {
+                !path.is_empty()
+                    && !Path::new(path).is_absolute()
+                    && Path::new(path)
+                        .components()
+                        .all(|part| matches!(part, std::path::Component::Normal(_)))
+            });
+            let path = dir.join(
+                relative.ok_or_else(|| unavailable("The daemon bundle manifest is damaged"))?,
+            );
+            if !path.is_file() {
+                return Err(unavailable("The daemon bundle is incomplete"));
+            }
+            Ok(path)
+        };
+        if manifest["schema"] != 1 {
+            return Err(unavailable(
+                "The daemon bundle manifest is from another version",
+            ));
+        }
+        Self::node(
+            &inside("node")?,
+            &inside("entry")?,
+            manifest["version"].as_str().unwrap_or_default(),
+            None,
+        )
+    }
+
     /// How long to wait for a started daemon to answer (default 15 s, as bootstrap.cjs).
     pub fn with_startup_timeout(mut self, timeout: Duration) -> Self {
         self.startup_timeout = timeout.clamp(Duration::from_millis(100), Duration::from_secs(60));
