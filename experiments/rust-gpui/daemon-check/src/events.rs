@@ -281,6 +281,13 @@ impl Reducer {
         self.applied.as_ref().ok_or(SyncError::NotApplied)
     }
 
+    /// What a view shows: the applied snapshot, or after the stream closed the last state it applied, held until a new
+    /// connection's snapshot replaces this reducer ([`LiveStore::replace`]). A closed stream then never reads as an
+    /// empty list between the close and the next sync. The error only before any snapshot was applied.
+    pub fn shown(&self) -> Result<&Applied, SyncError> {
+        self.applied.as_ref().ok_or_else(|| self.closed.clone().unwrap_or(SyncError::NotApplied))
+    }
+
     pub fn released(&self) -> &Released {
         &self.released
     }

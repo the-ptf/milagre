@@ -50,7 +50,9 @@ impl LiveSource {
     }
 
     fn projects(&self) -> anyhow::Result<Vec<OpenProject>> {
-        let mut projects = self.store.read(|reducer| reducer.state().map(|applied| applied.projects.clone()))?;
+        // `shown`, not `state`: after the stream closes (a resync, a restart, a state too large) the rows stay as they
+        // were until the next sync's snapshot replaces them, rather than emptying for the second or two in between.
+        let mut projects = self.store.read(|reducer| reducer.shown().map(|applied| applied.projects.clone()))?;
         if let Reads::Daemon(daemon) = &self.reads {
             // `project:known` order (most recently opened first); a loaded scope it does not name (the Chats home) last.
             let known = daemon.known();
@@ -135,7 +137,7 @@ impl DataSource for LiveSource {
         if computer.as_ref() != LOCAL {
             return ready(Ok(ChatRuns::default()));
         }
-        ready(self.store.read(|reducer| reducer.state().map(|applied| applied.runs.clone())).map_err(Into::into))
+        ready(self.store.read(|reducer| reducer.shown().map(|applied| applied.runs.clone())).map_err(Into::into))
     }
 
     fn chat_messages(&self, scope: ScopeKey, chat: u64, page: PageRequest) -> DataFuture<MessagePage> {

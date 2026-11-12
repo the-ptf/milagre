@@ -24,6 +24,9 @@
 //!   unloaded Project opened on purpose is refused.
 //! - `the_window_waits_for_milagre_and_follows_a_restart`: "Open Milagre first", then the daemon starts, then it
 //!   restarts in another process and the window syncs again on its own.
+//! - `the_sidebar_keeps_its_rows_through_resyncs_and_bursts_of_events`: a closed stream keeps the rows until the next
+//!   sync's snapshot (every redraw lists them all), through bursts of `agent:ports`, `accounts:changed` and
+//!   `pull-requests:changed`.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
@@ -491,7 +494,10 @@ fn the_window_waits_for_milagre_and_follows_a_restart(cx: &mut TestAppContext) {
     m.wait_for("the sync after the restart", |m| {
         // Reads cut by the restart are reported, then retried by the next sync.
         let _ = m.controller.update(m.vcx, |c, _| c.take_errors());
-        daemon.pid() == Some(restarted.id()) && m.controller.read_with(m.vcx, |c, _| c.unavailable().is_none()) && m.row_keys().len() == 3
+        // The rows stay through the gap (the last state is kept), so the sync count, not the rows, says it synced again.
+        daemon.pid() == Some(restarted.id())
+            && m.controller.read_with(m.vcx, |c, _| c.unavailable().is_none() && c.syncs() >= 2)
+            && m.row_keys().len() == 3
     });
     let syncs = m.controller.read_with(m.vcx, |c, _| c.syncs());
     assert!(syncs >= 2, "synced at start and after the restart: {syncs}");
@@ -1058,6 +1064,51 @@ fn notifications_and_live_events(cx: &mut TestAppContext) {
     });
     m.vcx.run_until_parked();
     assert_eq!(*dry.0.borrow(), [format!("finder {ALPHA}"), format!("editor {ALPHA} cursor")]);
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// A closed live stream (a resync after a load or a Link write, a daemon restart, a state too large for its connection)
+/// keeps the sidebar's rows until the next sync's snapshot replaces them: the list never goes empty in between, through
+/// a burst of the daemon's events too. Every sidebar redraw is recorded.
+#[gpui::test]
+fn the_sidebar_keeps_its_rows_through_resyncs_and_bursts_of_events(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let data = data_folder("kept-rows");
+    let fake = FakeDaemon::start(&data, world());
+    let daemon = Daemon::new(Some(data.clone()), false);
+    let session = DaemonSession::start(daemon.clone());
+    let mut m = mount_daemon(cx, session);
+    m.wait_for("the loaded Projects' rows", |m| m.row_keys().len() == 3);
+    let sidebar = m.workspace.read_with(m.vcx, |w, _| w.sidebar.clone());
+    let shown = std::rc::Rc::new(std::cell::RefCell::new(Vec::<usize>::new()));
+    let watch = m.vcx.update(|_, cx| {
+        let shown = shown.clone();
+        cx.observe(&sidebar, move |sidebar, cx| shown.borrow_mut().push(sidebar.read(cx).row_keys().len()))
+    });
+    for round in 0..3 {
+        let syncs = m.controller.read_with(m.vcx, |c, _| c.syncs());
+        {
+            let mut world = fake.world();
+            for _ in 0..5 {
+                world.emit("agent:ports", json!({}));
+                world.emit("accounts:changed", json!({}));
+                world.emit("pull-requests:changed", json!({"projectPath": BETA}));
+            }
+        }
+        daemon.resync();
+        m.wait_for(&format!("the sync after resync {round}"), |m| {
+            // Reads cut by the closed connection are reported, then made again after the sync.
+            let _ = m.controller.update(m.vcx, |c, _| c.take_errors());
+            m.controller.read_with(m.vcx, |c, _| c.syncs()) > syncs && m.row_keys().len() == 3
+        });
+    }
+    drop(watch);
+    let shown = shown.borrow().clone();
+    assert!(!shown.is_empty(), "the sidebar redrew while the stream closed and synced again");
+    assert!(shown.iter().all(|rows| *rows == 3), "no empty or partial list in between: {shown:?}");
+    m.controller.update(m.vcx, |c, _| c.disconnect());
     drop(m);
     drop(fake);
     let _ = std::fs::remove_dir_all(&data);
