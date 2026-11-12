@@ -8,6 +8,16 @@ The installed Electron app and this client share the daemon through its existing
 
 The user explicitly wants to choose between Tauri and GPUI at the end. Keep both independent until comparable feature, usability and performance checks support that choice. Tauri retains the production React UI; GPUI stays in its own `experiments/rust-gpui` worktree/branch. The shared Rust daemon and frontend-independent client are the common backend target. Neither backend authority nor its protocol may depend on GPUI. The ordinary installed Tauri shell still uses its existing transport and Node owner. The separate Rust Preview uses its owned Rust runtime, and GPUI has a separate real-data preview using the shared Rust client. Both remain experimental and use dedicated roots. No production replacement decision is implied.
 
+## Frontend decision and interim Node mode (2026-11-12)
+
+Victor chose GPUI as the migration target. The Tauri shell stays parked on this branch as it is;
+no further Tauri work unless asked. The GPUI Preview runs on the installed Milagre's Node daemon for
+now (shared client `installed-owner`, commit `5341ec752`, see
+`experiments/rust-daemon-client/INSTALLED-OWNER.md`), so it shows the same Projects and Chats as
+Electron and paired phones. The owned Rust runtime stays the backend target behind an explicit
+flag. Routines are out of scope for the Preview in this mode. The GPUI side is delegated to Chat
+#11899.
+
 ## Completion estimate and shared frontend integration (2026-11-11)
 
 The earlier **40% to 55%** engineering range is historical and is not a measured
