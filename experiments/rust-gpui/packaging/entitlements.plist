@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Hardened runtime with no exceptions, on purpose. Checked against the binary:
+	- No JIT: GPUI draws with Metal (shaders compile out of process through the system Metal compiler) and the
+	  wry webview is WKWebView, whose JavaScriptCore runs in Apple's own WebContent process, not ours.
+	- No disable-library-validation: the binary links only system frameworks/dylibs and loads no plug-ins.
+	- Not sandboxed, so no network/file entitlements are needed.
+	Add a key here only when a notarized build is seen to crash without it, and say why.
+	-->
+</dict>
+</plist>

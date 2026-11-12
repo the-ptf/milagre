@@ -90,6 +90,43 @@ App updates (`src/platform/updates.rs`) are a fixture: `UpdateMachine` holds the
 downloaded, install, fail, retry) and hands `UpdateNotice::set_state` its `AppUpdate`. There is no update feed and no
 network; the mechanism is still an open decision.
 
+## Send to another Mac
+
+`scripts/dist-macos.sh --app <path.app> --out <dir>` turns a built bundle (from `scripts/bundle-macos.sh`) into a zip.
+It works on a copy of the bundle, so the input stays as built.
+
+```sh
+scripts/bundle-macos.sh --out /tmp/gpui
+scripts/dist-macos.sh --app "/tmp/gpui/Milagre GPUI.app" --out /tmp/gpui-dist                 # ad hoc
+scripts/dist-macos.sh --app "/tmp/gpui/Milagre GPUI.app" --out /tmp/gpui-dist --cert ~/Downloads/developerID_application.cer
+```
+
+- **Ad hoc (default, no `--cert`).** Signs every nested binary and the app with `-s -`, zips with `ditto`, and writes
+  `OPEN-ME-FIRST.txt` beside the zip. Gatekeeper blocks it on the other Mac until that Mac runs
+  `xattr -dr com.apple.quarantine "/Applications/Milagre GPUI.app"` once (or System Settings > Privacy & Security > Open Anyway).
+- **Developer ID (`--cert <file.cer>`).** Imports `~/.private_keys/gpui-devid/devid.key` and the cert into a dedicated keychain
+  (`gpui-signing.keychain-db` beside the key, random password in a 0600 file next to it, added to the search list, partition
+  list set so `codesign` never prompts), signs every nested Mach-O and then the app with `--options runtime --timestamp` and
+  `packaging/entitlements.plist`, verifies (`codesign --verify --deep --strict`, `spctl`), zips, notarizes with the App Store
+  Connect key named by `~/.private_keys/asc.env` (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`; read at run time, never
+  printed), staples and re-zips. It prints the notarization status only. No quarantine step is needed on the other Mac.
+  `--no-notarize` signs and verifies only (dry runs).
+- **Extra binaries.** `--extra-binary <path>` (repeatable) copies a helper, such as the live variant's `chat-runtime`, into
+  `Contents/MacOS/` before signing; every nested Mach-O is signed before the app.
+- **Entitlements.** None: hardened runtime with an empty entitlements file. The binary links only system libraries, GPUI's
+  Metal shaders compile out of process, and WKWebView runs JavaScript in Apple's WebContent process, so neither
+  `allow-jit` nor `disable-library-validation` is needed. Add a key only if a notarized build is seen to crash without it.
+
+**Steps for the Developer ID build:**
+
+1. developer.apple.com > Certificates, Identifiers & Profiles > Certificates > **+** > **Developer ID Application**
+   (the Account Holder does this step; it needs the "G2 Sub-CA").
+2. Upload `~/.private_keys/gpui-devid/devid.csr`.
+3. Download the `.cer`.
+4. Run: `scripts/bundle-macos.sh --out /tmp/gpui && scripts/dist-macos.sh --app "/tmp/gpui/Milagre GPUI.app" --out ~/Desktop/gpui-dist --cert ~/Downloads/<the .cer>`
+
+Send the zip; there is no `OPEN-ME-FIRST.txt` in this mode.
+
 ## GPUI version decision
 
 **Decision (2026-11-11): `gpui-pre =0.3.12` (GPUI itself) with `gpui-pre-platform` (`font-kit`, `runtime_shaders`), plus
