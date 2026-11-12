@@ -651,7 +651,9 @@ pub fn start(args: &[String]) -> Result<RunningChat, Box<dyn std::error::Error>>
         [mode, root]
             if matches!(
                 mode.as_str(),
-                "routine-fixture-create" | "routine-blocked-fixture-create"
+                "routine-fixture-create"
+                    | "routine-blocked-fixture-create"
+                    | "routine-new-chat-fixture-create"
             ) =>
         {
             let root = check_location(Path::new(root), &protected_policy())?;
@@ -668,7 +670,7 @@ pub fn start(args: &[String]) -> Result<RunningChat, Box<dyn std::error::Error>>
             fs::DirBuilder::new()
                 .mode(0o700)
                 .create(&data.config.config_directory)?;
-            seed_due_routine(&data)?;
+            seed_due_routine(&data, mode == "routine-new-chat-fixture-create")?;
             data
         }
         #[cfg(feature = "routine-execution-fixture")]
@@ -808,7 +810,7 @@ fn fixture_config(root: &Path) -> Result<LaunchConfig, Box<dyn std::error::Error
 }
 
 #[cfg(feature = "routine-execution-fixture")]
-fn seed_due_routine(data: &Arc<DataRoot>) -> Result<(), RpcError> {
+fn seed_due_routine(data: &Arc<DataRoot>, new_chat: bool) -> Result<(), RpcError> {
     let owned = data.clone();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -819,7 +821,12 @@ fn seed_due_routine(data: &Arc<DataRoot>) -> Result<(), RpcError> {
         Arc::new(move || owned.check().map_err(|e| e.message));
     let mut store = milagre_routines::RoutineStore::open(data.isolation.root(), owner, at)
         .map_err(|e| refused(e.to_string()))?;
-    store.execute(milagre_routines::StoreCommand::Create(json!({"name":"Actor timer fixture","prompt":"Check the scheduled actor fixture","trigger":{"kind":"schedule","cron":"* * * * *","timezone":"UTC"},"target":{"kind":"chat","chatId":format!("{}#1",data.project().display())},"createdBy":{"kind":"user"},"provider":"claude","model":data.config.model,"permissionMode":"ask","maxRuns":1})), at).map_err(|e|refused(e.to_string()))?;
+    let target = if new_chat {
+        json!({"kind":"new-chat","projectPath":data.project(),"workspace":"project"})
+    } else {
+        json!({"kind":"chat","chatId":format!("{}#1",data.project().display())})
+    };
+    store.execute(milagre_routines::StoreCommand::Create(json!({"name":"Actor timer fixture","prompt":"Check the scheduled actor fixture","trigger":{"kind":"schedule","cron":"* * * * *","timezone":"UTC"},"target":target,"createdBy":{"kind":"user"},"provider":"claude","model":data.config.model,"permissionMode":"ask","maxRuns":1})), at).map_err(|e|refused(e.to_string()))?;
     store.close().map_err(|e| refused(e.to_string()))
 }
 

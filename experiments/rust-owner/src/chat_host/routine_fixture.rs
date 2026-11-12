@@ -46,6 +46,85 @@ impl ChatHost {
         self.send_admitted(&request, SendAdmission::RoutineFixture)
             .map_err(RoutineFixtureError::Dispatch)
     }
+    /// Creates only a fresh primary-Project fixture Chat. The durable scheduler
+    /// must attach the returned identities before calling trusted send.
+    pub fn create_claimed_routine_fixture_chat(
+        &mut self,
+        project: &Path,
+        claim: &Value,
+        configured_model: &str,
+    ) -> std::result::Result<(String, String), RoutineFixtureError> {
+        let routine = &claim["routine"];
+        if routine["target"]["kind"] != "new-chat"
+            || routine["target"]["workspace"] != "project"
+            || routine["target"]["projectPath"].as_str() != project.to_str()
+        {
+            return Err(RoutineFixtureError::Refused(gate(
+                "Only primary Project new-Chat fixtures",
+            )));
+        }
+        validate_claim(claim, configured_model).map_err(RoutineFixtureError::Refused)?;
+        self.require_project_ready(project)
+            .map_err(RoutineFixtureError::Refused)?;
+        let mut identities = None;
+        self.states
+            .try_update(project, Some(&[]), true, |latest| {
+                let worktrees = latest
+                    .get("worktrees")
+                    .and_then(Value::as_object)
+                    .ok_or_else(|| gate("An unavailable Routine Project"))?;
+                let primary = jsjson::js_entries(worktrees)
+                    .into_iter()
+                    .map(|(_, w)| w)
+                    .filter(|w| {
+                        w["path"].as_str() == project.to_str()
+                            && !jsjson::truthy(w.get("sharedChat"))
+                    })
+                    .collect::<Vec<_>>();
+                if primary.len() != 1 {
+                    return Err(gate("An ambiguous or missing primary Routine Worktree"));
+                }
+                let worktree = primary[0];
+                let wid = worktree["id"]
+                    .as_i64()
+                    .filter(|v| *v >= 0)
+                    .ok_or_else(|| gate("Invalid primary Routine Worktree identity"))?;
+                if worktrees.get(&wid.to_string()) != Some(worktree) {
+                    return Err(gate("Invalid primary Routine Worktree key"));
+                }
+                let sid = latest
+                    .get("next_id")
+                    .and_then(Value::as_i64)
+                    .filter(|v| (0..9_007_199_254_740_991).contains(v))
+                    .ok_or_else(|| gate("Invalid new Routine Chat identity"))?;
+                if latest
+                    .sessions()
+                    .is_some_and(|ss| ss.contains_key(&sid.to_string()))
+                {
+                    return Err(gate("A colliding new Routine Chat identity"));
+                }
+                let mut session = json!({"id":sid,"worktree_id":wid,"status":"Created",
+                "routine":{"routineId":routine["id"],"runId":claim["run"]["id"],"hidden":true},
+                "generatedTitle":routine["name"]});
+                if let Some(name) = worktree.get("name") {
+                    session["agent_name"] = name.clone();
+                }
+                identities = Some((
+                    agent_runs::chat_key(&project.to_string_lossy(), &json!(sid)),
+                    wid.to_string(),
+                ));
+                Ok(Some(
+                    agent_runs::with_session(latest, sid, session.as_object().unwrap().clone())
+                        .with_field("next_id", json!(sid + 1)),
+                ))
+            })
+            .map_err(RoutineFixtureError::Dispatch)?;
+        self.states
+            .flush(Some(project))
+            .map_err(RoutineFixtureError::Dispatch)?;
+        identities
+            .ok_or_else(|| RoutineFixtureError::Dispatch(gate("New Routine Chat was not saved")))
+    }
     fn prepare_claimed_routine_fixture(
         &mut self,
         project: &Path,
@@ -54,36 +133,14 @@ impl ChatHost {
     ) -> Result<(Value, String)> {
         let routine = &claim["routine"];
         let run = &claim["run"];
-        let id = routine["id"]
-            .as_str()
-            .filter(|s| !s.is_empty() && s.len() <= 256)
-            .ok_or_else(|| gate("Invalid claimed Routine"))?;
-        let run_id = run["id"]
-            .as_str()
-            .filter(|s| !s.is_empty() && s.len() <= 256)
-            .ok_or_else(|| gate("Invalid claimed Run"))?;
-        if run["routineId"] != id
-            || run["status"] != "running"
-            || routine["trigger"]["kind"] != "schedule"
-            || routine["target"]["kind"] != "chat"
-            || !matches!(routine["provider"].as_str(), None | Some("claude"))
-            || routine
-                .get("model")
-                .is_some_and(|v| !v.is_null() && v != configured_model)
-            || routine["permissionMode"] != "ask"
-            || configured_model.is_empty()
-        {
-            return Err(gate(
-                "Only captured Claude/Ask existing-Chat schedule fixtures",
-            ));
+        validate_claim(claim, configured_model)?;
+        if routine["target"]["kind"] != "chat" {
+            return Err(gate("Only existing fixture Chat delivery"));
         }
-        let body = routine["prompt"]
-            .as_str()
-            .filter(|s| !s.contains("{{"))
-            .ok_or_else(|| gate("Schedule template expansion is outside this fixture"))?;
-        let at = run["startedAt"]
-            .as_i64()
-            .ok_or_else(|| gate("Invalid claimed Run clock"))?;
+        let id = routine["id"].as_str().unwrap();
+        let run_id = run["id"].as_str().unwrap();
+        let body = routine["prompt"].as_str().unwrap();
+        let at = run["startedAt"].as_i64().unwrap();
         let chat = routine["target"]["chatId"]
             .as_str()
             .ok_or_else(|| gate("Invalid claimed Chat"))?;
@@ -143,12 +200,51 @@ impl ChatHost {
                     && !jsjson::truthy(w.get("sharedChat"))
             })
             .ok_or_else(|| gate("A non-primary Routine Worktree"))?;
-        let request = json!({"projectPath":project,"sessionId":session_id,"worktreeId":worktree["id"],
+        let mut request = json!({"projectPath":project,"sessionId":session_id,"worktreeId":worktree["id"],
             "provider":"claude","model":configured_model,"permissionMode":"ask","body":body,
             "prompt":format!("{body}{ROUTINE_PASS_HINT}"),"images":[],"files":[],
             "context":{"kind":"routine-run","routineId":id,"runId":run_id,"name":routine["name"],"at":at}});
+        if session["routine"]["routineId"] == id && session["routine"]["runId"] == run_id {
+            request["context"]["label"] = json!(format!(
+                "Routine · {}",
+                routine["name"].as_str().unwrap_or("")
+            ));
+        }
         Ok((request, chat.to_owned()))
     }
+}
+
+fn validate_claim(claim: &Value, configured_model: &str) -> Result<()> {
+    let routine = &claim["routine"];
+    let run = &claim["run"];
+    let id = routine["id"]
+        .as_str()
+        .filter(|s| !s.is_empty() && s.len() <= 256)
+        .ok_or_else(|| gate("Invalid claimed Routine"))?;
+    let _run_id = run["id"]
+        .as_str()
+        .filter(|s| !s.is_empty() && s.len() <= 256)
+        .ok_or_else(|| gate("Invalid claimed Run"))?;
+    if run["routineId"] != id
+        || run["status"] != "running"
+        || routine["trigger"]["kind"] != "schedule"
+        || !matches!(routine["provider"].as_str(), None | Some("claude"))
+        || routine
+            .get("model")
+            .is_some_and(|v| !v.is_null() && v != configured_model)
+        || routine["permissionMode"] != "ask"
+        || configured_model.is_empty()
+    {
+        return Err(gate("Only captured Claude/Ask schedule fixtures"));
+    }
+    let _body = routine["prompt"]
+        .as_str()
+        .filter(|s| !s.contains("{{"))
+        .ok_or_else(|| gate("Schedule template expansion is outside this fixture"))?;
+    let _at = run["startedAt"]
+        .as_i64()
+        .ok_or_else(|| gate("Invalid claimed Run clock"))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -171,6 +267,106 @@ mod tests {
         host.open_project(&project).unwrap();
         let claim = json!({"routine":{"id":"abc00001","name":"Synthetic schedule","prompt":"Check fixture","trigger":{"kind":"schedule"},"permissionMode":"ask","model":"sonnet","target":{"kind":"chat","chatId":format!("{}#1",project.display())}},"run":{"id":"abc00002","routineId":"abc00001","status":"running","startedAt":1_790_000_000_000i64}});
         (root, host, provider, project, claim)
+    }
+    #[test]
+    fn fresh_primary_chat_matches_actual_node_empty_chat_and_context() {
+        let (_root, mut host, provider, project, mut claim) = setup();
+        claim["routine"]["target"] =
+            json!({"kind":"new-chat","projectPath":project,"workspace":"project"});
+        let before = host.states.whole_state(&project).unwrap();
+        let script = r#"
+const {ChatHost}=require(process.argv[1]+"/packages/core/src/agents/chat-host.cjs");
+const {routineChats}=require(process.argv[1]+"/packages/core/src/routines/runtime-adapter.cjs");
+const {compactProjectState}=require(process.argv[1]+"/packages/core/src/project-store.cjs");
+const input=JSON.parse(process.argv[2]); let state=input.state;
+const chats={ states:{update:async(_p,change)=>{state=await compactProjectState(_p,change(state),state);return {state,changed:true};}},broadcast(){} };
+chats.emptyChat=(...args)=>ChatHost.prototype.emptyChat.call(chats,...args);
+const adapter=routineChats({chats,cachedState:()=>state,openState:async()=>state,isClosing:()=>false,
+ worktrees:{projectWorktree:async()=>1},archiveChat:async()=>{},now:()=>input.claim.run.startedAt});
+(async()=>{const made=await adapter.startChat(input.claim);console.log(JSON.stringify({state,made}));})().catch(e=>{console.error(e);process.exitCode=1});
+"#;
+        let output = std::process::Command::new("node")
+            .arg("-e")
+            .arg(script)
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .arg(json!({"state":before,"claim":claim}).to_string())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let node: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let (chat, wid) = host
+            .create_claimed_routine_fixture_chat(&project, &claim, "sonnet")
+            .unwrap();
+        let created = host.states.whole_state(&project).unwrap();
+        assert_eq!(created["sessions"], node["state"]["sessions"]);
+        assert_eq!(created["next_id"], node["state"]["next_id"]);
+        assert_eq!(chat, node["made"]["chatId"]);
+        assert_eq!(wid, node["made"]["worktreeId"]);
+        assert!(provider.state.lock().unwrap().turns.is_empty());
+        claim["routine"]["target"] = json!({"kind":"chat","chatId":chat});
+        let sent = host
+            .send_claimed_routine_fixture(&project, &claim, "sonnet")
+            .unwrap();
+        assert_eq!(sent.session_id, 10);
+        let saved = host.states.whole_state(&project).unwrap();
+        assert_eq!(saved["messages"][0]["context"], node["made"]["context"]);
+        assert_eq!(saved["messages"][0]["body"], node["made"]["body"]);
+        host.shutdown(true).unwrap();
+    }
+    #[test]
+    fn fresh_chat_does_not_queue_or_steer_into_a_busy_starter() {
+        let (_root, mut host, provider, project, mut claim) = setup();
+        let user = host.send(&json!({"projectPath":project,"sessionId":1,"worktreeId":1,"provider":"claude","model":"sonnet","permissionMode":"ask","body":"User's active turn"})).unwrap();
+        let user_chat = format!("{}#1", project.display());
+        claim["routine"]["target"] =
+            json!({"kind":"new-chat","projectPath":project,"workspace":"project"});
+        let (chat, _) = host
+            .create_claimed_routine_fixture_chat(&project, &claim, "sonnet")
+            .unwrap();
+        claim["routine"]["target"] = json!({"kind":"chat","chatId":chat});
+        let sent = host
+            .send_claimed_routine_fixture(&project, &claim, "sonnet")
+            .unwrap();
+        assert!(!sent.queued && !sent.steering && sent.turn.is_some());
+        assert_ne!(sent.session_id, user.session_id);
+        assert_eq!(host.active_turn(&user_chat), user.turn);
+        assert_eq!(provider.state.lock().unwrap().turns.len(), 2);
+        let state = host.states.whole_state(&project).unwrap();
+        assert_eq!(state["messages"][0]["body"], "User's active turn");
+        assert_eq!(state["messages"][1]["session_id"], sent.session_id);
+        host.shutdown(true).unwrap();
+    }
+    #[test]
+    fn new_chat_refuses_foreign_worktree_and_malformed_claims_before_write() {
+        let (_root, mut host, provider, project, mut claim) = setup();
+        claim["routine"]["target"] =
+            json!({"kind":"new-chat","projectPath":project,"workspace":"project"});
+        let before = host.states.whole_state(&project).unwrap();
+        for kind in ["foreign", "worktree", "run", "template", "mode", "model"] {
+            let mut bad = claim.clone();
+            match kind {
+                "foreign" => bad["routine"]["target"]["projectPath"] = json!("/foreign"),
+                "worktree" => bad["routine"]["target"]["workspace"] = json!("worktree"),
+                "run" => bad["run"]["status"] = json!("acted"),
+                "template" => bad["routine"]["prompt"] = json!("{{date}}"),
+                "mode" => bad["routine"]["permissionMode"] = json!("full"),
+                _ => bad["routine"]["model"] = json!("other"),
+            }
+            assert!(
+                matches!(
+                    host.create_claimed_routine_fixture_chat(&project, &bad, "sonnet"),
+                    Err(RoutineFixtureError::Refused(_))
+                ),
+                "{kind}"
+            );
+            assert_eq!(host.states.whole_state(&project).unwrap(), before);
+            assert!(provider.state.lock().unwrap().turns.is_empty());
+        }
+        host.shutdown(true).unwrap();
     }
     #[test]
     fn ordinary_send_remains_gated_and_busy_claim_changes_nothing() {

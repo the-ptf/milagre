@@ -15,7 +15,9 @@ function deadline(p, label, ms = 12000) {
 }
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 async function launch(mode) {
-  const child = spawn(path.resolve(process.argv[2]), [mode, root], { stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(path.resolve(process.argv[2]), [mode, root], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
   const row = { child, stderr: "" };
   records.push(row);
   row.exit = new Promise((r, j) => {
@@ -68,7 +70,8 @@ async function stop(row) {
 }
 (async () => {
   const blocked = process.argv[3] === "--blocked";
-  const row = await launch(blocked ? "routine-blocked-fixture-create" : "routine-fixture-create");
+  const newChat = process.argv[3] === "--new-chat";
+  const row = await launch(blocked ? "routine-blocked-fixture-create" : newChat ? "routine-new-chat-fixture-create" : "routine-fixture-create");
   if (blocked) {
     const end = Date.now() + 75000;
     for (;;) {
@@ -85,10 +88,19 @@ async function stop(row) {
     assert.equal(runs[0].status, "failed");
     assert.equal(saved.routines[0].runCount, 1);
     fs.rmSync(parent, { recursive: true });
-    console.log(JSON.stringify({ actorStopActive: true, actualNativeInit: true, cleanup: true }));
+    console.log(
+      JSON.stringify({
+        actorStopActive: true,
+        actualNativeInit: true,
+        cleanup: true,
+      }),
+    );
     return;
   }
-  assert.deepEqual(await row.client.call("routines:enabled:read"), { enabled: true, executionSupported: true });
+  assert.deepEqual(await row.client.call("routines:enabled:read"), {
+    enabled: true,
+    executionSupported: true,
+  });
   let saved;
   const end = Date.now() + 75000;
   while (Date.now() < end) {
@@ -102,7 +114,21 @@ async function stop(row) {
   assert.equal(saved.routines[0].runCount, 1);
   assert.equal(saved.routines[0].enabled, false);
   assert.deepEqual(await row.client.call("routines:list"), { routines: [] });
-  const messages = await row.client.call("chat:messages", [row.receipt.actor.project, 1]);
+  const chatId = newChat ? Number(run.chatId.slice(run.chatId.lastIndexOf("#") + 1)) : 1;
+  if (newChat) {
+    assert.notEqual(chatId, 1);
+    const state = (await row.client.call("state:read", [row.receipt.actor.project])).state;
+    assert.deepEqual(state.sessions[String(chatId)].routine, {
+      routineId: run.routineId,
+      runId: run.id,
+      hidden: true,
+    });
+    assert.equal(state.sessions[String(chatId)].generatedTitle, "Actor timer fixture");
+    assert.equal(state.sessions["1"].summary.count, 0);
+    assert.equal(run.worktreeId, String(state.sessions[String(chatId)].worktree_id));
+  }
+  const messages = await row.client.call("chat:messages", [row.receipt.actor.project, chatId]);
+  if (newChat) assert.equal(messages.messages[0].context.label, "Routine · Actor timer fixture");
   assert.equal(messages.total, 2);
   assert.equal(messages.messages[0].context.kind, "routine-run");
   assert.equal(messages.messages[0].context.runId, run.id);
@@ -111,8 +137,10 @@ async function stop(row) {
   await stop(row);
   const reopened = await launch("routine-fixture-open");
   await pause(150);
-  assert.deepEqual(await reopened.client.call("chat:messages", [reopened.receipt.actor.project, 1]), messages);
-  assert.deepEqual(await reopened.client.call("routines:list"), { routines: [] });
+  assert.deepEqual(await reopened.client.call("chat:messages", [reopened.receipt.actor.project, chatId]), messages);
+  assert.deepEqual(await reopened.client.call("routines:list"), {
+    routines: [],
+  });
   const after = JSON.parse(fs.readFileSync(path.join(root, "routines/routines.json"), "utf8"));
   const later = Object.values(after.runs)[0];
   assert.equal(later.length, 1);
@@ -129,21 +157,26 @@ async function stop(row) {
     if (Date.now() > faultDeadline) throw Error("actual timer did not observe manifest revocation");
     await pause(5);
   }
-  await assert.rejects(fault.client.call("routines:list"), { code: "OWNER_CLOSING" });
+  await assert.rejects(fault.client.call("routines:list"), {
+    code: "OWNER_CLOSING",
+  });
   assert.ok(fs.existsSync(path.join(fault.receipt.actor.project, ".milagre/runtime.lock")));
   assert.deepEqual(fs.readFileSync(path.join(root, "routines/routines.json")), runBytes);
   fs.writeFileSync(manifestFile, manifest);
   await assert.rejects(fault.client.call("project:open", [fault.receipt.actor.project]), { code: "OWNER_CLOSING" });
   await stop(fault);
   const recovered = await launch("routine-fixture-open");
-  assert.deepEqual(await recovered.client.call("chat:messages", [recovered.receipt.actor.project, 1]), messages);
-  assert.deepEqual(await recovered.client.call("routines:list"), { routines: [] });
+  assert.deepEqual(await recovered.client.call("chat:messages", [recovered.receipt.actor.project, chatId]), messages);
+  assert.deepEqual(await recovered.client.call("routines:list"), {
+    routines: [],
+  });
   await stop(recovered);
 
   fs.rmSync(parent, { recursive: true });
   console.log(
     JSON.stringify({
       actorTimer: true,
+      newChat,
       ownerFaultRetainedAndRecovered: true,
       actualFixedNative: true,
       storedClaim: true,

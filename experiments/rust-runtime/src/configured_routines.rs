@@ -145,6 +145,7 @@ impl ConfiguredRoutines {
         #[cfg(feature = "routine-execution-fixture")]
         if let Storage::Executing(scheduler) = &self.store {
             let model = scheduler.model().to_owned();
+            let content = scheduler.content();
             self.store = Storage::Executing(
                 crate::routine_execution_fixture::Scheduler::open(
                     &self.root,
@@ -152,6 +153,7 @@ impl ConfiguredRoutines {
                     model,
                     owner,
                     now,
+                    content,
                 )
                 .map_err(execution_error)?,
             );
@@ -168,7 +170,12 @@ impl ConfiguredRoutines {
         Ok(())
     }
     #[cfg(feature = "routine-execution-fixture")]
-    pub(crate) fn activate(&mut self, model: String, now: i64) -> Result<(), RpcError> {
+    pub(crate) fn activate(
+        &mut self,
+        model: String,
+        now: i64,
+        content: Option<Arc<crate::claude_content::SharedContent>>,
+    ) -> Result<(), RpcError> {
         self.store.close().map_err(convert)?;
         let retained = self.check.clone();
         let owner: OwnerCheck = Arc::new(move || retained().map_err(|e| e.message));
@@ -179,6 +186,7 @@ impl ConfiguredRoutines {
                 model,
                 owner,
                 now,
+                content,
             )
             .map_err(execution_error)?,
         );

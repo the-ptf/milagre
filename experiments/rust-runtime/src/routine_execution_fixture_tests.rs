@@ -178,6 +178,7 @@ impl Harness {
             root.config.model.clone(),
             Arc::new(move || retained.check().map_err(|e| e.message)),
             now,
+            None,
         )
         .unwrap();
         Self {
@@ -190,6 +191,9 @@ impl Harness {
     }
     fn create(&mut self, name: &str) -> Value {
         self.scheduler.store.execute(StoreCommand::Create(json!({"name":name,"prompt":"Check isolated schedule","trigger":{"kind":"schedule","cron":"* * * * *","timezone":"UTC"},"target":{"kind":"chat","chatId":format!("{}#1",self.root.project().display())},"permissionMode":"ask","provider":"claude","model":"sonnet","maxRuns":1,"createdBy":{"kind":"user"}})),NOW).unwrap().value
+    }
+    fn create_new(&mut self, name: &str) -> Value {
+        self.scheduler.store.execute(StoreCommand::Create(json!({"name":name,"prompt":"Check isolated schedule","trigger":{"kind":"schedule","cron":"* * * * *","timezone":"UTC"},"target":{"kind":"new-chat","projectPath":self.root.project(),"workspace":"project"},"permissionMode":"ask","provider":"claude","model":"sonnet","maxRuns":1,"createdBy":{"kind":"user"}})), NOW).unwrap().value
     }
     fn run_until_finished(&mut self, at: i64) {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -700,4 +704,176 @@ fn expired_schedule_completes_without_claim_or_native_dispatch_and_quiet_turn_is
     assert_eq!(runs[0]["status"], "quiet");
     assert_eq!(runs[0]["summary"], "Native fixture clean");
     quiet.finish();
+}
+
+#[test]
+fn actual_native_new_chat_is_fresh_attached_named_saved_and_not_replayed() {
+    let mut f = Harness::new("New scheduled actual native reply", false);
+    let row = f.create_new("Fresh native schedule");
+    let due = row["nextRunAt"].as_i64().unwrap();
+    let id = row["id"].as_str().unwrap().to_owned();
+    f.run_until_finished(due);
+    let runs = f
+        .scheduler
+        .store
+        .execute(StoreCommand::Runs(id.clone()), due + 1000)
+        .unwrap()
+        .value;
+    assert_eq!(runs[0]["status"], "acted");
+    let state = f.host.states.whole_state(&f.root.project()).unwrap();
+    let sid = state["messages"][0]["session_id"].as_i64().unwrap();
+    assert_ne!(sid, 1, "must not reuse the user's empty starter Chat");
+    let chat = format!("{}#{sid}", f.root.project().display());
+    assert_eq!(runs[0]["chatId"], chat);
+    assert_eq!(runs[0]["worktreeId"], "1");
+    let session = &state["sessions"][sid.to_string()];
+    assert_eq!(
+        session["routine"],
+        json!({"routineId":id,"runId":runs[0]["id"],"hidden":true})
+    );
+    assert_eq!(session["generatedTitle"], "Fresh native schedule");
+    assert_eq!(state["sessions"]["1"]["summary"]["count"], 0);
+    assert_eq!(
+        state["messages"][0]["context"]["label"],
+        "Routine · Fresh native schedule"
+    );
+    assert_eq!(state["messages"][0]["context"]["runId"], runs[0]["id"]);
+    assert_eq!(
+        state["messages"][1]["body"],
+        "New scheduled actual native reply"
+    );
+    assert_eq!(state["messages"][1]["outcome"], "completed");
+    assert!(f.monitor.pid(&chat).is_some());
+    let profile = f.profile.clone();
+    let path = f.root.isolation.root().to_owned();
+    f.finish();
+    drop(f);
+    let reopened = DataRoot::open(&path, true).unwrap();
+    let mut next = Harness::attach(reopened, profile, "Unexpected replay", false, due + 2000);
+    next.scheduler.tick(&mut next.host, due + 60_000).unwrap();
+    assert_eq!(next.monitor.workers(), 0);
+    assert_eq!(
+        next.scheduler
+            .store
+            .execute(StoreCommand::Runs(id), due + 60_000)
+            .unwrap()
+            .value,
+        runs
+    );
+    assert_eq!(
+        next.host.states.whole_state(&next.root.project()).unwrap()["messages"],
+        state["messages"]
+    );
+    next.finish();
+}
+
+#[test]
+fn new_chat_attachment_failure_fences_before_native_dispatch_and_restart_never_replays() {
+    let mut f = Harness::new("Must never dispatch", false);
+    let row = f.create_new("Uncertain attachment");
+    let due = row["nextRunAt"].as_i64().unwrap();
+    let id = row["id"].as_str().unwrap().to_owned();
+    let file = f.root.isolation.root().join("routines/routines.json");
+    let backup = file.with_extension("saved");
+    let fault_file = file.clone();
+    let fault_backup = backup.clone();
+    f.scheduler.before_attach = Some(Box::new(move || {
+        fs::rename(&fault_file, &fault_backup).unwrap();
+        fs::create_dir(&fault_file).unwrap();
+    }));
+    assert!(f.scheduler.tick(&mut f.host, due).is_err());
+    assert!(f.scheduler.is_fenced());
+    assert_eq!(f.monitor.workers(), 0);
+    let created = f.host.states.whole_state(&f.root.project()).unwrap();
+    assert_eq!(created["sessions"].as_object().unwrap().len(), 2);
+    assert_eq!(created["messages"], json!([]));
+    fs::remove_dir(&file).unwrap();
+    fs::rename(&backup, &file).unwrap();
+    let saved: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+    assert_eq!(saved["runs"][&id][0]["status"], "running");
+    assert!(saved["runs"][&id][0].get("chatId").is_none());
+    assert!(
+        f.scheduler.tick(&mut f.host, due + 1000).is_err(),
+        "restoring bytes never clears fence"
+    );
+    let profile = f.profile.clone();
+    let path = f.root.isolation.root().to_owned();
+    f.finish();
+    drop(f);
+    let reopened = DataRoot::open(&path, true).unwrap();
+    let mut next = Harness::attach(reopened, profile, "Unexpected replay", false, due + 2000);
+    next.scheduler.tick(&mut next.host, due + 60_000).unwrap();
+    let runs = next
+        .scheduler
+        .store
+        .execute(StoreCommand::Runs(id), due + 60_000)
+        .unwrap()
+        .value;
+    assert_eq!(runs[0]["status"], "failed");
+    assert_eq!(runs[0]["error"], "daemon restarted");
+    assert_eq!(next.monitor.workers(), 0);
+    assert_eq!(
+        next.host.states.whole_state(&next.root.project()).unwrap()["sessions"],
+        created["sessions"]
+    );
+    assert_eq!(
+        next.host.states.whole_state(&next.root.project()).unwrap()["messages"],
+        json!([])
+    );
+    next.finish();
+}
+
+#[test]
+fn attached_new_chat_owner_revocation_before_dispatch_keeps_claim_without_replay() {
+    let mut f = Harness::new("Must never dispatch", false);
+    let row = f.create_new("Revoked after attach");
+    let due = row["nextRunAt"].as_i64().unwrap();
+    let id = row["id"].as_str().unwrap().to_owned();
+    let manifest = f.root.isolation.root().join("rust-chat-runtime.json");
+    let bytes = fs::read(&manifest).unwrap();
+    let fault = manifest.clone();
+    f.scheduler.before_dispatch = Some(Box::new(move || {
+        let mut changed = fs::read(&fault).unwrap();
+        changed.push(b' ');
+        fs::write(fault, changed).unwrap();
+    }));
+    assert!(f.scheduler.tick(&mut f.host, due).is_err());
+    assert_eq!(f.monitor.workers(), 0);
+    let saved: Value = serde_json::from_slice(
+        &fs::read(f.root.isolation.root().join("routines/routines.json")).unwrap(),
+    )
+    .unwrap();
+    let run = &saved["runs"][&id][0];
+    assert_eq!(run["status"], "running");
+    assert!(run["chatId"]
+        .as_str()
+        .unwrap()
+        .starts_with(f.root.project().to_str().unwrap()));
+    assert_eq!(run["worktreeId"], "1");
+    fs::write(manifest, bytes).unwrap();
+    assert!(f.scheduler.tick(&mut f.host, due + 1).is_err());
+    let created = f.host.states.whole_state(&f.root.project()).unwrap();
+    assert_eq!(created["messages"], json!([]));
+    let profile = f.profile.clone();
+    let path = f.root.isolation.root().to_owned();
+    f.finish();
+    drop(f);
+    let root = DataRoot::open(&path, true).unwrap();
+    let mut next = Harness::attach(root, profile, "Unexpected replay", false, due + 2000);
+    next.scheduler.tick(&mut next.host, due + 60_000).unwrap();
+    let runs = next
+        .scheduler
+        .store
+        .execute(StoreCommand::Runs(id), due + 60_000)
+        .unwrap()
+        .value;
+    assert_eq!(runs[0]["status"], "failed");
+    assert_eq!(runs[0]["error"], "daemon restarted");
+    assert_eq!(runs[0]["chatId"], run["chatId"]);
+    assert_eq!(next.monitor.workers(), 0);
+    assert_eq!(
+        next.host.states.whole_state(&next.root.project()).unwrap()["messages"],
+        json!([])
+    );
+    next.finish();
 }

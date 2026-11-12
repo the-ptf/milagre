@@ -1,4 +1,4 @@
-# Existing-Chat schedule execution prototype
+# Primary Project Chat schedule execution prototype
 
 `routine-execution-fixture` is default-off. Normal `chat-runtime`, including a
 feature-on binary opening a normal root, remains paused-storage-only. A separate
@@ -82,7 +82,7 @@ Logs: `/tmp/milagre-routine-execution-{owner,owner-full,owner-clippy,runtime,run
 
 - Public enable/Run-now behavior and normal-root authority remain unavailable.
   The actor timer exists only in the explicit synthetic preset below.
-- New Chats, Worktrees, shared Links, broader current model/account/mode policy,
+- Worktree and shared-Link targets, broader current model/account/mode policy,
   fallbacks, prompt placeholders/timezone rendering and background work.
 - Quiet divider/unread updates and naming, plus broader Node scheduler traces.
 - Killed-runtime/process-crash tests and real-provider/application evidence.
@@ -180,3 +180,65 @@ predates this regression. Fresh acceptance passes 138 runtime tests in
 all-target strict Clippy in `/tmp/milagre-routine-actor-clippy-successor.log`
 and `/tmp/milagre-routine-actor-normal-clippy-successor.log`. Formatting,
 JS lint/format and whitespace checks also pass.
+
+
+## Fresh primary Project Chats
+
+The default-off captured synthetic-root scheduler also accepts `new-chat` with
+`workspace:"project"` for its exact owned Project. The separate
+`routine-new-chat-fixture-create` preset seeds this case; ordinary roots, ordinary
+fixture presets, public enable and Run-now remain unchanged. No real provider,
+production root, new Worktree, Link, computer, fallback or prompt expansion is
+admitted.
+
+The actor passes its actual shared content owner into the scheduler and retains
+that same authority across scheduler reopen. Before any fresh Chat creation, the
+scheduler compares actual owned session count with that content owner's Chat
+limit. This is always-fresh admission, so an empty reusable starter cannot bypass
+it. Saturation persists a failed Run with `Configured content Chat admission is
+full`, with no new Chat, transcript or provider dispatch. The saturated actor
+regression uses the actual configured content limit of 1,024.
+
+Ordering is durable ClaimDue, fresh owner Chat creation and flush, durable
+AttachChat of the actual canonical Chat and primary Worktree IDs, owner recheck,
+then trusted send. It binds the returned Sent session and exact TurnId. It never
+reuses the user's empty starter Chat. Node's actual `routineChats.startChat`,
+`ChatHost.emptyChat` and `compactProjectState` are the differential oracle for the
+fresh session, origin `{routineId,runId,hidden:true}`, generatedTitle, body and
+routine-run context (including `label:"Routine · <name>"`). Existing-Chat context
+and provider prompt stay unchanged. New-Chat `at` uses the captured claim time;
+this bounded synchronous path does not introduce another caller clock.
+
+Creation/write uncertainty, unsuccessful attachment and dispatch uncertainty
+fence the scheduler with the running claim retained. Restoring files does not
+clear that fence. Restart recovers the claim as failed with `daemon restarted`
+and never creates or sends it again. A Chat created before a failed attachment is
+kept as hidden origin evidence, not swept or silently retried. Final run naming,
+quiet/archive/unread behavior, fallbacks and Worktree/Link creation remain open.
+
+New evidence:
+
+- The actual fixed-native trusted fixture makes a distinct new Chat, saves its
+  named hidden origin, exact context and completed reply, stores the actual Run
+  attachment, gracefully reopens and sends nothing again.
+- A real routines-file replacement with a directory after Chat creation refuses
+  AttachChat before provider dispatch. The saved running claim and hidden empty
+  Chat survive; verified restart fails the Run without replay.
+- Actual manifest revocation after durable AttachChat and before dispatch
+  preserves attached IDs and zero native workers. Verified restart fails without
+  sending or creating another Chat.
+- The real actor timer uses the explicit new-Chat preset with a <=75-second
+  wall-clock deadline, then reads the saved Run and transcript through the real
+  socket, reopens without replay and exercises revocation/cleanup. This crosses
+  actor publication/content membership and configured provider admission, not
+  only the manual scheduler harness.
+
+Logs: `/tmp/milagre-routine-newchat-{actor,native,owner,full,owner-full,owner-final,capacity,final}.log`.
+Strict checks: `/tmp/milagre-routine-newchat-{final-clippy,final-normal-clippy,owner-clippy}.log`.
+Final acceptance passes 148 runtime checks (including all three actual actor/native
+wire cases) and 231 owner checks. Feature-on and normal runtime all-target strict
+Clippy, owner strict Clippy, rustfmt, JS oxlint/160-column Prettier and whitespace
+checks pass. The initial 147 runtime count predates the capacity regression.
+The Node oracle needs the existing checkout dependency directory in `NODE_PATH`.
+All runtime builds use `/tmp/milagre-routine-execution-runtime-target`; no installed
+Preview or ordinary runtime binary is rebuilt by this fixture increment.

@@ -1,4 +1,4 @@
-//! Fixture-only existing-Chat scheduling. Actor activation additionally requires the captured synthetic-root marker.
+//! Fixture-only primary Project Chat scheduling. Actor activation additionally requires the captured synthetic-root marker.
 use milagre_owner_store::{
     chat_host::{ChatHost, RoutineFixtureError, TurnId},
     jsjson,
@@ -24,6 +24,11 @@ pub(crate) struct Scheduler {
     fenced: Option<String>,
     owner: OwnerCheck,
     changed: bool,
+    content: Option<std::sync::Arc<crate::claude_content::SharedContent>>,
+    #[cfg(test)]
+    pub(crate) before_attach: Option<Box<dyn FnOnce() + Send>>,
+    #[cfg(test)]
+    pub(crate) before_dispatch: Option<Box<dyn FnOnce() + Send>>,
 }
 impl Scheduler {
     pub(crate) fn open(
@@ -32,6 +37,7 @@ impl Scheduler {
         model: String,
         owner: OwnerCheck,
         now: i64,
+        content: Option<std::sync::Arc<crate::claude_content::SharedContent>>,
     ) -> Result<Self> {
         let mut store = RoutineStore::open(root, owner.clone(), now).map_err(|e| e.to_string())?;
         // Once per owner lifetime, before any claim. A retained running row is failed,
@@ -48,7 +54,15 @@ impl Scheduler {
             fenced: None,
             owner,
             changed: recovered.changed,
+            content,
+            #[cfg(test)]
+            before_attach: None,
+            #[cfg(test)]
+            before_dispatch: None,
         })
+    }
+    pub(crate) fn content(&self) -> Option<std::sync::Arc<crate::claude_content::SharedContent>> {
+        self.content.clone()
     }
     pub(crate) fn model(&self) -> &str {
         &self.model
@@ -140,12 +154,13 @@ impl Scheduler {
         self.transaction(StoreCommand::ExpireDue { at: now }, now)?;
         let claims = self.transaction(StoreCommand::ClaimDue { at: now }, now)?;
         let claims = claims.as_array().ok_or("Invalid durable claim list")?;
-        for claim in claims {
+        for original_claim in claims {
+            let mut claim = original_claim.clone();
             let run_id = claim["run"]["id"]
                 .as_str()
                 .ok_or("Invalid durable Run identity")?
                 .to_owned();
-            let chat = claim["routine"]["target"]["chatId"]
+            let mut chat = claim["routine"]["target"]["chatId"]
                 .as_str()
                 .map(str::to_owned);
             if self.pending.len() >= 64 {
@@ -154,11 +169,84 @@ impl Scheduler {
             // The owner derives its context from this exact successful durable claim;
             // no caller context or admission proof boolean reaches it.
             self.check_owner()?;
-            let sent = host.send_claimed_routine_fixture(&self.project, claim, &self.model);
+            if claim["routine"]["target"]["kind"] == "new-chat" {
+                // This always creates a fresh Chat, so starter reuse cannot bypass the
+                // actual content owner's capacity. The actor serializes this with writes.
+                if let Some(limit) = self.content.as_ref().and_then(|owner| owner.chat_limit()) {
+                    let count = host
+                        .states
+                        .current(&self.project)
+                        .and_then(|s| s.sessions().map(|ss| ss.len()))
+                        .ok_or("Missing owned sessions")?;
+                    if count >= limit {
+                        self.finish(
+                            run_id,
+                            RunFinishStatus::Failed,
+                            None,
+                            Some("Configured content Chat admission is full".into()),
+                            None,
+                            now,
+                        )?;
+                        continue;
+                    }
+                }
+                match host.create_claimed_routine_fixture_chat(&self.project, &claim, &self.model) {
+                    Ok((created, worktree)) => {
+                        self.check_owner()?;
+                        #[cfg(test)]
+                        if let Some(fault) = self.before_attach.take() {
+                            fault();
+                        }
+                        let attached = self.transaction(
+                            StoreCommand::AttachChat {
+                                run_id: run_id.clone(),
+                                chat_id: created.clone(),
+                                worktree_id: Some(worktree),
+                            },
+                            now,
+                        )?;
+                        if attached != true {
+                            return self.fence(
+                                "Routine Chat attachment was not committed; no replay".into(),
+                            );
+                        }
+                        claim["routine"]["target"] =
+                            serde_json::json!({"kind":"chat","chatId":created});
+                        chat = claim["routine"]["target"]["chatId"]
+                            .as_str()
+                            .map(str::to_owned);
+                    }
+                    Err(RoutineFixtureError::Refused(error)) => {
+                        self.finish(
+                            run_id,
+                            RunFinishStatus::Failed,
+                            None,
+                            Some(error.to_string()),
+                            None,
+                            now,
+                        )?;
+                        continue;
+                    }
+                    Err(error) => return self.fence(error.to_string()),
+                }
+            }
+            #[cfg(test)]
+            if let Some(fault) = self.before_dispatch.take() {
+                fault();
+            }
+            self.check_owner()?;
+            let sent = host.send_claimed_routine_fixture(&self.project, &claim, &self.model);
             self.check_owner()?;
             match sent {
                 Ok(sent) if !sent.queued && !sent.duplicate && !sent.steering => {
-                    let chat = chat.ok_or("A scheduled fixture must target an existing Chat")?;
+                    let chat = chat.ok_or("A scheduled fixture must bind its actual Chat")?;
+                    if milagre_owner_store::agent_runs::chat_key(
+                        &self.project.to_string_lossy(),
+                        &sent.session_id,
+                    ) != chat
+                    {
+                        return self.fence("Routine Sent Chat identity mismatch; no replay".into());
+                    }
                     self.pending.insert(
                         run_id,
                         Pending {

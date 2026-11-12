@@ -1962,7 +1962,7 @@ fn start_provider(
             )?;
             #[cfg(feature = "routine-execution-fixture")]
             if let Some(model) = config.routine_execution_model() {
-                service.activate(model, epoch)?;
+                service.activate(model, epoch, content.clone())?;
             }
             Ok::<_, RpcError>(service)
         })
@@ -2860,6 +2860,52 @@ mod publication_tests {
         json!({"projectPath":state.project,"worktreeId":1,"provider":"kiro","model":"fixture","body":"capacity turn"})
     }
 
+    #[cfg(feature = "routine-execution-fixture")]
+    #[test]
+    fn fresh_scheduled_chat_at_actual_content_capacity_refuses_before_creation() {
+        use milagre_routines::StoreCommand;
+        let (profile, mut state, shared, provider) = configured_capacity_fixture();
+        attach_routine_store(&profile, &mut state);
+        let now = state.host.states.now();
+        let routines = state.routines.as_mut().unwrap();
+        routines
+            .activate("sonnet".into(), now, state.content.clone())
+            .unwrap();
+        let row = routines.fixture_store().execute(StoreCommand::Create(json!({
+            "name":"Capacity schedule", "prompt":"must not send", "trigger":{"kind":"schedule","cron":"* * * * *","timezone":"UTC"},
+            "target":{"kind":"new-chat","projectPath":state.project,"workspace":"project"}, "createdBy":{"kind":"user"},
+            "provider":"claude", "model":"sonnet", "permissionMode":"ask", "maxRuns":1
+        })), now).unwrap().value;
+        let due = row["nextRunAt"].as_i64().unwrap();
+        let before = state.host.states.whole_state(&state.project).unwrap();
+        let coordination = state.project.join(".milagre/coordination.json");
+        let bytes = fs::read(&coordination).unwrap();
+        state.tick(due, &shared).unwrap();
+        let runs = state
+            .routines
+            .as_mut()
+            .unwrap()
+            .fixture_store()
+            .execute(StoreCommand::Runs(row["id"].as_str().unwrap().into()), due)
+            .unwrap()
+            .value;
+        assert_eq!(runs[0]["status"], "failed");
+        assert_eq!(
+            runs[0]["error"],
+            "Configured content Chat admission is full"
+        );
+        assert!(runs[0].get("chatId").is_none());
+        assert_eq!(
+            state.host.states.whole_state(&state.project).unwrap(),
+            before
+        );
+        assert_eq!(fs::read(coordination).unwrap(), bytes);
+        assert!(provider.state.lock().unwrap().turns.is_empty());
+        state.routines.as_mut().unwrap().close().unwrap();
+        state.host.shutdown(false).unwrap();
+        state.content.take().unwrap().shutdown();
+    }
+
     #[cfg(feature = "chat-runtime")]
     #[test]
     fn configured_content_limit_refuses_new_chats_before_writes_and_reopens() {
@@ -3535,7 +3581,9 @@ mod publication_tests {
         state.host.register(Box::new(provider.clone()));
         attach_routine_store(&profile, &mut state);
         let routines = state.routines.as_mut().unwrap();
-        routines.activate("sonnet".into(), 0).unwrap();
+        routines
+            .activate("sonnet".into(), 0, state.content.clone())
+            .unwrap();
         let chat = format!("{}#1", state.project.display());
         let row = routines.fixture_store().execute(StoreCommand::Create(json!({
             "name":"A", "prompt":"scheduled A", "trigger":{"kind":"schedule","cron":"* * * * *","timezone":"UTC"},
@@ -3628,7 +3676,8 @@ mod publication_tests {
             due + 2,
         )
         .unwrap();
-        next.activate("sonnet".into(), due + 2).unwrap();
+        next.activate("sonnet".into(), due + 2, state.content.clone())
+            .unwrap();
         let recovered = next
             .fixture_store()
             .execute(StoreCommand::Runs(id), due + 2)
