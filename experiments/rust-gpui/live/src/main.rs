@@ -127,6 +127,7 @@ fn run_app(
     snapshot: Option<PathBuf>,
 ) {
     let client = session.client.clone();
+    let reader = session.reader.clone();
     // Snapshot: the open Chat's first page is read before the window opens, so its first frames show it.
     let preloaded = snapshot.as_ref().and_then(|_| {
         let key = milagre_gpui_live::controller::newest_chat(&session)?;
@@ -164,6 +165,7 @@ fn run_app(
         std::mem::forget(controller);
         cx.on_app_quit(move |_| {
             client.disconnect();
+            reader.disconnect();
             let report = session::shutdown_blocking(&guard, Duration::from_secs(20));
             eprintln!("live: shutdown {report:?}");
             async {}

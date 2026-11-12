@@ -270,6 +270,19 @@ fn the_live_window_runs_real_chats_on_the_owned_runtime(cx: &mut TestAppContext)
     println!("GPUI_LIVE_RESOLVED {:?}", m.released_decisions());
     let decisions = m.controller.read_with(m.vcx, |c, _| c.decisions().to_vec());
     assert_eq!(decisions[1], ("perm-2".to_owned(), "AllowForChat".to_owned()), "Always allow is Chat-wide, never global");
+    // The effective decision depends on whether the card offered Chat-wide allowance (Node behaves the same).
+    let (offered, resolved) = m.controller.read_with(m.vcx, |c, _| {
+        c.store().read(|r| {
+            let events: Vec<_> = r.released().tail().filter(|e| e.channel == "agent:event").map(|e| e.payload["event"].clone()).collect();
+            let offered =
+                events.iter().find(|e| e["type"] == "permission-request" && e["requestId"] == "perm-2").map(|e| e["allowForChat"] == true);
+            let resolved =
+                events.iter().find(|e| e["type"] == "permission-resolved" && e["requestId"] == "perm-2").map(|e| e["decision"].clone());
+            (offered, resolved)
+        })
+    });
+    let expected = if offered == Some(true) { "allow-for-chat" } else { "allow" };
+    assert_eq!(resolved, Some(json!(expected)), "card offered allowForChat: {offered:?}");
 
     // 4. A running turn: a follow-up queues in the runtime and is removed from the composer; Stop ends the turn.
     m.type_and_send("Third live turn");
@@ -333,6 +346,31 @@ fn the_live_window_runs_real_chats_on_the_owned_runtime(cx: &mut TestAppContext)
     println!("GPUI_LIVE_UNREAD mark={:?} runs={runs} chat_running={running} tail={tail:?}", unread_row.mark);
     assert_eq!(unread_row.mark, milagre_gpui_spike::logic::marks::chat_mark::ChatMark::Unread);
 
+    // 6. The Terminal drawer on the runtime's PTY: opened for this Chat on the main connection, its output read on the
+    //    second one, typed input reaching the shell. The "local shell" label is gone.
+    let drawer = m.workspace.read_with(m.vcx, |w, _| w.terminals.clone());
+    drawer.update(m.vcx, |d, cx| d.set_chat(key.clone().into(), cx));
+    let view = drawer.update(m.vcx, |d, cx| d.add(cx)).expect("a Terminal tab");
+    assert!(view.read_with(m.vcx, |v, _| v.session().is_remote()), "the drawer opened the runtime's PTY");
+    view.update(m.vcx, |v, cx| v.input(b"printf 'gpui-%s-%s\\n' term ok\r".to_vec(), cx));
+    let screen = |m: &mut Mounted| {
+        view.read_with(m.vcx, |v, _| {
+            use alacritty_terminal::grid::Dimensions as _;
+            let term = v.session().term.lock();
+            let (lines, cols) = (term.screen_lines() as i32, term.columns());
+            (0..lines)
+                .map(|line| milagre_gpui_spike::workspace::panel::terminal::grid::grid_text(&*term, line, 0..=cols - 1))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    };
+    m.until("the shell's output in the grid", |m| screen(m).contains("gpui-term-ok"));
+    m.vcx.run_until_parked();
+    assert!(m.vcx.debug_bounds("terminal-local-shell").is_none(), "no local-shell label on a runtime terminal");
+    println!("GPUI_LIVE_TERMINAL {:?}", screen(&mut m).lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>());
+    drawer.update(m.vcx, |d, cx| d.hide(cx));
+    drop(view);
+
     let epoch = m.state_epoch(&project);
     // Close this window's connection, then stop the runtime.
     m.controller.update(m.vcx, |c, _| c.disconnect());
@@ -340,7 +378,7 @@ fn the_live_window_runs_real_chats_on_the_owned_runtime(cx: &mut TestAppContext)
     drop(m);
     drop(guard);
 
-    // 6. Reopen the same root: a new wire epoch, the same saved transcript, a resumed native session.
+    // 7. Reopen the same root: a new wire epoch, the same saved transcript, a resumed native session.
     let guard = Arc::new(futures::executor::block_on(session::launch(RootKind::Open { root: &root })).expect("open"));
     let session = futures::executor::block_on(Session::connect(guard.clone())).expect("reconnect");
     let mut m = mount(cx, session);

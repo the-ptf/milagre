@@ -42,6 +42,10 @@ pub struct Session {
     pub account_label: String,
     /// The accepted snapshot's global watermark.
     pub event_seq: u64,
+    /// The second connection, for terminal reads only (a read long-polls and would hold every call behind it).
+    pub reader: Client,
+    /// The Terminal drawer's host on the runtime's PTYs, over both connections.
+    pub terminals: Arc<crate::terminals::LiveTerminals>,
 }
 
 impl Session {
@@ -58,6 +62,26 @@ impl Session {
         }
         client.accept_snapshot(&snapshot).await.context("accept the snapshot")?;
         let actions = guard.chat_actions(&client).context("Chat actions")?;
+        // The reader connection goes through the same order on its own: open, snapshot, apply, accept, drained.
+        let (reader, _, reader_notices) = guard.connect(ClientOptions::default()).await.context("connect the terminal reader")?;
+        reader.open_view(&project).await.context("project:open (terminal reader)")?;
+        let reader_snapshot = reader.runtime_snapshot().await.context("runtime snapshot (terminal reader)")?;
+        Reducer::default().apply_snapshot(&reader_snapshot).context("apply the reader's snapshot")?;
+        reader.accept_snapshot(&reader_snapshot).await.context("accept the reader's snapshot")?;
+        std::thread::Builder::new().name("milagre-terminal-reader-notices".into()).spawn(move || {
+            // Kept drained (an unread bounded queue would close the connection); the main connection applies them.
+            let mut notices = reader_notices;
+            while futures::executor::block_on(notices.next()).is_some() {}
+        })?;
+        let terminals = Arc::new(
+            crate::terminals::LiveTerminals::new(
+                project.clone(),
+                guard.terminal_actions(&client).context("terminal actions")?,
+                guard.terminal_actions(&reader).context("terminal reads")?,
+                reader.clone(),
+            )
+            .await,
+        );
         let info = guard.info().clone();
         let account_label = saved_label(&info.data_root).unwrap_or_else(|| info.account_id.clone());
         Ok(Session {
@@ -71,6 +95,8 @@ impl Session {
             account_id: info.account_id,
             account_label,
             event_seq: snapshot.event_seq,
+            reader,
+            terminals,
         })
     }
 }

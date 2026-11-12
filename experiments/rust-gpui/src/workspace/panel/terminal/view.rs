@@ -133,6 +133,33 @@ impl TerminalView {
         }
     }
 
+    /// A Terminal on the app's [`super::remote::Host`] for the Chat `chat`: its output is parsed into this view's grid
+    /// as it arrives; an ended shell closes the tab, a failure is written into the grid.
+    pub fn remote(host: &super::remote::Host, chat: &str, cx: &mut Context<Self>) -> Self {
+        let size = GridSize { cols: 80, lines: 24 };
+        let (sink, output) = host.0.open(chat, size);
+        let session = Session::remote(size, sink, host.0.shell_name());
+        let view = Self::new(session, cx);
+        cx.spawn(async move |this, cx| {
+            while let Ok(chunk) = output.recv().await {
+                let alive = this.update(cx, |view, cx| match chunk {
+                    super::remote::RemoteOutput::Data(bytes) => view.session.push(&bytes),
+                    // A full reset (RIS): what follows draws on a clean screen.
+                    super::remote::RemoteOutput::Reset => view.session.push(b"\x1bc"),
+                    super::remote::RemoteOutput::Ended => cx.emit(TerminalEvent::Exited),
+                    super::remote::RemoteOutput::Failed(message) => {
+                        view.session.push(format!("\r\n{message}\r\n").as_bytes());
+                    }
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+        view
+    }
+
     /// A shell in `cwd`, on a PTY of 80 by 24 until the grid is laid out.
     pub fn spawn(cwd: &Path, cx: &mut Context<Self>) -> std::io::Result<Self> {
         let session = Session::spawn(cwd, GridSize { cols: 80, lines: 24 }, (8, 15))?;

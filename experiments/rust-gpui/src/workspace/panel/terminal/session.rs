@@ -79,6 +79,12 @@ pub struct Session {
     pub shell_name: String,
     /// The PTY's controller side, to ask which process group is in front.
     controller: Option<File>,
+    /// A shell that runs elsewhere (`remote.rs`): keys and sizes go there, its output comes through [`Session::push`].
+    remote: Option<Arc<dyn super::remote::RemoteTerminal>>,
+    /// The emulator's own listener, to wake the view after [`Session::push`].
+    listener: Option<Listener>,
+    /// The parser for pushed output, kept across chunks (an escape sequence can be split between two).
+    parser: Mutex<alacritty_terminal::vte::ansi::Processor>,
 }
 
 /// What to run: the login shell (alacritty's default, `login -flp $USER $SHELL` on macOS) unless the environment
@@ -124,18 +130,76 @@ impl Session {
         let event_loop = EventLoop::new(term.clone(), listener, pty, true, false)?;
         let notifier = Notifier(event_loop.channel());
         event_loop.spawn();
-        Ok(Self { term, pty: Some(notifier), events, record: Arc::default(), wake_pending, shell_name: name, controller })
+        Ok(Self {
+            term,
+            pty: Some(notifier),
+            events,
+            record: Arc::default(),
+            wake_pending,
+            shell_name: name,
+            controller,
+            remote: None,
+            listener: None,
+            parser: Mutex::default(),
+        })
     }
 
     /// An emulator with no shell: what the headless tests drive with [`Session::feed`].
     pub fn detached(size: GridSize) -> Self {
         let (listener, events, wake_pending) = channel();
         let term = Arc::new(FairMutex::new(Term::new(config(), &size, listener)));
-        Self { term, pty: None, events, record: Arc::default(), wake_pending, shell_name: shell_name(None), controller: None }
+        Self {
+            term,
+            pty: None,
+            events,
+            record: Arc::default(),
+            wake_pending,
+            shell_name: shell_name(None),
+            controller: None,
+            remote: None,
+            listener: None,
+            parser: Mutex::default(),
+        }
+    }
+
+    /// An emulator whose shell runs elsewhere: `remote` takes the keys and sizes; [`Session::push`] its output.
+    pub fn remote(size: GridSize, remote: Arc<dyn super::remote::RemoteTerminal>, shell_name: String) -> Self {
+        let (listener, events, wake_pending) = channel();
+        let term = Arc::new(FairMutex::new(Term::new(config(), &size, listener.clone())));
+        Self {
+            term,
+            pty: None,
+            events,
+            record: Arc::default(),
+            wake_pending,
+            shell_name,
+            controller: None,
+            remote: Some(remote),
+            listener: Some(listener),
+            parser: Mutex::default(),
+        }
+    }
+
+    /// Output of a remote shell: parsed into the grid (the parser keeps a sequence split across chunks), then the
+    /// view is woken as a PTY thread wakes it.
+    pub fn push(&self, bytes: &[u8]) {
+        {
+            let mut parser = self.parser.lock().unwrap_or_else(|e| e.into_inner());
+            let mut term = self.term.lock();
+            parser.advance(&mut *term, bytes);
+        }
+        if let Some(listener) = &self.listener {
+            listener.send_event(Event::Wakeup);
+        }
+    }
+
+    /// Whether the shell runs elsewhere.
+    pub fn is_remote(&self) -> bool {
+        self.remote.is_some()
     }
 
     pub fn has_shell(&self) -> bool {
-        self.pty.is_some()
+        self.pty.is_some() || self.remote.is_some()
     }
 
     /// Bytes for the program in front (typing, a paste, a reply the emulator owes it).
@@ -144,6 +208,7 @@ impl Session {
             Some(pty) => {
                 let _ = pty.0.send(Msg::Input(bytes.into()));
             }
+            None if self.remote.is_some() => self.remote.as_ref().expect("remote").input(bytes.into().into_owned()),
             None => self.record.lock().unwrap_or_else(|e| e.into_inner()).input.extend_from_slice(&bytes.into()),
         }
     }
@@ -154,6 +219,7 @@ impl Session {
             Some(pty) => {
                 let _ = pty.0.send(Msg::Resize(window_size(size, cell)));
             }
+            None if self.remote.is_some() => self.remote.as_ref().expect("remote").resize(size),
             None => self.record.lock().unwrap_or_else(|e| e.into_inner()).sizes.push(size),
         }
     }
@@ -187,6 +253,9 @@ impl Drop for Session {
     fn drop(&mut self) {
         if let Some(pty) = &self.pty {
             let _ = pty.0.send(Msg::Shutdown);
+        }
+        if let Some(remote) = &self.remote {
+            remote.close();
         }
     }
 }

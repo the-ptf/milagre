@@ -15,9 +15,9 @@ path = "src/main.rs"
 
 [dependencies]
 milagre-gpui-spike = { path = ".." }
-# The backend's shared client at 90922b6c with its off-by-default `owned-chat` feature, exported (never edited) by
+# The backend's shared client at 130d553c (owned-chat Chat and terminal actions) with its off-by-default `owned-chat` feature, exported (never edited) by
 # ../daemon-check/scripts/check-gpui-live.py into the GPUI crate's ignored target/ directory.
-milagre-daemon-client = { path = "../target/daemon-client-90922b6c/experiments/rust-daemon-client", features = ["owned-chat"] }
+milagre-daemon-client = { path = "../target/daemon-client-130d553c/experiments/rust-daemon-client", features = ["owned-chat"] }
 gpui = { package = "gpui-pre", version = "=0.3.12" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders"] }
 gpui-component = "=0.9.1"
@@ -26,8 +26,12 @@ serde_json = "1"
 futures = "0.3"
 # SIGTERM/SIGINT go through the app's quit path (main.rs). Already in the tree.
 libc = "0.2"
+# The remote Terminal's output channel (the base crate's terminal seam). Already in the tree.
+async-channel = "2"
 
 [dev-dependencies]
+# Reading the Terminal grid in the staged test (the base crate's emulator).
+alacritty_terminal = { version = "=0.26.0", default-features = false }
 gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
 
 # The base crate's patched gpui-pre-apple (its vendor/), as its own workspace applies it.

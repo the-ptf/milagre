@@ -6,8 +6,8 @@
     python3 scripts/check-gpui-live.py run --backend <backend worktree>
 
 `export` writes `git archive <CLIENT_COMMIT> experiments/rust-daemon-client` into the GPUI crate's ignored
-target/daemon-client-90922b6c/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
-(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-90922b6c/,
+target/daemon-client-130d553c/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
+(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-130d553c/,
 checking every exported file against the commit's blobs. The app-fixture adapter keeps its own client at 9aa5deb3
 (scripts/check-gpui-adapter.py); nothing here touches that export or its pins.
 
@@ -37,13 +37,13 @@ import tempfile
 CRATE = Path(__file__).resolve().parents[1]
 GPUI = CRATE.parent
 LIVE = GPUI / "live"
-CLIENT_COMMIT = "90922b6c2653854a6bae9f99eb1a721486be21cc"
-CLIENT_TREE = "0227cc004ccdce8d1ed6dc736a823ae1673f6c25"
+CLIENT_COMMIT = "130d553c0f1de03691f31625c9f72afceb9ddbcc"
+CLIENT_TREE = "e601c2292dfdbae89ead82e4bdacff73fb863394"
 CLIENT_PATH = "experiments/rust-daemon-client"
-EXPORT = GPUI / "target/daemon-client-90922b6c"
+EXPORT = GPUI / "target/daemon-client-130d553c"
 FAKE_PATH = "experiments/rust-claude/src/bin/fake_claude.rs"
 FAKE_BLOB = "7508b11e3e7245fcadd4d596f995f2f4289d800f"
-FAKE_CRATE = CRATE / "target/fake-claude-90922b6c"
+FAKE_CRATE = CRATE / "target/fake-claude-130d553c"
 # The agreed dedicated runtimes, newest first: 846ee97a (backend 4c5f541a, adds PTY and Git on the runtime side; no
 # client facade for them) and c4a6c25a (content and late cleanup). `--sha256` picks another agreed one.
 AGREED = {

@@ -56,6 +56,8 @@ pub fn install_globals(session: &Session, cx: &mut App) -> Wiring {
         recorded: recorded.clone(),
     })));
     cx.set_global(SidebarSeed { open_chat: newest_chat(session) });
+    // The Terminal drawer opens the runtime's PTYs, not this computer's.
+    cx.set_global(milagre_gpui_spike::workspace::panel::terminal::remote::Host(session.terminals.clone()));
     // Everything the runtime does not back is off or labelled (`workspace::preview`).
     cx.set_global(PreviewMode { account: session.account_label.clone().into(), model: session.model.clone().into() });
     Wiring { commands, receiver, recorded, preloaded: None }

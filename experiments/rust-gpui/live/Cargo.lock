@@ -4339,7 +4339,9 @@ dependencies = [
 name = "milagre-gpui-live"
 version = "0.1.0"
 dependencies = [
+ "alacritty_terminal",
  "anyhow",
+ "async-channel",
  "futures",
  "gpui-component",
  "gpui-pre",

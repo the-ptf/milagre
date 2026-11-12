@@ -20,6 +20,7 @@
 pub mod colors;
 pub mod grid;
 pub mod keys;
+pub mod remote;
 pub mod session;
 pub mod view;
 
@@ -157,8 +158,8 @@ pub fn column(chat: impl IntoElement, drawer: &Entity<TerminalDrawer>, window: &
                     .h(px(slot))
                     .child(AnyView::from(drawer.clone()).cached(StyleRefinement::default().size_full()))
                     .children(slide.cover)
-                    // Preview: the drawer is this computer's own PTY, not the runtime's.
-                    .when(crate::workspace::preview::is_on(cx), |el| {
+                    // Preview with no terminal host: the drawer is this computer's own PTY, not the runtime's.
+                    .when(crate::workspace::preview::is_on(cx) && !cx.has_global::<remote::Host>(), |el| {
                         el.child(
                             div()
                                 .debug_selector(|| "terminal-local-shell".into())
@@ -291,7 +292,13 @@ impl TerminalDrawer {
 
     pub fn add(&mut self, cx: &mut Context<Self>) -> Option<Entity<TerminalView>> {
         let detached = |cx: &mut Context<TerminalView>| TerminalView::new(Session::detached(GridSize { cols: 80, lines: 24 }), cx);
+        let host = cx.try_global::<remote::Host>().cloned();
         let view = match self.spawn {
+            // A data layer that owns terminals opens them; the local PTY is the fixture app's.
+            Spawn::Shell if host.is_some() => {
+                let (host, chat) = (host.expect("host"), self.chat.to_string());
+                cx.new(|cx| TerminalView::remote(&host, &chat, cx))
+            }
             Spawn::Shell => {
                 let cwd = self.cwd.clone();
                 let mut failure = None;

@@ -59,7 +59,7 @@ src="$work/experiments/rust-gpui"
 echo "==> exporting the shared client"
 python3 "$check" export --backend "$backend" >/dev/null
 mkdir -p "$src/target"
-cp -R "$crate/target/daemon-client-90922b6c" "$src/target/"
+cp -R "$crate/target/daemon-client-130d553c" "$src/target/"
 
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cache/milagre-gpui-preview/target}"
 echo "==> cargo build --release (target $CARGO_TARGET_DIR)"
@@ -89,7 +89,7 @@ codesign --force -s - "$app/Contents/MacOS/chat-runtime"
 codesign --force -s - "$app"
 codesign --verify --deep --strict "$app"
 signed="$(shasum -a 256 "$app/Contents/MacOS/chat-runtime" | cut -d' ' -f1)"
-printf '{"runtimeSha256":"%s","signedRuntimeSha256":"%s","gpuiHead":"%s","client":"90922b6c"}\n' "$sha" "$signed" "$head" \
+printf '{"runtimeSha256":"%s","signedRuntimeSha256":"%s","gpuiHead":"%s","client":"130d553c"}\n' "$sha" "$signed" "$head" \
   > "$app/Contents/Resources/runtime.json"
 # The resource changed after signing the bundle: sign once more so the seal covers it.
 codesign --force -s - "$app"
