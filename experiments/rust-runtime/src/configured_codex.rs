@@ -85,6 +85,10 @@ mod tests {
         time::{Duration, Instant},
     };
     fn context() -> (IsolatedProfile, CodexLaunchContext, Arc<AtomicBool>) {
+        context_scenario("reply")
+    }
+    fn context_scenario(scenario: &str) -> (IsolatedProfile, CodexLaunchContext, Arc<AtomicBool>) {
+        assert!(matches!(scenario, "reply" | "approval"));
         let profile = IsolatedProfile::create().unwrap();
         let isolation = Isolation::create(profile.path(), &Policy::system()).unwrap();
         let project = isolation.project(Path::new("owned")).unwrap();
@@ -115,7 +119,7 @@ mod tests {
         std::fs::write(
             &program,
             format!(
-                "#!/bin/sh\n[ \"$1\" = app-server ] || exit 92\nexec '{}' --require '{}' '{}' \"$@\"\n",
+                "#!/bin/sh\n[ \"$1\" = app-server ] || exit 92\nexport FAKE_SCENARIO={scenario}\nexec '{}' --require '{}' '{}' \"$@\"\n",
                 node.display(),
                 probe.display(),
                 script.display()
@@ -148,6 +152,79 @@ mod tests {
         (profile, context, live)
     }
     #[test]
+    fn configured_modes_ask_auto_card_and_full_allow_match_existing_native_policy() {
+        for mode in ["ask", "auto", "full"] {
+            let (_profile, context, live) = context_scenario("approval");
+            let project = context.project.clone();
+            let mut provider = crate::codex_fixture::CodexFixture::configured(context).unwrap();
+            let monitor = provider.monitor();
+            let request = json!({"provider":"codex","model":"fixture-model","cwd":project,"chatId":"owned#1","prompt":"hello","permissionMode":mode,"tldrEnabled":true});
+            provider
+                .start_turn(TurnId(1), &RawJson(request.clone()))
+                .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(6);
+            let mut cards = 0;
+            loop {
+                let events = provider.take_events();
+                let mut ended = false;
+                for event in events {
+                    if let ProviderEvent::Agent {
+                        event: RawJson(value),
+                        ..
+                    } = event
+                    {
+                        if value["type"] == "permission-request" {
+                            cards += 1;
+                            assert_ne!(
+                                mode, "full",
+                                "Full should resolve native card automatically"
+                            );
+                            provider
+                                .respond_permission(
+                                    "owned#1",
+                                    TurnId(1),
+                                    milagre_owner_store::chat_host::AnswerId(1),
+                                    "srv-1",
+                                    "allow",
+                                )
+                                .unwrap();
+                        }
+                        if value["type"] == "turn-completed" {
+                            ended = true;
+                        }
+                        assert_ne!(value["type"], "turn-failed", "{value}");
+                    }
+                }
+                if ended {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "mode {mode} did not finish");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert_eq!(cards, usize::from(mode != "full"));
+            if mode == "auto" {
+                let first_pid = monitor.native_session("owned#1").unwrap().0;
+                let mut next = request.clone();
+                next["permissionMode"] = json!("full");
+                provider.start_turn(TurnId(2), &RawJson(next)).unwrap();
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    let events = provider.take_events();
+                    assert!(!events.iter().any(|e| matches!(e, ProviderEvent::Agent { event: RawJson(v), .. } if v["type"] == "permission-request")), "Full second turn must auto-allow");
+                    if events.iter().any(|e| matches!(e, ProviderEvent::Agent { turn, event: RawJson(v), .. } if *turn == TurnId(2) && v["type"] == "turn-completed")) { break; }
+                    assert!(Instant::now() < deadline, "Full second turn did not finish");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                assert_eq!(monitor.native_session("owned#1").unwrap().0, first_pid);
+            }
+            live.store(false, Ordering::Release);
+            assert!(provider.start_turn(TurnId(3), &RawJson(request)).is_err());
+            provider.shutdown();
+            assert!(monitor.wait_stopped(Duration::from_secs(5)));
+            assert!(!monitor.cleanup_failed());
+        }
+    }
+    #[test]
     fn environment_is_exact_selected_account_without_ambient_tokens() {
         let (_profile, context, live) = context();
         let spawn = context.spawn().unwrap();
@@ -173,7 +250,8 @@ mod tests {
             ("model", json!("foreign")),
             ("tldrEnabled", json!(false)),
             ("tldrEnabled", json!("true")),
-            ("permissionMode", json!("full")),
+            ("permissionMode", json!("unknown")),
+            ("permissionMode", json!(true)),
             ("fastMode", json!(true)),
             ("replies", json!("verbose")),
             ("replies", json!("Concise")),

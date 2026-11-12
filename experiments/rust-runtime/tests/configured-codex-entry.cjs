@@ -7,6 +7,8 @@ const { spawn } = require("node:child_process");
 const readline = require("node:readline");
 const { connect } = require("../../../apps/daemon/src/client.cjs");
 const executable = path.resolve(process.argv[2]);
+const modes = (process.env.MILAGRE_CODEX_TEST_MODES || "ask,ask").split(",");
+assert.equal(modes.length, 2);
 const parent = fs.mkdtempSync(path.join(os.tmpdir(), "rust-codex-entry-"));
 const root = path.join(parent, "data");
 const active = new Set();
@@ -124,7 +126,7 @@ async function main() {
       fastMode: false,
       replies: "concise",
       clientMessageId: "codex-entry-1",
-      permissionMode: "ask",
+      permissionMode: modes[0],
       tldrEnabled: true,
     },
   ]);
@@ -170,7 +172,7 @@ async function main() {
       fastMode: false,
       replies: "normal",
       clientMessageId: "codex-entry-2",
-      permissionMode: "ask",
+      permissionMode: modes[1],
       tldrEnabled: true,
     },
   ]);
@@ -188,8 +190,8 @@ async function main() {
   assert.equal(threads[0].params.developerInstructions, sessionInstructions({ tldrEnabled: true }));
   // Call the real Node implementation, not a duplicated request builder. React's
   // provider-independent reply preference is deliberately absent from native Codex.
-  const { CodexSession } = require("../../../packages/core/src/agents/codex-provider.cjs");
-  async function nodeTurn(prompt, effort, replies, threadId) {
+  const { CodexSession, codexPolicy } = require("../../../packages/core/src/agents/codex-provider.cjs");
+  async function nodeTurn(prompt, effort, replies, threadId, mode) {
     let native;
     const session = {
       cwd: first.project,
@@ -208,7 +210,7 @@ async function main() {
     const result = await CodexSession.prototype.beginTurn.call(session, {
       prompt,
       model: "fixture-model",
-      permissionMode: "ask",
+      permissionMode: mode,
       images: [],
       effort,
       replies,
@@ -219,15 +221,20 @@ async function main() {
     assert.equal(result.turnId, "oracle-turn");
     return native;
   }
+  for (const [index, frame] of threads.entries()) {
+    const policy = codexPolicy(modes[index], first.project, []);
+    assert.equal(frame.params.approvalPolicy, policy.approvalPolicy);
+    assert.equal(frame.params.sandbox, policy.sandbox);
+  }
   const turns = recorded.filter((frame) => frame.method === "turn/start");
   assert.equal(turns.length, 2);
   for (const [index, prompt, effort] of [
     [0, "Dedicated Codex entrypoint", null],
     [1, "Resume dedicated Codex context", "high"],
   ]) {
-    const expected = await nodeTurn(prompt, effort, "concise", turns[index].params.threadId);
+    const expected = await nodeTurn(prompt, effort, "concise", turns[index].params.threadId, modes[index]);
     for (const replies of ["normal", null, undefined]) {
-      assert.deepEqual(await nodeTurn(prompt, effort, replies, turns[index].params.threadId), expected);
+      assert.deepEqual(await nodeTurn(prompt, effort, replies, turns[index].params.threadId, modes[index]), expected);
     }
     assert.deepEqual(turns[index].params, expected);
   }

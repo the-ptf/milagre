@@ -493,13 +493,12 @@ impl CodexFixture {
                 "Only this isolated Codex fixture Project is admitted",
             ));
         }
-        if request
-            .get("permissionMode")
-            .is_some_and(|v| !v.is_null() && v != "ask")
-        {
-            return Err(refused(
-                "Only ordinary Ask mode is implemented by the fixture bridge",
-            ));
+        if request.get("permissionMode").is_some_and(|v| {
+            !v.is_null()
+                && (!matches!(v.as_str(), Some("ask" | "auto" | "full"))
+                    || (self.configured.is_none() && v != "ask"))
+        }) {
+            return Err(refused("Unsupported or mistyped Codex permission mode"));
         }
         for key in ["ultracode", "fastMode", "tldrEnabled"] {
             if key == "tldrEnabled" && self.configured.is_some() {
@@ -873,7 +872,8 @@ impl Worker {
             None => fixture_spawn,
         };
         let cwd = self.project.to_string_lossy().to_string();
-        let policy = codex::codex_policy(codex::PermissionMode::Ask, &cwd, &[], false, false);
+        let first_mode = permission_mode(&first.request);
+        let policy = codex::codex_policy(first_mode, &cwd, &[], false, false);
         let mut options =
             codex::SessionOptions::new(codex::ConnectOptions::new(spawn, "fixture"), cwd);
         options.resume_thread_id = first.request["resumeId"].as_str().map(str::to_owned);
@@ -946,10 +946,16 @@ impl Worker {
                 let mut settings = turn(
                     prompt_input(start.request["prompt"].as_str().unwrap(), &[]),
                     start.request["model"].as_str().map(str::to_owned),
-                    policy.clone(),
+                    codex::codex_policy(
+                        permission_mode(&start.request),
+                        &self.project.to_string_lossy(),
+                        &[],
+                        false,
+                        false,
+                    ),
                 );
                 settings.effort = start.request["effort"].as_str().map(str::to_owned);
-                settings.permission_mode = Some(codex::PermissionMode::Ask);
+                settings.permission_mode = Some(permission_mode(&start.request));
                 let result = tokio::select! { biased; _=close.changed()=>None, _=interrupt.changed()=>None, result=session.send(settings)=>Some(result) };
                 match result {
                     Some(Ok(outcome)) => {
@@ -1083,4 +1089,12 @@ async fn probe_inputs(session: &CodexSession, shared: &Shared, chat: &str) {
     if selected.to_string().len() <= BYTES {
         *shared.input_probe.lock().unwrap() = Some(selected);
     }
+}
+
+// Requests are typed before enqueue. Null/absent uses Node's ordinary Ask default.
+fn permission_mode(request: &Value) -> codex::PermissionMode {
+    request["permissionMode"]
+        .as_str()
+        .and_then(codex::PermissionMode::parse)
+        .unwrap_or(codex::PermissionMode::Ask)
 }

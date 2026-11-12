@@ -74,7 +74,24 @@ pub enum Event {
     },
 }
 
+struct WholeStateCache {
+    source: ProjectState,
+    value: Arc<Value>,
+}
+impl WholeStateCache {
+    fn matches(&self, state: &ProjectState) -> bool {
+        Arc::ptr_eq(&self.source.rest, &state.rest)
+            && Arc::ptr_eq(&self.source.unloaded, &state.unloaded)
+            && match (&self.source.messages, &state.messages) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+}
+
 struct Slot {
+    whole_cache: Option<WholeStateCache>,
     owner: OwnedProject,
     state: ProjectState,
     dirty: Option<ProjectState>,
@@ -264,6 +281,34 @@ impl ProjectStates {
         ))
     }
 
+    /// Shared hydrated publication state, cached only for this exact open owner and state identity.
+    /// Ownership is verified on every access, including cache hits. Reads never refresh the idle clock.
+    /// One cached whole value is retained per open Project; writes and failed authority checks discard it.
+    pub fn current_whole_state_shared(&mut self, project: &Path) -> Result<Option<Arc<Value>>> {
+        let key = self.isolation.normalize(project)?;
+        let Some(slot) = self.slots.get_mut(&key) else {
+            return Ok(None);
+        };
+        if let Err(error) = slot.owner.verify_owned() {
+            slot.whole_cache = None;
+            return Err(error);
+        }
+        if let Some(cache) = &slot.whole_cache {
+            if cache.matches(&slot.state) {
+                return Ok(Some(cache.value.clone()));
+            }
+        }
+        slot.whole_cache = None;
+        let state = slot.state.clone();
+        let (db, store) = slot.owner.cache();
+        let value = Arc::new(message_store::whole_state(db, store, &state)?.to_value());
+        slot.whole_cache = Some(WholeStateCache {
+            source: state,
+            value: value.clone(),
+        });
+        Ok(Some(value))
+    }
+
     pub fn projects(&self) -> Vec<PathBuf> {
         self.order.clone()
     }
@@ -333,6 +378,7 @@ impl ProjectStates {
             state = self.shed_old(key, &mut owner, &state);
         }
         let slot = Slot {
+            whole_cache: None,
             owner,
             state,
             dirty: None,
@@ -561,6 +607,7 @@ impl ProjectStates {
             ..Default::default()
         };
         let slot = self.slots.get_mut(key).expect("open");
+        slot.whole_cache = None;
         match slot.owner.save_state(&state, &options, Same::Identity) {
             Ok(report) => {
                 self.events.push(Event::Saved {

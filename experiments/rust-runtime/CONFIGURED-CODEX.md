@@ -18,12 +18,12 @@ Configured launches use the native `app-server` argument, an exact six-variable
 replacement environment, normal transport/start timeouts and three-second
 interrupt grace. They inject the captured developerInstructions in thread start.
 The configured model and TLDR instruction selection are fixed; a mismatched turn
-refuses before dispatch. Ask text sends are supported, including the ordinary
+refuses before dispatch. Configured text sends in Ask/Auto/Full are supported, including the ordinary
 React composer's typed `replies:"concise"|"normal"` preference and captured TLDR
 true. Node Codex does not consume `replies`; its actual `beginTurn` oracle proves
 both styles produce identical native frames. This is contract parity, not a
 Codex reply-style feature. Effort remains exact on native `turn/start` (null is
-omitted; an explicit string is retained). Full/Auto, image sends, fast mode,
+omitted; an explicit string is retained). Image sends, fast mode,
 user MCP extras and dynamic instruction/TLDR switching remain refused.
 The context's instructions must come from the parent's actual Node-compatible
 assembly. A supplied text is not proof that packing or production account adoption
@@ -89,3 +89,32 @@ source was restored byte-for-byte and the final entrypoint rerun passes
 (`entry-final.log`). The failed mutant's disposable evidence is retained and no
 process was signalled. The full-suite result precedes the temporary mutant and
 uses the same final source bytes.
+
+## Configured per-turn permission modes
+
+Configured text turns now admit typed Ask, Auto and Full modes. The first native
+thread uses that first turn's policy; every subsequent turn recomputes its own
+policy and applies the session permission mode. Actual Node `codexPolicy` and
+`CodexSession.beginTurn` are the frame oracles. Ask uses untrusted approvals in a
+workspace-write sandbox, Auto uses on-request approvals in that sandbox, and Full
+uses never/danger-full-access. Full is unconfined, as in Node; this is no additional
+sandbox guarantee. No extra workspace roots or guarded roles are admitted.
+
+The dedicated CLI test covers Auto creation then Full resume, including exact
+thread and turn native policy frames. Native command-approval tests require cards
+in Ask/Auto and automatic allowance in Full, plus Auto-to-Full reuse of the same
+native process between turns and refusal after captured authority revocation.
+Unknown/mistyped modes refuse before workers. The public fake-only bridge remains
+Ask-only. Mid-turn `agent:permission-mode` remains unsupported by this adapter;
+the existing owner error is retained. This checkpoint adds no dynamic mode receipt
+channel and does not run a real provider/account.
+
+Logs: `/tmp/milagre-codex-modes-{entry,approval-final,full,clippy}.log`.
+
+Frozen-source validation passes 134 normal runtime checks (including both normal
+entrypoint mode variants and all existing bridge tests), strict all-target Clippy,
+Rust/JS formatting, JS lint and whitespace checks. The same-process approval test
+also proves the second Full turn reuses the Auto turn's native PID. The first
+focused approval run predates that added same-process assertion; the final run is
+`/tmp/milagre-codex-modes-approval-final.log`. Concurrent owner/actor cache work was
+not edited by this lane and is subject to its own acceptance.

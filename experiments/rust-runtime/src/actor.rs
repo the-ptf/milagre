@@ -503,6 +503,7 @@ struct State {
     version: u64,
     publication_epoch: Option<String>,
     last: Value,
+    last_source: Option<Arc<Value>>,
     run_seq: u64,
     next_readiness_check: Instant,
     pending: VecDeque<(String, Value)>,
@@ -652,20 +653,20 @@ impl State {
             .store(self.host.stuck_ends().len(), Ordering::Release);
         self.sync_readiness();
         let ready = self.host.is_project_ready(&self.project);
-        let state = if ready {
+        let source = if ready {
             // This transport has not negotiated chat-pages-v1. Node's whole
             // clients receive unloaded messages hydrated from chats.db too.
             // Publishing current() here silently replaced a visible Chat with
             // an empty transcript when its idle messages left owner memory.
-            match self.host.states.current_whole_state(&self.project) {
-                Ok(Some(state)) => state,
+            match self.host.states.current_whole_state_shared(&self.project) {
+                Ok(Some(state)) => Some(state),
                 Ok(None) => {
                     // A release can remove the slot and then fail, before the
                     // host clears ready. Revoke that stale view without masking
                     // the release error or dropping its LockStranded notice.
                     let _ = self.host.require_project_ready(&self.project);
                     self.sync_readiness();
-                    Value::Null
+                    None
                 }
                 Err(error) => {
                     // Ownership loss remains recoverable by an explicit open,
@@ -675,19 +676,26 @@ impl State {
                     if self.host.require_project_ready(&self.project).is_err() {
                         record_failure(shared, error.to_string());
                         self.sync_readiness();
-                        Value::Null
+                        None
                     } else {
                         return Err(convert(error));
                     }
                 }
             }
         } else {
-            Value::Null
+            None
         };
+        let same_source = match (&source, &self.last_source) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => self.last.is_null(),
+            _ => false,
+        };
+        let empty = Value::Null;
+        let state = source.as_deref().unwrap_or(&empty);
         if ready && !state.is_null() {
             #[cfg(feature = "chat-runtime")]
             if let Some(terminals) = &self.terminals {
-                terminals.refresh(&state)?;
+                terminals.refresh(state)?;
             }
             if let Some(content) = &self.content {
                 content
@@ -695,23 +703,53 @@ impl State {
                     .map_err(|error| RpcError::new(error.code, error.message))?;
             }
         }
-        if state != self.last {
-            self.version += 1;
-            self.last = state.clone();
-        }
-        let projects = if self.opened {
-            let mut value = json!({"path":self.project,"name":self.project_name(),"git":self.project_git()?,"state":state});
-            self.stamp(&mut value);
-            vec![value]
-        } else {
-            vec![]
-        };
         let runs = if self.host.is_project_ready(&self.project) {
             json!(self.host.runs())
         } else {
             json!({})
         };
+        let git = if self.opened {
+            self.project_git()?
+        } else {
+            false
+        };
+        if same_source {
+            let snapshot = shared.snapshot.lock().unwrap();
+            let same_projects = snapshot["projects"].as_array().is_some_and(|projects| {
+                if self.opened {
+                    projects.len() == 1
+                        && projects[0]["git"] == git
+                        && projects[0]["name"] == self.project_name()
+                        && projects[0]["epoch"]
+                            == self
+                                .publication_epoch
+                                .as_ref()
+                                .map(|e| json!(e))
+                                .unwrap_or(Value::Null)
+                        && (self.publication_epoch.is_none()
+                            || projects[0]["version"] == self.version)
+                } else {
+                    projects.is_empty()
+                }
+            });
+            if same_projects && snapshot["runs"]["runs"] == runs {
+                return Ok(());
+            }
+        }
+        if state != &self.last {
+            self.version += 1;
+            self.last = state.clone();
+        }
+        let projects = if self.opened {
+            let mut value =
+                json!({"path":self.project,"name":self.project_name(),"git":git,"state":state});
+            self.stamp(&mut value);
+            vec![value]
+        } else {
+            vec![]
+        };
         *shared.snapshot.lock().unwrap() = json!({"projects":projects,"links":[],"runs":{"runs":runs,"seq":self.run_seq},"ports":{}});
+        self.last_source = source;
         Ok(())
     }
     fn call(&mut self, method: &str, args: &[Value]) -> RpcResult {
@@ -2020,6 +2058,7 @@ fn start_provider(
         version: 0,
         publication_epoch: persistent.then(|| format!("rust-chat:{}", profile.path().display())),
         last: Value::Null,
+        last_source: None,
         run_seq: initial_run_seq,
         next_readiness_check: Instant::now(),
         pending: VecDeque::new(),
@@ -2746,6 +2785,7 @@ mod publication_tests {
             version: 0,
             publication_epoch: None,
             last: Value::Null,
+            last_source: None,
             run_seq: 0,
             next_readiness_check: Instant::now(),
             pending: VecDeque::new(),
@@ -3997,6 +4037,61 @@ mod publication_tests {
     }
 
     #[test]
+    fn unchanged_cache_keeps_snapshot_but_reacts_to_open_epoch_and_metadata() {
+        let (_profile, mut state, shared) = fixture();
+        fs::create_dir(&state.project).unwrap();
+        fs::create_dir(state.project.join(".milagre")).unwrap();
+        fs::write(
+            state.project.join(".milagre/coordination.json"),
+            json!({"next_id":1,"sessions":{},"worktrees":{},"messages":[]}).to_string(),
+        )
+        .unwrap();
+        state.host.open_project(&state.project).unwrap();
+        state.opened = true;
+        state.cache(&shared).unwrap();
+        let first = state.last_source.clone().unwrap();
+        let ptr = shared.snapshot.lock().unwrap()["projects"]
+            .as_array()
+            .unwrap()
+            .as_ptr();
+        let version = state.version;
+        state.cache(&shared).unwrap();
+        assert!(Arc::ptr_eq(&first, state.last_source.as_ref().unwrap()));
+        assert_eq!(
+            shared.snapshot.lock().unwrap()["projects"]
+                .as_array()
+                .unwrap()
+                .as_ptr(),
+            ptr
+        );
+        assert_eq!(state.version, version);
+        state.publication_epoch = Some("new-epoch".into());
+        state.cache(&shared).unwrap();
+        assert_eq!(
+            shared.snapshot.lock().unwrap()["projects"][0]["epoch"],
+            "new-epoch"
+        );
+        state.opened = false;
+        state.cache(&shared).unwrap();
+        assert_eq!(shared.snapshot.lock().unwrap()["projects"], json!([]));
+        state.opened = true;
+        state
+            .host
+            .states
+            .update(&state.project, Some(&[]), true, |current| {
+                Some(current.with_field("changed", json!(true)))
+            })
+            .unwrap();
+        state.cache(&shared).unwrap();
+        assert_eq!(
+            shared.snapshot.lock().unwrap()["projects"][0]["state"]["changed"],
+            true
+        );
+        assert_eq!(state.version, version + 1);
+        state.host.shutdown(false).unwrap();
+    }
+
+    #[test]
     fn idle_unload_keeps_whole_client_cache_without_reloading_owner_messages() {
         let (_profile, mut state, shared) = fixture();
         fs::create_dir(&state.project).unwrap();
@@ -4306,6 +4401,7 @@ mod job_tests {
             version: 0,
             publication_epoch: None,
             last: Value::Null,
+            last_source: None,
             run_seq: 0,
             next_readiness_check: Instant::now(),
             pending: VecDeque::new(),
