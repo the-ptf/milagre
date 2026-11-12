@@ -73,6 +73,8 @@ pub struct Workspace {
     new_chat_project: Option<String>,
     /// Snapshot seed (never in tests): `MILAGRE_GPUI_NEW_CHAT=1` opens on the empty new-Chat screen.
     seed_new_chat: bool,
+    /// Snapshot seed (never in tests): `MILAGRE_GPUI_OPEN_CHAT=<title>` opens that Chat, a Subchat included.
+    seed_open: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -170,6 +172,7 @@ impl Workspace {
             routines_at,
             new_chat_project: None,
             seed_new_chat: std::env::var_os("MILAGRE_GPUI_NEW_CHAT").is_some(),
+            seed_open: if cfg!(test) { None } else { std::env::var("MILAGRE_GPUI_OPEN_CHAT").ok() },
             _subscriptions: vec![
                 layout,
                 follow,
@@ -257,6 +260,13 @@ impl Render for Workspace {
         self.follow_sidebar(Some(window), cx);
         if std::mem::take(&mut self.seed_new_chat) {
             self.show_new_chat(window, cx);
+        }
+        if let Some(title) = self.seed_open.take() {
+            let key = self.sidebar.read(cx).family_chats().into_iter().find(|chat| chat.title == title).map(|chat| chat.key);
+            match key {
+                Some(key) => self.open_chat_key(&key, cx),
+                None => eprintln!("MILAGRE_GPUI_OPEN_CHAT: no Chat titled {title:?}"),
+            }
         }
         // A dialog or sheet (gpui-component's layers in `Root`) draws over the page: hide it while one is open.
         {

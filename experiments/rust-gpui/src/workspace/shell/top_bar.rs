@@ -58,10 +58,15 @@ pub fn controls_end() -> f32 {
     BAR_LEFT + bar_width() + GAP
 }
 
-/// The Chat header's leading padding when its column starts at `column_left`: its own 16, or clear of the traffic
-/// lights and the bar when those reach over it (the sidebar is a rail).
+/// Where the Chat's title (and a Subchat's breadcrumb) starts, from the Chat card's left edge: the desktop's
+/// `ChatIdentity` sits `inset-x-3` in its content panel with `px-2` round its text, so the title starts 20 in.
+pub const TITLE_INSET: f32 = 20.0;
+
+/// The Chat header's leading padding when its column starts at `column_left` (inside the card's border): the title
+/// [`TITLE_INSET`] from the card's edge, or clear of the traffic lights and the bar when those reach over it (the
+/// sidebar is a rail), as the desktop's `useControlsClearance`.
 pub fn chat_leading_inset(column_left: f32) -> Pixels {
-    px((controls_end() - column_left).max(HEADER_PAD))
+    px((controls_end() - column_left).max(TITLE_INSET - super::card::CARD_BORDER))
 }
 
 /// The Chat header's trailing padding with `buttons` corner toggles: clear of them and one gap, else its own 16.

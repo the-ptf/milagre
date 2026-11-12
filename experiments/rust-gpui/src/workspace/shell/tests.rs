@@ -49,7 +49,11 @@ fn the_collapsed_rail_shares_the_one_top_row_with_the_lights_and_the_bar(cx: &mu
     // The bar's toggle expands it again.
     cx.simulate_click(toggle.center(), Modifiers::none());
     assert!(!sidebar.read_with(cx, |s, _| s.is_collapsed()));
-    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).0, px(top_bar::HEADER_PAD));
+    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).0, px(top_bar::TITLE_INSET - super::card::CARD_BORDER));
+    // The title starts TITLE_INSET in from the Chat card's left edge, as the desktop's identity does in its panel.
+    cx.run_until_parked();
+    let (title, card) = (cx.debug_bounds("chat-identity-title").unwrap(), cx.debug_bounds("chat-card").unwrap());
+    assert_eq!(title.left() - card.left(), px(top_bar::TITLE_INSET));
 }
 
 /// Collapsing the sidebar and closing the panel move nothing vertically: the Chat header, the panel's tab strip, the
@@ -145,7 +149,7 @@ fn the_corner_item_is_one_panel_toggle() {
 #[test]
 fn chat_header_insets() {
     assert_eq!(top_bar::controls_end(), 224.0, "80 + 4 x 28 + 3 x 8 + 8");
-    assert_eq!(top_bar::chat_leading_inset(305.0), px(16.0), "open sidebar: the header's own padding");
+    assert_eq!(top_bar::chat_leading_inset(305.0), px(19.0), "open sidebar: the title 20 in from the card's edge (inside its 1px border)");
     assert_eq!(top_bar::chat_leading_inset(45.0), px(179.0), "rail: clear of the bar");
     assert_eq!(top_bar::chat_trailing_inset(0), px(16.0));
     assert_eq!(top_bar::chat_trailing_inset(3), px(120.0), "12 + 3 x 36");
