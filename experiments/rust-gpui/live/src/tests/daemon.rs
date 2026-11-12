@@ -908,6 +908,7 @@ impl crate::notify::Poster for Recorder {
 ///   notification opens its Chat. With the window focused on that Chat, a finished turn posts nothing.
 /// - `agent:ports`, `pull-requests:changed {projectPath}` and `accounts:changed {}` reach the controller: Details'
 ///   ports follow at once, the PR poll and the accounts are read again.
+/// - Details' Show in Finder and Open in editor buttons are drawn and open the Chat's folder (recorded here).
 #[gpui::test]
 fn notifications_and_live_events(cx: &mut TestAppContext) {
     use milagre_gpui_spike::settings::SettingsStore;
@@ -1021,6 +1022,19 @@ fn notifications_and_live_events(cx: &mut TestAppContext) {
     let reads: Vec<Value> =
         fake.log().into_iter().filter(|(m, _)| m == "pull-requests:snapshot").map(|(_, a)| a).skip(prs_before).collect();
     assert_eq!(reads, [json!([ALPHA])], "only the Project this window shows");
+
+    // Details' Show in Finder and Open in editor are drawn and handled here (recorded, not run, in tests).
+    let dry = crate::opener::DryRun::default();
+    m.vcx.update(|_, cx| cx.set_global(dry.clone()));
+    m.vcx.run_until_parked();
+    assert!(m.vcx.debug_bounds("details-editor").is_some() && m.vcx.debug_bounds("details-finder").is_some(), "the opener buttons");
+    let details = panel.read_with(m.vcx, |p, _| p.details().clone());
+    details.update(m.vcx, |d, cx| {
+        d.reveal_in_finder(cx);
+        d.open_in_editor(cx);
+    });
+    m.vcx.run_until_parked();
+    assert_eq!(*dry.0.borrow(), [format!("finder {ALPHA}"), format!("editor {ALPHA} cursor")]);
     drop(m);
     drop(fake);
     let _ = std::fs::remove_dir_all(&data);

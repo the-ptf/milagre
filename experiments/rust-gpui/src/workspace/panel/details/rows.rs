@@ -191,7 +191,9 @@ impl DetailsView {
                 .on_click(on(cx, |this, cx| this.copy_path(cx)))
                 .child(glyph(theme, IconName::Folder01))
                 .child(div().flex_1().min_w_0().truncate().child(label));
-            let right: Vec<AnyElement> = if self.is_live() && !copied {
+            // Live: the Finder and editor buttons only when the data layer opens folders itself.
+            let openers = cx.has_global::<crate::workspace::preview::PreviewOpeners>();
+            let right: Vec<AnyElement> = if self.is_live() && !copied && !openers {
                 Vec::new()
             } else if copied {
                 vec![div().flex_none().pr(px(PAD_X)).text_step(TEXT_12).text_color(theme.green_ink).child("Copied").into_any_element()]

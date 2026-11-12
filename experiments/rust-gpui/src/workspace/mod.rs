@@ -120,8 +120,9 @@ impl Workspace {
         // A Subchat picked in the Details panel opens although the sidebar has no row for it.
         let details = panel.read(cx).details().clone();
         let open_subchat = cx.subscribe(&details, |this, _, event: &crate::workspace::panel::details::DetailsEvent, cx| {
-            let crate::workspace::panel::details::DetailsEvent::OpenChat(key) = event;
-            this.open_chat_key(key, cx);
+            if let crate::workspace::panel::details::DetailsEvent::OpenChat(key) = event {
+                this.open_chat_key(key, cx);
+            }
         });
         let open_chat = cx.subscribe_in(&chat, window, |this, _, event: &ChatEvent, window, cx| {
             if let ChatEvent::OpenChat(key) = event {

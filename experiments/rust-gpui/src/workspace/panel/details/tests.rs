@@ -156,8 +156,9 @@ fn subchat_rows_nest_and_open_their_chat(cx: &mut TestAppContext) {
     let seen = events.clone();
     cx.update(|_, cx| {
         cx.subscribe(&view, move |_, event: &DetailsEvent, _| {
-            let DetailsEvent::OpenChat(key) = event;
-            seen.borrow_mut().push(key.clone());
+            if let DetailsEvent::OpenChat(key) = event {
+                seen.borrow_mut().push(key.clone());
+            }
         })
         .detach()
     });

@@ -28,6 +28,7 @@ pub mod controller;
 pub mod daemon;
 pub mod git;
 pub mod notify;
+pub mod opener;
 pub mod panels;
 pub mod prefs;
 pub mod session;

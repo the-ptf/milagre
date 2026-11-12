@@ -398,6 +398,20 @@ impl LiveController {
         // Plan usage (`usage:cached`, read-only) in the sidebar's rows and card, and the limit card under a stopped reply.
         let sidebar = workspace.read(cx).sidebar.clone();
         crate::usage::attach(&sidebar, usage_daemon, cx);
+        // Details' Show in Finder and Open in editor, done here (Electron's main process does them; `call()` refuses
+        // `editor:open` and `project:reveal`).
+        cx.set_global(milagre_gpui_spike::workspace::preview::PreviewOpeners);
+        let details = workspace.read(cx).panel.read(cx).details().clone();
+        let opener_sidebar = sidebar.clone();
+        controller.update(cx, |c, cx| {
+            let subscription =
+                cx.subscribe(&details, move |_, _, event: &milagre_gpui_spike::workspace::panel::details::DetailsEvent, cx| {
+                    if let milagre_gpui_spike::workspace::panel::details::DetailsEvent::Open(request) = event {
+                        crate::opener::handle(request, opener_sidebar.clone(), cx);
+                    }
+                });
+            c._subscriptions.push(subscription);
+        });
         // This window's own notifications and dock badge (Electron's main process has them); never in read-only mode.
         if !controller.read(cx).backend.read_only() {
             let notifier = Rc::new(crate::notify::Notifier::new(crate::notify::poster(cx), crate::notify::Settings::default()));

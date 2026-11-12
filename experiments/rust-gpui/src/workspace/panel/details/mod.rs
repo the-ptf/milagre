@@ -63,6 +63,9 @@ pub enum Request {
 /// Tells the Workspace to select a Chat (a Subchat or the parent).
 pub enum DetailsEvent {
     OpenChat(String),
+    /// The Finder or editor button: a data layer that backs them ([`crate::workspace::preview::PreviewOpeners`]) opens
+    /// the folder.
+    Open(Request),
 }
 
 impl EventEmitter<DetailsEvent> for DetailsView {}
@@ -284,14 +287,17 @@ impl DetailsView {
 
     pub fn reveal_in_finder(&mut self, cx: &mut Context<Self>) {
         if let Some(path) = self.data.path.clone() {
-            self.requests.push(Request::Finder(path));
+            self.requests.push(Request::Finder(path.clone()));
+            cx.emit(DetailsEvent::Open(Request::Finder(path)));
             cx.notify();
         }
     }
 
     pub fn open_in_editor(&mut self, cx: &mut Context<Self>) {
         if let Some(path) = self.data.path.clone() {
-            self.requests.push(Request::Editor { path, editor: self.editor(cx).0 });
+            let request = Request::Editor { path, editor: self.editor(cx).0 };
+            self.requests.push(request.clone());
+            cx.emit(DetailsEvent::Open(request));
             cx.notify();
         }
     }

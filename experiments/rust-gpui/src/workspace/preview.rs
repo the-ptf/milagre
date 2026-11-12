@@ -113,3 +113,9 @@ pub fn settings_shows(cx: &App, page: crate::settings::search::SettingsSectionId
         _ => false,
     }
 }
+
+/// Set by a data layer that opens folders itself (Show in Finder, Open in editor): Details shows those buttons.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PreviewOpeners;
+
+impl Global for PreviewOpeners {}
