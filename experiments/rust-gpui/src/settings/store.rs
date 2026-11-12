@@ -450,6 +450,8 @@ pub struct SettingsStore {
     // About
     /// The Milagre version a data layer read (`app:version`); the fixture's own otherwise.
     pub milagre_version: Option<String>,
+    /// Under the Version row: what the daemon this window runs on lacks (the live Preview on its own bundled daemon).
+    pub daemon_note: Option<String>,
     pub release_channel: ReleaseChannel,
     pub auto_update: bool,
     pub update_checks: usize,
@@ -512,6 +514,7 @@ impl Default for SettingsStore {
             // About
             appearance: super::appearance::AppearanceState::default(),
             milagre_version: None,
+            daemon_note: None,
             release_channel: ReleaseChannel::Stable,
             auto_update: false,
             update_checks: 0,

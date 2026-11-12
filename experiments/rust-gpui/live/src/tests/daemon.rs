@@ -823,11 +823,13 @@ fn the_daemon_startup_reads_preferences_before_the_window_opens(cx: &mut TestApp
 /// The start path (`InstalledOwner::adopt_or_start` through the client's real launcher) on a throwaway data folder:
 /// with no daemon running, a writable window starts one (here a launch of this test binary serving the fake daemon,
 /// standing in for Milagre.app in Node mode) with `serve --data-dir D --app-version V --cwd /`, adopts it and syncs;
-/// a second window adopts the running one instead of starting another; a read-only window never starts one; without
-/// Milagre.app the window says to install it. The started fake is stopped by its exact PID at the end.
+/// a second window adopts the running one instead of starting another; a read-only window never starts one. Without
+/// Milagre.app the Preview's bundled daemon is chosen and started the same way (a bundle whose `bin/node` runs the same
+/// stand-in); with neither, or with a damaged bundle, the window says so. The started fakes are stopped by their exact
+/// PIDs at the end.
 #[test]
 fn a_window_starts_the_daemon_when_none_runs() {
-    use crate::daemon::{INSTALL_MILAGRE, Start};
+    use crate::daemon::{DAEMON_MISSING, Start};
     let data = data_folder("start");
     let script = data.with_extension("launch.sh");
     let argv = data.with_extension("argv");
@@ -864,7 +866,7 @@ fn a_window_starts_the_daemon_when_none_runs() {
     drop(synced);
 
     // Another window adopts the running daemon: nothing more is started.
-    let other = Daemon::starting(Some(data.clone()), false, Start::Installed(launch));
+    let other = Daemon::starting(Some(data.clone()), false, Start::Installed(launch.clone()));
     let again = block_on(other.sync()).expect("adopted");
     assert_eq!(again.pid, pid);
     assert_eq!(std::fs::read_to_string(&argv).unwrap().lines().count(), 1, "started once");
@@ -872,24 +874,61 @@ fn a_window_starts_the_daemon_when_none_runs() {
     other.disconnect();
     daemon.disconnect();
 
-    // Without Milagre.app: adopt only, and the window says to install it.
-    let empty = data_folder("start-missing");
-    let missing = Daemon::starting(Some(empty.clone()), false, Start::Missing("Milagre.app is not installed".into()));
-    assert!(missing.app_missing() && !missing.starts());
-    let session = DaemonSession::start(missing);
-    assert_eq!(session.error.as_deref(), Some(INSTALL_MILAGRE));
+    // Milagre.app is chosen whenever it is there, bundle or not.
+    let bundle = data.with_extension("bundle");
+    std::fs::create_dir_all(bundle.join("bin")).unwrap();
+    std::fs::create_dir_all(bundle.join("app")).unwrap();
+    std::fs::write(bundle.join("bin/node"), "#!/bin/sh\nexec /bin/sh \"$@\"\n").unwrap();
+    Command::new("/bin/chmod").arg("755").arg(bundle.join("bin/node")).status().unwrap();
+    std::fs::copy(&script, bundle.join("app/cli.sh")).unwrap();
+    std::fs::write(
+        bundle.join("manifest.json"),
+        r#"{"schema":1,"version":"9.9.9-bundle","node":"bin/node","nodeVersion":"v24.0.0","entry":"app/cli.sh"}"#,
+    )
+    .unwrap();
+    assert!(matches!(Start::choose(Ok(launch.clone()), Some(bundle.clone())), Start::Installed(_)));
 
-    // Only the process this test started, by its exact PID.
-    unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
-    let until = Instant::now() + Duration::from_secs(10);
-    while unsafe { libc::kill(pid as libc::pid_t, 0) } == 0 && Instant::now() < until {
-        std::thread::sleep(Duration::from_millis(20));
+    // Without Milagre.app: the bundled daemon is started (its own `bin/node`, the bundle's version) and adopted.
+    let bundled_data = data_folder("start-bundled");
+    let start = Start::choose(Err("Milagre.app is not installed".into()), Some(bundle.clone()));
+    assert!(matches!(&start, Start::Bundled(l) if l.version() == "9.9.9-bundle"), "{start:?}");
+    let bundled = Daemon::starting(Some(bundled_data.clone()), false, start);
+    assert!(bundled.bundled() && bundled.starts() && !bundled.app_missing());
+    let synced = block_on(bundled.sync()).expect("bundled daemon started and synced");
+    let bundled_pid = synced.pid;
+    assert_ne!(bundled_pid, pid, "a second daemon, on its own data folder");
+    let started = std::fs::read_to_string(&argv).unwrap();
+    assert_eq!(started.lines().last().unwrap(), format!("serve --data-dir {} --app-version 9.9.9-bundle --cwd /", bundled_data.display()));
+    drop(synced);
+    bundled.disconnect();
+
+    // A damaged bundle, or none: adopt only, and the window says the Preview's daemon is missing.
+    std::fs::remove_file(bundle.join("bin/node")).unwrap();
+    let damaged = Start::choose(Err("Milagre.app is not installed".into()), Some(bundle.clone()));
+    assert!(matches!(&damaged, Start::Missing(why) if why.contains("incomplete")), "{damaged:?}");
+    assert!(matches!(Start::choose(Err("Milagre.app is not installed".into()), None), Start::Missing(_)));
+    let empty = data_folder("start-missing");
+    let missing = Daemon::starting(Some(empty.clone()), false, damaged);
+    assert!(missing.app_missing() && !missing.starts() && !missing.bundled());
+    let session = DaemonSession::start(missing);
+    assert_eq!(session.error.as_deref(), Some(DAEMON_MISSING));
+
+    // Only the processes this test started, by their exact PIDs.
+    for pid in [pid, bundled_pid] {
+        unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+        let until = Instant::now() + Duration::from_secs(10);
+        while unsafe { libc::kill(pid as libc::pid_t, 0) } == 0 && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
-    let _ = std::fs::remove_file(socket_for(&data));
+    for folder in [&data, &bundled_data] {
+        let _ = std::fs::remove_file(socket_for(folder));
+        let _ = std::fs::remove_dir_all(folder);
+    }
     for path in [&script, &argv] {
         let _ = std::fs::remove_file(path);
     }
-    let _ = std::fs::remove_dir_all(&data);
+    let _ = std::fs::remove_dir_all(&bundle);
     let _ = std::fs::remove_dir_all(&empty);
 }
 

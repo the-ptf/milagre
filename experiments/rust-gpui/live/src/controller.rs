@@ -203,7 +203,10 @@ fn notice_for(daemon: &Daemon, error: &anyhow::Error) -> String {
     if crate::daemon::no_projects(error) {
         crate::daemon::NO_PROJECTS.into()
     } else if crate::daemon::unavailable(error) && daemon.app_missing() {
-        crate::daemon::INSTALL_MILAGRE.into()
+        crate::daemon::DAEMON_MISSING.into()
+    } else if daemon.bundled() && matches!(crate::daemon::code(error), Some("DAEMON_START_FAILED" | "DAEMON_START_TIMEOUT" | "UNSAFE_LOG"))
+    {
+        format!("{} ({error:#})", crate::daemon::BUNDLED_FAILED)
     } else if crate::daemon::unavailable(error) {
         crate::daemon::OPEN_MILAGRE_FIRST.into()
     } else {
@@ -266,6 +269,9 @@ pub fn install_daemon_globals(session: &DaemonSession, cx: &mut App) -> Wiring {
 pub fn install_daemon_app(session: &DaemonSession, prefs: std::path::PathBuf, electron: &std::path::Path, cx: &mut App) -> Wiring {
     if !cx.has_global::<milagre_gpui_spike::settings::SettingsStore>() {
         cx.set_global(milagre_gpui_spike::settings::SettingsStore::default());
+    }
+    if session.daemon.bundled() {
+        cx.global_mut::<milagre_gpui_spike::settings::SettingsStore>().daemon_note = Some(crate::daemon::BUNDLED_NOTE.to_owned());
     }
     crate::prefs::install_with(prefs, electron, session.daemon.read_only(), cx);
     install_daemon_globals(session, cx)

@@ -6,6 +6,10 @@
 # Ad hoc mode (no --cert): signs ad hoc, zips, writes OPEN-ME-FIRST.txt beside the zip.
 # Developer ID mode (--cert): imports ~/.private_keys/gpui-devid/devid.key + the .cer into a dedicated keychain,
 # signs with the hardened runtime, notarizes with the App Store Connect key from ~/.private_keys/asc.env, staples, re-zips.
+# Both modes sign inside out (scripts/macos-sign.sh): every nested Mach-O (the Preview's chat-runtime and its bundled
+# Node daemon: bin/node, .node modules, .dylib, spawn-helper and other helpers) and nested bundle, deepest first, then
+# the app. With --cert the daemon's Node gets packaging/node-entitlements.plist (JIT for V8), the app
+# packaging/entitlements.plist, everything else none.
 # Key material and the asc.env values are read at run time only and never printed.
 #
 # --no-notarize         Developer ID mode only: sign and verify, skip notarize/staple (dry runs).
@@ -21,7 +25,7 @@ while [ $# -gt 0 ]; do
     --cert) shift; cert="${1:?--cert needs a .cer path}" ;;
     --no-notarize) notarize=0 ;;
     --extra-binary) shift; extras+=("${1:?--extra-binary needs a path}") ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -32,6 +36,9 @@ done
 
 crate="$(cd "$(dirname "$0")/.." && pwd)"
 ent="$crate/packaging/entitlements.plist"
+node_ent="$crate/packaging/node-entitlements.plist"
+# shellcheck source=macos-sign.sh
+. "$crate/scripts/macos-sign.sh"
 keydir="${GPUI_DEVID_DIR:-$HOME/.private_keys/gpui-devid}"
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
@@ -52,21 +59,11 @@ for b in ${extras[@]+"${extras[@]}"}; do
   echo "==> added $(basename "$b") to Contents/MacOS"
 done
 
-# Every Mach-O under Contents except the main executable, deepest first; the app is signed last.
-nested() {
-  local main; main="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$stage/Contents/Info.plist")"
-  find "$stage/Contents" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.so' \) | while read -r f; do
-    [ "$f" = "$stage/Contents/MacOS/$main" ] && continue
-    file -b "$f" | grep -q 'Mach-O' && echo "$f"
-  done
-}
-
 zip_app() { rm -f "$zip"; ditto -c -k --keepParent "$stage" "$zip"; }
 
 if [ -z "$cert" ]; then
   echo "==> ad-hoc signing"
-  while read -r f; do [ -n "$f" ] && codesign --force -s - "$f"; done < <(nested)
-  codesign --force --deep -s - "$stage"
+  sign_inside_out "$stage" "" "" codesign --force -s -
   codesign --verify --deep --strict "$stage"
   zip_app
   cat > "$out/OPEN-ME-FIRST.txt" <<TXT
@@ -120,9 +117,7 @@ identity="$(printf '%s' "$line" | awk '{print $2}')"
 [ -n "$identity" ] || { echo "no Developer ID Application identity in $kc (cert and key must match the CSR)" >&2; exit 1; }
 echo "==> signing as: $(printf '%s' "$line" | sed -e 's/^[^"]*"//' -e 's/".*$//')"
 
-sign=(codesign --force --options runtime --timestamp --keychain "$kc" --entitlements "$ent" -s "$identity")
-while read -r f; do [ -n "$f" ] && "${sign[@]}" "$f"; done < <(nested)
-"${sign[@]}" "$stage"
+sign_inside_out "$stage" "$ent" "$node_ent" codesign --force --options runtime --timestamp --keychain "$kc" -s "$identity"
 codesign --verify --deep --strict "$stage"
 spctl -a -vv -t exec "$stage" 2>&1 | head -3 || true
 

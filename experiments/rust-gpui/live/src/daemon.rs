@@ -6,7 +6,9 @@
 //! session), so it runs without Electron. A running daemon is only adopted: never stopped, signalled or replaced,
 //! whatever its version, and there is no shutdown: quitting the Preview only closes its own connections and leaves
 //! the daemon (started here or not) running. A read-only window ([`Daemon::read_only`]) never starts one. Without
-//! Milagre.app the window says [`INSTALL_MILAGRE`] and still adopts a daemon that runs anyway.
+//! Milagre.app the Preview starts the daemon it ships instead ([`Start::Bundled`]: `DaemonLaunch::bundle` on
+//! `Contents/Resources/milagre-daemon`, Node 24 with the daemon at Milagre.app's version when the Preview was built).
+//! With neither, the window says [`DAEMON_MISSING`] and still adopts a daemon that runs anyway.
 //!
 //! - One live connection (the "primary"): connect, `daemon:snapshot`, apply, accept, then its released events. Its
 //!   snapshot holds every Project the daemon has loaded this run, so the sidebar lists all of their Chats from one
@@ -66,8 +68,18 @@ pub fn no_projects(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| cause.downcast_ref::<NoProjects>().is_some())
 }
 
-/// What the window says when there is no daemon and no Milagre.app to start one from.
-pub const INSTALL_MILAGRE: &str = "Install Milagre to use this preview: it runs on Milagre's daemon, which this window starts.";
+/// What the window says when there is no daemon, no Milagre.app and no usable bundled daemon to start one from.
+pub const DAEMON_MISSING: &str =
+    "This Preview's own daemon is missing or damaged, and Milagre isn't installed. Download the Preview again, or install Milagre.";
+
+/// What the window says when the bundled daemon was started but did not come up (a damaged Node or daemon).
+pub const BUNDLED_FAILED: &str = "This Preview's own daemon didn't start. Download the Preview again, or install Milagre.";
+
+/// What Settings › About says while the Preview runs on its own daemon: what that daemon lacks next to Milagre.app's.
+pub const BUNDLED_NOTE: &str = "Running the daemon bundled with this Preview: Milagre isn't installed. It has no cloudflared: a phone's Cloudflare tunnel and phones' views of this computer's localhost pages download it from GitHub the first time. Paired computers need Milagre's key, so they stay unavailable here.";
+
+/// The daemon bundle a built Preview ships, beside its executable: `Contents/Resources/milagre-daemon`.
+pub const BUNDLE_DIR: &str = "milagre-daemon";
 
 /// Whether and how the Preview starts Milagre's daemon when none runs.
 #[derive(Clone, Debug)]
@@ -76,16 +88,61 @@ pub enum Start {
     Never,
     /// Start the installed Milagre.app's daemon in Node mode (or a test's launch) when none runs.
     Installed(DaemonLaunch),
-    /// Milagre.app is not installed (why): adopt only, and say [`INSTALL_MILAGRE`] while there is no daemon.
+    /// Milagre.app is not installed: start the daemon this Preview ships (`DaemonLaunch::bundle`) when none runs.
+    Bundled(DaemonLaunch),
+    /// Neither Milagre.app nor a usable bundled daemon (why): adopt only, and say [`DAEMON_MISSING`] while there is no
+    /// daemon.
     Missing(String),
 }
 
 impl Start {
-    /// The installed Milagre.app, found as the client finds it (`/Applications`, then `~/Applications`).
-    pub fn installed_app() -> Start {
-        match DaemonLaunch::find_installed_app() {
-            Ok(launch) => Start::Installed(launch),
-            Err(error) => Start::Missing(error.to_string()),
+    /// Milagre.app when installed (found as the client finds it: `/Applications`, then `~/Applications`), so the daemon
+    /// is the version Electron expects; otherwise the bundled daemon in `bundle` (default: [`Start::bundle_dir`]).
+    /// `skip_app` is the test seam for "Milagre.app is not installed" (`--no-installed-app`): the lookup is not made.
+    pub fn detect(skip_app: bool, bundle: Option<PathBuf>) -> Start {
+        let app = if skip_app {
+            Err("Milagre.app lookup skipped (--no-installed-app)".to_owned())
+        } else {
+            DaemonLaunch::find_installed_app().map_err(|error| error.to_string())
+        };
+        Self::choose(app, bundle.or_else(Self::bundle_dir))
+    }
+
+    /// [`Start::detect`]'s choice: the app's launch, else the bundle's, else why neither.
+    pub fn choose(app: std::result::Result<DaemonLaunch, String>, bundle: Option<PathBuf>) -> Start {
+        let why = match app {
+            Ok(launch) => return Start::Installed(launch),
+            Err(why) => why,
+        };
+        let Some(dir) = bundle else { return Start::Missing(format!("{why}; this Preview has no bundled daemon")) };
+        match DaemonLaunch::bundle(&dir) {
+            Ok(launch) => Start::Bundled(launch),
+            Err(error) => Start::Missing(format!("{why}; the bundled daemon in {} can't be used: {error}", dir.display())),
+        }
+    }
+
+    /// `Contents/Resources/milagre-daemon` of the bundle this executable runs from, when there is one.
+    pub fn bundle_dir() -> Option<PathBuf> {
+        let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+        let dir = exe.parent()?.parent()?.join("Resources").join(BUNDLE_DIR);
+        dir.is_dir().then_some(dir)
+    }
+
+    /// The launch used when no daemon runs, if any.
+    pub fn launch(&self) -> Option<&DaemonLaunch> {
+        match self {
+            Start::Installed(launch) | Start::Bundled(launch) => Some(launch),
+            Start::Never | Start::Missing(_) => None,
+        }
+    }
+
+    /// One line for the log: which daemon this window starts.
+    pub fn describe(&self) -> String {
+        match self {
+            Start::Never => "adopt only".into(),
+            Start::Installed(launch) => format!("Milagre.app's daemon {}", launch.version()),
+            Start::Bundled(launch) => format!("the bundled daemon {}", launch.version()),
+            Start::Missing(why) => format!("no daemon to start ({why})"),
         }
     }
 }
@@ -250,14 +307,19 @@ impl Daemon {
         }
     }
 
-    /// Milagre.app is missing, so no daemon can be started from here.
+    /// Neither Milagre.app nor a usable bundled daemon, so no daemon can be started from here.
     pub fn app_missing(&self) -> bool {
         matches!(self.start, Start::Missing(_))
     }
 
     /// Whether this window starts the daemon when none runs.
     pub fn starts(&self) -> bool {
-        matches!(self.start, Start::Installed(_))
+        self.start.launch().is_some()
+    }
+
+    /// Whether the daemon this window starts is the Preview's own (Milagre.app is not installed).
+    pub fn bundled(&self) -> bool {
+        matches!(self.start, Start::Bundled(_))
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -312,11 +374,11 @@ impl Daemon {
     }
 
     async fn adopt(&self) -> Result<Arc<InstalledOwner>> {
-        let owner = match (&self.start, &self.profile) {
-            (Start::Installed(launch), Some(profile)) => {
+        let owner = match (self.start.launch(), &self.profile) {
+            (Some(launch), Some(profile)) => {
                 InstalledOwner::adopt_or_start_profile(profile, launch).await.context("adopt or start Milagre's daemon")?
             }
-            (Start::Installed(launch), None) => InstalledOwner::adopt_or_start(launch).await.context("adopt or start Milagre's daemon")?,
+            (Some(launch), None) => InstalledOwner::adopt_or_start(launch).await.context("adopt or start Milagre's daemon")?,
             (_, Some(profile)) => InstalledOwner::adopt_profile(profile).await.context("adopt Milagre's daemon")?,
             (_, None) => InstalledOwner::adopt().await.context("adopt Milagre's daemon")?,
         };

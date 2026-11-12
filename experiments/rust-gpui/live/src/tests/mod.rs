@@ -2,6 +2,7 @@
 //! `../daemon-check/scripts/check-gpui-live.py run`, which stages this runner beside the hashed `chat-runtime` and the
 //! backend's fixed Claude stand-in.
 
+mod bundled;
 mod daemon;
 mod fake_daemon;
 mod fake_settings;

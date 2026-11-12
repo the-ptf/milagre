@@ -77,17 +77,21 @@ pub fn render_about(highlighted: Option<&str>, cx: &App) -> impl IntoElement {
     let milagre_group = SettingsGroup::new()
         .title("Milagre")
         .highlighted_row(hl_shared)
-        .row(
-            SettingRow::new("Version")
-                .highlighted(highlighted)
-                .control(
+        .row({
+            let row = SettingRow::new("Version").highlighted(highlighted);
+            // The live Preview on its own bundled daemon says what that daemon lacks next to Milagre.app's.
+            let row = match store.daemon_note.clone() {
+                Some(note) => row.description(note),
+                None => row,
+            };
+            row.control(
                     div()
                         .font_family(mono())
                         .text_step(TEXT_12)
                         .text_color(theme.ink2)
                         .child(store.milagre_version.clone().unwrap_or_else(|| "0.1.0".to_owned())),
-                ),
-        )
+                )
+        })
         .row_if(
             shows("Release channel"),
             SettingRow::new("Release channel")

@@ -5,6 +5,7 @@
 //! milagre-gpui-live                                   # the Preview on Milagre's running daemon (its Projects and Chats)
 //!     [--snapshot PNG]                                # read-only: open, draw, save the window, quit (writes nothing)
 //!     [--read-only] [--profile DIR]                   # refuse every write; another Milagre data folder (tests)
+//!     [--no-installed-app] [--daemon-bundle DIR]      # act as if Milagre.app were missing; another daemon bundle
 //! milagre-gpui-live --owned                           # the owned runtime: its base folder, set up on first launch
 //! milagre-gpui-live --owned --base DIR                # the same with another base folder
 //! milagre-gpui-live --root ROOT [--create LAUNCH.json] # an explicit dedicated root (create it from a manifest)
@@ -15,8 +16,9 @@
 //!
 //! Daemon mode adopts Milagre's running daemon, or starts the installed Milagre.app's own daemon in Node mode when none
 //! runs (no Electron window; never in read-only mode), and never stops, replaces or signals it: quitting closes only this
-//! window's connections and leaves the daemon running. Without Milagre.app the window says "Install Milagre to use
-//! this preview". No setup window: the daemon owns the accounts.
+//! window's connections and leaves the daemon running. Without Milagre.app it starts the daemon the Preview bundles
+//! (`Contents/Resources/milagre-daemon`, `DaemonLaunch::bundle`) the same way. No setup window: the daemon owns the
+//! accounts.
 //!
 //! Owned mode: the base folder (default `~/Library/Application Support/Milagre GPUI Preview`) holds `launch.json` (the private
 //! manifest: which Claude, which signed-in account folder, which model) and `root/` (the dedicated data root the
@@ -72,10 +74,16 @@ fn run(args: &[String]) -> anyhow::Result<()> {
     if !owned {
         let snapshot = flag(args, "--snapshot").map(PathBuf::from);
         let read_only = snapshot.is_some() || args.iter().any(|a| a == "--read-only");
-        // With Milagre.app closed, its daemon is started in Node mode (never in read-only mode); one running is adopted.
-        let start = if read_only { Start::Never } else { Start::installed_app() };
-        if let Start::Missing(why) = &start {
-            eprintln!("live: {why}: {}", milagre_gpui_live::daemon::INSTALL_MILAGRE);
+        // With Milagre.app closed, its daemon is started in Node mode; without Milagre.app, the Preview's own bundled
+        // daemon (never in read-only mode). One running is adopted.
+        let start = if read_only {
+            Start::Never
+        } else {
+            Start::detect(args.iter().any(|a| a == "--no-installed-app"), flag(args, "--daemon-bundle").map(PathBuf::from))
+        };
+        eprintln!("live: daemon start: {}", start.describe());
+        if let Start::Missing(_) = &start {
+            eprintln!("live: {}", milagre_gpui_live::daemon::DAEMON_MISSING);
         }
         let daemon = Daemon::starting(flag(args, "--profile").map(PathBuf::from), read_only, start);
         let pr_seed = pr_seed(&daemon, snapshot.as_ref());

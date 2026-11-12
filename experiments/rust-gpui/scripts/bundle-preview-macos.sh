@@ -4,6 +4,7 @@
 # --owned / --root on the backend's owned Chat runtime, shipped inside the bundle.
 #
 #   scripts/bundle-preview-macos.sh --backend <backend worktree> [--out DIR] [--install] [--sha256 <runtime sha>]
+#                                   [--daemon-version V] [--node /path/to/node]
 #
 # Builds `live/` (release, locked) from a clean `git archive` of HEAD plus the shared client exported at its pinned
 # commit (daemon-check/scripts/check-gpui-live.py export), then writes:
@@ -12,13 +13,18 @@
 #   Contents/MacOS/chat-runtime           the hash-verified runtime (its fixed sibling; the client looks nowhere else)
 #   Contents/Resources/bundled-skills     packages/core/src/bundled-skills at HEAD (the runtime's skill instructions)
 #   Contents/Resources/chimes             Electron's notification chimes at HEAD (apps/desktop/app/src/assets/chimes)
+#   Contents/Resources/milagre-daemon     the Node daemon the Preview starts when Milagre.app is not installed
+#                                         (scripts/preview-daemon-macos.sh: Node 24, daemon + core + shared at the
+#                                         client commit, cached in target/preview-daemon/). Its version is the installed
+#                                         Milagre.app's, so the two agree, else --daemon-version, else the live crate's.
 #
 # Info.plist registers the milagre:// scheme (CFBundleURLTypes): the Preview routes pairing links like Electron's
 # Add computer dialog (live/src/deeplinks.rs).
 #
 # The runtime comes only from daemon-check/target/owned-runtime-<sha8>/ (staged and checked by check-gpui-live.py
 # stage-runtime); default: the newest agreed one. Its hash is recorded before and after signing in
-# Contents/Resources/runtime.json. Ad-hoc signed; scripts/dist-macos.sh re-signs for distribution.
+# Contents/Resources/runtime.json. Ad-hoc signed inside out (scripts/macos-sign.sh: the runtime, Node, every native
+# module and nested bundle of the daemon, then the app); scripts/dist-macos.sh re-signs for distribution.
 # Owned mode keeps its data in ~/Library/Application Support/Milagre GPUI Preview/ (launch.json + root/), set up on its
 # first launch; the default (daemon) mode keeps none and has no setup window. --install replaces ~/Applications/"Milagre GPUI Preview.app" after quitting a running copy by bundle id.
 # Env: CARGO_TARGET_DIR  build cache (default: ~/.cache/milagre-gpui-preview/target)
@@ -28,14 +34,16 @@ BUNDLE_ID="com.milagre.gpui-preview"
 APP_NAME="Milagre GPUI Preview.app"
 EXEC_NAME="milagre-gpui-preview"
 
-install=0 out="/tmp/milagre-gpui-preview-bundle" backend="" sha=""
+install=0 out="/tmp/milagre-gpui-preview-bundle" backend="" sha="" daemon_version="" node=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --install) install=1 ;;
     --out) shift; out="${1:?--out needs a directory}" ;;
     --backend) shift; backend="${1:?--backend needs the backend worktree}" ;;
     --sha256) shift; sha="${1:?--sha256 needs a hash}" ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    --daemon-version) shift; daemon_version="${1:?--daemon-version needs a version}" ;;
+    --node) shift; node="${1:?--node needs a path}" ;;
+    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -64,13 +72,27 @@ src="$work/experiments/rust-gpui"
 echo "==> exporting the shared client"
 python3 "$check" export --backend "$backend" >/dev/null
 mkdir -p "$src/target"
-cp -R "$crate/target/daemon-client-1ed6ff33" "$src/target/"
+cp -R "$crate/target/daemon-client-a59bbb9d" "$src/target/"
 
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cache/milagre-gpui-preview/target}"
 echo "==> cargo build --release (target $CARGO_TARGET_DIR)"
 (cd "$src/live" && cargo build --release --locked --bin milagre-gpui-live)
 binary="$CARGO_TARGET_DIR/release/milagre-gpui-live"
 version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$src/live/Cargo.toml" | head -1)"
+
+# The bundled daemon's version: the installed Milagre.app's (as the client finds it), so the daemon either starts agree.
+if [ -z "$daemon_version" ]; then
+  for candidate in /Applications/Milagre.app "$HOME/Applications/Milagre.app"; do
+    if [ -f "$candidate/Contents/Info.plist" ]; then
+      daemon_version="$(plutil -extract CFBundleShortVersionString raw -o - "$candidate/Contents/Info.plist" 2>/dev/null || true)"
+      [ -n "$daemon_version" ] && break
+    fi
+  done
+fi
+daemon_version="${daemon_version:-$version}"
+echo "==> the bundled daemon (Milagre $daemon_version)"
+daemon="$("$crate/scripts/preview-daemon-macos.sh" --backend "$backend" --version "$daemon_version" ${node:+--node "$node"})"
+[ -f "$daemon/manifest.json" ] || { echo "no daemon bundle at $daemon" >&2; exit 1; }
 
 app="$out/$APP_NAME"
 echo "==> writing $app ($version, $head, runtime ${sha:0:8})"
@@ -81,6 +103,7 @@ cp "$runtime" "$app/Contents/MacOS/chat-runtime"
 chmod 755 "$app/Contents/MacOS/$EXEC_NAME" "$app/Contents/MacOS/chat-runtime"
 cp -R "$work/packages/core/src/bundled-skills" "$app/Contents/Resources/bundled-skills"
 cp -R "$work/apps/desktop/app/src/assets/chimes" "$app/Contents/Resources/chimes"
+ditto "$daemon" "$app/Contents/Resources/milagre-daemon"
 cp "$src/packaging/icon.icns" "$app/Contents/Resources/icon.icns"
 sed -e "s/@VERSION@/$version/" -e "s/@SHA@/$head/" \
     -e "s/com.milagre.gpui-poc/$BUNDLE_ID/" \
@@ -92,13 +115,15 @@ plutil -insert CFBundleURLTypes -json \
 plutil -lint "$app/Contents/Info.plist" >/dev/null
 echo -n "APPL????" > "$app/Contents/PkgInfo"
 
-echo "==> ad-hoc signing"
-codesign --force -s - "$app/Contents/MacOS/chat-runtime"
-codesign --force -s - "$app"
+echo "==> ad-hoc signing, inside out"
+# shellcheck source=macos-sign.sh
+. "$crate/scripts/macos-sign.sh"
+sign_inside_out "$app" "" "" codesign --force -s -
 codesign --verify --deep --strict "$app"
 signed="$(shasum -a 256 "$app/Contents/MacOS/chat-runtime" | cut -d' ' -f1)"
-printf '{"runtimeSha256":"%s","signedRuntimeSha256":"%s","gpuiHead":"%s","client":"1ed6ff33"}\n' "$sha" "$signed" "$head" \
-  > "$app/Contents/Resources/runtime.json"
+node_version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["nodeVersion"])' "$daemon/manifest.json")"
+printf '{"runtimeSha256":"%s","signedRuntimeSha256":"%s","gpuiHead":"%s","client":"a59bbb9d","daemon":{"version":"%s","node":"%s"}}\n' \
+  "$sha" "$signed" "$head" "$daemon_version" "$node_version" > "$app/Contents/Resources/runtime.json"
 # The resource changed after signing the bundle: sign once more so the seal covers it.
 codesign --force -s - "$app"
 codesign --verify --deep --strict "$app"
