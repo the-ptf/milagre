@@ -50,7 +50,8 @@ pub const HEIGHT_MIN: f32 = 120.0;
 pub const HEIGHT_MAX_SHARE: f32 = 0.75;
 /// The gap between the Chat and the card (`GAP` in `TerminalSlide.tsx`).
 pub const GAP: f32 = 8.0;
-/// The card's inset from the column's right and bottom edges (the desktop's `main` has `pr-3 pb-3`).
+/// The card's inset from the column's sides and bottom edge (the desktop's `main` has `pr-3 pb-3`; on the Chat card
+/// (`shell/card.rs`) the left side takes it too, so it sits in the card evenly).
 pub const INSET: f32 = 12.0;
 /// The drawer's slide: it rises in `--duration-slow` and fades out in `--duration-base` (`TerminalSlide.tsx`).
 const DRAWER_SLIDE: super::slide::Timing =
@@ -585,7 +586,7 @@ impl Render for TerminalDrawer {
             .debug_selector(|| "terminal-resize".to_string())
             .absolute()
             .top(px(GAP) - px(6.0))
-            .left(HANDLE_INSET)
+            .left(px(INSET) + HANDLE_INSET)
             .right(px(INSET) + HANDLE_INSET)
             .h(HANDLE_HEIGHT)
             .cursor_row_resize()
@@ -596,7 +597,7 @@ impl Render for TerminalDrawer {
             .relative()
             .size_full()
             .pt(px(GAP))
-            .pr(px(INSET))
+            .px(px(INSET))
             .pb(px(INSET))
             .on_drag_move(cx.listener(Self::resize_to))
             .child(card)

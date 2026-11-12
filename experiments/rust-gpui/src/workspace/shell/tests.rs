@@ -14,9 +14,9 @@ fn the_bar_sits_beside_the_traffic_lights(cx: &mut TestAppContext) {
     let (_workspace, cx) = testing::mount_workspace(cx);
     for (ix, name) in ["bar-sidebar-toggle", "bar-routines", "bar-link-projects", "bar-search"].into_iter().enumerate() {
         let b = cx.debug_bounds(name).unwrap_or_else(|| panic!("{name} is drawn"));
-        assert_eq!(b.origin.x, px(top_bar::BAR_LEFT + ix as f32 * 40.0), "{name} x");
-        assert_eq!(b.origin.y, px(6.0), "{name} is centred in the 44px header");
-        assert_eq!(b.size, size(px(32.0), px(32.0)));
+        assert_eq!(b.origin.x, px(top_bar::BAR_LEFT + ix as f32 * 36.0), "{name} x");
+        assert_eq!(b.origin.y, px(8.0), "{name} is centred on the traffic lights, y 22, and ends at the 36px top row's edge");
+        assert_eq!(b.size, size(px(28.0), px(28.0)));
         assert!(b.origin.x >= px(top_bar::TRAFFIC_LIGHTS_END), "{name} clears the traffic lights");
     }
     assert!(cx.debug_bounds("bar-routines-unread").is_some(), "the fixture has unread Runs");
@@ -36,9 +36,12 @@ fn the_collapsed_rail_shares_the_one_top_row_with_the_lights_and_the_bar(cx: &mu
     assert!(cx.debug_bounds("title-band").is_none());
     // The bar keeps its place, over the rail and the start of the Chat column.
     let toggle = cx.debug_bounds("bar-sidebar-toggle").unwrap();
-    assert_eq!((toggle.origin.x, toggle.origin.y), (px(top_bar::BAR_LEFT), px(6.0)));
+    assert_eq!((toggle.origin.x, toggle.origin.y), (px(top_bar::BAR_LEFT), px(8.0)));
     let icon = cx.debug_bounds("rail-item-0").expect("the rail is drawn");
-    assert!(icon.right() <= px(RAIL_WIDTH) && icon.top() >= px(44.0), "the rail's icons start under the top row");
+    assert!(
+        icon.right() <= px(RAIL_WIDTH) && icon.top() >= px(crate::workspace::chrome::TOP_ROW),
+        "the rail's icons start under the top row"
+    );
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
     assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).0, top_bar::chat_leading_inset(RAIL_WIDTH + 1.0), "clear of the bar");
     // The bar's toggle expands it again.
@@ -101,13 +104,13 @@ fn the_corner_has_one_toggle_that_opens_and_closes_the_side_panel(cx: &mut TestA
     let window = cx.update(|window, _| window.viewport_size());
     assert_eq!(corner.right(), toggle.right());
     let panel_left = window.width - px(panel.read_with(cx, |p, _| p.width()));
-    assert_eq!(toggle.right(), panel_left - px(12.0), "8px inside the Chat card, whose edge is 4px left of the open panel");
-    assert_eq!(toggle.origin.y, px(6.0), "centred in the top bar row, as the bar's buttons");
-    assert_eq!(toggle.size.width, px(32.0));
+    assert_eq!(toggle.right(), panel_left - px(14.0), "10px inside the Chat card, whose edge is 4px left of the open panel");
+    assert_eq!(toggle.origin.y, px(8.0), "centred in the top bar row, as the bar's buttons");
+    assert_eq!(toggle.size.width, px(28.0));
     cx.simulate_click(toggle.center(), Modifiers::none());
     assert!(!panel.read_with(cx, |p, _| p.is_open()), "the toggle closes the panel");
     let closed = cx.debug_bounds("toggle-panel").expect("still there");
-    assert_eq!(closed.right(), window.width - px(16.0), "closed: 8px inside the Chat card, whose edge is 8px from the window's");
+    assert_eq!(closed.right(), window.width - px(18.0), "closed: 10px inside the Chat card, whose edge is 8px from the window's");
     assert_eq!(closed.origin.y, toggle.origin.y, "same row");
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
     assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(1), "closed: the Chat header ends short of it");
@@ -138,11 +141,11 @@ fn the_corner_item_is_one_panel_toggle() {
 
 #[test]
 fn chat_header_insets() {
-    assert_eq!(top_bar::controls_end(), 240.0, "80 + 4 x 32 + 3 x 8 + 8");
+    assert_eq!(top_bar::controls_end(), 224.0, "80 + 4 x 28 + 3 x 8 + 8");
     assert_eq!(top_bar::chat_leading_inset(305.0), px(16.0), "open sidebar: the header's own padding");
-    assert_eq!(top_bar::chat_leading_inset(45.0), px(195.0), "rail: clear of the bar");
+    assert_eq!(top_bar::chat_leading_inset(45.0), px(179.0), "rail: clear of the bar");
     assert_eq!(top_bar::chat_trailing_inset(0), px(16.0));
-    assert_eq!(top_bar::chat_trailing_inset(3), px(132.0), "12 + 3 x 40");
+    assert_eq!(top_bar::chat_trailing_inset(3), px(120.0), "12 + 3 x 36");
 }
 
 #[gpui::test]

@@ -273,7 +273,7 @@ fn rows_come_from_the_domain_data_through_the_list_and_mark_rules() {
 fn the_pinned_rows_start_right_under_the_header_with_no_destination_rows(cx: &mut TestAppContext) {
     let (_sidebar, cx) = mount(cx);
     let pinned = cx.debug_bounds("sidebar-pinned").expect("the pinned rows");
-    assert_eq!(pinned.top(), crate::theme::HEADER_HEIGHT, "Canvas, Routines and Links live only in the top bar");
+    assert_eq!(pinned.top(), px(super::header_height()), "Canvas, Routines and Links live only in the top bar");
     for id in ["bar-routines", "bar-link-projects"] {
         assert!(cx.debug_bounds(id).is_some(), "{id} is in the top bar");
     }
@@ -372,7 +372,7 @@ fn the_hover_action_moves_the_chat_to_done_and_cmd_z_brings_it_back(cx: &mut Tes
     assert!((0..rows).all(|ix| sidebar.read_with(cx, |s, _| !s.row(ix).unwrap().done)), "no list row is Done");
 }
 
-/// Rows are 54px boxes 2px apart, 14px in, the first 8px under the header.
+/// Rows are 54px boxes 2px apart, 14px in, the first right under the top row, where the Chat card starts.
 #[gpui::test]
 fn rows_are_54px_two_apart_with_their_content_14px_in(cx: &mut TestAppContext) {
     let (_sidebar, cx) = mount(cx);
@@ -380,7 +380,7 @@ fn rows_are_54px_two_apart_with_their_content_14px_in(cx: &mut TestAppContext) {
     let second = cx.debug_bounds("chat-row-1").expect("row 1");
     let third = cx.debug_bounds("chat-row-2").expect("row 2, the list's first");
     let fourth = cx.debug_bounds("chat-row-3").expect("row 3");
-    assert_eq!(first.top(), crate::theme::HEADER_HEIGHT + px(8.0));
+    assert_eq!(first.top(), px(crate::workspace::chrome::TOP_ROW));
     assert_eq!(first.size.height, px(54.0));
     for (a, b) in [(first, second), (second, third), (third, fourth)] {
         assert_eq!(b.top() - a.bottom(), px(2.0));

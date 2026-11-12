@@ -199,7 +199,7 @@ impl Workspace {
             .flex()
             .flex_col()
             .size_full()
-            .child(crate::workspace::chrome::header("routines-top-row"))
+            .child(crate::workspace::chrome::top_row("routines-top-row"))
             .child(div().flex_none().h(card::header_gap()))
             .child(div().flex().flex_1().min_h_0().child(self.routines.clone()))
             .into_any_element();

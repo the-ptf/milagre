@@ -1,14 +1,14 @@
 //! The window's top bar: the controls beside the traffic lights and the panel toggles in the corner.
 //!
 //! Beside the lights (`SidebarNav.tsx`'s `data-sidebar-bar`): the sidebar toggle, then Routines (with its unread dot),
-//! Link Projects and Search, 32px buttons 8px apart from x 80 (`sidebarLeft - 12`: the lights at x 16 span 60px
+//! Link Projects and Search, 28px buttons 8px apart from x 80 (`sidebarLeft - 12`: the lights at x 16 span 60px
 //! with 16px clear of them). They stay put whether the sidebar is open or a rail: open, they sit on the sidebar's
 //! header; as a rail (44px, narrower than the lights), they sit on the Chat header's leading edge, which keeps clear
 //! of them ([`chat_leading_inset`], the desktop's `useControlsClearance`). The Canvas button is left out: the Canvas
 //! view is not migrated.
 //!
 //! The corner (`PanelToggles.tsx`): one right-panel toggle that opens and closes the side panel, pressed while the
-//! panel shows. It sits in the top bar's row over the Chat card's right edge, 8px in ([`CORNER_INSET`]): near the
+//! panel shows. It sits in the top bar's row over the Chat card's right edge, 10px in ([`CORNER_INSET`]): near the
 //! window's edge while the panel is closed, just left of the panel while it is open; the Chat header ends short of it
 //! ([`chat_trailing_inset`]). The panel's own
 //! tab strip has every tab, so no other toggle is drawn here, and the Terminals open with ⌘J.
@@ -18,30 +18,30 @@ use std::rc::Rc;
 use gpui::{AnyElement, App, IntoElement, Pixels, SharedString, Window, div, prelude::*, px};
 
 use super::keys::shortcut_hint;
-use crate::theme::{ActiveTheme, HEADER_HEIGHT, Theme};
+use crate::theme::{ActiveTheme, Theme};
 use crate::ui::{IconButton, IconButtonSize, IconName, IconSize, Tooltip};
-use crate::workspace::chrome::NoDrag;
+use crate::workspace::chrome::{NoDrag, TOP_ROW_CENTRE};
 
 /// Where the traffic lights end: x 16 plus three 14pt buttons and their gaps.
 pub const TRAFFIC_LIGHTS_END: f32 = 76.0;
 /// The bar's left edge (the desktop's `sidebarLeft` of 92 for leading lights, less the bar's 12px offset).
 pub const BAR_LEFT: f32 = 80.0;
-/// Each bar and corner button (`IconButton size={32}`).
-pub const BUTTON: f32 = 32.0;
-/// Between two buttons; the corner's pitch is a button plus this (`CORNER_PITCH`, 40).
+/// Each bar and corner button: 28px, so centred on the traffic lights it fits the 36px top row (`chrome::TOP_ROW`).
+pub const BUTTON: f32 = 28.0;
+/// Between two buttons; the corner's pitch is a button plus this (36).
 pub const GAP: f32 = 8.0;
 /// The Chat header's trailing clearance for the corner's toggles: their inset plus one gap.
 pub const CORNER_RIGHT: f32 = 12.0;
 /// The toggle's inset from the Chat card's right edge (its glyph lines up 16px in, with the header's padding).
-pub const CORNER_INSET: f32 = 8.0;
+pub const CORNER_INSET: f32 = 10.0;
 /// The Chat header's own padding when nothing overlaps it.
 pub const HEADER_PAD: f32 = 16.0;
 /// Buttons in the bar: the sidebar toggle, Routines, Link Projects, Search.
 pub const BAR_BUTTONS: usize = 4;
 
-/// The bar's buttons vertically centred in the 44px header.
+/// The bar's buttons centred on the traffic lights, in the top row.
 fn bar_top() -> Pixels {
-    (HEADER_HEIGHT - px(BUTTON)) / 2.0
+    px(TOP_ROW_CENTRE - BUTTON / 2.0)
 }
 
 /// The bar's width.
@@ -101,8 +101,8 @@ pub fn bar(bar: Bar, theme: &Theme) -> AnyElement {
                 div()
                     .debug_selector(|| "bar-routines-unread".into())
                     .absolute()
-                    .top(px(2.0))
-                    .left(px(18.0))
+                    .top(px(0.0))
+                    .left(px(16.0))
                     .size(px(12.0))
                     .rounded_full()
                     .border_2()
@@ -208,7 +208,7 @@ pub fn corner(items: &[CornerItem], card_right: f32, on_toggle: CornerHandler) -
 
 fn button(id: &'static str, icon: IconName, pressed: bool, on_click: impl Fn(&mut Window, &mut App) + 'static) -> IconButton {
     IconButton::new(id, icon)
-        .size(IconButtonSize::S32)
+        .size(IconButtonSize::S28)
         .glyph(IconSize::S16)
         .pressed(pressed)
         .on_click(move |_, window, cx| on_click(window, cx))

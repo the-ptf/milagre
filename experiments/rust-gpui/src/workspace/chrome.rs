@@ -18,6 +18,14 @@ use gpui::{ClickEvent, Div, ElementId, InteractiveElement, MouseButton, Stateful
 
 use crate::theme::HEADER_HEIGHT;
 
+/// The window's top row (the traffic lights, the bar, the Chat's title, the panel toggle and tabs): the Chat card,
+/// the sidebar's rows and the panel's content all start right under it.
+pub const TOP_ROW: f32 = 36.0;
+/// Where the top row's items are centred: the traffic lights' centre (`app.rs` puts them at y 15).
+pub const TOP_ROW_CENTRE: f32 = 22.0;
+/// The top row's items are at most this tall (28px buttons and tabs), so centred on the lights they end at its edge.
+pub const TOP_ROW_ITEM: f32 = 2.0 * (TOP_ROW - TOP_ROW_CENTRE);
+
 thread_local! {
     /// A left press on a header that the next mouse move turns into a window move. One per UI thread is
     /// enough: only one press can be down at a time.
@@ -46,6 +54,11 @@ pub fn header(id: impl Into<ElementId>) -> Stateful<Div> {
                 titlebar_double_click(window);
             }
         })
+}
+
+/// A column's header in the window's top row: [`TOP_ROW`] tall, its items centred on the traffic lights.
+pub fn top_row(id: impl Into<ElementId>) -> Stateful<Div> {
+    header(id).h(gpui::px(TOP_ROW)).pt(gpui::px(TOP_ROW - TOP_ROW_ITEM))
 }
 
 /// For controls inside a header: a press on them never moves the window or reaches the header's

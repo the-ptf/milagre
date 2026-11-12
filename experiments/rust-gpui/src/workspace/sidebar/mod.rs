@@ -603,8 +603,8 @@ impl Sidebar {
             .text_color(theme.ink)
             // The traffic lights and the window's bar sit over this header and run on past the rail's edge, over the Chat
             // header's leading edge (`workspace/shell/top_bar.rs`): one top row, expanded or not.
-            .child(chrome::header("sidebar-header"))
-            .child(div().h(px(8.0)).flex_none())
+            .child(chrome::top_row("sidebar-header").h(px(header_height())))
+            .child(div().h(px(LIST_TOP)).flex_none())
             .child(uniform_list("rail-list", self.rows.len(), cx.processor(Self::render_rail)).flex_1().min_h_0())
             .child(toast)
             .child(
@@ -735,8 +735,14 @@ impl Render for Sidebar {
 /// 44px title-bar header: the traffic lights sit at the left (see `app.rs`), the window's bar beside them (the
 /// sidebar toggle, Routines, Link Projects and Search, drawn by `workspace/shell/top_bar.rs` from x 80 to 232), and
 /// the New Chat button with its 16px glyph at x 272 (a 24px hit area centred on it).
+/// The sidebar's header: the top row less the list's own top padding, so the first row starts where the Chat card
+/// and the panel's content do, right under the top row.
+pub fn header_height() -> f32 {
+    chrome::TOP_ROW - LIST_TOP
+}
+
 fn header(on_new_chat: impl Fn(&mut Window, &mut gpui::App) + 'static) -> impl IntoElement {
-    chrome::header("sidebar-header").relative().child(
+    chrome::top_row("sidebar-header").h(px(header_height())).relative().child(
         div().absolute().left(px(268.0)).top(px(10.0)).no_drag().child(
             IconButton::new("new-chat", IconName::PencilEdit02)
                 .size(IconButtonSize::S24)

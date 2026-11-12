@@ -439,7 +439,7 @@ impl Panel {
             .overflow_x_scroll()
             .track_scroll(&self.tabs_scroll)
             .children(tabs);
-        chrome::header("panel-tabs")
+        chrome::top_row("panel-tabs")
             .debug_selector(|| "panel-header".to_string())
             // The panel's half of the Chat card's gap is before it (`dock.rs`): the tabs keep their 8px from the edge.
             .pl(px(8.0) - crate::workspace::shell::card::panel_lead())
@@ -466,6 +466,6 @@ impl Render for Panel {
             // No fill of its own: the window's surface and its grain show through (`workspace/mod.rs`).
             .child(header)
             .when(HAIRLINE > px(0.0), |el| el.child(div().flex_none().h(HAIRLINE).bg(theme.line)))
-            .child(div().id("panel-body").flex_1().min_h_0().children(body))
+            .child(div().id("panel-body").debug_selector(|| "panel-body".into()).flex_1().min_h_0().children(body))
     }
 }

@@ -18,7 +18,7 @@ use gpui::{AnyElement, App, Bounds, Context, KeyDownEvent, Pixels, Point, Render
 use super::links::{LinkEnd, LinkProblem, link_between};
 use super::{ROW_INSET, Sidebar};
 use crate::logic::lists::chats::pin_order_at;
-use crate::theme::{ActiveTheme, HEADER_HEIGHT, RADIUS_CHIP, RADIUS_CONTROL, TEXT_11, TextStepExt};
+use crate::theme::{ActiveTheme, RADIUS_CHIP, RADIUS_CONTROL, TEXT_11, TextStepExt};
 use crate::ui::{Icon, IconName, IconSize};
 
 /// The Pinned rows' top padding (`pt(4)` in `mod.rs`).
@@ -158,7 +158,7 @@ impl Sidebar {
         let painted = self.row_views.get(&ix).map(|(view, _)| view.read(cx).bounds()).filter(|bounds| bounds.size.height > px(0.0));
         painted.or_else(|| {
             (ix < self.pinned && !self.collapsed).then(|| {
-                let top = HEADER_HEIGHT + px(PINNED_PAD + ix as f32 * super::row::ROW_PITCH);
+                let top = px(super::header_height() + PINNED_PAD + ix as f32 * super::row::ROW_PITCH);
                 Bounds::new(
                     gpui::point(px(ROW_INSET), top),
                     gpui::size(px(super::SIDEBAR_WIDTH - 2.0 * ROW_INSET), px(super::row::ROW_HEIGHT)),
@@ -189,8 +189,10 @@ impl Sidebar {
                 self.begin_drag(&first, true, cx);
                 self.over(Some(target(DropZone::After)), cx);
             }
-            "link-ask" => self.ask_link(&first, &second, HEADER_HEIGHT + px(PINNED_PAD), window, cx),
-            "link-pick" => self.pick_link(&first, super::link_popover::PickerMode::Link, HEADER_HEIGHT + px(PINNED_PAD), window, cx),
+            "link-ask" => self.ask_link(&first, &second, px(super::header_height() + PINNED_PAD), window, cx),
+            "link-pick" => {
+                self.pick_link(&first, super::link_popover::PickerMode::Link, px(super::header_height() + PINNED_PAD), window, cx)
+            }
             _ => {}
         }
     }

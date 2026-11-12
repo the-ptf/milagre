@@ -87,7 +87,7 @@ fn double_click(cx: &mut gpui::VisualTestContext, position: gpui::Point<gpui::Pi
     }
 }
 
-/// Every header drags the window from anywhere in its 44px, controls excepted, and a double-click on a
+/// Every header drags the window from anywhere in the top row, controls excepted, and a double-click on a
 /// header (not on a control) zooms. `chrome.rs` records the calls in tests (GPUI's test window cannot move).
 #[gpui::test]
 fn headers_move_and_zoom_the_window_but_their_controls_do_not(cx: &mut TestAppContext) {
@@ -95,8 +95,8 @@ fn headers_move_and_zoom_the_window_but_their_controls_do_not(cx: &mut TestAppCo
     let (_workspace, cx) = testing::mount_workspace(cx);
     chrome_calls();
 
-    // Press low in the sidebar header (y 38 of 44: below AppKit's old 28px strip), then move.
-    for (name, at) in [("sidebar", point(px(120.0), px(38.0))), ("chat", point(px(700.0), px(38.0)))] {
+    // Press low in the sidebar header (between the bar and New Chat) and the Chat header, then move.
+    for (name, at) in [("sidebar", point(px(240.0), px(24.0))), ("chat", point(px(700.0), px(32.0)))] {
         cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
         cx.simulate_mouse_move(at + point(px(6.0), px(0.0)), Some(MouseButton::Left), Modifiers::none());
         cx.simulate_mouse_up(at + point(px(6.0), px(0.0)), MouseButton::Left, Modifiers::none());

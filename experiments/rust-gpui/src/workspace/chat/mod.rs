@@ -378,7 +378,7 @@ impl Render for ChatView {
             pills.set_jump(away, cx);
             pills.set_return_focus(composer_focus);
         });
-        let header = chrome::header("chat-header")
+        let header = chrome::top_row("chat-header")
             .debug_selector(|| "chat-header".into())
             .pl(self.header_insets.0)
             .pr(self.header_insets.1)
