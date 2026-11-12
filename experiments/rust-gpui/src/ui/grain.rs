@@ -13,9 +13,13 @@ use crate::theme::{ActiveTheme, Appearance};
 
 /// One tile, in points.
 pub const GRAIN_TILE: f32 = 128.0;
-/// How many tiles across and down the view draws: enough for a 1536pt wide, 3072pt tall surface (it clips the rest).
-const COLUMNS: usize = 12;
-const ROWS: usize = 24;
+/// The most tiles the view draws across or down (a 8192pt surface), so a runaway viewport cannot build a huge tree.
+const MAX_TILES: usize = 64;
+
+/// How many tiles cover `length` points (the view clips the rest).
+fn tiles_for(length: f32) -> usize {
+    ((length / GRAIN_TILE).ceil().max(1.0) as usize).min(MAX_TILES)
+}
 
 /// How much of the baked texture shows: Victor asked for a quieter grain than the reference.
 const STRENGTH: f32 = 0.5;
@@ -78,12 +82,28 @@ impl Default for GrainView {
 }
 
 impl Render for GrainView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.renders += 1;
+        // It tiles over the whole window, whatever its size: the cached view renders again when its bounds change.
+        let viewport = window.viewport_size();
+        let (columns, rows) = (tiles_for(f32::from(viewport.width)), tiles_for(f32::from(viewport.height)));
         let path = texture(cx.theme().appearance);
         let selector = self.selector;
         div().debug_selector(move || selector.into()).size_full().overflow_hidden().opacity(STRENGTH).flex().flex_col().children(
-            (0..ROWS).map(|_| div().flex().flex_none().children((0..COLUMNS).map(|_| img(path).flex_none().size(px(GRAIN_TILE))))),
+            (0..rows).map(|_| div().flex().flex_none().children((0..columns).map(|_| img(path).flex_none().size(px(GRAIN_TILE))))),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tiles_cover_any_width_up_to_the_cap() {
+        for width in [1.0_f32, 127.0, 128.0, 1440.0, 1536.0, 1537.0, 3000.0, 3840.0] {
+            assert!(tiles_for(width) as f32 * GRAIN_TILE >= width, "{width}pt is covered");
+        }
+        assert_eq!(tiles_for(1.0e9), MAX_TILES);
     }
 }

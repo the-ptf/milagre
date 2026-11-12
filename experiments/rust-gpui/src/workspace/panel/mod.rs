@@ -443,7 +443,10 @@ impl Panel {
             .gap(px(2.0))
             .overflow_x_scroll()
             .track_scroll(&self.tabs_scroll)
-            .children(tabs);
+            .children(tabs)
+            // The strip's end padding lives in the scroll content, so the last tab scrolls fully into view while the
+            // viewport (and its fade) still runs to the panel's right edge.
+            .child(div().flex_none().w(px(8.0)).h_full());
         // Over the strip, not in it, on the shared surface (the grain shows through the transparent end).
         let tab_list = div()
             .relative()
@@ -457,7 +460,7 @@ impl Panel {
             .debug_selector(|| "panel-header".to_string())
             // The panel's half of the Chat card's gap is before it (`dock.rs`): the tabs keep their 8px from the edge.
             .pl(px(8.0) - crate::workspace::shell::card::panel_lead())
-            .pr(self.header_trailing.max(px(8.0)))
+            .pr(self.header_trailing)
             .gap_1()
             .child(tab_list)
             .into_any_element()
