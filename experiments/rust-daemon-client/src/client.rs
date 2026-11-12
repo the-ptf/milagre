@@ -17,6 +17,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(feature = "owned-chat")]
+#[path = "chat_actions.rs"]
+pub(crate) mod chat_actions;
+
 static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
 
 struct Handle {
@@ -28,6 +32,8 @@ struct Handle {
     socket: Arc<Mutex<Option<UnixStream>>>,
     project: String,
     timeout: Duration,
+    #[cfg(feature = "owned-chat")]
+    opened_view: AtomicBool,
 }
 impl Handle {
     fn stop(&self) {
@@ -215,6 +221,8 @@ impl Client {
                 socket: socket.clone(),
                 project: endpoint.authority.project.clone(),
                 timeout: options.request_timeout,
+                #[cfg(feature = "owned-chat")]
+                opened_view: AtomicBool::new(false),
             }),
         };
         let (ready, ready_wait) = reply::channel();
@@ -379,7 +387,10 @@ impl Client {
     /// Explicitly opens this generated Project. The owner may recover and persist state.
     pub async fn open_view(&self, path: &str) -> Result<Value> {
         self.scope(path)?;
-        self.project_result(self.read("project:open", json!([path])).await?)
+        let result = self.project_result(self.read("project:open", json!([path])).await?)?;
+        #[cfg(feature = "owned-chat")]
+        self.handle.opened_view.store(true, Ordering::Release);
+        Ok(result)
     }
     pub async fn runtime_snapshot(&self) -> Result<RuntimeSnapshot> {
         let (reply, wait) = reply::channel();

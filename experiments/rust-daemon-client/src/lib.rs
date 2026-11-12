@@ -1,8 +1,9 @@
 //! Read facade for one explicitly owned app fixture. No Tauri, GPUI or caller runtime.
 //!
 //! [`FixtureGuard::launch`] owns the fixed sibling `app-fixture` on macOS and is
-//! the only public source of endpoint authority. There is no arbitrary path or
-//! socket constructor. The launcher and protocol have isolated real-daemon and
+//! the public fixture source of endpoint authority. The off-by-default `owned-chat`
+//! feature adds an independently owned persistent dedicated Chat runtime. There is
+//! no arbitrary runtime executable or socket constructor. The launcher and protocol have isolated real-daemon and
 //! Unix-pair tests, including bounded oversized Project-state hydration. App adoption
 //! remains separate.
 #![cfg(unix)]
@@ -10,15 +11,24 @@
 mod client;
 mod launcher;
 mod notify;
+#[cfg(feature = "owned-chat")]
+mod owned_chat;
 mod protocol;
 mod reply;
 
 use serde_json::Value;
 use std::{collections::BTreeSet, os::unix::net::UnixStream, sync::Arc, time::Duration};
 
+#[cfg(feature = "owned-chat")]
+pub use client::chat_actions::{
+    ChatActions, PermissionDecision, PermissionMode, QuestionAnswers, ReplyStyle, SendOptions,
+    SendTarget,
+};
 pub use client::{Client, ScriptedActions};
 pub use launcher::{Cleanup, FixtureInfo, ShutdownReport};
 pub use notify::Notifications;
+#[cfg(feature = "owned-chat")]
+pub use owned_chat::{OwnedChatCleanup, OwnedChatGuard, OwnedChatInfo, OwnedChatShutdown};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -31,6 +41,8 @@ pub enum Error {
         submitted: bool,
     },
     InvalidScope,
+    #[cfg(feature = "owned-chat")]
+    ViewNotOpened,
     InvalidInput {
         field: &'static str,
         message: &'static str,

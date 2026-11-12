@@ -5,6 +5,10 @@ edition = "2021"
 publish = false
 description = "Fixture-only local daemon client contracts; production launcher remains unavailable"
 
+[features]
+default = []
+owned-chat = []
+
 [workspace]
 
 [dependencies]
@@ -15,3 +19,7 @@ tempfile = "3"
 
 [dev-dependencies]
 futures = "0.3"
+
+[[example]]
+name = "owned_chat_live"
+required-features = ["owned-chat"]

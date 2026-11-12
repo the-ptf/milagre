@@ -281,6 +281,8 @@ fn a_full_listener_backlog_respects_the_absolute_connect_deadline() {
     // A private synthetic Endpoint pins this state-machine regression to the
     // same saturated listener; receipt authority is exercised in the real run.
     state.endpoint = Some(Endpoint {
+        #[cfg(feature = "owned-chat")]
+        owned: None,
         profile: root.path().to_owned(),
         project: root.path().to_owned(),
         socket: path.clone(),

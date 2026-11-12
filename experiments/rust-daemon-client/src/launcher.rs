@@ -85,6 +85,8 @@ enum Kind {
     Directory,
     Socket,
     Executable,
+    #[cfg(feature = "owned-chat")]
+    File,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Identity {
@@ -99,6 +101,8 @@ impl Identity {
         let correct = match kind {
             Kind::Directory => metadata.is_dir(),
             Kind::Socket => metadata.file_type().is_socket(),
+            #[cfg(feature = "owned-chat")]
+            Kind::File => metadata.is_file() && metadata.nlink() == 1,
             Kind::Executable => {
                 metadata.is_file() && metadata.nlink() == 1 && metadata.mode() & 0o111 != 0
             }
@@ -149,6 +153,7 @@ impl Pin {
                     .read(true)
                     .custom_flags(
                         libc::O_NOFOLLOW
+                            | libc::O_NONBLOCK
                             | if kind == Kind::Directory {
                                 libc::O_DIRECTORY
                             } else {
@@ -194,8 +199,11 @@ impl Executable {
         Self::sibling(current.parent().ok_or_else(invalid)?)
     }
     fn sibling(parent: &Path) -> Result<Self> {
+        Self::sibling_named(parent, "app-fixture")
+    }
+    fn sibling_named(parent: &Path, name: &str) -> Result<Self> {
         let parent = Pin::capture(parent, Kind::Directory)?;
-        let file = Pin::capture(&parent.real.join("app-fixture"), Kind::Executable)?;
+        let file = Pin::capture(&parent.real.join(name), Kind::Executable)?;
         Ok(Self { file, parent })
     }
     fn check(&self) -> Result<()> {
@@ -237,6 +245,8 @@ struct Endpoint {
     socket: PathBuf,
     pins: Vec<Pin>,
     pid: u32,
+    #[cfg(feature = "owned-chat")]
+    owned: Option<Arc<owned_chat_launch::Selection>>,
 }
 impl Endpoint {
     fn receipt(value: &Value, pid: u32) -> Result<Self> {
@@ -348,14 +358,24 @@ impl Endpoint {
             socket,
             pins,
             pid,
+            #[cfg(feature = "owned-chat")]
+            owned: None,
         })
     }
     fn connect(&self, until: Instant) -> Result<UnixStream> {
+        #[cfg(feature = "owned-chat")]
+        if let Some(owned) = &self.owned {
+            owned.check()?;
+        }
         for pin in &self.pins {
             pin.check()?;
         }
         let stream = connect::until(&self.socket, until)?;
         peer(&stream, self.pid)?;
+        #[cfg(feature = "owned-chat")]
+        if let Some(owned) = &self.owned {
+            owned.check()?;
+        }
         for pin in &self.pins {
             pin.check()?;
         }
@@ -829,6 +849,10 @@ fn abandon<P: Process>(mut state: State<P>) {
         }
     }
 }
+
+#[cfg(feature = "owned-chat")]
+#[path = "owned_chat_launch.rs"]
+pub(crate) mod owned_chat_launch;
 
 #[cfg(test)]
 mod tests;

@@ -974,3 +974,6 @@ fn an_old_accepted_receipt_cannot_release_a_new_capture_hold() {
 
 mod actions;
 mod hydration;
+
+#[cfg(feature = "owned-chat")]
+mod owned_actions;
