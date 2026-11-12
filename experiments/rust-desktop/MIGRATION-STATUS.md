@@ -1,4 +1,9 @@
-# Integration status (2026-11-11)
+# Integration status (2026-11-12)
+
+**Current plan (2026-11-12):** GPUI is the desktop target and runs on the installed Node daemon
+for now; the Tauri shell is parked. See "Current plan" in
+[BACKEND-MIGRATION.md](BACKEND-MIGRATION.md) for the client commits and open items. The checkpoints
+below describe the owned Rust backend, which stays the later replacement for the Node daemon.
 
 Local branch `poc/rust-tauri-local`, parent Chat `/Users/victor/Code/personal/milagre-ade#10904`. Nothing pushed. The migration is **not complete**: the ordinary installed Rust shell still needs the production Node owner; the separate Rust Preview owns its dedicated Rust backend. Keep the existing React UI and retained features. Only browser embedding, voice, floating inbox and decorative effects may be omitted.
 

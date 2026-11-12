@@ -4,19 +4,38 @@ This branch contains a Rust desktop shell and a partial restartable Rust backend
 
 The installed Electron app and this client share the daemon through its existing private socket. They must never create concurrent writers for the same Project. This preserves ADR-0003, the SQLite/JSON stores and existing desktop/mobile event contracts. The Rust app currently depends on that daemon already being available. It is not yet a standalone replacement installer.
 
-## Frontend choice stays open
+## Current plan: GPUI on the Node daemon, then Rust behind it (2026-11-12)
 
-The user explicitly wants to choose between Tauri and GPUI at the end. Keep both independent until comparable feature, usability and performance checks support that choice. Tauri retains the production React UI; GPUI stays in its own `experiments/rust-gpui` worktree/branch. The shared Rust daemon and frontend-independent client are the common backend target. Neither backend authority nor its protocol may depend on GPUI. The ordinary installed Tauri shell still uses its existing transport and Node owner. The separate Rust Preview uses its owned Rust runtime, and GPUI has a separate real-data preview using the shared Rust client. Both remain experimental and use dedicated roots. No production replacement decision is implied.
+Supersedes "Frontend choice stays open". Victor chose **GPUI** as the desktop target; the Tauri
+shell is parked on this branch with no further work unless asked.
 
-## Frontend decision and interim Node mode (2026-11-12)
+**Interim, now:** the GPUI Preview (`~/Applications/Milagre GPUI Preview.app`, crate
+`experiments/rust-gpui`, Worktree `chat-tie0`, Chat #11899) runs on the installed Milagre's Node
+daemon through the shared client feature `installed-owner`
+(`experiments/rust-daemon-client/INSTALLED-OWNER.md`). It shows the same Projects and Chats as
+Electron and paired phones, and needs no Electron process:
 
-Victor chose GPUI as the migration target. The Tauri shell stays parked on this branch as it is;
-no further Tauri work unless asked. The GPUI Preview runs on the installed Milagre's Node daemon for
-now (shared client `installed-owner`, commit `5341ec752`, see
-`experiments/rust-daemon-client/INSTALLED-OWNER.md`), so it shows the same Projects and Chats as
-Electron and paired phones. The owned Rust runtime stays the backend target behind an explicit
-flag. Routines are out of scope for the Preview in this mode. The GPUI side is delegated to Chat
-#11899.
+| Client commit | What it gives the frontend                                                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `5341ec752`   | Adopt the running daemon by uid, PID and data dir; Project-scoped clients; typed chat, terminal, Git, sidebar actions with a chosen provider |
+| `3363d5b4a`   | `load_view` (no recents reorder), request-only connections (`discard`), model catalog                                                        |
+| `dd4993725`   | `call()` for any command Electron's preload sends (parity-tested list)                                                                       |
+| `40e7b51f1`   | Start the daemon when none runs: Milagre.app's own daemon in Node mode, never stopping a running one                                         |
+| `66a7795e2`   | Two-step handshake (`{commands:true}`): `project:open`, `daemon:snapshot`, `computers:*`                                                     |
+| `1ed6ff33b`   | Unlock computer credentials from Electron's safeStorage key in the login Keychain                                                            |
+
+Multi-computer already lives in the daemon (since #602); Electron main only forwards and unlocks.
+Discovery stays opt-in behind the status flag (Victor, 2026-11-12); daemon test and docs are on
+branch `milagre/chat-acas` (`6d070464c`, `8056830c9`), not pushed. Routines are out of scope for the
+Preview in this mode. Rules: never stop, restart or replace the Node daemon; writes are tested on a
+fake daemon; nothing is sent into real Projects without Victor.
+
+Open for the interim: live Keychain unlock with Victor present, a real send from the Preview,
+bundled Node for computers without Milagre.app, and GPUI screens (PR panel, account switcher,
+computers UI; later Designs/Artifacts/Browser web view, Simulator, attachments, updater).
+
+**Target, later:** the Rust owner replaces the Node daemon behind the same client, one service at a
+time. The inventory and gates below still apply to that step.
 
 ## Completion estimate and shared frontend integration (2026-11-11)
 
@@ -50,7 +69,6 @@ The earlier quota failure remains failed evidence. That acceptance used runtime
 read/write/cleanup checks without another model turn.
 This is not production profile adoption or full migration.
 Integration `3410109b` fixes launcher-loss cleanup, typed root-busy startup and dedicated metadata. Current Sidebar integration `1b180e46` passes 130 runtime tests and 85 shared-client tests plus seven doctests. GPUI adopted the matching client/runtime, reports a real text turn on `6054d7d6`, and remains a separate app on its own root. The detailed current checkpoint supersedes historical foundation counts below.
-
 
 The off-default `milagre-rust-chat` window now drives the unchanged production React UI against its exact owned `chat-runtime` child, with no Node fallback. Actual native WebKit runs pass composer send, streamed Claude text, visible Allow once and Deny buttons, saved messages and reload without replay. Allowed file bytes match; the denied file remains absent. Configured bootstrap supplies real Project/Canvas/account-scope reads. A native-discovered `chat:patch` error is fixed for the persisted unread-boolean subset; other patches refuse. Root passes 100 runtime tests, default/fixture desktop tests and strict checks; current screenshots show the read-status banner gone. [CHAT-DESKTOP.md](CHAT-DESKTOP.md) records hashes, evidence and limits. Thirty-six other unavailable method names remain visible in diagnostics, so this is one working Chat workflow, not full retained-service parity. Installed routing, production ownership, phone and GPUI pins remain unchanged.
 
