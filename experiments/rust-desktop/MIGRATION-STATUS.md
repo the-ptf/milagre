@@ -6,6 +6,22 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+GPUI final peer checkpoint `db5348e0` adopts client `3410109b` and runtime
+`862f4cd2`, with daemon terminal `96e6c476`. Root read the real approval artifact
+`~/Library/Application Support/Milagre GPUI Preview Smoke/run2/run1.json` and log:
+passed, no reported errors, one AllowOnce, and reported Complete cleanup. The app
+log still contains the AppKit sandbox-extension warning. This real approval was
+on the earlier client/runtime pin, not the final one; final-pin checks are fake
+provider plus snapshot-open/shutdown only. GPUI reports reverified exit paths and
+a zip/unzipped launch check. Root confirms the zip exists at
+`output/gpui-preview/Milagre-GPUI-Preview.zip` (35,328,096 bytes). It is ad-hoc
+signed; Developer ID/notarization requires Victor's certificate action. No temporary
+root sweep was performed. Old failed-run directories remain evidence/unknown owners.
+
+The isolated routine-execution lane found the owner's normal routine-context gate.
+A separate default-off fixture-only trusted admission amendment is authorized;
+normal send gates stay intact. No scheduled execution is installed or claimed.
+
 At the 2026-11-12 00:00 Toronto continuation, all previous implementation agents
 were complete and tracked sources clean. Installed Preview hashes/signature still
 match the accepted build below, and production PID start times remain unchanged.
