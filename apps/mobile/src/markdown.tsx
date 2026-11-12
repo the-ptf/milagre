@@ -20,11 +20,11 @@ import * as Clipboard from "expo-clipboard";
 import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { router } from "expo-router";
 import type { Token } from "markdown-it";
-import { localFileLink } from "@milagre/shared/file-link";
+import { fileLinkTarget, localFileLink, touchedFileMatches } from "@milagre/shared/file-link";
 import { reachableUrl } from "@milagre/shared/loopback-url";
 import { splitStreamingBlocks } from "@milagre/shared/streaming-blocks";
 import { ReachableHostContext, type ReachableHost } from "./reachable-host";
-import { ChatLinkContext } from "./chat-link-context";
+import { ChatFilesContext, ChatLinkContext } from "./chat-link-context";
 import { cachedMarkdownTokens, markdownChunks, markdownTokens, safeLink } from "./chat-presentation";
 import { radius, space } from "./design-tokens";
 import { PageScroll, pressStyle, useStyles, type Styles } from "./ui";
@@ -49,6 +49,8 @@ type MarkdownTheme = {
   codeSize: number;
   reachable?: ReachableHost | null;
   openChatLink?: ((url: string) => boolean) | null;
+  /** The Chat's steps, whose files a file named in inline code may be (see touchedFileMatches). */
+  steps?: { readonly current: readonly { file?: string; files?: readonly string[] }[] };
   /** False where a long press switches the message to an inline selection view (chat replies on iOS). */
   selectable: boolean;
   /** Selects the message text in place; set, it is also the VoiceOver action on each text block. */
@@ -220,10 +222,10 @@ function inlineContent(tokens: Token[], t: MarkdownTheme, style: TextStyle = bod
   flush();
   return <View style={{ gap: 8 }}>{parts}</View>;
 }
-function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
+function inlineNodes(nodes: Node[], t: MarkdownTheme, inLink = false): React.ReactNode {
   return nodes.map(({ token, children }, i) => {
     if (token.type === "softbreak" || token.type === "hardbreak") return "\n";
-    let text = children.length ? inlineNodes(children, t) : token.content;
+    let text = children.length ? inlineNodes(children, t, inLink || token.type === "link_open") : token.content;
     const style: TextStyle =
       token.type === "strong_open"
         ? { fontWeight: "600" }
@@ -242,6 +244,10 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
     const url = href ? safeLink(href) : null;
     // A link to a file on the computer opens the file preview; the phone's browser can't reach it.
     const file = href && !url ? localFileLink(href, t.basePath) : null;
+    // Inline code that names a file of the Chat's folder opens it in the preview too. A path missing there may be one the
+    // agent named from a subfolder: the files the Chat worked on that end with it go along, for the preview to try next.
+    const named = token.type === "code_inline" && !inLink && t.basePath ? fileLinkTarget(token.content) : null;
+    const codeFile = named ? localFileLink(named.path, t.basePath) : null;
     const onPress = url
       ? () => {
           // The internal Browser runs on the computer, so preserve its original localhost address.
@@ -250,7 +256,15 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
         }
       : file
         ? () => router.push({ pathname: "/file-preview", params: { path: file.path } })
-        : undefined;
+        : named && codeFile
+          ? () => {
+              const fallbacks = touchedFileMatches(named.path, t.steps?.current ?? []);
+              router.push({
+                pathname: "/file-preview",
+                params: { path: codeFile.path, ...(fallbacks.length ? { fallbacks: JSON.stringify(fallbacks) } : {}) },
+              });
+            }
+          : undefined;
     return (
       <Text
         key={i}
@@ -464,11 +478,12 @@ const Chunk = memo(function Chunk({ text, streaming, media, basePath, remote, se
   const styles = useStyles();
   const reachable = useContext(ReachableHostContext);
   const openChatLink = useContext(ChatLinkContext);
+  const steps = useContext(ChatFilesContext);
   const nodes = useMemo(() => tree(streaming ? markdownTokens(text, true) : cachedMarkdownTokens(text)), [text, streaming]);
   const images = useMemo(() => ({ media, basePath, remote }), [media, basePath, remote]);
   const theme = useMemo(
-    () => ({ colors, styles, basePath, textPx, codeSize, reachable, openChatLink, selectable, onMessageAction, tone }),
-    [colors, styles, basePath, textPx, codeSize, reachable, openChatLink, selectable, onMessageAction, tone],
+    () => ({ colors, styles, basePath, textPx, codeSize, reachable, openChatLink, steps, selectable, onMessageAction, tone }),
+    [colors, styles, basePath, textPx, codeSize, reachable, openChatLink, steps, selectable, onMessageAction, tone],
   );
   return <MarkdownStreamingContext value={streaming}>{blocks(nodes, images, theme)}</MarkdownStreamingContext>;
 });

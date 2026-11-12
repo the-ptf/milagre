@@ -30,7 +30,7 @@ const LIMIT = 40;
  * each repository, skips hidden, system and dependency folders, and gives up after a depth, a folder count or a time
  * budget so a huge home still answers. Only names and paths are read; nothing is opened inside a repository.
  */
-async function scanRepositories(root, { now = Date.now, readdir = fs.readdir } = {}) {
+async function scanRepositories(root, { now = Date.now, readdir = fs.readdir, maxDepth = MAX_DEPTH } = {}) {
   const started = now();
   const found = [];
   let queue = [{ folder: root, depth: 0 }];
@@ -49,7 +49,7 @@ async function scanRepositories(root, { now = Date.now, readdir = fs.readdir } =
         found.push({ path: folder, name: path.basename(folder) });
         continue;
       }
-      if (depth >= MAX_DEPTH) continue;
+      if (depth >= maxDepth) continue;
       for (const entry of entries) {
         if (!entry.isDirectory() || entry.name.startsWith(".") || SKIP.has(entry.name)) continue;
         next.push({ folder: path.join(folder, entry.name), depth: depth + 1 });
@@ -97,4 +97,4 @@ function createProjectFinder(root, { now = Date.now, scan = scanRepositories } =
   };
 }
 
-module.exports = { createProjectFinder, rankRepositories, scanRepositories };
+module.exports = { SKIP, createProjectFinder, rankRepositories, scanRepositories };

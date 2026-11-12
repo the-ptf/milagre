@@ -177,6 +177,8 @@ test("pickerLinks offers the Links the sidebar shows, by name", () => {
     { id: "b", name: "Shop + API", hidden: false },
     { id: "h", name: "Archive", hidden: true },
     { id: "a", name: "App + Site" },
+    { id: "adopted", name: "Adopted", canvasLinkId: "edge" },
+    { id: "released", name: "Released history", canvasLinkId: "edge" },
   ];
   assert.deepEqual(
     pickerLinks(links).map((link) => link.id),

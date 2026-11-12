@@ -313,12 +313,16 @@ function makeBridge(invoke, listen, send) {
     getCurrentProject: () => invoke("project:current"),
     openProject: () => invoke("project:open"),
     /** This Mac's folder dialog without opening anything: where a clone goes. A path, or null when cancelled. */
-    chooseFolder: () => invoke("project:choose-folder"),
+    chooseFolder: (title) => invoke("project:choose-folder", title),
     /** A folder on this computer, opened as a Project without the folder dialog (the remote folder picker). */
     openProjectAt: (folder) => invoke("project:open-at", folder, { takeNotice: true }),
     listDirs: (request) => invoke("fs:list-dirs", request),
     readMedia: (request) => invoke("media:read", request),
     listRecentProjects: () => invoke("project:recent"),
+    /** The repositories in a folder being added, offered as Projects with a Named Link that groups them. */
+    scanFolder: (folder) => invoke("project:scan-children", folder),
+    readDetectRepositories: () => invoke("folder-repos:detect:read"),
+    saveDetectRepositories: (value) => invoke("folder-repos:detect:save", value),
     /** Every Project the computer knows, for the new-chat picker; the sidebar keeps to the recent ones. */
     listKnownProjects: () => invoke("project:known"),
     listAgentFolders: () => invoke("onboarding:agent-folders"),
@@ -350,6 +354,7 @@ function makeBridge(invoke, listen, send) {
     getCanvas: () => invoke("canvas:snapshot"),
     addLink: (a, b) => invoke("canvas:link-add", a, b),
     removeLink: (id) => invoke("canvas:link-remove", id),
+    setLinkChatMode: (id, mode) => invoke("canvas:chat-mode", id, mode),
     restoreLink: (link) => invoke("canvas:link-restore", link),
     getLinks: () => invoke("canvas:links"),
     onLinksChanged: (callback) => listen("canvas:links-changed", (payload) => callback(payload.links)),

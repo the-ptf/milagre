@@ -1,6 +1,7 @@
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext, useLayoutEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import { openInEditor, useEditors } from "../lib/editors";
+import { touchedFileMatches } from "@milagre/shared/file-link";
 import { useNotice } from "../lib/notice";
 import { TOAST } from "../lib/toast";
 
@@ -27,14 +28,34 @@ export function FilesRoot({ root, children }: { root: string; children: ReactNod
 /** The folder relative file links in a reply resolve against, on the computer the chat runs on. */
 export const useFilesRoot = () => useContext(FilesRootContext);
 
-/** Opens a file of the chat's folder in the editor, or null when there is no folder or no editor to open it in. */
+type StepFile = { file?: string; files?: readonly string[] };
+const ChatFilesContext = createContext<{ readonly current: readonly StepFile[] }>({ current: [] });
+
+/**
+ * The Chat's steps, whose files a reply may name relative to a subfolder (see touchedFileMatches). A ref, read on a
+ * click: a value that changed with each streamed step would re-render every file link in the transcript.
+ */
+export function ChatFiles({ steps, children }: { steps: readonly StepFile[]; children: ReactNode }) {
+  const latest = useRef(steps);
+  useLayoutEffect(() => {
+    latest.current = steps;
+  }, [steps]);
+  return <ChatFilesContext.Provider value={latest}>{children}</ChatFilesContext.Provider>;
+}
+
+/**
+ * Opens a file of the chat's folder in the editor, or null when there is no folder or no editor to open it in. A path
+ * missing there falls back to a file the Chat worked on that ends with it.
+ */
 export function useFileOpener(): { open: (path: string, line?: number) => void; title: string } | null {
   const root = useContext(RootContext);
+  const steps = useContext(ChatFilesContext);
   const { editor } = useEditors();
-  return useMemo(
-    () => (root && editor ? { open: (path, line) => void openInEditor(root, { path, line }), title: `Open in ${editor.name}` } : null),
-    [root, editor],
-  );
+  return useMemo(() => {
+    if (!root || !editor) return null;
+    const open = (path: string, line?: number) => void openInEditor(root, { path, line, fallbacks: touchedFileMatches(path, steps.current) });
+    return { open, title: `Open in ${editor.name}` };
+  }, [root, editor, steps]);
 }
 
 /** The small notice at the bottom of the window, drawn as the toast (lib/toast): an ink capsule that fades up. */

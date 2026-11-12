@@ -300,7 +300,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       }
       // Where the phone reaches the Chat's computer: none unless a test says so, so localhost links stay as written.
       if (base === "reachable-host" && !(id in modules)) return { ReachableHostContext: "ReachableHostContext" };
-      if (base === "chat-link-context" && !(id in modules)) return { ChatLinkContext: "ChatLinkContext", ChatLinkProvider: "ChatLinkProvider" };
+      if (base === "chat-link-context" && !(id in modules))
+        return { ChatLinkContext: "ChatLinkContext", ChatLinkProvider: "ChatLinkProvider", ChatFilesContext: "ChatFilesContext" };
       if (base === "browser-link" && !(id in modules)) return load("browser-link.ts", modules, "", cache);
       if (base === "routes-native") return { useReachableHost: () => null, ...modules[id] };
       if (id === "@milagre/shared/loopback-url" && !(id in modules)) return require(id);
@@ -482,6 +483,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/pr-blockers" && !(id in modules)) return require("@milagre/shared/pr-blockers");
       // /storage's name and hint, which the Chat lists beside /undo.
       if (id === "@milagre/shared/storage" && !(id in modules)) return require("../packages/shared/src/storage.ts");
+      if (id === "@milagre/shared/project-list" && !(id in modules)) return require("../packages/shared/src/project-list.ts");
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -2218,11 +2220,19 @@ function markdownHost({
   haptic = () => {},
   textPx = 15,
   codeSize = 12,
+  steps = [],
 } = {}) {
   const react = {
     ...hookHost({ effects: true }),
     memo: (fn) => fn,
-    useContext: (context) => (context === "ReachableHostContext" ? reachable : context === "ChatLinkContext" ? openChatLink : undefined),
+    useContext: (context) =>
+      context === "ReachableHostContext"
+        ? reachable
+        : context === "ChatLinkContext"
+          ? openChatLink
+          : context === "ChatFilesContext"
+            ? { current: steps }
+            : undefined,
   };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
@@ -2579,6 +2589,92 @@ test("links to files on the computer open the file preview", () => {
     assert.equal(JSON.stringify(screen.routes), JSON.stringify([{ pathname: "/file-preview", params: { path } }]));
     assert.deepEqual(screen.links, [], "a file link never goes to the phone's browser");
   }
+});
+
+test("inline code that names a file opens the preview, with the Chat's files that end with it to try next", () => {
+  // A routine's agent works in .routines/r and names its case file from there; a Codex patch wrote it with another file.
+  const written = "/worktrees/feature/.routines/r/casos/a.md";
+  const screen = markdownHost({
+    basePath: "/worktrees/feature",
+    steps: [{ file: "/worktrees/feature/README.md" }, { files: [written, "/worktrees/feature/.routines/r/casos/b.md"] }],
+  });
+  const link = find(screen.render("The case is in `casos/a.md:12`."), (node) => node.props?.accessibilityRole === "link");
+  assert.ok(link, "the file in inline code is a link");
+  link.props.onPress();
+  assert.equal(
+    JSON.stringify(screen.routes),
+    JSON.stringify([{ pathname: "/file-preview", params: { path: "/worktrees/feature/casos/a.md", fallbacks: JSON.stringify([written]) } }]),
+  );
+  // A file the Chat didn't work on goes alone; commands and words stay code; with no folder nothing is a link.
+  find(screen.render("See `src/main.ts`."), (node) => node.props?.accessibilityRole === "link").props.onPress();
+  assert.equal(JSON.stringify(screen.routes.at(-1)), JSON.stringify({ pathname: "/file-preview", params: { path: "/worktrees/feature/src/main.ts" } }));
+  for (const text of ["Run `npm test`.", "Call `console.log`."])
+    assert.equal(
+      find(screen.render(text), (node) => node.props?.accessibilityRole === "link"),
+      undefined,
+      text,
+    );
+  assert.equal(
+    find(markdownHost().render("See `src/main.ts`."), (node) => node.props?.accessibilityRole === "link"),
+    undefined,
+  );
+  // Code inside a link is the link's text: one link, to where the link points.
+  const links = [];
+  find(screen.render("[`docs/spec.md`](https://example.com/spec)"), (node) => {
+    if (node.props?.accessibilityRole === "link") links.push(node);
+    return false;
+  });
+  assert.equal(links.length, 1);
+});
+
+test("the file preview reads each fallback when the named path misses, and shows the named path's error when none reads", () => {
+  const react = hookHost({ effects: true });
+  const present = new Set();
+  const reads = [];
+  let params = {};
+  const { default: FilePreview } = load("app/file-preview.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    // oxlint-disable-next-line typescript/no-extraneous-class -- empty stub standing in for expo-file-system's File constructor
+    "expo-file-system": { File: class {}, FileMode: { ReadOnly: "readOnly" } },
+    "react-native": { Platform: { OS: "ios" }, Text: "Text", View: "View" },
+    "expo-router": { Stack: { Screen: "Screen", Toolbar: Object.assign(() => null, { Button: "ToolbarButton" }) }, useLocalSearchParams: () => params },
+    "../session": { useSession: () => ({ client: {} }) },
+    "../use-rpc": {
+      useRpc: (client, method, args) => {
+        reads.push(args[0]);
+        return present.has(args[0])
+          ? { data: { text: `contents of ${args[0]}`, binary: false, truncated: false }, error: "", refresh() {} }
+          : { data: null, error: `ENOENT: ${args[0]}`, refresh() {} };
+      },
+    },
+    "../save-attachment": { saveAttachment: async () => true },
+    "../file-code": { FileCode: "FileCode" },
+    "../markdown": { Markdown: "Markdown" },
+    "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
+    "../ui": { colors: {}, styles: {}, PillButton: "PillButton", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll", HeaderButton: "HeaderButton" },
+  });
+  const render = () => {
+    react.begin();
+    return FilePreview();
+  };
+  const fallback = "/p/.routines/r/casos/a.ts";
+  present.add(fallback);
+  params = { path: "/p/casos/a.ts", fallbacks: JSON.stringify(["/p/other/casos/a.ts", fallback]) };
+  for (let i = 0; i < 4; i++) render();
+  assert.deepEqual([...new Set(reads)], ["/p/casos/a.ts", "/p/other/casos/a.ts", fallback]);
+  const code = find(render(), (node) => node.type === "FileCode");
+  assert.equal(code.props.text, `contents of ${fallback}`);
+  assert.equal(
+    find(render(), (node) => node.type === "ErrorNotice"),
+    undefined,
+  );
+  // None reads: the error is the named path's, not the last fallback's.
+  present.clear();
+  reads.length = 0;
+  params = { path: "/p/casos/b.ts", fallbacks: JSON.stringify(["/p/other/casos/b.ts"]) };
+  for (let i = 0; i < 4; i++) render();
+  assert.equal(find(render(), (node) => node.type === "ErrorNotice").props.message, "ENOENT: /p/casos/b.ts");
 });
 
 test("mobile replies keep code URLs and unsafe links inert", () => {
@@ -16877,10 +16973,12 @@ test("unmarked design cards reload their catalog after Designs is turned on", as
   h.cleanup();
 });
 
-function canvasHost() {
-  const react = hookHost();
+function canvasHost({ effects = false } = {}) {
+  const react = hookHost({ effects });
   react.useSyncExternalStore = (_subscribe, read) => read();
   const routes = [];
+  const calls = [];
+  const confirmations = [];
   const now = Date.now();
   const chat = (id, worktree_id, title, extra = {}) => ({
     id,
@@ -16918,7 +17016,13 @@ function canvasHost() {
     "/old": copy("/old", [tree(1, "/old", "main")], [chat(2, 1, "Old work", { archived: true })]),
   };
   const session = {
-    client: { url: "ws://mac" },
+    client: {
+      url: "ws://mac",
+      call: async (...args) => {
+        calls.push(args);
+        return [];
+      },
+    },
     snapshot: null,
     recent: [
       { path: "/a", name: "Frontend" },
@@ -16962,19 +17066,61 @@ function canvasHost() {
     "@milagre/shared/canvas": require("../packages/shared/src/canvas.ts"),
     "../session": { useSession: () => session },
     "../use-links": { useLinks: () => links },
+    "../confirm-store": { confirmSheet: (...args) => confirmations.push(args) },
     "../attention": { useAttention: () => [] },
     "../chat-links": chatLinks(),
     "../status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
     "../icons": { Icon: "Icon", ProviderLogo: "ProviderLogo" },
     "../project-icon": { ProjectIcon: "ProjectIcon" },
-    "../ui": { ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "../ui": { ErrorNotice: "ErrorNotice", PageScroll: "PageScroll", PillButton: "PillButton" },
   });
   const render = () => {
     react.begin();
     return CanvasScreen();
   };
-  return { render, routes };
+  return { render, routes, calls, confirmations, links, session };
 }
+
+test("phone canvas retries failed Project previews when Links refresh after reconnect", async () => {
+  const host = canvasHost({ effects: true });
+  let offline = true;
+  let reads = 0;
+  host.session.previewProject = async () => {
+    reads++;
+    if (offline) throw new Error("Host disconnected");
+  };
+  host.render();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(textOf(host.render()).includes("Host disconnected"));
+  const failedReads = reads;
+  offline = false;
+  host.links.links = [...host.links.links];
+  host.render();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(reads > failedReads, "a reconnect rereads the Worktrees");
+  assert.equal(textOf(host.render()).includes("Host disconnected"), false);
+});
+
+test("phone canvas changes Chat mode only after explaining ownership and permissions", async () => {
+  const host = canvasHost();
+  host.links.links[0].a.worktree_path = "/a-filters";
+  host.links.links[0].b.worktree_path = "/b-feature";
+  find(host.render(), (node) => node.type === "PillButton" && node.props.title === "Chat mode…").props.onPress();
+  const [title, message, buttons] = host.confirmations[0];
+  assert.equal(title, "Chat mode");
+  assert.match(message, /one permission setting starting in Ask/);
+  assert.match(message, /Existing Chats become read-only/);
+  assert.deepEqual(host.calls, []);
+  buttons.find((button) => button.text === "Use shared Chat").onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(JSON.parse(JSON.stringify(host.calls)), [["canvas:chat-mode", ["l1", "shared"]]]);
+  host.links.links[0].sharedChat = { linkId: "shared", sessionId: 1 };
+  find(host.render(), (node) => node.type === "PillButton" && node.props.title === "Chat mode…").props.onPress();
+  assert.match(host.confirmations[1][1], /shared conversation read-only/);
+  host.confirmations[1][2].find((button) => button.text === "Use separate Chats").onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(JSON.parse(JSON.stringify(host.calls.at(-1))), ["canvas:chat-mode", ["l1", "separate"]]);
+});
 const allNodes = (node, keep, found = []) => {
   if (!node || typeof node !== "object") return found;
   if (keep(node)) found.push(node);
@@ -17139,10 +17285,11 @@ test("undo changes on the phone: task list, conflict-only choice, stale preview 
   const strings = (node) =>
     typeof node === "string" ? [node] : !node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(strings) : strings(node.props?.children);
   let review;
+  let readOnly = false;
   const render = () => {
     react.begin();
     review = hook.useCheckpoints(api, "/p#1");
-    return review.view === "closed" ? [] : nodes(expand(panel.UndoPanel({ review, intent: "Undo", onOpenFile: (file) => opened.push(file.path) })));
+    return review.view === "closed" ? [] : nodes(expand(panel.UndoPanel({ review, readOnly, intent: "Undo", onOpenFile: (file) => opened.push(file.path) })));
   };
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
   const primary = () => render().find((node) => node.type === "PillButton");
@@ -17162,6 +17309,15 @@ test("undo changes on the phone: task list, conflict-only choice, stale preview 
   assert.ok(strings(tree).includes("Edited after this task"));
   assert.deepEqual(primary().props.title, "Undo 3 files");
   assert.equal(primary().props.disabled, true);
+  readOnly = true;
+  const history = render();
+  assert.equal(
+    history.some((node) => node.type === "PillButton" || node.type === "Segmented"),
+    false,
+  );
+  assert.ok(strings(history).includes("Checkpoint history"));
+  assert.equal(history.filter((node) => node.props?.testID === "undo-file").length, 3);
+  readOnly = false;
   tree.find((node) => node.props?.accessibilityLabel === "src/redirect.ts. Delete").props.onPress();
   assert.deepEqual(opened, ["src/redirect.ts"]);
   // Only the file edited after the task asks; the others are undone.
@@ -22377,4 +22533,100 @@ test("mobile Browser preserves edits made while a send is pending and sends them
   tree = render();
   assert.equal(submitted[1][0].text, "Edited during send");
   assert.equal(web().props.pins.filter((pin) => pin.state === "pending").length, 0);
+});
+
+test("phone canvas hides unsupported sharing and exposes unfinished transfers", () => {
+  const host = canvasHost();
+  find(host.render(), (node) => node.type === "PillButton" && node.props.title === "Chat mode…").props.onPress();
+  assert.equal(host.confirmations[0][2].length, 1, "main checkouts only offer Cancel");
+  host.links.links[0].sharedChat = { linkId: "shared", sessionId: 1 };
+  host.links.links[0].chatModeTransition = "separate";
+  find(host.render(), (node) => node.type === "PillButton" && node.props.title === "Finish switching…").props.onPress();
+  assert.match(host.confirmations[1][1], /Switching to separate Chats/);
+  assert.deepEqual(
+    Array.from(host.confirmations[1][2], (button) => button.text),
+    ["Cancel", "Finish switching"],
+  );
+});
+
+test("phone shared permission picker starts Ask, waits for the host, and reports rejected explicit changes", async () => {
+  const react = hookHost();
+  let preferences = {};
+  const defaults = { permissionMode: "full", effort: "high" };
+  const chatId = "milagre-link:shared#1";
+  const gate = deferred();
+  const calls = [];
+  const composer = {
+    get preferences() {
+      return preferences;
+    },
+    defaults,
+    setPreferences: (update) => {
+      preferences = update(preferences);
+    },
+    setDefaultPermission() {},
+  };
+  const session = {
+    client: {
+      call: (...args) => {
+        calls.push(args);
+        return gate.promise;
+      },
+    },
+    snapshot: { project: { path: "milagre-link:shared", state: { sessions: { 1: { permissionMode: "ask" } } } }, runs: { runs: {} } },
+  };
+  let back = 0;
+  const { default: Sheet } = load("app/permission-sheet.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { ScrollView: "ScrollView", Text: "Text", View: "View" },
+    "expo-router": { router: { back: () => back++ }, useLocalSearchParams: () => ({ chatId }) },
+    "@hugeicons/core-free-icons": {},
+    "../agent-controls": { PermissionIcon: "PermissionIcon" },
+    "../session": { useComposer: () => composer, useSession: () => session },
+    "../ui": { CheckRow: "CheckRow", CircleButton: "CircleButton", Group: "Group", SheetHeader: "SheetHeader", useStyles: () => ({}) },
+    "../turn-options": require("../apps/mobile/src/turn-options.ts"),
+  });
+  const render = () => {
+    react.begin();
+    return Sheet();
+  };
+  assert.equal(find(render(), (node) => node.type === "CheckRow" && node.props.title === "Ask for approval").props.checked, true);
+  find(render(), (node) => node.type === "CheckRow" && node.props.title === "Full permissions").props.onPress();
+  assert.equal(preferences[chatId], undefined, "Full is not displayed before acknowledgement");
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [["agent:set-permission-mode", [{ chatId, mode: "full" }]]]);
+  gate.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(preferences[chatId].permissionMode, "full");
+  assert.equal(back, 1);
+  session.client.call = async () => {
+    throw new Error("Host refused change");
+  };
+  find(render(), (node) => node.type === "CheckRow" && node.props.title === "Ask for approval").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(preferences[chatId].permissionMode, "full");
+  assert.match(textOf(render()), /Host refused change/);
+});
+
+test("read-only phone history keeps restore notes and hides Undo and Redo actions", () => {
+  const chat = chatHost();
+  chat.params.id = "7";
+  const state = chat.session.snapshot.project.state;
+  state.sessions[7] = { id: 7, worktree_id: 1, readOnlyReason: "Preserved history" };
+  state.messages.push({
+    id: 2,
+    session_id: 7,
+    role: "assistant",
+    body: "Undid 2 files",
+    context: { kind: "checkpoint-restore", checkpointId: "t", recoveryId: "r", restored: 2, kept: 0, redo: false },
+  });
+  const tree = chat.render();
+  assert.equal(find(tree, (node) => node.type === "CheckpointRestoreDivider").props.onPreview, undefined);
+  assert.equal(chatMenuEntry(tree, "Undo changes"), undefined);
+  assert.equal(
+    chat.field().commands.some((command) => command.name === "undo"),
+    false,
+  );
+  chatMenuEntry(tree, "View checkpoints").props.onPress();
+  assert.equal(find(chat.render(), (node) => node.type === "UndoPanel").props.readOnly, true, "history previews remain read-only");
 });

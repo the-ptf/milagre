@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { openRenderer } = require("./renderer-ready.cjs");
 
 const fixture = `
 import React from "react";
@@ -151,10 +152,7 @@ async function browserChecks() {
   const emit = (chatId, event) => evaluate(`window.emitAgent({ chatId: ${JSON.stringify(chatId)}, event: ${JSON.stringify(event)} })`);
 
   try {
-    await window.loadURL(process.argv[2]);
-    // loadURL can finish before the fixture's awaited App import and initial render. Allow cold Vite startup
-    // its own budget; subsequent setup interactions still have five seconds.
-    await waitFor(`!!document.querySelector('[aria-label="New chat"]')`, 30000);
+    await openRenderer(window, process.argv[2], `!!document.querySelector('[aria-label="New chat"]')`);
 
     // Settings › Worktrees: the field saves what is typed, and a repo file takes it over.
     await evaluate(`document.querySelector('[aria-label="Settings"]').click()`);

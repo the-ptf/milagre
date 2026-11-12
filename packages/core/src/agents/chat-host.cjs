@@ -154,7 +154,13 @@ const FORMER_WORKTREE = "This Run's Worktree was removed because the Run left no
 
 function starterChat(latest, worktree) {
   const existing = Object.values(latest.sessions).find(
-    (item) => item.worktree_id === worktree.id && !item.handoverPending && item.handoverDraft === undefined && !item.routine && !hasMessages(latest, item),
+    (item) =>
+      item.worktree_id === worktree.id &&
+      !item.readOnlyReason &&
+      !item.handoverPending &&
+      item.handoverDraft === undefined &&
+      !item.routine &&
+      !hasMessages(latest, item),
   );
   if (existing) return { state: latest, session: existing };
   return newChat(latest, worktree);
@@ -188,6 +194,7 @@ class ChatHost {
     readSubagents = async () => [],
     handoverTools,
     beforeSend = async () => {},
+    assertWritable = () => {},
     contextSettings = () => CONTEXT_DEFAULTS,
     beforeTask = async () => {},
     onUnblocked = () => {},
@@ -207,6 +214,7 @@ class ChatHost {
       readSubagents,
       handoverTools,
       beforeSend,
+      assertWritable,
       contextSettings,
       beforeTask,
       onUnblocked,
@@ -392,6 +400,7 @@ class ChatHost {
         assertActive?.();
         const worktree = latest.worktrees[worktreeId];
         if (!worktree) throw new Error("That worktree is no longer in the project.");
+        this.assertWritable(projectPath, latest, null, worktree);
         if (worktree.sharedChat) throw new Error("This Worktree belongs to a shared Link Chat. Open its Link instead.");
         const result = fresh ? newChat(latest, worktree) : starterChat(latest, worktree);
         sessionId = result.session.id;
@@ -1061,6 +1070,8 @@ class ChatHost {
         // A chat runs in its own worktree; a new one goes to the worktree asked for.
         const worktree = session?.workspacePath ? { path: session.workspacePath } : latest.worktrees[session?.worktree_id ?? request.worktreeId];
         if (!worktree) throw new Error("That worktree is no longer in the project.");
+        if (session?.readOnlyReason) throw new Error(session.readOnlyReason);
+        this.assertWritable(projectPath, latest, session, worktree);
         if (worktree.sharedChat) throw new Error("This Worktree belongs to a shared Link Chat. Open its Link instead.");
         const started = session ? { state: latest, session } : starterChat(latest, worktree);
         session = started.session;

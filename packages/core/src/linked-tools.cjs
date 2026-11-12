@@ -123,6 +123,7 @@ function createLinkedReads(view) {
             provider: session.provider ? providerName(session.provider) : undefined,
             ...linkedStatus(session, runs[ref]),
             archived: session.archived,
+            ...(session.readOnlyReason ? { readOnlyReason: session.readOnlyReason } : {}),
             activity: runs[ref] ? Number.MAX_SAFE_INTEGER : (messages.at(-1)?.id ?? 0),
             lastReply: lastReply(messages, session.id),
             receiveOnly: view.receiveOnly(ref),

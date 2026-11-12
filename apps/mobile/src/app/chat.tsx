@@ -785,6 +785,9 @@ function ChatPane({
   const remote = lean && (!pending || pendingCanonicalId !== null) ? Math.max(0, historyPage.total - historyPage.messages.length) : 0;
   // The design the user last chose on the design sheet, which its cards mark.
   const history = chatHistory(messages);
+  // The steps whose files a reply may name relative to a subfolder: the saved ones, then the running turn's.
+  const liveSteps = liveRun?.steps;
+  const chatSteps = useMemo(() => (liveSteps?.length ? [...history.steps, ...liveSteps] : history.steps), [history.steps, liveSteps]);
   const chosen = useMemo(() => chosenDesign(history.userBodies), [history.userBodies]);
   const designChoice = chosen ? `${chosen.id}:${chosen.version}` : undefined;
   // Long Chats mount their newest messages first; earlier ones load on request.
@@ -1618,7 +1621,7 @@ function ChatPane({
       if (sentQuotes.length) composer.setQuotes((held) => ({ ...held, [chatId]: (held[chatId] || []).filter((quote) => !sentQuoteIds.has(quote.id)) }));
     };
     // `/undo` opens Undo changes instead of reaching the agent, even mid-turn; its preview waits for the turn to end.
-    if (chat && withAttachments && typed.trim() === "/undo" && !sentQuotes.length) {
+    if (chat && !chat.readOnlyReason && withAttachments && typed.trim() === "/undo" && !sentQuotes.length) {
       composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
       setUndoIntent("Undo");
       void undo.open();
@@ -1933,7 +1936,7 @@ function ChatPane({
     else if (id === "linear" && linearIssue) openLinearIssue(linearIssue.url);
     else if (id === "link-issue") linkIssue();
     else if (id === "unlink-issue") void unlinkWorktreeIssue();
-    else if (id === "undo" && chat) {
+    else if ((id === "undo" || id === "checkpoints") && chat) {
       setUndoIntent("Undo");
       void undo.open();
     } else if (id === "pr" && pr) openPr(pr.number);
@@ -2180,7 +2183,16 @@ function ChatPane({
           : [
               { id: "changes", title: "View changes", systemImage: "doc.text.magnifyingglass", subtitle: diff ? `+${diff.added} −${diff.removed}` : undefined },
             ]),
-        ...(chat ? [{ id: "undo", title: "Undo changes", systemImage: "arrow.uturn.backward", disabled: !!run }] : []),
+        ...(chat
+          ? [
+              {
+                id: chat.readOnlyReason ? "checkpoints" : "undo",
+                title: chat.readOnlyReason ? "View checkpoints" : "Undo changes",
+                systemImage: "arrow.uturn.backward",
+                disabled: !!run,
+              },
+            ]
+          : []),
         ...(ownRoutine ? [{ id: "routine", title: ownHeartbeat ? "Heartbeat" : "Routine", systemImage: ownHeartbeat ? "waveform.path.ecg" : "repeat" }] : []),
         ...(linearIssue ? [{ id: "linear", title: issueChipLabel(linearIssue), systemImage: "link" }] : []),
         ...(linkHint ? [{ id: "link-hint", title: linkHint, systemImage: "info.circle", disabled: true }] : []),
@@ -2313,6 +2325,7 @@ function ChatPane({
     (!draft.trim() && !quotes.length && !attachments.length) ||
     !!chat?.archived ||
     !!chat?.formerWorktree ||
+    !!chat?.readOnlyReason ||
     (!offline && unavailable);
   // On an iPad the routed Chat's Terminals dock below it instead of opening full screen.
   const terminalDocks = !secondary && split.widthClass !== "compact";
@@ -2327,7 +2340,7 @@ function ChatPane({
   const lift = dockPadding - 8 + (terminalShown ? Math.min(terminalHeight, restingKeyboard) : 0);
   return (
     <GenerativeUIProvider send={genuiSend}>
-      <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage}>
+      <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage} steps={chatSteps}>
         <PanelTabsContext value={panels.openInPanel}>
           <View style={[styles.screen, dots]}>
             {/* A new Chat has no title until it has a name. With a Chat beside it, each draws its own header instead. */}
@@ -2423,7 +2436,11 @@ function ChatPane({
                     <Text style={styles.caption}>Demo agent. Send tools, approval, question, or slow to try the controls.</Text>
                   )}
                   {session.providerError ? <Text style={styles.caption}>{session.providerError}</Text> : null}
-                  {chat?.formerWorktree ? (
+                  {chat?.readOnlyReason ? (
+                    <View style={styles.card}>
+                      <Text style={styles.muted}>{chat.readOnlyReason}</Text>
+                    </View>
+                  ) : chat?.formerWorktree ? (
                     <View style={styles.card}>
                       <Text style={styles.muted}>{RUN_WORKTREE_REMOVED_NOTE}</Text>
                     </View>
@@ -2517,7 +2534,7 @@ function ChatPane({
                                 <CheckpointRestoreDivider
                                   context={message.context}
                                   onPreview={
-                                    run
+                                    run || chat?.readOnlyReason
                                       ? undefined
                                       : (recoveryId, intent) => {
                                           setUndoIntent(intent);
@@ -2844,6 +2861,7 @@ function ChatPane({
                     )}
                     {undo.view !== "closed" && chat ? (
                       <UndoPanel
+                        readOnly={!!chat.readOnlyReason}
                         review={undo}
                         intent={undoIntent}
                         onOpenFile={
@@ -3168,7 +3186,7 @@ function ChatPane({
                               onImagePaste={(image) => void pasteImage(image)}
                               known={knownFiles.current}
                               onMention={worktree?.path ? mentionFile : undefined}
-                              commands={chat ? CHAT_COMMANDS : STORAGE_COMMANDS}
+                              commands={chat && !chat.readOnlyReason ? CHAT_COMMANDS : STORAGE_COMMANDS}
                               // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
                               placeholder={
                                 offline

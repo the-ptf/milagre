@@ -13,6 +13,105 @@ const node = (number, state = "OPEN", rollup = "SUCCESS") => ({
   commits: { nodes: [{ commit: { statusCheckRollup: rollup ? { state: rollup } : null } }] },
 });
 
+test("raw PR executors fill the background lane without nested scheduling", { timeout: 5000 }, async () => {
+  const { lanes } = require("./process-lanes.cjs");
+  const full = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  let calls = 0;
+  const watch = createPullRequestWatch({
+    git: { commonDir: async (cwd) => `${cwd}/.git`, out: async () => "main" },
+    exec: async () => {
+      if (++calls === 3) full.resolve();
+      await release.promise;
+      return { stdout: JSON.stringify({ data: { repository: {} } }) };
+    },
+  });
+  const reads = Promise.all(["/a", "/b", "/c", "/d"].map((cwd) => watch.branch(cwd)));
+  try {
+    await full.promise;
+    assert.equal(lanes.stats("gh").running, 3, "each raw executor owns exactly one slot");
+    assert.equal(calls, 3, "background leaves the fourth slot for interactive work");
+    release.resolve();
+    await reads;
+    assert.equal(calls, 4, "queued repository progresses when a slot is released");
+  } finally {
+    release.resolve();
+    watch.close();
+    await reads;
+  }
+});
+
+test("closing settles pending PR reads and cancels GitHub before its request timeout", async () => {
+  const started = Promise.withResolvers();
+  const request = Promise.withResolvers();
+  const changes = [];
+  let signal;
+  const watch = createPullRequestWatch({
+    git: { commonDir: async () => "/repo/.git", out: async () => "main" },
+    exec: async (_command, _args, options) => {
+      signal = options.signal;
+      signal?.addEventListener("abort", () => request.reject(signal.reason), { once: true });
+      started.resolve();
+      return request.promise;
+    },
+    onChange: (paths) => changes.push(paths),
+  });
+  const reading = Promise.all([watch.branch("/repo"), watch.refs("/repo", ["1"])]);
+  try {
+    await started.promise;
+    watch.close();
+    watch.close();
+    assert.equal(signal?.aborted, true, "shutdown aborts the optional GitHub process");
+    assert.deepEqual(await reading, [null, [null]]);
+    assert.deepEqual(changes, [], "closing emits no late PR changes");
+  } finally {
+    request.resolve({ stdout: JSON.stringify({ data: { repository: {} } }) });
+    watch.close();
+    await reading;
+  }
+});
+
+test("closing releases a read still resolving Git and suppresses late work and events", async () => {
+  const resolving = Promise.withResolvers();
+  const started = Promise.withResolvers();
+  const changes = [];
+  let commands = 0;
+  const watch = createPullRequestWatch({
+    git: {
+      commonDir: () => {
+        started.resolve();
+        return resolving.promise;
+      },
+      out: async () => {
+        commands++;
+        return "main";
+      },
+    },
+    exec: async () => {
+      commands++;
+      return { stdout: "{}" };
+    },
+    onChange: (paths) => changes.push(paths),
+  });
+  const reading = watch.branch("/repo");
+  try {
+    await started.promise;
+    watch.close();
+    const { setTimeout: delay } = require("node:timers/promises");
+    assert.equal(await Promise.race([reading, delay(500).then(() => "still waiting")]), null);
+    resolving.resolve("/repo/.git");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(await watch.branch("/another-repo"), null);
+    assert.deepEqual(watch.snapshot([{ path: "/another-repo" }]), { worktrees: {}, chats: {}, pending: false });
+    assert.equal(commands, 0);
+    assert.deepEqual(changes, []);
+  } finally {
+    resolving.resolve(null);
+    watch.close();
+    await reading;
+  }
+});
+
 // A clock and timers the test moves by hand.
 function clock() {
   let at = 1_000_000;

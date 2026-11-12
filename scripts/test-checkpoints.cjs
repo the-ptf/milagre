@@ -52,6 +52,8 @@ function Fixture() {
   window.setCopyOutput = setCopyOutput;
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [readOnly, setReadOnly] = useState(false);
+  window.setReadOnly = setReadOnly;
   const [notes, setNotes] = useState([]);
   const [extra, setExtra] = useState([]);
   const [stream, setStream] = useState("");
@@ -76,7 +78,7 @@ function Fixture() {
   return <div style={{ height: "100%", padding: 12 }}>
     <ChatComposer messages={messages} agentChatId="/Projects/storefront#1" messageScope="/Projects/storefront"
       imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/Projects/storefront" draft={draft} onDraftChange={setDraft} onSend={() => { window.sent = draft; }} isSending={sending} streamingText={stream} sendBlocked={false}
+      projectPath="/Projects/storefront" draft={draft} onDraftChange={setDraft} onSend={() => { window.sent = draft; }} isSending={sending} streamingText={stream} sendBlocked={readOnly} readOnlyHistory={readOnly}
       onOpenDiff={(file, root) => window.calls.diffs.push([file, root])}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
@@ -435,6 +437,20 @@ async function browserChecks() {
     await escape();
     await delay(200);
     assert.equal(await evaluate('!!document.querySelector("[data-undo-panel]")'), false);
+    await evaluate("window.setSending(false); window.setReadOnly(true)");
+    await wait('!document.querySelector("[data-undo-message], [data-checkpoint-redo]")');
+    assert.match(await evaluate('document.querySelector("[data-checkpoint-restore-divider]").textContent'), /Undid 2 files/);
+    await escape();
+    await delay(60);
+    await escape();
+    await delay(100);
+    assert.equal(await evaluate('!!document.querySelector("[data-undo-panel]")'), false);
+    await evaluate('[...document.querySelectorAll("button")].find(b => b.textContent === "View checkpoints").click()');
+    await wait('!!document.querySelector("[data-undo-panel]")');
+    assert.match(await evaluate('document.querySelector("[data-undo-panel]").textContent'), /Checkpoint history/);
+    await key("Enter");
+    await wait('!!document.querySelector("[data-checkpoint-file]")');
+    assert.equal(await evaluate('!!document.querySelector("[data-checkpoint-restore]")'), false, "read-only preview has no restore action");
     assert.deepEqual(errors, []);
     console.log(
       "PASS: raw user/reply/recommendation/linked Copy, success/failure/retry, keyboard visibility, stable hover geometry, code Copy, streaming exclusion; undo button and Esc Esc hint, Esc Esc list, keyboard choice, preview in the composer, conflict choice, stale refusal, restore line Redo, /undo, blocked while running",

@@ -15,6 +15,7 @@ import {
   FullToolsPreview,
   OneListPreview,
   SampleChatRow,
+  TreePreview,
 } from "./chat-display-choices";
 import { ListRow, Toggle, showActions, useStyles } from "./ui";
 import { radius } from "./design-tokens";
@@ -40,6 +41,12 @@ export function ChatDisplaySection() {
         options={[
           { value: "list", title: "One list", description: "Newest first, Project on each row.", preview: <OneListPreview /> },
           { value: "grouped", title: "By Project", description: "A group per Project that folds.", preview: <ByProjectPreview /> },
+          {
+            value: "tree",
+            title: "Tree",
+            description: "Each Project with its Worktrees, each Link with its Projects.",
+            preview: <TreePreview />,
+          },
         ]}
       />
       <Text style={[styles.section, { marginTop: 14 }]}>Rows show</Text>

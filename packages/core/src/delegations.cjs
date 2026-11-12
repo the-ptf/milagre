@@ -295,6 +295,7 @@ class Delegations {
     const info = await this.ports.chat(chat);
     if (!info || info.worktreePath !== worktree) throw new Error('That Chat isn\'t in the Worktree you named. Pick a Chat ref from linked_overview, or "new".');
     if (info.archived) throw new Error('That Chat is archived and can\'t receive a Delegation. Pick another one, or "new".');
+    if (info.readOnlyReason) throw new Error(`${info.readOnlyReason} Pick a writable Chat, or "new".`);
     return info.label;
   }
 

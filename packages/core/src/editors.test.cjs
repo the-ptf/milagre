@@ -172,6 +172,45 @@ test("openInEditor falls back to the first editor, and reports no editor or a fa
   assert.deepEqual(calls.at(-1).args, ["-a", "/Applications/Cursor.app", path.join(root, "src", "a.ts")]);
 });
 
+test("a missing path opens the first fallback inside the root, and nothing else falls back", async (t) => {
+  // A routine's agent works in .routines/r and names its case file `casos/a.md` from there.
+  const base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-editor-fallback-")));
+  t.after(() => fs.rm(base, { recursive: true, force: true }));
+  const root = path.join(base, "repo");
+  const caseFile = path.join(root, ".routines", "r", "casos", "a.md");
+  const elsewhere = path.join(base, "elsewhere", "casos", "a.md");
+  for (const file of [caseFile, elsewhere, path.join(root, "src", "a.ts")]) {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, "x");
+  }
+  const calls = [];
+  const run = async (file, args) => {
+    calls.push(args.at(-1));
+  };
+  const deps = { editors: [cursor], run, checkRoot: async () => {} };
+  const open = (request) => openInEditor({ root, editor: "cursor", ...request }, deps);
+  // Outside the root and relative fallbacks are skipped; the first one inside the root opens, once.
+  assert.equal(await open({ path: "casos/a.md", line: 3, fallbacks: [elsewhere, "casos/a.md", caseFile] }), null);
+  assert.deepEqual(calls, [`${caseFile}:3`]);
+  // A path that is there opens as named.
+  assert.equal(await open({ path: "src/a.ts", fallbacks: [caseFile] }), null);
+  assert.equal(calls.at(-1), path.join(root, "src", "a.ts"));
+  // No fallback inside the root: the named path's own error, and no launch.
+  assert.equal(await open({ path: "casos/a.md", fallbacks: [elsewhere] }), "File not found");
+  assert.equal(await open({ path: "casos/a.md" }), "File not found");
+  // A path that walks outside is refused as such, not answered by a fallback.
+  assert.match(await open({ path: "../elsewhere/casos/a.md", fallbacks: [caseFile] }), /outside/i);
+  assert.equal(calls.length, 2);
+  // A failed launch is reported as it is, never retried with a fallback.
+  let launches = 0;
+  const failing = async () => {
+    launches++;
+    throw new Error("timed out");
+  };
+  assert.equal(await openInEditor({ root, path: "casos/a.md", fallbacks: [caseFile, caseFile] }, { ...deps, run: failing }), "Couldn't open Cursor");
+  assert.equal(launches, 1);
+});
+
 test("a CLI that is not on PATH is found inside the app bundle", async () => {
   const editors = await detectEditors({
     platform: "darwin",

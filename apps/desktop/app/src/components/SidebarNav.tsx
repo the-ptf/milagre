@@ -58,6 +58,8 @@ import { useEvent } from "../lib/stable";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { projectMenuActions, type ProjectMenuKey } from "@/lib/reveal";
 import { projectRows, stableOrder, type RecentProject } from "@/lib/project-list";
+import { linkOwners, nestUnder, worktreeGroups, worktreeHeading } from "@milagre/shared/project-list";
+import { WorktreeHeading } from "./sidebar/WorktreeHeading";
 import { ChatRow, type ChatRowActions, type RowComputer, type SidebarRecent } from "./sidebar/ChatRow";
 import { useComputers, useHiddenComputers, isDimmed } from "../lib/computers";
 import { computerAlias, computerSections, mergeScopes, useComputerScopes, withoutLocal } from "../lib/computer-scopes";
@@ -399,6 +401,20 @@ function ScopeHeader({
           </Tooltip>
         )}
       </div>
+    </div>
+  );
+}
+
+/** A Project's or Link's folding body: its rows grow open and shut instead of appearing at once; closed ones leave the tab order. */
+function ScopeBody({ open, children }: { open: boolean; children: ReactNode }) {
+  return (
+    <div
+      inert={!open}
+      data-scope-body
+      className="grid transition-[grid-template-rows,opacity] duration-base ease-enter motion-reduce:transition-none"
+      style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
+    >
+      <div className="min-w-0 overflow-hidden">{children}</div>
     </div>
   );
 }
@@ -991,6 +1007,30 @@ export default memo(function SidebarNav({
   // copy's place, and their chats merge under it, each naming its computer.
   const sections =
     showAll && !oneList ? groupByOrigin(groups.map((group) => ({ ...group, origin: group.scope.origin, computerId: group.scope.computerId }))) : [];
+  // The Tree layout draws each Named Link with its member Projects under it (the first Link that has a Project wins);
+  // the other layouts list every scope on its own.
+  const tree = chatList === "tree";
+  const memberPaths = (link: NamedProjectLink) => link.projectIds.map((id) => registeredProjects.find((project) => project.id === id)?.path ?? "");
+  const linkOwnerOf = tree
+    ? linkOwners(
+        sections
+          .filter((section) => section.scope.link)
+          .map((section) => ({
+            key: section.scope.key,
+            memberPaths: memberPaths(section.scope.link!),
+          })),
+      )
+    : new Map<string, string>();
+  // A Link's member Projects in the Link's own order, whatever order the recent list put them in.
+  const sectionTree = nestUnder(
+    sections,
+    (section) => section.scope.key,
+    (section) => (section.copies.length > 1 ? undefined : linkOwnerOf.get(section.scope.key)),
+  ).map((node) => {
+    if (!node.item.scope.link || node.children.length < 2) return node;
+    const order = memberPaths(node.item.scope.link);
+    return { ...node, children: node.children.toSorted((a, b) => order.indexOf(a.scope.key) - order.indexOf(b.scope.key)) };
+  });
   // A Link's icon is its first Project's.
   const linkFirstProject = (scope: (typeof scopes)[number], link: NamedProjectLink, current: boolean) => {
     const firstId = link.projectIds[0];
@@ -1485,6 +1525,104 @@ export default memo(function SidebarNav({
     );
   };
 
+  // A scope's Chats in its section: in the Tree layout a Project's go by Worktree (worktreeGroups), the main checkout's
+  // and each Worktree's only Chat right under it, a Worktree shared by several Chats under its heading; otherwise one
+  // list. With none, what keeps them away (`quiet`: nothing, for a Link whose member Projects follow).
+  const scopeChatsBody = (section: (typeof sections)[number], quiet = false) => {
+    const { scope, current, state, rest, pinned, list } = section;
+    const chatList = (recents: SidebarRecent[], pinTo = false, key?: string) => (
+      <ChatList
+        key={key}
+        {...scopeBadge(scope, current)}
+        recents={recents}
+        scopeKey={scope.key}
+        {...list}
+        header={null}
+        {...(pinTo ? { pinnedTarget: pinSlots[scope.key] ?? null, anyPinned } : {})}
+      />
+    );
+    if (rest.length > 0 || pinned.length > 0) {
+      if (!tree || scope.link) return chatList(pinned.length ? [...pinned, ...rest] : rest, true);
+      const worktrees =
+        state && "worktrees" in state
+          ? Object.values(state.worktrees).map((worktree) => ({ path: worktree.path, name: worktree.name }))
+          : rest.flatMap((row) => (row.details?.path && row.details.branch ? [{ path: row.details.path, name: row.details.branch }] : []));
+      const groups = worktreeGroups({
+        projectPath: unqualifyKey(scope.key),
+        worktrees,
+        rows: rest,
+        pathOf: (row) => row.details?.path,
+        branchOf: (row) => row.details?.branch,
+      });
+      return (
+        <>
+          {pinned.length > 0 && chatList(pinned, true)}
+          {groups.map((group) =>
+            worktreeHeading(group) ? (
+              <div key={group.path} data-sidebar-worktree={group.path}>
+                <WorktreeHeading name={group.name} running={group.rows.some((row) => row.mark === "running" || row.mark === "background")} />
+                <div className="ml-3">{chatList(group.rows)}</div>
+              </div>
+            ) : group.rows.length ? (
+              chatList(group.rows, false, group.path)
+            ) : null,
+          )}
+        </>
+      );
+    }
+    if (!state && !current && failedScopes.has(scope.key))
+      return (
+        <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
+          Couldn't load Chats.
+          <button type="button" onClick={() => retryScope(scope.key)} className={RETRY}>
+            Retry
+          </button>
+        </p>
+      );
+    if (quiet) return null;
+    return (
+      <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">{state || current ? "No Chats yet" : "Loading Chats…"}</p>
+    );
+  };
+
+  // A Named Link's member Project in the Tree layout: its own heading, folding, under the Link's shared Chats.
+  const linkMember = (section: (typeof sections)[number]) => {
+    const { scope, current, list, dimmed } = section;
+    const open = !closedScopes.includes(scope.key);
+    return (
+      <section
+        key={scope.key}
+        data-sidebar-scope={scope.key}
+        data-sidebar-link-member
+        data-current={current || undefined}
+        aria-label={scope.name}
+        data-offline={dimmed || undefined}
+        className={`ml-3 ${dimmed ? "opacity-60" : ""}`}
+      >
+        <ScopeHeader
+          name={scope.name}
+          icon={<ProjectAvatar name={scope.name} src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} initial={scope.initial} />}
+          open={open}
+          current={current}
+          attention={!current && attentionPaths.includes(scope.key)}
+          computer={list.show.computer ? list.computer : undefined}
+          onToggle={() => toggleScope(scope.key)}
+          onNewChat={
+            current
+              ? () => {
+                  if (activeTitle === undefined) setDemoActiveTitle(null);
+                  (onNewCurrentScopeChat ?? onNewChat)?.();
+                }
+              : () => onNewChatInScope?.(scope.key)
+          }
+          menu={scopeMenu(scope)}
+        />
+        {/* A member without Chats says nothing: its heading is enough under the Link. */}
+        <ScopeBody open={open}>{scopeChatsBody(section, true)}</ScopeBody>
+      </section>
+    );
+  };
+
   const chrome = useWindowChrome();
   // The bar's controls end where they end; a diff's Back starts after them.
   const bar = useRef<HTMLDivElement>(null);
@@ -1608,9 +1746,9 @@ export default memo(function SidebarNav({
                   {!oneList && chatsGroup}
                   {oneList
                     ? flatBody
-                    : sections.map((section, index) => {
+                    : sectionTree.map(({ item: section, children: members }, index) => {
                         if (section.copies.length > 1) return mergedSection(section);
-                        const { scope, current, state, rest, pinned, list, dimmed } = section;
+                        const { scope, current, list, dimmed } = section;
                         const open = !closedScopes.includes(scope.key);
                         return (
                           <section
@@ -1621,7 +1759,7 @@ export default memo(function SidebarNav({
                             data-offline={dimmed || undefined}
                             className={`mb-2 ${dimmed ? "opacity-60" : ""}`}
                           >
-                            {scope.link && !sections[index - 1]?.scope.link && (
+                            {scope.link && !sectionTree[index - 1]?.item.scope.link && (
                               <p className="mx-2 mt-1 mb-1 flex h-6 items-center pl-2 text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">
                                 Links
                               </p>
@@ -1660,38 +1798,10 @@ export default memo(function SidebarNav({
                               }
                               menu={scopeMenu(scope)}
                             />
-                            {/* Rows grow open and shut instead of appearing at once; closed ones leave the tab order. */}
-                            <div
-                              inert={!open}
-                              data-scope-body
-                              className="grid transition-[grid-template-rows,opacity] duration-base ease-enter motion-reduce:transition-none"
-                              style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
-                            >
-                              <div className="min-w-0 overflow-hidden">
-                                {rest.length > 0 || pinned.length > 0 ? (
-                                  <ChatList
-                                    {...scopeBadge(scope, current)}
-                                    recents={pinned.length ? [...pinned, ...rest] : rest}
-                                    scopeKey={scope.key}
-                                    {...list}
-                                    header={null}
-                                    pinnedTarget={pinSlots[scope.key] ?? null}
-                                    anyPinned={anyPinned}
-                                  />
-                                ) : !state && !current && failedScopes.has(scope.key) ? (
-                                  <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
-                                    Couldn't load Chats.
-                                    <button type="button" onClick={() => retryScope(scope.key)} className={RETRY}>
-                                      Retry
-                                    </button>
-                                  </p>
-                                ) : (
-                                  <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
-                                    {state || current ? "No Chats yet" : "Loading Chats…"}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
+                            <ScopeBody open={open}>
+                              {scopeChatsBody(section, members.length > 0)}
+                              {members.map(linkMember)}
+                            </ScopeBody>
                           </section>
                         );
                       })}

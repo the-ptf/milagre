@@ -219,6 +219,8 @@ export interface AgentSession {
    * kept on the Project folder's Worktree so its Run's history still opens it, and a send into it is refused.
    */
   formerWorktree?: { path: string; name: string; branch?: string };
+  /** A preserved conversation after a canvas Link changed Chat mode. Never accepts another turn. */
+  readOnlyReason?: string;
   /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
   permissionMode?: PermissionMode;
   /**
@@ -292,6 +294,8 @@ export interface NamedProjectLink {
   projectIds: string[];
   createdAt: string;
   hidden?: boolean;
+  /** An existing canvas Link whose Worktrees were adopted, rather than created for this group. */
+  canvasLinkId?: string;
 }
 /** What deleting a Named Link would close (link:delete-check): its Chats not archived yet, and the running ones' titles. */
 export interface NamedLinkDeleteCheck {
@@ -336,6 +340,8 @@ export interface PersistenceFailure {
 }
 
 export interface LinkState {
+  adoptionPending?: boolean;
+  releasedAt?: string;
   persistence?: PersistenceFailure;
   /** From a host that keeps messages by Chat (chat-pages-v1): `messages` is empty, and the Chats on screen read their own. */
   messagesInChats?: boolean;
@@ -950,6 +956,8 @@ export interface ChatStep {
   hasDetail?: boolean;
   /** The file a read or edit worked on, as the tool named it; the title shows only its name. For an image step, its generated image or snapshot. */
   file?: string;
+  /** The files of a change that edited several (a Codex patch), which has no single `file`; a reply's file links match them too. */
+  files?: string[];
   /** An image snapshot of a file the agent viewed, rather than an image it generated. */
   imageOrigin?: "viewed";
   /** Provenance of a viewed snapshot only; never grants access to this file. */
@@ -1176,7 +1184,10 @@ export type AgentEvent =
   | { type: "turn-started"; turnId: string | null; continues?: string }
   /** `startsMessage`: a provider message boundary, distinct from a streamed paragraph break. */
   | { type: "text-delta"; messageId: string | null; text: string; startsMessage?: boolean }
-  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "imageOrigin" | "sourceFile" | "tool" | "agent" | "startedAt"> }
+  | {
+      type: "step-started";
+      step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "files" | "imageOrigin" | "sourceFile" | "tool" | "agent" | "startedAt">;
+    }
   | { type: "step-output"; id: string; text: string }
   /**
    * Claude's input to a Milagre design tool while the model writes it (design-drafts.cjs), for the Designs canvas to

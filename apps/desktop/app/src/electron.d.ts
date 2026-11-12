@@ -60,6 +60,7 @@ import type { SessionPatch, WorktreeRename } from "@milagre/shared/project-edits
 import type { GitChanges, GitChatContext, GitCommitResult, GitPrResult, GitPushResult, GitTextResult } from "./lib/git-dialog";
 import type { ModelProvider } from "./model";
 import type { RecentProject } from "./lib/project-list";
+import type { FolderScan } from "@milagre/shared/project-list";
 import type {
   AgentCliStatus,
   AgentModels,
@@ -261,7 +262,7 @@ export type RuntimeSnapshot = {
   eventSeq: number;
 };
 export type LinkEndpoint = { project_id: string; worktree_path?: string };
-export type ProjectLink = { id: string; a: LinkEndpoint; b: LinkEndpoint; created_at: string };
+export type ProjectLink = import("@milagre/shared/chat-links").CanvasLink;
 export type CanvasSnapshot = {
   projects: { id: string; path: string; name: string; position: { x: number; y: number } | null; openedAt: string }[];
   links: ProjectLink[];
@@ -593,17 +594,20 @@ export type MilagreBridge = {
   /** Code editors found on this Mac, in the order the first becomes the default. */
   listEditors: () => Promise<EditorInfo[]>;
   /** Opens a file (or, with no path, the folder) in an editor. `path` is relative to `root`. Returns a Result with a failure code and message. */
-  openInEditor: (request: { root: string; path?: string; line?: number; editor?: string }) => Promise<Result<null>>;
+  openInEditor: (request: { root: string; path?: string; line?: number; editor?: string; fallbacks?: string[] }) => Promise<Result<null>>;
   getCurrentProject: () => Promise<(OpenProject & StateStamp) | null>;
   openProject: () => Promise<(OpenProject & StateStamp) | null>;
   /** This Mac's folder dialog without opening a Project: where a clone goes. A path, or null when cancelled. */
-  chooseFolder: () => Promise<string | null>;
+  chooseFolder: (title?: string) => Promise<string | null>;
   /** Opens a folder of this computer as a Project, without the dialog. */
   openProjectAt: (folder: string) => Promise<OpenProject>;
   listDirs: (request: { path?: string }) => Promise<DirListing>;
   readMedia: (request: { scope: string; path: string }) => Promise<MediaBytes>;
   /** Projects opened lately, most recent first; folders that are gone are left out. */
   listRecentProjects: () => Promise<RecentProject[]>;
+  scanFolder: (folder: string) => Promise<FolderScan>;
+  readDetectRepositories: () => Promise<{ detectRepositories: boolean }>;
+  saveDetectRepositories: (value: boolean) => Promise<{ detectRepositories: boolean }>;
   /** Every Project the computer knows, newest opened first, for the new-chat picker. Rejects on a computer that predates it. */
   listKnownProjects: () => Promise<RecentProject[]>;
   /** Onboarding: folders Claude Code and Codex sessions on this Mac worked in, newest first. */
@@ -650,6 +654,7 @@ export type MilagreBridge = {
   getCanvas: () => Promise<CanvasSnapshot>;
   addLink: (a: LinkEndpoint, b: LinkEndpoint) => Promise<ProjectLink[]>;
   removeLink: (id: string) => Promise<ProjectLink[]>;
+  setLinkChatMode: (id: string, mode: "separate" | "shared") => Promise<ProjectLink[]>;
   /** Undo of a removal: the same Link with its id, so what was saved against it holds again. */
   restoreLink?: (link: ProjectLink) => Promise<ProjectLink[]>;
   /** The canvas Links alone, without every Project's state; a Mac that predates it rejects. */

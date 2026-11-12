@@ -80,7 +80,7 @@ import { ChatMentionsContext, EMPTY_CHAT_MENTIONS, type ChatMentionScope } from 
 import { StepApprovalProvider, type StepApproval } from "./agents/step-approval";
 import { PromptText } from "./PromptText";
 import { onlyImageMentions } from "@milagre/shared/prompt-parts";
-import { useFilesRoot } from "./editor-links";
+import { ChatFiles, useFilesRoot } from "./editor-links";
 import { useSentSkills } from "./useSentSkills";
 import { isRemoteKey, useScope } from "../lib/computer-bridge";
 import { isMentionOfFile, mentionedFile, mentionedFiles } from "../lib/prompt-mentions";
@@ -973,6 +973,7 @@ interface ChatComposerProps {
   isSending: boolean;
   /** Sending is briefly blocked while a message is being prepared; a running turn doesn't block it. */
   sendBlocked: boolean;
+  readOnlyHistory?: boolean;
   streamingText?: string;
   /** The running turn's tool steps, where they happened in `streamingText`. */
   streamingSteps?: ChatStep[];
@@ -1386,6 +1387,7 @@ export function ChatComposer({
   pullRequestReview,
   isSending,
   sendBlocked,
+  readOnlyHistory = false,
   streamingText,
   streamingSteps,
   subagents = EMPTY_SUBAGENTS,
@@ -1539,14 +1541,17 @@ export function ChatComposer({
     [checkpointItems],
   );
   const openUndo = useEvent(() => {
+    if (readOnlyHistory) return;
     setUndoIntent("Undo");
     void review.open();
   });
   const undoTask = useEvent((id: string) => {
+    if (readOnlyHistory) return;
     setUndoIntent("Undo");
     void review.inspect(id);
   });
   const previewRecovery = useEvent((id: string, action: UndoIntent) => {
+    if (readOnlyHistory) return;
     setUndoIntent(action);
     void review.inspect(id);
   });
@@ -1792,9 +1797,9 @@ export function ChatComposer({
                             asking={asking}
                             undoable={undoable}
                             undoBlocked={isSending || Boolean(offlineName)}
-                            onUndo={runtimeChat ? undoTask : undefined}
+                            onUndo={runtimeChat && !readOnlyHistory ? undoTask : undefined}
                             highlightId={highlightId}
-                            onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
+                            onCheckpointPreview={runtimeChat && !readOnlyHistory ? previewRecovery : undefined}
                             waitingStepIds={waitingStepIds}
                             onRecommendationSelect={onRecommendationSelect}
                             onUpdateCli={onUpdateCli}
@@ -2015,7 +2020,14 @@ export function ChatComposer({
               <ScrollArea className={`mb-2 max-h-[60cqh] w-full ${approvalHidden ? "hidden" : ""}`}>{approval}</ScrollArea>
             )}
             {review.view !== "closed" && !isNewChat && (
-              <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
+              <UndoPanel
+                readOnly={readOnlyHistory}
+                review={review}
+                intent={undoIntent}
+                onHighlight={setHighlightId}
+                onOpenFile={onOpenDiff}
+                onClosed={focusPrompt}
+              />
             )}
             <div className={`${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
               <PromptComposer
@@ -2031,7 +2043,7 @@ export function ChatComposer({
                 onRemoveQuote={(id) => onQuotesChange(quotes.filter((quote) => quote.id !== id))}
                 history={promptHistory}
                 onSend={send}
-                canUndo={Boolean(runtimeChat)}
+                canUndo={Boolean(runtimeChat) && !readOnlyHistory}
                 onStop={onStop}
                 onCompact={onCompact}
                 compactionFeedback={compactionFeedback}
@@ -2069,6 +2081,17 @@ export function ChatComposer({
           <InlineError size={12} className="mt-2 px-1">
             {newChatError}
           </InlineError>
+          {readOnlyHistory && runtimeChat && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setUndoIntent("Undo");
+                void review.open();
+              }}
+            >
+              View checkpoints
+            </Button>
+          )}
           {composerNote && (
             <p data-composer-note className="mt-1.5 px-2 text-12 text-ink-3">
               {composerNote}
@@ -2181,7 +2204,7 @@ export function ChatTranscript({
   );
 }
 
-/** The contexts a Chat's replies read: its designs and the send function a generative UI button posts through. */
+/** The contexts a Chat's replies read: its designs, the files its steps worked on and the send function a generative UI button posts through. */
 function ReplyProviders({
   mentionContext = EMPTY_CHAT_MENTIONS,
   chatId,
@@ -2207,7 +2230,9 @@ function ReplyProviders({
   return (
     <ArtifactsProvider chatId={chatId} steps={steps} userMessages={userMessages} onSend={onSend} agent={agent} followAgent={followAgent} subagents={subagents}>
       <GenerativeUIProvider onSend={onSend}>
-        <ChatMentionsContext value={mentionContext}>{children}</ChatMentionsContext>
+        <ChatMentionsContext value={mentionContext}>
+          <ChatFiles steps={steps}>{children}</ChatFiles>
+        </ChatMentionsContext>
       </GenerativeUIProvider>
     </ArtifactsProvider>
   );

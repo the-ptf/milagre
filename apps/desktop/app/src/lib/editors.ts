@@ -35,10 +35,19 @@ export function useEditors(): { editors: EditorInfo[] | null; editor: EditorInfo
   return { editors, editor: editors ? pickEditor(editors, editorId) : undefined };
 }
 
-/** Opens a file (or, with no path, the folder) in the chosen editor; a failure shows as a small notice. */
-export async function openInEditor(root: string, target: { path?: string; line?: number } = {}) {
+/**
+ * Opens a file (or, with no path, the folder) in the chosen editor; a failure shows as a small notice. When the path
+ * is missing, main opens the first of `fallbacks` (files the Chat worked on that end with it) found in the folder.
+ */
+export async function openInEditor(root: string, target: { path?: string; line?: number; fallbacks?: string[] } = {}) {
+  const { fallbacks, ...request } = target;
   try {
-    const result = await window.milagre.openInEditor({ root, ...target, editor: getSettings().editorId || undefined });
+    const result = await window.milagre.openInEditor({
+      root,
+      ...request,
+      ...(fallbacks?.length ? { fallbacks } : {}),
+      editor: getSettings().editorId || undefined,
+    });
     if (!result.ok) showNotice(result.error.message);
   } catch (error) {
     showNotice(ipcErrorMessage(error));

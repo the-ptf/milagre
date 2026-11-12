@@ -60,6 +60,8 @@ function openCommand(editor, { target, line, isDirectory = false }) {
 
 const outside = () => new Error("That path is outside the project");
 const notFound = () => new Error("File not found");
+// The requested file isn't there, inside a root that is: the one failure a fallback path may answer.
+const missing = () => Object.assign(notFound(), { missing: true });
 
 // `requested` (relative to root, or absolute) as a real path inside root, or an error. A symlink that
 // leaves root is refused after realpath; with no `requested` the root folder itself is the target.
@@ -79,7 +81,7 @@ async function resolveInside(root, requested, additionalRoots = []) {
   } catch {
     // A missing file whose path also walks outside is reported as outside, not as missing.
     if (path.relative(realRoot, lexical).split(path.sep)[0] === "..") throw outside();
-    throw notFound();
+    throw missing();
   }
   const relative = path.relative(realRoot, real);
   if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
@@ -123,14 +125,37 @@ function runProgram(file, args) {
   });
 }
 
-// editor:open. Returns null on success, or a short message for the renderer's notice.
-async function openInEditor({ root, path: requested, line, editor: editorId }, { editors, run = runProgram, checkRoot = requireWorktreeRoot }) {
+const MAX_FALLBACKS = 20;
+
+// `requested`, or, when that file is missing, the first of `fallbacks` that resolves inside root. The renderer sends
+// as fallbacks the absolute files a Chat's steps worked on that end with a path the reply named relative to a
+// subfolder. Any other failure, and a miss with no fallback found, is the requested path's own.
+async function resolveRequested(root, requested, fallbacks, ownedRoots) {
+  try {
+    return await resolveInside(root, requested, ownedRoots);
+  } catch (error) {
+    if (!error.missing || !Array.isArray(fallbacks)) throw error;
+    for (const fallback of fallbacks.slice(0, MAX_FALLBACKS)) {
+      if (typeof fallback !== "string" || !path.isAbsolute(fallback)) continue;
+      try {
+        return await resolveInside(root, fallback, ownedRoots);
+      } catch {
+        // The next one, then the requested path's own error.
+      }
+    }
+    throw error;
+  }
+}
+
+// editor:open. Returns null on success, or a short message for the renderer's notice. The editor starts once, for the
+// path that resolved: a launch failure is never retried with a fallback.
+async function openInEditor({ root, path: requested, line, editor: editorId, fallbacks }, { editors, run = runProgram, checkRoot = requireWorktreeRoot }) {
   const editor = editors.find((item) => item.id === editorId) ?? editors[0];
   if (!editor) return "No editor found";
   let resolved;
   try {
     const ownedRoots = await checkRoot(root);
-    resolved = await resolveInside(root, requested, Array.isArray(ownedRoots) ? ownedRoots : []);
+    resolved = await resolveRequested(root, requested, fallbacks, Array.isArray(ownedRoots) ? ownedRoots : []);
   } catch (error) {
     return error.message;
   }

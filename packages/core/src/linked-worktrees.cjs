@@ -227,6 +227,7 @@ function createLinkedWorktrees({
       label: chatLabel(path.basename(projectPath), state, session.id),
       worktreePath: state.worktrees[session.worktree_id]?.path,
       archived: Boolean(session.archived),
+      ...(session.readOnlyReason ? { readOnlyReason: session.readOnlyReason } : {}),
     };
   }
 
@@ -374,7 +375,7 @@ function createLinkedWorktrees({
             Object.values(targetState.worktrees ?? {}).find((candidate) => candidate.path === item.worktree_path)?.name ?? path.basename(item.worktree_path),
         );
         for (const session of Object.values(state.sessions)) {
-          if (session.worktree_id !== worktree.id || session.archived) continue;
+          if (session.worktree_id !== worktree.id || session.archived || session.readOnlyReason) continue;
           // An unloaded Chat's messages aren't in the state: its summary counts them.
           if (!((session.summary?.count ?? 0) > 0 || state.messages.some((message) => message.session_id === session.id))) continue;
           const key = chatKey(source.path, session.id);

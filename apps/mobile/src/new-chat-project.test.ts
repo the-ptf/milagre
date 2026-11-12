@@ -169,3 +169,12 @@ test("New Chat offers the open computer's shown Links, in sidebar order, with th
   assert.deepEqual(newChatLinks(views, undefined), []);
   assert.deepEqual(newChatLinks(views, "gone"), []);
 });
+
+test("New Chat omits adopted canvas groups, including histories from previous sharing cycles", () => {
+  const v = withLinks(view("mac", "online", ["/code/a"]), [
+    { id: "old", name: "Old history" },
+    { id: "active", name: "Adopted" },
+  ]);
+  for (const project of v.projects) if (project.link) project.link.canvasLinkId = "edge";
+  assert.deepEqual(newChatLinks([v], "mac"), []);
+});

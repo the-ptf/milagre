@@ -122,6 +122,18 @@ function createProjectSettings(file) {
       });
       return { hidden: hidden === true };
     },
+    // Whether adding a folder with repositories inside offers them as Projects with a Named Link (on unless turned off).
+    async getDetectRepositories() {
+      const data = await read({ strict: false });
+      return { detectRepositories: data.defaults?.detectRepositories !== false };
+    },
+    async setDetectRepositories(value) {
+      await save((data) => {
+        const defaults = data.defaults && typeof data.defaults === "object" ? data.defaults : {};
+        data.defaults = { ...defaults, detectRepositories: value !== false };
+      });
+      return { detectRepositories: value !== false };
+    },
     // An empty list removes the setting, which brings the default back.
     async setFilesToCopy(projectPath, filesToCopy) {
       const lines = normalizeFilesToCopy(filesToCopy);

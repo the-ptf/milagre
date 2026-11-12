@@ -108,6 +108,7 @@ import { allComputers, chatsHomePath, useAllComputers, useFoldedProjects } from 
 import type { HostView, ProjectCopy, Reach } from "./all-computers-store";
 import { mergeChatLists } from "./chat-list-order";
 import { groupByOrigin } from "@milagre/shared/project-origin";
+import { linkOwners, nestUnder, worktreeGroups, worktreeHeading } from "@milagre/shared/project-list";
 import { ChatListControls, useControlsBottomInset, useControlsVisibility } from "./chat-list-controls";
 import { isDesktopComputer } from "./computer-actions";
 import { WaitingLabel } from "./offline-tray";
@@ -128,6 +129,14 @@ type Row = { key: string; path: string } & (
       link: boolean;
       chip: boolean;
       count: number;
+      /** In the Tree layout, a Named Link's member Project, drawn under the Link. */
+      member?: boolean;
+    } & HostTag)
+  /** In the Tree layout, the heading of a Worktree several Chats share: they follow it. */
+  | ({
+      kind: "worktree";
+      name: string;
+      running: boolean;
     } & HostTag)
   /** A Project whose name matches the search: a tap starts a new Chat in it. */
   | ({
@@ -173,6 +182,8 @@ type Row = { key: string; path: string } & (
       home?: boolean;
       /** Grouped under a Project that several computers share: the row names its computer on its second line. */
       shared?: boolean;
+      /** In the Tree layout: drawn further in, under a Link's member Project or a Worktree heading. */
+      indent?: number;
     } & SubchatMarks &
       HostTag)
   | ({
@@ -219,6 +230,8 @@ type ChatEntry = {
   background: number;
   pending?: MobilePendingChat;
   worktree: string;
+  /** The Worktree's folder, which groups a Project's Chats in the Tree layout (worktreeGroups). */
+  worktreePath?: string;
   prPath?: string;
   prRefs: string[];
 };
@@ -278,6 +291,8 @@ const SHOW: [Show, string, string][] = [
 ];
 /** How far each level of a subchat family indents its row. */
 const SUBCHAT_INDENT = 16;
+/** In the Tree layout, a Link's member Project and a shared Worktree's Chats sit this far in. */
+const TREE_INDENT = 16;
 const NEEDS = new Set<ChatMark>(["question", "waiting", "interrupted", "failed", "unread"]);
 // What a Chat row can show under its title (the Filters menu's "On Chats"); the computer is a desktop choice.
 const ROW_FIELDS = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer");
@@ -363,6 +378,7 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
     background,
     pending,
     worktree: pending?.newWorktree ? "New Worktree" : copy?.project.state.worktrees[chat.worktree_id]?.name || "Worktree",
+    worktreePath: pending?.newWorktree ? undefined : copy?.project.state.worktrees[chat.worktree_id]?.path,
     prPath: !pending && !copy?.project.link && !home ? copy?.project.state.worktrees[chat.worktree_id]?.path : undefined,
     prRefs: chat.summary?.pullRequests ?? copy?.project.pullRequestRefs?.[chat.id] ?? pullRequestRefs(byChat.get(chat.id) || []),
   });
@@ -826,54 +842,93 @@ const NavigationBody = memo(function NavigationBody({
         // A computer that hasn't answered with its Projects has no group to carry its state.
         const notice = build.projects.length ? null : hostNotice(build);
         if (notice) result.push(notice);
-        for (const project of build.projects) {
-          const copies = shared.get(project);
-          if (copies) {
-            if (copies[0]!.project === project) result.push(...sharedProject(copies));
-            continue;
-          }
+        // A Project's group: its header, then (unfolded) its Chats and their notice. In the Tree layout a Project's Chats go
+        // by Worktree (a shared Worktree's under its heading), and a Named Link's member Projects follow the Link, further in.
+        const host = { hostId: build.hostId, hostName: build.hostName, reach: build.reach };
+        const projectGroup = (project: ProjectBuild, member = false, hasMembers = false): Row[] => {
           const open = !folds.get(build.hostId)?.has(project.path);
-          // A Show filter leaves out the Projects with nothing to show.
-          if (show !== "all" && project.copy && !project.chats.length && !project.failure) continue;
-          result.push({
-            key: `${build.hostId}|${project.path}`,
-            path: project.path,
-            kind: "project",
-            hostId: build.hostId,
-            hostName: build.hostName,
-            reach: build.reach,
-            name: project.name,
-            expanded: open,
-            members: project.members,
-            link: project.link,
-            chip: manyHosts,
-            count: project.chats.length,
-          });
-          if (!open) continue;
-          for (const entry of project.chats) result.push(chatRow(build, project, entry));
-          const base = {
-            path: project.path,
-            kind: "notice" as const,
-            hostId: build.hostId,
-            hostName: build.hostName,
-            reach: build.reach,
-            retry: "project" as const,
-          };
+          const indent = member ? TREE_INDENT : 0;
+          const rows: Row[] = [
+            {
+              ...host,
+              key: `${build.hostId}|${project.path}`,
+              path: project.path,
+              kind: "project",
+              name: project.name,
+              expanded: open,
+              members: project.members,
+              link: project.link,
+              chip: manyHosts,
+              count: project.chats.length,
+              ...(member ? { member } : {}),
+            },
+          ];
+          if (!open) return rows;
+          if (chatList === "tree" && !project.link) {
+            const state = project.copy?.project.state;
+            for (const group of worktreeGroups({
+              projectPath: project.path,
+              worktrees: state ? Object.values(state.worktrees).map((worktree) => ({ path: worktree.path, name: worktree.name })) : [],
+              rows: project.chats,
+              pathOf: (entry) => entry.worktreePath,
+              branchOf: (entry) => entry.worktree,
+            })) {
+              const heading = worktreeHeading(group);
+              if (heading)
+                rows.push({
+                  ...host,
+                  key: `${build.hostId}|${project.path}:worktree:${group.path}`,
+                  path: project.path,
+                  kind: "worktree",
+                  name: group.name,
+                  running: group.rows.some((entry) => entry.mark === "running"),
+                });
+              for (const entry of group.rows) rows.push({ ...chatRow(build, project, entry), indent: indent + (heading ? TREE_INDENT : 0) });
+            }
+          } else for (const entry of project.chats) rows.push(indent ? { ...chatRow(build, project, entry), indent } : chatRow(build, project, entry));
+          const base = { ...host, path: project.path, kind: "notice" as const, retry: "project" as const };
           // An offline computer's failed and unread Projects are the offline line's business, not a notice each.
-          if (build.reach === "offline" && (project.failure || !project.copy)) continue;
+          if (build.reach === "offline" && (project.failure || !project.copy)) return rows;
           if (project.failure)
-            result.push({
+            rows.push({
               ...base,
               key: `${build.hostId}|${project.path}:error`,
               message: project.copy ? "Could not refresh Chats. Tap to retry." : "Could not load Chats. Tap to retry.",
               failed: true,
             });
-          else if (!project.copy || !project.chats.length)
-            result.push({
+          // A Link whose member Projects follow it, and a member under its Link, need no "No Chats" notice.
+          else if (!project.copy || (!project.chats.length && !hasMembers && !member))
+            rows.push({
               ...base,
               key: `${build.hostId}|${project.path}:notice`,
               message: !project.copy ? "Loading Chats..." : show !== "all" ? "No matching Chats" : "No Chats yet. Start one with +.",
             });
+          return rows;
+        };
+        // A Show filter leaves out the Projects with nothing to show.
+        const empty = (project: ProjectBuild) => show !== "all" && project.copy && !project.chats.length && !project.failure;
+        const owners =
+          chatList === "tree"
+            ? linkOwners(
+                build.projects
+                  .filter((project) => project.link)
+                  .map((project) => ({ key: project.path, memberPaths: (project.members ?? []).map((m) => m.path) })),
+              )
+            : new Map<string, string>();
+        for (const { item: project, children } of nestUnder(
+          build.projects,
+          (item) => item.path,
+          (item) => (shared.has(item) ? undefined : owners.get(item.path)),
+        )) {
+          const copies = shared.get(project);
+          if (copies) {
+            if (copies[0]!.project === project) result.push(...sharedProject(copies));
+            continue;
+          }
+          const members = children.filter((child) => !empty(child));
+          if (empty(project) && !members.length) continue;
+          result.push(...projectGroup(project, false, members.length > 0));
+          if (!folds.get(build.hostId)?.has(project.path)) for (const child of members) result.push(...projectGroup(child, true));
         }
       }
       result.push(...offlineLine);
@@ -2365,7 +2420,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     );
     // A tap folds the group. A long press lifts it to drag, like Mail's edit-mode reorder; the menu moves to the ⋯ button.
     return (
-      <View style={[s.project, { opacity: offline ? 0.6 : 1 }]}>
+      <View style={[s.project, item.member ? { marginTop: 4, paddingLeft: 8 + TREE_INDENT } : null, { opacity: offline ? 0.6 : 1 }]}>
         {canReorder ? (
           <ProjectHeaderDrag
             hostId={item.hostId}
@@ -2428,6 +2483,15 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       </Pressable>
     );
   }
+  if (item.kind === "worktree")
+    return (
+      <View accessible accessibilityLabel={`${item.name}${item.running ? ", running" : ""}`} style={[s.worktree, { opacity: offline ? 0.6 : 1 }]}>
+        <View style={[s.worktreeDot, { backgroundColor: item.running ? colors.green : colors.ink4 }]} />
+        <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, color: colors.ink2 }]}>
+          {item.name}
+        </Text>
+      </View>
+    );
   if (item.kind === "notice")
     return (
       <Pressable
@@ -2476,7 +2540,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           <Text style={{ color: colors.add }}>+{diff.added}</Text> <Text style={{ color: colors.remove }}>−{diff.removed}</Text>
         </Text>
       )}
-      {lastAt !== undefined && chatList === "grouped" && <Text style={[s.detail, { fontVariant: ["tabular-nums"] }]}>{activityAgo(lastAt, now)}</Text>}
+      {lastAt !== undefined && chatList !== "list" && <Text style={[s.detail, { fontVariant: ["tabular-nums"] }]}>{activityAgo(lastAt, now)}</Text>}
     </>
   );
   const branchLine = copy?.project.link ? `Shared Chat · ${copy.project.link.projects.length} Projects` : rowShow.branch ? item.worktree : "";
@@ -2558,7 +2622,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   const subchatGuide = item.subchat ? (
     <View pointerEvents="none" style={[s.subchatGuide, { left: 8 + SUBCHAT_INDENT * depth, backgroundColor: colors.line }]} />
   ) : null;
-  const subchatIndent = item.subchat ? { paddingLeft: SUBCHAT_INDENT * depth } : null;
+  const subchatIndent = item.subchat || item.indent ? { paddingLeft: (item.subchat ? SUBCHAT_INDENT * depth : 0) + (item.indent ?? 0) } : null;
   const menu = chatMenu(
     item.chat,
     copy?.project.link ? { path: copy.project.state.worktrees[item.chat.worktree_id]?.path } : copy?.project.state.worktrees[item.chat.worktree_id],
@@ -2587,7 +2651,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   );
   // A Chat without a Project, in the Chats group or a grouped list's search: its title, then its computer and age, never a
   // branch or PR. The One list draws it as an inbox row like the others, with the Chats bubble for its icon.
-  if (item.home && chatList === "grouped") {
+  if (item.home && chatList !== "list") {
     const detail = chatsRowDetail(item.hostName + (offline ? ", offline" : ""), item.chat.summary?.lastAt, now);
     return (
       <ChatSwipeRow
@@ -2671,7 +2735,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       </ChatSwipeRow>
     );
   }
-  const grouped = chatList === "grouped";
+  const grouped = chatList !== "list";
   const label = `${title}${item.chat.pinned ? ", pinned" : ""}, ${grouped ? item.worktree : `${item.project}, ${item.worktree}`}${markLabel ? `, ${markLabel}` : ""}${item.many ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}${linked.length ? `, ${linkedAccessibilityLabel(linked)}` : ""}`;
   // Under a Project several computers share, each row names its own computer first.
   const computerTag = grouped && item.shared ? <ComputerTag name={item.hostName} offline={offline} /> : null;
@@ -3241,6 +3305,16 @@ const makeS = (colors: Palette) =>
     inboxPart: { flexDirection: "row", alignItems: "center", gap: 6 },
     chatTitle: { color: colors.ink, fontSize: 15, lineHeight: 20 },
     // Under the Project's name, where its Chats' titles start.
+    // A shared Worktree's heading in the Tree layout: its dot under the Project icon's column, its Chats after it.
+    worktree: {
+      minHeight: 32,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingLeft: 30 + TREE_INDENT,
+      paddingRight: 12,
+    },
+    worktreeDot: { width: 6, height: 6, borderRadius: radius.full },
     notice: {
       minHeight: 44,
       justifyContent: "center",

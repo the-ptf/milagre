@@ -31,8 +31,8 @@ window.localDialogs = 0;
 window.cloned = [];
 const atlas = { cloneProject: async (url, parent) => (window.cloned.push(["atlas", url, parent]), { path: "c-atlas|" + parent + "/repository", name: "repository", state: {} }), listDirs: async ({ path } = {}) => (window.listed.push(path ?? null), listings[path ?? HOME]), openProjectAt: async (folder) => (window.opened.push(folder), { path: "c-atlas|" + folder, name: folder.split("/").pop(), state: {} }) };
 window.milagre = {
-  openProject: async () => (window.localDialogs++, null),
-  chooseFolder: async () => "/Users/a/work",
+  // This Mac's Open asks for a folder ("Open project", cancelled here); the clone's asks where to clone into.
+  chooseFolder: async (title) => (title === "Open project" ? (window.localDialogs++, null) : "/Users/a/work"),
   cloneProject: async (url, parent) => (window.cloned.push(["this-mac", url, parent]), { path: (parent ?? "/Users/a/Code") + "/repository", name: "repository", state: {} }),
   on: (id) => (id === "c-atlas" ? atlas : {}),
   onComputersChanged: (callback) => ((window.pushComputers = (computers) => callback({ thisMac: "victor-mbp", computers })), () => {}),

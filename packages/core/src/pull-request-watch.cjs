@@ -57,10 +57,12 @@ function queries(items) {
   return documents;
 }
 
+// `exec` must be raw (not wrapped in scheduled): this watcher and readPullRequests acquire their own slots.
+// Scheduling twice can fill a background lane with outer calls waiting for their own inner calls.
 function createPullRequestWatch({
-  exec = scheduled(promisify(execFile)),
-  git = createGit().read,
-  readRefs = (cwd, refs) => readPullRequests(cwd, refs),
+  exec = promisify(execFile),
+  git,
+  readRefs,
   onChange = () => {},
   now = Date.now,
   timers = { setTimeout, clearTimeout },
@@ -73,6 +75,21 @@ function createPullRequestWatch({
   let timer = null;
   let quotaUntil = 0;
   let closed = false;
+  const controller = new AbortController();
+  const waiting = new Set();
+  const execute = (command, args, options) => {
+    // Check inside the process lane too: a queued read must not spawn after close.
+    controller.signal.throwIfAborted();
+    return exec(command, args, { ...options, signal: controller.signal });
+  };
+  const run = scheduled(execute);
+  git ??= createGit({
+    execFile(command, args, options, done) {
+      controller.signal.throwIfAborted();
+      return execFile(command, args, { ...options, signal: controller.signal }, done);
+    },
+  }).read;
+  readRefs ??= (cwd, refs) => readPullRequests(cwd, refs, execute);
 
   const ghOptions = (cwd) => ({ cwd, encoding: "utf8", timeout: 30_000, maxBuffer: 16 * 1024 * 1024, env: { ...env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" } });
 
@@ -109,8 +126,22 @@ function createPullRequestWatch({
 
   /** Reads `target` now if nothing was read for it yet; resolves once it has a value (null when GitHub can't say). */
   async function ensure(target) {
-    if (!unread(target)) return;
+    // Git resolution, a queued process, and injected readers can also be pending. Their caller can stop waiting
+    // immediately; the abort signal cancels owned processes and the closed checks prevent late events or more work.
+    if (closed || !unread(target)) return;
+    const stopped = Promise.withResolvers();
+    waiting.add(stopped.resolve);
+    try {
+      await Promise.race([readTarget(target), stopped.promise]);
+    } finally {
+      waiting.delete(stopped.resolve);
+    }
+  }
+
+  async function readTarget(target) {
+    if (closed || !unread(target)) return;
     await resolveRepo(target);
+    if (closed) return;
     if (!target.repo) {
       // Not in a Git repository (or it is gone): nothing to ask GitHub.
       const changed = new Set();
@@ -127,6 +158,7 @@ function createPullRequestWatch({
       }
       // First reads arriving together (a snapshot of every Worktree) gather into one poll.
       await new Promise((resolve) => timers.setTimeout(resolve, GATHER_MS));
+      if (closed) return;
       if (unread(target)) await (repo.polling ?? poll(repo));
     }
   }
@@ -134,6 +166,7 @@ function createPullRequestWatch({
   // Every poll runs in the background lane, a first read too: a slot of each kind stays free for what a person is
   // waiting on (a PR's detail, an open diff), which a burst of first reads would otherwise fill.
   function poll(repo) {
+    if (closed) return Promise.resolve();
     if (repo.polling) return repo.polling;
     repo.polling = background(() => readRepo(repo))
       .catch(() => {})
@@ -147,7 +180,7 @@ function createPullRequestWatch({
   async function graphql(cwd, query) {
     let stdout;
     try {
-      ({ stdout } = await exec("gh", ["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", `query=${query}`], ghOptions(cwd)));
+      ({ stdout } = await run("gh", ["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", `query=${query}`], ghOptions(cwd)));
     } catch (error) {
       // A missing PR number fails only its alias: gh exits 1 but prints the rest of the answer.
       stdout = error?.stdout;
@@ -172,6 +205,7 @@ function createPullRequestWatch({
         target.head = (await git.out(target.path, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => null)) || null;
       }),
     );
+    if (closed) return;
     // What to ask: each branch once, and each PR a Chat named that could still change (a merged one can't).
     const items = [];
     const byKey = new Map();
@@ -219,6 +253,7 @@ function createPullRequestWatch({
         }
       }),
     );
+    if (closed) return;
     // PRs on another host than github.com, one by one as before.
     await Promise.all(
       others.map(async ([target, ref]) => {
@@ -227,6 +262,7 @@ function createPullRequestWatch({
         else found.set(`ref:${ref}`, value ?? null);
       }),
     );
+    if (closed) return;
     const changed = new Set();
     for (const target of live) settle(target, found, missed, changed);
     repo.readAt = startedAt;
@@ -287,6 +323,7 @@ function createPullRequestWatch({
   return {
     /** The PR `path`'s branch opened (null for none), read now only if never read; keeps `path` shown. */
     async branch(path) {
+      if (closed) return targets.get(path)?.branch ?? null;
       const target = ask(path);
       await ensure(target);
       return target.branch ?? null;
@@ -294,6 +331,7 @@ function createPullRequestWatch({
     /** The PRs named by `refs` (numbers or URLs), as `readPullRequests` returns them. */
     async refs(path, refs) {
       if (!Array.isArray(refs)) return [];
+      if (closed) return refs.slice(0, MAX_REFS).map((ref) => targets.get(path)?.refs.get(ref)?.value ?? null);
       const target = ask(path, { refs });
       await ensure(target);
       return refs.slice(0, MAX_REFS).map((ref) => target.refs.get(ref)?.value ?? null);
@@ -303,6 +341,7 @@ function createPullRequestWatch({
      * read right away and reported through `onChange`.
      */
     snapshot(entries) {
+      if (closed) return { worktrees: {}, chats: {}, pending: false };
       const worktrees = {};
       const chats = {};
       let pending = false;
@@ -329,7 +368,11 @@ function createPullRequestWatch({
       schedule();
     },
     close() {
+      if (closed) return;
       closed = true;
+      controller.abort();
+      for (const resolve of waiting) resolve();
+      waiting.clear();
       if (timer) timers.clearTimeout(timer);
       timer = null;
     },
