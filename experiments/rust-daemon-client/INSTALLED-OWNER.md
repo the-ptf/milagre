@@ -22,6 +22,14 @@ service parity. Routines are out of scope for the Preview in this mode.
   version that app expects. `DaemonLaunch::node(..)` is for a bundled Node on a computer without
   Milagre.app. `ELECTRON_RUN_AS_NODE` and `MILAGRE_BUNDLED_BIN_DIR` are set or cleared explicitly,
   since a frontend started from a Milagre terminal inherits them.
+- `installed_project.unlock_computers(&client)` unlocks the computer vault without Electron, as
+  `computer-unlock.cjs` does: reads `computer-vault-key.json` (private file checks), opens Electron's
+  safeStorage seal (Chromium "v10": AES-128-CBC, PBKDF2-HMAC-SHA1 of the login Keychain item
+  "Milagre Safe Storage" / "Milagre Key", salt "saltysalt", 1003 rounds, IV of spaces) and sends
+  `computers:unlock`; imports pre-vault pairings when `needsLegacyImport`. Already unlocked or
+  file-keyed vaults are left alone; a missing wrapper for an existing vault is an error, never a new
+  key. Reading the Keychain item from another app shows the macOS prompt once per app signature (an
+  ad-hoc re-signed build asks again). `computers_vault_status(&client)` is the typed status read.
 - There is no shutdown, stop or restart method. The Node daemon stays the single writer.
 - `known_projects()` reads `project:known`. `project(path)` mints a Project-scoped authority; open
   one Client per Project shown, as with owned runtimes.
@@ -79,9 +87,14 @@ over). Real check: `installed_owner_start` started Milagre.app 0.232.0-beta.31's
 on a throwaway profile in 0.27 s, detached (parent PID 1), served 14 capabilities; stopped with
 SIGTERM afterwards. The real profile's daemon was not touched.
 
-
 Round 5 (2026-11-12): two-step handshake. Live read-only check: `computers:list` through `call()`
 returned this computer plus 4 paired computers; `project:open` is now reachable for Add Project;
 `daemon:stop` is advertised but still refused by `call()`. Multi-computer already lives in the
 daemon (`apps/daemon/src/computers.cjs`, capability `computer-management-v1`); what remains for a
 frontend without Electron is supplying the vault key with `computers:unlock`.
+
+Round 6 (2026-11-12): computer vault unlock. 6 tests: an independent openssl known-answer vector for
+v10, wrong password and malformed seals refused, locked vault unlocked with the sealed key,
+unlocked and file-keyed vaults untouched, missing wrapper never replaced, world-readable key file
+refused, legacy pairings imported. Not yet run against the real Keychain item (needs the macOS
+prompt answered on this computer); the real vault is already unlocked by Electron.

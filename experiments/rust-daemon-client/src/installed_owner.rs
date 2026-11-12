@@ -62,7 +62,9 @@ pub struct InstalledOwner {
 /// Project-scoped authority on the adopted daemon. Each Client connects to one Project, as with
 /// the owned runtimes; open one per Project the frontend shows.
 pub struct InstalledProject {
-    authority: Arc<Authority>,
+    pub(crate) authority: Arc<Authority>,
+    /// The daemon's data directory, for the frontend's own files there (the computer vault key).
+    pub(crate) data_dir: PathBuf,
 }
 
 impl InstalledOwner {
@@ -117,6 +119,7 @@ impl InstalledOwner {
         }
         let (socket, pid) = (self.info.socket.clone(), self.info.pid);
         Ok(InstalledProject {
+            data_dir: self.info.data_dir.clone(),
             authority: Arc::new(Authority {
                 project: path.to_owned(),
                 pid,
@@ -146,8 +149,18 @@ impl Client {
 
 impl InstalledProject {
     #[cfg(test)]
+    pub(crate) fn for_test_in(authority: Arc<Authority>, data_dir: &Path) -> Self {
+        Self {
+            authority,
+            data_dir: data_dir.to_owned(),
+        }
+    }
+    #[cfg(test)]
     pub(crate) fn for_test(authority: Arc<Authority>) -> Self {
-        Self { authority }
+        Self {
+            authority,
+            data_dir: PathBuf::from("/nonexistent-test-data-dir"),
+        }
     }
     pub fn project(&self) -> &str {
         &self.authority.project

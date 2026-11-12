@@ -9,7 +9,7 @@ description = "Fixture-only local daemon client contracts; production launcher r
 default = []
 owned-chat = []
 # Interim: attach to the installed Milagre's running Node daemon (GPUI Preview). Never launches or stops it.
-installed-owner = ["owned-chat"]
+installed-owner = ["owned-chat", "dep:security-framework", "dep:aes", "dep:cbc", "dep:pbkdf2", "dep:sha1", "dep:base64"]
 
 [workspace]
 
@@ -18,6 +18,13 @@ serde_json = { version = "1", features = ["preserve_order"] }
 libc = "0.2"
 sha2 = "0.10"
 tempfile = "3"
+# installed-owner: unlock computer credentials with Electron's safeStorage key (Chromium "v10" on macOS).
+security-framework = { version = "3", optional = true }
+aes = { version = "0.8", optional = true }
+cbc = { version = "0.1", optional = true, features = ["alloc"] }
+pbkdf2 = { version = "0.12", optional = true, default-features = false, features = ["hmac"] }
+sha1 = { version = "0.10", optional = true }
+base64 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 futures = "0.3"

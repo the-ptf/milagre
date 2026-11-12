@@ -990,3 +990,6 @@ mod installed_owner;
 
 #[cfg(feature = "installed-owner")]
 mod daemon_launch;
+
+#[cfg(feature = "installed-owner")]
+mod computer_unlock;

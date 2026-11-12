@@ -10,6 +10,8 @@
 
 mod client;
 #[cfg(feature = "installed-owner")]
+mod computer_unlock;
+#[cfg(feature = "installed-owner")]
 mod daemon_launch;
 #[cfg(feature = "installed-owner")]
 mod installed_owner;
@@ -39,6 +41,8 @@ pub use client::sidebar_actions::SidebarActions;
 #[cfg(feature = "owned-chat")]
 pub use client::terminal_actions::{TerminalActions, TerminalSize};
 pub use client::{Client, ScriptedActions};
+#[cfg(feature = "installed-owner")]
+pub use computer_unlock::ComputerUnlock;
 #[cfg(feature = "installed-owner")]
 pub use daemon_launch::DaemonLaunch;
 #[cfg(feature = "installed-owner")]
