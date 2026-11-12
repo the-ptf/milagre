@@ -157,7 +157,12 @@ pub struct Panel {
 
 impl Panel {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let seeded: Option<SharedString> = cx.try_global::<SidebarSeed>().and_then(|seed| seed.open_chat.clone()).map(Into::into);
+        // Preview: the panel is hidden; seeding it with the opening Chat would build fixture content for it (and compile
+        // the highlighting grammars of its files, about 170 MB kept for the process's life).
+        let seeded: Option<SharedString> = (!crate::workspace::preview::is_on(cx))
+            .then(|| cx.try_global::<SidebarSeed>().and_then(|seed| seed.open_chat.clone()))
+            .flatten()
+            .map(Into::into);
         let chat = seeded.clone().unwrap_or_default();
         let content = fixture::content_for(&chat, seeded.as_deref());
         let changes = cx.new(ChangesView::new);

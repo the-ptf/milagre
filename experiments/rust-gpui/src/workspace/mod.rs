@@ -222,7 +222,10 @@ impl Workspace {
     fn follow_sidebar(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
         let row = self.sidebar.read(cx).selected_row().cloned();
         let Some(row) = row else { return };
-        if self.panel.read(cx).chat() != row.key.as_ref() {
+        // Preview: the panel is hidden and holds fixture data; following the Chat would load it (and compile the
+        // highlighting grammars of its files, about 170 MB kept for the process's life) for nothing.
+        let preview = preview::is_on(cx);
+        if !preview && self.panel.read(cx).chat() != row.key.as_ref() {
             let key = row.key.clone();
             self.panel.update(cx, |panel, cx| panel.set_chat(key, cx));
         }
@@ -234,7 +237,9 @@ impl Workspace {
             self.chat.update(cx, |chat, cx| chat.set_chat(&row, window, cx));
             let chats = self.sidebar.read(cx).family_chats();
             self.chat.update(cx, |chat, cx| chat.set_family(&chats, cx));
-            self.panel.update(cx, |panel, cx| panel.set_family(&chats, cx));
+            if !preview {
+                self.panel.update(cx, |panel, cx| panel.set_family(&chats, cx));
+            }
         }
     }
 }
