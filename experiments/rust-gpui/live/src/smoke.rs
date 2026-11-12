@@ -44,7 +44,6 @@ pub fn start(smoke: Smoke, window: WindowHandle<Root>, workspace: Entity<Workspa
                 break;
             }
             let started = Instant::now();
-            let mut seen_run = false;
             loop {
                 cx.background_executor().timer(Duration::from_millis(200)).await;
                 let (receipts, running, errors, items) = cx.update(|cx| {
@@ -70,9 +69,11 @@ pub fn start(smoke: Smoke, window: WindowHandle<Root>, workspace: Entity<Workspa
                         });
                     }
                 }
-                seen_run |= running;
-                let replied = matches!(items.last(), Some(Item::Prose(p)) if !p.streaming);
-                if receipts > before && seen_run && !running && replied {
+                // A saved reply after this prompt's message, with no run left (a fast turn may never be seen running).
+                let asked = items.iter().rposition(|item| matches!(item, Item::User(text) if text.as_ref() == prompt.as_str()));
+                let replied = asked.is_some_and(|at| items[at + 1..].iter().any(|item| matches!(item, Item::Prose(p) if !p.streaming)))
+                    && matches!(items.last(), Some(Item::Prose(p)) if !p.streaming);
+                if receipts > before && !running && replied {
                     turns.push(json!({"prompt": prompt, "seconds": started.elapsed().as_secs_f32(), "items": shown_items(&items)}));
                     break;
                 }

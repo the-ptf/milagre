@@ -92,6 +92,8 @@ struct OpenChat {
 
 pub struct LiveController {
     workspace: Entity<Workspace>,
+    /// The window, to open a Chat without waiting for a frame (a window behind others draws none).
+    window: gpui::AnyWindowHandle,
     client: Client,
     actions: ChatActions,
     store: LiveStore,
@@ -176,6 +178,7 @@ impl LiveController {
             });
             let mut this = Self {
                 workspace: workspace.clone(),
+                window: window.window_handle(),
                 client: session.client.clone(),
                 actions: session.actions.clone(),
                 store: session.store.clone(),
@@ -316,6 +319,11 @@ impl LiveController {
         {
             self.pending_open = None;
             self.workspace.update(cx, |w, cx| w.open_chat_key(&key, cx));
+            // The window follows its sidebar when it draws; do it now, so the Chat opens even with no frame.
+            if let Some(row) = sidebar.read(cx).selected_row().cloned() {
+                let chat = self.workspace.read(cx).chat.clone();
+                let _ = self.window.update(cx, |_, window, cx| chat.update(cx, |chat, cx| chat.set_chat(&row, window, cx)));
+            }
         }
         // A Chat that just got its first messages can now be the composer's target.
         self.follow_chat(cx);
