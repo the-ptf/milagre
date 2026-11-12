@@ -6,6 +6,31 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 02:00 Toronto the installed normal Preview passed the authorized fresh real
+Claude check after quota reset. Exactly one no-tools Ask send streamed and saved
+two messages. A second runtime (different PID/profile) reopened the identical
+transcript with ZERO sends. Both native Quits exited 0 with drained empty stderr,
+actual socket/profile/shell/Project-lock cleanup and retained data. Installed
+hashes remain `125c2f59...fd5c1fa` / `862f4cd2...6d70502`. Evidence:
+`/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-live-9Gumqg/report.json`.
+Verifier committed as `393d6497`. This is external-wire verification through the
+installed process, not a new composer/screenshot test. Earlier quota failure stays
+failed evidence. This one-send requirement is DONE: do not repeat it on later beats.
+
+Isolated actor timer `567b2c78` is accepted after final review and root's successor
+regression rerun. The fenced scheduled-A/user-B shutdown P2 is closed with exact
+TurnId checks; old behavior fails. Saved full suite passes 138 tests, strict normal
+and feature Clippy. Actual synthetic actor/socket cases cover timer/native turn,
+persistence, restart/no replay, manifest failure and active Stop. Activation still
+requires the default-off feature and explicit synthetic-root preset; no public
+schedule enabling or installed scheduling is shipped. Installed previews remain
+on accepted `3410109b`, and GPUI was notified of the successful real check.
+
+Next subagent is porting bounded actual Sidebar Done/Reopen/Pin/Rename behavior
+for the dedicated runtime with Node differential/restart tests. That work is not
+accepted or installed yet. Full services, phone and existing-data upgrade remain
+unfinished. Production and unrelated output directories remain untouched.
+
 At 01:30 Toronto, the actor timer increment is staged but NOT accepted or committed.
 Its author reports 137 passing runtime tests, feature/normal strict Clippy and two
 actual fixture socket/timer cases (due native turn, persistence/restart, manifest
