@@ -8,8 +8,12 @@
 //!   design over a rasterized preview. Every zoom draws sharp, and nothing waits on a frame to load.
 //! - The canvas fills the panel body under a 40px bar, as the Artifact tab does, instead of a floating dock: the
 //!   dock's own title row is the panel's tab strip. The zoom bar floats over the canvas as on the desktop.
-//! - Fixture designs only (`fixture.rs`). Comment pins and their bubble, live agent drafts and replays, Share and the
-//!   transcript's design cards are not ported. Send records the choice as sent, with no message.
+//! - Fixture designs (`fixture.rs`), or a data layer's ([`DesignsView::set_live`]: the Chat's designs as Milagre's
+//!   daemon keeps them, `artifact:list` and `artifact:get` per version, with the comments sent on them as pins). Live,
+//!   Delete and Send are [`DesignsEvent`]s the data layer carries out (`artifact:delete`; the choice as Electron's
+//!   message, "I chose the design …"); while the first read is on its way the board is a skeleton. Placing new
+//!   comment pins and their bubble, live agent drafts and replays, Share and the transcript's design cards are not
+//!   ported.
 //! - Edit opens the design page editor (`editor/`, WP-55) over the window; its Save adds a version here.
 //!
 //! Pan: drag the background or a design that does not have the mouse, or scroll. Zoom: pinch, ⌘- or ctrl-scroll
@@ -41,6 +45,36 @@ use self::fixture::DesignArtifact;
 use self::scene::{IconCache, Scene};
 use crate::theme::{ActiveTheme, TEXT_11, TEXT_12, TextStepExt, Theme};
 use crate::ui::{EmptySize, EmptyState, IconName};
+
+/// A comment sent on a design (`artifact:comments`), drawn as a numbered pin on the version it was left on.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DesignPin {
+    pub id: String,
+    pub design: String,
+    pub version: u32,
+    /// Where on the screen, as fractions of its size.
+    pub x: f64,
+    pub y: f64,
+    pub number: u32,
+    pub text: String,
+    pub resolved: bool,
+}
+
+/// What the Designs tab asks a data layer to do (live only; the fixture does them in place).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DesignsEvent {
+    /// Delete a design with every version (`artifact:delete [{chatId, id}]`).
+    Delete(String),
+    /// Send the choice to the Chat as this message (Electron's `designFeedbackMessage`).
+    Send(String),
+}
+
+impl gpui::EventEmitter<DesignsEvent> for DesignsView {}
+
+/// The message Send sends for a chosen version (`designFeedbackMessage` with a choice and no comments).
+pub fn choice_message(id: &str, title: &str, version: u32) -> String {
+    format!("I chose the design \"{title}\" ({id}, version {version}). Continue from this one.")
+}
 
 /// The bar under the panel's tab strip: the tab's name and Send.
 pub const BAR_HEIGHT: Pixels = px(40.0);
@@ -82,6 +116,10 @@ pub struct DesignsView {
     editor: Option<(Entity<DesignEditor>, Subscription)>,
     focus_handle: FocusHandle,
     renders: usize,
+    /// A data layer feeds the designs ([`Self::set_live`]); `loading` until its first read for the Chat answers.
+    live: bool,
+    loading: bool,
+    pins: Vec<DesignPin>,
 }
 
 impl DesignsView {
@@ -106,6 +144,9 @@ impl DesignsView {
             editor: None,
             focus_handle: cx.focus_handle(),
             renders: 0,
+            live: false,
+            loading: false,
+            pins: Vec::new(),
         };
         this.apply_env_seed();
         if !cfg!(test)
@@ -173,6 +214,65 @@ impl DesignsView {
         {
             self.pending = Some((id, version));
         }
+    }
+
+    /// A data layer's Chat changed: its designs are being read (a skeleton until [`Self::set_live`] answers).
+    pub fn start_live(&mut self, cx: &mut Context<Self>) {
+        self.live = true;
+        self.loading = true;
+        self.designs.clear();
+        self.pins.clear();
+        self.versions.clear();
+        self.scenes.clear();
+        self.pending = None;
+        self.sent = None;
+        self.deleting = None;
+        self.active = None;
+        self.hovered = None;
+        self.focus = None;
+        self.moved = false;
+        self.editor = None;
+        cx.notify();
+    }
+
+    /// A data layer's read of the Chat's designs and the comments on them. A version picked here stays while the
+    /// design still has it; the board fits again only when the designs changed and the user has not moved it.
+    pub fn set_live(&mut self, designs: Vec<DesignArtifact>, pins: Vec<DesignPin>, cx: &mut Context<Self>) {
+        let same = self.designs.len() == designs.len()
+            && self
+                .designs
+                .iter()
+                .zip(&designs)
+                .all(|(a, b)| a.id == b.id && a.first == b.first && a.latest() == b.latest() && a.group == b.group);
+        self.live = true;
+        self.loading = false;
+        self.versions.retain(|id, version| designs.iter().any(|d| d.id == *id && d.version(*version).is_some()));
+        for slot in [&mut self.pending, &mut self.sent] {
+            if slot.as_ref().is_some_and(|(id, version)| !designs.iter().any(|d| d.id == *id && d.version(*version).is_some())) {
+                *slot = None;
+            }
+        }
+        if !same {
+            self.scenes.retain(|(id, version), _| designs.iter().any(|d| d.id == *id && d.version(*version).is_some()));
+            self.designs = designs;
+            if !self.moved {
+                self.fit(self.focus.clone().as_deref());
+            }
+        }
+        self.pins = pins;
+        cx.notify();
+    }
+
+    pub fn is_live(&self) -> bool {
+        self.live
+    }
+
+    pub fn is_loading(&self) -> bool {
+        self.loading
+    }
+
+    pub fn pins(&self) -> &[DesignPin] {
+        &self.pins
     }
 
     pub fn designs(&self) -> &[DesignArtifact] {
@@ -247,6 +347,27 @@ impl DesignsView {
         cx.notify();
     }
 
+    /// The groups and the designs in view, laid out at the view (built as the board is measured, see `render`).
+    fn board_layer(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let theme = *cx.theme();
+        let view = self.view;
+        let board = self.board();
+        let groups = board.groups.iter().map(|group| frame::group(group, view, &theme)).collect::<Vec<_>>();
+        let room = self.room;
+        let visible = |rect: &board::Rect| {
+            let (x, y) = view.to_screen(rect.x, rect.y);
+            x < room.0 && y < room.1 && x + rect.width * view.scale > 0.0 && y + rect.height * view.scale > 0.0
+        };
+        let mut frames = Vec::new();
+        for item in board.frames.iter().filter(|f| visible(&f.frame) || room == (0.0, 0.0)) {
+            let version = self.shown_version(&item.id);
+            let scene = self.scene(&item.id, version, cx);
+            frames.push(frame::frame(self, item, version, scene, &theme, cx));
+        }
+        let zoom = (!self.designs.is_empty()).then(|| frame::zoom_bar(self.view.scale, &theme, cx));
+        div().relative().size_full().children(groups).children(frames).children(zoom).into_any_element()
+    }
+
     fn fit(&mut self, id: Option<&str>) {
         if let Some(view) = board::fit(&self.items(), id, self.room, self.view.scale) {
             self.view = view;
@@ -296,8 +417,8 @@ impl DesignsView {
 
     /// Steps a design's version; the newest follows later versions again (`go`).
     pub fn go(&mut self, id: &str, next: u32, cx: &mut Context<Self>) {
-        let Some(last) = self.design(id).map(DesignArtifact::latest) else { return };
-        let next = next.clamp(1, last);
+        let Some((first, last)) = self.design(id).map(|d| (d.first, d.latest())) else { return };
+        let next = next.clamp(first, last);
         if next >= last {
             self.versions.remove(id);
         } else {
@@ -320,6 +441,10 @@ impl DesignsView {
 
     pub fn send(&mut self, cx: &mut Context<Self>) {
         if let Some(choice) = self.pending.take() {
+            if self.live {
+                let title = self.design(&choice.0).map(|d| d.title.clone()).unwrap_or_default();
+                cx.emit(DesignsEvent::Send(choice_message(&choice.0, &title, choice.1)));
+            }
             self.sent = Some(choice);
             cx.notify();
         }
@@ -332,6 +457,10 @@ impl DesignsView {
 
     /// Deletes a design with every version (in the fixture: from this view), and what pointed at it.
     pub fn delete(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.live {
+            cx.emit(DesignsEvent::Delete(id.to_string()));
+        }
+        self.pins.retain(|pin| pin.design != id);
         self.designs.retain(|d| d.id != id);
         self.versions.remove(id);
         self.scenes.retain(|(design, _), _| design != id);
@@ -514,33 +643,31 @@ impl Render for DesignsView {
         self.renders += 1;
         let theme = *cx.theme();
         let entity = cx.entity().downgrade();
-        let measure = canvas(
-            move |bounds, _, cx| {
+        // The board is built where the canvas is measured (its prepaint), so the first frame already draws it fitted to
+        // the panel's size: a fit made after a draw needs another frame, which a window that is not active (a
+        // snapshot) may never draw.
+        let board_layer = canvas(
+            move |bounds, window, cx| {
                 let room = (f64::from(f32::from(bounds.size.width)), f64::from(f32::from(bounds.size.height)));
                 let origin = point(f64::from(f32::from(bounds.origin.x)), f64::from(f32::from(bounds.origin.y)));
-                if let Some(view) = entity.upgrade() {
-                    view.update(cx, |view, cx| view.set_room(room, origin, cx));
+                let view = entity.upgrade()?;
+                let mut layer = view.update(cx, |view, cx| {
+                    view.set_room(room, origin, cx);
+                    view.board_layer(cx)
+                });
+                layer.prepaint_as_root(bounds.origin, bounds.size.into(), window, cx);
+                Some(layer)
+            },
+            |_, layer, window, cx| {
+                if let Some(mut layer) = layer {
+                    layer.paint(window, cx);
                 }
             },
-            |_, _, _, _| {},
         )
         .absolute()
         .size_full();
-        let view = self.view;
-        let board = self.board();
-        let groups = board.groups.iter().map(|group| frame::group(group, view, &theme)).collect::<Vec<_>>();
-        let room = self.room;
-        let visible = |rect: &board::Rect| {
-            let (x, y) = view.to_screen(rect.x, rect.y);
-            x < room.0 && y < room.1 && x + rect.width * view.scale > 0.0 && y + rect.height * view.scale > 0.0
-        };
-        let mut frames = Vec::new();
-        for item in board.frames.iter().filter(|f| visible(&f.frame) || room == (0.0, 0.0)) {
-            let version = self.shown_version(&item.id);
-            let scene = self.scene(&item.id, version, cx);
-            frames.push(frame::frame(self, item, version, scene, &theme, cx));
-        }
         let empty = self.designs.is_empty();
+        let loading = self.loading && empty;
         let editor = self
             .editor
             .as_ref()
@@ -570,10 +697,9 @@ impl Render for DesignsView {
                     .on_scroll(cx.listener(Self::on_scroll))
                     .on_pinch(cx.listener(Self::on_pinch))
                     .on_key_down(cx.listener(Self::on_key_down))
-                    .child(measure)
-                    .children(groups)
-                    .children(frames)
-                    .when(empty, |el| {
+                    .child(board_layer)
+                    .when(loading, |el| el.child(div().absolute().size_full().child(crate::workspace::panel::skeletons::designs(&theme))))
+                    .when(empty && !loading, |el| {
                         el.child(
                             div().absolute().size_full().flex().items_center().justify_center().child(
                                 EmptyState::new()
@@ -583,8 +709,7 @@ impl Render for DesignsView {
                                     .help("Designs an agent shows in this Chat appear here."),
                             ),
                         )
-                    })
-                    .when(!empty, |el| el.child(frame::zoom_bar(self.view.scale, &theme, cx))),
+                    }), // The zoom bar is the board layer's: it reads the fit made as the board is measured.
             )
             .children(editor)
     }

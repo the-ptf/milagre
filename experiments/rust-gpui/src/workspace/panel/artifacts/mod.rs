@@ -14,6 +14,8 @@
 //!   fit is the page's own width when it is wider than the panel, else 100%.
 //! - Sent comments show as the page's pins (its helper draws them). Pinning new ones, the comment bubble, Send, Share
 //!   and Mermaid diagrams (Pele) are not ported.
+//! - The fixture's page, or a data layer's ([`ArtifactsView::start_live`], [`ArtifactsView::set_live_page`]: the
+//!   Chat's page as Milagre's daemon keeps it, its tabs, files and sent comments), a skeleton while it is read.
 //!
 //! The page loads from the `milagre-artifact` protocol (`protocol.rs`): a document with the policy and the helper
 //! first (`document.rs`), and its files by name. The helper's messages come through the host's bridge
@@ -117,6 +119,9 @@ pub struct ArtifactsView {
     /// The page's left edge under the panel's resize handle, where the page lets the mouse through to it.
     edge: Option<Bounds<Pixels>>,
     renders: usize,
+    /// A data layer feeds the page; `loading` until its first read for the Chat answers.
+    live: bool,
+    loading: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -152,6 +157,8 @@ impl ArtifactsView {
             pills: [None; 2],
             edge: None,
             renders: 0,
+            live: false,
+            loading: false,
             _subscriptions: vec![observe],
         };
         this.register(cx);
@@ -170,6 +177,61 @@ impl ArtifactsView {
         cx.defer(move |cx| {
             let _ = this.update(cx, |this, cx| this.open_page(&id, cx));
         });
+    }
+
+    /// A data layer's Chat changed: its page is being read (a skeleton until [`Self::set_live_page`] answers).
+    pub fn start_live(&mut self, cx: &mut Context<Self>) {
+        self.live = true;
+        self.loading = true;
+        if let Some(url) = self.url.take() {
+            self.previews.lock().unwrap_or_else(|poison| poison.into_inner()).release(self.owner, &url);
+        }
+        if let Some(host) = &self.host {
+            host.update(cx, |host, cx| host.set_shown(false, cx));
+        }
+        self.error = None;
+        cx.notify();
+    }
+
+    /// A data layer's read of the Chat's page. A new page or version (or other HTML or files) loads again, on the tab
+    /// shown while the page still has it; the same page only takes its sent comments, which its helper redraws.
+    pub fn set_live_page(&mut self, page: HtmlArtifact, cx: &mut Context<Self>) {
+        let was_loading = std::mem::replace(&mut self.loading, false);
+        self.live = true;
+        let same = !was_loading
+            && self.url.is_some()
+            && page.id == self.page.id
+            && page.version == self.page.version
+            && page.tabs == self.page.tabs
+            && page.assets.len() == self.page.assets.len()
+            && page.assets.iter().zip(&self.page.assets).all(|(a, b)| a.name == b.name && a.bytes == b.bytes);
+        if same {
+            self.page.comments = page.comments;
+            self.page.title = page.title;
+            if let Some(host) = &self.host {
+                host.read(cx).run_script(&messages::pins(&self.pins(cx.theme())));
+            }
+            cx.notify();
+            return;
+        }
+        if self.tab.as_ref().is_some_and(|tab| !page.tabs.iter().any(|t| &t.id == tab)) {
+            self.tab = None;
+        }
+        self.page = page;
+        if let Some(host) = &self.host {
+            let shown = self.shown;
+            host.update(cx, |host, cx| host.set_shown(shown, cx));
+        }
+        self.register(cx);
+        cx.notify();
+    }
+
+    pub fn is_live(&self) -> bool {
+        self.live
+    }
+
+    pub fn is_loading(&self) -> bool {
+        self.loading
     }
 
     pub fn page(&self) -> &HtmlArtifact {
@@ -211,6 +273,7 @@ impl ArtifactsView {
         }
         self.shown = shown;
         if let Some(host) = &self.host {
+            let shown = shown && !self.loading;
             host.update(cx, |host, cx| host.set_shown(shown, cx));
         }
         cx.notify();
@@ -218,12 +281,12 @@ impl ArtifactsView {
 
     /// Registers what the page shows now and loads it.
     fn register(&mut self, cx: &mut Context<Self>) {
-        let html = self.page.tab(self.tab.as_deref()).html;
+        let html = self.page.tab(self.tab.as_deref()).html.clone();
         let mut previews = self.previews.lock().unwrap_or_else(|poison| poison.into_inner());
         if let Some(url) = self.url.take() {
             previews.release(self.owner, &url);
         }
-        match previews.register(self.owner, html, &self.page.assets, true, &protocol::random_token()) {
+        match previews.register(self.owner, &html, &self.page.assets, true, &protocol::random_token()) {
             Ok(url) => {
                 self.error = None;
                 self.url = Some(url);
@@ -342,7 +405,7 @@ impl ArtifactsView {
     }
 
     fn ensure_host(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.host.is_some() || !self.shown {
+        if self.host.is_some() || !self.shown || self.loading {
             return;
         }
         let Some(url) = self.url.clone() else { return };
@@ -510,6 +573,7 @@ impl Render for ArtifactsView {
         .absolute()
         .size_full();
         let page: gpui::AnyElement = match (&self.host, &self.error) {
+            _ if self.loading => crate::workspace::panel::skeletons::page(&theme),
             (_, Some(error)) => div()
                 .p_4()
                 .text_step(TEXT_12)
@@ -533,8 +597,8 @@ impl Render for ArtifactsView {
         // Pills drawn this frame report themselves in prepaint; one not drawn leaves no hole.
         self.pills = [None; 2];
         let (tabs, zoom) = match self.error {
-            None => (self.tabs_pill(&theme, cx), Some(self.zoom_pill(&theme, cx))),
-            Some(_) => (None, None),
+            None if !self.loading => (self.tabs_pill(&theme, cx), Some(self.zoom_pill(&theme, cx))),
+            _ => (None, None),
         };
         div()
             .id("artifact-panel")

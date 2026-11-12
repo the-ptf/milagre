@@ -86,12 +86,13 @@ fn controls_row() -> gpui::Div {
 
 fn controls(this: &DesignsView, id: &str, version: u32, last: u32, kit: String, theme: &Theme, cx: &mut Context<DesignsView>) -> gpui::Div {
     let shown = (id.to_string(), version);
+    let first = this.design(id).map_or(1, |d| d.first);
     let pending_here = this.pending.as_ref() == Some(&shown);
     let sent_here = this.pending.is_none() && this.sent.as_ref() == Some(&shown);
     let previous = {
         let id = id.to_string();
-        glyph_button(format!("design-prev-{id}"), chevron(true, theme.ink3), false, version <= 1, theme)
-            .when(version > 1, |el| el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.go(&id, version - 1, cx))))
+        glyph_button(format!("design-prev-{id}"), chevron(true, theme.ink3), false, version <= first, theme)
+            .when(version > first, |el| el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.go(&id, version - 1, cx))))
     };
     let next = {
         let id = id.to_string();
@@ -168,13 +169,16 @@ fn controls(this: &DesignsView, id: &str, version: u32, last: u32, kit: String, 
         .child(previous)
         .child(version_text)
         .child(next)
-        // Edit opens the design page editor (`editor/`) on this design.
-        .child({
+        // Edit opens the design page editor (`editor/`) on this design. Live, its Save would need `artifact:apply`,
+        // which the data layer does not send yet: hidden there.
+        .when(!this.is_live(), |el| {
             let target = id.to_string();
-            Button::new(SharedString::from(format!("design-edit-{id}")), "Edit")
-                .variant(ButtonVariant::Secondary)
-                .size(ButtonSize::S24)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_editor(&target, cx)))
+            el.child(
+                Button::new(SharedString::from(format!("design-edit-{id}")), "Edit")
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::S24)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_editor(&target, cx))),
+            )
         })
         .child(delete)
         .child(choice)
@@ -290,6 +294,7 @@ pub fn frame(
                 .bg(gpui::white())
                 .overflow_hidden()
                 .when_some(scene, |el, scene| el.child(render::scene(&scene, view.scale)))
+                .children(pins(this, &id, version, theme))
                 .when_some(border, |el, color| {
                     el.child(div().absolute().size_full().rounded(radius).border(p((2.0 * view.scale).max(1.0))).border_color(color))
                 }),
@@ -311,6 +316,37 @@ pub fn frame(
             )
         })
         .into_any_element()
+}
+
+/// The comments sent on this version of a design (`artifact:comments`), as the desktop's canvas pins them: a 20px
+/// badge with its number, its point the top-left corner, on the spot; green once the agent resolved it.
+fn pins(this: &DesignsView, id: &str, version: u32, theme: &Theme) -> Vec<AnyElement> {
+    this.pins()
+        .iter()
+        .filter(|pin| pin.design == id && pin.version == version)
+        .map(|pin| {
+            let (fill, ink) = if pin.resolved { (theme.green_ink, theme.on_green) } else { (theme.accent_ink, theme.on_accent) };
+            let selector = format!("design-pin-{}", pin.id);
+            div()
+                .debug_selector(move || selector.clone())
+                .absolute()
+                .left(gpui::relative(pin.x as f32))
+                .top(gpui::relative(pin.y as f32))
+                .size(px(20.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .rounded_tl(px(0.0))
+                .bg(fill)
+                .shadow(theme.shadow_raised())
+                .text_size(px(10.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(ink)
+                .child(pin.number.to_string())
+                .into_any_element()
+        })
+        .collect()
 }
 
 /// The floating zoom bar (`ZoomBar`): zoom out, the zoom (back to 100%), zoom in, Fit.

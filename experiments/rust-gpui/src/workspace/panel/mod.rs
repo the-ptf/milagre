@@ -19,6 +19,7 @@ pub mod dock;
 pub mod fixture;
 pub mod pr;
 pub mod simulator;
+pub mod skeletons;
 pub mod slide;
 pub mod terminal;
 
@@ -222,6 +223,13 @@ impl Panel {
             live_details: false,
             live_changes: None,
         };
+        // Send on the Designs tab (live): the choice goes to the Chat as a message, the way "Fix in Chat" does.
+        cx.subscribe(&panel.designs, |_, _, event: &designs::DesignsEvent, cx| {
+            if let designs::DesignsEvent::Send(text) = event {
+                cx.emit(PanelEvent::FixInChat(text.clone()));
+            }
+        })
+        .detach();
         panel.load_simulator(cx);
         panel.load_details(cx);
         panel.apply_env_seed(cx);
@@ -326,7 +334,16 @@ impl Panel {
         if self.live {
             let details = self.live_details.then_some(PanelTab::Details);
             let pr = (self.live_details && self.content.pr.is_some()).then_some(PanelTab::Pr);
-            return details.into_iter().chain(pr).chain(self.live_changes.is_some().then_some(PanelTab::Changes)).collect();
+            // Designs and the Artifact page only while a data layer says the Chat has them (`set_live_canvas`).
+            let designs = (self.live_details && self.content.designs).then_some(PanelTab::Designs);
+            let artifact = (self.live_details && self.content.artifacts).then_some(PanelTab::Artifact);
+            return details
+                .into_iter()
+                .chain(pr)
+                .chain(designs)
+                .chain(artifact)
+                .chain(self.live_changes.is_some().then_some(PanelTab::Changes))
+                .collect();
         }
         PanelTab::SHOWN.into_iter().filter(|tab| self.content.has(*tab)).collect()
     }
@@ -341,7 +358,8 @@ impl Panel {
         self.live = true;
         self.live_changes = Some(chat.clone());
         let pr = self.content.pr.filter(|_| self.live_details);
-        self.content = fixture::ChatContent { changes: data.clone(), designs: false, artifacts: false, pr, simulator: false };
+        let (designs, artifacts) = (self.content.designs && self.live_details, self.content.artifacts && self.live_details);
+        self.content = fixture::ChatContent { changes: data.clone(), designs, artifacts, pr, simulator: false };
         if !self.live_details {
             let moved = self.chat != chat;
             self.chat = chat.clone();
@@ -366,9 +384,12 @@ impl Panel {
     /// its Details tab (and Changes once fed) and no fixture tab. Read again by the data layer as its state changes.
     pub fn set_live_details(&mut self, chat: SharedString, data: details::data::DetailsData, cx: &mut Context<Self>) {
         let switched = !self.live_details || self.chat != chat;
-        if self.chat != chat {
-            // Another Chat's PR is not this one's: the data layer sets it (`set_live_pr`).
+        if switched {
+            // Another Chat's PR, designs and page are not this one's: the data layer sets them (`set_live_pr`,
+            // `set_live_canvas`).
             self.content.pr = None;
+            self.content.designs = false;
+            self.content.artifacts = false;
         }
         self.live = true;
         self.live_details = true;
@@ -403,6 +424,33 @@ impl Panel {
         if had != number {
             cx.notify();
         }
+    }
+
+    /// A data layer's word on whether `chat` (the one its Details show) has designs and an Artifact page: the Designs
+    /// and Artifact tabs show only then (a tab that goes falls back to Details). Ignored for another Chat.
+    pub fn set_live_canvas(&mut self, chat: SharedString, designs: bool, artifacts: bool, cx: &mut Context<Self>) {
+        if !self.live_details || self.chat != chat {
+            return;
+        }
+        if (self.content.designs, self.content.artifacts) == (designs, artifacts) {
+            return;
+        }
+        self.content.designs = designs;
+        self.content.artifacts = artifacts;
+        if !self.visible_tabs().contains(&self.state().tab) {
+            self.state_mut().tab = PanelTab::Details;
+        }
+        cx.notify();
+    }
+
+    /// The Designs tab's view.
+    pub fn designs(&self) -> &Entity<DesignsView> {
+        &self.designs
+    }
+
+    /// The Artifact tab's view.
+    pub fn artifacts(&self) -> &Entity<ArtifactsView> {
+        &self.artifacts
     }
 
     /// The PR tab's view.
@@ -510,6 +558,12 @@ impl Panel {
         }
         self.chat = chat;
         self.content = fixture::content_for(&self.chat, self.seeded.as_deref());
+        if self.live {
+            // A data layer says what this Chat has (`set_live_pr`, `set_live_canvas`); no fixture tab shows meanwhile.
+            self.content.designs = false;
+            self.content.artifacts = false;
+            self.content.pr = None;
+        }
         self.load_simulator(cx);
         self.load_details(cx);
         // A tab this Chat has no content for falls back to Details, which every Chat has.

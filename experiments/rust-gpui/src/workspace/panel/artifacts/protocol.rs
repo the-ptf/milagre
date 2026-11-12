@@ -39,6 +39,12 @@ impl Asset {
     pub fn new(name: &str, bytes: &'static [u8]) -> Self {
         Self { name: name.to_string(), mime: document::asset_type(name).to_string(), bytes: Arc::from(bytes) }
     }
+
+    /// A file read from the host (`artifact:asset`): its media type as the host recorded it, else by its name.
+    pub fn owned(name: &str, mime: Option<&str>, bytes: Vec<u8>) -> Self {
+        let mime = mime.filter(|m| !m.is_empty()).unwrap_or_else(|| document::asset_type(name)).to_string();
+        Self { name: name.to_string(), mime, bytes: Arc::from(bytes) }
+    }
 }
 
 struct Entry {

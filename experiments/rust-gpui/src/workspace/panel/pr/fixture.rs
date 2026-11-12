@@ -407,6 +407,11 @@ impl PrBridge for FixtureBridge {
         repo_labels()
     }
 
+    /// Snapshot aid (never in tests): `MILAGRE_GPUI_PR_LOADING=1` keeps the PR "being read", to show its skeleton.
+    fn loading(&self, _number: u32) -> bool {
+        !cfg!(test) && std::env::var_os("MILAGRE_GPUI_PR_LOADING").is_some()
+    }
+
     fn file_patch(&self, _number: u32, file: &PrFile) -> Option<DiffFileResult> {
         files().into_iter().find(|(entry, _)| entry.path == file.path).map(|(_, patch)| DiffFileResult {
             patch,

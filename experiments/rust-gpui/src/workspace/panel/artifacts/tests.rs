@@ -22,7 +22,7 @@ fn get<'a>(url: &'a str) -> HostRequest<'a> {
 fn registered() -> (Previews, String) {
     let mut previews = Previews::default();
     let page = fixture::page(CHAT_PAGE).unwrap();
-    let url = previews.register(7, page.tabs[0].html, &page.assets, true, &"ab".repeat(24)).unwrap();
+    let url = previews.register(7, &page.tabs[0].html, &page.assets, true, &"ab".repeat(24)).unwrap();
     (previews, url)
 }
 
@@ -451,4 +451,78 @@ fn the_reply_card_draws_in_the_transcript(cx: &mut TestAppContext) {
     redraw(cx);
     let open = cx.debug_bounds(testing::leak(format!("html-reply-open-{ix}"))).expect("the card draws its Open");
     assert_eq!(open.size.height, px(28.0));
+}
+
+// A data layer's page (live).
+
+fn live_page(version: u32, comments: usize) -> fixture::HtmlArtifact {
+    fixture::HtmlArtifact {
+        id: "41251d23".into(),
+        title: "Status".into(),
+        version,
+        tabs: vec![
+            fixture::ArtifactTab { id: "status".into(), title: "Status".into(), html: "<h1>Status</h1>".into() },
+            fixture::ArtifactTab { id: "shots".into(), title: "Screenshots".into(), html: "<img src=\"assets/a.png\">".into() },
+        ],
+        assets: vec![Asset::owned("a.png", Some("image/png"), vec![1, 2, 3])],
+        comments: (0..comments)
+            .map(|i| fixture::SentComment {
+                id: format!("c{i}").into(),
+                tab: "status".into(),
+                x: 0.1,
+                y: 0.2,
+                anchor: None,
+                text: "Say more".into(),
+                resolved: false,
+            })
+            .collect(),
+    }
+}
+
+#[gpui::test]
+fn a_live_page_is_a_skeleton_until_read_then_loads_and_keeps_its_tab(cx: &mut TestAppContext) {
+    let (panel, view, cx) = mount(cx);
+    open_tab(&panel, cx);
+    view.update(cx, |v, cx| v.start_live(cx));
+    redraw(cx);
+    assert!(view.read_with(cx, |v, _| v.is_loading() && v.url().is_none()));
+    testing::bounds(cx, "artifact-skeleton");
+    assert!(cx.debug_bounds("artifact-tabs").is_none(), "no pills over a skeleton");
+    view.update(cx, |v, cx| v.set_live_page(live_page(7, 0), cx));
+    redraw(cx);
+    assert!(cx.debug_bounds("artifact-skeleton").is_none());
+    let url = view.read_with(cx, |v, _| v.url().map(str::to_owned)).expect("registered");
+    let previews = view.read_with(cx, |v, _| v.previews());
+    let served = previews.lock().unwrap().handle(&get(&format!("{url}/assets/a.png")));
+    assert_eq!((served.status, served.body.clone()), (200, vec![1, 2, 3]), "its file is served");
+    view.update(cx, |v, cx| v.select_tab("shots".into(), cx));
+    let shots_url = view.read_with(cx, |v, _| v.url().map(str::to_owned)).unwrap();
+    // The same page with a new comment: no reload, the tab stays.
+    view.update(cx, |v, cx| v.set_live_page(live_page(7, 1), cx));
+    assert_eq!(view.read_with(cx, |v, _| v.url().map(str::to_owned)), Some(shots_url.clone()));
+    assert_eq!(view.read_with(cx, |v, _| (v.tab_id().to_string(), v.page().comments.len())), ("shots".into(), 1));
+    // A new version loads again, on the same tab while the page has it.
+    view.update(cx, |v, cx| v.set_live_page(live_page(8, 1), cx));
+    assert_ne!(view.read_with(cx, |v, _| v.url().map(str::to_owned)), Some(shots_url));
+    assert_eq!(view.read_with(cx, |v, _| v.tab_id().to_string()), "shots");
+}
+
+#[gpui::test]
+fn live_tabs_show_only_while_the_data_layer_says_the_chat_has_them(cx: &mut TestAppContext) {
+    let (panel, _view, cx) = mount(cx);
+    // The Chat the window shows (the panel follows it).
+    let key: gpui::SharedString = panel.read_with(cx, |p, _| p.chat().to_string()).into();
+    panel.update(cx, |p, cx| p.set_live_details(key.clone(), Default::default(), cx));
+    assert_eq!(panel.read_with(cx, |p, _| p.visible_tabs()), vec![PanelTab::Details]);
+    panel.update(cx, |p, cx| p.set_live_canvas(key.clone(), true, false, cx));
+    assert_eq!(panel.read_with(cx, |p, _| p.visible_tabs()), vec![PanelTab::Details, PanelTab::Designs]);
+    panel.update(cx, |p, cx| p.set_live_canvas("/p#2".into(), true, true, cx));
+    assert_eq!(panel.read_with(cx, |p, _| p.visible_tabs()), vec![PanelTab::Details, PanelTab::Designs], "another Chat's word is ignored");
+    panel.update(cx, |p, cx| {
+        p.set_live_canvas(key.clone(), true, true, cx);
+        p.activate(PanelTab::Artifact, cx);
+    });
+    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Artifact);
+    panel.update(cx, |p, cx| p.set_live_canvas(key.clone(), true, false, cx));
+    assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Details, "a tab that goes falls back to Details");
 }

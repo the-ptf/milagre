@@ -216,6 +216,10 @@ pub fn layout(items: &[Item], scale: f64) -> Board {
 /// keep their screen size, so a fit that changes the zoom measures again at the new zoom, up to three more times.
 pub fn fit(items: &[Item], id: Option<&str>, room: (f64, f64), start: f64) -> Option<View> {
     let (width, height) = room;
+    // Not measured yet (a tab never shown): nothing to fit to.
+    if width <= 0.0 || height <= 0.0 {
+        return None;
+    }
     let mut scale = start;
     let mut view = None;
     for _ in 0..4 {

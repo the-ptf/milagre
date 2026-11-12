@@ -71,7 +71,7 @@ pub trait PrBridge {
     fn repo_labels(&self) -> Vec<RepoLabel>;
     /// `pr:diff-file`: the PR's patch for a file.
     fn file_patch(&self, number: u32, file: &PrFile) -> Option<DiffFileResult>;
-    /// The PR is still being read (a daemon's answer is on its way): the panel shows "Loading the PR…" instead of
+    /// The PR is still being read (a daemon's answer is on its way): the panel shows its skeleton (`panel::skeletons::pr`) instead of
     /// asking [`PrBridge::detail`]. The fixture answers at once.
     fn loading(&self, _number: u32) -> bool {
         false

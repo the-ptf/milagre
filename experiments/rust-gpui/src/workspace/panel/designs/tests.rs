@@ -338,3 +338,80 @@ fn the_zoom_bar_zooms_about_the_middle_and_fits(cx: &mut TestAppContext) {
     assert!((refitted.scale - fitted.scale).abs() < 0.006, "{fitted:?} vs {refitted:?}");
     assert_eq!(&*super::zoom_label(0.444), "44%");
 }
+
+// A data layer's designs (live).
+
+fn live_designs() -> Vec<super::fixture::DesignArtifact> {
+    // As the host keeps them: "settings" with only versions 2 and 3 kept.
+    let mut designs = super::fixture::designs();
+    let settings = designs.iter_mut().find(|d| d.id == "settings").unwrap();
+    let sources: Vec<serde_json::Value> = settings.sources[1..].iter().map(|s| (**s).clone()).collect();
+    *settings =
+        super::fixture::DesignArtifact::from_documents(settings.id.clone(), settings.title.clone(), settings.group.clone(), 2, sources)
+            .unwrap();
+    designs
+}
+
+#[gpui::test]
+fn live_designs_load_as_a_skeleton_then_draw_with_their_kept_versions_and_pins(cx: &mut TestAppContext) {
+    let (view, cx) = mount(cx);
+    view.update(cx, |v, cx| v.start_live(cx));
+    settle(cx);
+    assert!(view.read_with(cx, |v, _| v.is_loading() && v.designs().is_empty()));
+    testing::bounds(cx, "designs-skeleton");
+    let pin = super::DesignPin {
+        id: "c1".into(),
+        design: "welcome".into(),
+        version: 2,
+        x: 0.5,
+        y: 0.25,
+        number: 1,
+        text: "Bigger title".into(),
+        resolved: true,
+    };
+    view.update(cx, |v, cx| v.set_live(live_designs(), vec![pin], cx));
+    settle(cx);
+    assert!(cx.debug_bounds("designs-skeleton").is_none());
+    let body = testing::bounds(cx, "design-body-welcome");
+    let drawn = testing::bounds(cx, "design-pin-c1");
+    assert!((drawn.origin.x - (body.origin.x + body.size.width * 0.5)).abs() < px(1.0), "{drawn:?} on {body:?}");
+    assert!((drawn.origin.y - (body.origin.y + body.size.height * 0.25)).abs() < px(1.0));
+    // The kept versions only: 2 and 3; the previous arrow stops at 2.
+    let (first, latest) = view.read_with(cx, |v, _| (v.design("settings").unwrap().first, v.design("settings").unwrap().latest()));
+    assert_eq!((first, latest), (2, 3));
+    view.update(cx, |v, cx| v.go("settings", 1, cx));
+    assert_eq!(view.read_with(cx, |v, _| v.shown_version("settings")), 2);
+    // Live, Edit is hidden (its Save would need `artifact:apply`).
+    view.update(cx, |v, cx| v.open_design("welcome", cx));
+    settle(cx);
+    assert!(cx.debug_bounds("design-edit-welcome").is_none());
+}
+
+#[gpui::test]
+fn live_delete_and_send_are_events_for_the_data_layer(cx: &mut TestAppContext) {
+    let (view, cx) = mount(cx);
+    view.update(cx, |v, cx| v.set_live(live_designs(), Vec::new(), cx));
+    let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    {
+        let events = events.clone();
+        cx.update(|_, cx| {
+            cx.subscribe(&view, move |_, event: &super::DesignsEvent, _| events.borrow_mut().push(event.clone())).detach();
+        });
+    }
+    view.update(cx, |v, cx| {
+        v.choose("welcome", cx);
+        v.send(cx);
+        v.delete("sign-in", cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        *events.borrow(),
+        vec![super::DesignsEvent::Send(super::choice_message("welcome", "Welcome", 2)), super::DesignsEvent::Delete("sign-in".into()),]
+    );
+    assert_eq!(
+        super::choice_message("welcome", "Welcome", 2),
+        "I chose the design \"Welcome\" (welcome, version 2). Continue from this one.",
+        "Electron's designFeedbackMessage for a choice"
+    );
+    assert!(view.read_with(cx, |v, _| v.design("sign-in").is_none()), "gone from the board at once");
+}

@@ -770,3 +770,47 @@ fn the_merge_method_is_remembered_per_repository_across_launches(cx: &mut TestAp
     let pr = frame.read_with(vcx, |frame, _| frame.pr.clone());
     assert_eq!(pr.read_with(vcx, |pr, _| pr.method()), MergeMethod::Rebase, "the next launch keeps it");
 }
+
+/// A bridge whose PR is still being read (a daemon's answer on its way).
+struct Loading;
+
+impl crate::workspace::panel::pr::bridge::PrBridge for Loading {
+    fn detail(&self, _number: u32) -> Result<PullRequestDetail, String> {
+        Err("not yet".into())
+    }
+    fn write(&self, _number: u32, _write: &crate::workspace::panel::pr::bridge::Write) -> Result<(), String> {
+        Ok(())
+    }
+    fn reviewer_candidates(&self) -> Vec<String> {
+        Vec::new()
+    }
+    fn repo_labels(&self) -> Vec<crate::workspace::panel::pr::model::RepoLabel> {
+        Vec::new()
+    }
+    fn file_patch(
+        &self,
+        _number: u32,
+        _file: &crate::workspace::panel::pr::model::PrFile,
+    ) -> Option<crate::logic::diff::git::DiffFileResult> {
+        None
+    }
+    fn loading(&self, _number: u32) -> bool {
+        true
+    }
+}
+
+/// While the PR is read, the panel is a skeleton of its own layout (header, checks, rows), not a spinner line.
+#[gpui::test]
+fn a_pr_being_read_shows_the_panels_skeleton(cx: &mut TestAppContext) {
+    let (frame, cx) = testing::mount_in_root(cx, move |_, cx| {
+        let pr = cx.new(|_| PrView::with_bridge(Rc::new(Loading)));
+        pr.update(cx, |pr, cx| pr.set_chat("chat".into(), Some(412), 0, cx));
+        Frame { pr }
+    });
+    cx.run_until_parked();
+    let pr = frame.read_with(cx, |frame, _| frame.pr.clone());
+    assert!(pr.read_with(cx, |pr, _| pr.detail().is_none()));
+    let skeleton = testing::bounds(cx, "pr-skeleton");
+    assert!(skeleton.size.height > px(300.0), "header, checks and rows: {skeleton:?}");
+    assert!(!drawn(cx, "pr-notice") && !drawn(cx, "pr-identity"));
+}

@@ -12,18 +12,19 @@ use super::protocol::Asset;
 pub struct ArtifactTab {
     pub id: SharedString,
     pub title: SharedString,
-    pub html: &'static str,
+    pub html: SharedString,
 }
 
 /// A comment sent on the page, which the page draws as a pin (`htmlSentPins`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SentComment {
-    pub id: &'static str,
-    pub tab: &'static str,
+    pub id: SharedString,
+    /// The page's tab it was left on (`""` on a page without tabs).
+    pub tab: SharedString,
     pub x: f64,
     pub y: f64,
-    pub anchor: Option<&'static str>,
-    pub text: &'static str,
+    pub anchor: Option<SharedString>,
+    pub text: SharedString,
     pub resolved: bool,
 }
 
@@ -54,12 +55,12 @@ impl HtmlArtifact {
         self.comments
             .iter()
             .enumerate()
-            .filter(|(_, comment)| comment.tab == tab)
+            .filter(|(_, comment)| comment.tab.as_ref() == tab || (comment.tab.is_empty() && !self.has_tabs()))
             .map(|(ix, comment)| PagePin {
                 key: format!("sent:{}", comment.id),
                 x: comment.x,
                 y: comment.y,
-                anchor: comment.anchor.map(str::to_string),
+                anchor: comment.anchor.as_ref().map(|a| a.to_string()),
                 number: ix as u32 + 1,
                 fill: if comment.resolved { green_ink } else { ink }.to_string(),
                 ink: if comment.resolved { on_green } else { surface }.to_string(),
@@ -154,27 +155,27 @@ pub fn pages() -> Vec<HtmlArtifact> {
             title: "Relay latency report".into(),
             version: 3,
             tabs: vec![
-                ArtifactTab { id: "overview".into(), title: "Overview".into(), html: OVERVIEW },
-                ArtifactTab { id: "regions".into(), title: "Regions".into(), html: REGIONS },
+                ArtifactTab { id: "overview".into(), title: "Overview".into(), html: OVERVIEW.into() },
+                ArtifactTab { id: "regions".into(), title: "Regions".into(), html: REGIONS.into() },
             ],
             assets: vec![Asset::new("chart.svg", CHART), Asset::new("swatch.png", SWATCH)],
             comments: vec![
                 SentComment {
-                    id: "c1",
-                    tab: "overview",
+                    id: "c1".into(),
+                    tab: "overview".into(),
                     x: 0.32,
                     y: 0.12,
-                    anchor: Some("h1:1@0.62,0.5"),
-                    text: "Say which week this is.",
+                    anchor: Some("h1:1@0.62,0.5".into()),
+                    text: "Say which week this is.".into(),
                     resolved: false,
                 },
                 SentComment {
-                    id: "c2",
-                    tab: "overview",
+                    id: "c2".into(),
+                    tab: "overview".into(),
                     x: 0.5,
                     y: 0.5,
-                    anchor: Some("table:1/tbody:1/tr:3/td:3@0.5,0.5"),
-                    text: "Is 140 ms the Worker deploy?",
+                    anchor: Some("table:1/tbody:1/tr:3/td:3@0.5,0.5".into()),
+                    text: "Is 140 ms the Worker deploy?".into(),
                     resolved: true,
                 },
             ],
@@ -183,7 +184,7 @@ pub fn pages() -> Vec<HtmlArtifact> {
             id: REPLY_PAGE.into(),
             title: "Intro timing".into(),
             version: 1,
-            tabs: vec![ArtifactTab { id: "".into(), title: "Intro timing".into(), html: REPLY }],
+            tabs: vec![ArtifactTab { id: "".into(), title: "Intro timing".into(), html: REPLY.into() }],
             assets: Vec::new(),
             comments: Vec::new(),
         },

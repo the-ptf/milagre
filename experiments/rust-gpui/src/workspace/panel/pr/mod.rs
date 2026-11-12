@@ -47,8 +47,8 @@ use self::fixture::{FixtureBridge, Variant};
 use self::model::{MergeMethod, PullRequestDetail, ReviewEvent, repo_of};
 use self::review::ReviewForm;
 use crate::logic::files::github_markdown::github_html_to_markdown;
-use crate::theme::{ActiveTheme, TEXT_12, TextStepExt};
-use crate::ui::{EmptySize, EmptyState, IconName, ScrollArea, SpinnerRing};
+use crate::theme::ActiveTheme;
+use crate::ui::{EmptySize, EmptyState, IconName, ScrollArea};
 use crate::workspace::panel::diff::DiffView;
 use crate::workspace::shell::persist::{self, JsonFile};
 
@@ -594,17 +594,8 @@ impl PrView {
                     EmptyState::new().size(EmptySize::Panel).icon(IconName::GitPullRequest).title("No pull request").help(message.clone()),
                 )
                 .into_any_element(),
-            None => div()
-                .debug_selector(|| "pr-notice".to_string())
-                .flex()
-                .items_center()
-                .gap(px(8.0))
-                .p(px(12.0))
-                .text_step(TEXT_12)
-                .text_color(theme.ink3)
-                .child(SpinnerRing::new())
-                .child("Loading the PR\u{2026}")
-                .into_any_element(),
+            // Being read: a skeleton of the panel's own layout, where Electron says "Loading the PR…".
+            None => crate::workspace::panel::skeletons::pr(theme),
         }
     }
 }
