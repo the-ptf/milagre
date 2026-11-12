@@ -18,6 +18,17 @@ service parity. Routines are out of scope for the Preview in this mode.
   Chats start in Worktree 1 with that provider and model; sends to existing Chats name the Chat.
 - Terminal, Git and sidebar actions are the same typed capabilities as `owned-chat`.
   PR details are not exposed here yet.
+- `client.load_view(path)` loads the Project with `project:read [path, {state:false}]` instead of
+  `project:open`: no recents reorder, no current-Project change. It is the read Electron's
+  every-Project sidebar makes. On the first load in a daemon run the daemon reconciles Worktrees and
+  resumes Chats a quit stopped, as opening that Project in Electron does; there is no read of an
+  unloaded Project's Chats that avoids this (`chat:messages` needs the Project loaded). Show unloaded
+  Projects by name and load one when the user opens it, as Electron's default sidebar does.
+- `notifications.discard()` turns a connection into a request-only one (terminal polling, Git reads,
+  actions): events are dropped instead of buffered, so it needs no `daemon:snapshot`.
+- `installed_project.models(&client)` reads `agent:models` for the Project: per provider, a list
+  with `recommended`. Use the first recommended model of the Chat's provider when the Chat has no
+  recorded model.
 - The Node daemon serves `daemon:snapshot` to `desktop-v1` clients without listing it in `methods`;
   with this feature, that capability unlocks the snapshot.
 
@@ -27,3 +38,7 @@ snapshot capability). Read-only live probe against the installed daemon (0.232.0
 `cargo run --features installed-owner --example installed_owner_probe` adopted it, listed 13
 Projects, connected, read Project state (48 Chats), `chat:runs`, one transcript page and a full
 paged snapshot. No send, `project:open` or write was made against the live daemon.
+
+Round 2 (2026-11-12): `load_view`, `discard`, `models`; 3 more fake-daemon tests (8 total). Live
+read-only check: `load_view` on the already-loaded milagre-ade left `project:known` order unchanged,
+models read returned recommended claude-opus-5-5, gpt-6.1-sol and gemini-4-argon (kiro: none).

@@ -3,7 +3,7 @@ use crate::{InstalledOwner, SendOptions, SendTarget};
 use std::os::unix::{fs::PermissionsExt, net::UnixListener};
 use std::path::PathBuf;
 
-const ACTIONS: &[&str] = &["chat:send", "chat:send-status"];
+const ACTIONS: &[&str] = &["chat:send", "chat:send-status", "agent:models"];
 
 fn installed_status() -> Value {
     json!({"pid":PID,"protocolVersion":1,"closing":false,"capabilities":["desktop-v1","snapshot-pages-v1","result-pages-v1"],"methods":METHODS.iter().filter(|m| !m.starts_with("daemon:snapshot")).chain(ACTIONS.iter()).collect::<Vec<_>>()})
@@ -198,4 +198,91 @@ fn a_profile_without_a_running_daemon_is_unavailable() {
             ..
         })
     ));
+}
+
+#[test]
+fn load_view_reads_without_open_and_allows_actions() {
+    let (project, mut peer) = installed_pair();
+    let worker = thread::spawn(move || {
+        let request = peer.request("daemon:status");
+        peer.reply(&request, installed_status());
+        let read = peer.request("project:read");
+        assert_eq!(read["args"], json!([PROJECT, {"state": false}]));
+        peer.reply(&read, json!({"path":PROJECT,"name":"fixture","version":3}));
+        let send = peer.request("chat:send");
+        assert_eq!(send["args"][0]["provider"], "claude");
+        peer.reply(&send, json!({"sessionId":1}));
+        peer.closed();
+    });
+    let (client, _, _) = block_on(project.connect(ClientOptions::default())).unwrap();
+    let actions = project
+        .chat_actions(&client, "claude", "claude-opus-5-5")
+        .unwrap();
+    assert!(matches!(
+        block_on(actions.send(
+            SendTarget::NewProjectChat,
+            "hi",
+            "c-0",
+            SendOptions::default()
+        )),
+        Err(Error::ViewNotOpened)
+    ));
+    assert_eq!(
+        block_on(client.load_view("/elsewhere")),
+        Err(Error::InvalidScope)
+    );
+    block_on(client.load_view(PROJECT)).unwrap();
+    block_on(actions.send(
+        SendTarget::NewProjectChat,
+        "hi",
+        "c-1",
+        SendOptions::default(),
+    ))
+    .unwrap();
+    client.disconnect();
+    worker.join().unwrap();
+}
+
+#[test]
+fn discarded_notifications_never_fill_the_buffer() {
+    let (project, mut peer) = installed_pair();
+    let worker = thread::spawn(move || {
+        let request = peer.request("daemon:status");
+        peer.reply(&request, installed_status());
+        for seq in 1..=20 {
+            peer.event(seq, json!({"chatId":format!("{PROJECT}#1"),"type":"text"}));
+        }
+        let models = peer.request("agent:models");
+        assert_eq!(models["args"], json!([PROJECT]));
+        peer.reply(
+            &models,
+            json!({"claude":[{"id":"m","recommended":true}],"kiro":null}),
+        );
+        peer.closed();
+    });
+    let options = ClientOptions {
+        max_notification_events: 4,
+        ..ClientOptions::default()
+    };
+    let (client, _, notifications) = block_on(project.connect(options)).unwrap();
+    notifications.discard();
+    let models = block_on(project.models(&client)).unwrap();
+    assert_eq!(models["claude"][0]["id"], "m");
+    client.disconnect();
+    worker.join().unwrap();
+}
+
+#[test]
+fn models_refuse_another_projects_client() {
+    let (first, mut first_peer) = installed_pair();
+    let (second, _second_peer) = installed_pair();
+    let worker = thread::spawn(move || {
+        let request = first_peer.request("daemon:status");
+        first_peer.reply(&request, installed_status());
+        first_peer.closed();
+    });
+    let (client, _, _) = block_on(first.connect(ClientOptions::default())).unwrap();
+    assert_eq!(block_on(second.models(&client)), Err(Error::InvalidScope));
+    client.disconnect();
+    worker.join().unwrap();
 }

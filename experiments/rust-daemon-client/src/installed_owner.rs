@@ -127,6 +127,23 @@ impl InstalledOwner {
     }
 }
 
+impl Client {
+    /// Load this Project in the installed daemon without `project:open`: no recents reorder, no current-Project change.
+    /// It is the read Electron's every-Project sidebar makes (`project:read` with `{state:false}`), so on the first load
+    /// in a daemon run the daemon reconciles Worktrees and resumes Chats a quit stopped, as opening it in Electron does.
+    /// Afterwards actions are allowed on this Client, as after [`Client::open_view`].
+    #[cfg(feature = "installed-owner")]
+    pub async fn load_view(&self, path: &str) -> Result<Value> {
+        self.scope(path)?;
+        let result = self.project_result(
+            self.read("project:read", json!([path, {"state": false}]))
+                .await?,
+        )?;
+        self.mark_view_opened();
+        Ok(result)
+    }
+}
+
 impl InstalledProject {
     #[cfg(test)]
     pub(crate) fn for_test(authority: Arc<Authority>) -> Self {
@@ -160,6 +177,17 @@ impl InstalledProject {
     }
     pub fn git_reads(&self, client: &Client) -> Result<crate::GitReads> {
         client.owned_git_for(&self.authority)
+    }
+    /// The daemon's model catalog for this Project's accounts: `{claude|codex|antigravity|kiro: [{id, name,
+    /// recommended, efforts, defaultEffort?, ...}] | null}`. Use the first `recommended` model of a Chat's provider
+    /// when the Chat has no recorded model.
+    pub async fn models(&self, client: &Client) -> Result<Value> {
+        if !client.bound_to(&self.authority) {
+            return Err(Error::InvalidScope);
+        }
+        client
+            .read("agent:models", json!([self.authority.project]))
+            .await
     }
     pub fn sidebar_actions(&self, client: &Client) -> Result<crate::SidebarActions> {
         client.owned_sidebar_for(&self.authority)

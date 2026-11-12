@@ -24,6 +24,8 @@ struct State {
     held: VecDeque<Entry>,
     bytes: usize,
     holding: bool,
+    /// Set by [`Notifications::discard`]: events are dropped on arrival, never buffered.
+    discarding: bool,
     hydration_scope: Option<String>,
     closed: Option<Error>,
     ended: bool,
@@ -66,6 +68,7 @@ impl Queue {
                 held: VecDeque::new(),
                 bytes: 0,
                 holding: true,
+                discarding: false,
                 hydration_scope: None,
                 closed: None,
                 ended: false,
@@ -81,6 +84,9 @@ impl Queue {
             let mut s = self.state.lock().unwrap_or_else(|p| p.into_inner());
             if s.closed.is_some() || s.ended {
                 return Err(Error::Disconnected);
+            }
+            if s.discarding {
+                return Ok(());
             }
             if s.ready.len() + s.held.len() >= self.max_count
                 || bytes > self.max_bytes.saturating_sub(s.bytes)
@@ -258,6 +264,17 @@ pub struct Notifications {
     pub(crate) queue: Arc<Queue>,
 }
 impl Notifications {
+    /// For a connection that only makes requests (terminal reads, Git reads, actions) and never applies state: drop
+    /// every event from now on instead of buffering it until a snapshot. Without this, an unread connection fills its
+    /// bounded buffer and closes. Already buffered events are dropped too.
+    #[cfg(feature = "installed-owner")]
+    pub fn discard(self) {
+        let mut s = self.queue.state.lock().unwrap_or_else(|p| p.into_inner());
+        s.discarding = true;
+        s.ready.clear();
+        s.held.clear();
+        s.bytes = 0;
+    }
     pub async fn next(&mut self) -> Option<Notice> {
         poll_fn(|cx| {
             let mut s = self.queue.state.lock().unwrap_or_else(|p| p.into_inner());

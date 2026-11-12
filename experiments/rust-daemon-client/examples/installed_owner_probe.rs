@@ -70,5 +70,39 @@ fn main() {
         }
         let snapshot = client.runtime_snapshot().await.expect("snapshot");
         println!("snapshot eventSeq {}", snapshot.event_seq);
+        // A second, request-only connection: no snapshot, events discarded, loaded without project:open.
+        let before: Vec<_> = owner
+            .known_projects()
+            .await
+            .expect("known")
+            .into_iter()
+            .map(|p| p.path)
+            .collect();
+        let (quiet, _, notices) = project
+            .connect(ClientOptions::default())
+            .await
+            .expect("connect quiet");
+        notices.discard();
+        let loaded = quiet.load_view(&path).await.expect("load_view");
+        println!(
+            "load_view: {} version {}",
+            loaded["name"], loaded["version"]
+        );
+        let models = project.models(&quiet).await.expect("models");
+        for provider in ["claude", "codex", "antigravity", "kiro"] {
+            let recommended = models[provider]
+                .as_array()
+                .and_then(|m| m.iter().find(|m| m["recommended"] == true))
+                .map(|m| m["id"].clone());
+            println!("models {provider}: recommended {:?}", recommended);
+        }
+        let after: Vec<_> = owner
+            .known_projects()
+            .await
+            .expect("known")
+            .into_iter()
+            .map(|p| p.path)
+            .collect();
+        println!("recents order unchanged: {}", before == after);
     });
 }

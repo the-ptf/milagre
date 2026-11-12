@@ -319,7 +319,7 @@ impl Client {
                 mpsc::TrySendError::Disconnected(_) => Error::Disconnected,
             })
     }
-    async fn read(&self, method: &'static str, args: Value) -> Result<Value> {
+    pub(crate) async fn read(&self, method: &'static str, args: Value) -> Result<Value> {
         let (reply, wait) = reply::channel();
         self.submit(Kind::Call {
             method,
@@ -328,14 +328,23 @@ impl Client {
         })?;
         wait.await
     }
-    fn scope(&self, path: &str) -> Result<()> {
+    /// Whether this Client was connected with exactly this authority.
+    #[cfg(feature = "installed-owner")]
+    pub(crate) fn bound_to(&self, authority: &Arc<Authority>) -> bool {
+        Weak::ptr_eq(&self.handle.authority, &Arc::downgrade(authority))
+    }
+    #[cfg(feature = "installed-owner")]
+    pub(crate) fn mark_view_opened(&self) {
+        self.handle.opened_view.store(true, Ordering::Release);
+    }
+    pub(crate) fn scope(&self, path: &str) -> Result<()> {
         if path == self.handle.project {
             Ok(())
         } else {
             Err(Error::InvalidScope)
         }
     }
-    fn project_result(&self, value: Value) -> Result<Value> {
+    pub(crate) fn project_result(&self, value: Value) -> Result<Value> {
         if value["path"].as_str() != Some(&self.handle.project) {
             return Err(protocol("owner returned a foreign Project"));
         }
