@@ -6,6 +6,16 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+Victor explicitly prioritized broader backend integration through direct MIT
+MonoCode reuse. Two collaboration lanes now target pinned upstream
+`09d04436babb39ad72198cdf22f735067027fc04`: dedicated Codex launch/provider
+integration using the existing `rust-providers` transport, and missing Git service
+operations using existing dedicated-root Git authority. Copied code retains
+copyright/license notices in source and third-party notices, with no UI notice
+required. No imported implementation or new route is accepted yet. Shared
+actor/launcher edits remain coordinated with the frozen routine annotation
+increment; installed previews stay unchanged.
+
 At 06:00 Toronto, exact terminal unread provenance and explicit unread-intent
 protection are accepted after independent rereview. The same-value Mark unread
 P2 is closed: admitted read/unread commands expire that Chat's rollback receipt
