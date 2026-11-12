@@ -1,12 +1,13 @@
-//! The diff bar (C-07, `DiffBar` and `DiffToolbar` in `ChangesChrome.tsx`/`DiffPrefs.tsx`): Back to the Chat and
-//! "Send N comments" on the left; Unified and Split, a divider, Wrap and Refresh on the right.
-//!
+//! The diff bar (C-07, `DiffBar` and `DiffToolbar` in `ChangesChrome.tsx`/`DiffPrefs.tsx`): "Send N comments" on the
+//! left while there are comments to send; Unified and Split, a divider, Wrap, Refresh and Close on the right, icons
+//! only. Close does what the desktop's Back to the Chat does: the diff goes and the Chat shows again. The Chat's title
+//! stays in the top row above the diff, so the bar does not repeat it.
 
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, SharedString, div, prelude::*, px};
+use gpui::{AnyElement, ClickEvent, Context, div, prelude::*, px};
 
 use super::rows::DiffLayout;
 use super::view::{DiffEvent, DiffView};
-use crate::theme::{CONTROL_SM, RADIUS_CONTROL, TEXT_13, TextStepExt, Theme};
+use crate::theme::{CONTROL_SM, RADIUS_CONTROL, Theme};
 use crate::ui::{Button, Icon, IconName, IconSize, Tooltip};
 
 /// The bar's height (`h-8`) and the space under it before the first file.
@@ -63,36 +64,12 @@ impl DiffView {
     }
 
     pub(super) fn bar(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let label = match &self.over_chat {
-            Some(over) => over.label.clone(),
-            None => self.source.as_ref().map(|s| s.back_label.clone()).unwrap_or_default(),
-        };
-        let (leading, trailing) = self.over_chat.as_ref().map_or((px(12.0), px(12.0)), |over| (over.leading, over.trailing));
-        let back_label: SharedString = if label.is_empty() { "Back".into() } else { label.clone() };
+        let trailing_pad = self.over_chat.as_ref().map_or(px(12.0), |over| over.trailing);
+        let leading_pad = self.over_chat.as_ref().map_or(px(12.0), |over| over.leading);
         let count = self.sendable().len();
-        let hover = theme.hover;
         let layout = self.applied.layout;
         let split = layout == DiffLayout::Split;
         let color = |on: bool| if on { theme.ink } else { theme.ink3 };
-        let back = div()
-            .id("diff-back")
-            .debug_selector(|| "diff-back".to_string())
-            .flex()
-            .min_w_0()
-            .items_center()
-            .gap(px(6.0))
-            .h(CONTROL_SM)
-            .px(px(8.0))
-            .rounded(RADIUS_CONTROL)
-            .cursor_pointer()
-            .hover(move |s| s.bg(hover))
-            .tooltip(Tooltip::text(if label.is_empty() { "Back".to_string() } else { format!("Back to {label}") }))
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(DiffEvent::Close)))
-            .text_step(TEXT_13)
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(theme.ink)
-            .child(Icon::new(IconName::ArrowLeft02).size(IconSize::S14).color(theme.ink3))
-            .child(div().min_w_0().truncate().child(back_label));
         let send = (count > 0).then(|| {
             Button::new("diff-send", if count == 1 { "Send 1 comment".to_string() } else { format!("Send {count} comments") })
                 .selector("diff-send")
@@ -148,6 +125,16 @@ impl DiffView {
                 theme,
                 |_, cx| cx.emit(DiffEvent::Refresh),
                 cx,
+            ))
+            .child(self.tool(
+                "diff-close",
+                "Close",
+                Icon::new(IconName::Cancel01).size(IconSize::S16).color(theme.ink3).into_any_element(),
+                false,
+                false,
+                theme,
+                |_, cx| cx.emit(DiffEvent::Close),
+                cx,
             ));
         div()
             .debug_selector(|| "diff-bar".to_string())
@@ -157,10 +144,10 @@ impl DiffView {
             .justify_between()
             .gap(px(8.0))
             .h(px(BAR_H))
-            .pl(leading)
-            .pr(trailing)
+            .pl(leading_pad)
+            .pr(trailing_pad)
             .mb(px(BAR_GAP))
-            .child(div().flex().min_w_0().items_center().gap(px(8.0)).child(back).children(send).when(count == 0, |el| el.child(div())))
+            .child(div().flex().min_w_0().items_center().gap(px(8.0)).children(send))
             .child(toolbar)
             .into_any_element()
     }

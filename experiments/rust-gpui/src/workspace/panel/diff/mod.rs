@@ -8,7 +8,7 @@
 //! | `rows.rs` | The row model: each file as header, body rows and end; the smallest splice between two row lists |
 //! | `render.rs` | Rows: card slices, hunk headers, unified and split rows with gutters, markers, runs and word marks |
 //! | `cards.rs` | The comment slot: cards (label, Outdated, clamped body, Edit, Delete) and the editor |
-//! | `bar.rs` | The diff bar: Back, Send N comments, Unified / Split / Wrap / Refresh |
+//! | `bar.rs` | The diff bar: Send N comments, Unified / Split / Wrap / Refresh / Close |
 //! | `highlight.rs` | Syntax runs per hunk side through syntect, lazily, in the Shiki buckets code blocks use |
 //! | `comments.rs` | `lib/diff-comments.ts` (anchoring, labels, the Chat message), the store and the draft |
 //!
@@ -27,8 +27,8 @@
 //! - Comments are kept per Chat in a JSON file in the state directory (the desktop's `localStorage`), so they last
 //!   across launches; snapshots and tests keep them in memory.
 //!
-//! Where it is mounted: over the Chat column, as the desktop does, with the Chat's title as Back's label
-//! (`over_chat.rs`). The Changes panel and the PR panel's Files tab keep their lists and open it; the window draws it.
+//! Where it is mounted: over the Chat column, as the desktop does, under the Chat's title in the top row; the bar's
+//! Close takes it away (`over_chat.rs`). The Changes panel and the PR panel's Files tab keep their lists and open it; the window draws it.
 
 mod bar;
 mod cards;

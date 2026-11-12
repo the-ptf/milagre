@@ -131,7 +131,7 @@ fn selecting_a_file_shows_its_diff_and_the_layout_buttons_switch_modes(cx: &mut 
     click(cx, "diff-layout-unified".to_string());
     assert_eq!(mode(cx), Some(DiffLayout::Unified), "the diff bar's toolbar switches it too");
     assert_eq!(changes.read_with(cx, |c, cx| c.layout(cx)), Layout::Unified);
-    click(cx, "diff-back".to_string());
+    click(cx, "diff-close".to_string());
     assert!(cx.debug_bounds("diff-over-chat").is_none());
 }
 
@@ -246,12 +246,12 @@ fn the_diff_shows_over_the_chat_with_back_named_after_it_and_goes_with_the_panel
 }
 
 #[gpui::test]
-fn the_diff_always_opens_over_the_chat_column_and_back_returns_to_the_list(cx: &mut TestAppContext) {
+fn the_diff_always_opens_over_the_chat_column_and_close_returns_to_the_list(cx: &mut TestAppContext) {
     let (workspace, cx) = testing::mount_workspace_on(cx, crate::workspace::panel::PanelTab::Changes);
     let _ = workspace;
     click(cx, format!("file-u-{PANEL}"));
     assert!(cx.debug_bounds("diff-over-chat").is_some());
     assert!(cx.debug_bounds("changes-list").is_some(), "the list stays in the panel");
-    click(cx, "diff-back".to_string());
-    assert!(cx.debug_bounds("diff-over-chat").is_none(), "Back closes the diff");
+    click(cx, "diff-close".to_string());
+    assert!(cx.debug_bounds("diff-over-chat").is_none(), "Close closes the diff");
 }
