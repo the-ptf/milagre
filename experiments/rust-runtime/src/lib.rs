@@ -13,6 +13,10 @@ pub mod chat_runtime;
 mod claude_content;
 pub mod claude_fixture;
 pub mod codex_fixture;
+#[cfg(feature = "chat-runtime")]
+mod configured_git;
+#[cfg(feature = "chat-runtime")]
+mod configured_terminals;
 pub mod content_fixture;
 mod copies;
 mod executor;

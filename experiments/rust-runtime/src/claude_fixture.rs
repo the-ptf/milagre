@@ -570,6 +570,7 @@ impl Drop for Worker {
         self.done.store(true, Ordering::Release);
         // Completion is also the owner's reopen barrier. Release captured leases before the
         // worker count reaches zero, rather than leaving them for implicit field destruction.
+        drop(self.content.take());
         drop(self._lifetime.take());
         drop(self._profile.take());
         *self.shared.workers.lock().unwrap() -= 1;
@@ -952,6 +953,13 @@ impl Provider for ClaudeFixture {
         )
         .map_err(refused)?;
         let chat = request["chatId"].as_str().unwrap().to_owned();
+        if let Some(content) = &self.content {
+            // The owner constructs this outbound identity after saving the Chat and rechecking
+            // readiness. Raw renderer requests never call the provider or this admission seam.
+            content
+                .admit_owner_chat(&chat)
+                .map_err(|error| refused(&error.message))?;
+        }
         self.slots
             .retain(|_, slot| !slot.done.load(Ordering::Acquire));
         self.shared
@@ -1020,7 +1028,12 @@ impl Provider for ClaudeFixture {
             let latest = Arc::new(AtomicU64::new(0));
             let native_id = Arc::new(Mutex::new(None));
             let session = Arc::new(Mutex::new(None));
-            let content_scope = crate::claude_content::SessionContent::new();
+            let content_scope = match &self.content {
+                Some(content) => content
+                    .capture_session(&chat)
+                    .map_err(|error| refused(&error.message))?,
+                None => crate::claude_content::SessionContent::new(),
+            };
             let captured = self.launch.capture(self.launches);
             let worker = Worker {
                 session: session.clone(),
@@ -1319,6 +1332,92 @@ impl Drop for ClaudeFixture {
 #[cfg(test)]
 mod configured_tests {
     use super::*;
+
+    #[cfg(feature = "chat-runtime")]
+    #[test]
+    fn configured_new_chat_attaches_mcp_before_any_actor_membership_refresh() {
+        use milagre_owner_store::{
+            chat_host::ChatHost,
+            states::{ProjectStates, Timing},
+        };
+        use std::time::Instant;
+        let mut fixture = ClaudeFixture::create(Scenario::Content).unwrap();
+        fixture.content.take().unwrap().shutdown();
+        let mut launch = fixture.launch.capture(0).options;
+        launch.cwd = Some(fixture.project.clone());
+        let content = crate::claude_content::SharedContent::configured(
+            fixture.isolation(),
+            fixture.project.clone(),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/core/src/bundled-skills"),
+            Arc::new(|| Ok(())),
+        )
+        .unwrap();
+        let mut provider = ClaudeProvider::configured(ClaudeLaunchContext {
+            isolation: fixture.isolation(),
+            project: fixture.project.clone(),
+            launch,
+            ordinary: inputs(),
+            lifetime: None,
+        })
+        .unwrap();
+        provider.content = Some(content.clone());
+        let monitor = provider.monitor();
+        let mut host = ChatHost::new(ProjectStates::new(
+            fixture.isolation(),
+            Timing::default(),
+            0,
+        ));
+        host.register(Box::new(provider));
+        host.open_project(&fixture.project).unwrap();
+        host.states
+            .update(&fixture.project, Some(&[]), true, |state| {
+                Some(state.with_field("sessions", json!({})))
+            })
+            .unwrap();
+        content
+            .reconcile(host.states.current(&fixture.project).unwrap().sessions())
+            .unwrap();
+        content.opened(true);
+        let sent = host.send(&json!({"projectPath":fixture.project,"worktreeId":1,"provider":"claude","model":"sonnet","body":"fixture input","permissionMode":"ask"})).unwrap();
+        let chat = format!("{}#{}", fixture.project.display(), sent.session_id);
+        assert!(sent.session_id.as_i64().unwrap() > 2);
+        assert!(host
+            .states
+            .current(&fixture.project)
+            .unwrap()
+            .has_session(sent.session_id.as_i64().unwrap()));
+        // Deliberately never reconcile the new owner state. The captured worker's MCP attach
+        // must succeed from the committed Provider admission before any actor publication.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !host.runs().is_empty() {
+            assert!(host.pump().is_empty());
+            assert!(
+                Instant::now() < deadline,
+                "new Chat MCP turn did not finish"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let artifacts = content
+            .renderer("artifact:list", &json!({"chatId":chat}))
+            .unwrap();
+        assert_eq!(artifacts.as_array().unwrap().len(), 1);
+        let saved = content
+            .renderer(
+                "artifact:get",
+                &json!({"chatId":chat,"id":artifacts[0]["id"]}),
+            )
+            .unwrap();
+        assert!(saved.to_string().contains("Native shared content"));
+        assert!(content
+            .renderer(
+                "artifact:list",
+                &json!({"chatId":format!("{}#1",fixture.project.display())})
+            )
+            .is_err());
+        host.shutdown(false).unwrap();
+        assert!(monitor.wait_drained(Duration::from_secs(5)));
+        content.shutdown();
+    }
 
     fn inputs() -> ClaudeInstructionInputs {
         ClaudeInstructionInputs::bundled(

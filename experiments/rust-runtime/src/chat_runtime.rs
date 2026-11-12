@@ -425,6 +425,10 @@ pub(crate) struct Bootstrap {
     accounts: Accounts,
 }
 impl Bootstrap {
+    pub(crate) fn retained_check(&self) -> crate::configured_terminals::Check {
+        let root = self.root.clone();
+        Arc::new(move || root.check())
+    }
     pub(crate) fn check(&self) -> Result<(), RpcError> {
         self.root.check()
     }
@@ -437,6 +441,11 @@ impl Bootstrap {
     pub(crate) fn validate_send(&self, request: &Value) -> Result<(), RpcError> {
         self.check()?;
         self.require_project(request.get("projectPath"))?;
+        if request.get("chatId").is_some() {
+            return Err(refused(
+                "Chat identity is assigned by the owner, not the send request",
+            ));
+        }
         if request["provider"] != "claude" || request["model"] != self.root.config.model {
             return Err(refused(
                 "This runtime starts only its explicitly configured Claude model",
@@ -444,7 +453,17 @@ impl Bootstrap {
         }
         Ok(())
     }
+    #[cfg(test)]
     pub(crate) fn call(&self, method: &str, args: &[Value], state: Value) -> RpcResult {
+        self.call_with_git(method, args, state, false)
+    }
+    pub(crate) fn call_with_git(
+        &self,
+        method: &str,
+        args: &[Value],
+        state: Value,
+        git: bool,
+    ) -> RpcResult {
         self.check()?;
         let config = &self.root.config;
         let project = self.root.project();
@@ -472,8 +491,7 @@ impl Bootstrap {
                 "This runtime does not inspect or refresh account authentication",
             ));
         }
-        let row =
-            json!({"id":project,"path":project,"name":"Rust Chat","git":false,"position":null});
+        let row = json!({"id":project,"path":project,"name":"Rust Chat","git":git,"position":null});
         match method {
             "project:known" | "project:recent" | "project:registry" => Ok(json!([row])),
             // This dedicated root has exactly one Project and no Link/group/position writer.
@@ -629,19 +647,41 @@ pub fn start(args: &[String]) -> Result<RunningChat, Box<dyn std::error::Error>>
         crate::instructions::HostNetwork::default(),
         true,
     )?;
-    let provider = ClaudeProvider::configured(ClaudeLaunchContext {
+    let mut provider = ClaudeProvider::configured(ClaudeLaunchContext {
         isolation: data.isolation.clone(),
         project: project.clone(),
         launch,
         ordinary,
         lifetime: Some(data.clone()),
     })?;
+    let root = Arc::downgrade(&data);
+    let content = crate::claude_content::SharedContent::configured(
+        data.isolation.clone(),
+        project.clone(),
+        config.skills_directory.clone(),
+        Arc::new(move || {
+            root.upgrade()
+                .ok_or_else(|| {
+                    milagre_content_store::Error::coded(
+                        "CONTENT_OWNER_INACTIVE",
+                        "The dedicated owner was released",
+                    )
+                })?
+                .check()
+                .map_err(|error| milagre_content_store::Error::coded(&error.code, error.message))
+        }),
+    )?;
+    // Capture the monitor before assigning content so this drain callback has no Arc cycle.
+    let drain = provider.monitor();
+    content.retain_native_drain(Arc::new(move || drain.workers() == 0));
+    provider.content = Some(content.clone());
     let monitor = provider.monitor();
     let (server, mut metadata) = crate::actor::start_configured(
         profile,
         data.isolation.clone(),
         project,
         Box::new(provider),
+        content,
         Bootstrap {
             root: data.clone(),
             accounts,
@@ -684,7 +724,11 @@ fn fixture_script(root: &DataRoot) -> Result<Value, RpcError> {
         &root.project().join(".milagre/coordination.json"),
     )?)
     .map_err(|_| refused("Invalid fixture coordination state"))?;
-    let resume = state["sessions"]["1"]["native_session_id"].as_str();
+    let resume = state["sessions"].as_object().and_then(|sessions| {
+        sessions
+            .values()
+            .find_map(|session| session["native_session_id"].as_str())
+    });
     let mut launch = json!({"absent":["--no-session-persistence"],"env":{"USER":root.config.user_name,"LOGNAME":root.config.user_name}});
     if let Some(resume) = resume {
         launch["flags"] = json!([format!("--resume={resume}")]);
@@ -708,6 +752,32 @@ fn fixture_script(root: &DataRoot) -> Result<Value, RpcError> {
             json!({"emit":{"type":"system","subtype":"init","session_id":"restartable-native-session"}}),
             json!({"request":{"id":id,"request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"printf synthetic-approved"}}}}),
             json!({"expect":{"type":"control_response","fields":{"/response/request_id":id,"/response/response/behavior":"allow"}}}),
+        ]);
+        let content_calls = if resume.is_some() {
+            vec![
+                ("artifact_read", json!({"id":"configured-report"})),
+                ("design_read", json!({"id":"configured-screen"})),
+            ]
+        } else {
+            vec![
+                (
+                    "artifact_show",
+                    json!({"id":"configured-report","title":"Configured report","html":"<main>Configured native content</main>"}),
+                ),
+                (
+                    "design_show",
+                    json!({"id":"configured-screen","title":"Configured screen","document":{"schemaVersion":1,"width":390,"height":260,"background":"#ffffff","nodes":[{"id":"heading","type":"text","x":24,"y":32,"width":342,"height":96,"text":"Configured native design","fontFamily":"Inter","fontSize":28,"fill":"#29261f"}]}}),
+                ),
+            ]
+        };
+        for (index, (tool, arguments)) in content_calls.into_iter().enumerate() {
+            let request = format!("configured-content-{index}");
+            steps.extend([
+                json!({"request":{"id":request,"request":{"subtype":"mcp_message","server_name":"milagre","message":{"jsonrpc":"2.0","id":index+1,"method":"tools/call","params":{"name":tool,"arguments":arguments}}}}}),
+                json!({"expect":{"type":"control_response","fields":{"/response/request_id":request,"/response/response/mcp_response/result/isError":false}}}),
+            ]);
+        }
+        steps.extend([
             json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Restartable "}}}}),
             json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Claude reply"}}}}),
             json!({"emit":{"type":"result","subtype":"success","num_turns":1,"result":"done"}}),

@@ -32,6 +32,15 @@ const READINESS_CHECK: Duration = Duration::from_millis(250);
 const QUEUE: usize = 64;
 const BYTES: usize = 8 * 1024 * 1024;
 const DESIGN_SETTINGS: &[&str] = &["designs:enabled:read", "designs:enabled:save"];
+const TERMINAL_METHODS: &[&str] = &[
+    "terminal:list",
+    "terminal:profiles",
+    "terminal:open",
+    "terminal:read",
+    "terminal:input",
+    "terminal:resize",
+    "terminal:close",
+];
 const CLAUDE_METHODS: &[&str] = &["agent:set-permission-mode"];
 const METHODS: &[&str] = &[
     "project:open",
@@ -72,6 +81,18 @@ fn configured_methods(enabled: bool) -> &'static [&'static str] {
     &[]
 }
 
+fn configured_service_methods(enabled: bool) -> Vec<&'static str> {
+    if enabled {
+        TERMINAL_METHODS
+            .iter()
+            .chain(milagre_git_read::METHODS.iter())
+            .copied()
+            .collect()
+    } else {
+        vec![]
+    }
+}
+
 enum Command {
     Call(String, Vec<Value>),
     Shutdown {
@@ -102,6 +123,7 @@ struct Shared {
     delivery_failed: AtomicBool,
     forgotten_answers: AtomicU64,
     stranded_lock_notices: AtomicU64,
+    late_cleanup_refusals: AtomicU64,
     #[cfg(test)]
     observed_quit: Mutex<Option<QuitState>>,
     #[cfg(test)]
@@ -126,6 +148,8 @@ struct Actor {
     app_fixture: bool,
     configured: bool,
     claude_modes: bool,
+    #[cfg(feature = "chat-runtime")]
+    terminals: Option<Arc<crate::configured_terminals::ConfiguredTerminals>>,
 }
 impl Actor {
     fn call(&self, command: Command) -> RpcResult {
@@ -219,8 +243,9 @@ impl Handler for Actor {
             )
             .chain(app_methods(self.app_fixture).iter().copied())
             .chain(configured_methods(self.configured).iter().copied())
+            .chain(configured_service_methods(self.configured))
             .chain(
-                if self.content && self.app_fixture {
+                if self.content && (self.app_fixture || self.configured) {
                     DESIGN_SETTINGS
                 } else {
                     &[]
@@ -236,9 +261,11 @@ impl Handler for Actor {
             && !(self.claude_modes && CLAUDE_METHODS.contains(&method))
             && !app_methods(self.app_fixture).contains(&method)
             && !configured_methods(self.configured).contains(&method)
+            && !configured_service_methods(self.configured).contains(&method)
             && !(self.content
                 && (crate::artifacts::METHODS.contains(&method)
-                    || (self.app_fixture && DESIGN_SETTINGS.contains(&method))))
+                    || ((self.app_fixture || self.configured)
+                        && DESIGN_SETTINGS.contains(&method))))
         {
             return Err(RpcError::new(
                 "UNSUPPORTED_MUTATION",
@@ -256,6 +283,15 @@ impl Handler for Actor {
                 "ISOLATED_SCOPE_ONLY",
                 "Open the fixture Project on this connection first",
             ));
+        }
+        #[cfg(feature = "chat-runtime")]
+        if self.configured && TERMINAL_METHODS.contains(&method) {
+            let terminals = self.terminals.as_ref().ok_or_else(closed)?;
+            let invocation = terminals.capture(method, args)?;
+            self.call(Command::Call("__terminal:check".into(), vec![]))?;
+            let result = invocation.invoke(context.client_id());
+            self.call(Command::Call("__terminal:check".into(), vec![]))?;
+            return result;
         }
         self.call(Command::Call(method.into(), args.to_vec()))
     }
@@ -312,13 +348,17 @@ fn diagnostic_snapshot(shared: &Shared) -> RpcResult {
         .or_insert_with(|| json!({}));
     let audit = audit.as_object_mut().ok_or_else(conflict)?;
     let stranded = shared.stranded_lock_notices.load(Ordering::Acquire);
-    // Only these three fields belong to this actor. Every unrelated field survives.
+    // Only these audit fields belong to this actor. Every unrelated field survives.
     audit.insert(
         "answerHistoryForgotten".into(),
         json!(shared.forgotten_answers.load(Ordering::Acquire)),
     );
     audit.insert("ownerLockStrandedNotices".into(), json!(stranded));
     audit.insert("ownerLockStranded".into(), json!(stranded > 0));
+    audit.insert(
+        "lateCleanupRefusals".into(),
+        json!(shared.late_cleanup_refusals.load(Ordering::Acquire)),
+    );
     Ok(snapshot)
 }
 
@@ -420,18 +460,40 @@ struct State {
     bootstrap: Option<crate::app_fixture::Bootstrap>,
     #[cfg(feature = "chat-runtime")]
     configured: Option<crate::chat_runtime::Bootstrap>,
+    #[cfg(feature = "chat-runtime")]
+    terminals: Option<Arc<crate::configured_terminals::ConfiguredTerminals>>,
+    #[cfg(feature = "chat-runtime")]
+    git: Option<crate::configured_git::ConfiguredGit>,
     _profile: ProfileLease,
 }
 impl Drop for State {
     fn drop(&mut self) {
         // A forced actor drop is still a crash boundary, but its job workers must
         // finish before host locks and the private profile can be destroyed.
+        #[cfg(feature = "chat-runtime")]
+        if let Some(terminals) = &self.terminals {
+            terminals.drain_before_owner_drop();
+        }
         self.jobs.join();
     }
 }
 impl State {
+    fn open_content(&self) -> Result<(), RpcError> {
+        if let Some(content) = &self.content {
+            let state = self.host.states.current(&self.project).ok_or_else(closed)?;
+            content
+                .reconcile(state.sessions())
+                .map_err(|error| RpcError::new(error.code, error.message))?;
+            content.opened(true);
+        }
+        Ok(())
+    }
     fn sync_readiness(&mut self) {
         if !self.host.is_project_ready(&self.project) {
+            #[cfg(feature = "chat-runtime")]
+            if let Some(terminals) = &self.terminals {
+                terminals.stop();
+            }
             self.project_changed = false;
             if self.opened {
                 self.opened = false;
@@ -464,11 +526,18 @@ impl State {
         }
         "actor"
     }
+    fn project_git(&self) -> Result<bool, RpcError> {
+        #[cfg(feature = "chat-runtime")]
+        if let Some(git) = &self.git {
+            return git.is_repository();
+        }
+        Ok(false)
+    }
     fn project(&mut self) -> RpcResult {
         self.host
             .require_project_ready(&self.project)
             .map_err(convert)?;
-        let mut value = json!({"path":self.project,"name":self.project_name(),"git":false,"state":self.host.states.whole_state(&self.project).map_err(convert)?});
+        let mut value = json!({"path":self.project,"name":self.project_name(),"git":self.project_git()?,"state":self.host.states.whole_state(&self.project).map_err(convert)?});
         self.stamp(&mut value);
         Ok(value)
     }
@@ -515,13 +584,23 @@ impl State {
         } else {
             Value::Null
         };
+        if ready && !state.is_null() {
+            #[cfg(feature = "chat-runtime")]
+            if let Some(terminals) = &self.terminals {
+                terminals.refresh(&state)?;
+            }
+            if let Some(content) = &self.content {
+                content
+                    .reconcile(state["sessions"].as_object())
+                    .map_err(|error| RpcError::new(error.code, error.message))?;
+            }
+        }
         if state != self.last {
             self.version += 1;
             self.last = state.clone();
         }
         let projects = if self.opened {
-            let mut value =
-                json!({"path":self.project,"name":self.project_name(),"git":false,"state":state});
+            let mut value = json!({"path":self.project,"name":self.project_name(),"git":self.project_git()?,"state":state});
             self.stamp(&mut value);
             vec![value]
         } else {
@@ -539,6 +618,28 @@ impl State {
         #[cfg(feature = "chat-runtime")]
         if let Some(configured) = &self.configured {
             configured.check()?;
+            if method == "__terminal:check" {
+                self.host
+                    .require_project_ready(&self.project)
+                    .map_err(convert)?;
+                let state = self.host.states.current(&self.project).ok_or_else(closed)?;
+                self.terminals
+                    .as_ref()
+                    .ok_or_else(closed)?
+                    .refresh(&state.to_value())?;
+                return Ok(Value::Null);
+            }
+            if milagre_git_read::METHODS.contains(&method) {
+                let service = self.git.take().ok_or_else(closed)?;
+                let result = service.invoke(method, args, || {
+                    self.configured.as_ref().ok_or_else(closed)?.check()?;
+                    self.host
+                        .require_project_ready(&self.project)
+                        .map_err(convert)
+                });
+                self.git = Some(service);
+                return result;
+            }
             if crate::chat_runtime::METHODS.contains(&method) {
                 self.host
                     .require_project_ready(&self.project)
@@ -568,10 +669,20 @@ impl State {
                 } else {
                     Value::Null
                 };
-                return configured.call(method, args, state);
+                return configured.call_with_git(method, args, state, self.project_git()?);
             }
             if method == "chat:send" {
                 configured.validate_send(args.first().unwrap_or(&Value::Null))?;
+                self.host
+                    .require_project_ready(&self.project)
+                    .map_err(convert)?;
+                self.open_content()?;
+            }
+            if self.content.is_some() && DESIGN_SETTINGS.contains(&method) {
+                self.host
+                    .require_project_ready(&self.project)
+                    .map_err(convert)?;
+                return Ok(json!({"enabled":true}));
             }
         }
         #[cfg(feature = "app-fixture")]
@@ -617,6 +728,7 @@ impl State {
             self.host
                 .require_project_ready(&self.project)
                 .map_err(convert)?;
+            self.open_content()?;
             return self
                 .content
                 .as_ref()
@@ -642,13 +754,20 @@ impl State {
                     ));
                 }
                 if matches!(method, "project:open" | "project:switch") {
+                    #[cfg(feature = "chat-runtime")]
+                    if let Some(terminals) = &self.terminals {
+                        terminals.before_open()?;
+                    }
                     self.host.open_project(&self.project).map_err(convert)?;
                 }
                 let project = self.project()?;
                 if matches!(method, "project:open" | "project:switch") {
                     self.opened = true;
-                    if let Some(content) = &self.content {
-                        content.opened(true);
+                    self.open_content()?;
+                    #[cfg(feature = "chat-runtime")]
+                    if let Some(terminals) = &self.terminals {
+                        let state = self.host.states.current(&self.project).ok_or_else(closed)?;
+                        terminals.reopen(&state.to_value())?;
                     }
                 }
                 if method == "state:read" {
@@ -664,6 +783,17 @@ impl State {
                     return Err(RpcError::new(
                         "ISOLATED_SCOPE_ONLY",
                         "Choose the fixture Project",
+                    ));
+                }
+                #[cfg(feature = "chat-runtime")]
+                if self
+                    .terminals
+                    .as_ref()
+                    .is_some_and(|terminals| !terminals.stop())
+                {
+                    return Err(RpcError::new(
+                        "QUIT_PENDING",
+                        "Terminal cleanup must finish before forgetting this Project",
                     ));
                 }
                 self.host.forget(&self.project, false).map_err(convert)?;
@@ -687,6 +817,8 @@ impl State {
                         "Only the scripted fixture provider and Project are admitted",
                     ));
                 }
+                #[cfg(feature = "chat-runtime")]
+                self.admit_content_send(&request)?;
                 self.host.call(method, args).map_err(convert)
             }
             "agent:respond-permission" | "agent:answer-question" | "agent:set-permission-mode" => {
@@ -731,6 +863,78 @@ impl State {
                 self.host.call(method, args).map_err(convert)
             }
         }
+    }
+    /// A new Chat must fit the configured content owner before ChatHost persists it. The
+    /// actor serializes this check with send. Existing ids (including invalid ones) remain
+    /// the owner's responsibility, and duplicates return the owner's original receipt.
+    #[cfg(feature = "chat-runtime")]
+    fn admit_content_send(&mut self, request: &Value) -> Result<(), RpcError> {
+        let Some(limit) = self
+            .content
+            .as_ref()
+            .and_then(|content| content.chat_limit())
+        else {
+            return Ok(());
+        };
+        let state = self.host.states.current(&self.project).ok_or_else(closed)?;
+        let sessions = state.sessions().ok_or_else(closed)?;
+        if sessions.len() < limit || request.get("sessionId").is_some_and(|id| !id.is_null()) {
+            return Ok(());
+        }
+        if let Some(id) = request
+            .get("clientMessageId")
+            .filter(|id| id.as_str().is_some_and(|id| !id.is_empty()))
+        {
+            if !self
+                .host
+                .send_status(&self.project, id)
+                .map_err(convert)?
+                .is_null()
+            {
+                // No receipt is synthesized here: send still performs its own validation
+                // and deduplication. A queued fromQueue request cannot create a new Chat,
+                // because a newly created Chat has no matching queue entry.
+                return Ok(());
+            }
+        }
+        let Some(worktree) = state
+            .get("worktrees")
+            .and_then(Value::as_object)
+            .and_then(|worktrees| worktrees.get(&jsjson::property_key(request.get("worktreeId"))))
+            .and_then(Value::as_object)
+        else {
+            // The owner refuses an unknown Worktree without creating a Chat.
+            return Ok(());
+        };
+        // Keep this identical to ChatHost::send's starterChat predicate, including
+        // the presence (not truthiness) check for handoverDraft and strict id matches.
+        let reusable = jsjson::js_entries(sessions).into_iter().any(|(_, item)| {
+            item.get("worktree_id").is_some_and(|id| {
+                worktree
+                    .get("id")
+                    .is_some_and(|wid| jsjson::strict_equals(id, wid))
+            }) && !jsjson::truthy(item.get("handoverPending"))
+                && item.get("handoverDraft").is_none()
+                && !jsjson::truthy(item.get("routine"))
+                && !(item
+                    .get("summary")
+                    .and_then(|s| s.get("count"))
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0)
+                    > 0.0
+                    || state.message_list().iter().any(|message| {
+                        message.get("session_id").is_some_and(|id| {
+                            jsjson::strict_equals(id, item.get("id").unwrap_or(&Value::Null))
+                        })
+                    }))
+        });
+        if reusable {
+            return Ok(());
+        }
+        Err(RpcError::new(
+            "CONTENT_CHAT_LIMIT",
+            "Configured content Chat admission is full",
+        ))
     }
     /// Narrow configured-runtime subset of runtime.cjs patchChat / project-edits.patchSession.
     /// False removes the field. All other patch fields remain unsupported, including mixed patches.
@@ -800,7 +1004,31 @@ impl State {
         self.project_changed |= changed;
         Ok(Value::Null)
     }
-    fn tick(&mut self, now: i64) -> Result<(), RpcError> {
+    fn audit_cleanup_refusal(
+        &self,
+        shared: &Shared,
+        error: &milagre_owner_store::StoreError,
+    ) -> bool {
+        // Once this owner has closed, exact captured worker events cannot reopen it.
+        // Keep their refusal as an audit count, not an active-owner transition failure.
+        // Foreign scopes, save/release failures and pre-Done refusals keep their errors.
+        if self.host.quit_state() == QuitState::Done
+            && self.host.states.is_closed()
+            && matches!(error, milagre_owner_store::StoreError::ProjectNotReady(message)
+                if message == &format!("{} isn't open and ready here; nothing was saved or started.", self.project.display()))
+        {
+            let _ =
+                shared
+                    .late_cleanup_refusals
+                    .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                        Some(n.saturating_add(1))
+                    });
+            true
+        } else {
+            false
+        }
+    }
+    fn tick(&mut self, now: i64, shared: &Shared) -> Result<(), RpcError> {
         // Live ownership/root/store checks are bounded independently of renderer traffic.
         // Revoke grants before driving the host. Deferring events and gating launches
         // remain owner responsibilities, not properties of this periodic sampling check.
@@ -824,7 +1052,13 @@ impl State {
         if let Some(error) = readiness_error {
             return Err(error);
         }
-        if let Some(error) = errors.into_iter().next() {
+        let mut first_failure = None;
+        for error in errors {
+            if !self.audit_cleanup_refusal(shared, &error) && first_failure.is_none() {
+                first_failure = Some(error);
+            }
+        }
+        if let Some(error) = first_failure {
             return Err(convert(error));
         }
         Ok(())
@@ -869,9 +1103,7 @@ impl State {
                     #[cfg(test)]
                     shared.ready_notices.fetch_add(1, Ordering::AcqRel);
                     self.opened = true;
-                    if let Some(content) = &self.content {
-                        content.opened(true);
-                    }
+                    self.open_content()?;
                 }
             }
         }
@@ -999,6 +1231,13 @@ impl State {
                 Event::SaveFailed { .. } | Event::Saved { .. } => {}
             }
         }
+        #[cfg(feature = "chat-runtime")]
+        if let Some(terminals) = &self.terminals {
+            let events = terminals.events()?;
+            for (channel, payload) in events {
+                self.queue_event(&channel, payload)?;
+            }
+        }
         while let Some((channel, payload)) = self.pending.front() {
             if let Err(error) = publication.emit(channel, payload.clone()) {
                 self.cache_run_sequence(shared);
@@ -1081,11 +1320,24 @@ impl State {
         // closing. Deliver still refuses it without reopening or mutating its Project. Audit every error here;
         // the actual owner shutdown below remains responsible for busy, save and ownership failures.
         for error in self.host.pump() {
-            record_failure(shared, error.to_string());
+            if !self.audit_cleanup_refusal(shared, &error) {
+                record_failure(shared, error.to_string());
+            }
         }
         // Keep cancellation state in the cached snapshot before close releases its slots.
         if !shared.delivery_failed.load(Ordering::Acquire) {
             self.publish_or_latch(shared, publication)?;
+        }
+        #[cfg(feature = "chat-runtime")]
+        if self
+            .terminals
+            .as_ref()
+            .is_some_and(|terminals| !terminals.stop())
+        {
+            return Err(RpcError::new(
+                "QUIT_PENDING",
+                "Terminal process cleanup is still pending",
+            ));
         }
         let was_running = self.host.quit_state() == QuitState::Running;
         let closed = self.host.shutdown(force);
@@ -1116,6 +1368,12 @@ impl State {
             ));
         }
         if let Some(content) = &self.content {
+            if !content.native_drained() {
+                return Err(RpcError::new(
+                    "QUIT_PENDING",
+                    "Native content session cleanup is still pending",
+                ));
+            }
             content.shutdown();
         }
         self.host.states.take_events();
@@ -1244,10 +1502,12 @@ fn run(
                     if state.host.is_project_ready(&state.project) {
                         inject_commit_fault(&mut state, &shared);
                     }
-                    let result =
-                        state.tick(epoch.saturating_add(
-                            started.elapsed().as_millis().min(i64::MAX as u128) as i64,
-                        ));
+                    let result = state.tick(
+                        epoch.saturating_add(
+                            started.elapsed().as_millis().min(i64::MAX as u128) as i64
+                        ),
+                        &shared,
+                    );
                     state.publish_or_latch(&shared, publication)?;
                     result
                 });
@@ -1378,6 +1638,7 @@ pub(crate) fn start_configured(
     isolation: Isolation,
     project: PathBuf,
     provider: Box<dyn Provider>,
+    content: Arc<crate::claude_content::SharedContent>,
     configured: crate::chat_runtime::Bootstrap,
 ) -> Result<(Server, Value), RpcError> {
     start_provider(
@@ -1386,7 +1647,7 @@ pub(crate) fn start_configured(
         project,
         provider,
         "claude",
-        None,
+        Some(content),
         #[cfg(feature = "app-fixture")]
         None,
         Some(configured),
@@ -1444,6 +1705,10 @@ fn start_provider(
     #[cfg(not(feature = "app-fixture"))]
     let initial_run_seq = 0;
     if let Some(content) = &content {
+        let state = host.states.current(&project).ok_or_else(closed)?;
+        content
+            .reconcile(state.sessions())
+            .map_err(|error| RpcError::new(error.code, error.message))?;
         content.opened(true);
         #[cfg(feature = "app-fixture")]
         if bootstrap.is_some() {
@@ -1462,6 +1727,7 @@ fn start_provider(
         delivery_failed: AtomicBool::new(false),
         forgotten_answers: AtomicU64::new(0),
         stranded_lock_notices: AtomicU64::new(0),
+        late_cleanup_refusals: AtomicU64::new(0),
         #[cfg(test)]
         observed_quit: Mutex::new(None),
         #[cfg(test)]
@@ -1477,6 +1743,23 @@ fn start_provider(
         #[cfg(test)]
         stuck_ends: AtomicUsize::new(0),
     });
+    #[cfg(feature = "chat-runtime")]
+    let terminals = configured
+        .as_ref()
+        .map(|config| {
+            crate::configured_terminals::ConfiguredTerminals::new(
+                project.clone(),
+                config.retained_check(),
+            )
+            .map(Arc::new)
+        })
+        .transpose()?;
+    #[cfg(feature = "chat-runtime")]
+    let git = if persistent {
+        Some(crate::configured_git::ConfiguredGit::new(project.clone())?)
+    } else {
+        None
+    };
     let (send, requests) = mpsc::sync_channel(QUEUE);
     let actor = Arc::new(Actor {
         send,
@@ -1486,6 +1769,8 @@ fn start_provider(
         content: content.is_some(),
         configured: persistent,
         claude_modes: provider_name == "claude",
+        #[cfg(feature = "chat-runtime")]
+        terminals: terminals.clone(),
         app_fixture: {
             #[cfg(feature = "app-fixture")]
             {
@@ -1519,6 +1804,10 @@ fn start_provider(
         bootstrap,
         #[cfg(feature = "chat-runtime")]
         configured,
+        #[cfg(feature = "chat-runtime")]
+        terminals,
+        #[cfg(feature = "chat-runtime")]
+        git,
         _profile: profile_lease,
     };
     state.cache(&shared)?;
@@ -1824,6 +2113,7 @@ mod tests {
             delivery_failed: AtomicBool::new(false),
             forgotten_answers: AtomicU64::new(0),
             stranded_lock_notices: AtomicU64::new(0),
+            late_cleanup_refusals: AtomicU64::new(0),
             #[cfg(test)]
             observed_quit: Mutex::new(None),
             #[cfg(test)]
@@ -1849,6 +2139,8 @@ mod tests {
                 app_fixture: false,
                 configured: false,
                 claude_modes: false,
+                #[cfg(feature = "chat-runtime")]
+                terminals: None,
             },
             receive,
         )
@@ -2066,6 +2358,7 @@ mod publication_tests {
             delivery_failed: AtomicBool::new(false),
             forgotten_answers: AtomicU64::new(0),
             stranded_lock_notices: AtomicU64::new(0),
+            late_cleanup_refusals: AtomicU64::new(0),
             #[cfg(test)]
             observed_quit: Mutex::new(None),
             #[cfg(test)]
@@ -2102,6 +2395,10 @@ mod publication_tests {
             bootstrap: None,
             #[cfg(feature = "chat-runtime")]
             configured: None,
+            #[cfg(feature = "chat-runtime")]
+            terminals: None,
+            #[cfg(feature = "chat-runtime")]
+            git: None,
             _profile: profile.lease(),
         };
         (profile, state, shared)
@@ -2137,6 +2434,263 @@ mod publication_tests {
         state.host.states.take_events();
         state.opened = true;
         (profile, state, shared, provider, sent.turn.unwrap())
+    }
+
+    #[cfg(feature = "chat-runtime")]
+    fn configured_capacity_fixture() -> (
+        IsolatedProfile,
+        State,
+        Shared,
+        milagre_owner_store::chat_host::MockProvider,
+    ) {
+        let (profile, mut state, shared) = fixture();
+        let isolation = state.host.states.isolation().clone();
+        let skills = isolation
+            .project(std::path::Path::new("capacity-skills"))
+            .unwrap();
+        let content = crate::claude_content::SharedContent::configured(
+            isolation,
+            state.project.clone(),
+            skills,
+            Arc::new(|| Ok(())),
+        )
+        .unwrap();
+        let limit = content.chat_limit().unwrap();
+        assert_eq!(limit, 1024);
+        let mut sessions = serde_json::Map::new();
+        for id in 1..=limit {
+            sessions.insert(
+                id.to_string(),
+                json!({"id":id,"worktree_id":1,"routine":true}),
+            );
+        }
+        sessions
+            .get_mut("1")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("routine");
+        fs::create_dir_all(state.project.join(".milagre")).unwrap();
+        fs::write(state.project.join(".milagre/coordination.json"), json!({
+            "next_id":10000,"worktrees":{"1":{"id":1,"name":"main","path":state.project}},
+            "sessions":sessions,
+            "messages":[{"id":9000,"session_id":1,"role":"user","body":"kept","clientMessageId":"capacity-first"}]
+        }).to_string()).unwrap();
+        let provider = milagre_owner_store::chat_host::MockProvider::new("kiro");
+        state.host.register(Box::new(provider.clone()));
+        state.host.open_project(&state.project).unwrap();
+        state.host.states.flush(Some(&state.project)).unwrap();
+        state.content = Some(content);
+        state.opened = true;
+        state.open_content().unwrap();
+        state.cache(&shared).unwrap();
+        (profile, state, shared, provider)
+    }
+
+    #[cfg(feature = "chat-runtime")]
+    fn capacity_request(state: &State) -> Value {
+        json!({"projectPath":state.project,"worktreeId":1,"provider":"kiro","model":"fixture","body":"capacity turn"})
+    }
+
+    #[cfg(feature = "chat-runtime")]
+    #[test]
+    fn configured_content_limit_refuses_new_chats_before_writes_and_reopens() {
+        let (_profile, mut state, shared, provider) = configured_capacity_fixture();
+        let before = state.host.states.whole_state(&state.project).unwrap();
+        let coordination = state.project.join(".milagre/coordination.json");
+        let saved = fs::read(&coordination).unwrap();
+        let version = state.version;
+        for session in [None, Some(Value::Null)] {
+            let mut request = capacity_request(&state);
+            if let Some(session) = session {
+                request["sessionId"] = session;
+            }
+            let refused = state.call("chat:send", &[request]).unwrap_err();
+            assert_eq!(refused.code, "CONTENT_CHAT_LIMIT");
+            assert_eq!(
+                state.host.states.whole_state(&state.project).unwrap(),
+                before
+            );
+            assert_eq!(fs::read(&coordination).unwrap(), saved);
+            assert_eq!(before["next_id"], 10000);
+            assert!(provider.state.lock().unwrap().turns.is_empty());
+            state.cache(&shared).unwrap();
+            assert_eq!(state.version, version);
+        }
+        for session in [
+            json!(0),
+            json!(-1),
+            json!(10000),
+            json!("missing"),
+            json!(false),
+            json!([]),
+            json!({}),
+        ] {
+            let mut request = capacity_request(&state);
+            request["sessionId"] = session;
+            let refused = state.call("chat:send", &[request]).unwrap_err();
+            assert_eq!(refused.code, "COMMAND_FAILED");
+            assert_eq!(refused.message, "That chat is no longer in the project.");
+            assert_eq!(
+                state.host.states.whole_state(&state.project).unwrap(),
+                before
+            );
+            assert_eq!(fs::read(&coordination).unwrap(), saved);
+        }
+        let isolation = state.host.states.isolation().clone();
+        let project = state.project.clone();
+        state.host.shutdown(false).unwrap();
+        state.content.take().unwrap().shutdown();
+        drop(state);
+        let skills = isolation.root().join("capacity-skills");
+        let content = crate::claude_content::SharedContent::configured(
+            isolation.clone(),
+            project.clone(),
+            skills,
+            Arc::new(|| Ok(())),
+        )
+        .unwrap();
+        let mut reopened = ChatHost::new(ProjectStates::new(isolation, Timing::default(), 0));
+        reopened.open_project(&project).unwrap();
+        let after = reopened.states.whole_state(&project).unwrap();
+        assert_eq!(after, before);
+        content.reconcile(after["sessions"].as_object()).unwrap();
+        content.opened(true);
+        assert_eq!(
+            content
+                .renderer(
+                    "artifact:list",
+                    &json!({"chatId":format!("{}#1", project.display())})
+                )
+                .unwrap(),
+            json!([])
+        );
+        reopened.shutdown(false).unwrap();
+        content.shutdown();
+    }
+
+    #[cfg(feature = "chat-runtime")]
+    #[test]
+    fn configured_content_limit_keeps_existing_and_duplicate_sends() {
+        let (_profile, mut state, shared, provider) = configured_capacity_fixture();
+        state.host.states.update(&state.project, Some(&[]), true, |current| {
+            let mut sessions = current.get("sessions").unwrap().clone();
+            sessions["2"]["queued"] = json!([{"id":"queued-row","clientMessageId":"capacity-queued","body":"queued"}]);
+            Some(current.with_field("sessions", sessions))
+        }).unwrap();
+        state.host.states.flush(Some(&state.project)).unwrap();
+        let before = state.host.states.whole_state(&state.project).unwrap();
+        for (id, session) in [("capacity-first", 1), ("capacity-queued", 2)] {
+            let mut request = capacity_request(&state);
+            request["clientMessageId"] = json!(id);
+            assert_eq!(
+                state.call("chat:send", &[request]).unwrap(),
+                json!({"sessionId":session})
+            );
+            assert_eq!(
+                state.host.states.whole_state(&state.project).unwrap(),
+                before
+            );
+            assert!(provider.state.lock().unwrap().turns.is_empty());
+        }
+        let mut request = capacity_request(&state);
+        request["clientMessageId"] = json!("capacity-queued");
+        request["fromQueue"] = json!("queued-row");
+        assert_eq!(
+            state.call("chat:send", &[request]).unwrap_err().message,
+            "That queued message was already sent or removed."
+        );
+        assert_eq!(
+            state.host.states.whole_state(&state.project).unwrap(),
+            before
+        );
+        let mut request = capacity_request(&state);
+        request["sessionId"] = json!(1);
+        request["clientMessageId"] = json!("capacity-existing");
+        assert_eq!(
+            state.call("chat:send", &[request]).unwrap(),
+            json!({"sessionId":1})
+        );
+        assert_eq!(provider.state.lock().unwrap().turns.len(), 1);
+        assert!(state.host.pump().is_empty());
+        provider.emit(
+            &format!("{}#1", state.project.display()),
+            json!({"type":"turn-completed"}),
+        );
+        assert!(state.host.pump().is_empty());
+        state.cache(&shared).unwrap();
+        assert_eq!(state.last["sessions"].as_object().unwrap().len(), 1024);
+        assert_eq!(state.last["messages"].as_array().unwrap().len(), 3);
+        state.host.shutdown(true).unwrap();
+        state.content.take().unwrap().shutdown();
+    }
+
+    #[cfg(feature = "chat-runtime")]
+    #[test]
+    fn configured_content_limit_preserves_the_owner_starter_predicate() {
+        let (_profile, mut state, shared, provider) = configured_capacity_fixture();
+        for extra in [
+            json!({"worktree_id":"1"}),
+            json!({"handoverPending":true}),
+            json!({"handoverDraft":null}),
+            json!({"routine":true}),
+            json!({"summary":{"count":1}}),
+        ] {
+            state
+                .host
+                .states
+                .update(&state.project, Some(&[]), true, |current| {
+                    let mut sessions = current.get("sessions").unwrap().clone();
+                    let mut candidate = json!({"id":2,"worktree_id":1,"summary":{"count":0}});
+                    candidate
+                        .as_object_mut()
+                        .unwrap()
+                        .extend(extra.as_object().unwrap().clone());
+                    sessions["2"] = candidate;
+                    Some(current.with_field("sessions", sessions))
+                })
+                .unwrap();
+            let before = state.host.states.whole_state(&state.project).unwrap();
+            assert_eq!(
+                state
+                    .call("chat:send", &[capacity_request(&state)])
+                    .unwrap_err()
+                    .code,
+                "CONTENT_CHAT_LIMIT",
+                "{extra}"
+            );
+            assert_eq!(
+                state.host.states.whole_state(&state.project).unwrap(),
+                before
+            );
+        }
+        state.host.states.update(&state.project, Some(&[]), true, |current| {
+            let mut sessions = current.get("sessions").unwrap().clone();
+            sessions["2"] = json!({"id":2,"worktree_id":1,"handoverPending":false,"routine":false,"summary":{"count":0}});
+            Some(current.with_field("sessions", sessions))
+        }).unwrap();
+        let mut request = capacity_request(&state);
+        request["sessionId"] = Value::Null;
+        assert_eq!(
+            state.call("chat:send", &[request]).unwrap(),
+            json!({"sessionId":2})
+        );
+        assert_eq!(provider.state.lock().unwrap().turns.len(), 1);
+        assert!(state.host.pump().is_empty());
+        provider.emit(
+            &format!("{}#2", state.project.display()),
+            json!({"type":"turn-completed"}),
+        );
+        assert!(state.host.pump().is_empty());
+        state.cache(&shared).unwrap();
+        assert_eq!(state.last["sessions"].as_object().unwrap().len(), 1024);
+        assert_eq!(
+            state.last["next_id"], 10002,
+            "only the two message ids were consumed"
+        );
+        assert_eq!(state.last["messages"].as_array().unwrap().len(), 3);
+        state.host.shutdown(true).unwrap();
+        state.content.take().unwrap().shutdown();
     }
 
     #[cfg(feature = "chat-runtime")]
@@ -2374,6 +2928,83 @@ mod publication_tests {
             Some("PROJECT_NOT_READY"),
             "deliver remains strict after graceful shutdown"
         );
+        server.shutdown().unwrap();
+    }
+
+    #[cfg(feature = "chat-runtime")]
+    #[test]
+    fn configured_content_shutdown_retains_store_until_native_workers_drain() {
+        let (profile, mut state, shared, provider, turn) = shutdown_fixture();
+        let isolation = state.host.states.isolation().clone();
+        let content =
+            crate::claude_content::SharedContent::new(isolation.clone(), state.project.clone())
+                .unwrap();
+        let drained = Arc::new(AtomicBool::new(false));
+        let check = drained.clone();
+        content.retain_native_drain(Arc::new(move || check.load(Ordering::Acquire)));
+        content.opened(true);
+        state.content = Some(content.clone());
+        let server = Server::bind(profile, Arc::new(Empty), Config::default()).unwrap();
+        let mut refused = false;
+        let pending = server
+            .events()
+            .transaction(|publication| state.shutdown(&shared, publication, false, &mut refused))
+            .unwrap_err();
+        assert_eq!(pending.code, "QUIT_PENDING");
+        assert!(!refused, "a pending close cannot reopen actor admission");
+        assert_eq!(
+            state.host.quit_state(),
+            QuitState::Done,
+            "owner completion alone is not the native drain barrier"
+        );
+        assert!(
+            crate::claude_content::SharedContent::new(isolation.clone(), state.project.clone())
+                .is_err(),
+            "the one content writer remains retained"
+        );
+        // The native worker has not drained yet and can still report its captured
+        // cleanup events after owner Done. They remain refused and audited, with
+        // neither reopening nor an erroneous active-transition failure.
+        let saved = fs::read(state.project.join(".milagre/coordination.json")).unwrap();
+        let chat = format!("{}#1", state.project.display());
+        provider.emit_for(&chat, turn, json!({"type":"background-tasks","tasks":[]}));
+        provider.push(ProviderEvent::Exited {
+            chat,
+            turn,
+            error: ProviderError::new(ProviderErrorKind::Exited, "closed worker"),
+        });
+        state.tick(state.host.states.now(), &shared).unwrap();
+        assert_eq!(shared.late_cleanup_refusals.load(Ordering::Acquire), 2);
+        assert!(shared.failure.lock().unwrap().is_none());
+        assert!(!state.host.states.has(&state.project));
+        assert!(!state.host.is_project_ready(&state.project));
+        assert!(!state.project.join(".milagre/runtime.lock").exists());
+        assert_eq!(
+            fs::read(state.project.join(".milagre/coordination.json")).unwrap(),
+            saved
+        );
+        let foreign = milagre_owner_store::StoreError::ProjectNotReady(
+            "/foreign isn't open and ready here; nothing was saved or started.".into(),
+        );
+        assert!(!state.audit_cleanup_refusal(&shared, &foreign));
+        let failed = milagre_owner_store::StoreError::Invalid("real failure".into());
+        assert!(!state.audit_cleanup_refusal(&shared, &failed));
+        drained.store(true, Ordering::Release);
+        assert_eq!(
+            server
+                .events()
+                .transaction(|publication| state.shutdown(
+                    &shared,
+                    publication,
+                    false,
+                    &mut refused
+                ))
+                .unwrap(),
+            Value::Null
+        );
+        let replacement =
+            crate::claude_content::SharedContent::new(isolation, state.project.clone()).unwrap();
+        replacement.shutdown();
         server.shutdown().unwrap();
     }
 
@@ -2742,6 +3373,7 @@ mod job_tests {
             delivery_failed: AtomicBool::new(false),
             forgotten_answers: AtomicU64::new(0),
             stranded_lock_notices: AtomicU64::new(0),
+            late_cleanup_refusals: AtomicU64::new(0),
             #[cfg(test)]
             observed_quit: Mutex::new(None),
             #[cfg(test)]
@@ -2767,6 +3399,8 @@ mod job_tests {
             app_fixture: false,
             configured: false,
             claude_modes: false,
+            #[cfg(feature = "chat-runtime")]
+            terminals: None,
         });
         let profile_lease = profile.lease();
         let mut state = State {
@@ -2790,6 +3424,10 @@ mod job_tests {
             bootstrap: None,
             #[cfg(feature = "chat-runtime")]
             configured: None,
+            #[cfg(feature = "chat-runtime")]
+            terminals: None,
+            #[cfg(feature = "chat-runtime")]
+            git: None,
             _profile: profile_lease,
         };
         state.cache(&shared).unwrap();

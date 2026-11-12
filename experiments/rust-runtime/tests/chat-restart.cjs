@@ -118,7 +118,17 @@ async function launch(mode) {
 }
 
 async function stop(runtime) {
-  await runtime.client.call("daemon:stop");
+  const until = Date.now() + 12000;
+  for (;;) {
+    try {
+      await runtime.client.call("daemon:stop");
+      break;
+    } catch (error) {
+      assert.equal(error.code, "QUIT_PENDING", "only retained cleanup permits a stop retry");
+      assert.ok(Date.now() < until, "native content cleanup did not finish");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
   runtime.client.close();
   runtime.record.process.stdin.end();
   const result = await deadline(runtime.record.exit, "exact runtime exit");
@@ -183,6 +193,12 @@ async function main() {
     assert.equal(disk.sessions["1"].unread, expected.sessions["1"].unread);
   }
   const first = await launch("fixture-create");
+  const contentChat = `${first.project}#1`;
+  assert.deepEqual(await first.client.call("artifact:list", [{ chatId: contentChat }]), [], "real startup has no seeded content");
+  assert.deepEqual(await first.client.call("designs:enabled:read"), { enabled: true });
+  for (const chatId of [`${first.project}#999`, `${first.project}#01`, `${first.project}/foreign#1`]) {
+    await assert.rejects(first.client.call("artifact:list", [{ chatId }]));
+  }
   assert.match(await refused(["fixture-open", dataRoot]), /already running/);
   const manifest = fs.readFileSync(path.join(dataRoot, "rust-chat-runtime.json"));
   assert.equal(fs.statSync(path.join(dataRoot, "rust-chat-runtime.json")).mode & 0o777, 0o600);
@@ -191,7 +207,30 @@ async function main() {
     first.client.call("chat:send", [{ projectPath: first.project, sessionId: 1, provider: "claude", model: "unselected", body: "refuse" }]),
     { code: "CHAT_RUNTIME_CONFIG" },
   );
+  await assert.rejects(
+    first.client.call("chat:send", [{ projectPath: first.project, sessionId: 1, provider: "claude", model: "sonnet", body: "forged", chatId: "/foreign#1" }]),
+    { code: "CHAT_RUNTIME_CONFIG" },
+  );
   const saved = await turn(first, "first-durable-message", body);
+  const catalog = await first.client.call("artifact:list", [{ chatId: contentChat }]);
+  assert.deepEqual(catalog.map((record) => record.id).sort(), ["configured-report", "configured-screen"]);
+  const report = await first.client.call("artifact:get", [{ chatId: contentChat, id: "configured-report" }]);
+  assert.equal(report.version, 1);
+  assert.match(JSON.stringify(report), /Configured native content/);
+  const design = await first.client.call("artifact:get", [{ chatId: contentChat, id: "configured-screen" }]);
+  assert.equal(design.version, 1);
+  const stateBeforeEdit = await first.client.call("state:read", [first.project]);
+  const edit = {
+    chatId: contentChat,
+    id: "configured-screen",
+    expectedVersion: 1,
+    operations: [{ op: "update", id: "heading", patch: { text: "Retained renderer edit" } }],
+  };
+  const edited = await first.client.call("artifact:apply", [edit]);
+  assert.equal(edited.version, 2);
+  assert.match(JSON.stringify(edited), /Retained renderer edit/);
+  await assert.rejects(first.client.call("artifact:apply", [edit]), { code: "DESIGN_VERSION_CONFLICT" });
+  assert.deepEqual(await first.client.call("state:read", [first.project]), stateBeforeEdit, "the shared content writer does not alter Chat state");
   const beforeRefusals = await first.client.call("state:read", [first.project]);
   for (const args of [
     [first.project + "/foreign", 1, { unread: false }],
@@ -215,6 +254,13 @@ async function main() {
   assert.deepEqual(fs.readFileSync(path.join(dataRoot, "rust-chat-runtime.json")), manifest);
 
   const second = await launch("fixture-open");
+  assert.deepEqual(await second.client.call("artifact:get", [{ chatId: contentChat, id: "configured-report" }]), report);
+  assert.deepEqual(await second.client.call("artifact:get", [{ chatId: contentChat, id: "configured-screen", version: 1 }]), {
+    ...design,
+    latest: 2,
+    versions: 2,
+  });
+  assert.deepEqual(await second.client.call("artifact:get", [{ chatId: contentChat, id: "configured-screen" }]), edited);
   assert.notEqual(second.epoch, first.epoch);
   assert.notEqual(second.metadata.profile, first.metadata.profile);
   assert.notEqual(second.metadata.socket, first.metadata.socket);
@@ -232,12 +278,15 @@ async function main() {
   await stop(second);
 
   const third = await launch("fixture-open");
+  assert.deepEqual(await third.client.call("artifact:get", [{ chatId: contentChat, id: "configured-screen" }]), edited);
   assert.notEqual(third.epoch, second.epoch);
   assert.deepEqual((await third.client.call("chat:messages", [third.project, 1])).messages, updated);
   assert.equal(Object.hasOwn((await third.client.call("state:read", [third.project])).state.sessions["1"], "unread"), false);
   await third.client.call("project:forget", [third.project]);
+  await assert.rejects(third.client.call("artifact:list", [{ chatId: contentChat }]), { code: "PROJECT_NOT_READY" });
   await assert.rejects(third.client.call("chat:patch", [third.project, 1, { unread: true }]), { code: "PROJECT_NOT_READY" });
   await third.client.call("project:open", [third.project]);
+  assert.deepEqual(await third.client.call("artifact:get", [{ chatId: contentChat, id: "configured-screen" }]), edited);
   await stop(third);
 
   const unmarked = path.join(parent, "unmarked");
@@ -248,7 +297,7 @@ async function main() {
   assert.deepEqual(fs.readdirSync(unmarked), ["sentinel"]);
   assert.equal(fs.readFileSync(path.join(unmarked, "sentinel"), "utf8"), "keep");
   console.log(
-    "Restartable Chat: three launches, fresh epochs, saved/native ID continuity, streamed permission turn, durable unread patch/Node reducer parity, scope/patch/duplicate/root refusals passed (fixed child only).",
+    "Restartable Chat: three launches, saved/native ID continuity, permission turn, durable unread/Node parity, shared MCP Artifact/Design create/read, renderer edit/restart history, scope/patch/root refusals and native cleanup passed (fixed child only).",
   );
 }
 

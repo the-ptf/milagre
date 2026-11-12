@@ -1,4 +1,4 @@
-//! Fixed fixture content authority shared by the owner actor and native Claude MCP.
+//! One content authority shared by the owner actor and native Claude MCP.
 use milagre_claude::{
     mcp::{DispatchError, FnDispatch, InProcessMcp, McpLimits, McpRegistration, McpTool},
     SessionOptions,
@@ -11,6 +11,7 @@ use milagre_owner_wire::{RpcError, RpcResult};
 use milagre_tools::{Caller, ContentOwner, DesignScope};
 use serde_json::Value;
 use std::{
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -22,17 +23,19 @@ use std::{
 pub(crate) struct SessionContent {
     active: AtomicBool,
     registration: Mutex<Option<Arc<McpRegistration>>>,
+    authority: Option<ActiveCheck>,
 }
 impl SessionContent {
     pub(crate) fn new() -> Arc<Self> {
         Arc::new(Self {
             active: AtomicBool::new(true),
             registration: Mutex::new(None),
+            authority: None,
         })
     }
     pub(crate) fn check(&self) -> Result<(), Error> {
         if self.active.load(Ordering::Acquire) {
-            Ok(())
+            self.authority.as_ref().map_or(Ok(()), |check| check())
         } else {
             Err(Error::coded(
                 "FIXTURE_SESSION_REVOKED",
@@ -90,6 +93,7 @@ impl Drop for SessionContent {
     }
 }
 
+type ChatGrants = Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>;
 pub(crate) struct SharedContent {
     owner: Arc<ContentOwner>,
     project: String,
@@ -97,7 +101,10 @@ pub(crate) struct SharedContent {
     scope: Arc<AtomicU64>,
     skills: PathBuf,
     feedback: Arc<Mutex<Vec<Value>>>,
+    chats: Option<ChatGrants>,
+    native_drained: Mutex<Option<Arc<dyn Fn() -> bool + Send + Sync>>>,
 }
+const CONFIGURED_CHATS: usize = 1024;
 fn guard(active: Arc<AtomicBool>, scope: Option<Arc<AtomicU64>>) -> ActiveCheck {
     Arc::new(move || {
         if active.load(Ordering::Acquire)
@@ -115,6 +122,10 @@ fn guard(active: Arc<AtomicBool>, scope: Option<Arc<AtomicU64>>) -> ActiveCheck 
     })
 }
 impl SharedContent {
+    #[cfg(feature = "chat-runtime")]
+    pub(crate) fn chat_limit(&self) -> Option<usize> {
+        self.chats.as_ref().map(|_| CONFIGURED_CHATS)
+    }
     pub(crate) fn new(isolation: Isolation, project: PathBuf) -> Result<Arc<Self>, Error> {
         Self::with_raster(isolation, project, None)
     }
@@ -131,11 +142,6 @@ impl SharedContent {
         raster: Option<Arc<RasterRenderer>>,
         runtime: Arc<dyn Runtime>,
     ) -> Result<Arc<Self>, Error> {
-        let project = project.to_string_lossy().into_owned();
-        let active = Arc::new(AtomicBool::new(true));
-        let scope = Arc::new(AtomicU64::new(0));
-        let resolver_guard = guard(active.clone(), Some(scope.clone()));
-        let resolved = project.clone();
         let skills = isolation
             .project(std::path::Path::new("bundled-skills"))
             .map_err(|_| {
@@ -159,13 +165,75 @@ impl SharedContent {
                 "The fixture skills directory must be empty",
             ));
         }
+        Self::open(
+            isolation,
+            project,
+            skills,
+            raster,
+            runtime,
+            None,
+            Arc::new(|| Ok(())),
+        )
+    }
+    /// Trusted configured owner only. Chat membership comes from owned state or the owner's
+    /// committed outbound Provider call, never renderer paths or positive-suffix guessing.
+    #[cfg(feature = "chat-runtime")]
+    pub(crate) fn configured(
+        isolation: Isolation,
+        project: PathBuf,
+        skills: PathBuf,
+        owner_check: ActiveCheck,
+    ) -> Result<Arc<Self>, Error> {
+        let skills = skills.canonicalize()?;
+        if !skills.is_dir() {
+            return Err(Error::new(
+                "The captured bundled skills directory is unavailable",
+            ));
+        }
+        Self::open(
+            isolation,
+            project,
+            skills,
+            None,
+            Arc::new(SystemRuntime),
+            Some(Arc::new(Mutex::new(HashMap::new()))),
+            owner_check,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn open(
+        isolation: Isolation,
+        project: PathBuf,
+        skills: PathBuf,
+        raster: Option<Arc<RasterRenderer>>,
+        runtime: Arc<dyn Runtime>,
+        chats: Option<ChatGrants>,
+        owner_check: ActiveCheck,
+    ) -> Result<Arc<Self>, Error> {
+        let project = project.to_string_lossy().into_owned();
+        let active = Arc::new(AtomicBool::new(true));
+        let scope = Arc::new(AtomicU64::new(0));
+        let resolver_guard = guard(active.clone(), Some(scope.clone()));
+        let resolved = project.clone();
+        let admitted = chats.clone();
+        let live = active.clone();
+        let owner_guard = guard(active.clone(), None);
         let owner = ContentOwner::open(
             isolation,
             PathBuf::from("artifacts"),
             PathBuf::from("design-kits"),
             Arc::new(move |chat| {
                 resolver_guard()?;
-                if [format!("{resolved}#1"), format!("{resolved}#2")].contains(&chat.to_string()) {
+                let known = match &admitted {
+                    Some(chats) => chats
+                        .lock()
+                        .unwrap()
+                        .get(chat)
+                        .is_some_and(|active| active.load(Ordering::Acquire)),
+                    None => [format!("{resolved}#1"), format!("{resolved}#2")]
+                        .contains(&chat.to_string()),
+                };
+                if known {
                     Ok(resolved.clone())
                 } else {
                     Err(Error::coded(
@@ -174,7 +242,12 @@ impl SharedContent {
                     ))
                 }
             }),
-            guard(active.clone(), None),
+            Arc::new(move || {
+                owner_guard()?;
+                owner_check().inspect_err(|_| {
+                    live.store(false, Ordering::Release);
+                })
+            }),
             runtime,
             raster,
         )?;
@@ -185,6 +258,114 @@ impl SharedContent {
             scope,
             skills,
             feedback: Arc::new(Mutex::new(Vec::new())),
+            chats,
+            native_drained: Mutex::new(None),
+        }))
+    }
+    /// Called only after the ChatHost has committed its outbound Chat identity. This closes
+    /// the new-Chat gap before Worker::run attaches MCP, while the actor still owns the call.
+    pub(crate) fn admit_owner_chat(&self, chat: &str) -> Result<(), Error> {
+        let Some(chats) = &self.chats else {
+            return Ok(());
+        };
+        guard(self.active.clone(), Some(self.scope.clone()))()?;
+        self.chat_number(chat)?;
+        let mut chats = chats.lock().unwrap();
+        if !chats.contains_key(chat) && chats.len() >= CONFIGURED_CHATS {
+            return Err(Error::coded(
+                "CONTENT_CHAT_LIMIT",
+                "Configured content Chat admission is full",
+            ));
+        }
+        chats
+            .entry(chat.into())
+            .or_insert_with(|| Arc::new(AtomicBool::new(true)));
+        Ok(())
+    }
+    fn chat_number(&self, chat: &str) -> Result<i64, Error> {
+        let id = chat
+            .strip_prefix(&format!("{}#", self.project))
+            .and_then(|id| {
+                id.parse::<i64>()
+                    .ok()
+                    .filter(|n| *n > 0 && *n <= 9_007_199_254_740_991 && n.to_string() == id)
+            });
+        id.ok_or_else(|| {
+            Error::coded(
+                "CONTENT_CHAT_UNKNOWN",
+                "Choose an admitted Chat in this Project",
+            )
+        })
+    }
+    /// Actor-only reconciliation from its current owned state. Removed Chat tokens stay
+    /// revoked even if that number is later reintroduced in the same Project generation.
+    pub(crate) fn reconcile(
+        &self,
+        sessions: Option<&serde_json::Map<String, Value>>,
+    ) -> Result<(), Error> {
+        self.reconcile_inner(sessions)
+            .inspect_err(|_| self.opened(false))
+    }
+    fn reconcile_inner(
+        &self,
+        sessions: Option<&serde_json::Map<String, Value>>,
+    ) -> Result<(), Error> {
+        let Some(chats) = &self.chats else {
+            return Ok(());
+        };
+        let sessions = sessions.ok_or_else(|| Error::new("Owned Chat state is unavailable"))?;
+        if sessions.len() > CONFIGURED_CHATS {
+            return Err(Error::coded(
+                "CONTENT_CHAT_LIMIT",
+                "Configured content Chat admission is full",
+            ));
+        }
+        let mut next = HashSet::new();
+        for (id, session) in sessions {
+            let chat = format!("{}#{id}", self.project);
+            let number = self.chat_number(&chat)?;
+            if session["id"].as_f64() != Some(number as f64) {
+                return Err(Error::new("Owned Chat identity is inconsistent"));
+            }
+            next.insert(chat);
+        }
+        let mut chats = chats.lock().unwrap();
+        chats.retain(|chat, active| {
+            let keep = next.contains(chat);
+            if !keep {
+                active.store(false, Ordering::Release);
+            }
+            keep
+        });
+        for chat in next {
+            chats
+                .entry(chat)
+                .or_insert_with(|| Arc::new(AtomicBool::new(true)));
+        }
+        Ok(())
+    }
+    #[cfg(feature = "chat-runtime")]
+    pub(crate) fn retain_native_drain(&self, check: Arc<dyn Fn() -> bool + Send + Sync>) {
+        *self.native_drained.lock().unwrap() = Some(check);
+    }
+    pub(crate) fn native_drained(&self) -> bool {
+        self.native_drained
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_none_or(|check| check())
+    }
+    /// Capture before spawning a worker. Attach may happen later but cannot discover a newer grant.
+    pub(crate) fn capture_session(&self, chat: &str) -> Result<Arc<SessionContent>, Error> {
+        if self.chats.is_none() {
+            return Ok(SessionContent::new());
+        }
+        let authority = self.caller(chat).assert_active;
+        authority()?;
+        Ok(Arc::new(SessionContent {
+            active: AtomicBool::new(true),
+            registration: Mutex::new(None),
+            authority: Some(authority),
         }))
     }
     /// Fixed synthetic content only: retain at most eight PNG feedback replies, each <=512KiB.
@@ -240,6 +421,25 @@ impl SharedContent {
             .map_err(convert)
     }
     fn caller(&self, chat: &str) -> Caller {
+        let membership = self
+            .chats
+            .as_ref()
+            .map(|chats| chats.lock().unwrap().get(chat).cloned());
+        let generation = self.caller_guard();
+        let assert_active = Arc::new(move || {
+            generation()?;
+            if membership.as_ref().is_some_and(|token| {
+                token
+                    .as_ref()
+                    .is_none_or(|live| !live.load(Ordering::Acquire))
+            }) {
+                return Err(Error::coded(
+                    "CONTENT_CHAT_REVOKED",
+                    "This Chat content grant was revoked",
+                ));
+            }
+            Ok(())
+        });
         Caller {
             chat_id: chat.into(),
             project_id: self.project.clone(),
@@ -251,7 +451,7 @@ impl SharedContent {
             kits: true,
             design_scope: DesignScope::All,
             bundled_skills: self.skills.clone(),
-            assert_active: self.caller_guard(),
+            assert_active,
         }
     }
     #[cfg(any(test, feature = "app-fixture"))]
@@ -321,6 +521,121 @@ mod tests {
     use milagre_owner_store::{jsjson, Policy};
     use milagre_owner_wire::IsolatedProfile;
     use serde_json::json;
+
+    #[cfg(feature = "chat-runtime")]
+    #[test]
+    fn configured_content_persists_and_captured_membership_never_revives() {
+        let profile = IsolatedProfile::create().unwrap();
+        let isolation = Isolation::create(profile.path(), &Policy::system()).unwrap();
+        let project = isolation.project(std::path::Path::new("project")).unwrap();
+        let skills = isolation
+            .project(std::path::Path::new("test-bundle"))
+            .unwrap();
+        let owned = Arc::new(AtomicBool::new(true));
+        let check = owned.clone();
+        let content = SharedContent::configured(
+            isolation.clone(),
+            project.clone(),
+            skills.clone(),
+            Arc::new(move || {
+                if check.load(Ordering::Acquire) {
+                    Ok(())
+                } else {
+                    Err(Error::new("captured owner lost"))
+                }
+            }),
+        )
+        .unwrap();
+        let sessions = json!({"1":{"id":1},"10":{"id":10}});
+        let chat = format!("{}#10", project.display());
+        assert!(
+            content.admit_owner_chat(&chat).is_err(),
+            "ready generation is required"
+        );
+        content.reconcile(sessions.as_object()).unwrap();
+        content.opened(true);
+        for forged in [
+            format!("{}#999", project.display()),
+            format!("{}#01", project.display()),
+            "/foreign#10".into(),
+        ] {
+            assert!(content.dispatcher(&forged).is_err());
+            assert!(content
+                .renderer("artifact:list", &json!({"chatId":forged}))
+                .is_err());
+        }
+        let grant = content.dispatcher(&chat).unwrap();
+        let delayed = content.capture_session(&chat).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        assert_eq!(
+            content
+                .renderer("artifact:list", &json!({"chatId":chat}))
+                .unwrap(),
+            json!([]),
+            "no seeded content"
+        );
+        assert_eq!(
+            rt.block_on(grant.call(
+                "artifact_show",
+                &json!({"id":"retained","title":"Owned","html":"<main>retained bytes</main>"})
+            ))["isError"],
+            false
+        );
+        let saved = content
+            .renderer("artifact:get", &json!({"chatId":chat,"id":"retained"}))
+            .unwrap();
+        content
+            .reconcile(json!({"1":{"id":1}}).as_object())
+            .unwrap();
+        content.reconcile(sessions.as_object()).unwrap();
+        assert!(
+            delayed.check().is_err(),
+            "a delayed worker cannot acquire the replacement member token"
+        );
+        assert_eq!(
+            rt.block_on(grant.call("artifact_list", &json!({})))["isError"],
+            true
+        );
+        let fresh = content.dispatcher(&chat).unwrap();
+        assert!(content.reconcile(None).is_err());
+        content.reconcile(sessions.as_object()).unwrap();
+        content.opened(true);
+        assert_eq!(
+            rt.block_on(fresh.call("artifact_list", &json!({})))["isError"],
+            true,
+            "invalid authoritative snapshots revoke the generation"
+        );
+        let fresh = content.dispatcher(&chat).unwrap();
+        owned.store(false, Ordering::Release);
+        assert_eq!(
+            rt.block_on(fresh.call("artifact_list", &json!({})))["isError"],
+            true
+        );
+        owned.store(true, Ordering::Release);
+        assert!(
+            content.dispatcher(&chat).is_err(),
+            "restoring owner inputs does not revive authority"
+        );
+        content.shutdown();
+        let reopened =
+            SharedContent::configured(isolation, project, skills, Arc::new(|| Ok(()))).unwrap();
+        reopened.reconcile(sessions.as_object()).unwrap();
+        reopened.opened(true);
+        assert_eq!(
+            reopened
+                .renderer("artifact:get", &json!({"chatId":chat,"id":"retained"}))
+                .unwrap(),
+            saved
+        );
+        assert_eq!(
+            rt.block_on(fresh.call("artifact_list", &json!({})))["isError"],
+            true
+        );
+        reopened.shutdown();
+    }
 
     #[test]
     fn read_only_dispatcher_refuses_native_write_even_without_a_cli_permission_gate() {

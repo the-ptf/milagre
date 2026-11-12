@@ -1,6 +1,6 @@
 # App fixture content owner
 
-Only `app_fixture::start()` creates this content. It uses the generated Project and the same `SharedContent` / `ContentOwner` used by the Claude content fixture. There is no second `ArtifactService`, alternate content writer, Node child, caller-supplied path or public tool-dispatch endpoint.
+Only `app_fixture::start()` creates the seeded content described here. It uses the generated Project and the same `SharedContent` / `ContentOwner` used by the Claude content fixture. The dedicated [configured Chat runtime](CHAT-RUNTIME.md#retained-configured-content) reuses that owner with durable storage and owner-approved Chat admission, without this initializer or seeded content. There is no second `ArtifactService`, alternate content writer, Node child, caller-supplied path or public tool-dispatch endpoint.
 
 ## Saved fixture data
 
@@ -31,4 +31,4 @@ The Rust startup/lifetime test proves unopened initialization refuses before cre
 
 There is no injected failure after the first record commits. Startup returns an error before binding on a later save/readback failure, but this checkpoint does not claim partial-initialization cleanup test evidence.
 
-`artifact:delete` and `artifact:add-comments` remain unadvertised and refused. Reading existing comments is supported, but creating comments and deleting Designs are not claimed. Arbitrary new Chat admission needs a trusted resolver beyond the fixed two-Chat fixture. Actual WebKit content rendering belongs to a separate native checkpoint; passing these daemon tests does not prove it. The installed application still uses the production Node owner.
+`artifact:delete` and `artifact:add-comments` remain unadvertised and refused. Reading existing comments is supported, but creating comments and deleting Designs are not claimed. This fixture retains its fixed two-Chat resolver; the configured runtime uses the separate trusted owner-admission seam documented above. Actual WebKit content rendering belongs to a separate native checkpoint; passing these daemon tests does not prove it. The installed application still uses the production Node owner.
