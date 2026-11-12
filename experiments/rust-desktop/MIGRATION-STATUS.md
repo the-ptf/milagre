@@ -44,6 +44,45 @@ Priority order, each a reviewed checkpoint (tests, strict Clippy/fmt, independen
 
 Routines stay out of scope. Each step keeps the client API additive; GPUI pins are told about any change.
 
+### Accepted: step 1, profile owner (`693f969a9`..`84b378598`)
+
+New crate `experiments/rust-profile-owner` (`profile-owner serve --data-dir D --app-version V`, Node's argv)
+plus `DataDirEndpoint`/`Server::bind_data_dir` in `rust-owner-wire`. It serves an isolated Node-format data
+directory at Node's derived socket (hashed with a port of Node's `fs.realpathSync`), takes `D/runtime.lock`,
+Project and repository locks in Node's format, and answers 15 methods: Node-shaped `daemon:status`,
+paged snapshot, `project:known`/`recent`/`read`/`current`/`snapshot`, `state:read`, `chat:messages`/`message`/
+`runs`, `daemon:stop`. Read-only: no events, no first-load side effects (resume, titles); see its README.
+
+Evidence: a Node differential runs this repo's Node daemon on a throwaway data dir with four Projects (plain
+and Git, saved and never-saved), records 42 reads through `apps/daemon/src/client.cjs`, then the Rust owner
+answers all 42 identically (key order included; only `epoch`/`version`/`eventSeq` normalized). The
+unchanged `InstalledOwner::adopt_profile` adopts it and runs `known_projects`, `connect`, `load_view`,
+`runtime_snapshot`/`accept_snapshot` and Chat pages for all four. Node and Rust refuse each other on the same
+data dir. After Rust stops (`daemon:stop` or stdin EOF), its locks and socket are gone, every entry of the
+copy is byte-identical except the documented empty `.milagre/` Node also creates, and Node serves the same
+42 reads again. Suites: profile-owner 18, owner-wire 39, registry 27, runtime all-features 188, client
+`owned-chat` 96 / `installed-owner` 121; strict Clippy and fmt clean. Review 1 found one P1 (never-saved
+Projects failed with ENOENT) and three P2s (`project:known` followed a symlink outside the copy and ran
+ambient Git there; README claims; Git discovery refused any real-size repository). All fixed with failing-
+first regressions; re-review found no P1/P2. Open P3s: a 4,096-entry cap on `refs/`, case-different data dir
+spellings miss the socket (as with Node), `Owner::finish` is only safe from `main`.
+
+Limits: isolated copies only (marker required); Victor's real profile, `~/.milagre` and its registered
+Projects are refused. Coverage of GPUI's 112 called commands: 11 (10%) on a Node-format profile.
+
+### Accepted: step 2, PR details (`ccd09935c`..`cb149a3cc`, from `park/rust-pr-details`)
+
+The four review P2s are fixed: same-number reads join one `gh` read and different numbers queue (4
+outstanding, 64 waiters) with cancel and reap when the last waiter leaves; Node's `{ok:false,message}`
+results and `gh` failure classification (17 shapes compared against Node's `detail()`); account refusals
+recover after `gh auth login`; `localCommits` uses Node's `rev-list --count` through the bounded Git reader
+(also matches Node on unborn, detached and diverged HEADs). More than 3,000 files return Node's partial list.
+Suites: pr-details 27, runtime `chat-runtime` 136 / `routine-execution-fixture` 162, client staged 5/5.
+Independent review: no P1/P2. Open P3s worth fixing before serving it on the profile owner: forget then
+reopen leaves `pr:detail` revoked until restart while still advertised; a panic inside a read blocks
+recovery; one 30 s deadline spans all pages (large PRs can time out where Node pages); a request joining a
+running read gets pre-request data. Still served only by the dedicated runtime, not the profile owner.
+
 Local branch `poc/rust-tauri-local`, parent Chat `/Users/victor/Code/personal/milagre-ade#10904`. Nothing pushed. The migration is **not complete**: the ordinary installed Rust shell still needs the production Node owner; the separate Rust Preview owns its dedicated Rust backend. Keep the existing React UI and retained features. Only browser embedding, voice, floating inbox and decorative effects may be omitted.
 
 Never restart/replace the production host, take over live locks, launch a second live writer or change the native mobile fingerprint without explicit approval. Experimental ownership checks use separate dedicated roots or isolated copies. Real-provider evidence is stated explicitly below; other provider checks remain fake-process evidence. A passing library test is not a production cutover.
