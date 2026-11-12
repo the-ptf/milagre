@@ -6,6 +6,20 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 01:00 Toronto, isolated execution prototype `51943146` is accepted. Both
+previous P2s are closed: canonical Chat validation precedes busy/send, and failed
+fixture close/shutdown/drain retains actual owners plus root/profile. Independent
+source/log review reports no P1/P2. Root's corrected focused run passes all nine
+cases (`/tmp/milagre-routine-execution-root-focused.log`); its first filter matched
+zero tests and is not acceptance evidence. Saved full runs pass 134 runtime and
+228 owner tests with strict checks and failing old-behavior mutation controls.
+
+This remains default-off/test-build-only: no actor timer, execution RPC or installed
+scheduling. The next subagent is integrating a bounded actor timer only on explicit
+fixture roots/features, using the same durable writer; normal Preview remains
+unchanged and no real sends occur before 07:00 UTC. GPUI reports its completed
+independent preview/morning artifact, with signing and latest-pin live limits intact.
+
 At 00:30 Toronto, durable routine execution transactions are accepted separately
 as `bd0e8738`: typed claim/start/finish/recover/expire/complete/attach operations,
 actual Node results/effects/file-byte comparisons, restart/no-redelivery and save
@@ -14,10 +28,10 @@ source-pin tests and three doctests; independent storage review has no P1/P2.
 Logs: `/tmp/milagre-routines-transactions-root-full.log` and agent transaction logs.
 No timer, executor, RPC or installed capability is supplied by that library commit.
 
-The separate owner/runtime execution prototype is NOT accepted or committed yet.
-Source review found two P2s: fixture teardown can remove retained data after a
+At the earlier 00:30 checkpoint, the owner/runtime prototype was not accepted.
+That source review found two P2s: fixture teardown can remove retained data after a
 failed close, and noncanonical Chat aliases can bypass its busy check. The author
-is fixing both with regressions; rereview is required before integration. Its
+subsequently fixed both with regressions; final acceptance is recorded above. Its
 fixed-native test results are prototype evidence only. Installed Preview still
 matches runtime `862f4cd2` with valid signature; production PID start times match
 previous evidence. Real selected-account sends remain forbidden before 07:00 UTC.
