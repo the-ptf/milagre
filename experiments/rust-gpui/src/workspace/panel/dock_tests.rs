@@ -102,7 +102,7 @@ fn the_strip_has_no_expand_or_close_button(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("panel-expand").is_none(), "there is no full-width mode");
     assert!(cx.debug_bounds("panel-close").is_none(), "the corner toggle and the shortcuts close the panel");
     let list = cx.debug_bounds("panel-tab-list").expect("tab list");
-    assert_eq!(list.right(), window_width(cx) - px(8.0), "the tab list takes the strip's whole width: the toggle sits left of the panel");
+    assert_eq!(list.right(), window_width(cx), "the tab list takes the strip's whole width: the toggle sits left of the panel");
     let panel = workspace.read_with(cx, |w, _| w.panel.clone());
     panel.update(cx, |p, cx| p.close(cx));
     settle(cx);
