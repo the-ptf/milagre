@@ -7,6 +7,8 @@ license = "MIT"
 description = "GPUI spike: Milagre's desktop shell (sidebar, Chat, side panel) drawn with Zed's UI framework"
 
 [workspace]
+# vendor/ holds patched copies of published crates (vendor/PATCHES.md), path dependencies but not members.
+exclude = ["vendor"]
 
 [[bin]]
 name = "milagre-gpui-spike"
@@ -25,7 +27,7 @@ syntect = ["gpui-component/syntect"]
 # Snapshots with no window (src/snapshot/headless.rs): gpui-pre's HeadlessAppContext and Metal headless renderer,
 # which live behind its `test-support`. Off in the app; with it on, `MILAGRE_GPUI_SNAPSHOT` renders headless unless
 # `MILAGRE_GPUI_SNAPSHOT_HEADLESS=0`. No gpui-pre patch.
-headless-snapshot = ["gpui/test-support", "gpui_platform/test-support", "dep:gpui_apple"]
+headless-snapshot = ["gpui/test-support", "gpui_platform/test-support"]
 
 [dependencies]
 # GPUI from `gpui-pre`: weekly crates.io snapshots of zed-industries/zed's own `gpui` crates (0.3.12 is
@@ -93,8 +95,9 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 # The unguessable address of each Artifact preview (src/workspace/panel/artifacts/protocol.rs). Already in the tree.
 getrandom = "0.3"
 # The headless snapshot's text system (CoreText, `AppleTextSystem`), built without a `MacPlatform` (which must be made on
-# the main thread). Already in the tree under gpui-pre-platform; only with `headless-snapshot`.
-gpui_apple = { package = "gpui-pre-apple", version = "=0.3.12", features = ["font-kit"], optional = true }
+# the main thread), and the backdrop blur's quad marker (`backdrop_blur_marker`, src/ui/glass.rs; the patched copy in
+# vendor/). Already in the tree under gpui-pre-platform.
+gpui_apple = { package = "gpui-pre-apple", version = "=0.3.12", features = ["font-kit"] }
 
 [dev-dependencies]
 # `test-support` adds GPUI's headless test platform (`#[gpui::test]`, `TestAppContext`, `debug_selector`).
@@ -103,3 +106,8 @@ gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] 
 gpui_apple = { package = "gpui-pre-apple", version = "=0.3.12", features = ["font-kit"] }
 # The headless snapshot module builds under `cargo test` too (src/snapshot/headless.rs): the Metal headless renderer.
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders", "test-support"] }
+
+# gpui-pre-apple 0.3.12 with backdrop blur in its Metal renderer, ported from MonoCode (vendor/PATCHES.md). Same
+# version, so gpui-pre-platform and everything else that depends on it gets the patched copy.
+[patch.crates-io]
+gpui-pre-apple = { path = "vendor/gpui-pre-apple" }
