@@ -77,6 +77,28 @@ async function browserChecks() {
     await waitFor("!!document.querySelector('[data-slot=activity]')");
     await evaluate("document.querySelector('[data-slot=activity] > button').click()");
     await waitFor(`document.querySelectorAll('.step-running').length === 4 && ${motion}.length === 4`);
+    // Parked rows retain their DOM and animation phase, but do no hidden sweep
+    // work. The summary stays live and opening the fold resumes the same loops.
+    await evaluate(`window.rowSweeps = ${motion}.filter(a => a.effect.target.closest('[data-slot=activity-body]'))`);
+    assert.equal(await evaluate("window.rowSweeps.length"), 2, "plain text and file chip in the mounted body");
+    await evaluate("document.querySelector('[data-slot=activity] > button').click()");
+    await waitFor("window.rowSweeps.every(a => a.playState === 'paused')");
+    assert.equal(
+      await evaluate(`${motion}.filter(a => !a.effect.target.closest('[data-slot=activity-body]')).every(a => a.playState === 'running')`),
+      true,
+      "collapsed summary keeps sweeping",
+    );
+    const parked = await evaluate("window.rowSweeps.map(a => a.currentTime)");
+    await delay(350);
+    assert.deepEqual(await evaluate("window.rowSweeps.map(a => a.currentTime)"), parked, "hidden sweeps do not advance");
+    await evaluate("document.querySelector('[data-slot=activity] > button').click()");
+    await waitFor("window.rowSweeps.every(a => a.playState === 'running')");
+    assert.equal(await evaluate(`window.rowSweeps.every(a => ${motion}.includes(a))`), true, "expansion reuses the same animations");
+    assert.equal(
+      await evaluate(`window.rowSweeps.every((a, i) => a.currentTime >= ${JSON.stringify(parked)}[i])`),
+      true,
+      "expansion resumes instead of restarting the sweep",
+    );
     await evaluate("window.folded(false)");
 
     await window.webContents.debugger.attach("1.3");
@@ -93,7 +115,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`${motion}.length`), 0, "a finished call stops sweeping");
     await evaluate("window.start(); window.finish('failed')");
     await waitFor("!document.querySelector('.step-running')");
-    console.log("PASS step sweeps: whole-call loop, no restart on render, approval pause, old hosts, folded rows, reduced motion and finish");
+    console.log("PASS step sweeps: whole-call loop, no restart on render, approval pause, old hosts, parked rows pause and resume, reduced motion and finish");
   } finally {
     window.destroy();
     app.quit();
