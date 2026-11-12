@@ -100,6 +100,7 @@ pub struct LiveController {
     window: gpui::AnyWindowHandle,
     client: Client,
     actions: ChatActions,
+    sidebar_writes: milagre_daemon_client::SidebarActions,
     store: LiveStore,
     project: String,
     sink: SinkState,
@@ -186,6 +187,7 @@ impl LiveController {
                 window: window.window_handle(),
                 client: session.client.clone(),
                 actions: session.actions.clone(),
+                sidebar_writes: session.sidebar.clone(),
                 store: session.store.clone(),
                 project: session.project.clone(),
                 sink,
@@ -216,6 +218,11 @@ impl LiveController {
 
     pub fn decisions(&self) -> &[(String, String)] {
         &self.decisions
+    }
+
+    /// Reads and clears the errors (a test that provoked one).
+    pub fn take_errors(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.errors)
     }
 
     pub fn errors(&self) -> &[String] {
@@ -547,8 +554,26 @@ impl LiveController {
                     async move { actions.remove_queued(chat, &id).await.map(|_| None).map_err(|e| format!("remove queued {id}: {e}")) },
                 )
             }
-            Command::MarkUnread { chat, unread } => {
-                Box::pin(async move { actions.mark_unread(chat, unread).await.map(|_| None).map_err(|e| format!("mark unread: {e}")) })
+            Command::MarkUnread { chat, unread } => Box::pin(async move {
+                let what = if unread { "unread" } else { "read" };
+                actions
+                    .mark_unread(chat, unread)
+                    .await
+                    .map(|_| Some(Done::Sidebar))
+                    .map_err(|e| format!("Couldn't mark the Chat {what}: {e}"))
+            }),
+            Command::MarkDone { chat, done } => {
+                let sidebar = self.sidebar_writes.clone();
+                Box::pin(async move {
+                    let what = if done { "move the Chat to Done" } else { "reopen the Chat" };
+                    sidebar.mark_done(chat, done).await.map(|_| Some(Done::Sidebar)).map_err(|e| format!("Couldn't {what}: {e}"))
+                })
+            }
+            Command::Rename { chat, title } => {
+                let sidebar = self.sidebar_writes.clone();
+                Box::pin(async move {
+                    sidebar.rename(chat, &title).await.map(|_| Some(Done::Sidebar)).map_err(|e| format!("Couldn't rename the Chat: {e}"))
+                })
             }
             Command::Refused(message) => {
                 self.error(message);
@@ -566,8 +591,20 @@ impl LiveController {
                     self.on_store_changed(cx);
                 }
             }
+            Ok(Some(Done::Sidebar)) => {
+                let sidebar = self.workspace.read(cx).sidebar.clone();
+                sidebar.update(cx, |s, cx| s.set_notice(None, cx));
+            }
             Ok(None) => {}
-            Err(error) => self.error(error),
+            Err(error) => {
+                // A refused or lost write: the rows go back to what the runtime holds, and the sidebar says why.
+                let sidebar = self.workspace.read(cx).sidebar.clone();
+                sidebar.update(cx, |s, cx| {
+                    s.reload(cx);
+                    s.set_notice(Some(error.clone().into()), cx);
+                });
+                self.error(error);
+            }
         }
         cx.notify();
     }
@@ -579,7 +616,13 @@ impl LiveController {
 }
 
 enum Done {
-    Sent { id: String, receipt: Value, open: Option<String> },
+    Sent {
+        id: String,
+        receipt: Value,
+        open: Option<String>,
+    },
+    /// A sidebar write the runtime took.
+    Sidebar,
 }
 
 type Job = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<Done>, String>>>>;

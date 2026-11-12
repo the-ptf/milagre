@@ -44,6 +44,8 @@ pub struct Session {
     pub event_seq: u64,
     /// The second connection, for terminal reads only (a read long-polls and would hold every call behind it).
     pub reader: Client,
+    /// The sidebar's Chat metadata writes (rename, Done, Reopen) on the main connection.
+    pub sidebar: milagre_daemon_client::SidebarActions,
     /// The Terminal drawer's host on the runtime's PTYs, over both connections.
     pub terminals: Arc<crate::terminals::LiveTerminals>,
 }
@@ -62,6 +64,7 @@ impl Session {
         }
         client.accept_snapshot(&snapshot).await.context("accept the snapshot")?;
         let actions = guard.chat_actions(&client).context("Chat actions")?;
+        let sidebar = guard.sidebar_actions(&client).context("sidebar actions")?;
         // The reader connection goes through the same order on its own: open, snapshot, apply, accept, drained.
         let (reader, _, reader_notices) = guard.connect(ClientOptions::default()).await.context("connect the terminal reader")?;
         reader.open_view(&project).await.context("project:open (terminal reader)")?;
@@ -97,6 +100,7 @@ impl Session {
             event_seq: snapshot.event_seq,
             reader,
             terminals,
+            sidebar,
         })
     }
 }

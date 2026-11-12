@@ -6,8 +6,8 @@
     python3 scripts/check-gpui-live.py run --backend <backend worktree>
 
 `export` writes `git archive <CLIENT_COMMIT> experiments/rust-daemon-client` into the GPUI crate's ignored
-target/daemon-client-3410109b/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
-(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-3410109b/,
+target/daemon-client-1b180e46/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
+(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-1b180e46/,
 checking every exported file against the commit's blobs. The app-fixture adapter keeps its own client at 9aa5deb3
 (scripts/check-gpui-adapter.py); nothing here touches that export or its pins.
 
@@ -37,17 +37,19 @@ import tempfile
 CRATE = Path(__file__).resolve().parents[1]
 GPUI = CRATE.parent
 LIVE = GPUI / "live"
-CLIENT_COMMIT = "3410109bbbd3c8f8e1a06cd92d9e8ae004de2620"
-CLIENT_TREE = "668c4fefe77d2c263117b8fd731baab44a447a5f"
+CLIENT_COMMIT = "1b180e46f1cee9100f511f38c10635866a869cec"
+CLIENT_TREE = "fa8a8f4d431981a00c4b2eb4c90cc00ad3794f3d"
 CLIENT_PATH = "experiments/rust-daemon-client"
-EXPORT = GPUI / "target/daemon-client-3410109b"
+EXPORT = GPUI / "target/daemon-client-1b180e46"
 FAKE_PATH = "experiments/rust-claude/src/bin/fake_claude.rs"
 FAKE_BLOB = "7508b11e3e7245fcadd4d596f995f2f4289d800f"
-FAKE_CRATE = CRATE / "target/fake-claude-3410109b"
-# The agreed dedicated runtimes, newest first: 862f4cd2 (backend's signed "Milagre Rust Preview" runtime for client
+FAKE_CRATE = CRATE / "target/fake-claude-1b180e46"
+# The agreed dedicated runtimes, newest first: 6054d7d6 (backend's signed runtime for client 1b180e46: Chat metadata
+# patch for rename, Done and Reopen), 862f4cd2 (backend's signed "Milagre Rust Preview" runtime for client
 # 3410109b: owner-death exit, CHAT_ROOT_BUSY, bootstrap project_id/agent_name), 846ee97a (backend 4c5f541a, adds PTY and Git on the runtime side; no
 # client facade for them) and c4a6c25a (content and late cleanup). `--sha256` picks another agreed one.
 AGREED = {
+    "6054d7d6759262ec4d463380589261d954e1f8be79e75bb5d1a5d0be2142d70a": "backend signed runtime for client 1b180e46",
     "862f4cd2f7a7d243da524852320554e09fd8d11835523a3a6a4fdfa956d70502": "backend signed runtime for client 3410109b",
     "846ee97abc1d8ab38d2ea53c3e510fba726c305e1b58f7256fe07cd9805113f2": "backend 4c5f541a combined runtime",
     "c4a6c25ac01c44312b33b1db7963d16f99ddba0f3e9feba907fa5b60ceda2ea5": "content + late cleanup checkpoint",

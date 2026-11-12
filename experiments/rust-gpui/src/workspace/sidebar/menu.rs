@@ -160,9 +160,9 @@ pub fn render(
 ) -> AnyElement {
     let theme = *cx.theme();
     let mut items = entries(&open.context);
-    // Preview: Mark as unread is the only Chat write the runtime takes.
+    // Preview: only the Chat writes the runtime takes.
     if crate::workspace::preview::is_on(cx) {
-        items.retain(|entry| matches!(entry, MenuEntry::Row(item) if item.action == MenuAction::MarkUnread));
+        items.retain(|entry| matches!(entry, MenuEntry::Row(item) if crate::workspace::preview::menu_allows(item.action)));
     }
     let size = window.viewport_size();
     let (anchor, position) = placement(open.at, size.width, size.height, height_of(&items));

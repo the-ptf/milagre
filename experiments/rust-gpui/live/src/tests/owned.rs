@@ -348,6 +348,67 @@ fn the_live_window_runs_real_chats_on_the_owned_runtime(cx: &mut TestAppContext)
     println!("GPUI_LIVE_UNREAD mark={:?} runs={runs} chat_running={running} tail={tail:?}", unread_row.mark);
     assert_eq!(unread_row.mark, milagre_gpui_spike::logic::marks::chat_mark::ChatMark::Unread);
 
+    // 5b. Sidebar writes through the runtime: Rename from the row's menu, Done (which clears unread), Reopen, and a refused
+    //     rename that puts the row back and says why.
+    let sidebar = m.workspace.read_with(m.vcx, |w, _| w.sidebar.clone());
+    let chat_state = |m: &mut Mounted| {
+        m.controller.read_with(m.vcx, |c, _| {
+            c.store().read(|r| r.state().ok().and_then(|a| a.projects[0].state.as_ref().map(|s| s.sessions[&1].clone())))
+        })
+    };
+    let at = m.vcx.debug_bounds("chat-row-0").expect("row 0").center();
+    m.vcx.simulate_mouse_down(at, MouseButton::Right, Modifiers::none());
+    m.vcx.simulate_mouse_up(at, MouseButton::Right, Modifiers::none());
+    m.vcx.run_until_parked();
+    m.vcx.update(|window, cx| {
+        sidebar.update(cx, |s, cx| s.run_menu(milagre_gpui_spike::workspace::sidebar::menu::MenuAction::Rename, window, cx))
+    });
+    m.vcx.run_until_parked();
+    assert!(m.vcx.debug_bounds("rename-field").is_some(), "Rename is offered in the Preview");
+    m.vcx.simulate_input("Renamed in GPUI");
+    m.vcx.simulate_keystrokes("enter");
+    m.until("the saved title", |m| {
+        chat_state(m).is_some_and(|c| c.title.as_deref() == Some("Renamed in GPUI"))
+            && m.sidebar_row(&key).is_some_and(|row| row.title.as_ref() == "Renamed in GPUI")
+    });
+    sidebar.update(m.vcx, |s, cx| s.toggle_done_row(0, cx));
+    assert_eq!(sidebar.read_with(m.vcx, |s, _| s.done_count()), 1, "Done moves the row at once");
+    m.until("the saved Done", |m| chat_state(m).is_some_and(|c| c.done_at.is_some() && !c.unread));
+    assert_eq!(sidebar.read_with(m.vcx, |s, _| s.done_count()), 1);
+    sidebar.update(m.vcx, |s, cx| s.reopen(&key, true, cx));
+    m.until("the saved Reopen", |m| chat_state(m).is_some_and(|c| c.done_at.is_none()) && m.sidebar_row(&key).is_some());
+    assert_eq!(sidebar.read_with(m.vcx, |s, _| s.done_count()), 0);
+    // A refused write: a title over 16,384 UTF-16 units (the rename field itself caps names at 120 characters, so
+    // this goes through the sidebar's own actions seam). The rows are read again from the runtime and the sidebar
+    // says why; the saved title is unchanged.
+    m.vcx.update(|_, cx| {
+        let actions = cx.global::<milagre_gpui_spike::workspace::sidebar::Actions>().0.clone();
+        actions.call(milagre_gpui_spike::workspace::sidebar::SidebarCall::Patch {
+            chat: key.clone(),
+            patch: milagre_gpui_spike::workspace::sidebar::ChatPatch::Title("x".repeat(16_385).into()),
+        });
+    });
+    let until = Instant::now() + Duration::from_secs(20);
+    loop {
+        m.vcx.run_until_parked();
+        let notice = sidebar.read_with(m.vcx, |s, _| s.notice().cloned());
+        if notice.is_some() && m.sidebar_row(&key).is_some_and(|row| row.title.as_ref() == "Renamed in GPUI") {
+            println!("GPUI_LIVE_SIDEBAR_REFUSED {notice:?}");
+            break;
+        }
+        assert!(
+            Instant::now() < until,
+            "the refused rename did not revert: notice {notice:?}, row {:?}, saved {:?}, errors {:?}",
+            m.sidebar_row(&key).map(|row| row.title.len()),
+            chat_state(&mut m).and_then(|c| c.title).map(|t| t.len()),
+            m.controller.read_with(m.vcx, |c, _| c.errors().to_vec())
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let refused = m.controller.update(m.vcx, |c, _| c.take_errors());
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert_eq!(chat_state(&mut m).and_then(|c| c.title).as_deref(), Some("Renamed in GPUI"));
+
     // 6. The Terminal drawer on the runtime's PTY: opened for this Chat on the main connection, its output read on the
     //    second one, typed input reaching the shell. The "local shell" label is gone.
     let drawer = m.workspace.read_with(m.vcx, |w, _| w.terminals.clone());
@@ -388,6 +449,13 @@ fn the_live_window_runs_real_chats_on_the_owned_runtime(cx: &mut TestAppContext)
         m.controller.read_with(m.vcx, |c, _| c.open_key() == Some(key.as_str())) && m.items().len() == saved.len()
     });
     assert_eq!(m.items(), saved, "the saved transcript survives the restart");
+    let reopened_chat = m.controller.read_with(m.vcx, |c, _| {
+        c.store().read(|r| r.state().ok().and_then(|a| a.projects[0].state.as_ref().map(|s| s.sessions[&1].clone())))
+    });
+    let reopened_chat = reopened_chat.expect("Chat 1 after the restart");
+    assert_eq!(reopened_chat.title.as_deref(), Some("Renamed in GPUI"), "the rename survives the restart");
+    assert!(reopened_chat.done_at.is_none(), "Reopen survives the restart");
+    assert_eq!(m.sidebar_row(&key).map(|row| row.title.to_string()).as_deref(), Some("Renamed in GPUI"));
     let reopened = m.state_epoch(&project);
     assert_ne!(reopened, epoch, "a new wire epoch");
     m.type_and_send("After restart");

@@ -2,13 +2,19 @@
 //!
 //! A live data layer sets [`PreviewMode`] before it opens the window. Then nothing the runtime does not back may look
 //! real: the side panel (Details, PR, Changes, diff, Designs, Artifact, Browser, Simulator), Routines, Settings and the
-//! notices are not shown; the sidebar's menus keep only Mark as unread and its Done, Pin, Rename and drag do nothing;
-//! the usage block gives way to a line naming the fixed account and model and what is not available; the Terminal
-//! drawer is labelled as this computer's local shell. The fixture app never sets it.
+//! notices are not shown; the sidebar's menus keep Mark as unread, Rename, Done and Reopen (the writes the runtime takes)
+//! while Pin, Delete and drag do nothing; the usage block gives way to a line naming the fixed account and model and what is not available; the Terminal
+//! drawer is labelled as this computer's local shell unless the data layer hosts its terminals. The fixture app never sets it.
 
 use gpui::{App, Global, SharedString};
 
 pub const UNAVAILABLE: &str = "Not available in this preview";
+
+/// The sidebar writes the runtime takes (`chat:patch` unread, done and title); every other row action is off.
+pub fn menu_allows(action: crate::workspace::sidebar::menu::MenuAction) -> bool {
+    use crate::workspace::sidebar::menu::MenuAction as A;
+    matches!(action, A::MarkUnread | A::Rename | A::Done | A::Reopen)
+}
 pub const LOCAL_SHELL: &str = "local shell (this computer, not the runtime)";
 
 #[derive(Clone, Debug)]

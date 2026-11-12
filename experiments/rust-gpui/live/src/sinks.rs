@@ -3,8 +3,8 @@
 //! - [`LiveSink`] is the composer's `MessageSink`: a send (now or queued), Stop, and the queue's Send now and Remove.
 //!   It is called inside the composer's update, so it reads what it needs from cells the controller keeps current:
 //!   which Chat the composer is for ([`Target`]) and the permission mode and effort the picker shows.
-//! - [`LiveSidebarActions`] is the sidebar's `SidebarActions`: Mark as unread / read goes to the runtime (the only
-//!   sidebar write it has); every other call is recorded, as the fixture does, and changes nothing on the runtime.
+//! - [`LiveSidebarActions`] is the sidebar's `SidebarActions`: unread, Done, Reopen and Rename go to the runtime (its
+//!   `chat:patch` writes); every other call is recorded, as the fixture does, and changes nothing on the runtime.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -47,6 +47,16 @@ pub enum Command {
     MarkUnread {
         chat: u64,
         unread: bool,
+    },
+    /// Done (`true`, which also clears unread) or Reopen (`false`).
+    MarkDone {
+        chat: u64,
+        done: bool,
+    },
+    /// An explicit title; empty puts the generated one back.
+    Rename {
+        chat: u64,
+        title: String,
     },
     /// A send the runtime cannot take (attachments, `/compact`): shown as an error, nothing is sent.
     Refused(String),
@@ -143,11 +153,19 @@ pub struct LiveSidebarActions {
 
 impl SidebarActions for LiveSidebarActions {
     fn call(&self, call: SidebarCall) {
-        if let SidebarCall::Patch { chat, patch: ChatPatch::Unread(unread) } = &call
+        if let SidebarCall::Patch { chat, patch } = &call
             && let Some(id) = chat_id(&self.project, chat)
         {
-            let _ = self.commands.unbounded_send(Command::MarkUnread { chat: id, unread: *unread });
-            return;
+            let command = match patch {
+                ChatPatch::Unread(unread) => Some(Command::MarkUnread { chat: id, unread: *unread }),
+                ChatPatch::DoneAt(at) => Some(Command::MarkDone { chat: id, done: at.is_some() }),
+                ChatPatch::Title(title) => Some(Command::Rename { chat: id, title: title.to_string() }),
+                _ => None,
+            };
+            if let Some(command) = command {
+                let _ = self.commands.unbounded_send(command);
+                return;
+            }
         }
         self.recorded.call(call);
     }

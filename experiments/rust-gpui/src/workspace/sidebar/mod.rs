@@ -96,6 +96,8 @@ pub struct Sidebar {
     /// The Chat on screen while no list row is selected: a Done row picked, or a Chat with no row (a Subchat opened from
     /// the Details panel).
     picked: Option<ChatRow>,
+    /// A plain message from the data layer (a write it could not make), shown above the footer.
+    notice: Option<gpui::SharedString>,
     done_scroll: UniformListScrollHandle,
     selected: Option<usize>,
     focus: FocusHandle,
@@ -183,6 +185,7 @@ impl Sidebar {
             done_rows: Vec::new(),
             done_open: false,
             picked: None,
+            notice: None,
             done_scroll: done_scroll.clone(),
             selected: None,
             focus: cx.focus_handle(),
@@ -285,11 +288,26 @@ impl Sidebar {
                 .text_color(theme.ink3)
                 .child(div().text_color(theme.ink2).child(format!("Preview \u{b7} {} \u{b7} {}", preview.account, preview.model)))
                 .child(format!(
-                    "Panels, Settings, Routines, usage and Done, Pin, Rename: {}",
+                    "Panels, Settings, Routines, usage, Pin and Delete: {}",
                     crate::workspace::preview::UNAVAILABLE.to_lowercase()
                 ))
+                .children(self.notice.clone().map(|notice| {
+                    div().debug_selector(|| "sidebar-notice".into()).text_color(theme.orange_ink).child(notice)
+                }))
                 .into_any_element(),
         ]
+    }
+
+    /// Shows (or clears) a plain message from the data layer, such as a write it could not make.
+    pub fn set_notice(&mut self, notice: Option<gpui::SharedString>, cx: &mut Context<Self>) {
+        if self.notice != notice {
+            self.notice = notice;
+            cx.notify();
+        }
+    }
+
+    pub fn notice(&self) -> Option<&gpui::SharedString> {
+        self.notice.as_ref()
     }
 
     fn set_data(&mut self, data: SidebarData, select: Option<&str>) {
@@ -358,9 +376,6 @@ impl Sidebar {
 
     /// A row's hover action: Done moves the Chat to the Done list at once; ⌘Z takes it back.
     pub fn toggle_done_row(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if crate::workspace::preview::is_on(cx) {
-            return;
-        }
         let Some(row) = self.rows.get(ix) else { return };
         let key = row.key.to_string();
         self.mark_done(&key, true, cx);

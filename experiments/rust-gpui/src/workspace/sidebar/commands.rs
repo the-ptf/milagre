@@ -231,7 +231,7 @@ impl Sidebar {
     /// Runs a menu item for the open menu's Chat and closes the menu.
     pub fn run_menu(&mut self, action: MenuAction, window: &mut Window, cx: &mut Context<Self>) {
         let Some(open) = self.menu.take() else { return };
-        if crate::workspace::preview::is_on(cx) && action != MenuAction::MarkUnread {
+        if crate::workspace::preview::is_on(cx) && !crate::workspace::preview::menu_allows(action) {
             window.focus(&self.focus, cx);
             cx.notify();
             return;
@@ -272,9 +272,6 @@ impl Sidebar {
 
     /// Moves a Chat to Done at once; the host's write follows (`chat:patch { doneAt }`).
     pub fn mark_done(&mut self, key: &str, record: bool, cx: &mut Context<Self>) {
-        if crate::workspace::preview::is_on(cx) {
-            return;
-        }
         let at = now_ms();
         let Some(chat) = self.chat_mut(key) else { return };
         if chat.done_at.is_some() {
@@ -370,9 +367,6 @@ impl Sidebar {
     // ---- rename -------------------------------------------------------------------------------------------------
 
     pub fn start_rename(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if crate::workspace::preview::is_on(cx) {
-            return;
-        }
         let Some(title) = self.row_title(key) else { return };
         self.close_card();
         let field = gpui::AppContext::new(cx, |cx| RenameField::new(&title, window, cx));
