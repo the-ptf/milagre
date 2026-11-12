@@ -151,7 +151,7 @@ running on quit), and the main-process duties Electron had are the Preview's own
 
 | Item | Status | How |
 | --- | --- | --- |
-| Start the daemon | works | `daemon::Start::Installed`; without Milagre.app: "Install Milagre to use this preview" |
+| Start the daemon | works | `daemon::Start::Installed`; without Milagre.app: "Install Milagre to use this preview" (replaced in Round 7 by the bundled daemon) |
 | Notifications, chime, dock badge | works | `notify.rs` (UNUserNotificationCenter in the bundle; settings seeded once from Electron's `preferences.json`) |
 | Settings › Notifications | works | kept in the Preview's `preferences.json` |
 | `milagre://` | works (pairing links only) | `deeplinks.rs`; Electron registers no scheme |
@@ -210,6 +210,45 @@ Remaining gaps:
 - The PR chip has no tooltip of its own (Electron's `title`); the row's hover card lists the PRs instead.
 - `unlock_computers` has not run against the real Keychain item from the Preview (the real vault was already
   unlocked by Electron, so the status read short-circuits it).
+
+## Round 7 (2026-11-12): the Preview's own daemon, on client `a59bbb9d`
+
+Re-pinned to `a59bbb9d5` (`1ed6ff33b` plus `DaemonLaunch::bundle` and the live Keychain check). The Preview now runs on
+a Mac without Milagre.app.
+
+| Item | Status | How |
+| --- | --- | --- |
+| Bundled daemon | works | `scripts/preview-daemon-macos.sh` runs the backend's `bundle-node-daemon.sh` unchanged on a `git archive` of the client commit (never in the backend's checkout) and caches it in `target/preview-daemon/<commit8>-<version>-node<version>/` (284 MB); `bundle-preview-macos.sh` copies it to `Contents/Resources/milagre-daemon` at the installed Milagre.app's version (else `--daemon-version`, else the live crate's) |
+| Which daemon starts | works | `daemon::Start::detect`: Milagre.app when installed (`find_installed_app`, its version matches Electron's), else `Start::Bundled` (`DaemonLaunch::bundle` beside the executable), else `Start::Missing`; one already running is adopted either way, never stopped |
+| Missing or damaged bundle | works | "This Preview's own daemon is missing or damaged, and Milagre isn't installed…"; a bundled start that fails or times out says "This Preview's own daemon didn't start…" with the client's error |
+| Test seams | works | `--no-installed-app` (no Milagre.app lookup), `--daemon-bundle DIR`; never moving `/Applications/Milagre.app` |
+| Signing | works (ad hoc) | `scripts/macos-sign.sh`: every Mach-O and nested bundle (`bin/node`, `pty.node`, `spawn-helper`, agent-desktop and serve-sim helpers, `LiveKitWebRTC.framework`, `ServeSimPasteboard.app`), deepest first, then the app; `codesign --verify --deep --strict` passes. `dist-macos.sh --cert` signs the same way with the hardened runtime and gives Node `packaging/node-entitlements.plist` (JIT, unsigned executable memory, library validation off); not notarized yet |
+| Settings › About | works | the Version row says the Preview runs its own daemon and what it lacks (below) |
+
+Checks (2026-11-12): the start test covers app first, bundled when the app is missing, damaged and absent bundles
+(`tests::daemon::a_window_starts_the_daemon_when_none_runs`). Live, on a throwaway HOME and data folder with the built
+app and `--no-installed-app`: the app started the bundle's own Node in its own session (`bin/node … serve`), adopted
+it once a Project was opened, `tests::bundled` opened a Terminal through `LiveTerminals` and read a command's output
+(node-pty under the bundled Node), Quit left the daemon running (reparented to PID 1), a second launch adopted the same
+PID, and it was stopped by that PID. Against the real profile the built app with no arguments chose Milagre.app's
+daemon and adopted the running one (no start).
+
+Sizes: the app 118 MB without the daemon, 401 MB with it; the ad hoc zip 36 MB before, 138 MB after.
+
+Remaining gaps:
+
+- No `cloudflared`: Milagre.app's `bin/` is not there, so a phone's Cloudflare tunnel (`phone.cjs` named tunnel) and
+  phones' views of this computer's localhost pages (`browser:page-url` quick tunnels) make the daemon download the pinned,
+  checksummed cloudflared from GitHub into `~/.milagre/bin` on first use instead. Neither has a row in the Preview (the
+  Devices page is hidden), so the note sits under Settings › About › Version. The relay (`relay.milagre.cloud`) and
+  computers' links do not use cloudflared.
+- Paired computers: the vault key is Electron's (`safeStorage`); without Milagre.app there is none, so `computers:add`
+  is refused unless the key file is set up with `milagre computers setup-key`. Said in the same About note.
+- The bundle carries x64 and Linux helper binaries the arm64 Preview never runs (node-pty, agent-desktop; about 12 MB),
+  as the backend's script leaves them.
+- `--cert` not run (no Developer ID certificate on this Mac yet) and nothing notarized. The entitlements were checked
+  with an ad hoc hardened-runtime signature: with them the bundled Node opens a node-pty terminal; without them it dies
+  at start. A notary run may still reject `ServeSimPasteboard.app` (an iOS-simulator app inside node_modules).
 
 ## Settings sections (2026-11-12)
 

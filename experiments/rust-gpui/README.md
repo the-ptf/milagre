@@ -101,6 +101,10 @@ scripts/dist-macos.sh --app "/tmp/gpui/Milagre GPUI.app" --out /tmp/gpui-dist   
 scripts/dist-macos.sh --app "/tmp/gpui/Milagre GPUI.app" --out /tmp/gpui-dist --cert ~/Downloads/developerID_application.cer
 ```
 
+The Preview (`scripts/bundle-preview-macos.sh`) carries a Node daemon in `Contents/Resources/milagre-daemon`
+(`scripts/preview-daemon-macos.sh`, cached in `target/preview-daemon/`), so it runs on a Mac without Milagre.app; both
+modes sign it inside out with `scripts/macos-sign.sh`, and `--cert` gives its Node `packaging/node-entitlements.plist`.
+
 - **Ad hoc (default, no `--cert`).** Signs every nested binary and the app with `-s -`, zips with `ditto`, and writes
   `OPEN-ME-FIRST.txt` beside the zip. Gatekeeper blocks it on the other Mac until that Mac runs
   `xattr -dr com.apple.quarantine "/Applications/Milagre GPUI.app"` once (or System Settings > Privacy & Security > Open Anyway).
