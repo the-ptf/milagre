@@ -395,8 +395,13 @@ impl Render for SettingsModal {
         if selected == SelectedSection::Section(SettingsSectionId::Appearance) {
             appearance_view.update(cx, |v, cx| v.set_found(highlighted.as_deref(), cx));
         }
-        let section_body = match accounts::section_body(&selected, highlighted.as_deref(), &self.accounts, &self.usage, cx) {
+        // Preview: the section pages with their own state show fixture values; `render_section_body` decides.
+        let preview = crate::workspace::preview::is_on(cx);
+        let section_body = match accounts::section_body(&selected, highlighted.as_deref(), &self.accounts, &self.usage, cx)
+            .filter(|_| !preview)
+        {
             Some(body) => body,
+            None if preview => render_section_body(&selected, highlighted.as_deref(), &this_mac_name, &computers, &appearance_view, cx),
             None => match devices::section_body(&selected, highlighted.as_deref(), &self.devices, cx)
                 .or_else(|| projects::section_body(&selected, highlighted.as_deref(), &self.project, cx))
                 .or_else(|| keybindings::section_body(&selected, highlighted.as_deref(), &this_mac_name, &computers, &self.keybindings, cx))
@@ -484,6 +489,23 @@ fn render_section_body(
     appearance_view: &Entity<appearance::AppearanceView>,
     cx: &App,
 ) -> AnyElement {
+    // Preview: Appearance (this window's own) and the data layer's read-only accounts; everything else says it is
+    // not available yet rather than show the fixture's values.
+    if crate::workspace::preview::is_on(cx) {
+        return match selected {
+            SelectedSection::Section(SettingsSectionId::Appearance) => appearance_view.clone().into_any_element(),
+            SelectedSection::Section(SettingsSectionId::Accounts) if cx.has_global::<crate::workspace::preview::PreviewAccounts>() => {
+                render_preview_accounts(cx)
+            }
+            SelectedSection::Section(section) => render_unavailable(section.as_str(), section.title(), section.icon(), cx),
+            SelectedSection::Computer { id, name, .. } => {
+                render_unavailable(&format!("computer-{}", group::slug(id)), name, IconName::Computer, cx)
+            }
+            SelectedSection::Project { name, .. } => {
+                render_unavailable(&format!("project-{}", group::slug(name)), name, IconName::Folder01, cx)
+            }
+        };
+    }
     match selected {
         SelectedSection::Section(SettingsSectionId::Appearance) => appearance_view.clone().into_any_element(),
         SelectedSection::Section(SettingsSectionId::General) => general::render_general(highlighted, cx).into_any_element(),
@@ -571,6 +593,85 @@ fn render_placeholder(
                 .child(EmptyState::new().icon(icon).title(format!("{wp}: {pkg_label}")).help(detail)),
         )
         .into_any_element()
+}
+
+/// Preview: a section the data layer does not back.
+fn render_unavailable(slug_id: &str, title: &str, icon: IconName, cx: &App) -> AnyElement {
+    let theme = *cx.theme();
+    let sec_sel = format!("settings-section-{slug_id}");
+    div()
+        .debug_selector(move || sec_sel.clone())
+        .flex()
+        .flex_col()
+        .child(page_header(title.to_owned(), None, cx))
+        .child(
+            div()
+                .debug_selector(|| "settings-unavailable".into())
+                .rounded(RADIUS_CARD)
+                .border_1()
+                .border_color(theme.line)
+                .bg(theme.inset)
+                .py(px(32.0))
+                .child(
+                    EmptyState::new()
+                        .icon(icon)
+                        .title(crate::workspace::preview::UNAVAILABLE)
+                        .help("Change it in Milagre for now: this window shows it once it reads it from Milagre's daemon."),
+                ),
+        )
+        .into_any_element()
+}
+
+/// Preview: the accounts the data layer read (read-only), one row each under its provider.
+fn render_preview_accounts(cx: &App) -> AnyElement {
+    let theme = *cx.theme();
+    let accounts = cx.global::<crate::workspace::preview::PreviewAccounts>().0.clone();
+    let mut body = div().debug_selector(|| "settings-section-accounts".into()).flex().flex_col().gap(px(16.0)).child(page_header(
+        "Accounts".to_owned(),
+        None,
+        cx,
+    ));
+    let mut providers: Vec<&str> = Vec::new();
+    for account in &accounts {
+        if !providers.contains(&account.provider.as_ref()) {
+            providers.push(account.provider.as_ref());
+        }
+    }
+    for provider in providers {
+        let rows = accounts.iter().filter(|a| a.provider.as_ref() == provider).enumerate().map(|(ix, account)| {
+            div()
+                .debug_selector({
+                    let id = format!("preview-account-{provider}-{ix}");
+                    move || id.clone()
+                })
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .px(px(12.0))
+                .py(px(8.0))
+                .when(ix > 0, |el| el.border_t_1().border_color(theme.line))
+                .child(div().flex_1().min_w_0().truncate().text_color(theme.ink).child(account.label.clone()))
+                .when(account.selected, |el| el.child(div().flex_none().text_step(TEXT_12).text_color(theme.ink2).child("In use")))
+                .child(div().flex_none().text_step(TEXT_12).text_color(theme.ink3).child(account.detail.clone()))
+        });
+        body = body.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.0))
+                .child(
+                    div()
+                        .text_step(TEXT_12)
+                        .text_color(theme.ink2)
+                        .child(crate::logic::identity::providers::provider_name(Some(provider)).to_owned()),
+                )
+                .child(div().rounded(RADIUS_CARD).border_1().border_color(theme.line).flex().flex_col().children(rows)),
+        );
+    }
+    body.child(
+        div().text_step(TEXT_12).text_color(theme.ink3).child("Read from Milagre's daemon. Add, switch and sign in from Milagre for now."),
+    )
+    .into_any_element()
 }
 
 type NavData = (String, Vec<(String, String, bool)>, Vec<(String, String)>);

@@ -260,7 +260,45 @@ pub fn chat(value: &Value, path: &str) -> Result<Chat> {
         })
     })?;
     chat.queue_held = o.flag("queueHeld")?;
+    chat.plan = o.child("plan")?.map(plan).transpose()?;
     Ok(chat)
+}
+
+/// `ChatPlan`: its tasks (three levels at most) and its phases, oldest first. Lenient, as a pill must never fail the
+/// whole state: an unknown status reads as pending and an unknown phase is left out.
+fn plan(p: Obj<'_>) -> Result<milagre_gpui_spike::logic::plan::ChatPlan> {
+    use milagre_gpui_spike::logic::plan::{ChatPlan, ChatTask, Phase, PhaseEntry, TaskStatus};
+    fn task(value: &Value, path: &str) -> Result<ChatTask> {
+        let t = obj(value, path)?;
+        let status = match t.opt_str("status")?.as_deref() {
+            Some("in_progress") => TaskStatus::InProgress,
+            Some("completed") => TaskStatus::Completed,
+            _ => TaskStatus::Pending,
+        };
+        Ok(ChatTask {
+            id: t.str("id")?.to_string(),
+            title: t.str("title")?.to_string(),
+            active_form: t.opt_str("activeForm")?.map(|s| s.to_string()),
+            status,
+            children: t.each("children", task)?,
+        })
+    }
+    let phases = p.each("phases", |value, path| {
+        let e = obj(value, path)?;
+        let phase = match e.opt_str("phase")?.as_deref() {
+            Some("start") => Some(Phase::Start),
+            Some("plan") => Some(Phase::Plan),
+            Some("build") => Some(Phase::Build),
+            Some("test") => Some(Phase::Test),
+            Some("review") => Some(Phase::Review),
+            Some("merge") => Some(Phase::Merge),
+            Some("release") => Some(Phase::Release),
+            Some("done") => Some(Phase::Done),
+            _ => None,
+        };
+        Ok(phase.map(|phase| PhaseEntry { phase, at: e.opt_i64("at").ok().flatten().unwrap_or(0) }))
+    })?;
+    Ok(ChatPlan { tasks: p.each("tasks", task)?, phases: phases.into_iter().flatten().collect() })
 }
 
 fn summary(s: Obj<'_>) -> Result<ChatSummary> {

@@ -12,7 +12,13 @@
 //! - `an_unloaded_project_loads_when_opened`: name-only until its row is clicked, then loaded (`load_view`), synced
 //!   again, its Chats listed and its newest one open; `project:known` order unchanged.
 //! - `a_chat_with_no_model_sends_on_the_recommended_one`: the provider's first recommended model from `agent:models`;
-//!   a provider with none refuses with a plain error.
+//!   a provider it lists none for, the maintained list's first model of it (as Electron's `resolveModel`).
+//! - `details_pills_and_a_model_switch`: the Details tab and the pills from the state, `agent:ports` and
+//!   `pull-requests:snapshot`; the chip's label from `agent:models`; a pick on an open Chat sent with its next
+//!   message (another provider: the daemon switches it), kept for that Chat, with the picked effort; Settings with
+//!   Appearance, the daemon's accounts read-only (`accounts:list`) and every other section not available; the PR
+//!   pill's fix sent as `chat:send` with `prAction`.
+//! - `appearance_preferences_round_trip`: the Preview's own `preferences.json` (Settings › Appearance).
 //! - `a_read_only_window_writes_nothing`: the `--snapshot` mode: nothing but adoption, the snapshot and reads; an
 //!   unloaded Project stays name-only even when its row is clicked.
 //! - `the_window_waits_for_milagre_and_follows_a_restart`: "Open Milagre first", then the daemon starts, then it
@@ -210,12 +216,12 @@ fn the_window_runs_chats_on_the_node_daemon(cx: &mut TestAppContext) {
     assert!(m.vcx.debug_bounds("preview-note").is_some(), "Preview mode: Routines, Settings and the rest are off");
     assert!(m.vcx.debug_bounds("bar-routines").is_none(), "no Routines button");
 
-    // 2. The newest Chat opens with its saved transcript, on its own provider and model (locked).
+    // 2. The newest Chat opens with its saved transcript, on its own provider and model (the picker open to change it).
     m.wait_for("the newest Chat's transcript", |m| m.items().len() == 2);
     let newest = m.open_key().expect("a Chat is open");
     assert_eq!(newest, format!("{ALPHA}#2"), "the newest activity across Projects");
     assert_eq!(m.items(), ["user: Second question", "reply: Second answer"]);
-    assert_eq!(m.composer_model(), (Provider::Codex, "gpt-5.5".into(), true));
+    assert_eq!(m.composer_model(), (Provider::Codex, "gpt-5.5".into(), false));
 
     // 3. Another Project's Chat: its transcript is read on that Project's own client; then back to alpha.
     m.open(&format!("{BETA}#1"));
@@ -226,7 +232,12 @@ fn the_window_runs_chats_on_the_node_daemon(cx: &mut TestAppContext) {
 
     // 4. Changes: the daemon's Git reads on a request-only connection that loads the Project first (load_view).
     let panel = m.workspace.read_with(m.vcx, |w, _| w.panel.clone());
-    m.wait_for("the live Changes", |m| panel.read_with(m.vcx, |p, _| p.is_live()));
+    m.wait_for("the live Changes", |m| {
+        panel.read_with(m.vcx, |p, _| {
+            p.visible_tabs()
+                == [milagre_gpui_spike::workspace::panel::PanelTab::Details, milagre_gpui_spike::workspace::panel::PanelTab::Changes]
+        })
+    });
     let git = fake.connections().into_iter().find(|(_, m)| m == "git:diff-files").expect("a Git read").0;
     let on_git: Vec<String> = fake.connections().into_iter().filter(|(c, _)| *c == git).map(|(_, m)| m).collect();
     assert_eq!(on_git.first().map(String::as_str), Some("daemon:status"));
@@ -398,7 +409,18 @@ fn a_read_only_window_writes_nothing(cx: &mut TestAppContext) {
     std::thread::sleep(Duration::from_millis(200));
     m.vcx.run_until_parked();
     let methods = fake.methods();
-    let allowed = ["daemon:status", "project:known", "daemon:snapshot", "daemon:snapshot-page", "chat:messages"];
+    // Reads only: the transcript, and the model lists, ports and PR poll the picker, Details and pills show.
+    let allowed = [
+        "daemon:status",
+        "project:known",
+        "daemon:snapshot",
+        "daemon:snapshot-page",
+        "chat:messages",
+        "agent:models",
+        "agent:ports",
+        "pull-requests:snapshot",
+        "accounts:list",
+    ];
     assert!(methods.iter().all(|m| allowed.contains(&m.as_str())), "read-only reached the daemon with: {methods:?}");
     println!("GPUI_DAEMON_READ_ONLY methods={methods:?} refused={:?}", m.controller.read_with(m.vcx, |c, _| c.refused().to_vec()));
     drop(m);
@@ -506,12 +528,13 @@ fn a_chat_with_no_model_sends_on_the_recommended_one(cx: &mut TestAppContext) {
     let mut m = mount_daemon(cx, session);
     m.wait_for("the newest Chat", |m| m.open_key().as_deref() == Some(format!("{ALPHA}#2").as_str()) && m.items().len() == 2);
 
-    // No recommended Kiro model: a plain error, nothing sent.
-    m.type_and_send("no model to send on");
-    m.wait_for("the refusal", |m| !m.controller.read_with(m.vcx, |c, _| c.errors().is_empty()));
-    let errors = m.controller.update(m.vcx, |c, _| c.take_errors());
-    assert!(errors.iter().any(|e| e.contains("recommends no Kiro model")), "{errors:?}");
-    assert!(sent(&fake).is_empty(), "nothing was sent");
+    // Kiro: the daemon lists none, so the picker keeps the maintained list (`mergeModels`) and the Chat shows and
+    // sends on its provider's first model there (`resolveModel`), as Electron does.
+    m.wait_for("the Kiro chip", |m| m.composer_model().1 == "kiro:auto");
+    m.type_and_send("on kiro's first model");
+    m.wait_for("the Kiro reply", |m| !m.running() && m.items().last().is_some_and(|i| i.starts_with("reply: kiro kiro:auto replied")));
+    let send = sent(&fake).pop().unwrap();
+    assert_eq!((send["provider"].as_str(), send["model"].as_str()), (Some("kiro"), Some("kiro:auto")));
     assert!(fake.methods().iter().any(|m| m == "agent:models"));
 
     // A Claude Chat with no recorded model: Claude's first recommended model.
@@ -531,4 +554,185 @@ fn a_chat_with_no_model_sends_on_the_recommended_one(cx: &mut TestAppContext) {
     drop(m);
     drop(fake);
     let _ = std::fs::remove_dir_all(&data);
+}
+
+#[gpui::test]
+fn details_pills_and_a_model_switch(cx: &mut TestAppContext) {
+    use milagre_gpui_spike::workspace::chat::composer::models;
+    use milagre_gpui_spike::workspace::panel::PanelTab;
+    cx.executor().allow_parking();
+    let data = data_folder("details");
+    let mut world = world();
+    let key = format!("{ALPHA}#2");
+    {
+        let alpha = world.projects.get_mut(ALPHA).unwrap();
+        let chat = alpha.sessions.get_mut(&2).unwrap();
+        chat["provider"] = serde_json::json!("claude");
+        chat["contextUsage"] = serde_json::json!({"used": 50_000, "size": 200_000});
+        chat["backgroundTasks"] =
+            serde_json::json!([{"id":"bg1","kind":"local_bash","title":"npm run dev","startedAt":1_700_000_000_000i64}]);
+        chat["subagents"] = serde_json::json!([
+            {"id":"a1","title":"Map the waits","status":"running","startedAt":1_700_000_000_000i64,"updatedAt":1_700_000_000_000i64,"latestActivity":"Reading","model":"claude-opus-5-5","provider":"claude"},
+            {"id":"a2","title":"Run the check","status":"completed","startedAt":1_700_000_000_000i64,"updatedAt":1_700_000_000_000i64,"endedAt":1_700_000_060_000i64}
+        ]);
+        chat["plan"] = serde_json::json!({"source":"milagre","updatedAt":1,"tasks":[
+            {"id":"1","title":"Reproduce","status":"completed"},
+            {"id":"2","title":"Fix","status":"in_progress","activeForm":"Fixing","children":[{"id":"2.1","title":"Find it","status":"completed"}]}
+        ],"phases":[{"phase":"start","at":1},{"phase":"build","at":2},{"phase":"warp","at":3}]});
+        world.ports = serde_json::json!({ (key.clone()): [{"port":5173,"pid":4121,"command":"vite","address":"127.0.0.1"}] });
+    }
+    // The Chat names PR #12 (conflicts: the pill's fix); the Worktree's branch PR is the same one.
+    let url = "https://github.com/o/alpha/pull/12";
+    let pr = serde_json::json!({"number":12,"title":"Fix","url":url,"state":"OPEN","readyToMerge":false,"hasConflicts":true,"conflictStatusKnown":true});
+    world.prs.insert(ALPHA.into(), serde_json::json!({"worktrees":{(ALPHA):pr},"chats":{(ALPHA):{(url):pr}},"pending":false}));
+    world.projects.get_mut(ALPHA).unwrap().sessions.get_mut(&2).unwrap()["summary"]["pullRequests"] = serde_json::json!([url]);
+    let fake = FakeDaemon::start(&data, world);
+    {
+        // The summary is rebuilt from the messages on every change; keep its PR ref.
+        let mut w = fake.world();
+        w.projects.get_mut(ALPHA).unwrap().sessions.get_mut(&2).unwrap()["summary"]["pullRequests"] = serde_json::json!([url]);
+    }
+    let session = DaemonSession::start(Daemon::new(Some(data.clone()), false));
+    let mut m = mount_daemon(cx, session);
+    m.wait_for("the newest Chat", |m| m.open_key().as_deref() == Some(key.as_str()) && m.items().len() == 2);
+
+    // Details: the panel's Details tab, from the state and the two reads.
+    let panel = m.workspace.read_with(m.vcx, |w, _| w.panel.clone());
+    m.wait_for("live Details with the reads", |m| {
+        panel.read_with(m.vcx, |p, cx| p.visible_tabs().contains(&PanelTab::Details) && !p.details().read(cx).data().ports.is_empty())
+    });
+    let details = panel.read_with(m.vcx, |p, cx| p.details().read(cx).data().clone());
+    assert_eq!(details.branch.as_deref(), Some("alpha"));
+    assert_eq!(details.path.as_deref(), Some(ALPHA));
+    assert_eq!(details.context.as_ref().map(|c| c.percent), Some(25));
+    assert_eq!(details.commands.iter().map(|c| c.title.as_str()).collect::<Vec<_>>(), ["npm run dev"]);
+    assert_eq!(details.ports.iter().map(|p| (p.port, p.command.as_str())).collect::<Vec<_>>(), [(5173, "vite")]);
+    assert_eq!((details.running_agents().count(), details.finished_count()), (1, 1));
+    assert_eq!(details.pr.map(|pr| (pr.number, pr.state)), Some((12, "Open")));
+    assert!(details.links.is_empty() && details.linear.is_none(), "nothing the state does not hold");
+    assert_eq!(panel.read_with(m.vcx, |p, _| p.active()), PanelTab::Details);
+    m.vcx.run_until_parked();
+    assert!(m.vcx.debug_bounds("details-port-4121").is_some(), "the port row is drawn");
+    assert!(m.vcx.debug_bounds("details-stop-port-4121").is_none(), "no stop the window cannot send");
+
+    // Pills: the PR blocker's fix, the plan (an unknown phase left out) and the subagents.
+    let pills = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).pills.clone());
+    let data_now = pills.read_with(m.vcx, |p, _| p.data().clone());
+    assert!(pills.read_with(m.vcx, |p, _| p.is_live()));
+    assert_eq!(data_now.pr_action.as_ref().map(|a| a.label.as_str()), Some("Resolve conflicts"));
+    let plan = data_now.plan.expect("the plan");
+    assert_eq!((plan.tasks.len(), plan.tasks[1].children.len(), plan.phases.len()), (2, 1, 2));
+    assert_eq!(data_now.subagents.iter().map(|a| a.title.as_str()).collect::<Vec<_>>(), ["Map the waits", "Run the check"]);
+    assert!(m.vcx.debug_bounds("slot-pill-subagents").is_some() && m.vcx.debug_bounds("slot-pill-tasks").is_some(), "drawn");
+
+    // The chip: no recorded model, so Claude's recommended one from `agent:models`, by its name; the picker open.
+    m.wait_for("the reported catalog", |m| m.composer_model().1 == "claude-opus-5-5");
+    let composer = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).composer.clone());
+    assert_eq!(composer.read_with(m.vcx, |c, _| c.model_label().to_string()), "Opus 5.5");
+    assert!(!m.composer_model().2, "the picker is open on an existing Chat");
+
+    // A pick on the open Chat: Codex's GPT-6.1-Sol (its reported efforts), sent with the next message.
+    let sol = models::find(Provider::Codex, "gpt-6.1-sol").expect("reported");
+    assert_eq!(sol.efforts, ["low", "medium", "high"], "the daemon's efforts, not the maintained list's");
+    composer.update(m.vcx, |c, cx| c.pick_model(&sol, cx));
+    m.vcx.run_until_parked();
+    m.type_and_send("switch to sol");
+    m.wait_for("the reply on sol", |m| !m.running() && m.items().last().is_some_and(|i| i.starts_with("reply: codex gpt-6.1-sol replied")));
+    let send = sent(&fake).pop().unwrap();
+    assert_eq!(
+        (send["provider"].as_str(), send["model"].as_str(), send["sessionId"].as_u64(), send["effort"].as_str()),
+        (Some("codex"), Some("gpt-6.1-sol"), Some(2), Some("high"))
+    );
+    assert_eq!(fake.world().projects[ALPHA].sessions[&2]["provider"], "codex", "the daemon switched the Chat");
+
+    // The PR pill: Resolve conflicts, sent as Electron's pill sends it (`chat:send` with `prAction`), on the pick.
+    let at = m.vcx.debug_bounds("pill-pr-action").expect("the PR pill").center();
+    m.vcx.simulate_click(at, Modifiers::none());
+    m.wait_for("the PR action's reply", |m| !m.running() && sent(&fake).iter().any(|s| s.get("prAction").is_some()));
+    let action = sent(&fake).into_iter().find(|s| s.get("prAction").is_some()).unwrap();
+    assert_eq!(action["prAction"], serde_json::json!({"action":"conflicts","pr":12,"url":url}));
+    assert_eq!((action["sessionId"].as_u64(), action["model"].as_str()), (Some(2), Some("gpt-6.1-sol")));
+    assert_eq!(action["body"], "Resolve the conflicts on pull request #12");
+
+    // The pick stays with that Chat: away and back, the chip still names it.
+    m.open(&format!("{BETA}#1"));
+    m.wait_for("beta's own model", |m| m.composer_model().1 == "gpt-5.5");
+    m.open(&key);
+    m.wait_for("the picked model again", |m| m.composer_model() == (Provider::Codex, "gpt-6.1-sol".into(), false));
+    assert_eq!(composer.read_with(m.vcx, |c, _| c.model_label().to_string()), "GPT-6.1-Sol");
+
+    // Settings: Appearance (this window's), the accounts read from the daemon (read-only), the rest not available.
+    use milagre_gpui_spike::settings::SettingsSectionId;
+    let settings = m.workspace.read_with(m.vcx, |w, _| w.settings.clone());
+    m.wait_for("the accounts", |m| m.vcx.update(|_, cx| cx.has_global::<milagre_gpui_spike::workspace::preview::PreviewAccounts>()));
+    let accounts = m.vcx.update(|_, cx| cx.global::<milagre_gpui_spike::workspace::preview::PreviewAccounts>().0.clone());
+    assert_eq!(
+        accounts.iter().map(|a| (a.provider.as_ref(), a.label.as_ref(), a.selected)).collect::<Vec<_>>(),
+        [("claude", "Connected CLI account", true), ("claude", "Work", false)],
+        "kiro is not installed"
+    );
+    m.vcx.update(|window, cx| settings.update(cx, |s, cx| s.open_section(SettingsSectionId::Accounts, window, cx)));
+    m.vcx.run_until_parked();
+    assert!(m.vcx.debug_bounds("preview-account-claude-1").is_some(), "the accounts are drawn");
+    m.vcx.update(|_, cx| {
+        settings.update(cx, |s, cx| s.select_section(milagre_gpui_spike::settings::SelectedSection::Section(SettingsSectionId::Mcp), cx))
+    });
+    m.vcx.run_until_parked();
+    assert!(m.vcx.debug_bounds("settings-unavailable").is_some(), "MCP is not available yet");
+    m.vcx.update(|_, cx| {
+        settings
+            .update(cx, |s, cx| s.select_section(milagre_gpui_spike::settings::SelectedSection::Section(SettingsSectionId::Appearance), cx))
+    });
+    m.vcx.run_until_parked();
+    assert!(m.vcx.debug_bounds("settings-unavailable").is_none(), "Appearance is this window's own");
+    m.vcx.update(|window, cx| settings.update(cx, |s, cx| s.close(window, cx)));
+    assert!(!fake.methods().iter().any(|m| m.starts_with("accounts:") && m != "accounts:list"), "Accounts only read");
+
+    let errors = m.controller.read_with(m.vcx, |c, _| c.errors().to_vec());
+    assert!(errors.is_empty(), "{errors:?}");
+    println!("GPUI_DAEMON_DETAILS details={details:?} send={send}");
+    m.controller.update(m.vcx, |c, _| c.disconnect());
+    models::set_reported(None);
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[gpui::test]
+fn appearance_preferences_round_trip(cx: &mut TestAppContext) {
+    use gpui::BorrowAppContext as _;
+    use milagre_gpui_spike::settings::SettingsStore;
+    use milagre_gpui_spike::settings::appearance::ThemePreference;
+    let folder = data_folder("prefs");
+    let path = folder.join(crate::prefs::FILE);
+    cx.update(|cx| {
+        cx.set_global(SettingsStore::default());
+        crate::prefs::install(path.clone(), false, cx);
+    });
+    // A new observer is active from the next update on.
+    cx.update(|cx| {
+        cx.update_global::<SettingsStore, _>(|store, _| {
+            store.appearance.theme = ThemePreference::Dark;
+            store.appearance.options.chat_size = "larger".into();
+            store.appearance.options.chat_width_px = 5000;
+        });
+    });
+    cx.run_until_parked();
+    let saved: Value = serde_json::from_slice(&std::fs::read(&path).expect("saved")).unwrap();
+    assert_eq!((saved["appearance"]["theme"].as_str(), saved["appearance"]["chatSize"].as_str()), (Some("dark"), Some("larger")));
+    // Read back into a fresh store; a read-only window never writes.
+    let mut state = milagre_gpui_spike::settings::appearance::AppearanceState::default();
+    crate::prefs::apply_json(&mut state, &saved);
+    assert_eq!((state.theme, state.options.chat_size.as_str()), (ThemePreference::Dark, "larger"));
+    // A read-only window reads its file and never writes one.
+    let other = folder.join("read-only.json");
+    cx.update(|cx| {
+        crate::prefs::install(other.clone(), true, cx);
+    });
+    cx.update(|cx| {
+        cx.update_global::<SettingsStore, _>(|store, _| store.appearance.theme = ThemePreference::Light);
+    });
+    cx.run_until_parked();
+    assert!(!other.exists(), "nothing written in read-only mode");
+    let _ = std::fs::remove_dir_all(&folder);
 }

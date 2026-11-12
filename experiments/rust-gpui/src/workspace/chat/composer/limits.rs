@@ -43,6 +43,11 @@ impl Composer {
         (self.bar.provider, self.bar.model_id.clone())
     }
 
+    /// The chip's label: the model's name.
+    pub fn model_label(&self) -> gpui::SharedString {
+        self.bar.model_name.clone()
+    }
+
     /// The thinking effort picked for the next send (`None`: the model's default).
     pub fn effort_id(&self) -> Option<&'static str> {
         self.bar.effort_id

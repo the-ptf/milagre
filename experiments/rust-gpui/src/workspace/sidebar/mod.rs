@@ -295,7 +295,7 @@ impl Sidebar {
                 .text_color(theme.ink3)
                 .child(div().text_color(theme.ink2).child(format!("Preview \u{b7} {} \u{b7} {}", preview.account, preview.model)))
                 .child(format!(
-                    "Panels other than Changes, Settings, Routines, usage, Pin and Delete: {}",
+                    "Panels other than Details and Changes, Settings other than Appearance and Accounts, Routines, usage, Pin and Delete: {}",
                     crate::workspace::preview::UNAVAILABLE.to_lowercase()
                 ))
                 .children(

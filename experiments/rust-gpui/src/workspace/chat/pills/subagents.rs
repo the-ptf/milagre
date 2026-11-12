@@ -161,7 +161,7 @@ impl PillRow {
                 .collect::<Vec<_>>()
                 .join(" \u{b7} ")
         };
-        let rows: Vec<AnyElement> = list.rows.iter().map(|agent| agent_row(agent, now, archived_view, &theme, cx)).collect();
+        let rows: Vec<AnyElement> = list.rows.iter().map(|agent| agent_row(agent, now, archived_view, !self.live, &theme, cx)).collect();
         let empty = rows.is_empty();
         let can_archive = self.data.subagents.iter().any(|agent| agent.status.finished() && !agent.archived);
         div()
@@ -195,14 +195,16 @@ impl PillRow {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(
-                            Button::new("subagent-archive-finished", "Archive finished")
-                                .icon(IconName::Archive02)
-                                .variant(ButtonVariant::Quiet)
-                                .size(ButtonSize::S24)
-                                .disabled(!can_archive)
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.archive_finished(cx))),
-                        )
+                        .when(!self.live, |el| {
+                            el.child(
+                                Button::new("subagent-archive-finished", "Archive finished")
+                                    .icon(IconName::Archive02)
+                                    .variant(ButtonVariant::Quiet)
+                                    .size(ButtonSize::S24)
+                                    .disabled(!can_archive)
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.archive_finished(cx))),
+                            )
+                        })
                         .when(list.archived > 0, |el| {
                             el.child(
                                 Button::new("subagent-archived-toggle", format!("Archived ({})", list.archived))
@@ -588,7 +590,7 @@ fn tool_chip_row(counts: &crate::logic::activity::subagent_glance::ToolCounts, t
         .into_any_element()
 }
 
-fn agent_row(agent: &Subagent, now: i64, archived_view: bool, theme: &Theme, cx: &mut Context<PillRow>) -> AnyElement {
+fn agent_row(agent: &Subagent, now: i64, archived_view: bool, can_archive: bool, theme: &Theme, cx: &mut Context<PillRow>) -> AnyElement {
     let theme = *theme;
     let id = agent.id.clone();
     let open_id = id.clone();
@@ -659,12 +661,14 @@ fn agent_row(agent: &Subagent, now: i64, archived_view: bool, theme: &Theme, cx:
                         .when(!meta.is_empty(), |el| el.child(div().truncate().text_step(TEXT_11).text_color(theme.ink3).child(meta))),
                 ),
         )
-        .child(
-            div().flex_none().pt(px(6.0)).opacity(0.0).group_hover("subagent-row", |style| style.opacity(1.0)).child(
-                IconButton::new(ElementId::from(SharedString::from(format!("subagent-archive-{}", agent.id))), IconName::Archive02)
-                    .size(IconButtonSize::S24)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.archive_agent(&archive_id, !archived_view, cx))),
-            ),
-        )
+        .when(can_archive, |el| {
+            el.child(
+                div().flex_none().pt(px(6.0)).opacity(0.0).group_hover("subagent-row", |style| style.opacity(1.0)).child(
+                    IconButton::new(ElementId::from(SharedString::from(format!("subagent-archive-{}", agent.id))), IconName::Archive02)
+                        .size(IconButtonSize::S24)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.archive_agent(&archive_id, !archived_view, cx))),
+                ),
+            )
+        })
         .into_any_element()
 }

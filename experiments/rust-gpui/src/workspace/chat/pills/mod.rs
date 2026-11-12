@@ -110,6 +110,9 @@ pub struct PillRow {
     scroll: ScrollHandle,
     /// Snapshot seed (`MILAGRE_GPUI_PILLS_OPEN`): a panel is open from the first frame.
     window: (f32, f32),
+    /// A data layer feeds the row ([`Self::set_live`]): no fixture pills, and no Archive (it would change nothing the
+    /// host keeps).
+    live: bool,
 }
 
 impl PillRow {
@@ -129,6 +132,7 @@ impl PillRow {
             return_focus: None,
             scroll: ScrollHandle::new(),
             window: (1440.0, 900.0),
+            live: false,
         };
         if let Some(kind) = std::env::var("MILAGRE_GPUI_PILLS_OPEN").ok().and_then(|name| match name.as_str() {
             "tasks" => Some(Kind::Tasks),
@@ -146,7 +150,8 @@ impl PillRow {
         // The first Chat named keeps a snapshot seed's open panel.
         let first = self.key.is_empty();
         self.key = key.to_string().into();
-        self.data = data::pills_for(key, title);
+        // Live: empty until the data layer sends this Chat's pills.
+        self.data = if self.live { PillsData::default() } else { data::pills_for(key, title) };
         if !first {
             self.open = None;
             self.selected_agent = None;
@@ -154,6 +159,26 @@ impl PillRow {
         self.morph = None;
         self.folded.clear();
         cx.notify();
+    }
+
+    /// A data layer's pills for the Chat `key` (its own state): only what it sends shows. The same Chat keeps its
+    /// open panel and picks; another one starts closed.
+    pub fn set_live(&mut self, key: &str, data: PillsData, cx: &mut Context<Self>) {
+        self.live = true;
+        if self.key.as_ref() != key {
+            self.key = key.to_string().into();
+            self.open = None;
+            self.selected_agent = None;
+            self.morph = None;
+            self.folded.clear();
+        }
+        self.data = data;
+        cx.notify();
+    }
+
+    /// Whether a data layer feeds the row.
+    pub fn is_live(&self) -> bool {
+        self.live
     }
 
     pub fn open_kind(&self) -> Option<Kind> {

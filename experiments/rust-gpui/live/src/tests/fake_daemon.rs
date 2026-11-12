@@ -37,6 +37,9 @@ const METHODS: &[&str] = &[
     "chat:send",
     "chat:send-status",
     "agent:models",
+    "agent:ports",
+    "pull-requests:snapshot",
+    "accounts:list",
     "agent:interrupt",
     "agent:respond-permission",
     "agent:answer-question",
@@ -86,6 +89,10 @@ pub struct World {
     next_connection: u64,
     /// `agent:models`' answer.
     pub models: Value,
+    /// `agent:ports`' answer (every Chat's ports by Chat key).
+    pub ports: Value,
+    /// `pull-requests:snapshot`'s answer, by Project path.
+    pub prs: BTreeMap<String, Value>,
     /// Pending turns by Chat key: what finishes them.
     pending: BTreeMap<String, Pending>,
     terminals: BTreeMap<String, String>,
@@ -111,7 +118,7 @@ impl World {
             next_message: 100,
             models: json!({
                 "claude": [{"id":"claude-opus-5-5","name":"Opus 5.5","recommended":true},{"id":"claude-sonnet-5","recommended":true}],
-                "codex": [{"id":"gpt-5.5","recommended":false},{"id":"gpt-6.1-sol","recommended":true}],
+                "codex": [{"id":"gpt-5.5","recommended":false},{"id":"gpt-6.1-sol","name":"GPT-6.1-Sol","recommended":true,"efforts":["low","medium","high"]}],
                 "antigravity": [],
                 "kiro": null,
             }),
@@ -152,7 +159,7 @@ impl World {
             "count": messages.len(),
             "lastAt": at,
             "firstAt": at,
-            "lastModel": "gpt-5.5",
+            "lastModel": messages.iter().rev().find_map(|m| m["model"].as_str()).unwrap_or("gpt-5.5"),
             "titleLine": messages.first().map(|m| m["body"].clone()).unwrap_or(Value::Null),
         });
     }
@@ -205,7 +212,8 @@ impl World {
     fn finish(&mut self, key: &str, reply: &str, outcome: &str) {
         let (path, id) = Self::split(key);
         self.next_message += 1;
-        let message = json!({"id":self.next_message,"session_id":id,"body":reply,"role":"assistant","model":"gpt-5.5","outcome":outcome});
+        let model = self.runs.get(key).and_then(|run| run["model"].as_str()).unwrap_or("gpt-5.5").to_owned();
+        let message = json!({"id":self.next_message,"session_id":id,"body":reply,"role":"assistant","model":model,"outcome":outcome});
         self.projects.get_mut(&path).unwrap().messages.entry(id).or_default().push(message);
         self.summarize(&path, id);
         self.pending.remove(key);
@@ -222,7 +230,11 @@ impl World {
         let provider = request["provider"].as_str().ok_or("provider")?.to_owned();
         let project = self.projects.get_mut(&path).ok_or("Open this project in Milagre first.")?;
         let id = match request["sessionId"].as_u64() {
-            Some(id) if project.sessions.contains_key(&id) => id,
+            Some(id) if project.sessions.contains_key(&id) => {
+                // Another provider: the daemon switches the Chat (or hands it off) on this send.
+                project.sessions.get_mut(&id).unwrap()["provider"] = json!(provider);
+                id
+            }
             Some(_) => return Err("No such Chat".into()),
             None => {
                 let id = project.sessions.keys().max().copied().unwrap_or(0) + 1;
@@ -293,6 +305,22 @@ impl World {
                 }
                 self.models.clone()
             }
+            "agent:ports" => {
+                if self.ports.is_null() {
+                    json!({})
+                } else {
+                    self.ports.clone()
+                }
+            }
+            "pull-requests:snapshot" => {
+                let path = arg.as_str().ok_or("path")?;
+                self.prs.get(path).cloned().unwrap_or_else(|| json!({"worktrees":{},"chats":{},"pending":false}))
+            }
+            "accounts:list" => json!({"providers":[
+                {"provider":"claude","selectedId":"default","installed":true,"accounts":[
+                    {"id":"default","provider":"claude","label":"Connected CLI account","state":"ready","email":"me@example.com","plan":"Max"},
+                    {"id":"work","provider":"claude","label":"Work","state":"signed-out"}]},
+                {"provider":"kiro","selectedId":"default","installed":false,"accounts":[]}]}),
             "chat:runs" => json!({"runs":self.runs,"seq":self.runs_seq}),
             "chat:messages" => {
                 let (path, id) = (arg.as_str().ok_or("scope")?, args[1].as_u64().ok_or("chat")?);

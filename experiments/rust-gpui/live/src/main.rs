@@ -219,6 +219,8 @@ fn run_daemon_app(session: DaemonSession, snapshot: Option<PathBuf>) {
     });
     gpui_platform::application().with_assets(milagre_gpui_spike::assets::Assets).run(move |cx: &mut App| {
         milagre_gpui_spike::app::init(cx);
+        // Settings › Appearance is this window's own: read back, and saved unless read-only.
+        milagre_gpui_live::prefs::install(milagre_gpui_live::prefs::default_path(), session.daemon.read_only(), cx);
         let mut wiring = install_daemon_globals(&session, cx);
         wiring.preloaded = preloaded;
         if snapshot.is_some() {

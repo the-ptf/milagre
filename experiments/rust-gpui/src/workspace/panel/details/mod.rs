@@ -90,6 +90,9 @@ pub struct DetailsView {
     scroll: ScrollHandle,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
     renders: usize,
+    /// A data layer feeds the rows ([`Self::set_live`]): nothing is read from the fixture, and the buttons that only
+    /// record a request (stop, Compact, Finder, editor) are not drawn.
+    live: bool,
 }
 
 impl DetailsView {
@@ -116,7 +119,37 @@ impl DetailsView {
             copied_text: None,
             scroll: ScrollHandle::new(),
             renders: 0,
+            live: false,
         }
+    }
+
+    /// A data layer's rows for the Chat `key`, built from its own state; the Subchats come from the data source. The
+    /// sections keep their folds when it is the same Chat (the data layer sends again as its state changes).
+    pub fn set_live(&mut self, key: impl Into<SharedString>, data: DetailsData, cx: &mut Context<Self>) {
+        let key = key.into();
+        if key != self.key {
+            self.context_open = false;
+            self.finished_open = false;
+            self.copied = false;
+            self.copy_timer = None;
+        }
+        self.live = true;
+        self.key = key;
+        self.pr = data.pr.map(|pr| pr.number);
+        if self.data == data && self.chats_pushed {
+            return;
+        }
+        self.data = data;
+        if !self.chats_pushed {
+            self.chats = self.source.as_ref().map(|source| family::from_source(source, &self.key)).unwrap_or_default();
+        }
+        self.family = family::family(&self.chats, &self.key);
+        cx.notify();
+    }
+
+    /// Whether a data layer feeds the rows.
+    pub fn is_live(&self) -> bool {
+        self.live
     }
 
     /// Follows the Chat: its rows, with the sections folded again. `pr` is the number the PR tab shows; `seeded` is

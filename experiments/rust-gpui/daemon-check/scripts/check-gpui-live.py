@@ -6,8 +6,8 @@
     python3 scripts/check-gpui-live.py run --backend <backend worktree>
 
 `export` writes `git archive <CLIENT_COMMIT> experiments/rust-daemon-client` into the GPUI crate's ignored
-target/daemon-client-3363d5b4/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
-(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-3363d5b4/,
+target/daemon-client-dd499372/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
+(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-dd499372/,
 checking every exported file against the commit's blobs. The app-fixture adapter keeps its own client at 9aa5deb3
 (scripts/check-gpui-adapter.py); nothing here touches that export or its pins.
 
@@ -37,16 +37,16 @@ import tempfile
 CRATE = Path(__file__).resolve().parents[1]
 GPUI = CRATE.parent
 LIVE = GPUI / "live"
-# 3363d5b4 = 5341ec75 (f946e184 plus the off-by-default `installed-owner` feature, the installed Node daemon) plus
-# `load_view`, `Notifications::discard` and `InstalledProject::models`; the owned path is unchanged, so the runtimes
-# agreed for f946e184 still apply.
-CLIENT_COMMIT = "3363d5b4ad05f0dbc9f2eae5cf1405e6c0859958"
-CLIENT_TREE = "7fb74d15f3f1375716f83140a5d13c4d16575e2a"
+# dd499372 = 3363d5b4 (5341ec75 plus `load_view`, `Notifications::discard` and `InstalledProject::models`) plus
+# `InstalledProject::call` (Electron's renderer commands over the installed daemon); 5341ec75 is f946e184 plus the
+# off-by-default `installed-owner` feature. The owned path is unchanged, so the runtimes agreed for f946e184 still apply.
+CLIENT_COMMIT = "dd4993725ed3d0d6da3661d4478eda71495d28e9"
+CLIENT_TREE = "6bcc9a5ff26c668281395920237c18b213092f99"
 CLIENT_PATH = "experiments/rust-daemon-client"
-EXPORT = GPUI / "target/daemon-client-3363d5b4"
+EXPORT = GPUI / "target/daemon-client-dd499372"
 FAKE_PATH = "experiments/rust-claude/src/bin/fake_claude.rs"
 FAKE_BLOB = "7508b11e3e7245fcadd4d596f995f2f4289d800f"
-FAKE_CRATE = CRATE / "target/fake-claude-3363d5b4"
+FAKE_CRATE = CRATE / "target/fake-claude-dd499372"
 # The agreed dedicated runtimes, newest first: 30bdfd09 (backend's signed runtime for client f946e184: typed Git
 # reads and local PR diffs), 6054d7d6 (backend's signed runtime for client 1b180e46: Chat metadata
 # patch for rename, Done and Reopen), 862f4cd2 (backend's signed "Milagre Rust Preview" runtime for client

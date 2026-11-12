@@ -164,6 +164,19 @@ impl Daemon {
         Ok(Lease { client, short: true })
     }
 
+    /// One of [`READS`] (Electron's window's own reads, through the client's `InstalledProject::call`) on a short
+    /// request-only connection of `project`, closed after. Loads nothing, writes nothing, so it is allowed in
+    /// read-only mode too; anything outside [`READS`] is refused here.
+    pub async fn read(&self, project: &str, method: &str, args: serde_json::Value) -> Result<serde_json::Value> {
+        if !READS.contains(&method) {
+            return Err(anyhow!("{method} is not one of the Preview's reads"));
+        }
+        let (client, installed) = self.request_only(project).await?;
+        let result = installed.call(&client, method, args).await.with_context(|| format!("{method} for {project}"));
+        client.disconnect();
+        result
+    }
+
     /// A request-only connection of `project` with the Project loaded (`load_view`, never `project:open`), closed
     /// when dropped: the writes', Git reads' and a Terminal's.
     pub async fn writer(&self, project: &str) -> Result<Writer> {
@@ -259,6 +272,9 @@ impl Daemon {
     }
 }
 
+/// The commands [`Daemon::read`] sends: each only reads (the Node daemon's handlers in `packages/core/src/runtime.cjs`).
+pub const READS: &[&str] = &["agent:models", "agent:ports", "pull-requests:snapshot", "accounts:list"];
+
 /// The Project whose state is largest in a snapshot body (serialized size).
 fn largest(body: &serde_json::Value) -> Option<String> {
     body["projects"]
@@ -305,6 +321,12 @@ impl Writer {
 
     pub fn terminals(&self) -> Result<TerminalActions> {
         self.installed.terminal_actions(&self.client).context("terminal actions")
+    }
+
+    /// A command Electron's window sends (`InstalledProject::call`), on this loaded Project's connection: the PR
+    /// pill's `chat:send` with its `prAction`, which the daemon checks and words itself.
+    pub async fn call(&self, method: &str, args: serde_json::Value) -> Result<serde_json::Value> {
+        self.installed.call(&self.client, method, args).await.with_context(|| method.to_owned())
     }
 
     /// The first recommended model of `provider` in the daemon's catalog for this Project (`agent:models`), for a

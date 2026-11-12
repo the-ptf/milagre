@@ -6,6 +6,9 @@
 //! buttons), Settings and the notices are not shown; the sidebar's menus keep Mark as unread, Rename, Done and Reopen (the writes the runtime takes)
 //! while Pin, Delete and drag do nothing; the usage block gives way to a line naming the fixed account and model and what is not available; the Terminal
 //! drawer is labelled as this computer's local shell unless the data layer hosts its terminals. The fixture app never sets it.
+//! Settings opens with Appearance (this window's own) and, once the data layer reads them, the accounts
+//! ([`PreviewAccounts`], read-only); every other section says it is not available yet. The panel shows Details and
+//! the pill row only once the data layer feeds them (`Panel::set_live_details`, `PillRow::set_live`).
 
 use gpui::{App, Global, SharedString};
 
@@ -27,6 +30,24 @@ pub struct PreviewMode {
 }
 
 impl Global for PreviewMode {}
+
+/// One account a data layer read for Settings › Accounts (read-only in preview).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreviewAccount {
+    /// `claude`, `codex`, `antigravity` or `kiro`.
+    pub provider: SharedString,
+    pub label: SharedString,
+    /// Its email, plan or state.
+    pub detail: SharedString,
+    /// The account the computer uses for that provider.
+    pub selected: bool,
+}
+
+/// The accounts a data layer read; without it, Settings › Accounts says it is not available.
+#[derive(Clone, Debug, Default)]
+pub struct PreviewAccounts(pub Vec<PreviewAccount>);
+
+impl Global for PreviewAccounts {}
 
 pub fn is_on(cx: &App) -> bool {
     cx.has_global::<PreviewMode>()

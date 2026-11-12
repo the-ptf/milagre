@@ -301,10 +301,8 @@ impl Render for Workspace {
             .id("workspace")
             .track_focus(&self.focus)
             .on_action(move |_: &ToggleSettings, window, cx| {
-                // Preview: Settings would show the fixture's values; it stays closed.
-                if !preview::is_on(cx) {
-                    settings.update(cx, |modal, cx| modal.toggle(window, cx));
-                }
+                // Preview: Settings opens; its sections other than Appearance say what is not available yet.
+                settings.update(cx, |modal, cx| modal.toggle(window, cx));
             })
             .on_action(cx.listener(|this, _: &TogglePalette, window, cx| this.toggle_palette(window, cx)))
             .on_action(cx.listener(|this, _: &OpenGitActions, window, cx| this.open_git_actions(window, cx)))

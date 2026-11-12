@@ -87,6 +87,15 @@ pub fn wire_mode(mode: PermissionMode) -> WireMode {
     }
 }
 
+/// The wire name of a permission mode (`chat:send`'s `permissionMode`).
+pub fn wire_name(mode: PermissionMode) -> &'static str {
+    match mode {
+        PermissionMode::Ask => "ask",
+        PermissionMode::Auto => "auto",
+        PermissionMode::Full => "full",
+    }
+}
+
 /// The composer's side, read when it calls.
 #[derive(Clone)]
 pub struct SinkState {

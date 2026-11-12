@@ -153,8 +153,13 @@ pub struct Panel {
     header_trailing: gpui::Pixels,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
     renders: usize,
-    /// A data layer feeds the Changes tab (`set_live_changes`): it is the only tab, and no fixture content shows.
+    /// A data layer feeds the panel (`set_live_changes`, `set_live_details`): only the tabs it feeds show, and no
+    /// fixture content.
     live: bool,
+    /// The data layer feeds the Details tab (`set_live_details`).
+    live_details: bool,
+    /// The data layer feeds the Changes tab (`set_live_changes`), and for which Chat it last did.
+    live_changes: Option<SharedString>,
 }
 
 impl Panel {
@@ -214,6 +219,8 @@ impl Panel {
             header_trailing: px(0.0),
             renders: 0,
             live: false,
+            live_details: false,
+            live_changes: None,
         };
         panel.load_simulator(cx);
         panel.load_details(cx);
@@ -317,24 +324,56 @@ impl Panel {
     /// The tabs the Chat on screen has, in order.
     pub fn visible_tabs(&self) -> Vec<PanelTab> {
         if self.live {
-            return vec![PanelTab::Changes];
+            let details = self.live_details.then_some(PanelTab::Details);
+            return details.into_iter().chain(self.live_changes.is_some().then_some(PanelTab::Changes)).collect();
         }
         PanelTab::SHOWN.into_iter().filter(|tab| self.content.has(*tab)).collect()
     }
 
-    /// A data layer's Changes for `chat` (its Git reads): the panel shows that Chat's Changes and nothing else from
-    /// then on. Another Chat starts its view state afresh; the same Chat keeps its picks and folds.
+    /// A data layer's Changes for `chat` (its Git reads): the panel shows that Chat's Changes and no fixture tab from
+    /// then on. Another Chat starts its view state afresh; the same Chat keeps its picks and folds. Without live
+    /// Details, Changes is the only tab and the panel follows `chat`; with them, the panel stays on the Chat the
+    /// Details show and these Changes are its Project's.
     pub fn set_live_changes(&mut self, chat: SharedString, data: changes::data::ChangesData, cx: &mut Context<Self>) {
-        let switched = !self.live || self.chat != chat;
+        let switched = self.live_changes.as_ref() != Some(&chat);
+        let first = self.live_changes.is_none();
         self.live = true;
-        self.chat = chat.clone();
+        self.live_changes = Some(chat.clone());
         self.content = fixture::ChatContent { changes: data.clone(), designs: false, artifacts: false, pr: None, simulator: false };
-        self.state_mut().tab = PanelTab::Changes;
+        if !self.live_details {
+            let moved = self.chat != chat;
+            self.chat = chat.clone();
+            self.state_mut().tab = PanelTab::Changes;
+            if moved && !switched {
+                self.relayout(cx);
+            }
+        }
         if switched {
             self.changes.update(cx, |changes, cx| changes.set_chat(chat, data, cx));
             self.relayout(cx);
         } else {
             self.changes.update(cx, |changes, cx| changes.set_data(data, cx));
+            if first {
+                self.relayout(cx);
+            }
+            cx.notify();
+        }
+    }
+
+    /// A data layer's Details for `chat` (`DetailsData` it built from its own state): the panel follows `chat`, shows
+    /// its Details tab (and Changes once fed) and no fixture tab. Read again by the data layer as its state changes.
+    pub fn set_live_details(&mut self, chat: SharedString, data: details::data::DetailsData, cx: &mut Context<Self>) {
+        let switched = !self.live_details || self.chat != chat;
+        self.live = true;
+        self.live_details = true;
+        self.chat = chat.clone();
+        if !self.visible_tabs().contains(&self.state().tab) {
+            self.state_mut().tab = PanelTab::Details;
+        }
+        self.details.update(cx, |details, cx| details.set_live(chat, data, cx));
+        if switched {
+            self.relayout(cx);
+        } else {
             cx.notify();
         }
     }

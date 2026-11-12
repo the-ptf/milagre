@@ -130,6 +130,10 @@ fn state_mark(theme: &Theme, key: &str, kind: SubchatKind) -> AnyElement {
 
 impl DetailsView {
     fn stop_button(&self, id: String, request: Request, cx: &mut Context<Self>) -> AnyElement {
+        // Live: no stop the data layer sends yet.
+        if self.is_live() {
+            return div().into_any_element();
+        }
         div()
             .id(SharedString::from(format!("{id}-tip")))
             .flex_none()
@@ -187,7 +191,9 @@ impl DetailsView {
                 .on_click(on(cx, |this, cx| this.copy_path(cx)))
                 .child(glyph(theme, IconName::Folder01))
                 .child(div().flex_1().min_w_0().truncate().child(label));
-            let right: Vec<AnyElement> = if copied {
+            let right: Vec<AnyElement> = if self.is_live() && !copied {
+                Vec::new()
+            } else if copied {
                 vec![div().flex_none().pr(px(PAD_X)).text_step(TEXT_12).text_color(theme.green_ink).child("Copied").into_any_element()]
             } else {
                 let (editor_name, editor_tip) = self.editor(cx);
@@ -266,7 +272,7 @@ impl DetailsView {
                 .pb(px(8.0))
                 .child(div().text_step(TEXT_12).text_color(theme.ink2).child(context.tokens.clone()))
                 .child(bar_at(theme, context.percent, CONTEXT_BAR));
-            if context.claude {
+            if context.claude && !self.is_live() {
                 body = body.child(
                     div()
                         .id("details-compact")

@@ -247,6 +247,8 @@ pub struct Chat {
     pub parent: Option<ChatId>,
     pub queued: Vec<QueuedMessage>,
     pub queue_held: bool,
+    /// `plan`: the Chat's task list and phase history (the Tasks pill), set by the agent's tasks and phase tools.
+    pub plan: Option<crate::logic::plan::ChatPlan>,
 }
 
 impl Chat {
@@ -283,6 +285,7 @@ impl Chat {
             parent: None,
             queued: Vec::new(),
             queue_held: false,
+            plan: None,
         }
     }
 

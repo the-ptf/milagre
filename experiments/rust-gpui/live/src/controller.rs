@@ -9,8 +9,13 @@
 //!   receipts kept), interrupt, respond to a permission (Allow once, Always allow in this Chat → `AllowForChat`, Deny),
 //!   answer a question, set the permission mode, send or remove a queued message, mark unread.
 //! - A new Project Chat is made by its first send from the empty new-Chat screen; the Chat its receipt names opens.
-//! - Not available here, so off or refused: attachments, steering (follow-ups queue), compact, switching models,
-//!   Worktree and computer creation (the sidebar records those calls and sends nothing).
+//! - Not available here, so off or refused: attachments, steering (follow-ups queue), compact, Worktree and computer
+//!   creation (the sidebar records those calls and sends nothing). On the owned runtime the model is fixed too.
+//! - Milagre's daemon: the composer's picker lists the daemon's models (`agent:models`) and an open Chat's chip shows
+//!   the model its next send names (picked here, else its last one, else its provider's recommended one); a pick on
+//!   an open Chat sticks to it and goes with its next send, which switches or hands off as Electron's picker does.
+//!   The side panel's Details tab and the pill row over the composer are built from the reducer's state plus the
+//!   daemon's ports and PR poll ([`crate::panels`]).
 //!
 //! Two backends ([`Backend`]): the owned runtime (one Project, one connection, its model fixed) and Milagre's running
 //! Node daemon ([`crate::daemon`], the Preview's default): every Project the daemon has loaded, each Chat on its own
@@ -21,7 +26,7 @@
 //! loaded are listed by name; opening one loads it and syncs again. In read-only mode (`--snapshot`) every write, and
 //! every load, is refused here, before it reaches a connection.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -323,6 +328,17 @@ pub struct LiveController {
     /// The Project last loaded from its name-only row: its newest Chat opens once it is listed.
     open_loaded: Option<String>,
     preloaded: Option<(String, milagre_gpui_spike::data::MessagePage)>,
+    /// Milagre's daemon: a model picked for an open Chat (by Chat key), sent with its next message.
+    picked: HashMap<String, (Provider, String)>,
+    /// Milagre's daemon: each Project's `agent:models`, its `pull-requests:snapshot`, and every Chat's ports.
+    catalogs: HashMap<String, Value>,
+    prs: HashMap<String, Value>,
+    ports: Value,
+    /// The Project whose catalog the picker shows now.
+    catalog_project: Option<String>,
+    /// Projects whose reads are in flight, and when each was last read.
+    reading_extras: HashSet<String>,
+    extras_at: HashMap<String, std::time::Instant>,
     _subscriptions: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
 }
@@ -375,7 +391,7 @@ impl LiveController {
         let Wiring { commands, receiver, preloaded, .. } = wiring;
         let sink = SinkState::default();
         let (chat, sidebar) = workspace.read_with(cx, |w, _| (w.chat.clone(), w.sidebar.clone()));
-        let (composer, transcript) = chat.read_with(cx, |c, _| (c.composer.clone(), c.transcript.clone()));
+        let (composer, transcript, pills) = chat.read_with(cx, |c, _| (c.composer.clone(), c.transcript.clone(), c.pills.clone()));
         composer.update(cx, |composer, cx| {
             composer.set_sink(Some(Rc::new(LiveSink { state: sink.clone(), commands: commands.clone() })));
             match &fixed_model {
@@ -413,6 +429,12 @@ impl LiveController {
                 }),
                 cx.observe(&composer, |this: &mut Self, composer, cx| this.follow_composer(&composer, cx)),
                 cx.subscribe(&transcript, |this: &mut Self, _, decision: &CardDecision, cx| this.decide(decision, cx)),
+                // The PR pill: the blocker's fix, sent as Electron's pill sends it.
+                cx.subscribe(&pills, |this: &mut Self, _, event: &milagre_gpui_spike::workspace::chat::pills::PillEvent, cx| {
+                    if *event == milagre_gpui_spike::workspace::chat::pills::PillEvent::PullRequestAction {
+                        this.run_pr_action(cx);
+                    }
+                }),
                 // A Project listed by name only was opened: Milagre's daemon loads it.
                 cx.subscribe(&sidebar, |this: &mut Self, _, event: &SidebarEvent, cx| {
                     if let SidebarEvent::OpenProject(path) = event {
@@ -512,11 +534,19 @@ impl LiveController {
                 loading: HashSet::new(),
                 open_loaded: None,
                 preloaded,
+                picked: HashMap::new(),
+                catalogs: HashMap::new(),
+                prs: HashMap::new(),
+                ports: Value::Null,
+                catalog_project: None,
+                reading_extras: HashSet::new(),
+                extras_at: HashMap::new(),
                 _subscriptions: subscriptions,
                 _tasks: vec![pump, follow, run],
             };
             this.follow_chat(cx);
             this.sync_unloaded(cx);
+            this.read_accounts(cx);
             this
         })
     }
@@ -547,7 +577,25 @@ impl LiveController {
             self.load(cx);
         }
         self.on_store_changed(cx);
+        self.read_accounts(cx);
         cx.notify();
+    }
+
+    /// Milagre's daemon: Settings › Accounts, read once per sync (`accounts:list [false]`, no refresh) on the live
+    /// Project's request-only connection; read-only there.
+    fn read_accounts(&mut self, cx: &mut Context<Self>) {
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        let Some((project, _)) = daemon.primary() else { return };
+        let daemon = daemon.clone();
+        let read = off_thread(move || futures::executor::block_on(daemon.read(&project, "accounts:list", serde_json::json!([false]))));
+        cx.spawn(async move |this, cx| {
+            let Ok(read) = read.await else { return };
+            let _ = this.update(cx, |this, cx| match read {
+                Ok(list) => cx.set_global(milagre_gpui_spike::workspace::preview::PreviewAccounts(crate::panels::accounts(&list))),
+                Err(error) => this.error(format!("Couldn't read the accounts: {error:#}")),
+            });
+        })
+        .detach();
     }
 
     /// No daemon (or no sync): the sidebar says so and the composer cannot send; `None` clears it.
@@ -729,6 +777,11 @@ impl LiveController {
         if key.as_deref() == self.open_key() {
             return;
         }
+        if let Some(at) = &at
+            && !new_chat
+        {
+            self.read_extras(at.project.clone(), false, cx);
+        }
         self.open = key.zip(at).map(|(key, at)| OpenChat { key, project: at.project, id: at.id, ..OpenChat::default() });
         if self.open.is_some() {
             self.load(cx);
@@ -741,20 +794,22 @@ impl LiveController {
                 Backend::Daemon(_) => {}
             }
         }
+        self.refresh_panels(cx);
     }
 
-    /// Milagre's daemon: the composer shows the open Chat's own provider, model and permission mode (locked: a send
-    /// keeps them), or on the new-Chat screen the picker's choice (unlocked).
+    /// Milagre's daemon: the composer shows the open Chat's own provider and permission mode and the model its next
+    /// send names ([`crate::panels::model_for_chat`]: picked here, else its last, else its provider's recommended);
+    /// on the new-Chat screen, the picker's choice. The picker stays open: a pick on an open Chat is kept for it.
     fn follow_model(&mut self, new_chat: bool, at: Option<&ChatRef>, cx: &mut Context<Self>) {
         let composer = self.workspace.read(cx).chat.read(cx).composer.clone();
+        composer.update(cx, |c, cx| c.set_limits(ComposerLimits { attachments: false, model_locked: false }, cx));
         if new_chat || at.is_none() {
-            composer.update(cx, |c, cx| c.set_limits(ComposerLimits { attachments: false, model_locked: false }, cx));
             let model = composer.read(cx).model();
             *self.sink.model.borrow_mut() = (model.0, model.1.to_string());
             return;
         }
         let at = at.expect("a Chat");
-        let (provider, model, mode) = self
+        let (provider, last, mode) = self
             .store
             .read(|reducer| {
                 let applied = reducer.state().ok()?;
@@ -771,27 +826,180 @@ impl LiveController {
                 Some((provider, model, chat.permission_mode.unwrap_or(PermissionMode::Ask)))
             })
             .unwrap_or((Provider::Claude, None, PermissionMode::Ask));
-        // Set before the composer changes, so following it sends no permission-mode write.
+        let (provider, id, name) = crate::panels::model_for_chat(provider, self.picked.get(&at.key()), last.as_deref());
+        // Set before the composer changes, so following it sends no permission-mode write and records no pick.
         self.mode = mode;
         self.sink.mode.set(mode);
-        *self.sink.model.borrow_mut() = (provider, model.clone().unwrap_or_default());
+        *self.sink.model.borrow_mut() = (provider, id.clone());
         composer.update(cx, |c, cx| {
-            let id = model.clone().unwrap_or_default();
-            let name = milagre_gpui_spike::workspace::chat::composer::models::find(provider, &id)
-                .map(|m| m.name.to_string())
-                .unwrap_or_else(|| if id.is_empty() { provider.name().to_owned() } else { id.clone() });
             c.set_model(provider, &id, &name, None, cx);
             c.set_permission_mode(mode, cx);
-            c.set_limits(ComposerLimits { attachments: false, model_locked: true }, cx);
         });
+    }
+
+    /// Milagre's daemon: the Project's model lists, PR poll and every Chat's ports, read (at most every few seconds
+    /// unless `force`) on a short request-only connection; they feed the picker, Details and the pills.
+    fn read_extras(&mut self, project: String, force: bool, cx: &mut Context<Self>) {
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        let fresh = self.extras_at.get(&project).is_some_and(|at| at.elapsed() < Duration::from_secs(5));
+        if (fresh && !force) || !self.reading_extras.insert(project.clone()) {
+            return;
+        }
+        self.extras_at.insert(project.clone(), std::time::Instant::now());
+        let (daemon, need_models) = (daemon.clone(), !self.catalogs.contains_key(&project));
+        let target = project.clone();
+        let reads = off_thread(move || {
+            futures::executor::block_on(async {
+                let models = if need_models { Some(daemon.read(&target, "agent:models", serde_json::json!([target])).await) } else { None };
+                let ports = daemon.read(&target, "agent:ports", serde_json::json!([])).await;
+                let prs = daemon.read(&target, "pull-requests:snapshot", serde_json::json!([target])).await;
+                (models, ports, prs)
+            })
+        });
+        cx.spawn(async move |this, cx| {
+            let Ok((models, ports, prs)) = reads.await else { return };
+            let _ = this.update(cx, |this, cx| {
+                this.reading_extras.remove(&project);
+                let mut catalog = false;
+                match models {
+                    Some(Ok(models)) => {
+                        this.catalogs.insert(project.clone(), models);
+                        catalog = true;
+                    }
+                    Some(Err(error)) => this.error(format!("Couldn't read the models: {error:#}")),
+                    None => {}
+                }
+                match ports {
+                    Ok(ports) => this.ports = ports,
+                    Err(error) => this.error(format!("Couldn't read the ports: {error:#}")),
+                }
+                match prs {
+                    Ok(prs) => {
+                        this.prs.insert(project.clone(), prs);
+                    }
+                    Err(error) => this.error(format!("Couldn't read the pull requests: {error:#}")),
+                }
+                if catalog {
+                    this.catalog_project = None;
+                }
+                this.refresh_panels(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// The model lists of `project` in the picker (once read); the open Chat's chip follows a change.
+    fn apply_catalog(&mut self, project: &str, cx: &mut Context<Self>) {
+        if self.catalog_project.as_deref() == Some(project) {
+            return;
+        }
+        let Some(models) = self.catalogs.get(project) else { return };
+        milagre_gpui_spike::workspace::chat::composer::models::set_reported(Some(crate::panels::catalog(models)));
+        self.catalog_project = Some(project.to_owned());
+        let target = self.sink.target.borrow().clone();
+        if let Target::Existing(at) = target {
+            self.follow_model(false, Some(&at), cx);
+        }
+    }
+
+    /// Milagre's daemon: the PR pill's fix for the open Chat (`pullRequestAction`), sent as Electron's pill sends it:
+    /// `chat:send` with `prAction { action, pr, url }` (the daemon checks it and writes the message and the prompt),
+    /// on the Chat's provider and model and its permission mode.
+    fn run_pr_action(&mut self, cx: &mut Context<Self>) {
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        let Some((key, project, id)) = self.open.as_ref().map(|o| (o.key.clone(), o.project.clone(), o.id)) else { return };
+        let empty = Value::Null;
+        let prs = self.prs.get(&project).unwrap_or(&empty);
+        let action = self.store.read(|reducer| {
+            let applied = reducer.state().ok()?;
+            let (open, chat) = crate::panels::find(&applied.projects, &key)?;
+            let folder = open.state.as_ref()?.worktree_of(chat)?.path.to_string();
+            let list = crate::panels::chat_pull_requests(prs, &folder, chat);
+            milagre_gpui_spike::logic::prs::blockers::pull_request_action(&list, &[])
+        });
+        let Some((pr, blocker)) = action else { return };
+        let Some(number) = pr.number else { return };
+        if self.backend.read_only() {
+            return self.refuse(format!("PR action {} on #{number}", blocker.key()));
+        }
+        let context = milagre_gpui_spike::logic::prs::action::pull_request_action_context(blocker.key(), f64::from(number), &pr.url);
+        let Some(context) = context else { return self.error(format!("PR #{number}'s action isn't valid: nothing was sent")) };
+        self.sent += 1;
+        let client_id = format!("gpui-{}-{}-{}", std::process::id(), crate::transcript::now_ms(), self.sent);
+        let (provider, model) = self.sink.model.borrow().clone();
+        let request = serde_json::json!([{
+            "projectPath": project,
+            "worktreeId": 1,
+            "sessionId": id,
+            "provider": provider.id(),
+            "model": model,
+            "body": milagre_gpui_spike::logic::prs::action::pull_request_action_body(&context),
+            "clientMessageId": client_id,
+            "permissionMode": crate::sinks::wire_name(self.sink.mode.get()),
+            "replies": "concise",
+            "tldrEnabled": true,
+            "prAction": { "action": blocker.key(), "pr": number, "url": pr.url },
+        }]);
+        let daemon = daemon.clone();
+        let job: Job = Box::pin(async move {
+            let writer = daemon.writer(&project).await.map_err(|e| format!("{e:#}"))?;
+            let receipt = writer.call("chat:send", request).await.map_err(|e| format!("PR action: {e:#}"))?;
+            drop(writer);
+            Ok(Some(Done::Sent { id: client_id, receipt, open: None }))
+        });
+        self.spawn_job(job, cx);
+    }
+
+    /// Milagre's daemon: the open Chat's Details and pills from the reducer's state and the last reads.
+    fn refresh_panels(&mut self, cx: &mut Context<Self>) {
+        if !matches!(self.backend, Backend::Daemon(_)) {
+            return;
+        }
+        let Some(open) = self.open.as_ref().map(|open| (open.key.clone(), open.project.clone())) else {
+            let pills = self.workspace.read(cx).chat.read(cx).pills.clone();
+            pills.update(cx, |p, cx| p.set_live("", Default::default(), cx));
+            return;
+        };
+        let (key, project) = open;
+        self.apply_catalog(&project, cx);
+        let now = crate::transcript::now_ms();
+        let empty = Value::Null;
+        let prs = self.prs.get(&project).unwrap_or(&empty);
+        let built = self.store.read(|reducer| {
+            let applied = reducer.state().ok()?;
+            Some((
+                crate::panels::details(&applied.projects, &key, &self.ports, prs, now)?,
+                crate::panels::pills(&applied.projects, &key, prs, now)?,
+            ))
+        });
+        let Some((details, pills_data)) = built else { return };
+        let (panel, pills) = {
+            let w = self.workspace.read(cx);
+            (w.panel.clone(), w.chat.read(cx).pills.clone())
+        };
+        let changed = panel.read(cx).details().read(cx).key() != key || panel.read(cx).details().read(cx).data() != &details;
+        if changed {
+            panel.update(cx, |panel, cx| panel.set_live_details(key.clone().into(), details, cx));
+        }
+        pills.update(cx, |p, cx| p.set_live(&key, pills_data, cx));
     }
 
     fn follow_composer(&mut self, composer: &Entity<milagre_gpui_spike::workspace::chat::composer::Composer>, cx: &mut Context<Self>) {
         let (mode, effort, model) = composer.read_with(cx, |c, _| (c.permission_mode(), c.effort_id(), c.model()));
         self.sink.mode.set(mode);
         self.sink.effort.set(effort);
-        if matches!(self.backend, Backend::Daemon(_)) && *self.sink.target.borrow() == Target::NewChat {
-            *self.sink.model.borrow_mut() = (model.0, model.1.to_string());
+        if matches!(self.backend, Backend::Daemon(_)) {
+            let target = self.sink.target.borrow().clone();
+            let model = (model.0, model.1.to_string());
+            match target {
+                Target::NewChat => *self.sink.model.borrow_mut() = model,
+                // A pick on an open Chat: kept for it, and its next send switches to it (or hands off).
+                Target::Existing(at) if *self.sink.model.borrow() != model && !model.1.is_empty() => {
+                    self.picked.insert(at.key(), model.clone());
+                    *self.sink.model.borrow_mut() = model;
+                }
+                _ => {}
+            }
         }
         if mode != self.mode {
             self.mode = mode;
@@ -918,6 +1126,7 @@ impl LiveController {
         // A Chat that just got its first messages can now be the composer's target.
         self.follow_chat(cx);
         self.sync_tail(cx);
+        self.refresh_panels(cx);
     }
 
     /// The open Chat's run on screen: the streamed text, its cards, the running row and the queue.
@@ -946,9 +1155,11 @@ impl LiveController {
                     transcript.update(cx, |t, cx| t.finish_stream(ix, cx));
                 }
                 self.set_running(None, cx);
-                // The saved reply (and its steps) replace the live tail; the turn may have changed the Worktree.
+                // The saved reply (and its steps) replace the live tail; the turn may have changed the Worktree, its
+                // ports and its PR.
                 self.load(cx);
                 self.read_changes(cx);
+                self.read_extras(project.clone(), true, cx);
             }
             None => {
                 self.set_running(None, cx);

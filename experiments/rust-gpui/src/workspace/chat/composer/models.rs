@@ -1,7 +1,12 @@
 //! The model catalog the picker shows until a host reports its own (`MODEL_CATALOG` in
 //! `packages/shared/src/model-options.ts`, whose Antigravity families come from `antigravity-models.mjs` and whose
 //! Kiro entries from `kiro-models.mjs`), the capabilities of each model (`capabilityFor`'s guesses) and its context
-//! window (`contextWindowFor`). Fixture data: a connected host replaces the list.
+//! window (`contextWindowFor`). Fixture data: a connected host replaces the list ([`set_reported`], its
+//! `agent:models` answer, as `mergeModels` does: a provider the host lists replaces the fixture's models of it,
+//! recommended first; one it lists none for keeps the fixture's).
+
+use std::collections::HashSet;
+use std::sync::{Mutex, RwLock};
 
 use crate::data::Provider;
 
@@ -14,6 +19,17 @@ pub struct ModelOption {
     /// Kiro's rate multiplier ("2×").
     pub credits: Option<f64>,
     pub efforts: &'static [&'static str],
+    /// The host's own report of the model (`agent:models`): what it accepts, and whether it is recommended.
+    pub reported: Option<Reported>,
+}
+
+/// What a host reports of one model (`agent:models`: `recommended`, `fastMode`, `ultracode`; its `efforts` are the
+/// option's own).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Reported {
+    pub recommended: bool,
+    pub fast_mode: bool,
+    pub ultracode: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -31,14 +47,98 @@ const KIRO_MODERN: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 const KIRO_GPT: &[&str] = &["none", "low", "medium", "high", "xhigh", "max"];
 
 const fn m(provider: Provider, id: &'static str, name: &'static str, description: &'static str) -> ModelOption {
-    ModelOption { provider, id, name, description, credits: None, efforts: &[] }
+    ModelOption { provider, id, name, description, credits: None, efforts: &[], reported: None }
 }
 
+/// The models the picker offers: the fixture's, with each provider a host reported replaced by its report.
 pub fn catalog() -> Vec<ModelOption> {
+    let fixture = fixture_catalog();
+    let reported = REPORTED.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(reported) = reported.as_ref() else { return fixture };
+    crate::logic::identity::providers::PROVIDERS
+        .iter()
+        .flat_map(|provider| {
+            let own: Vec<ModelOption> = reported.iter().filter(|m| m.provider.id() == *provider).copied().collect();
+            if own.is_empty() { fixture.iter().filter(|m| m.provider.id() == *provider).copied().collect() } else { own }
+        })
+        .collect()
+}
+
+static REPORTED: RwLock<Option<Vec<ModelOption>>> = RwLock::new(None);
+/// Every string a report named, kept for the process's life (a report repeats the same few dozen names).
+static INTERNED: Mutex<Option<HashSet<&'static str>>> = Mutex::new(None);
+
+fn intern(text: &str) -> &'static str {
+    let mut interned = INTERNED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let set = interned.get_or_insert_with(HashSet::new);
+    if let Some(found) = set.get(text) {
+        return found;
+    }
+    let leaked: &'static str = Box::leak(text.to_owned().into_boxed_str());
+    set.insert(leaked);
+    leaked
+}
+
+/// One reported model, its strings interned.
+pub fn reported_option(
+    provider: Provider,
+    id: &str,
+    name: &str,
+    description: &str,
+    credits: Option<f64>,
+    efforts: &[String],
+    reported: Reported,
+) -> ModelOption {
+    let efforts: Vec<&'static str> = efforts.iter().map(|effort| intern(effort)).collect();
+    let efforts: &'static [&'static str] = if efforts.is_empty() { &[] } else { Box::leak(efforts.into_boxed_slice()) };
+    ModelOption {
+        provider,
+        id: intern(id),
+        name: intern(if name.is_empty() { id } else { name }),
+        description: intern(description),
+        credits,
+        efforts,
+        reported: Some(reported),
+    }
+}
+
+/// A host's model lists (recommended first within each provider); `None` goes back to the fixture's.
+pub fn set_reported(models: Option<Vec<ModelOption>>) {
+    let models = models.map(|mut models| {
+        let order = |m: &ModelOption| crate::logic::identity::providers::PROVIDERS.iter().position(|p| *p == m.provider.id());
+        models.sort_by_key(|m| (order(m), !m.reported.is_some_and(|r| r.recommended)));
+        models
+    });
+    *REPORTED.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = models;
+}
+
+/// The model a Chat with none recorded runs on: its provider's first recommended model (a host's report), else its
+/// provider's first model (`resolveModel`).
+pub fn recommended(provider: Provider) -> Option<ModelOption> {
+    let models = models_of(provider);
+    models.iter().find(|m| m.reported.is_some_and(|r| r.recommended)).or_else(|| models.first()).copied()
+}
+
+fn fixture_catalog() -> Vec<ModelOption> {
     use Provider::{Antigravity, Claude, Codex, Kiro};
-    let kiro =
-        |id, name, description, credits, efforts| ModelOption { provider: Kiro, id, name, description, credits: Some(credits), efforts };
-    let family = |id, name, description| ModelOption { provider: Antigravity, id, name, description, credits: None, efforts: LEVELS };
+    let kiro = |id, name, description, credits, efforts| ModelOption {
+        provider: Kiro,
+        id,
+        name,
+        description,
+        credits: Some(credits),
+        efforts,
+        reported: None,
+    };
+    let family = |id, name, description| ModelOption {
+        provider: Antigravity,
+        id,
+        name,
+        description,
+        credits: None,
+        efforts: LEVELS,
+        reported: None,
+    };
     vec![
         m(Codex, "gpt-6.1-sol", "GPT-6.1-Sol", "Latest generation workhorse model"),
         m(Codex, "gpt-6-astra", "GPT-6-Astra", "Frontier intelligence for the most demanding work"),
@@ -80,6 +180,9 @@ pub fn find(provider: Provider, id: &str) -> Option<ModelOption> {
 
 /// `capabilityFor` without a host report.
 pub fn capability(model: &ModelOption) -> Capability {
+    if let Some(reported) = model.reported {
+        return Capability { efforts: model.efforts.to_vec(), fast_mode: reported.fast_mode, ultracode: reported.ultracode };
+    }
     match model.provider {
         Provider::Codex => Capability { efforts: CODEX_EFFORTS.to_vec(), fast_mode: true, ultracode: false },
         Provider::Antigravity | Provider::Kiro => Capability { efforts: model.efforts.to_vec(), fast_mode: false, ultracode: false },
