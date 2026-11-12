@@ -7,8 +7,12 @@
 //! ```
 mod cron;
 mod schedule;
-#[cfg(test)]
+#[cfg(any(test, feature = "durable-store"))]
 mod store;
+#[cfg(all(unix, feature = "durable-store"))]
+pub use store::durable::{
+    Command as StoreCommand, Error as StoreError, OwnerCheck, RoutineStore, StoreReply,
+};
 mod zone;
 pub use cron::{every_to_cron, parse_cron, Cron};
 pub use schedule::{next_run, MAX_AFTER_MS, MIN_AFTER_MS};

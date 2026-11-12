@@ -1,9 +1,15 @@
 //! Private schedule-only state fixture. No files, clock, thread, host or dispatch.
 //! JSON values are encoded once through the pinned owner's pure codec copy.
 #![allow(dead_code)]
+// Serialize subprocess creation with copied-owner lifecycle tests: fork inherits
+// flock descriptions even when the descriptors are closed by the later exec.
+#[cfg(test)]
+static PROCESS_TEST_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 mod check;
 #[cfg(unix)]
 pub mod copied;
+#[cfg(all(unix, feature = "durable-store"))]
+pub mod durable;
 pub mod jsjson;
 pub mod limits;
 mod mutations;

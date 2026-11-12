@@ -6,9 +6,15 @@ publish = false
 license = "MIT"
 description = "Pure cron helpers and a private schedule-store state fixture, without execution or timers"
 
+[features]
+default = []
+durable-store = ["dep:libc", "dep:uuid"]
+
 [workspace]
 
 [dependencies]
+libc = { version = "=0.2.191", optional = true }
+uuid = { version = "=1.29.2", features = ["v4"], optional = true }
 jiff = { version = "=0.2.42", default-features = false, features = ["std"] }
 jiff-tzdb = "=0.1.4"
 ryu-js = "=1.0.3"

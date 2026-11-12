@@ -1,6 +1,6 @@
+pub(super) use super::super::PROCESS_TEST_SERIAL as SERIAL;
 use super::*;
 use serde_json::json;
-pub(super) static SERIAL: Mutex<()> = Mutex::new(());
 const START: i64 = 1_767_607_200_000;
 fn spec() -> Value {
     json!({"name":"check","prompt":"look","trigger":{"kind":"schedule","cron":"0 * * * *","timezone":"UTC"},"target":{"kind":"new-chat","projectPath":"/synthetic","workspace":"project"},"createdBy":{"kind":"user"}})
