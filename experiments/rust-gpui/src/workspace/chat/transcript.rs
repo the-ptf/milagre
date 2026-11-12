@@ -172,6 +172,9 @@ pub struct Transcript {
     /// Room kept under the last item for the running row, which `ChatView` draws over the list's bottom
     /// edge as a view of its own (`running.rs`).
     footer: Pixels,
+    /// Room kept under everything for the composer, which floats over the list's bottom (the list runs behind it to
+    /// the card's bottom edge), so the last item still scrolls fully above it. `ChatView` measures the composer.
+    composer_room: Pixels,
     probe: Option<Probe>,
     views: HashMap<usize, Views>,
     streams: HashMap<usize, Stream>,
@@ -268,6 +271,7 @@ impl Transcript {
             item_renders: Rc::new(Cell::new(0)),
             parses: Rc::new(Cell::new(0)),
             footer: px(0.0),
+            composer_room: px(0.0),
             probe: None,
             views: HashMap::new(),
             streams: HashMap::new(),
@@ -332,6 +336,18 @@ impl Transcript {
             self.footer = footer;
             cx.notify();
         }
+    }
+
+    /// Keeps room under the last item for the composer floating over the list (its measured height).
+    pub fn set_composer_room(&mut self, room: Pixels, cx: &mut Context<Self>) {
+        if self.composer_room != room {
+            self.composer_room = room;
+            cx.notify();
+        }
+    }
+
+    pub fn composer_room(&self) -> Pixels {
+        self.composer_room
     }
 
     pub fn items(&self) -> &[Item] {
@@ -925,7 +941,7 @@ impl Render for Transcript {
                 list(self.list.clone(), cx.processor(Self::render_item))
                     .size_full()
                     .pt(px(LIST_TOP_PAD + if self.find.is_some() { FIND_TOP_PAD } else { 0.0 }))
-                    .pb(px(BOTTOM_CLEARANCE) + self.footer),
+                    .pb(px(BOTTOM_CLEARANCE) + self.footer + self.composer_room),
             )
             .child(Keeper::new(self.tracker.clone(), self.painted.clone(), self.all.clone(), kept))
             .child(self.passage_listener(cx))

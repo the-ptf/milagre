@@ -7,6 +7,7 @@ use super::top_bar::{self, Corner, CornerItem};
 use super::window_state::{Mode, WindowState};
 use super::{EscapeStep, RoutinesState, View, escape_step};
 use crate::testing;
+use crate::workspace::chrome::{TOP_ROW, TOP_ROW_CENTRE};
 use crate::workspace::sidebar::rail::RAIL_WIDTH;
 
 #[gpui::test]
@@ -15,7 +16,8 @@ fn the_bar_sits_beside_the_traffic_lights(cx: &mut TestAppContext) {
     for (ix, name) in ["bar-sidebar-toggle", "bar-routines", "bar-link-projects", "bar-search"].into_iter().enumerate() {
         let b = cx.debug_bounds(name).unwrap_or_else(|| panic!("{name} is drawn"));
         assert_eq!(b.origin.x, px(top_bar::BAR_LEFT + ix as f32 * 36.0), "{name} x");
-        assert_eq!(b.origin.y, px(8.0), "{name} is centred on the traffic lights, y 22, and ends at the 36px top row's edge");
+        assert_eq!(b.center().y, px(TOP_ROW_CENTRE), "{name} is centred on the traffic lights");
+        assert!(b.bottom() <= px(TOP_ROW), "{name} stays in the top row");
         assert_eq!(b.size, size(px(28.0), px(28.0)));
         assert!(b.origin.x >= px(top_bar::TRAFFIC_LIGHTS_END), "{name} clears the traffic lights");
     }
@@ -36,7 +38,7 @@ fn the_collapsed_rail_shares_the_one_top_row_with_the_lights_and_the_bar(cx: &mu
     assert!(cx.debug_bounds("title-band").is_none());
     // The bar keeps its place, over the rail and the start of the Chat column.
     let toggle = cx.debug_bounds("bar-sidebar-toggle").unwrap();
-    assert_eq!((toggle.origin.x, toggle.origin.y), (px(top_bar::BAR_LEFT), px(8.0)));
+    assert_eq!((toggle.origin.x, toggle.center().y), (px(top_bar::BAR_LEFT), px(TOP_ROW_CENTRE)));
     let icon = cx.debug_bounds("rail-item-0").expect("the rail is drawn");
     assert!(
         icon.right() <= px(RAIL_WIDTH) && icon.top() >= px(crate::workspace::chrome::TOP_ROW),
@@ -104,18 +106,18 @@ fn the_corner_has_one_toggle_that_opens_and_closes_the_side_panel(cx: &mut TestA
     let window = cx.update(|window, _| window.viewport_size());
     assert_eq!(corner.right(), toggle.right());
     let panel_left = window.width - px(panel.read_with(cx, |p, _| p.width()));
-    assert_eq!(toggle.right(), panel_left - px(14.0), "10px inside the Chat card, whose edge is 4px left of the open panel");
-    assert_eq!(toggle.origin.y, px(8.0), "centred in the top bar row, as the bar's buttons");
-    assert_eq!(toggle.size.width, px(28.0));
+    assert_eq!(toggle.right(), panel_left - px(4.0), "on the Chat card's border line, 4px left of the open panel");
+    assert_eq!(toggle.center().y, px(TOP_ROW_CENTRE), "centred on the traffic lights, as the bar's buttons");
+    assert_eq!(toggle.size.width, px(32.0), "a 32px click area");
     cx.simulate_click(toggle.center(), Modifiers::none());
     assert!(!panel.read_with(cx, |p, _| p.is_open()), "the toggle closes the panel");
     let closed = cx.debug_bounds("toggle-panel").expect("still there");
-    assert_eq!(closed.right(), window.width - px(18.0), "closed: 10px inside the Chat card, whose edge is 8px from the window's");
+    assert_eq!(closed.right(), window.width - px(8.0), "closed: on the Chat card's border line, 8px from the window's edge");
     assert_eq!(closed.origin.y, toggle.origin.y, "same row");
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
     assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(1), "closed: the Chat header ends short of it");
     let bar = cx.debug_bounds("bar-search").unwrap();
-    assert_eq!(bar.origin.y, toggle.origin.y, "in the bar's row, with its buttons");
+    assert_eq!(bar.center().y, toggle.center().y, "in the bar's row, with its buttons");
     cx.simulate_click(closed.center(), Modifiers::none());
     assert!(panel.read_with(cx, |p, _| p.is_open()), "and opens it again");
     assert_eq!(
@@ -127,7 +129,8 @@ fn the_corner_has_one_toggle_that_opens_and_closes_the_side_panel(cx: &mut TestA
 
 #[test]
 fn the_toggle_wears_a_right_panel_icon_and_a_show_or_hide_tooltip_with_its_shortcut() {
-    assert_eq!(Corner::Panel.icon(), crate::ui::IconName::SidebarRight01, "never the active tab's icon");
+    assert_eq!(Corner::Panel.icon(true), crate::ui::IconName::SidebarRight01, "open: the right-panel glyph, never the tab's icon");
+    assert_eq!(Corner::Panel.icon(false), crate::ui::IconName::SidebarLeft01, "closed: the mirrored glyph, as the sidebar toggle");
     assert_eq!(Corner::Panel.label(false), "Show panel");
     assert_eq!(Corner::Panel.label(true), "Hide panel");
     assert!(Corner::Panel.command().and_then(super::keys::shortcut_hint).is_some(), "the tooltip shows a shortcut");

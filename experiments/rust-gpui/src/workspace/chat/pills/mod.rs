@@ -430,6 +430,7 @@ impl Render for PillRow {
         }
         div()
             .id("pill-row")
+            .debug_selector(|| "pill-row".into())
             .key_context("PillRow")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| this.on_key_down(event, window, cx)))

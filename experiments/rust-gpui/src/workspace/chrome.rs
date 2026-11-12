@@ -19,11 +19,12 @@ use gpui::{ClickEvent, Div, ElementId, InteractiveElement, MouseButton, Stateful
 use crate::theme::HEADER_HEIGHT;
 
 /// The window's top row (the traffic lights, the bar, the Chat's title, the panel toggle and tabs): the Chat card,
-/// the sidebar's rows and the panel's content all start right under it.
-pub const TOP_ROW: f32 = 36.0;
-/// Where the top row's items are centred: the traffic lights' centre (`app.rs` puts them at y 15).
-pub const TOP_ROW_CENTRE: f32 = 22.0;
-/// The top row's items are at most this tall (28px buttons and tabs), so centred on the lights they end at its edge.
+/// the sidebar's rows and the panel's content all start right under it, about 8pt below the title text's bottom.
+pub const TOP_ROW: f32 = 39.0;
+/// Where the top row's items are centred: the traffic lights' centre as drawn (`app.rs` puts their frame at y 15;
+/// Victor measured their centre at 23 in the live window).
+pub const TOP_ROW_CENTRE: f32 = 23.0;
+/// The top row's items are at most this tall (32px), so centred on the lights they end at its edge.
 pub const TOP_ROW_ITEM: f32 = 2.0 * (TOP_ROW - TOP_ROW_CENTRE);
 
 thread_local! {

@@ -51,6 +51,9 @@ use crate::workspace::chrome;
 use crate::workspace::sidebar::ChatRow;
 
 const COMPOSER_BOTTOM: f32 = 24.0;
+/// The fade at the transcript's top, under the Chat card's border: shorter than the list's own top padding, so the
+/// first item at rest is never tinted.
+const TOP_FADE: f32 = 12.0;
 
 /// What the Chat column asks the window to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,6 +74,9 @@ pub struct ChatView {
     /// The running turn's row, while a turn runs.
     pub running: Option<Entity<RunningRow>>,
     composer_focused_once: bool,
+    /// The floating composer's height (with its bottom spacing), measured as it paints: the transcript keeps that
+    /// much room under its last item, since it runs on behind the composer to the card's bottom edge.
+    composer_height: std::rc::Rc<std::cell::Cell<Pixels>>,
     /// The pill row over the composer: Subchats, Ports, Tasks, Subagents, Go to bottom.
     pub pills: Entity<PillRow>,
     /// The Undo panel, while it replaces the composer.
@@ -140,6 +146,7 @@ impl ChatView {
             composer,
             running,
             composer_focused_once: false,
+            composer_height: std::rc::Rc::new(std::cell::Cell::new(px(0.0))),
             pills,
             undo: None,
             _undo: None,
@@ -370,7 +377,9 @@ impl Render for ChatView {
                 window.focus(&handle, cx);
             });
         }
-        let running_offset = running_offset(self.transcript.read(cx).list_state());
+        let room = self.composer_height.get();
+        self.transcript.update(cx, |transcript, cx| transcript.set_composer_room(room, cx));
+        let running_offset = running_offset(self.transcript.read(cx).list_state(), room);
         // "Go to bottom" shows once the reader has scrolled more than a few lines from the end.
         let away = running_offset.is_none_or(|distance| distance > px(JUMP_THRESHOLD));
         let composer_focus = self.composer.focus_handle(cx);
@@ -425,25 +434,79 @@ impl Render for ChatView {
                 el.child(
                     div()
                         .id("transcript")
+                        .debug_selector(|| "transcript".into())
                         .relative()
                         .overflow_hidden()
                         .flex_1()
                         .min_h_0()
                         .child(AnyView::from(self.transcript.clone()).cached(StyleRefinement::default().size_full()))
+                        // What scrolls up under the card's top border fades out first, so it never touches the line.
+                        .child(
+                            div().debug_selector(|| "transcript-top-fade".into()).absolute().top_0().left_0().right_0().h(px(TOP_FADE)).bg(
+                                gpui::linear_gradient(
+                                    180.,
+                                    gpui::linear_color_stop(theme.page, 0.),
+                                    gpui::linear_color_stop(gpui::Rgba { a: 0.0, ..theme.page }, 1.),
+                                ),
+                            ),
+                        )
                         .on_key_down(cx.listener(Self::on_transcript_key))
-                        .when_some(self.running.clone().zip(running_offset), |el, (running, offset)| el.child(running_row(running, offset)))
-                        .child(self.pills.clone())
-                        .children(find_overlays),
+                        .when_some(self.running.clone().zip(running_offset), |el, (running, offset)| {
+                            el.child(running_row(running, offset, room))
+                        })
+                        .children(find_overlays)
+                        .child(self.composer_dock(composer_bottom, cx)),
                 )
             })
-            .when(!self.new_chat, |el| {
-                el.child(div().flex_none().flex().justify_center().px_4().pb(px(composer_bottom)).child(match &self.undo {
-                    // The panel takes the composer's place, as wide as it.
-                    Some(undo) => div().w_full().max_w(px(crate::theme::column_width())).child(undo.clone()).into_any_element(),
-                    None => self.composer.clone().into_any_element(),
-                }))
-            })
             .children(menu)
+    }
+}
+
+impl ChatView {
+    /// The composer (or the undo panel in its place), fixed over the transcript's bottom with the pills riding just
+    /// above it. The transcript runs on behind it, so it needs no fill of its own here; its height is measured for
+    /// the transcript's bottom room.
+    fn composer_dock(&self, composer_bottom: f32, cx: &mut Context<Self>) -> impl IntoElement {
+        let (cell, chat) = (self.composer_height.clone(), cx.entity().downgrade());
+        let measure = gpui::canvas(
+            move |bounds, _, cx| {
+                if cell.get() != bounds.size.height {
+                    cell.set(bounds.size.height);
+                    cx.defer(move |cx| {
+                        chat.update(cx, |_, cx| cx.notify()).ok();
+                    });
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full();
+        div()
+            .debug_selector(|| "composer-dock".into())
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .flex()
+            .flex_col()
+            // The pills sit 8px above the composer's top (`pills/mod.rs`), wherever it grows to.
+            .child(div().relative().w_full().h(px(0.0)).child(self.pills.clone()))
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .justify_center()
+                    .px_4()
+                    .pb(px(composer_bottom))
+                    .child(match &self.undo {
+                        // The panel takes the composer's place, as wide as it.
+                        Some(undo) => div().w_full().max_w(px(crate::theme::column_width())).child(undo.clone()).into_any_element(),
+                        None => self.composer.clone().into_any_element(),
+                    })
+                    .child(measure),
+            )
     }
 }
 
@@ -457,7 +520,7 @@ const JUMP_THRESHOLD: f32 = 48.0;
 ///
 /// The row stays a view outside the list so that its animation never re-renders the transcript's items; the
 /// scroll that moved the list re-rendered this view, so the distance is current.
-fn running_offset(list: &ListState) -> Option<Pixels> {
+fn running_offset(list: &ListState, composer_room: Pixels) -> Option<Pixels> {
     const FAR: usize = 40;
     let top = list.logical_scroll_top().item_ix;
     let count = list.item_count();
@@ -468,17 +531,26 @@ fn running_offset(list: &ListState) -> Option<Pixels> {
         return None;
     }
     // The list's own maximum leaves out its padding, which the scroll range includes.
-    let padding = px(LIST_TOP_PAD + BOTTOM_CLEARANCE + RUNNING_GAP) + CONTROL_XS;
+    let padding = px(LIST_TOP_PAD + BOTTOM_CLEARANCE + RUNNING_GAP) + CONTROL_XS + composer_room;
     Some((list.max_offset_for_scrollbar().y + padding + list.scroll_px_offset_for_scrollbar().y).max(px(0.0)))
 }
 
 /// The running row after the last item, and over the pills' strip when the list is pinned to the bottom.
-fn running_row(running: Entity<RunningRow>, offset: Pixels) -> impl IntoElement {
-    div().absolute().left_0().right_0().bottom(px(BOTTOM_CLEARANCE) - offset).h(CONTROL_XS).flex().justify_center().px_4().child(
-        div()
-            .w_full()
-            .max_w(px(crate::theme::column_width()))
-            .h_full()
-            .child(AnyView::from(running).cached(StyleRefinement::default().size_full())),
-    )
+fn running_row(running: Entity<RunningRow>, offset: Pixels, composer_room: Pixels) -> impl IntoElement {
+    div()
+        .absolute()
+        .left_0()
+        .right_0()
+        .bottom(px(BOTTOM_CLEARANCE) + composer_room - offset)
+        .h(CONTROL_XS)
+        .flex()
+        .justify_center()
+        .px_4()
+        .child(
+            div()
+                .w_full()
+                .max_w(px(crate::theme::column_width()))
+                .h_full()
+                .child(AnyView::from(running).cached(StyleRefinement::default().size_full())),
+        )
 }

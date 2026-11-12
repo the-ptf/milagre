@@ -28,7 +28,7 @@ fn the_chat_card_starts_under_the_top_row_sits_8px_from_the_panel_and_runs_to_th
             let state = format!("sidebar collapsed {collapsed}, panel open {open}");
             let card = cx.debug_bounds("chat-card").expect("the card is drawn");
             assert_eq!(card.top(), px(TOP_ROW), "right under the top row: {state}");
-            assert_eq!(card.top(), px(36.0));
+            assert_eq!(card.top(), px(39.0), "about 8pt under the title text, which is centred at y 23");
             assert_eq!(card.bottom(), window.height, "down to the window's bottom edge, no gap: {state}");
             let sidebar = if collapsed { RAIL_WIDTH } else { SIDEBAR_WIDTH };
             assert_eq!(card.left(), px(sidebar), "from the sidebar's edge, its rows 8px short of it: {state}");
@@ -47,7 +47,8 @@ fn the_chat_card_starts_under_the_top_row_sits_8px_from_the_panel_and_runs_to_th
             let header = cx.debug_bounds("chat-header").expect("the Chat header");
             assert!(header.bottom() <= card.top(), "the title is outside the card: {state}");
             let corner = cx.debug_bounds("toggle-panel").expect("the panel toggle");
-            assert_eq!(card.right() - corner.right(), px(top_bar::CORNER_INSET), "the toggle sits 10px in from the card's edge: {state}");
+            assert_eq!(corner.right(), card.right(), "the toggle's click area ends on the card's border line: {state}");
+            assert_eq!(top_bar::CORNER_INSET, 0.0);
             assert_eq!(corner.center().y, px(TOP_ROW_CENTRE), "centred on the traffic lights: {state}");
             let first_row = cx.debug_bounds(if collapsed { "rail-item-0" } else { "chat-row-0" }).expect("the sidebar's first row");
             assert!(first_row.top() >= card.top(), "the sidebar's rows start under the top row: {state}");
@@ -97,4 +98,41 @@ fn the_routines_page_and_the_diff_sit_on_the_card(cx: &mut TestAppContext) {
     let page = cx.debug_bounds("routines-view").expect("the Routines page");
     assert_eq!(page.top(), card.top() + px(1.0), "under the card's top border");
     assert!(page.left() >= card.left() && page.right() <= card.right() && page.bottom() == card.bottom());
+}
+
+/// The transcript runs behind the floating composer down to the card's bottom edge, the pills ride just above the
+/// composer, and the list keeps the composer's height as room under its last item, so the last message still scrolls
+/// fully above it.
+#[gpui::test]
+fn the_transcript_runs_behind_the_floating_composer_to_the_cards_bottom(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let window = cx.update(|window, _| window.viewport_size());
+    let card = cx.debug_bounds("chat-card").expect("the card");
+    let transcript = cx.debug_bounds("transcript").expect("the transcript");
+    assert_eq!(transcript.bottom(), window.height, "down to the card's bottom edge, behind the composer");
+    assert!(transcript.bottom() <= card.bottom());
+    let dock = cx.debug_bounds("composer-dock").expect("the composer floats over it");
+    let composer = cx.debug_bounds("composer").expect("the composer");
+    assert_eq!(dock.bottom(), transcript.bottom(), "fixed to the transcript's bottom");
+    assert!(composer.top() > transcript.top() && composer.bottom() < transcript.bottom(), "over the transcript");
+    let room = workspace.read_with(cx, |w, cx| w.chat.read(cx).transcript.read(cx).composer_room());
+    assert_eq!(room, dock.size.height, "the list keeps the composer's height under its last item");
+    let pills = cx.debug_bounds("pill-row").expect("the pills");
+    assert_eq!(pills.bottom(), composer.top() - px(8.0), "the pills ride 8px above the composer");
+}
+
+/// The transcript's first item at rest starts below the card's border with room to spare, and what scrolls up under
+/// the border fades out before it reaches the line.
+#[gpui::test]
+fn the_transcript_starts_clear_of_the_cards_top_border(cx: &mut TestAppContext) {
+    let (_workspace, cx) = testing::mount_workspace(cx);
+    let card = cx.debug_bounds("chat-card").expect("the card");
+    let transcript = cx.debug_bounds("transcript").expect("the transcript");
+    assert_eq!(transcript.top(), card.top() + px(1.0), "right under the border");
+    let fade = cx.debug_bounds("transcript-top-fade").expect("the fade under the border");
+    assert_eq!(fade.top(), transcript.top());
+    assert!(fade.size.height < px(crate::workspace::chat::transcript::LIST_TOP_PAD), "shorter than the list's top padding");
 }

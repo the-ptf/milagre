@@ -743,7 +743,7 @@ pub fn header_height() -> f32 {
 
 fn header(on_new_chat: impl Fn(&mut Window, &mut gpui::App) + 'static) -> impl IntoElement {
     chrome::top_row("sidebar-header").h(px(header_height())).relative().child(
-        div().absolute().left(px(268.0)).top(px(10.0)).no_drag().child(
+        div().absolute().left(px(268.0)).top(px(chrome::TOP_ROW_CENTRE - 12.0)).no_drag().child(
             IconButton::new("new-chat", IconName::PencilEdit02)
                 .size(IconButtonSize::S24)
                 .glyph(IconSize::S16)
