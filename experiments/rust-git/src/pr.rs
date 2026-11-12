@@ -8,6 +8,27 @@ use serde_json::{json, Value};
 use std::path::Path;
 
 impl GitReader {
+    /// Commits on the admitted folder's HEAD that the PR head does not have, as
+    /// Node's `localCommits` counts them: `git rev-list --count <head>..HEAD`.
+    /// Like Node, anything unavailable (not a full lowercase SHA-1, a head this
+    /// checkout lacks, a failed or non-numeric count) is 0, and so is a count
+    /// that is not a positive safe integer. Only a `cwd` that is an admitted
+    /// root can be asked; the read is as bounded and local as every other here.
+    pub async fn local_commits(&self, cwd: &Path, head: &str) -> Result<u64, GitError> {
+        let cwd = self.folder(&json!({"cwd":cwd}))?;
+        if !sha(head) {
+            return Ok(0);
+        }
+        let counted = self
+            .git
+            .out(&cwd, &["rev-list", "--count", &format!("{head}..HEAD")])
+            .await;
+        Ok(counted
+            .and_then(|text| text.trim().parse::<u64>().ok())
+            .filter(|count| (1..=9_007_199_254_740_991).contains(count))
+            .unwrap_or(0))
+    }
+
     // Adapted from MonoCode's peel_commit. Milagre admits full lowercase SHA-1
     // only, and retains its bounded/private runner rather than ambient Git.
     async fn pr_commit(&self, cwd: &Path, spec: &str) -> bool {
