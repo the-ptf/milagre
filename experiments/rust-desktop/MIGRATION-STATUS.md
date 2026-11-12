@@ -6,6 +6,19 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 01:30 Toronto, the actor timer increment is staged but NOT accepted or committed.
+Its author reports 137 passing runtime tests, feature/normal strict Clippy and two
+actual fixture socket/timer cases (due native turn, persistence/restart, manifest
+fault and active Stop). Independent review found a remaining shutdown P2: a fenced
+old scheduled Turn A can see a newer user Turn B on the same Chat as active and
+return Pending before generic cancellation reaches B. The author is reproducing
+and fixing that exact case; final rereview is required. No new timer is installed.
+
+Installed Preview signature and runtime hash still match `862f4cd2`. GPUI was
+notified that pins are unchanged. A separate subagent is preparing a hard-timegated
+single-real-send/reopen verifier for after 07:00 UTC; it must not launch the app or
+spend a turn earlier. Production and unrelated untracked outputs remain untouched.
+
 At 01:00 Toronto, isolated execution prototype `51943146` is accepted. Both
 previous P2s are closed: canonical Chat validation precedes busy/send, and failed
 fixture close/shutdown/drain retains actual owners plus root/profile. Independent
