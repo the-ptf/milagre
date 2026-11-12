@@ -427,3 +427,134 @@ fn owned_chat_terminal_actions_use_one_owner_with_explicit_reader_connection() {
         json!({"pid":guard.info().pid,"realProvider":false,"realPty":true,"routes":7,"explicitReaderConnection":true,"sameOwner":true,"reconnectCatchup":true,"octalOutputVerified":true,"resized":[120,42],"changedEvent":true,"closed":true})
     );
 }
+
+#[test]
+#[ignore = "run only using scripts/check-owned-chat.py with its private fixed-sibling stage"]
+fn owned_chat_git_reads_an_actual_owned_repo_without_provider_execution() {
+    use crate::{GitDiffFileOptions, GitDiffMode, GitDiffOptions, GitHistoryOptions, TerminalSize};
+    let parent = private_root();
+    let root = parent.path().join("data");
+    let guard = block_on(launch_request(
+        Request::prepare(&root, Some(Path::new("/private-test-selection")), true).unwrap(),
+    ))
+    .unwrap();
+    let (client, _, _events) = block_on(guard.connect(ClientOptions::default())).unwrap();
+    let git = guard.git_reads(&client).unwrap();
+    assert_eq!(block_on(git.changes(None)), Err(Error::ViewNotOpened));
+    block_on(client.open_view(guard.project())).unwrap();
+    let snapshot = block_on(client.runtime_snapshot()).unwrap();
+    block_on(client.accept_snapshot(&snapshot)).unwrap();
+    assert_eq!(block_on(git.changes(None)).unwrap()["isRepo"], false);
+    assert_eq!(
+        block_on(git.history(Default::default())).unwrap()["isRepo"],
+        false
+    );
+    assert_eq!(
+        block_on(git.diff_files(Default::default())).unwrap()["isRepo"],
+        false
+    );
+    assert!(
+        matches!(block_on(git.diff_file("hello.txt",Default::default())),Err(Error::Remote{code,..}) if code == "GIT_NOT_REPOSITORY")
+    );
+    let terminal = guard.terminal_actions(&client).unwrap();
+    let opened = block_on(terminal.open(1, TerminalSize::default())).unwrap();
+    let id = opened["id"].as_str().unwrap();
+    // All mutations here are explicit test setup in this generated Project's PTY.
+    // GitReads itself exposes no write command. Identity and HOME are synthetic.
+    let setup="set -e; export HOME=\"$PWD/.git-client-home\"; mkdir \"$HOME\"; export XDG_CONFIG_HOME=\"$HOME/.config\" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_AUTHOR_NAME=Synthetic GIT_AUTHOR_EMAIL=synthetic@example.invalid GIT_COMMITTER_NAME=Synthetic GIT_COMMITTER_EMAIL=synthetic@example.invalid; /usr/bin/git init -b main; printf 'baseline\\n' > hello.txt; /usr/bin/git add -- hello.txt; /usr/bin/git -c core.hooksPath=/dev/null -c commit.gpgsign=false commit -qm baseline; /usr/bin/git checkout -qb topic; printf 'topic\\n' > hello.txt; /usr/bin/git add -- hello.txt; /usr/bin/git -c core.hooksPath=/dev/null -c commit.gpgsign=false commit -qm topic-read-check; printf 'working\\n' > hello.txt; printf 'untracked\\n' > new.txt; printf '\\147\\151\\164\\055\\143\\154\\151\\145\\156\\164\\055\\162\\145\\141\\144\\171\\012'\n";
+    block_on(terminal.input(id, setup)).unwrap();
+    let (reader, _, _read_events) = block_on(guard.connect(ClientOptions::default())).unwrap();
+    block_on(reader.open_view(guard.project())).unwrap();
+    let snapshot = block_on(reader.runtime_snapshot()).unwrap();
+    block_on(reader.accept_snapshot(&snapshot)).unwrap();
+    let output = guard.terminal_actions(&reader).unwrap();
+    let until = Instant::now() + Duration::from_secs(15);
+    let mut text = String::new();
+    let mut offset = 0;
+    while !text.contains("git-client-ready\r\n") {
+        assert!(
+            Instant::now() < until,
+            "synthetic Git setup did not finish: {text:?}"
+        );
+        let read = block_on(output.read(id, offset, Some(4096))).unwrap();
+        text.push_str(read["data"].as_str().unwrap());
+        offset = read["offset"].as_u64().unwrap();
+        assert_ne!(read["ended"], true, "synthetic Git setup exited: {text:?}");
+    }
+    let changes = block_on(git.changes(Some("main"))).unwrap();
+    assert_eq!(changes["isRepo"], true);
+    assert_eq!(changes["hasChanges"], true);
+    assert!(changes["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["path"] == "hello.txt"));
+    let history = block_on(git.history(GitHistoryOptions {
+        base: Some("main".into()),
+        limit: Some(10),
+        ..Default::default()
+    }))
+    .unwrap();
+    assert_eq!(history["commits"][0]["message"], "topic-read-check");
+    let head = history["head"].as_str().unwrap();
+    assert_eq!(head.len(), 40);
+    let files = block_on(git.diff_files(Default::default())).unwrap();
+    assert!(files["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["path"] == "hello.txt"));
+    let working = block_on(git.diff_file("hello.txt", Default::default())).unwrap();
+    assert!(working["patch"].as_str().unwrap().contains("+working"));
+    let untracked = block_on(git.diff_file(
+        "new.txt",
+        GitDiffFileOptions {
+            untracked: true,
+            ..Default::default()
+        },
+    ))
+    .unwrap();
+    assert!(untracked["patch"].as_str().unwrap().contains("+untracked"));
+    let committed = GitDiffOptions {
+        mode: GitDiffMode::Committed,
+        base: Some("main".into()),
+        commit: Some(head.into()),
+    };
+    let files = block_on(git.diff_files(committed.clone())).unwrap();
+    assert_eq!(files["commit"], head);
+    assert!(files["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["path"] == "hello.txt"));
+    let patch = block_on(git.diff_file(
+        "hello.txt",
+        GitDiffFileOptions {
+            diff: committed,
+            ..Default::default()
+        },
+    ))
+    .unwrap();
+    assert!(patch["patch"].as_str().unwrap().contains("+topic"));
+    assert_eq!(
+        fs::read_to_string(Path::new(guard.project()).join("hello.txt")).unwrap(),
+        "working\n"
+    );
+    assert_eq!(
+        block_on(git.history(GitHistoryOptions {
+            limit: Some(0),
+            ..Default::default()
+        }))
+        .unwrap()["head"],
+        head
+    );
+    block_on(terminal.close(id)).unwrap();
+    complete(&guard);
+    client.disconnect();
+    reader.disconnect();
+    assert_eq!(block_on(git.changes(None)), Err(Error::Disconnected));
+    println!(
+        "OWNED_CHAT_GIT_EVIDENCE {}",
+        json!({"pid":guard.info().pid,"realProvider":false,"realRepository":true,"routes":4,"privateSetupHome":true,"explicitSyntheticIdentity":true,"repoInitializationObserved":true,"commit":head,"uncommittedPatch":true,"untrackedPatch":true,"committedPatch":true,"workingFileUnchanged":true})
+    );
+}

@@ -976,6 +976,8 @@ mod actions;
 mod hydration;
 
 #[cfg(feature = "owned-chat")]
+mod git_reads;
+#[cfg(feature = "owned-chat")]
 mod owned_actions;
 #[cfg(feature = "owned-chat")]
 mod terminal_actions;

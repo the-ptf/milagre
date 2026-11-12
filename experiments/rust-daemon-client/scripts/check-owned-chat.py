@@ -20,6 +20,7 @@ TESTS = [
     "launcher::owned_chat_launch::tests::owned_chat_reads_restart_and_reconnect",
     "launcher::owned_chat_launch::tests::owned_chat_fixed_provider_actions_persist_across_restart",
     "launcher::owned_chat_launch::tests::owned_chat_terminal_actions_use_one_owner_with_explicit_reader_connection",
+    "launcher::owned_chat_launch::tests::owned_chat_git_reads_an_actual_owned_repo_without_provider_execution",
 ]
 
 
@@ -84,7 +85,7 @@ def main():
             combined += result.stdout
         if canary.read_bytes() != before:
             raise SystemExit("Synthetic ambient profile changed")
-        if "OWNED_CHAT_READS_EVIDENCE " not in combined or "OWNED_CHAT_ACTIONS_EVIDENCE " not in combined or "OWNED_CHAT_TERMINALS_EVIDENCE " not in combined or combined.count("OWNED_CHAT_CLEANUP ") != 5:
+        if "OWNED_CHAT_READS_EVIDENCE " not in combined or "OWNED_CHAT_ACTIONS_EVIDENCE " not in combined or "OWNED_CHAT_TERMINALS_EVIDENCE " not in combined or "OWNED_CHAT_GIT_EVIDENCE " not in combined or combined.count("OWNED_CHAT_CLEANUP ") != 6:
             raise SystemExit("Dedicated runtime evidence missing")
     if stage.exists():
         raise SystemExit("Dedicated staging storage remains")

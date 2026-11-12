@@ -25,6 +25,10 @@ pub use client::chat_actions::{
     SendTarget,
 };
 #[cfg(feature = "owned-chat")]
+pub use client::git_reads::{
+    GitDiffFileOptions, GitDiffMode, GitDiffOptions, GitHistoryOptions, GitReads,
+};
+#[cfg(feature = "owned-chat")]
 pub use client::terminal_actions::{TerminalActions, TerminalSize};
 pub use client::{Client, ScriptedActions};
 pub use launcher::{Cleanup, FixtureInfo, ShutdownReport};

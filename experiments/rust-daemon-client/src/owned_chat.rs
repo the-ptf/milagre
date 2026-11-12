@@ -73,6 +73,11 @@ impl OwnedChatGuard {
         client.owned_terminals_for(&self.authority)
     }
 
+    /// Read Git state only in this exact connection's captured dedicated Project.
+    pub fn git_reads(&self, client: &Client) -> Result<crate::GitReads> {
+        client.owned_git_for(&self.authority)
+    }
+
     pub fn info(&self) -> &OwnedChatInfo {
         &self.info
     }

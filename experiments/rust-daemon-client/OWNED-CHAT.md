@@ -1,6 +1,6 @@
 # Dedicated Chat client, default-disabled checkpoint
 
-Enable `owned-chat` to use `OwnedChatGuard`, `ChatActions` and `TerminalActions`. They have no Tauri,
+Enable `owned-chat` to use `OwnedChatGuard`, `ChatActions`, `TerminalActions` and `GitReads`. They have no Tauri,
 GPUI or caller-thread Tokio dependency. The existing fixture API stays unchanged.
 This connects a persistent dedicated Rust Project, not an installed production
 profile or arbitrary existing daemon. It does not complete the backend migration.
@@ -99,7 +99,7 @@ global wire seq. The fixed provider's tested event sequence below is evidence fo
 that fixture, not an event list promised for every real-provider turn.
 
 Attachments, compact, steering, new Worktree/computer Chats, account/model switching,
-broader sidebar writes, content/git capabilities and production-data adoption
+broader sidebar writes, content capabilities, Git mutations/PR actions and production-data adoption
 remain separate checkpoints. TerminalActions below is its own capability. This
 API contains no raw RPC method.
 
@@ -142,8 +142,7 @@ separate control/read Clients, applies and accepts each snapshot, opens the
 daemon's `/bin/sh` PTY, proves actual octal-encoded shell output rather than input
 echo, resizes to 120x42, reconnects a third reader to the same owner for catch-up,
 observes `terminal:changed`, closes the terminal, rejects subsequent input, and
-requires Complete cleanup with retained data. The stage now observes five daemon
-children across all three tests and five confirmed cleanup records.
+requires Complete cleanup with retained data.
 
 Eight terminal socketpair tests cover all exact route shapes, scope, limits,
 pre-open refusal, weak lifetime, missing capability, remote/timeout uncertainty,
@@ -154,6 +153,19 @@ actions. The caller must explicitly create the second connection through the sam
 guard, open/apply/accept on both, and drain both notification queues. There is no
 implicit connection or multiplexing claim. Full signatures and bounds are in
 [CONTRACT.md](CONTRACT.md#dedicated-terminal-actions-owned-chat-default-off).
+
+The fourth process test uses a generated dedicated Project with no provider
+execution. It observes repository absence through all four GitReads routes, then
+uses the existing real PTY to initialize a synthetic local repository with an
+explicit private HOME and synthetic author/committer identity. It compares actual
+changes, history, uncommitted and full-commit diff-file/diff-files, an untracked
+patch and unchanged working bytes, closes its PTY and requires Complete cleanup.
+The stage now observes six daemon children and six cleanup records across four
+tests. Six Git socketpair tests cover exact supported wire options/captured cwd,
+authority/view/disconnect gates, boundary validation, absent capability, weak
+pending lifetime, exact remote errors and submitted timeout without replay.
+Signatures and bounds are in
+[CONTRACT.md](CONTRACT.md#dedicated-git-reads-owned-chat-default-off).
 
 The fixed turn observed `message-sent`, `turn-started`, `session-started`,
 `permission-request`, `permission-resolved`, two `text-delta` events and

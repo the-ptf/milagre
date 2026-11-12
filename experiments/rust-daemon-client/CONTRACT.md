@@ -72,6 +72,67 @@ list/read catch-up. PTY lifetime belongs to the daemon; disconnecting a reader i
 not terminal closure. Neither terminal-close acknowledgment nor connection drop
 substitutes for the retained guard's final cleanup evidence.
 
+## Dedicated Git reads (`owned-chat`, default off)
+
+`OwnedChatGuard::git_reads(&Client) -> Result<GitReads>` is another exact-guard,
+weak-Client capability. All four routes require an explicitly opened Project view
+on that Client. A successful `project_current` read is insufficient. Every call
+derives `cwd` from the captured dedicated Project; the caller cannot supply it.
+There is no raw argument object, mutation, PR action, Worktree-path selection,
+parent-repository discovery or fallback. The backend independently verifies the
+Project/repository identity and scope before and after each query.
+
+```rust,ignore
+impl GitReads {
+    async fn changes(&self, base: Option<&str>) -> Result<Value>;
+    async fn history(&self, options: GitHistoryOptions) -> Result<Value>;
+    async fn diff_files(&self, options: GitDiffOptions) -> Result<Value>;
+    async fn diff_file(&self, path: &str, options: GitDiffFileOptions) -> Result<Value>;
+}
+struct GitHistoryOptions {
+    base: Option<String>, recorded_base: Option<String>,
+    branches_version: Option<String>, limit: Option<u16>,
+}
+enum GitDiffMode { Uncommitted, Committed }
+struct GitDiffOptions {
+    mode: GitDiffMode, base: Option<String>, commit: Option<String>,
+}
+struct GitDiffFileOptions {
+    diff: GitDiffOptions, old_path: Option<String>, untracked: bool,
+}
+```
+
+These are public fields with Default implementations: optional fields absent,
+mode Uncommitted, untracked false. Exact wire methods are `git:changes`,
+`git:history`, `git:diff-files`, `git:diff-file`, with one object argument and no
+extra keys. `recorded_base`, `branches_version`, and `old_path` become
+`recordedBase`, `branchesVersion`, and `oldPath`. Optional fields remain absent
+when not supplied; an explicitly empty base string is preserved. A false
+untracked flag is omitted, matching the backend default. Commit selection needs
+a full 40-character lowercase hexadecimal SHA-1 and Committed mode; an untracked
+patch needs Uncommitted mode. Unsupported range/PR options and caller cwd cannot
+be represented. Incompatible combinations refuse before enqueue rather than
+being silently ignored.
+
+Base/recorded-base strings are at most 1024 UTF-8 bytes without NUL. The opaque
+branches-version is at most 128 bytes without NUL. History limit is 0..=300;
+zero requests metadata without commit rows, and None preserves the daemon's
+default. File/old-file paths are nonempty relative repository paths of at most
+4096 bytes, without NUL, absolute/UNC roots or `..` components separated by `/`
+or `\`. The backend still owns repository membership/symlink validation.
+Encoded arguments must fit 64 KiB, including JSON escaping. No string is trimmed,
+truncated or normalized. No public method accepts arbitrary `serde_json::Value`
+input; output bodies preserve the daemon's actual metadata/patch/truncation/errors.
+
+Futures use the existing executor-independent I/O thread, with the same weak
+connection lifetime, view gate, bounded admission, remote payload preservation,
+submitted-timeout uncertainty and no replay/retry/implicit reconnect semantics.
+Git reads share that Client's serialized RPC queue. Keep terminal long-polls on
+the explicit separate reader connection described above. Existing notification
+barriers apply unchanged; GitReads does not create another subscription or owner.
+Repository absence is preserved as the daemon's `isRepo:false` result (or its
+`GIT_NOT_REPOSITORY` refusal for a patch), never an invented empty repository.
+
 `milagre-daemon-client` is the backend-owned protocol-v1 client boundary agreed with the GPUI workstream in Chat #11899. It is independent of Tauri, GPUI and the caller's async runtime. This checkpoint adds a separate connection-bound ScriptedActions capability to the owned-child launcher and protocol engine. Bounded deferred Project-state hydration remains available. Real `app-fixture` reads, live hydration, paging, reconnect and lifecycle checks run separately from the default test suite. **It is not production authority or a complete GPUI adapter.** No installed app or runtime imports this crate yet.
 
 ## Authority and owned-child launcher

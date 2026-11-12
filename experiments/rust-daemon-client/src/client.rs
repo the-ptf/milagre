@@ -21,6 +21,9 @@ use std::{
 #[path = "chat_actions.rs"]
 pub(crate) mod chat_actions;
 #[cfg(feature = "owned-chat")]
+#[path = "git_reads.rs"]
+pub(crate) mod git_reads;
+#[cfg(feature = "owned-chat")]
 #[path = "terminal_actions.rs"]
 pub(crate) mod terminal_actions;
 
