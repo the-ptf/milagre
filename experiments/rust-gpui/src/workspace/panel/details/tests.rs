@@ -162,6 +162,9 @@ fn subchat_rows_nest_and_open_their_chat(cx: &mut TestAppContext) {
         })
         .detach()
     });
+    // Each Lineage row carries its "→" before the trailing state (drawn at full opacity only under the pointer).
+    let (row, arrow) = (testing::bounds(cx, "details-subchat-0"), testing::bounds(cx, "details-subchat-0-arrow"));
+    assert!(arrow.left() > row.center().x && arrow.right() < row.right(), "the arrow sits at the trailing end");
     click(cx, "details-subchat-0");
     assert_eq!(events.borrow().as_slice(), [rows[0].key.clone()]);
     // The Workspace opened that Chat (it has no sidebar row); its panel starts on Changes, so come back to Details.
@@ -170,6 +173,7 @@ fn subchat_rows_nest_and_open_their_chat(cx: &mut TestAppContext) {
     view.update(cx, |v, cx| v.set_chat(rows[0].key.clone(), None, false, cx));
     cx.run_until_parked();
     assert!(view.read_with(cx, |v, _| v.family().parent.as_ref().map(|p| p.key.clone())) == Some(parent.clone()));
+    assert!(cx.debug_bounds("details-parent-arrow").is_some(), "the parent row has its arrow too");
     click(cx, "details-parent");
     assert_eq!(events.borrow().last(), Some(&parent));
 }

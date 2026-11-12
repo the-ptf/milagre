@@ -61,6 +61,22 @@ fn toggle_heading(
     clickable(row, theme, on_click).into_any_element()
 }
 
+/// The group a Lineage row names, so its arrow shows while the pointer is on that row.
+const LINEAGE_ROW: &str = "details-lineage-row";
+
+/// The arrow before a Lineage row's trailing state ("→ Done"): muted, shown only while the pointer is on the row,
+/// saying the row opens that Chat.
+fn go_arrow(theme: &Theme, row: &str) -> AnyElement {
+    let selector = format!("{row}-arrow");
+    div()
+        .flex_none()
+        .debug_selector(move || selector.clone())
+        .opacity(0.0)
+        .group_hover(LINEAGE_ROW, |style| style.opacity(1.0))
+        .child(Icon::new(IconName::ArrowRight01).size(IconSize::S14).color(theme.ink3))
+        .into_any_element()
+}
+
 fn glyph(theme: &Theme, name: IconName) -> AnyElement {
     Icon::new(name).size(IconSize::S16).color(theme.ink3).into_any_element()
 }
@@ -323,8 +339,9 @@ impl DetailsView {
                         "details-parent",
                         glyph(theme, IconName::ArrowUpLeft01),
                         parent.title.clone(),
-                        vec![value(theme, "Parent", None)],
-                    ),
+                        vec![go_arrow(theme, "details-parent"), value(theme, "Parent", None)],
+                    )
+                    .group(LINEAGE_ROW),
                     theme,
                     on(cx, move |this, cx| this.open_chat(&key, cx)),
                 )
@@ -334,13 +351,15 @@ impl DetailsView {
         let subchats: Vec<SubchatRow> = self.family().subchats.clone();
         for (ix, sub) in subchats.into_iter().enumerate() {
             let key = sub.key.clone();
+            let id = format!("details-subchat-{ix}");
             let row = line(
                 theme,
-                format!("details-subchat-{ix}"),
+                id.clone(),
                 Icon::new(IconName::Redo03).size(IconSize::S14).color(theme.ink3).into_any_element(),
                 sub.title.clone(),
-                vec![state_mark(theme, &sub.key, sub.kind)],
+                vec![go_arrow(theme, &id), state_mark(theme, &sub.key, sub.kind)],
             )
+            .group(LINEAGE_ROW)
             .pl(px(ROW_PAD + sub.depth as f32 * INDENT));
             rows.push(clickable(row, theme, on(cx, move |this, cx| this.open_chat(&key, cx))).into_any_element());
         }
