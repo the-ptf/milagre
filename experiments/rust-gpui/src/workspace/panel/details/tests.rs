@@ -205,3 +205,28 @@ fn links_fold_and_stay_folded_across_chats(cx: &mut TestAppContext) {
     click(cx, "details-links-toggle");
     assert!(view.read_with(cx, |v, _| v.links_open()));
 }
+
+#[gpui::test]
+fn a_folded_section_is_just_its_heading_row(cx: &mut TestAppContext) {
+    let (panel, cx) = mount(cx);
+    let view = details(&panel, cx);
+    view.update(cx, |v, cx| {
+        v.toggle_children(cx);
+        v.toggle_background(cx);
+        v.toggle_links(cx);
+    });
+    cx.run_until_parked();
+    let mut checked = 0;
+    for (section, heading) in [
+        ("details-section-children", "details-children-toggle"),
+        ("details-section-background", "details-background-toggle"),
+        ("details-section-links", "details-links-toggle"),
+    ] {
+        // The fixture Chat may have no Children.
+        let Some(section_bounds) = cx.debug_bounds(section) else { continue };
+        checked += 1;
+        let heading = testing::bounds(cx, heading);
+        assert_eq!(section_bounds.size.height, heading.size.height, "{section}: a folded section is only its heading row");
+    }
+    assert!(checked >= 2, "Background tasks and Links are drawn");
+}

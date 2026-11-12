@@ -220,7 +220,7 @@ impl DetailsView {
                     .into_any_element(),
             );
         }
-        section(rows)
+        section("details-section-environment", rows)
     }
 
     pub(super) fn context(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
@@ -272,7 +272,7 @@ impl DetailsView {
             }
             rows.push(body.into_any_element());
         }
-        section(rows)
+        section("details-section-context", rows)
     }
 
     pub(super) fn subchats(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
@@ -280,7 +280,7 @@ impl DetailsView {
         let mut rows: Vec<AnyElement> =
             vec![toggle_heading(theme, "details-children-toggle", "Children", open, on(cx, |this, cx| this.toggle_children(cx)))];
         if !open {
-            return section(rows);
+            return section("details-section-children", rows);
         }
         if let Some(parent) = &self.family().parent {
             let key = parent.key.clone();
@@ -312,7 +312,7 @@ impl DetailsView {
             .pl(px(PAD_X + sub.depth as f32 * INDENT));
             rows.push(clickable(row, theme, on(cx, move |this, cx| this.open_chat(&key, cx))).into_any_element());
         }
-        section(rows)
+        section("details-section-children", rows)
     }
 
     pub(super) fn background(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
@@ -326,7 +326,7 @@ impl DetailsView {
             on(cx, |this, cx| this.toggle_background(cx)),
         )];
         if !open {
-            return section(rows);
+            return section("details-section-background", rows);
         }
         for command in &data.commands {
             let time = data::elapsed(command.started_at, None, data.commands_now);
@@ -436,7 +436,7 @@ impl DetailsView {
                 }
             }
         }
-        section(rows)
+        section("details-section-background", rows)
     }
 
     pub(super) fn links(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
@@ -444,7 +444,7 @@ impl DetailsView {
         let mut rows: Vec<AnyElement> =
             vec![toggle_heading(theme, "details-links-toggle", "Links", open, on(cx, |this, cx| this.toggle_links(cx)))];
         if !open {
-            return section(rows);
+            return section("details-section-links", rows);
         }
         if let Some((key, title)) = self.data.linear.clone() {
             let issue = key.clone();
@@ -484,10 +484,21 @@ impl DetailsView {
                 .into_any_element(),
             );
         }
-        section(rows)
+        section("details-section-links", rows)
     }
 }
 
-fn section(rows: Vec<AnyElement>) -> AnyElement {
-    div().flex().flex_col().flex_none().w_full().pb(px(4.0)).children(rows).into_any_element()
+/// A section: its rows, with a little room under them while open. A folded section is its heading row alone, so
+/// it has no bottom padding (it would read taller than an open section's heading).
+fn section(id: &'static str, rows: Vec<AnyElement>) -> AnyElement {
+    let open = rows.len() > 1;
+    div()
+        .debug_selector(move || id.to_string())
+        .flex()
+        .flex_col()
+        .flex_none()
+        .w_full()
+        .when(open, |el| el.pb(px(4.0)))
+        .children(rows)
+        .into_any_element()
 }
