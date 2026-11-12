@@ -78,7 +78,12 @@ impl RenderOnce for ProviderLogo {
 /// Starts decoding every brand mark, so the first frame that shows one already has it (an `img()` that is
 /// still loading draws nothing until its view renders again). Returns whether all are decoded; call it again
 /// to poll. `app::init` calls it; snapshot mode waits for it, because a window nobody can see gets no more
-/// frames after its first ones (gpui-pre stops the display link of an occluded window).
+/// frames after its first ones (gpui-pre stops the display link of an occluded window). The sidebar's grain
+/// (`ui::grain`) is waited for with them.
 pub fn preload_logos(cx: &mut App) -> bool {
-    Provider::ALL.iter().all(|provider| cx.fetch_asset::<ImgResourceLoader>(&Resource::Embedded(provider.logo_path().into())).is_some())
+    let grain = super::grain::preload_grain(cx);
+    let logos = Provider::ALL
+        .iter()
+        .all(|provider| cx.fetch_asset::<ImgResourceLoader>(&Resource::Embedded(provider.logo_path().into())).is_some());
+    grain && logos
 }

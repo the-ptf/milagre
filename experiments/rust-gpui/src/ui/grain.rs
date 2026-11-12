@@ -1,0 +1,65 @@
+//! Film grain: a static noise texture tiled over a surface (the sidebar's, as in Victor's reference video).
+//!
+//! The texture is `assets/grain/` (`tools/gen-grain.mjs`): 256 px of per-pixel noise drawn as a 128pt tile, so one
+//! speck is one device pixel on a Retina display. Its strength is baked into the PNG's alpha (0 to 7 %, about 3.5 % on
+//! average), white specks over the dark theme and black over the light one, so it lightens on dark and darkens on
+//! light by the same amount. [`GrainView`] is a view of its own: mount it cached, absolutely over its surface's fill
+//! and under the content, and it renders once (again only when the theme changes) and never on hover or scroll.
+
+use gpui::{App, Context, ImgResourceLoader, IntoElement, Render, Resource, Window, div, img, prelude::*, px};
+
+use crate::theme::{ActiveTheme, Appearance};
+
+/// One tile, in points.
+pub const GRAIN_TILE: f32 = 128.0;
+/// How many tiles across and down the view draws: enough for a 384pt wide, 3072pt tall surface (it clips the rest).
+const COLUMNS: usize = 3;
+const ROWS: usize = 24;
+
+const LIGHT_SPECKS: &str = "grain/grain-light.png";
+const DARK_SPECKS: &str = "grain/grain-dark.png";
+
+/// The texture for an appearance: light specks on dark, dark specks on light.
+fn texture(appearance: Appearance) -> &'static str {
+    match appearance {
+        Appearance::Dark => LIGHT_SPECKS,
+        Appearance::Light => DARK_SPECKS,
+    }
+}
+
+/// Starts decoding both textures (see `preload_logos`); whether both are ready.
+pub fn preload_grain(cx: &mut App) -> bool {
+    [LIGHT_SPECKS, DARK_SPECKS].iter().all(|path| cx.fetch_asset::<ImgResourceLoader>(&Resource::Embedded((*path).into())).is_some())
+}
+
+/// The grain over a surface. Mount it with `AnyView::from(view).cached(..)` at the surface's size, absolutely.
+pub struct GrainView {
+    renders: usize,
+}
+
+impl GrainView {
+    pub fn new() -> Self {
+        Self { renders: 0 }
+    }
+
+    /// How many times it has rendered (tests: hovering and scrolling the sidebar must not render it).
+    pub fn renders(&self) -> usize {
+        self.renders
+    }
+}
+
+impl Default for GrainView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Render for GrainView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.renders += 1;
+        let path = texture(cx.theme().appearance);
+        div().debug_selector(|| "grain".into()).size_full().overflow_hidden().flex().flex_col().children(
+            (0..ROWS).map(|_| div().flex().flex_none().children((0..COLUMNS).map(|_| img(path).flex_none().size(px(GRAIN_TILE))))),
+        )
+    }
+}
