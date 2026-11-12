@@ -6,6 +6,18 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 06:00 Toronto, exact terminal unread provenance and explicit unread-intent
+protection are accepted after independent rereview. The same-value Mark unread
+P2 is closed: admitted read/unread commands expire that Chat's rollback receipt
+even when the saved value is unchanged; refused commands do not. Root reran the
+actual actor interleaving regression. Saved full validation passes 151 runtime
+and 234 owner tests with strict feature/normal checks; removing the hook fails
+the regression cleanly. This is default-off synthetic routine behavior, not an
+installed scheduler. Installed Preview signature verifies and its accepted pins
+remain unchanged. GPUI received a stable-pin update. A collaboration subagent is
+planning the remaining pre-publication quiet terminal-event seam before edits.
+Full retained services, phone interoperability and data upgrade remain incomplete.
+
 At 05:30 Toronto, unread provenance is implemented but NOT accepted. Saved source
 passes 234 owner and 150 runtime tests with strict feature/normal checks, and
 root reran the native quiet completion/restart test. Independent review found a
