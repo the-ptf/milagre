@@ -6,6 +6,33 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 04:10 Toronto, durable Tauri preference checkpoint `dca7cdbc` is accepted and
+installed as a shell-only Preview refresh. Independent review closed both staging
+identity/cleanup findings; 59 shell tests pass (one optional ignored), strict
+Clippy/fmt pass, and root reruns all ten private-store cases plus actual owned-child
+preference restart. Normal staged `hpwUCo` and installed `jCrGGt` observers pass
+Sidebar/read/metadata/native-Quit checks, with no model send and actual temporary
+profile/socket/shell cleanup. This is not a native settings-click test.
+
+Installed shell SHA-256:
+`e7c8663afd7da5f7489eeecbc85b74b17a07b93fb87cd7109eaba0ebee17730b`.
+The runtime is deliberately retained at accepted `6054d7d6`, not the newer dirty
+package build. Exact provenance and prior bundle are retained at
+`/private/tmp/milagre-rust-preview-package-5vz_p3g4/shell-refresh-install.json`.
+The original package report records a different initially built runtime and is
+not the final shell-only manifest. GPUI needs no client/runtime repin.
+
+Routine-created primary Project Chats are now accepted only behind the existing
+default-off synthetic fixture gate. The content-capacity P2 is closed: the
+scheduler retains the actor's actual content owner and refuses before creation at
+1,024 Chats. Root reran that saturation case; independent source/log review found
+no remaining P1/P2. Full checks pass 148 runtime and 231 owner tests, strict feature
+and normal Clippy, formatting and JS checks. Actual actor/native cases prove fresh
+creation, durable attachment before send, saved transcript and restart without
+replay; fault cases retain failed/uncertain evidence. Public automatic execution
+stays refused and this increment is not installed. Final naming/quiet archive,
+Worktree/Link creation and broader routine triggers remain open.
+
 At 04:00 Toronto, both installed previews remain on accepted pins. Two resumed
 subagents are implementing durable Tauri-only preferences on the dedicated root
 and synthetic routine-created Project Chats with durable attachment before send.

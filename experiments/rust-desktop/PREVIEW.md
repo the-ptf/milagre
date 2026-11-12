@@ -258,3 +258,13 @@ Sidebar refresh spent no additional real turn. GPUI adoption is separate.
 ## Native preference persistence source checkpoint
 
 The dedicated Chat shell now saves its React preference map in `data/native-tauri-preferences.json`, under the same explicitly admitted dedicated root. It owns a frontend-specific lock and revalidates exact child/root/manifest authority before reads and save acknowledgement. Files are private, bounded and atomically replaced with file and directory sync. Post-rename failures remain failed and fence further access until reopen. The core daemon remains the only Project writer. Ordinary installed Rust/Electron preferences and ephemeral app fixtures are unchanged; window state/WebKit stay temporary. This preference map cannot rewrite the captured launch account/model/credentials. See [CHAT-DESKTOP.md](CHAT-DESKTOP.md#dedicated-native-preference-persistence-checkpoint) for tests and limits. This source checkpoint does not itself refresh the installed Preview or claim a native settings pass.
+
+Root subsequently accepted `dca7cdbc` and refreshed the installed Preview shell
+at 04:10 Toronto. The accepted runtime remains `6054d7d6`; only the shell changed
+to `e7c8663afd7da5f7489eeecbc85b74b17a07b93fb87cd7109eaba0ebee17730b`.
+Normal staged `hpwUCo` and installed `jCrGGt` lifecycle observers pass with no
+model sends, native Quit and actual cleanup. Reports use the same private
+temporary-directory prefix as the preceding checks. Shell-only provenance and
+retained rollback bundle: `/private/tmp/milagre-rust-preview-package-5vz_p3g4/shell-refresh-install.json`.
+Preference values survive actual owned-child restart in the shell harness; these
+normal-package observers do not click Settings or write a preference value.
