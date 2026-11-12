@@ -246,3 +246,88 @@ fn a_stale_socket_is_replaced_and_anything_else_there_is_refused() {
     assert_eq!(ready["socketPath"], socket.to_str().unwrap());
     stop(child);
 }
+
+/// One request on a fresh connection to the owner's socket; the result, or the error object.
+fn request(socket: &Path, method: &str, args: Value) -> Value {
+    use std::io::Write;
+    let mut stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
+    let frame = serde_json::json!({"v": 1, "id": 1, "method": method, "args": args});
+    stream.write_all(format!("{frame}\n").as_bytes()).unwrap();
+    let mut reader = BufReader::new(stream);
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let reply: Value = serde_json::from_str(&line).unwrap();
+        if reply.get("id").is_some() {
+            return reply
+                .get("result")
+                .cloned()
+                .unwrap_or_else(|| reply["error"].clone());
+        }
+    }
+}
+
+fn git(cwd: &Path, args: &[&str]) {
+    let status = Command::new("git")
+        .current_dir(cwd)
+        .env("HOME", cwd)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .args([
+            "-c",
+            "user.name=F",
+            "-c",
+            "user.email=f@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "git {args:?}");
+}
+
+fn repository(path: &Path, origin: &str) {
+    std::fs::create_dir_all(path).unwrap();
+    git(path, &["init", "-q", "-b", "main"]);
+    git(path, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    git(path, &["remote", "add", "origin", origin]);
+}
+
+#[test]
+fn a_registry_entry_linked_outside_the_copy_is_left_out_and_never_read() {
+    let copy = copy();
+    let outside = tempfile::tempdir().unwrap();
+    let outer = std::fs::canonicalize(outside.path()).unwrap().join("outer");
+    repository(&outer, "git@github.com:Example/Outer.git");
+    let link = copy.root.join("link");
+    std::os::unix::fs::symlink(&outer, &link).unwrap();
+    let inside = copy.root.join("inside");
+    repository(&inside, "git@github.com:Example/Inside.git");
+    let registry = serde_json::json!({
+        "scanned": true,
+        "projects": [
+            {"id": link, "path": link, "name": "link", "git": false, "openedAt": "2026-11-02T00:00:00.000Z"},
+            {"id": inside.join(".git"), "path": inside, "name": "inside", "git": true, "openedAt": "2026-11-01T00:00:00.000Z"},
+        ],
+        "links": [], "projectGroups": [], "worktreePositions": {},
+    });
+    std::fs::write(
+        copy.data.join("project-registry.json"),
+        registry.to_string(),
+    )
+    .unwrap();
+    let (child, ready) = start(&copy);
+    let known = request(
+        Path::new(ready["socketPath"].as_str().unwrap()),
+        "project:known",
+        serde_json::json!([]),
+    );
+    stop(child);
+    assert_eq!(
+        known,
+        serde_json::json!([{"path": inside, "name": "inside", "openedAt": "2026-11-01T00:00:00.000Z", "origin": "github.com/example/inside"}])
+    );
+}

@@ -398,3 +398,54 @@ fn walk_count(path: &std::path::Path) -> usize {
         })
         .sum()
 }
+
+#[tokio::test]
+async fn origins_come_only_from_verified_repositories_inside_the_copy() {
+    let (temp, _, registry, _) = fixture();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let inside = repo(&root, "inside");
+    git(
+        &inside,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "git@github.com:Example/Inside.git",
+        ],
+    );
+    assert_eq!(
+        registry
+            .origin_url(&inside)
+            .await
+            .unwrap()
+            .as_deref()
+            .map(str::trim),
+        Some("git@github.com:Example/Inside.git")
+    );
+    let plain = root.join("plain");
+    std::fs::create_dir(&plain).unwrap();
+    assert_eq!(registry.origin_url(&plain).await.unwrap(), None);
+    // A link inside the copy to a repository outside it is never read.
+    let outside = tempfile::tempdir().unwrap();
+    let outer = repo(&std::fs::canonicalize(outside.path()).unwrap(), "outer");
+    git(
+        &outer,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "git@github.com:Example/Outer.git",
+        ],
+    );
+    std::os::unix::fs::symlink(&outer, root.join("link")).unwrap();
+    assert!(registry.origin_url(root.join("link")).await.is_err());
+    // Nor is a Git pointer leading outside.
+    let pointer = root.join("pointer");
+    std::fs::create_dir(&pointer).unwrap();
+    std::fs::write(
+        pointer.join(".git"),
+        format!("gitdir: {}\n", outer.join(".git").display()),
+    )
+    .unwrap();
+    assert!(registry.origin_url(&pointer).await.is_err());
+}

@@ -420,6 +420,20 @@ impl Registry {
         }
         self.identify(&canonical).await.map(Probe::Present)
     }
+    /// runtime.cjs projectOrigin's `git remote get-url origin` for a Project whose identity is a verified Git checkout
+    /// inside the copy, run in the main checkout with the same locked-down Git environment as identity probes (no global
+    /// or system config, no hooks or fsmonitor, the isolation as discovery ceiling). `None` outside Git, without an
+    /// origin, or when Git fails; an unverifiable identity is an error.
+    pub async fn origin_url(&self, path: impl AsRef<Path>) -> Result<Option<String>> {
+        let identity = self.identify(path).await?;
+        if identity.value["git"] != Value::Bool(true) {
+            return Ok(None);
+        }
+        let main = PathBuf::from(identity.value["path"].as_str().unwrap_or_default());
+        Ok(identity::git(self, &main, &["remote", "get-url", "origin"])
+            .await
+            .ok())
+    }
     pub async fn identify(&self, path: impl AsRef<Path>) -> Result<Identity> {
         let permit = self
             .probes

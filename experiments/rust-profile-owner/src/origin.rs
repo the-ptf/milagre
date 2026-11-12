@@ -1,18 +1,10 @@
 //! runtime.cjs `withOrigins`: each listed Project's Git origin as one id, so a picker shows one repository cloned on
 //! several computers as one Project. Read once per folder while the owner runs, as Node's `projectOrigin` reads it:
-//! `git -C <folder> remote get-url origin` in this process's environment (no prompt), then
-//! `packages/shared/src/project-origin.mjs` originId. A folder without Git, without an origin, or with a local-path
-//! remote has none.
-use std::{
-    collections::HashMap,
-    io::Read,
-    process::{Command, Stdio},
-    sync::Mutex,
-    time::{Duration, Instant},
-};
-
-const TIMEOUT: Duration = Duration::from_secs(15);
-const OUTPUT_LIMIT: u64 = 64 * 1024;
+//! the remote URL (`git remote get-url origin`, here through the registry's verified identity and locked-down Git:
+//! no global or system config, so a global `insteadOf` doesn't apply as it does for Node), then
+//! `packages/shared/src/project-origin.mjs` originId. A folder without Git, without an origin, outside the copy or with
+//! a local-path remote has none.
+use std::{collections::HashMap, sync::Mutex};
 
 /// The origins read so far, by folder.
 #[derive(Default)]
@@ -21,7 +13,8 @@ pub struct Origins {
 }
 
 impl Origins {
-    pub fn of(&self, folder: &str) -> Option<String> {
+    /// The origin id of `folder`, from `remote_url` the first time it is asked.
+    pub fn of(&self, folder: &str, remote_url: impl FnOnce() -> Option<String>) -> Option<String> {
         if let Some(known) = self
             .known
             .lock()
@@ -30,52 +23,13 @@ impl Origins {
         {
             return known.clone();
         }
-        let origin = remote_url(folder).and_then(|url| origin_id(&url));
+        let origin = remote_url().and_then(|url| origin_id(&url));
         self.known
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .insert(folder.to_owned(), origin.clone());
         origin
     }
-}
-
-/// `git -C folder remote get-url origin`, as git/client.cjs runs a read: the process's environment, no terminal prompt,
-/// SSH in batch mode. None when it fails or takes too long.
-fn remote_url(folder: &str) -> Option<String> {
-    let ssh = std::env::var("GIT_SSH_COMMAND")
-        .ok()
-        .filter(|command| !command.is_empty())
-        .unwrap_or_else(|| "ssh -o BatchMode=yes".into());
-    let mut child = Command::new("git")
-        .args(["-C", folder, "remote", "get-url", "origin"])
-        .current_dir(folder)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_SSH_COMMAND", ssh)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let stdout = child.stdout.take()?;
-    let reader = std::thread::spawn(move || {
-        let mut text = String::new();
-        stdout.take(OUTPUT_LIMIT).read_to_string(&mut text).ok()?;
-        Some(text)
-    });
-    let deadline = Instant::now() + TIMEOUT;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    };
-    let text = reader.join().ok().flatten()?;
-    status.success().then_some(text)
 }
 
 /// JavaScript's `String.prototype.trim`.

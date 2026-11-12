@@ -59,10 +59,7 @@ fn owner_command(layout: &Layout) -> Command {
         .arg("--worktree-root")
         .arg(&layout.worktree_root)
         .env_remove("ELECTRON_RUN_AS_NODE")
-        .env_remove("MILAGRE_DATA_DIR")
-        // The Node daemon runs with the copy's HOME: the same (absent) global Git config for origins.
-        .env("GIT_CONFIG_GLOBAL", layout.root.join("home/.gitconfig"))
-        .env("GIT_CONFIG_NOSYSTEM", "1");
+        .env_remove("MILAGRE_DATA_DIR");
     command
 }
 

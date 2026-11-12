@@ -197,6 +197,13 @@ impl Profile {
             .unwrap_or_default())
     }
 
+    /// The real path of `path` when it exists and resolves strictly inside the copy.
+    fn contained(&self, path: &Path) -> Option<PathBuf> {
+        let real = std::fs::canonicalize(path).ok()?;
+        let root = self.isolation.root();
+        (real.starts_with(root) && real != root).then_some(real)
+    }
+
     /// recentProjects().list() holds the path (runtime.cjs `project:read`'s check).
     fn is_recent(&self, path: &str) -> Result<bool, RpcError> {
         Ok(self
@@ -241,15 +248,16 @@ impl Profile {
             let Some(path) = entry["path"].as_str() else {
                 continue;
             };
-            // Saved paths outside the copy are never probed (Node stats them and drops the ones gone).
-            if self.is_chats_home(path) || self.isolation.normalize(Path::new(path)).is_err() {
+            // Node stats each entry and drops the ones gone. Here an entry must resolve (links followed) inside the copy:
+            // anything leading outside is left out unread, like registry.recent()'s entries.
+            if self.is_chats_home(path) {
                 continue;
             }
-            let folder = std::fs::metadata(path).is_ok_and(|meta| meta.is_dir());
+            let folder = self
+                .contained(Path::new(path))
+                .is_some_and(|real| real.is_dir());
             let id = entry["id"].as_str().unwrap_or_default();
-            let repository = id == path
-                || (self.isolation.normalize(Path::new(id)).is_ok()
-                    && std::fs::metadata(id).is_ok());
+            let repository = id == path || self.contained(Path::new(id)).is_some();
             if !folder || !repository {
                 continue;
             }
@@ -277,10 +285,16 @@ impl Profile {
         Value::Array(
             list.into_iter()
                 .map(|mut project| {
-                    if let Some(origin) = project["path"]
-                        .as_str()
-                        .and_then(|path| self.origins.of(path))
-                    {
+                    let origin = project["path"].as_str().and_then(|path| {
+                        self.origins.of(path, || {
+                            // A verified checkout inside the copy, read with the registry's locked-down Git.
+                            self.runtime
+                                .block_on(self.registry.origin_url(path))
+                                .ok()
+                                .flatten()
+                        })
+                    });
+                    if let Some(origin) = origin {
                         project["origin"] = json!(origin);
                     }
                     project

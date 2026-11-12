@@ -111,7 +111,7 @@ fn verify_git(registry: &Registry, git_dir: &Path) -> Result<()> {
     }
     registry.check()
 }
-async fn git(registry: &Registry, cwd: &Path, args: &[&str]) -> Result<String> {
+pub(crate) async fn git(registry: &Registry, cwd: &Path, args: &[&str]) -> Result<String> {
     let mut command = tokio::process::Command::new("/usr/bin/git");
     command
         .current_dir(cwd)
