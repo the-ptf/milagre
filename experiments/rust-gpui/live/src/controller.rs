@@ -189,7 +189,7 @@ impl DaemonSession {
             }
             Err(error) => {
                 eprintln!("live: no daemon yet: {error:#}");
-                let error = Some(notice_for(&error));
+                let error = Some(notice_for(&daemon, &error));
                 DaemonSession { daemon, store: LiveStore::new(crate::Reducer::default()), notifications: None, error, terminals }
             }
         }
@@ -197,8 +197,10 @@ impl DaemonSession {
 }
 
 /// What the sidebar says when a sync failed.
-fn notice_for(error: &anyhow::Error) -> String {
-    if crate::daemon::unavailable(error) {
+fn notice_for(daemon: &Daemon, error: &anyhow::Error) -> String {
+    if crate::daemon::unavailable(error) && daemon.app_missing() {
+        crate::daemon::INSTALL_MILAGRE.into()
+    } else if crate::daemon::unavailable(error) {
         crate::daemon::OPEN_MILAGRE_FIRST.into()
     } else {
         format!("Couldn't reach Milagre's daemon ({error:#}). Retrying.")
@@ -503,7 +505,7 @@ impl LiveController {
                                     }
                                 }
                                 Err(error) => {
-                                    let notice = notice_for(&error);
+                                    let notice = notice_for(&daemon, &error);
                                     if this.update(cx, |this, cx| this.set_unavailable(Some(notice), cx)).is_err() {
                                         return;
                                     }

@@ -13,9 +13,10 @@
 //!                         [--model sonnet] [--skills DIR] [--user NAME] [--path PATH]
 //! ```
 //!
-//! Daemon mode never launches, stops or signals Milagre's daemon; quitting closes only this window's connections, and
-//! with no daemon running the window says "Open Milagre first" and connects once it runs. No setup window: the daemon
-//! owns the accounts.
+//! Daemon mode adopts Milagre's running daemon, or starts the installed Milagre.app's own daemon in Node mode when none
+//! runs (no Electron window; never in read-only mode), and never stops, replaces or signals it: quitting closes only this
+//! window's connections and leaves the daemon running. Without Milagre.app the window says "Install Milagre to use
+//! this preview". No setup window: the daemon owns the accounts.
 //!
 //! Owned mode: the base folder (default `~/Library/Application Support/Milagre GPUI Preview`) holds `launch.json` (the private
 //! manifest: which Claude, which signed-in account folder, which model) and `root/` (the dedicated data root the
@@ -30,7 +31,7 @@ use std::time::Duration;
 
 use gpui::App;
 use milagre_gpui_live::controller::{DaemonSession, LiveController, install_daemon_app, install_globals};
-use milagre_gpui_live::daemon::Daemon;
+use milagre_gpui_live::daemon::{Daemon, Start};
 use milagre_gpui_live::session::{self, Root, Session};
 use milagre_gpui_live::setup::{self, Detected};
 
@@ -71,7 +72,12 @@ fn run(args: &[String]) -> anyhow::Result<()> {
     if !owned {
         let snapshot = flag(args, "--snapshot").map(PathBuf::from);
         let read_only = snapshot.is_some() || args.iter().any(|a| a == "--read-only");
-        let daemon = Daemon::new(flag(args, "--profile").map(PathBuf::from), read_only);
+        // With Milagre.app closed, its daemon is started in Node mode (never in read-only mode); one running is adopted.
+        let start = if read_only { Start::Never } else { Start::installed_app() };
+        if let Start::Missing(why) = &start {
+            eprintln!("live: {why}: {}", milagre_gpui_live::daemon::INSTALL_MILAGRE);
+        }
+        let daemon = Daemon::starting(flag(args, "--profile").map(PathBuf::from), read_only, start);
         let session = DaemonSession::start(daemon);
         run_daemon_app(session, snapshot);
         return Ok(());

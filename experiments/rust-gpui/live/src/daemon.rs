@@ -1,8 +1,12 @@
 //! Node-daemon mode, the Preview's default: the installed Milagre's running daemon (`InstalledOwner`, client feature
 //! `installed-owner`), so the window shows and drives the same Chats as the Electron app and paired phones.
 //!
-//! The daemon is never launched, stopped, signalled or replaced from here, and there is no shutdown: quitting the
-//! Preview only closes its own connections.
+//! With Milagre.app closed, the Preview starts that app's own daemon ([`Start::Installed`]: `InstalledOwner::
+//! adopt_or_start` with `DaemonLaunch::find_installed_app`, the app's executable in Node mode, detached, in its own
+//! session), so it runs without Electron. A running daemon is only adopted: never stopped, signalled or replaced,
+//! whatever its version, and there is no shutdown: quitting the Preview only closes its own connections and leaves
+//! the daemon (started here or not) running. A read-only window ([`Daemon::read_only`]) never starts one. Without
+//! Milagre.app the window says [`INSTALL_MILAGRE`] and still adopts a daemon that runs anyway.
 //!
 //! - One live connection (the "primary"): connect, `daemon:snapshot`, apply, accept, then its released events. Its
 //!   snapshot holds every Project the daemon has loaded this run, so the sidebar lists all of their Chats from one
@@ -30,8 +34,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context as _, Result, anyhow};
 use milagre_daemon_client::{
-    ChatActions, Client, ClientOptions, Error, GitReads, InstalledOwner, InstalledProject, KnownProject, Notifications, SidebarActions,
-    TerminalActions,
+    ChatActions, Client, ClientOptions, DaemonLaunch, Error, GitReads, InstalledOwner, InstalledProject, KnownProject, Notifications,
+    SidebarActions, TerminalActions,
 };
 
 use crate::Reducer;
@@ -39,8 +43,32 @@ use crate::Reducer;
 pub const UNAVAILABLE: &str = "DAEMON_UNAVAILABLE";
 pub const CHANGED: &str = "INSTALLED_OWNER_CHANGED";
 
-/// What the window says while there is no daemon to adopt.
+/// What the window says while there is no daemon to adopt (read-only windows, which never start one).
 pub const OPEN_MILAGRE_FIRST: &str = "Open Milagre first: this window connects to its daemon as soon as it runs.";
+
+/// What the window says when there is no daemon and no Milagre.app to start one from.
+pub const INSTALL_MILAGRE: &str = "Install Milagre to use this preview: it runs on Milagre's daemon, which this window starts.";
+
+/// Whether and how the Preview starts Milagre's daemon when none runs.
+#[derive(Clone, Debug)]
+pub enum Start {
+    /// Adopt only (read-only windows, tests that need no start).
+    Never,
+    /// Start the installed Milagre.app's daemon in Node mode (or a test's launch) when none runs.
+    Installed(DaemonLaunch),
+    /// Milagre.app is not installed (why): adopt only, and say [`INSTALL_MILAGRE`] while there is no daemon.
+    Missing(String),
+}
+
+impl Start {
+    /// The installed Milagre.app, found as the client finds it (`/Applications`, then `~/Applications`).
+    pub fn installed_app() -> Start {
+        match DaemonLaunch::find_installed_app() {
+            Ok(launch) => Start::Installed(launch),
+            Err(error) => Start::Missing(error.to_string()),
+        }
+    }
+}
 
 /// The client's typed launch code of `error`, anywhere in its chain.
 pub fn code(error: &anyhow::Error) -> Option<&'static str> {
@@ -71,6 +99,7 @@ pub struct Daemon {
     /// `None`: the installed Milagre (`~/Library/Application Support/Milagre`); tests pass a throwaway data folder.
     profile: Option<PathBuf>,
     read_only: bool,
+    start: Start,
     state: Mutex<State>,
 }
 
@@ -84,8 +113,25 @@ pub struct Synced {
 }
 
 impl Daemon {
+    /// Adopts only: never starts a daemon ([`Start::Never`]).
     pub fn new(profile: Option<PathBuf>, read_only: bool) -> Arc<Self> {
-        Arc::new(Self { profile, read_only, state: Mutex::new(State::default()) })
+        Self::starting(profile, read_only, Start::Never)
+    }
+
+    /// Adopts, and starts the daemon with `start` when none runs (never in read-only mode).
+    pub fn starting(profile: Option<PathBuf>, read_only: bool, start: Start) -> Arc<Self> {
+        let start = if read_only { Start::Never } else { start };
+        Arc::new(Self { profile, read_only, start, state: Mutex::new(State::default()) })
+    }
+
+    /// Milagre.app is missing, so no daemon can be started from here.
+    pub fn app_missing(&self) -> bool {
+        matches!(self.start, Start::Missing(_))
+    }
+
+    /// Whether this window starts the daemon when none runs.
+    pub fn starts(&self) -> bool {
+        matches!(self.start, Start::Installed(_))
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -122,11 +168,14 @@ impl Daemon {
     }
 
     async fn adopt(&self) -> Result<Arc<InstalledOwner>> {
-        let owner = match &self.profile {
-            Some(profile) => InstalledOwner::adopt_profile(profile).await,
-            None => InstalledOwner::adopt().await,
-        }
-        .context("adopt Milagre's daemon")?;
+        let owner = match (&self.start, &self.profile) {
+            (Start::Installed(launch), Some(profile)) => {
+                InstalledOwner::adopt_or_start_profile(profile, launch).await.context("adopt or start Milagre's daemon")?
+            }
+            (Start::Installed(launch), None) => InstalledOwner::adopt_or_start(launch).await.context("adopt or start Milagre's daemon")?,
+            (_, Some(profile)) => InstalledOwner::adopt_profile(profile).await.context("adopt Milagre's daemon")?,
+            (_, None) => InstalledOwner::adopt().await.context("adopt Milagre's daemon")?,
+        };
         let owner = Arc::new(owner);
         self.lock().owner = Some(owner.clone());
         Ok(owner)

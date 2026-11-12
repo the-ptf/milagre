@@ -787,3 +787,76 @@ fn the_daemon_startup_reads_preferences_before_the_window_opens(cx: &mut TestApp
     drop(fake);
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// The start path (`InstalledOwner::adopt_or_start` through the client's real launcher) on a throwaway data folder:
+/// with no daemon running, a writable window starts one (here a launch of this test binary serving the fake daemon,
+/// standing in for Milagre.app in Node mode) with `serve --data-dir D --app-version V --cwd /`, adopts it and syncs;
+/// a second window adopts the running one instead of starting another; a read-only window never starts one; without
+/// Milagre.app the window says to install it. The started fake is stopped by its exact PID at the end.
+#[test]
+fn a_window_starts_the_daemon_when_none_runs() {
+    use crate::daemon::{INSTALL_MILAGRE, Start};
+    let data = data_folder("start");
+    let script = data.with_extension("launch.sh");
+    let argv = data.with_extension("argv");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nGPUI_FAKE_DAEMON_DATA=\"$3\" exec '{}' --ignored --exact tests::daemon::fake_daemon_process --nocapture --test-threads=1 >/dev/null\n",
+            argv.display(),
+            std::env::current_exe().unwrap().display()
+        ),
+    )
+    .unwrap();
+    let launch = milagre_daemon_client::DaemonLaunch::node(Path::new("/bin/sh"), &script, "9.9.9-test", None)
+        .unwrap()
+        .with_startup_timeout(Duration::from_secs(20));
+
+    // Read-only: never started, so there is still no daemon.
+    let read_only = Daemon::starting(Some(data.clone()), true, Start::Installed(launch.clone()));
+    assert!(!read_only.starts());
+    let error = block_on(read_only.sync()).err().expect("no daemon");
+    assert!(daemon::unavailable(&error), "{error:#}");
+    assert!(!argv.exists(), "a read-only window started nothing");
+
+    // Writable: started once, adopted, synced.
+    let daemon = Daemon::starting(Some(data.clone()), false, Start::Installed(launch.clone()));
+    assert!(daemon.starts());
+    let synced = block_on(daemon.sync()).expect("started and synced");
+    let pid = synced.pid;
+    assert_ne!(pid, std::process::id(), "another process: the started daemon");
+    assert_eq!(synced.version, "fake-node");
+    assert_eq!(daemon.known().iter().map(|k| k.path.as_str()).collect::<Vec<_>>(), [ALPHA, BETA, GAMMA]);
+    let started = std::fs::read_to_string(&argv).unwrap();
+    assert_eq!(started.lines().collect::<Vec<_>>(), [format!("serve --data-dir {} --app-version 9.9.9-test --cwd /", data.display())]);
+    drop(synced);
+
+    // Another window adopts the running daemon: nothing more is started.
+    let other = Daemon::starting(Some(data.clone()), false, Start::Installed(launch));
+    let again = block_on(other.sync()).expect("adopted");
+    assert_eq!(again.pid, pid);
+    assert_eq!(std::fs::read_to_string(&argv).unwrap().lines().count(), 1, "started once");
+    drop(again);
+    other.disconnect();
+    daemon.disconnect();
+
+    // Without Milagre.app: adopt only, and the window says to install it.
+    let empty = data_folder("start-missing");
+    let missing = Daemon::starting(Some(empty.clone()), false, Start::Missing("Milagre.app is not installed".into()));
+    assert!(missing.app_missing() && !missing.starts());
+    let session = DaemonSession::start(missing);
+    assert_eq!(session.error.as_deref(), Some(INSTALL_MILAGRE));
+
+    // Only the process this test started, by its exact PID.
+    unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+    let until = Instant::now() + Duration::from_secs(10);
+    while unsafe { libc::kill(pid as libc::pid_t, 0) } == 0 && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = std::fs::remove_file(socket_for(&data));
+    for path in [&script, &argv] {
+        let _ = std::fs::remove_file(path);
+    }
+    let _ = std::fs::remove_dir_all(&data);
+    let _ = std::fs::remove_dir_all(&empty);
+}
