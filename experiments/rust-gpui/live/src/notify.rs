@@ -672,14 +672,6 @@ pub fn poster(cx: &gpui::App) -> Box<dyn Poster> {
     Box::new(LogPoster)
 }
 
-/// Records a click on a notification for `chat`, as the notification centre's delegate does (tests).
-pub fn push_clicked(chat: &str) {
-    #[cfg(target_os = "macos")]
-    if let Ok(mut clicked) = mac::CLICKED.lock() {
-        clicked.push(chat.to_owned());
-    }
-}
-
 /// A poster that only logs (no bundle: a dev build or a check).
 pub struct LogPoster;
 

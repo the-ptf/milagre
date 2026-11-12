@@ -978,7 +978,8 @@ fn notifications_and_live_events(cx: &mut TestAppContext) {
     assert_eq!(other_id, "2");
 
     // A click opens that Chat.
-    crate::notify::push_clicked(&other);
+    // (Straight to the window, as the delegate's queue does: that queue is one per process, shared by parallel tests.)
+    m.controller.update(m.vcx, |c, cx| c.open_from_notification(other.clone(), cx));
     m.wait_for("the clicked Chat open", |m| m.open_key().as_deref() == Some(other.as_str()));
 
     // Settings: completion off, saved; the next finished turn posts nothing. Play plays the chime.
@@ -1031,6 +1032,19 @@ fn notifications_and_live_events(cx: &mut TestAppContext) {
     assert!(matches!(&vault, crate::computers::Vault::Refused(why) if why.contains("renderer:computers:vault-status")), "{vault:?}");
     assert!(!fake.methods().iter().any(|m| m.starts_with("computers:")), "nothing about computers reached the daemon");
     assert!(m.vcx.update(|_, cx| !cx.has_global::<milagre_gpui_spike::workspace::preview::PreviewComputers>()));
+    // A pairing link opened on this computer: with the computers hidden, the sidebar says to pair in Milagre.
+    let sidebar = m.workspace.read_with(m.vcx, |w, _| w.sidebar.clone());
+    // (Straight to the window: the platform's queue is one per process, and other tests' windows poll it too.)
+    let link = "milagre://pair?relay=https%3A%2F%2Frelay.example&host=h&key=k&token=t&name=Studio";
+    m.controller.update(m.vcx, |c, cx| c.open_link(link, cx));
+    m.wait_for("the pairing notice", |m| {
+        sidebar.read_with(m.vcx, |s, _| s.notice().map(|n| n.to_string())).as_deref() == Some(crate::deeplinks::PAIR_IN_MILAGRE)
+    });
+    m.controller.update(m.vcx, |c, cx| c.open_link("milagre://chat/1", cx));
+    m.wait_for("the other link's notice", |m| {
+        sidebar.read_with(m.vcx, |s, _| s.notice().is_some_and(|n| n.contains("pairing links only")))
+    });
+    assert!(!fake.methods().iter().any(|m| m == "computers:add"));
 
     // Details' Show in Finder and Open in editor are drawn and handled here (recorded, not run, in tests).
     let dry = crate::opener::DryRun::default();

@@ -27,6 +27,7 @@ pub mod view;
 pub mod computers;
 pub mod controller;
 pub mod daemon;
+pub mod deeplinks;
 pub mod git;
 pub mod notify;
 pub mod opener;

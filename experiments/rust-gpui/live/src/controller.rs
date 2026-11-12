@@ -401,6 +401,20 @@ impl LiveController {
         // Plan usage (`usage:cached`, read-only) in the sidebar's rows and card, and the limit card under a stopped reply.
         let sidebar = workspace.read(cx).sidebar.clone();
         crate::usage::attach(&sidebar, usage_daemon, cx);
+        // `milagre://` links opened on this computer ([`crate::deeplinks`]).
+        controller.update(cx, |c, cx| {
+            let links = cx.spawn(async move |this: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
+                loop {
+                    cx.background_executor().timer(Duration::from_millis(250)).await;
+                    for url in crate::deeplinks::take() {
+                        if this.update(cx, |this, cx| this.open_link(&url, cx)).is_err() {
+                            return;
+                        }
+                    }
+                }
+            });
+            c._tasks.push(links);
+        });
         // Details' Show in Finder and Open in editor, done here (Electron's main process does them; `call()` refuses
         // `editor:open` and `project:reveal`).
         cx.set_global(milagre_gpui_spike::workspace::preview::PreviewOpeners);
@@ -685,6 +699,34 @@ impl LiveController {
             let app: &App = cx;
             notifier.event(channel, payload, |key| chat_info(&store, key, app));
         }
+    }
+
+    /// A `milagre://` link opened on this computer: a pairing link goes to Add computer (`computers:add [link, {}]`, as
+    /// Electron's dialog sends it) while paired computers show; otherwise, or for another link, the sidebar says so.
+    pub fn open_link(&mut self, url: &str, cx: &mut Context<Self>) {
+        let _ = self.window.update(cx, |_, window, _| window.activate_window());
+        cx.activate(true);
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        let sidebar = self.workspace.read(cx).sidebar.clone();
+        let say = |text: String, cx: &mut Context<Self>| sidebar.update(cx, |s, cx| s.set_notice(Some(text.into()), cx));
+        let link = match crate::deeplinks::route(url) {
+            crate::deeplinks::Route::Pair(link) => link,
+            crate::deeplinks::Route::Unknown(why) => return say(why, cx),
+        };
+        if !cx.has_global::<milagre_gpui_spike::workspace::preview::PreviewComputers>() {
+            return say(crate::deeplinks::PAIR_IN_MILAGRE.into(), cx);
+        }
+        if daemon.read_only() {
+            return self.refuse("computers:add".into());
+        }
+        let Some((project, _)) = daemon.primary() else { return };
+        let daemon = daemon.clone();
+        let job: Job = Box::pin(async move {
+            let writer = daemon.writer(&project).await.map_err(|e| format!("{e:#}"))?;
+            writer.call("computers:add", serde_json::json!([link, {}])).await.map_err(|e| format!("Couldn't add the computer: {e:#}"))?;
+            Ok(None)
+        });
+        self.spawn_job(job, cx);
     }
 
     /// Opens a Chat a notification was clicked for, and brings the window forward.

@@ -223,7 +223,10 @@ fn run_daemon_app(session: DaemonSession, snapshot: Option<PathBuf>) {
             }
         }
     });
-    gpui_platform::application().with_assets(milagre_gpui_spike::assets::Assets).run(move |cx: &mut App| {
+    let application = gpui_platform::application().with_assets(milagre_gpui_spike::assets::Assets);
+    // `milagre://` links (the bundle registers the scheme): kept until the window takes them.
+    application.on_open_urls(milagre_gpui_live::deeplinks::push);
+    application.run(move |cx: &mut App| {
         milagre_gpui_spike::app::init(cx);
         // Settings › Appearance is this window's own: read back, and saved unless read-only.
         let mut wiring =

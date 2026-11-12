@@ -11,6 +11,10 @@
 #   Contents/MacOS/milagre-gpui-preview   the live executable
 #   Contents/MacOS/chat-runtime           the hash-verified runtime (its fixed sibling; the client looks nowhere else)
 #   Contents/Resources/bundled-skills     packages/core/src/bundled-skills at HEAD (the runtime's skill instructions)
+#   Contents/Resources/chimes             Electron's notification chimes at HEAD (apps/desktop/app/src/assets/chimes)
+#
+# Info.plist registers the milagre:// scheme (CFBundleURLTypes): the Preview routes pairing links like Electron's
+# Add computer dialog (live/src/deeplinks.rs).
 #
 # The runtime comes only from daemon-check/target/owned-runtime-<sha8>/ (staged and checked by check-gpui-live.py
 # stage-runtime); default: the newest agreed one. Its hash is recorded before and after signing in
@@ -54,7 +58,7 @@ fi
 work="$(mktemp -d "${TMPDIR:-/tmp}/milagre-gpui-preview.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 echo "==> archiving HEAD $head"
-git -C "$repo" archive HEAD -- experiments/rust-gpui packages/core/src/bundled-skills | tar -x -C "$work"
+git -C "$repo" archive HEAD -- experiments/rust-gpui packages/core/src/bundled-skills apps/desktop/app/src/assets/chimes | tar -x -C "$work"
 src="$work/experiments/rust-gpui"
 [ -f "$src/live/Cargo.toml" ] || { echo "HEAD has no live/ crate" >&2; exit 1; }
 echo "==> exporting the shared client"
@@ -76,12 +80,15 @@ cp "$binary" "$app/Contents/MacOS/$EXEC_NAME"
 cp "$runtime" "$app/Contents/MacOS/chat-runtime"
 chmod 755 "$app/Contents/MacOS/$EXEC_NAME" "$app/Contents/MacOS/chat-runtime"
 cp -R "$work/packages/core/src/bundled-skills" "$app/Contents/Resources/bundled-skills"
+cp -R "$work/apps/desktop/app/src/assets/chimes" "$app/Contents/Resources/chimes"
 cp "$src/packaging/icon.icns" "$app/Contents/Resources/icon.icns"
 sed -e "s/@VERSION@/$version/" -e "s/@SHA@/$head/" \
     -e "s/com.milagre.gpui-poc/$BUNDLE_ID/" \
     -e "s#<string>milagre-gpui</string>#<string>$EXEC_NAME</string>#" \
     -e "s#<string>Milagre GPUI</string>#<string>Milagre GPUI Preview</string>#g" \
     "$src/packaging/Info.plist.in" > "$app/Contents/Info.plist"
+plutil -insert CFBundleURLTypes -json \
+  "[{\"CFBundleURLName\":\"$BUNDLE_ID\",\"CFBundleURLSchemes\":[\"milagre\"]}]" "$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist" >/dev/null
 echo -n "APPL????" > "$app/Contents/PkgInfo"
 
