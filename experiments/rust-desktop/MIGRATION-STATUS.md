@@ -1,10 +1,43 @@
 # Integration status (2026-11-11)
 
-Local branch `poc/rust-tauri-local`, parent Chat `/Users/victor/Code/personal/milagre-ade#10904`. Nothing pushed. The migration is **not complete**: the installed Rust shell still needs the production Node owner. Keep the existing React UI and retained features. Only browser embedding, voice, floating inbox and decorative effects may be omitted.
+Local branch `poc/rust-tauri-local`, parent Chat `/Users/victor/Code/personal/milagre-ade#10904`. Nothing pushed. The migration is **not complete**: the ordinary installed Rust shell still needs the production Node owner; the separate Rust Preview owns its dedicated Rust backend. Keep the existing React UI and retained features. Only browser embedding, voice, floating inbox and decorative effects may be omitted.
 
 Never restart/replace the production host, take over live locks, launch a second live writer or change the native mobile fingerprint without explicit approval. Experimental ownership checks use separate dedicated roots or isolated copies. Real-provider evidence is stated explicitly below; other provider checks remain fake-process evidence. A passing library test is not a production cutover.
 
 ## Current checkpoint
+
+Latest separate normal Preview is installed from runtime `85f4e539`. Source tests
+pass 118 runtime checks and 83 routine library/16 integration/one doctest checks
+(one optional ignored), plus final target/readiness and strict checks. Routine
+storage is paused-only: actual Node create-then-disable result/file parity, no
+scheduler or fake enabled execution. Normal staged and installed app checks pass
+saved reads, routine flags/list and native Quit with actual socket/profile/shell
+removal and retained data. Installed proof:
+`/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-Soi2iI/report.json`.
+Package/rollback report: `/private/tmp/milagre-rust-preview-package-bq9_btkh/package-report.json`.
+Post-signing shell SHA-256 is
+`5e5f1c5687a6365c625701cd06438cadadab62bb5f8f3f8cbb46de86c3f50e71`;
+runtime is `2c0eb52b943b4f5ec0fa77cf297acf652ea933ca75db764a8a4e6782ada6c882`.
+No model request ran during these checks. The selected account quota reset remains
+the next fresh installed-real-turn gate.
+
+Shared client `0fe0bbe6` adds typed GitReads after TerminalActions `130d553c`.
+Root 77 tests/six compile-fail doctests pass. Independent review closes both
+capability slices; actual staged checks prove PTY operations and four private
+Git read routes against a synthetic repository, with Complete cleanup. Git
+mutations/PR operations remain absent. GPUI received both additive contracts.
+
+GPUI reports installed/zipped real-data Preview `6692ef28` on its own authorized
+account and root: three real turns, echo, clean Quit and restart recall. Those
+are peer-reported artifacts in `~/Library/Application Support/Milagre GPUI Preview Smoke/`;
+root has not independently rerun them. Its real approval card is still pending.
+The orphan report concerns an earlier failed synthetic harness, with no retained
+logs and unknown client-death signal. Source inspection found a launcher-EOF
+busy-shutdown retry gap; deterministic reproduction/fix is in progress, as are
+typed busy-start errors and Node-exact starter metadata. Normal quit evidence
+remains valid; crash-owner-loss is a separate unfinished gate.
+
+### Earlier base workflow evidence
 
 The shared client checkpoint `90922b6c` is accepted: default-disabled owned Chat
 launch, reads and typed connection-bound actions, independent of GPUI/Tauri. Root
@@ -35,7 +68,7 @@ were later observations, not measurements immediately after exit. An independent
 actual daemon restart returns the identical four message IDs, HTML and edited
 Design (`milagre-native-content-full-nzmdde58/native-state-readback.json`).
 
-The normal combined runtime SHA-256 is
+The earlier normal combined runtime SHA-256 is
 `846ee97abc1d8ab38d2ea53c3e510fba726c305e1b58f7256fe07cd9805113f2`.
 Root desktop tests pass 46 (one optional ignored) before the later Finder-launch
 helper tests; default shell tests pass 41 (one ignored). Strict combined Clippy

@@ -22,13 +22,21 @@ store.close()?;
 ```
 
 The exported types are `RoutineStore`, `StoreCommand`, `StoreReply`, `StoreError`
-and `OwnerCheck`. Commands are `List`, `Get(id)`, `Runs(id)`, `Create(Value)`,
+and `OwnerCheck`. Commands are `List`, `Get(id)`, `Runs(id)`, `Create(Value)`, `CreatePaused(Value)`,
 `Update {id,patch}` and `Remove(id)`. No raw method name can select execution.
 `StoreReply {value,changed,effects}` is returned only after actual persistence and
 the final owner check. `changed` means a file publication occurred, rather than
 the outer Node scheduler's `onChange` notification policy. Effects are returned,
 not dispatched by this library. Constructor-time maintenance callbacks are not
 connected to a host here; existing production data/run adoption is out of scope.
+
+`CreatePaused` is an explicit storage adapter for runtimes without execution. Its
+result and saved bytes equal the production Node store's `create(input)` followed
+by `update(id, {enabled:false})` at the same clock value. It prepares one disabled
+candidate and persists it once; no enabled intermediate image or reply exists.
+Ordinary `Create` preserves Node's always-enabled creation behavior. The additional
+oracle test compares the complete reply and actual file bytes, then injects a
+post-rename failure to prove the disabled candidate is saved without publication.
 
 The mandatory ownership callback must retain and check the real runtime authority.
 It runs on open, every operation, immediately before rename, after the durable
@@ -109,7 +117,7 @@ cargo check --locked --offline --lib
 cargo fmt --check
 ```
 
-Eleven focused tests pass. They cover real canonical bytes; one writer; close/reopen;
+Twelve focused tests pass. They cover real canonical bytes; one writer; close/reopen;
 two separate graceful process lifetimes; root/manifest/directory/file replacement;
 late owner refusal before and after rename; retained pre/post-rename faults; and
 failed cleanup followed by explicit close. Final read checks cover both host
@@ -121,8 +129,9 @@ result and actual file byte string is compared, including invalid update, Unicod
 delete/missing IDs, runs and list order. No seed or error is skipped.
 
 The full library suites pass: default 71 passed/1 ignored, durable feature
-82 passed/1 ignored, with ten consecutive full durable-feature runs passing.
-The two subprocess tests share the copied-owner tests' process/lifecycle mutex.
+83 passed/1 ignored. Before the paused-create amendment the durable feature had
+82 passed/1 ignored, with ten consecutive full runs passing. All three Node/process
+tests share the copied-owner tests' process/lifecycle mutex.
 An earlier parallel run failed a copied crash cleanup with `Busy` and poisoned
 the test mutex. A separate controlled fork experiment on this Mac confirms a
 pre-exec child retains inherited flock descriptions after the parent closes them,
@@ -141,3 +150,5 @@ Full-suite logs: `/tmp/milagre-routines-isolated-{default-tests,feature-tests,fe
 controlled fork evidence: `/tmp/milagre-routines-fork-lock-proof.log`.
 Node is used only as a test oracle, never as this store's backend. No production
 profile, network, account, runtime route, process kill or push was used.
+
+Paused-create amendment logs: `/tmp/milagre-routines-paused-{feature-tests,clippy,default-check,mutant}.log`.

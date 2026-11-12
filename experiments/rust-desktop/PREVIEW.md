@@ -148,3 +148,37 @@ accepting the earlier process-exit event while output could still be buffered.
 Installed acceptance with that observer passes at
 `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-a99tH4/report.json`.
 No binary change, model request or data mutation was needed for that verifier fix.
+
+To refresh an existing Preview, stage without `--install`, validate that exact staged
+app on the dedicated root, and confirm both copies are stopped. Retain the old
+bundle under the private package stage, move the accepted copy into the Preview
+path, verify its signature/hashes again, then rerun the installed lifecycle check.
+Rollback restores the retained bundle. Do not replace either production app or
+any data directory. Existing authorization to keep this separate Preview current
+covers this reversible installation after passing checks.
+
+
+## Latest normal runtime refresh
+
+Runtime `85f4e539` adds real persistent paused-routine storage. It does not add a
+scheduler. Source tests pass 118 runtime tests and the routine library's 83 tests,
+16 integrations and one doctest (one optional ignored), with strict checks and
+independent review. Use optional `--paused-routines` on the installed observer to
+require actual `{enabled:true,executionSupported:false}` and a list containing no
+enabled schedules. This optional check sends no model request or routine mutation.
+
+The rebuilt normal package was accepted before replacement, its prior bundle
+retained, then accepted again at the installed path:
+
+- Staged: `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-lfHzFw/report.json`.
+- Installed: `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-Soi2iI/report.json`.
+
+Current installed shell SHA-256:
+`5e5f1c5687a6365c625701cd06438cadadab62bb5f8f3f8cbb46de86c3f50e71`.
+Current runtime SHA-256:
+`2c0eb52b943b4f5ec0fa77cf297acf652ea933ca75db764a8a4e6782ada6c882`.
+Package report and retained previous app:
+`/private/tmp/milagre-rust-preview-package-bq9_btkh/`.
+Its normal features remain `chat-desktop` and `chat-runtime`, with no smoke/fixture
+entrypoints. The signed arm64 development app is approximately 96 MiB and is not
+notarized or claimed as a release-performance benchmark.

@@ -11,7 +11,11 @@ const { socketPath } = require("../../apps/daemon/src/paths.cjs");
 
 const app = path.resolve(process.argv[2] ?? "");
 const dataRoot = path.resolve(process.argv[3] ?? "");
-assert.equal(process.argv.length, 4, "Pass the explicit Preview.app and its dedicated data root");
+const checkRoutines = process.argv[4] === "--paused-routines";
+assert.ok(
+  process.argv.length === 4 || (process.argv.length === 5 && checkRoutines),
+  "Pass the explicit Preview.app, dedicated data root and optional --paused-routines",
+);
 assert.equal(path.basename(app), "Milagre Rust Preview.app");
 assert.equal(fs.realpathSync(app), app);
 assert.equal(fs.realpathSync(dataRoot), dataRoot);
@@ -133,6 +137,14 @@ exit(3)
     ids: first.messages.map((message) => message.id),
     sha256: createHash("sha256").update(JSON.stringify(first)).digest("hex"),
   };
+  if (checkRoutines) {
+    const flags = await client.call("routines:enabled:read");
+    assert.deepEqual(flags, { enabled: true, executionSupported: false });
+    const routines = await client.call("routines:list");
+    assert.ok(Array.isArray(routines.routines));
+    assert.ok(routines.routines.every((routine) => routine.enabled === false));
+    report.routines = { flags, count: routines.routines.length, schedulingVerified: false };
+  }
   report.quit = execFileSync(helper, [String(child.pid), app], { encoding: "utf8", timeout: 20000 }).trim();
   report.exit = await bounded(exit, "native Quit and retained cleanup", 35000);
   assert.deepEqual(report.exit, { code: 0, signal: null });
