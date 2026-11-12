@@ -8,6 +8,7 @@
 //! - [`session`]: create or open the dedicated root, connect, `project:open`, snapshot, apply, accept, actions.
 //! - [`source`]: the app's `DataSource`, read from the live reducer (and `chat:messages` from the client).
 //! - [`sinks`]: the composer's `MessageSink` and the sidebar's `SidebarActions`, as [`sinks::Command`]s.
+//! - [`sidebar_writes`]: on Milagre's daemon, the sidebar's other writes (Delete, Pin, Filters, Reload, Add Project…).
 //! - [`controller`]: the GPUI entity that runs those commands and keeps the transcript, running row, composer queue
 //!   and sidebar in step with the reducer.
 #![cfg(unix)]
@@ -30,6 +31,7 @@ pub mod panels;
 pub mod prefs;
 pub mod session;
 pub mod setup;
+pub mod sidebar_writes;
 pub mod sinks;
 pub mod smoke;
 pub mod source;

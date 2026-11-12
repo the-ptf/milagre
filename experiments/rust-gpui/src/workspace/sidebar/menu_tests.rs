@@ -42,11 +42,9 @@ fn run(sidebar: &Entity<Sidebar>, cx: &mut VisualTestContext, ix: usize, action:
     cx.run_until_parked();
 }
 
-/// Deleting has no menu item any more; the undo book and the toast still handle it.
+/// Delete from the row's menu, as Electron's `ChatMenu` offers it.
 fn delete(sidebar: &Entity<Sidebar>, cx: &mut VisualTestContext, ix: usize) {
-    let key = key(sidebar, cx, ix);
-    cx.update(|_, cx| sidebar.update(cx, |s, cx| s.delete(&key, true, cx)));
-    cx.run_until_parked();
+    run(sidebar, cx, ix, MenuAction::Delete);
 }
 
 fn labels(context: &MenuContext) -> Vec<String> {
@@ -73,7 +71,7 @@ fn context() -> MenuContext {
 fn the_menu_lists_the_kept_items_in_order() {
     assert_eq!(
         labels(&context()),
-        ["Copy branch name", "Rename Chat", "Reload Chat", "Mark as unread", "Pin", "Link with…", "-", "Mark Done"]
+        ["Copy branch name", "Rename Chat", "Reload Chat", "Mark as unread", "Pin", "Link with…", "-", "Mark Done", "Delete"]
     );
     // Every conditional item at once: the other flavour of each pair left out.
     let all = MenuContext {
@@ -97,14 +95,14 @@ fn the_menu_lists_the_kept_items_in_order() {
             "Remove Link with…",
             "Detach from parent",
             "-",
-            "Reopen"
+            "Reopen",
+            "Delete"
         ]
     );
     // The removed items never show, whatever the Chat is.
     for context in [context(), all] {
         let shown = labels(&context);
-        for gone in ["Copy path", "Report a Milagre bug", "Link issue…", "Mark as read", "Open in Finder", "Commit and open PR…", "Delete"]
-        {
+        for gone in ["Copy path", "Report a Milagre bug", "Link issue…", "Mark as read", "Open in Finder", "Commit and open PR…"] {
             assert!(!shown.iter().any(|label| label == gone), "{gone}");
         }
         assert!(!shown.iter().any(|label| label.starts_with("Open in") || label == "No editor found"));
@@ -116,7 +114,7 @@ fn the_menu_lists_the_kept_items_in_order() {
 #[test]
 fn a_chat_without_a_project_or_on_another_computer_loses_the_items_that_need_a_folder() {
     let home = MenuContext { gitless: true, path: None, branch: None, linkable: false, ..context() };
-    assert_eq!(labels(&home), ["Rename Chat", "Reload Chat", "Mark as unread", "Pin", "-", "Mark Done"]);
+    assert_eq!(labels(&home), ["Rename Chat", "Reload Chat", "Mark as unread", "Pin", "-", "Mark Done", "Delete"]);
     let remote = labels(&MenuContext { remote: true, ..context() });
     assert!(!remote.iter().any(|label| label == "Link with…"));
     assert!(remote.contains(&"Copy branch name".to_owned()));
@@ -131,6 +129,47 @@ fn a_chat_without_a_project_or_on_another_computer_loses_the_items_that_need_a_f
         .collect();
     let find = |label: &str| items.iter().find(|item| item.label == label).unwrap_or_else(|| panic!("{label}"));
     assert!(find("Copy branch name").disabled && !find("Rename Chat").disabled);
+    assert!(find("Delete").danger && !find("Mark Done").danger, "Delete is the danger row, as in ChatMenu");
+}
+
+#[gpui::test]
+fn preview_mode_offers_only_the_writes_its_data_layer_backs(cx: &mut TestAppContext) {
+    use crate::workspace::preview::{PreviewMode, PreviewWrites};
+    let (sidebar, cx) = mount(cx);
+    cx.update(|_, cx| cx.set_global(PreviewMode { account: "test".into(), model: "test".into() }));
+    let chat = key(&sidebar, cx, 3);
+    right_click(cx, "chat-row-3");
+    for id in ["menu-rename", "menu-unread", "menu-done"] {
+        assert!(cx.debug_bounds(id).is_some(), "{id} stays in preview mode");
+    }
+    for id in ["menu-pin", "menu-delete", "menu-reload", "menu-copy-branch"] {
+        assert!(cx.debug_bounds(id).is_none(), "{id} is off without a data layer behind it");
+    }
+    cx.simulate_keystrokes("escape");
+    // Off: neither runs from code either.
+    run(&sidebar, cx, 3, MenuAction::Delete);
+    run(&sidebar, cx, 3, MenuAction::Pin);
+    assert!(calls(&sidebar, cx).is_empty(), "{:?}", calls(&sidebar, cx));
+
+    // A data layer that backs Pin, Delete, Reload and Copy branch name.
+    cx.update(|_, cx| {
+        cx.set_global(PreviewWrites(vec![
+            MenuAction::Pin,
+            MenuAction::Unpin,
+            MenuAction::Delete,
+            MenuAction::Reload,
+            MenuAction::CopyBranch,
+        ]))
+    });
+    right_click(cx, "chat-row-3");
+    for id in ["menu-pin", "menu-delete", "menu-reload", "menu-copy-branch", "menu-done"] {
+        assert!(cx.debug_bounds(id).is_some(), "{id} is offered");
+    }
+    assert!(cx.debug_bounds("menu-link-with").is_none(), "Links stay off");
+    cx.simulate_keystrokes("escape");
+    run(&sidebar, cx, 3, MenuAction::Delete);
+    assert_eq!(calls(&sidebar, cx), [SidebarCall::Archive { chat: chat.clone(), mode: ArchiveMode::HideOnly }]);
+    assert!(sidebar.read_with(cx, |s, _| s.is_archived_key(&chat)));
 }
 
 #[gpui::test]

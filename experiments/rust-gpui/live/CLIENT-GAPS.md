@@ -121,3 +121,22 @@ Client gaps (Electron-only, so a daemon method or a GPUI-native replacement is n
 
 The Preview's GPUI-native options for these (its own notifications, window, editors list, updates) do not need the
 daemon; Computers needs either the daemon to serve `computers:*` or the client to talk to the computer service.
+
+## 6. Sidebar writes (`src/sidebar_writes.rs`)
+
+Wired through `call` on a request-only connection of the Chat's Project (loaded with `load_view` first), with the
+preload's arguments: Delete (`agent:interrupt [chatId]` when running, `chat:patch [path, id, {archived: true,
+unread: false}]`, then after the 6-second Undo `chat:delete [path, id]`; Undo is the typed `SidebarActions::restore`),
+Reload (`chat:reload [chatId]`), Detach from parent (`chat:detach [path, id]`), Unlink issue
+(`worktree:unlink-issue [{projectPath, worktreeId}]`), a pinned Run Chat kept (`chat:patch {kept: true}`), Filters ›
+Projects (`project:set-hidden [path, hidden]`; the hidden set read from `project:recent []`, since the snapshot's
+Projects do not carry `hidden`). Pins, hidden computers and Show are device-local, as in Electron, in the Preview's
+own `sidebar.json`.
+
+Client gaps:
+
+| Item | Gap |
+| --- | --- |
+| Add Project | `project:open [folder, {takeNotice: true}]` is served, but `server.cjs` lists it in `methods` only to `daemon:status [{commands: true}]`; the client's status probe sends `[]`, so `call` refuses it. Needs the client to ask with `{commands: true}` (or a typed `InstalledOwner::open_project(folder)`). The folder dialog is GPUI's own (`project:choose-folder` is Electron-only). |
+| Delete with Worktree cleanup | Only `HIDE_ONLY` is wired. Electron's `remove` mode (a Milagre Worktree no other Chat uses, checked clean) also needs `checkArchive`'s reads (`worktree:status [path, base]`, `worktree:roots []`, busy Terminals) and `worktree:remove [path, options]`; not ported, so every Worktree stays. |
+| Link with… / Remove Link with… | `canvas:links`, `canvas:link-add`, `canvas:link-remove`, `canvas:link-restore`, `linked:grant` are served; the Preview does not feed the sidebar's Links yet ("Link and ask" would also send a Chat message). Still off. |

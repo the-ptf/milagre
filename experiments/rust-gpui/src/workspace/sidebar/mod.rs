@@ -36,6 +36,7 @@ pub mod links;
 pub mod list;
 pub mod menu;
 pub mod pins;
+mod prefs;
 pub mod rail;
 pub mod rename;
 mod row;
@@ -295,7 +296,14 @@ impl Sidebar {
                 .text_color(theme.ink3)
                 .child(div().text_color(theme.ink2).child(format!("Preview \u{b7} {} \u{b7} {}", preview.account, preview.model)))
                 .child(format!(
-                    "Panels other than Details and Changes, Settings other than Appearance and Accounts, Routines, usage, Pin and Delete: {}",
+                    "{}: {}",
+                    if crate::workspace::preview::allows(cx, menu::MenuAction::Pin)
+                        && crate::workspace::preview::allows(cx, menu::MenuAction::Delete)
+                    {
+                        "Panels other than Details and Changes, Settings other than Appearance and Accounts, Routines and usage"
+                    } else {
+                        "Panels other than Details and Changes, Settings other than Appearance and Accounts, Routines, usage, Pin and Delete"
+                    },
                     crate::workspace::preview::UNAVAILABLE.to_lowercase()
                 ))
                 .children(

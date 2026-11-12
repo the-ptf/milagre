@@ -58,6 +58,13 @@ const METHODS: &[&str] = &[
     "git:history",
     "git:diff-files",
     "git:diff-file",
+    // The sidebar's other writes (`sidebar_writes`).
+    "chat:delete",
+    "chat:reload",
+    "chat:detach",
+    "worktree:unlink-issue",
+    "project:set-hidden",
+    "project:recent",
 ];
 
 /// A Chat: id, title, messages as (role, body).
@@ -71,6 +78,8 @@ pub struct Project {
     pub loaded: bool,
     pub sessions: BTreeMap<u64, Value>,
     pub messages: BTreeMap<u64, Vec<Value>>,
+    /// Hidden from the sidebar (`project:set-hidden`).
+    pub hidden: bool,
 }
 
 #[derive(Default)]
@@ -89,6 +98,8 @@ pub struct World {
     next_connection: u64,
     /// `agent:models`' answer.
     pub models: Value,
+    /// Methods `daemon:status` leaves out (the installed daemon lists `project:open` only to `{commands: true}`).
+    pub unlisted: Vec<String>,
     /// `agent:ports`' answer (every Chat's ports by Chat key).
     pub ports: Value,
     /// `pull-requests:snapshot`'s answer, by Project path.
@@ -126,7 +137,8 @@ impl World {
         };
         for (path, name, loaded, chats) in projects {
             world.known.push(path.to_owned());
-            let mut project = Project { name: name.to_owned(), loaded, sessions: BTreeMap::new(), messages: BTreeMap::new() };
+            let mut project =
+                Project { name: name.to_owned(), loaded, sessions: BTreeMap::new(), messages: BTreeMap::new(), hidden: false };
             for (id, title, messages) in chats {
                 project.sessions.insert(id, json!({"id":id,"worktree_id":1,"agent_name":"fake","provider":"codex","title":title,"permissionMode":"auto","summary":{"count":0}}));
                 let list: Vec<Value> = messages
@@ -175,6 +187,19 @@ impl World {
             "projects": {"1": {"id":1,"name":project.name}},
             "tasks": {},
         })
+    }
+
+    /// `project:recent`: every known Project, a hidden one marked.
+    fn recent(&self) -> Value {
+        Value::Array(
+            self.known
+                .iter()
+                .map(|p| {
+                    let project = &self.projects[p];
+                    if project.hidden { json!({"path":p,"name":project.name,"hidden":true}) } else { json!({"path":p,"name":project.name}) }
+                })
+                .collect(),
+        )
     }
 
     fn snapshot(&self) -> Value {
@@ -278,7 +303,8 @@ impl World {
         let arg = &args[0];
         Ok(match method {
             "daemon:status" => json!({"pid":pid,"protocolVersion":1,"closing":false,"version":"fake-node","dataDir":data_dir,
-                "capabilities":["desktop-v1","snapshot-pages-v1","result-pages-v1"],"methods":METHODS}),
+                "capabilities":["desktop-v1","snapshot-pages-v1","result-pages-v1"],
+                "methods":METHODS.iter().filter(|m| !self.unlisted.iter().any(|u| u == *m)).collect::<Vec<_>>()}),
             "project:known" => Value::Array(self.known.iter().map(|p| json!({"path":p,"name":self.projects[p].name})).collect()),
             "daemon:snapshot" => {
                 let id = format!("snap-{}", self.snapshots.len() + 1);
@@ -292,6 +318,48 @@ impl World {
                 let project = self.projects.get_mut(path).ok_or("Open this project in Milagre first.")?;
                 project.loaded = true;
                 json!({"path":path,"name":project.name,"version":1,"epoch":"fake"})
+            }
+            "project:open" if !self.projects.contains_key(arg.as_str().ok_or("path")?) => {
+                // A folder opened for the first time (Add Project): registered, first in the recent list, loaded.
+                let path = arg.as_str().ok_or("path")?.to_owned();
+                let name = path.rsplit('/').next().unwrap_or_default().to_owned();
+                let project =
+                    Project { name: name.clone(), loaded: true, sessions: BTreeMap::new(), messages: BTreeMap::new(), hidden: false };
+                self.projects.insert(path.clone(), project);
+                self.known.insert(0, path.clone());
+                json!({"path":path,"name":name,"state":self.state(&path),"version":1,"epoch":"fake"})
+            }
+            "project:recent" => self.recent(),
+            "project:set-hidden" => {
+                let path = arg.as_str().ok_or("path")?;
+                self.projects.get_mut(path).ok_or("That folder is not one of Milagre's Projects.")?.hidden = args[1] == true;
+                self.recent()
+            }
+            "chat:delete" => {
+                let (path, id) = (arg.as_str().ok_or("project")?.to_owned(), args[1].as_u64().ok_or("chat")?);
+                let project = self.projects.get_mut(&path).ok_or("No such Project")?;
+                project.sessions.remove(&id).ok_or("No such Chat")?;
+                project.messages.remove(&id);
+                self.emit_state(&path);
+                Value::Null
+            }
+            "chat:reload" => {
+                let (path, id) = Self::split(arg.as_str().ok_or("chatId")?);
+                self.projects.get(&path).and_then(|p| p.sessions.get(&id)).ok_or("No such Chat")?;
+                Value::Null
+            }
+            "chat:detach" => {
+                let (path, id) = (arg.as_str().ok_or("project")?.to_owned(), args[1].as_u64().ok_or("chat")?);
+                let session = self.projects.get_mut(&path).and_then(|p| p.sessions.get_mut(&id)).ok_or("No such Chat")?;
+                session.as_object_mut().unwrap().remove("parent");
+                self.emit_state(&path);
+                Value::String("Detached.".into())
+            }
+            "worktree:unlink-issue" => {
+                let path = arg["projectPath"].as_str().ok_or("projectPath")?.to_owned();
+                arg["worktreeId"].as_u64().ok_or("worktreeId")?;
+                let state = self.state(&path);
+                json!({"project":{"path":path,"state":state}})
             }
             "project:read" | "project:open" => {
                 let path = arg.as_str().ok_or("path")?;
@@ -369,6 +437,12 @@ impl World {
                 }
                 if let Some(unread) = patch["unread"].as_bool() {
                     session["unread"] = json!(unread);
+                }
+                if let Some(archived) = patch["archived"].as_bool() {
+                    session["archived"] = json!(archived);
+                }
+                if patch["kept"] == true {
+                    session["kept"] = json!(true);
                 }
                 match patch["done"].as_bool() {
                     Some(true) => session["done_at"] = json!(now()),

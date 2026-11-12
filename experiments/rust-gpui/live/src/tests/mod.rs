@@ -6,6 +6,7 @@ mod daemon;
 mod fake_daemon;
 mod git;
 mod owned;
+mod sidebar_writes;
 
 #[test]
 fn chat_ids_belong_to_the_owned_project() {

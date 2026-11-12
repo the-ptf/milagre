@@ -57,6 +57,8 @@ pub enum MenuAction {
     Detach,
     Done,
     Reopen,
+    /// Hides the Chat at once (`HIDE_ONLY`); the toast's Undo takes it back for 6 seconds.
+    Delete,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -83,11 +85,16 @@ impl MenuItem {
         self.disabled = disabled;
         self
     }
+
+    fn danger(mut self) -> Self {
+        self.danger = true;
+        self
+    }
 }
 
 /// The menu's items for this Chat, in `ChatMenu`'s order: Copy branch name, Rename, Reload, Unlink issue, Mark as
-/// unread, Pin, Links, Detach, a divider, then Done or Reopen. (Copy path, bug report, Link issue, Mark as read, Finder,
-/// editor, commit and Delete are not offered.)
+/// unread, Pin, Links, Detach, a divider, then Done or Reopen and Delete. (Copy path, bug report, Link issue, Mark as
+/// read, Finder, editor and commit are not offered.)
 pub fn entries(ctx: &MenuContext) -> Vec<MenuEntry> {
     use MenuAction as A;
     let row = |item: MenuItem| MenuEntry::Row(item);
@@ -123,6 +130,7 @@ pub fn entries(ctx: &MenuContext) -> Vec<MenuEntry> {
     } else {
         MenuItem::new(A::Done, "Mark Done", IconName::Tick02)
     }));
+    out.push(row(MenuItem::new(A::Delete, "Delete", IconName::Delete02).danger()));
     out
 }
 
@@ -160,9 +168,18 @@ pub fn render(
 ) -> AnyElement {
     let theme = *cx.theme();
     let mut items = entries(&open.context);
-    // Preview: only the Chat writes the runtime takes.
+    // Preview: only the Chat writes the data layer takes, with a divider only between two kept groups.
     if crate::workspace::preview::is_on(cx) {
-        items.retain(|entry| matches!(entry, MenuEntry::Row(item) if crate::workspace::preview::menu_allows(item.action)));
+        items.retain(|entry| match entry {
+            MenuEntry::Row(item) => crate::workspace::preview::allows(cx, item.action),
+            MenuEntry::Divider => true,
+        });
+        let rows = |entries: &[MenuEntry]| entries.iter().any(|entry| matches!(entry, MenuEntry::Row(_)));
+        if let Some(at) = items.iter().position(|entry| *entry == MenuEntry::Divider)
+            && (!rows(&items[..at]) || !rows(&items[at + 1..]))
+        {
+            items.remove(at);
+        }
     }
     let size = window.viewport_size();
     let (anchor, position) = placement(open.at, size.width, size.height, height_of(&items));
@@ -227,5 +244,6 @@ pub fn action_id(action: MenuAction) -> &'static str {
         A::Detach => "detach",
         A::Done => "done",
         A::Reopen => "reopen",
+        A::Delete => "delete",
     }
 }

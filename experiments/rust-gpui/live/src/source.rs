@@ -30,15 +30,23 @@ enum Reads {
 pub struct LiveSource {
     store: LiveStore,
     reads: Reads,
+    /// Milagre's daemon: the Projects it hides from the sidebar (its snapshot does not say), laid over its Projects.
+    hidden: Option<Arc<crate::sidebar_writes::Hidden>>,
 }
 
 impl LiveSource {
     pub fn new(store: LiveStore, client: Client) -> Self {
-        Self { store, reads: Reads::Owned(DaemonAdapter::new(client)) }
+        Self { store, reads: Reads::Owned(DaemonAdapter::new(client)), hidden: None }
     }
 
     pub fn daemon(store: LiveStore, daemon: Arc<Daemon>) -> Self {
-        Self { store, reads: Reads::Daemon(daemon) }
+        Self { store, reads: Reads::Daemon(daemon), hidden: None }
+    }
+
+    /// The Projects hidden from the sidebar ([`crate::sidebar_writes`]), marked `hidden` on every read.
+    pub fn with_hidden(mut self, hidden: Arc<crate::sidebar_writes::Hidden>) -> Self {
+        self.hidden = Some(hidden);
+        self
     }
 
     fn projects(&self) -> anyhow::Result<Vec<OpenProject>> {
@@ -48,6 +56,11 @@ impl LiveSource {
             let known = daemon.known();
             let rank = |open: &OpenProject| known.iter().position(|k| k.path == open.project.path.as_ref()).unwrap_or(usize::MAX);
             projects.sort_by_key(rank);
+        }
+        if let Some(hidden) = &self.hidden {
+            for open in &mut projects {
+                open.project.hidden = hidden.contains(&open.project.path);
+            }
         }
         Ok(projects)
     }

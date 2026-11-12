@@ -237,8 +237,11 @@ pub fn install_globals(session: &Session, cx: &mut App) -> Wiring {
 pub fn install_daemon_globals(session: &DaemonSession, cx: &mut App) -> Wiring {
     let (commands, receiver) = unbounded();
     let recorded = Arc::new(RecordingActions::default());
-    cx.set_global(Data(Arc::new(LiveSource::daemon(session.store.clone(), session.daemon.clone()))));
-    cx.set_global(Actions(Arc::new(LiveSidebarActions { project: None, commands: commands.clone(), recorded: recorded.clone() })));
+    // Pin, Delete, Reload, Filters, Add Project and the other sidebar writes ([`crate::sidebar_writes`]).
+    let (writes, hidden) = crate::sidebar_writes::install(session.daemon.read_only(), cx);
+    cx.set_global(Data(Arc::new(LiveSource::daemon(session.store.clone(), session.daemon.clone()).with_hidden(hidden))));
+    let inner = LiveSidebarActions { project: None, commands: commands.clone(), recorded: recorded.clone() };
+    cx.set_global(Actions(Arc::new(crate::sidebar_writes::Router { inner, writes })));
     cx.set_global(SidebarSeed { open_chat: newest_chat(&session.store, None) });
     cx.set_global(milagre_gpui_spike::workspace::panel::terminal::remote::Host(session.terminals.clone()));
     let account = match session.daemon.pid() {
@@ -370,7 +373,9 @@ impl LiveController {
     ) -> Entity<Self> {
         let DaemonSession { daemon, store, notifications, error, .. } = session;
         let backend = Backend::Daemon(daemon.clone());
+        let writes = (daemon.clone(), store.clone());
         let controller = Self::wire(workspace, backend, store, Stream::Daemon { daemon, first: notifications }, None, wiring, window, cx);
+        crate::sidebar_writes::attach(workspace, writes.0, writes.1, &controller, cx);
         if let Some(error) = error {
             controller.update(cx, |this, cx| this.set_unavailable(Some(error), cx));
         }
@@ -630,7 +635,7 @@ impl LiveController {
 
     /// Milagre's daemon: the Projects it knows but has not loaded, by name only in the sidebar (`project:known`
     /// order), each marked while it loads. Nothing here loads one.
-    fn sync_unloaded(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn sync_unloaded(&mut self, cx: &mut Context<Self>) {
         let Backend::Daemon(daemon) = &self.backend else { return };
         let loaded: Vec<String> = self.store.read(|reducer| {
             reducer.state().map(|applied| applied.projects.iter().map(|o| o.project.path.to_string()).collect()).unwrap_or_default()
@@ -639,6 +644,8 @@ impl LiveController {
         let unloaded: Vec<UnloadedProject> = daemon
             .unloaded(&loaded)
             .into_iter()
+            // A Project hidden from the sidebar is not listed by name either (Filters › Projects).
+            .filter(|known| !crate::sidebar_writes::is_hidden(cx, &known.path))
             .map(|known| UnloadedProject {
                 loading: self.loading.contains(&known.path),
                 name: if known.name.is_empty() { known.path.rsplit('/').next().unwrap_or(&known.path).to_owned() } else { known.name }
