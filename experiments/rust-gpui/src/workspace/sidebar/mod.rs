@@ -58,15 +58,15 @@ use gpui::{
 use crate::data::{Data, Polled, poll_once};
 use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::lists::order::ChatOrder;
-use crate::theme::{ActiveTheme, ROW_TWO_LINE, TEXT_13, TextStepExt, sidebar_step};
+use crate::theme::{ActiveTheme, TEXT_13, TextStepExt, sidebar_step};
 use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize};
 use crate::workspace::chat::pills::bookmark::FamilyChat;
 use crate::workspace::chrome::{self, NoDrag};
 pub use actions::{Actions, ArchiveMode, ChatPatch, RecordingActions, SidebarActions, SidebarCall};
 use list::ListFilters;
 pub use list::{ChatLists, SidebarData, SidebarSeed};
-pub use row::ChatRow;
-use row::{ChatRowView, ROW_INSET, RowEvent, RowMeta};
+pub use row::{ChatRow, RowState};
+use row::{ChatRowView, ROW_GAP, ROW_INSET, ROW_PITCH, RowEvent, RowMeta};
 
 pub const SIDEBAR_WIDTH: f32 = 304.0;
 /// Row views kept on each side of the visible range, so scrolling back a little does not rebuild them.
@@ -75,6 +75,8 @@ pub const SIDEBAR_WIDTH: f32 = 304.0;
 const KEEP_ROWS: usize = 64;
 /// The desktop's default Chat order (`DEFAULTS.chatOrder` in `lib/settings.ts`).
 const CHAT_ORDER: ChatOrder = ChatOrder::Created;
+/// From the header's bottom to the first row's box.
+const LIST_TOP: f32 = 8.0;
 
 pub struct Sidebar {
     data: SidebarData,
@@ -134,6 +136,8 @@ pub struct Sidebar {
     usage_task: Option<gpui::Task<()>>,
     /// Snapshot seed (never in tests): a state to open on the first frame, from `MILAGRE_GPUI_SIDEBAR_DEMO`.
     demo: Option<String>,
+    /// Snapshot seed: the row drawn as hovered, its Done action showing (`MILAGRE_GPUI_SIDEBAR_DEMO=hover-done`).
+    show_hover: Option<usize>,
     /// The row being dragged and where it would land (`drag.rs`), and what the keyboard drag last announced.
     drag: Option<drag::DragState>,
     announcement: String,
@@ -199,6 +203,7 @@ impl Sidebar {
             usage_bounds: Rc::default(),
             usage_task: None,
             demo: if cfg!(test) { None } else { std::env::var("MILAGRE_GPUI_SIDEBAR_DEMO").ok() },
+            show_hover: None,
             drag: None,
             announcement: String::new(),
             links: Vec::new(),
@@ -241,6 +246,8 @@ impl Sidebar {
         let selected_key =
             select.map(str::to_owned).or_else(|| self.selected.and_then(|ix| self.rows.get(ix)).map(|row| row.key.to_string()));
         let picked = self.picked.take().filter(|_| select.is_none() && selected_key.is_none());
+        // Chats marked Done in the last day stay in the list (dimmed, with the check); older ones are the Done section.
+        self.list_filters.done_since = Some(list::list_clock() - list::DONE_INLINE_WINDOW);
         let lists = list::chat_lists_with(&self.data, CHAT_ORDER, &self.list_filters);
         self.pinned = lists.pinned.len();
         self.done = lists.done.len();
@@ -280,6 +287,17 @@ impl Sidebar {
 
     pub fn done_rows(&self) -> &[ChatRow] {
         &self.done_rows
+    }
+
+    /// A row's hover action: Done on a live Chat, Reopen on a Done one; ⌘Z takes either back.
+    pub fn toggle_done_row(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(row) = self.rows.get(ix) else { return };
+        let key = row.key.to_string();
+        if self.is_done_key(&key) {
+            self.reopen(&key, true, cx);
+        } else {
+            self.mark_done(&key, true, cx);
+        }
     }
 
     /// The footer's toggle: opens or folds the Done list.
@@ -490,10 +508,12 @@ impl Sidebar {
                 let renaming = self.renaming.as_ref().filter(|renaming| renaming.key == row.key.as_ref()).map(|renaming| renaming.view());
                 let dragging = self.dragging() == Some(row.key.as_ref());
                 let pinned = ix < self.pinned;
+                let show_hover = self.show_hover == Some(ix);
                 let view = cx.new(|_| {
                     let mut view = ChatRowView::new(ix, row, selected, renders);
                     view.set_rename_silently(renaming);
                     view.set_draggable(pinned, dragging);
+                    view.set_show_hover(show_hover);
                     view
                 });
                 let events = cx.subscribe_in(&view, window, move |this, _, event: &RowEvent, window, cx| match event {
@@ -503,12 +523,13 @@ impl Sidebar {
                     }
                     RowEvent::ContextMenu(at) => this.open_menu(ix, *at, window, cx),
                     RowEvent::Hover(bounds) => this.hover_row(ix, *bounds, cx),
+                    RowEvent::ToggleDone => this.toggle_done_row(ix, cx),
                 });
                 self.row_views.insert(ix, (view.clone(), events));
                 view
             }
         };
-        AnyView::from(view).cached(StyleRefinement::default().w_full().h(ROW_TWO_LINE)).into_any_element()
+        AnyView::from(view).cached(StyleRefinement::default().w_full().h(px(ROW_PITCH))).into_any_element()
     }
 
     /// The list's visible rows (list item `i` is row `pinned + i`) as cached views. Creates the views that are
@@ -689,6 +710,7 @@ impl Render for Sidebar {
         }
         let theme = *cx.theme();
         let pinned: Vec<AnyElement> = (0..self.pinned).map(|ix| self.row_view(ix, window, cx)).collect();
+        let pinned_empty = pinned.is_empty();
         let (footer, toast) = (self.footer(cx), self.toast_slot(cx));
         let done = bottom::DoneSection {
             count: self.done,
@@ -729,10 +751,11 @@ impl Render for Sidebar {
                         .flex()
                         .flex_col()
                         .flex_none()
-                        .pt(px(4.0))
+                        .pt(px(LIST_TOP - ROW_GAP / 2.0))
                         .children(pinned),
                 )
             })
+            .when(pinned_empty, |el| el.child(div().flex_none().h(px(LIST_TOP - ROW_GAP / 2.0))))
             .child(
                 uniform_list("chat-list", self.rows.len() - self.pinned, cx.processor(Self::render_rows))
                     .track_scroll(&self.scroll)

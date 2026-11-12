@@ -1,4 +1,4 @@
-//! One two-line Chat row (48px), as a view of its own.
+//! One two-line Chat row (54px), as a view of its own.
 //!
 //! The sidebar's list mounts each visible row as a cached view (`AnyView::cached` at the row's fixed
 //! size). So when the sidebar re-renders (a logo finished loading, a row's spinner turned, the selection
@@ -6,42 +6,72 @@
 //! called `cx.notify()` renders. Rows tell the sidebar about clicks with [`RowEvent`], not by updating it
 //! from inside their own listener (that would borrow the row view twice when the sidebar updates it back).
 //!
-//! What a row shows follows the desktop's inbox row (`InboxLine` and `ChatMarkDotInline` in
-//! `apps/desktop/app/src/components/sidebar/ChatRow.tsx`): the title, then "project · #PR · +n · computer" (the
-//! computer only with several computers, in `orange-ink` with ", offline" while it is), the mark from
-//! `logic::marks::chat_mark_presentation`, a Subchat's indent and guide lines, and a family's count on its
-//! parent's tile.
+//! The look is the owner's pick "Alt A, status on the edge, title first" (design `gpui-sidebar-v-a` v3):
+//!
+//! - line 1: a pinned Chat's pin, the title (ink; ink-2 for a Done or read idle Chat), and at the right edge the
+//!   state: an approval's shield in orange, a question's bubble in accent, a failure's alert in red, a Done check in
+//!   green, a quiet ink-4 spinner while it works, or for an idle Chat how long ago it last moved ("2d");
+//! - line 2: the Project's 14px mark and name (a Chat without a Project: a bubble and "Chat"), the computer, and at
+//!   the right edge the PR number in green ("+n" for several);
+//! - hovering swaps the state for "Done" (or "Reopen" on a Done Chat), which marks it through the sidebar.
+//!
+//! The data still follows the desktop's inbox row (`ChatRow.tsx`): `detail` is its "project · #PR · +n · computer"
+//! line, which the Chat column and the tests read; the row draws from the split fields.
 
 use std::cell::Cell;
 use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    Bounds, ClickEvent, Context, EventEmitter, FontWeight, HighlightStyle, MouseButton, Pixels, Point, Rgba, SharedString, StyledText,
-    Window, canvas, div, prelude::*, px,
+    Bounds, ClickEvent, Context, EventEmitter, FontWeight, MouseButton, Pixels, Point, Rgba, SharedString, Window, canvas, div, prelude::*,
+    px,
 };
 
-use super::list::{ShownChat, SidebarData, project_label};
+use super::list::{ShownChat, SidebarData, list_clock, project_label};
 use crate::logic::identity::project_list::project_initial;
 use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::marks::{ChatMark, MarkIcon, Tone, chat_mark_presentation};
 use crate::logic::prs::blockers::row_pull_requests;
-use crate::theme::{ActiveTheme, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_10, TEXT_12, TEXT_13, TextStepExt, Theme, hex, sidebar_step};
+use crate::theme::{ActiveTheme, RADIUS_CONTROL, TEXT_10, TEXT_12, TextStep, TextStepExt, Theme, hex, sidebar_step};
 use crate::ui::{Icon, IconName, IconSize, ProjectAvatar, Spinner};
 
 /// Horizontal inset of each row inside the sidebar.
 pub const ROW_INSET: f32 = 8.0;
+/// A row's box, and the 2px between two rows (half above, half below each box).
+pub const ROW_HEIGHT: f32 = 54.0;
+pub const ROW_GAP: f32 = 2.0;
+/// What one list item takes: the box and its share of the gaps.
+pub const ROW_PITCH: f32 = ROW_HEIGHT + ROW_GAP;
+const ROW_PAD_X: f32 = 14.0;
+const ROW_PAD_TOP: f32 = 8.0;
+/// Between the title's line and the second line.
+const LINE_GAP: f32 = 3.0;
+/// The title: 14px on a 20px line (between DESIGN.md's text-13 and text-15; the design asks for 14).
+const TITLE_STEP: TextStep = TextStep { size: 14.0, line_height: 20.0 };
+/// Between the title and the state at the right edge.
+const STATE_GAP: f32 = 8.0;
+/// Between the pin and the title, and between the second line's pieces.
+const META_GAP: f32 = 5.0;
+/// The Project's mark on the second line, and its letter.
+const MARK_SIZE: f32 = 14.0;
+const MARK_RADIUS: f32 = 4.0;
+const MARK_LETTER: TextStep = TextStep { size: 8.0, line_height: 11.0 };
+/// The working spinner (a hair under the 14px glyphs, as the design draws it).
+const SPINNER_SIZE: f32 = 13.0;
+/// Between the hover action's glyph and its word.
+const ACTION_GAP: f32 = 4.0;
 const TILE_SIZE: f32 = 24.0;
-/// The trailing status slot of a row.
-const MARK_SLOT: f32 = 16.0;
-/// The background-work ring in the status slot (16px).
+/// The background-work ring the hover card and the rail's card show (16px).
 const BADGE_SIZE: f32 = 16.0;
+
 pub enum RowEvent {
     Clicked,
     /// A right press: the row's context menu opens at the pointer.
     ContextMenu(Point<Pixels>),
     /// The pointer came onto the row (with the row's bounds in the window) or left it.
     Hover(Option<Bounds<Pixels>>),
+    /// The hover action: "Done" on a live Chat, "Reopen" on a Done one.
+    ToggleDone,
 }
 
 /// What one row shows: the view model the sidebar builds from a listed Chat and its scope.
@@ -51,18 +81,55 @@ pub struct ChatRow {
     pub key: SharedString,
     /// The letter on the tile.
     pub initial: SharedString,
-    /// The tile's identity colour; `None` draws the neutral `field` tile.
+    /// The tile's identity colour; `None` draws the neutral tile.
     pub tile: Option<Rgba>,
     pub title: SharedString,
-    /// "project · #PR · +n · computer".
+    /// "project · #PR · +n · computer" (the desktop's one line; the Chat column reads the Project from it).
     pub detail: SharedString,
     /// Where in `detail` an offline computer's name starts (drawn in `orange-ink`).
     pub offline: Option<Range<usize>>,
     pub mark: ChatMark,
-    /// The last turn failed: an idle row shows the red dot.
+    /// The last turn failed: an idle row shows the red alert.
     pub failed: bool,
     /// Background work still going, while the mark is Background.
     pub background: usize,
+    /// The second line's Project name ("Chat" for a Chat without a Project).
+    pub project: SharedString,
+    /// The Chat lives in a Chats home: a bubble stands in for the Project's mark.
+    pub chats_home: bool,
+    /// What Filters › Show adds after the Project (branch, Linear issue, diff, last activity), " · "-joined.
+    pub extra: SharedString,
+    /// The computer, when Filters › Show has it ("tianxu, offline" while it is).
+    pub computer: Option<SharedString>,
+    /// The PR at the right edge: its number, or "+n" for several.
+    pub prs: Option<SharedString>,
+    /// How long ago the Chat last moved ("2d"), for an idle row's right edge.
+    pub recency: Option<SharedString>,
+    /// Marked Done (a recently Done Chat stays in the list, dimmed, with the green check).
+    pub done: bool,
+}
+
+impl Default for ChatRow {
+    fn default() -> Self {
+        Self {
+            key: SharedString::default(),
+            initial: SharedString::default(),
+            tile: None,
+            title: SharedString::default(),
+            detail: SharedString::default(),
+            offline: None,
+            mark: ChatMark::Idle,
+            failed: false,
+            background: 0,
+            project: SharedString::default(),
+            chats_home: false,
+            extra: SharedString::default(),
+            computer: None,
+            prs: None,
+            recency: None,
+            done: false,
+        }
+    }
 }
 
 /// What the menus need about a row that the row does not show (it stays literal-constructible for the Run Chat's
@@ -97,17 +164,21 @@ impl ChatRow {
         let initial = project_initial(if project.is_chats_home() { &title } else { &project.name });
 
         let mut parts = vec![project_label(project).to_string()];
+        let mut extra = Vec::new();
         let worktree = scope.state.worktree_of(chat);
         if show.branch
             && let Some(worktree) = worktree
         {
             parts.push(worktree.name.to_string());
+            extra.push(worktree.name.to_string());
         }
         if show.linear_issue
             && let Some(key) = worktree.and_then(|worktree| worktree.linear_issue.as_ref())
         {
             parts.push(key.to_string());
+            extra.push(key.to_string());
         }
+        let mut prs_label = None;
         if show.pull_requests {
             let folder = scope.state.worktree_of(chat).map(|worktree| worktree.path.clone()).unwrap_or_default();
             let refs = chat.summary.as_ref().map(|summary| summary.pull_requests.clone()).unwrap_or_default();
@@ -119,29 +190,40 @@ impl ChatRow {
             if prs.len() > 1 {
                 parts.push(format!("+{}", prs.len() - 1));
             }
+            // The row's right edge: the number, or how many there are.
+            prs_label = match prs.len() {
+                0 => None,
+                1 => prs[0].number.map(|number| number.to_string()),
+                n => Some(format!("+{n}")),
+            };
         }
         if show.diff
             && let Some(diff) = worktree.and_then(|worktree| worktree.diff.as_ref()).filter(|diff| diff.added > 0 || diff.removed > 0)
         {
             parts.push(format!("+{} −{}", diff.added, diff.removed));
+            extra.push(format!("+{} −{}", diff.added, diff.removed));
         }
+        let recency = listed.last_at.map(since);
         if show.last_activity
-            && let Some(at) = listed.last_at
+            && let Some(ago) = &recency
         {
-            parts.push(since(at));
+            parts.push(ago.clone());
+            extra.push(ago.clone());
         }
         let mut offline = None;
-        // The computer, only once there are several (`rowComputer`).
-        if show.computer && !data.computers.computers.is_empty() {
+        let mut computer = None;
+        if show.computer {
             let name = data.computers.name_of(&project.computer);
-            let before = parts.iter().map(|part| part.len() + " · ".len()).sum::<usize>();
-            if data.computers.is_offline(&project.computer) {
-                let text = format!("{name}, offline");
-                offline = Some(before..before + text.len());
-                parts.push(text);
-            } else {
-                parts.push(name.to_string());
+            let text = if data.computers.is_offline(&project.computer) { format!("{name}, offline") } else { name.to_string() };
+            // The detail line names the computer only once there are several (`rowComputer`); the row always does.
+            if !data.computers.computers.is_empty() {
+                let before = parts.iter().map(|part| part.len() + " · ".len()).sum::<usize>();
+                if data.computers.is_offline(&project.computer) {
+                    offline = Some(before..before + text.len());
+                }
+                parts.push(text.clone());
             }
+            computer = Some(text.into());
         }
         Self {
             key: listed.key.clone().into(),
@@ -153,14 +235,58 @@ impl ChatRow {
             mark: listed.mark,
             failed: listed.failed,
             background: listed.background,
+            project: if project.is_chats_home() { "Chat".into() } else { project.name.clone() },
+            chats_home: project.is_chats_home(),
+            extra: extra.join(" · ").into(),
+            computer,
+            prs: prs_label.map(Into::into),
+            recency: recency.map(Into::into),
+            done: chat.is_done(),
         }
     }
+
+    /// What the right edge of the first line says about the Chat.
+    pub fn state(&self) -> RowState {
+        match self.mark {
+            ChatMark::Waiting => RowState::Approval,
+            ChatMark::Question => RowState::Question,
+            ChatMark::Running | ChatMark::Background => RowState::Working,
+            ChatMark::Delegated => RowState::Delegated,
+            ChatMark::Interrupted => RowState::Interrupted,
+            _ if self.done => RowState::Done,
+            ChatMark::Failed => RowState::Failed,
+            _ if self.failed => RowState::Failed,
+            ChatMark::Unread => RowState::Idle { unread: true },
+            _ => RowState::Idle { unread: false },
+        }
+    }
+
+    /// The title is dimmed for a Done Chat and for an idle one already read.
+    pub fn dimmed(&self) -> bool {
+        matches!(self.state(), RowState::Done | RowState::Idle { unread: false })
+    }
+}
+
+/// The state at a row's right edge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowState {
+    Approval,
+    Question,
+    Failed,
+    Done,
+    Working,
+    /// Working on a Delegation.
+    Delegated,
+    Interrupted,
+    /// Nothing going on: the recency (in accent while unread).
+    Idle {
+        unread: bool,
+    },
 }
 
 /// How long ago `at` (ms since the epoch) was, as the desktop's second line says it.
 fn since(at: i64) -> String {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
-    crate::logic::lists::chat_row::activity_ago(at as f64, now)
+    crate::logic::lists::chat_row::activity_ago(at as f64, list_clock() as f64)
 }
 
 pub struct ChatRowView {
@@ -177,13 +303,31 @@ pub struct ChatRowView {
     draggable: bool,
     pinned: bool,
     dragging: bool,
+    /// The pointer is on the row: the state gives way to the Done action. Kept here, not in a hover style, because
+    /// the swap changes the layout (the title gets shorter) and a hover style must not change it between prepaint and
+    /// paint.
+    hovered: bool,
+    /// Snapshot seed: draw the row as hovered, its Done action showing.
+    show_hover: bool,
 }
 
 impl EventEmitter<RowEvent> for ChatRowView {}
 
 impl ChatRowView {
     pub fn new(ix: usize, row: ChatRow, selected: bool, renders: Rc<Cell<usize>>) -> Self {
-        Self { ix, row, selected, renders, bounds: Rc::default(), rename: None, draggable: false, pinned: false, dragging: false }
+        Self {
+            ix,
+            row,
+            selected,
+            renders,
+            bounds: Rc::default(),
+            rename: None,
+            draggable: false,
+            pinned: false,
+            dragging: false,
+            hovered: false,
+            show_hover: false,
+        }
     }
 
     /// Lets the row drag (the sidebar's rows; a Run Chat's row elsewhere stays put).
@@ -198,6 +342,11 @@ impl ChatRowView {
             self.dragging = dragging;
             cx.notify();
         }
+    }
+
+    /// Draws the row as if the pointer rested on it (the hovered-row snapshot).
+    pub fn set_show_hover(&mut self, show: bool) {
+        self.show_hover = show;
     }
 
     /// Where the row was last painted, in the window.
@@ -228,26 +377,108 @@ impl Render for ChatRowView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.renders.set(self.renders.get() + 1);
         let theme = *cx.theme();
-        let (ix, row, selected) = (self.ix, &self.row, self.selected);
+        let (ix, row, selected, hovered) = (self.ix, &self.row, self.selected, self.hovered || self.show_hover);
         let hover = theme.hover;
-        let detail = match &row.offline {
-            Some(range) => StyledText::new(row.detail.clone())
-                .with_highlights([(range.clone(), HighlightStyle { color: Some(theme.orange_ink.into()), ..HighlightStyle::default() })]),
-            None => StyledText::new(row.detail.clone()),
-        };
-        // Outer box carries the 8px side inset so the rounded fill stops short of the edges.
-        div().relative().w_full().h(ROW_TWO_LINE).pl(px(ROW_INSET)).pr(px(ROW_INSET)).child(
+        // The computer brightens to ink-3 on the hovered and the selected row.
+        let computer_ink = if selected || hovered { theme.ink3 } else { theme.ink4 };
+        let title_ink = if row.dimmed() { theme.ink2 } else { theme.ink };
+
+        let title_line = div()
+            .flex()
+            .items_center()
+            .h(px(TITLE_STEP.line_height))
+            .gap(px(STATE_GAP))
+            .child(match &self.rename {
+                Some(field) => div().flex_1().min_w_0().h(px(18.0)).child(field.clone()).into_any_element(),
+                None => div()
+                    .flex()
+                    .flex_1()
+                    .items_center()
+                    .gap(px(META_GAP))
+                    .min_w_0()
+                    .when(self.pinned, |el| {
+                        el.child(
+                            div()
+                                .debug_selector(|| "chat-pinned".into())
+                                .flex_none()
+                                .child(Icon::new(IconName::Pin).size(IconSize::S12).color(theme.ink4)),
+                        )
+                    })
+                    .child(
+                        div()
+                            .min_w_0()
+                            .text_step(sidebar_step(TITLE_STEP))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(title_ink)
+                            .truncate()
+                            .child(row.title.clone()),
+                    )
+                    .into_any_element(),
+            })
+            .child(right_edge(ix, row, hovered, &theme, cx));
+
+        let meta = div()
+            .flex()
+            .items_center()
+            .h(px(TEXT_12.line_height))
+            .gap(px(META_GAP))
+            .text_step(sidebar_step(TEXT_12))
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .items_center()
+                    .gap(px(META_GAP))
+                    .min_w_0()
+                    .overflow_hidden()
+                    .child(project_mark(row, &theme))
+                    .child(div().flex_none().text_color(theme.ink3).child(row.project.clone()))
+                    .when(!row.extra.is_empty(), |el| el.child(div().min_w_0().truncate().text_color(theme.ink4).child(row.extra.clone())))
+                    .children(row.computer.clone().map(|name| {
+                        let ink = if row.offline.is_some() { theme.orange_ink } else { computer_ink };
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(META_GAP))
+                            .min_w_0()
+                            .child(Icon::new(IconName::Laptop).size(IconSize::S12).color(ink))
+                            .child(
+                                div()
+                                    .debug_selector(move || format!("chat-row-computer-{ix}"))
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_color(ink)
+                                    .child(name),
+                            )
+                    })),
+            )
+            .children(row.prs.clone().map(|prs| {
+                div()
+                    .debug_selector(move || format!("chat-row-prs-{ix}"))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(META_GAP))
+                    .text_color(theme.green)
+                    .child(Icon::new(IconName::GitPullRequest).size(IconSize::S12).color(theme.green))
+                    .child(prs)
+            }));
+
+        // Outer box: the 8px side inset and half a gap above and below, so the rounded fill stops short of the edges.
+        div().relative().w_full().h(px(ROW_PITCH)).px(px(ROW_INSET)).py(px(ROW_GAP / 2.0)).child(
             div()
                 .id(("chat-row", ix))
                 .debug_selector(move || format!("chat-row-{ix}"))
-                .h(ROW_TWO_LINE)
-                .px_2()
+                .h(px(ROW_HEIGHT))
+                .px(px(ROW_PAD_X))
+                .pt(px(ROW_PAD_TOP))
                 .flex()
-                .items_center()
-                .gap_2()
+                .flex_col()
+                .gap(px(LINE_GAP))
                 .rounded(RADIUS_CONTROL)
                 .cursor_pointer()
                 .when(selected, |el| el.bg(theme.hover2))
+                .when(!selected && self.show_hover, |el| el.bg(hover))
                 .when(!selected, |el| el.hover(move |style| style.bg(hover)))
                 .when(self.dragging, |el| el.opacity(0.5))
                 .when(self.draggable, |el| {
@@ -263,58 +494,104 @@ impl Render for ChatRowView {
                     }),
                 )
                 .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                    if this.hovered != *hovered {
+                        this.hovered = *hovered;
+                        cx.notify();
+                    }
                     cx.emit(RowEvent::Hover(hovered.then(|| this.bounds.get())));
                 }))
                 .child({
                     let cell = self.bounds.clone();
                     canvas(move |bounds, _, _| cell.set(bounds), |_, _, _, _| ()).absolute().size_full()
                 })
-                .child(project_tile(row, &theme))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .child(match &self.rename {
-                            Some(field) => div().h(px(18.0)).child(field.clone()).into_any_element(),
-                            // `InboxTitleLine`: a pinned Chat's 12px pin sits before the title, in `ink-3`.
-                            None => div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .min_w_0()
-                                .when(self.pinned, |el| {
-                                    el.child(
-                                        div()
-                                            .debug_selector(|| "chat-pinned".into())
-                                            .flex_none()
-                                            .child(Icon::new(IconName::Pin).size(IconSize::S12).color(theme.ink3)),
-                                    )
-                                })
-                                .child(
-                                    div()
-                                        .min_w_0()
-                                        .text_step(sidebar_step(TEXT_13))
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(theme.ink)
-                                        .truncate()
-                                        .child(row.title.clone()),
-                                )
-                                .into_any_element(),
-                        })
-                        .child(
-                            div()
-                                .text_step(sidebar_step(TEXT_12))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme.ink3)
-                                .truncate()
-                                .child(detail),
-                        ),
-                )
-                .child(div().flex().flex_none().items_center().justify_center().w(px(MARK_SLOT)).child(status_mark(ix, row, &theme))),
+                .child(title_line)
+                .child(meta),
         )
     }
+}
+
+/// The first line's right edge: the state, or the Done (Reopen) action while the pointer is on the row.
+fn right_edge(ix: usize, row: &ChatRow, hovered: bool, theme: &Theme, cx: &mut Context<ChatRowView>) -> gpui::AnyElement {
+    if !hovered {
+        return div()
+            .debug_selector(move || format!("chat-row-state-{ix}"))
+            .flex()
+            .flex_none()
+            .items_center()
+            .child(state_mark(ix, row, theme))
+            .into_any_element();
+    }
+    let (label, glyph) = if row.done { ("Reopen", IconName::Undo02) } else { ("Done", IconName::CheckmarkCircle02) };
+    div()
+        .id(("chat-row-action", ix))
+        .debug_selector(move || format!("chat-row-action-{ix}"))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(ACTION_GAP))
+        .text_step(sidebar_step(TEXT_12))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme.ink2)
+        .cursor_pointer()
+        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+            cx.stop_propagation();
+            cx.emit(RowEvent::ToggleDone);
+        }))
+        .child(Icon::new(glyph).size(IconSize::S14).color(theme.ink2))
+        .child(label)
+        .into_any_element()
+}
+
+/// The state at the right edge of a row's first line (see [`RowState`]).
+fn state_mark(ix: usize, row: &ChatRow, theme: &Theme) -> gpui::AnyElement {
+    let glyph = |name: IconName, color: Rgba| Icon::new(name).size(IconSize::S14).color(color).into_any_element();
+    match row.state() {
+        RowState::Approval => glyph(IconName::ShieldQuestionMark, theme.orange),
+        RowState::Question => glyph(IconName::BubbleChatQuestion, theme.accent),
+        RowState::Failed => glyph(IconName::AlertCircle, theme.red),
+        RowState::Done => glyph(IconName::CheckmarkCircle02, theme.green),
+        RowState::Delegated => glyph(IconName::Link04, theme.accent),
+        RowState::Interrupted => glyph(IconName::Alert02, theme.orange),
+        // The ring turns in a view of its own: a frame renders it and this row (its cached parent), never the other
+        // rows, the transcript or the panel (`ui::motion_tests`).
+        RowState::Working => Spinner::new(("chat-row-spinner", ix)).size(SPINNER_SIZE).color(theme.ink4).into_any_element(),
+        RowState::Idle { unread } => match &row.recency {
+            Some(ago) => div()
+                .text_step(sidebar_step(TEXT_12))
+                .text_color(if unread { theme.accent } else { theme.ink4 })
+                .when(unread, |el| el.font_weight(FontWeight::MEDIUM))
+                .child(ago.clone())
+                .into_any_element(),
+            None if unread => dot_mark(theme.accent).into_any_element(),
+            None => div().into_any_element(),
+        },
+    }
+}
+
+/// The second line's Project mark: the Project's colour (or the neutral `line-strong`) with its letter, or for a Chat
+/// without a Project a grey bubble.
+fn project_mark(row: &ChatRow, theme: &Theme) -> gpui::AnyElement {
+    if row.chats_home {
+        return Icon::new(IconName::BubbleChat).size(IconSize::S14).color(theme.ink4).into_any_element();
+    }
+    let (fill, ink) = match row.tile {
+        Some(color) => (color, hex("#ffffff")),
+        None => (theme.line_strong, theme.ink),
+    };
+    let letter = row.initial.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_default();
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(px(MARK_SIZE))
+        .rounded(px(MARK_RADIUS))
+        .bg(fill)
+        .text_color(ink)
+        .text_step(MARK_LETTER)
+        .font_weight(FontWeight::BOLD)
+        .child(letter)
+        .into_any_element()
 }
 
 /// A project tile: the project's identity colour, or `field`, with its initial at 600. (The spike's look;
@@ -343,28 +620,31 @@ fn tone_color(tone: Tone, theme: &Theme) -> Rgba {
     }
 }
 
-/// The trailing mark, as the desktop's `ChatMarkDotInline` draws it from `chat_mark_presentation`: a spinner ring
-/// while running, the background ring with its count, the mark's glyph in its tone when the Chat needs the user or
-/// works on a Delegation, the red dot for an idle Chat whose last turn failed, the accent dot when unread.
+/// The mark the hover card and the rail's card show beside a Chat, as the desktop's `ChatMarkDotInline` draws it from
+/// `chat_mark_presentation`: a spinner ring while running, the background ring with its count, the mark's glyph in
+/// its tone when the Chat needs the user or works on a Delegation, the red alert for an idle Chat whose last turn
+/// failed, the accent dot when unread.
 pub(super) fn status_mark(ix: usize, row: &ChatRow, theme: &Theme) -> gpui::AnyElement {
     let mark = if row.mark == ChatMark::Idle && row.failed { ChatMark::Failed } else { row.mark };
     let presentation = chat_mark_presentation(mark);
     let color = tone_color(presentation.tone, theme);
     let glyph = |name: IconName| Icon::new(name).size(IconSize::S14).color(color).into_any_element();
     match presentation.icon {
+        _ if mark == ChatMark::Idle && row.done => glyph_in(IconName::CheckmarkCircle02, theme.green),
         _ if mark == ChatMark::Idle => div().into_any_element(),
-        MarkIcon::Spinner => {
-            // The ring turns in a view of its own: a frame renders it and this row (its cached parent), never the
-            // other rows, the transcript or the panel (`ui::motion_tests`).
-            Spinner::new(("chat-row-spinner", ix)).into_any_element()
-        }
+        MarkIcon::Spinner => Spinner::new(("chat-row-spinner", ix)).into_any_element(),
         MarkIcon::Ring => background_ring(row.background, theme).into_any_element(),
-        MarkIcon::ShieldAlert => glyph(IconName::ShieldAlert),
+        MarkIcon::ShieldAlert => glyph(IconName::ShieldQuestionMark),
         MarkIcon::Bubble => glyph(IconName::BubbleChatQuestion),
         MarkIcon::Link => glyph(IconName::Link04),
+        MarkIcon::Alert if mark == ChatMark::Failed => glyph(IconName::AlertCircle),
         MarkIcon::Alert => glyph(IconName::Alert02),
         MarkIcon::Dot => dot_mark(color).into_any_element(),
     }
+}
+
+fn glyph_in(name: IconName, color: Rgba) -> gpui::AnyElement {
+    Icon::new(name).size(IconSize::S14).color(color).into_any_element()
 }
 
 /// `BackgroundMark`: a 16px ring in `ink-3` with how much background work goes on ("9+" past nine).

@@ -139,6 +139,7 @@ pub(super) const FILES: &[(&str, &[u8])] = &[
     ("hugeicons/settings-01.svg", include_bytes!("../../assets/hugeicons/settings-01.svg")),
     ("hugeicons/shield-01.svg", include_bytes!("../../assets/hugeicons/shield-01.svg")),
     ("hugeicons/shield-alert.svg", include_bytes!("../../assets/hugeicons/shield-alert.svg")),
+    ("hugeicons/shield-question-mark.svg", include_bytes!("../../assets/hugeicons/shield-question-mark.svg")),
     ("hugeicons/sidebar-left-01.svg", include_bytes!("../../assets/hugeicons/sidebar-left-01.svg")),
     ("hugeicons/sidebar-right-01.svg", include_bytes!("../../assets/hugeicons/sidebar-right-01.svg")),
     ("hugeicons/smartphone.svg", include_bytes!("../../assets/hugeicons/smartphone.svg")),

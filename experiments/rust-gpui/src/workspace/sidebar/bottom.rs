@@ -10,7 +10,9 @@ use gpui::{AnyElement, App, Bounds, FontWeight, Pixels, Window, canvas, div, pre
 use crate::theme::{TEXT_13, TextStepExt, Theme, sidebar_step};
 use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize};
 
-const DONE_HEIGHT: f32 = 40.0;
+/// The Done footer (design `gpui-sidebar-v-a`: 36px, 16px in, no rule above it).
+const DONE_HEIGHT: f32 = 36.0;
+const DONE_PAD: f32 = 16.0;
 /// A Done row (`h-[30px]`), and the list's most height (`max-h-[186px]`).
 pub const DONE_ROW: f32 = 30.0;
 pub const DONE_LIST_HEIGHT: f32 = 186.0;
@@ -54,7 +56,8 @@ pub const FILTERS_LEFT: f32 = FOOTER_PAD + FOOTER_BUTTON + FOOTER_GAP;
 /// The footer's height: the menu opens just above it.
 pub const FOOTER_BAR: f32 = FOOTER_HEIGHT;
 
-/// The Done row, then the toast's slot, the usage block and the footer, each under a 1px `line` rule. The toast hangs
+/// The Done row, then the toast's slot, the usage block and the footer, the last two under a 1px `line` rule (the
+/// Done row has none: it closes the list). The toast hangs
 /// from a zero-height slot between Done and the usage block, so it floats over the usage meters.
 pub fn bottom_group(
     done: DoneSection,
@@ -73,14 +76,14 @@ pub fn bottom_group(
         .flex_none()
         .items_center()
         .h(px(DONE_HEIGHT))
-        .px(px(20.0))
+        .px(px(DONE_PAD))
         .gap(px(8.0))
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
         .on_click(move |_, window, cx| on_toggle(window, cx))
-        .child(Icon::new(if done_open { IconName::ArrowDown01 } else { IconName::ArrowRight01 }).color(theme.ink3))
+        .child(Icon::new(if done_open { IconName::ArrowDown01 } else { IconName::ArrowRight01 }).size(IconSize::S14).color(theme.ink3))
         .child(div().text_step(sidebar_step(TEXT_13)).font_weight(FontWeight::MEDIUM).text_color(theme.ink2).child("Done"))
-        .child(div().text_step(sidebar_step(TEXT_13)).font_weight(FontWeight::MEDIUM).text_color(theme.ink3).child(done_count.to_string()));
+        .child(div().text_step(sidebar_step(TEXT_13)).text_color(theme.ink4).child(done_count.to_string()));
     // Settings › Appearance › Sidebar usage "Compact": a mark and its fullest window per provider, in a row.
     let compact = crate::theme::live::compact_usage();
     let usage = div()
@@ -98,7 +101,6 @@ pub fn bottom_group(
         .flex()
         .flex_col()
         .flex_none()
-        .child(rule())
         .child(done)
         .children(done_list)
         .child(toast)

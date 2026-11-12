@@ -20,8 +20,12 @@ use crate::theme::hex;
 
 /// Rows in the sidebar's All Chats list, pinned ones included, with the fixture's opened families.
 pub const LISTED_ROWS: usize = 500;
-/// Chats in the Done list.
+/// Chats in the Done list (marked Done more than a day ago).
 pub const DONE_CHATS: usize = 35;
+/// Chats marked Done in the last day: the list keeps them, dimmed, with the check.
+pub const INLINE_DONE: usize = 2;
+/// How long a Done Chat stays in the list (the sidebar's `DONE_INLINE_WINDOW`), in minutes.
+const INLINE_DONE_MINUTES: i64 = 24 * 60;
 /// The fixture's clock: 2026-11-11T10:00:00Z.
 pub const NOW: Millis = 1_794_391_200_000;
 const MINUTE: Millis = 60_000;
@@ -261,7 +265,13 @@ impl FixtureData {
         let named = |scope: usize, title: &str, created: i64| Spec { scope, title: title.to_owned(), created, ..Spec::default() };
 
         // Pinned: in the Pinned section above All Chats, in their pin order.
-        push(Spec { pin: Some(0.0), prs: vec![1022], ..named(ADE, "Release train v0.233", 2_000) });
+        push(Spec {
+            pin: Some(0.0),
+            prs: vec![1022],
+            live: Live::Approval("git push origin release/v0.233"),
+            outcome: None,
+            ..named(ADE, "Release train v0.233", 2_000)
+        });
         push(Spec { pin: Some(1.0), background: 2, ..named(ADE, "Relay Durable Object backoff", 3_000) });
 
         // The first screen of All Chats.
@@ -287,17 +297,22 @@ impl FixtureData {
             prs: vec![1015, 1014, 1016, 1020],
             ..named(ADE, "Codebase analysis and fixes", 15)
         });
+        push(Spec { outcome: Some(Outcome::Failed), ..named(ADE, "Rust terminal owner migration", 18) });
         push(Spec { live: Live::Question("Which plan should the fleet report use?"), outcome: None, ..named(RD_CAR, "RDCar ops", 20) });
+        // Working on another computer.
+        push(Spec { live: Live::Working, outcome: None, prs: vec![557], ..named(RD_CAR, "Tailscale routes for phone", 22) });
         push(Spec { unread: true, ..named(DEER_HOME, "Gestor RDCar", 25) });
-        let issues = push(named(ADE, "Identify issues to close", 30));
-        push(Spec { parent: Some(issues), ..named(ADE, "Close stale Linear issues", 29) });
+        // Marked Done minutes ago: still in the list, dimmed, with the check (one in a Chats home, without a Project).
+        push(Spec { done: Some(12), prs: vec![1011], ..named(SITE, "Ship the Lighthouse budget", 26) });
+        let issues = push(named(ADE, "Identify issues to close", 27));
+        push(Spec { parent: Some(issues), ..named(ADE, "Close stale Linear issues", 26) });
         push(Spec {
             parent: Some(issues),
             live: Live::Question("Close the 14 issues older than a year?"),
             outcome: None,
-            ..named(ADE, "Triage GitHub issues", 28)
+            ..named(ADE, "Triage GitHub issues", 25)
         });
-        push(Spec { outcome: Some(Outcome::Failed), ..named(ADE, "Rust terminal owner migration", 40) });
+        push(Spec { done: Some(18), ..named(HOME, "What's a good name for a CLI?", 28) });
         // A Routine's Run: hidden, but listed while it waits on an approval.
         push(Spec {
             routine: Some(Some(true)),
@@ -314,11 +329,11 @@ impl FixtureData {
         push(Spec { provider: Provider::Kiro, prs: vec![1005], ..named(ADE_COPY, "Chat switch panel flash", 90) });
         push(Spec { provider: Provider::Antigravity, ..named(NOTES, "Meeting notes cleanup", 110) });
 
-        // Done: marked over the last ten hours, most recent first in the Done list.
+        // Done: marked over ten hours from yesterday on, most recent first in the Done list.
         for i in 0..DONE_CHATS {
             let scope = FILLER_SCOPES[i % FILLER_SCOPES.len()];
             push(Spec {
-                done: Some(10 + i as i64 * 17),
+                done: Some(INLINE_DONE_MINUTES + 10 + i as i64 * 17),
                 ..named(scope, &format!("Finished: release note {}", 100 + i), 900 + i as i64 * 41)
             });
         }
@@ -431,11 +446,12 @@ impl FixtureData {
 }
 
 /// Whether a spec is a row of the All Chats list: listed (it has a message; a hidden Run only while it waits),
-/// not archived, not Done, not in a hidden Project, and top-level or in the opened family.
+/// not archived, not Done before the last day, not in a hidden Project, and top-level or in the opened family.
 fn shown_in_list(specs: &[Spec], spec: &Spec, open: usize) -> bool {
     let waiting = matches!(spec.live, Live::Approval(_) | Live::Question(_));
     let listed = spec.count > 0 && !(spec.routine == Some(Some(true)) && !waiting);
-    if !listed || spec.archived || spec.done.is_some() || PROJECTS[spec.scope].hidden {
+    let done_earlier = spec.done.is_some_and(|ago| ago >= INLINE_DONE_MINUTES);
+    if !listed || spec.archived || done_earlier || PROJECTS[spec.scope].hidden {
         return false;
     }
     let mut root = spec.parent;

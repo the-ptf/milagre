@@ -3,9 +3,9 @@
 
 use gpui::{TestAppContext, VisualTestContext};
 
-use crate::logic::marks::ChatMark;
 use crate::testing;
 use crate::ui::{SpinnerView, set_test_motion};
+use crate::workspace::sidebar::RowState;
 
 /// Stretches opening and closing motion 20 times, so a slide outlasts the frames a test draws (frames are not tied to
 /// the clock, and a debug build under load is slow). Call it after mounting, which applies the stored speed.
@@ -33,7 +33,7 @@ fn a_turning_spinner_rebuilds_only_its_row(cx: &mut TestAppContext) {
     assert!(frame(cx) > 0, "the spinners ask for frames");
 
     let spinning = sidebar.read_with(cx, |s, _| {
-        s.visible_range().filter(|ix| s.row(*ix).is_some_and(|row| row.mark == ChatMark::Running && !row.failed)).count()
+        (0..s.pinned_count()).chain(s.visible_range()).filter(|ix| s.row(*ix).is_some_and(|row| row.state() == RowState::Working)).count()
     });
     let alive = sidebar.read_with(cx, |s, _| s.row_views_alive());
     assert!(spinning >= 2 && spinning < alive, "the fixture spins {spinning} of {alive} rows");

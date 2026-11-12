@@ -6,6 +6,10 @@
 //! the list of every scope's unpinned top-level Chats merged by the Chat order setting (Subchats are not listed:
 //! the Details panel has them), then the Done section (most recently marked
 //! first). Hidden Projects are left out; an offline computer's scopes show from their last state, without runs.
+//!
+//! Recently Done Chats stay in the list: a Chat marked Done within [`DONE_INLINE_WINDOW`] keeps its place, dimmed
+//! with the green check (and can be reopened from its row), and only older ones move to the Done section. Marking a
+//! Chat Done never makes the list jump, and the Done section stays the archive of everything finished before today.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -225,6 +229,19 @@ pub struct ChatLists {
     pub done: Vec<ListedChat>,
 }
 
+/// How long a Done Chat stays in the list before it moves to the Done section: a day.
+pub const DONE_INLINE_WINDOW: Millis = 24 * 60 * 60 * 1000;
+
+/// The lists' "now" (the recency on a row, which Done Chats are recent): the fixture's clock in tests, the real one
+/// in the app.
+pub fn list_clock() -> Millis {
+    if cfg!(test) {
+        crate::data::fixture::NOW
+    } else {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as Millis)
+    }
+}
+
 /// What this device keeps that shapes the lists: its pins and what Filters leaves out.
 #[derive(Clone, Debug, Default)]
 pub struct ListFilters {
@@ -232,6 +249,8 @@ pub struct ListFilters {
     pub pins: DevicePins,
     /// Computers whose Projects the sidebar leaves out (Filters › Computers).
     pub hidden_computers: HashSet<String>,
+    /// Chats marked Done at or after this time stay in the list; `None` moves every Done Chat to the Done section.
+    pub done_since: Option<Millis>,
 }
 
 /// The sidebar's lists from its data: the one-list layout's Pinned, All Chats and Done.
@@ -257,9 +276,12 @@ pub fn chat_lists_with(data: &SidebarData, order: ChatOrder, filters: &ListFilte
     let mut ordered: Vec<&Vec<ListedChat>> = Vec::new();
     ordered.extend(all.iter().filter(|rows| rows.first().is_some_and(|row| data.scopes[row.scope].project.is_chats_home())));
     ordered.extend(all.iter().filter(|rows| rows.first().is_none_or(|row| !data.scopes[row.scope].project.is_chats_home())));
-    let mut done: Vec<ListedChat> = ordered.iter().flat_map(|rows| rows.iter().filter(|row| row.chat.is_done()).cloned()).collect();
+    // A Chat Done since `done_since` stays in the list; the rest of the Done Chats are the Done section.
+    let archived =
+        |row: &ListedChat| row.chat.is_done() && filters.done_since.is_none_or(|since| row.chat.done_at.is_none_or(|at| at < since));
+    let mut done: Vec<ListedChat> = ordered.iter().flat_map(|rows| rows.iter().filter(|row| archived(row)).cloned()).collect();
     done.sort_by(|a, b| crate::logic::lists::done::by_done_at(a.chat.done_at, b.chat.done_at));
-    let live: Vec<Vec<ListedChat>> = ordered.iter().map(|rows| rows.iter().filter(|row| !row.chat.is_done()).cloned().collect()).collect();
+    let live: Vec<Vec<ListedChat>> = ordered.iter().map(|rows| rows.iter().filter(|row| !archived(row)).cloned().collect()).collect();
     let pinned = live.iter().flat_map(|rows| rows.iter().filter(|row| row.chat.pinned).cloned()).collect::<Vec<_>>();
     let rest: Vec<Vec<ListedChat>> = live.iter().map(|rows| rows.iter().filter(|row| !row.chat.pinned).cloned().collect()).collect();
     ChatLists {

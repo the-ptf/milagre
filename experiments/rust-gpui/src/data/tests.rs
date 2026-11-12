@@ -1,7 +1,7 @@
 //! The domain types, their edge into `src/logic`, and the fixture source through the `DataSource` trait as a view
 //! would call it.
 
-use super::fixture::{DEER, DONE_CHATS, FixtureData, TIANXU, alternating, chat_page};
+use super::fixture::{DEER, DONE_CHATS, FixtureData, INLINE_DONE, TIANXU, alternating, chat_page};
 use super::*;
 use crate::logic::identity::providers::PROVIDERS;
 use crate::logic::lists::pins::{DevicePins, sessions_with_pins};
@@ -73,7 +73,7 @@ fn the_fixture_spans_three_computers_with_a_hidden_project_and_two_chats_homes()
 fn the_named_chats_carry_the_states_the_lists_read() {
     let data = FixtureData::new();
     let done = data.scopes.iter().flat_map(|scope| scope.state.sessions.values()).filter(|chat| chat.is_done()).count();
-    assert_eq!(done, DONE_CHATS);
+    assert_eq!(done, DONE_CHATS + INLINE_DONE);
 
     let (scope, relay) = chat_titled(&data, "Relay Durable Object backoff");
     assert!(relay.pinned && relay.pin_order == Some(1.0));

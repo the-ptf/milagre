@@ -18,11 +18,12 @@ use gpui::{AnyElement, App, Bounds, Context, KeyDownEvent, Pixels, Point, Render
 use super::links::{LinkEnd, LinkProblem, link_between};
 use super::{ROW_INSET, Sidebar};
 use crate::logic::lists::chats::pin_order_at;
-use crate::theme::{ActiveTheme, HEADER_HEIGHT, RADIUS_CHIP, RADIUS_CONTROL, ROW_TWO_LINE, TEXT_11, TextStepExt};
+use crate::theme::{ActiveTheme, HEADER_HEIGHT, RADIUS_CHIP, RADIUS_CONTROL, TEXT_11, TextStepExt};
 use crate::ui::{Icon, IconName, IconSize};
 
 /// The Pinned rows' top padding (`pt(4)` in `mod.rs`).
-const PINNED_PAD: f32 = 4.0;
+/// From the header's bottom to the first pinned row's box.
+const PINNED_PAD: f32 = 8.0;
 
 /// Where a dragged Chat lands on a row (`DropZone`): on the line above or below it, or on the row itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,8 +158,11 @@ impl Sidebar {
         let painted = self.row_views.get(&ix).map(|(view, _)| view.read(cx).bounds()).filter(|bounds| bounds.size.height > px(0.0));
         painted.or_else(|| {
             (ix < self.pinned && !self.collapsed).then(|| {
-                let top = HEADER_HEIGHT + px(PINNED_PAD + ix as f32 * f32::from(ROW_TWO_LINE));
-                Bounds::new(gpui::point(px(ROW_INSET), top), gpui::size(px(super::SIDEBAR_WIDTH - 2.0 * ROW_INSET), ROW_TWO_LINE))
+                let top = HEADER_HEIGHT + px(PINNED_PAD + ix as f32 * super::row::ROW_PITCH);
+                Bounds::new(
+                    gpui::point(px(ROW_INSET), top),
+                    gpui::size(px(super::SIDEBAR_WIDTH - 2.0 * ROW_INSET), px(super::row::ROW_HEIGHT)),
+                )
             })
         })
     }

@@ -91,6 +91,7 @@ impl LinkWorkspace {
             mark: chat.mark,
             failed: false,
             background: 0,
+            ..ChatRow::default()
         }
     }
 

@@ -35,6 +35,7 @@ const ICONS = [
   "ShieldAlert",
   "BubbleChatQuestion",
   "Alert02",
+  "ShieldQuestionMark",
   // Panel tabs (agents/PanelToggles.tsx) and panel chrome
   "FileDiff",
   "ComputerTerminal01",

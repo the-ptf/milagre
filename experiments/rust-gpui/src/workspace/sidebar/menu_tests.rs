@@ -227,13 +227,18 @@ fn detach_patches_a_subchat_that_has_no_row(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn done_leaves_the_list_for_the_done_section_and_cmd_z_brings_it_back(cx: &mut TestAppContext) {
+fn done_stays_in_the_list_dimmed_and_cmd_z_takes_it_back(cx: &mut TestAppContext) {
     let (sidebar, cx) = mount(cx);
-    let chat = key(&sidebar, cx, 8);
+    let chat = key(&sidebar, cx, 11);
     let (rows, done) = sidebar.read_with(cx, |s, _| (s.row_count(), s.done_count()));
-    run(&sidebar, cx, 8, MenuAction::Done);
-    assert_eq!(sidebar.read_with(cx, |s, _| (s.row_count(), s.done_count())), (rows - 1, done + 1));
+    run(&sidebar, cx, 11, MenuAction::Done);
+    // Marked just now, it keeps its place in the list (dimmed, with the check); the Done section holds older ones.
+    assert_eq!(sidebar.read_with(cx, |s, _| (s.row_count(), s.done_count())), (rows, done));
     assert!(sidebar.read_with(cx, |s, _| s.is_done_key(&chat)));
+    assert_eq!(
+        sidebar.read_with(cx, |s, _| s.row(11).map(|row| (row.key.to_string(), row.state()))),
+        Some((chat.clone(), super::RowState::Done))
+    );
     assert!(matches!(calls(&sidebar, cx)[..], [SidebarCall::Patch { patch: ChatPatch::DoneAt(Some(_)), .. }]));
     assert_eq!(sidebar.read_with(cx, |s, _| s.toast_text()), Some("Moved to Done".into()));
     assert!(cx.debug_bounds("toast-undo").is_some(), "the toast offers Undo");
@@ -339,7 +344,8 @@ fn undo_walks_back_three_steps_and_redo_forward_again(cx: &mut TestAppContext) {
     let delete_ix = at(cx, &delete);
     super::menu_tests::delete(&sidebar, cx, delete_ix);
     let after = sidebar.read_with(cx, |s, _| (s.row_count(), s.pinned_count(), s.done_count()));
-    assert_eq!(after, (initial.0 - 2, initial.1 + 1, initial.2 + 1));
+    // The Done Chat stays in the list (marked just now); the deleted one leaves it.
+    assert_eq!(after, (initial.0 - 1, initial.1 + 1, initial.2));
 
     cx.simulate_keystrokes("cmd-z");
     assert!(!sidebar.read_with(cx, |s, _| s.is_archived_key(&delete)), "the deletion is taken back first");
@@ -460,7 +466,7 @@ fn the_card_model_reads_state_prs_diff_branch_and_folder(cx: &mut TestAppContext
     });
     assert_eq!(model.title, "Release train v0.233");
     assert_eq!(model.branch.as_deref(), Some("milagre/release-train-v0-233"));
-    assert_eq!(model.folder.as_deref(), Some("release-train-v0-233-62"));
+    assert_eq!(model.folder.as_deref(), Some("release-train-v0-233-61"));
     assert_eq!(model.linked, ["Relay"]);
     let home = sidebar.read_with(cx, |s, _| {
         let ix = s.row_keys().iter().position(|k| k.ends_with("chats#70")).expect("the Chats home row");
@@ -576,7 +582,8 @@ fn the_collapsed_sidebar_is_a_rail_with_a_badge_and_a_card(cx: &mut TestAppConte
     assert!(cx.debug_bounds("rail-running-2").is_some());
     assert!(cx.debug_bounds("rail-attention-3").is_some());
     assert!(cx.debug_bounds("rail-running-3").is_none(), "attention wins over running");
-    assert!(cx.debug_bounds("rail-attention-0").is_none());
+    assert!(cx.debug_bounds("rail-attention-0").is_some(), "the pinned Release train waits on an approval");
+    assert!(cx.debug_bounds("rail-attention-1").is_none());
 
     let at = cx.debug_bounds("rail-item-2").unwrap().center();
     cx.simulate_mouse_move(at, None, Modifiers::none());

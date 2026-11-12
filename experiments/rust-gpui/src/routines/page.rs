@@ -40,6 +40,7 @@ pub(crate) fn chat_row(key: &str, title: &str) -> ChatRow {
         mark: ChatMark::Idle,
         failed: false,
         background: 0,
+        ..ChatRow::default()
     }
 }
 

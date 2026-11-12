@@ -36,7 +36,7 @@ fn clicking_a_chat_row_selects_it(cx: &mut TestAppContext) {
     assert_eq!(sidebar.read_with(cx, |sidebar, _| sidebar.selected()), Some(3));
 
     let row = cx.debug_bounds("chat-row-4").expect("row 4 is drawn by the uniform_list");
-    assert_eq!(row.size.height, crate::theme::ROW_TWO_LINE);
+    assert_eq!(row.size.height, gpui::px(54.0));
     assert_eq!(row.size.width, gpui::px(crate::workspace::sidebar::SIDEBAR_WIDTH - 16.0), "8px inset on each side");
     cx.simulate_click(row.center(), Modifiers::none());
     assert_eq!(sidebar.read_with(cx, |sidebar, _| sidebar.selected()), Some(4));
