@@ -38,6 +38,11 @@ fn texture(appearance: Appearance) -> &'static str {
     }
 }
 
+/// The surface grain's texture for `appearance`, as an image source (the Chat card's corners paint it themselves).
+pub fn surface_texture(appearance: Appearance) -> gpui::Resource {
+    gpui::Resource::Embedded(texture(appearance).into())
+}
+
 /// The texture's mean strength once baked alpha (about 3.5 %) and `strength` are applied.
 fn mean_speck(strength: f32) -> f32 {
     0.035 * strength

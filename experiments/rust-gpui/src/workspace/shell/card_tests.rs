@@ -169,3 +169,20 @@ fn the_transcript_starts_clear_of_the_cards_top_border(cx: &mut TestAppContext) 
     assert_eq!(transcript.top(), card.top() + px(1.0), "right under the border");
     assert!(cx.debug_bounds("transcript-top-fade").is_none(), "no fade band under the border");
 }
+
+/// The grain over each corner's wedge follows the curve: the whole radius at the top edge, narrowing to nothing at
+/// the radius' depth, never wider than the corner.
+#[test]
+fn the_corner_wedge_narrows_along_the_curve() {
+    assert_eq!(card::wedge_width(0.0), CARD_RADIUS);
+    assert_eq!(card::wedge_width(CARD_RADIUS), 0.0);
+    assert_eq!(card::wedge_width(-1.0), 0.0);
+    let mut last = CARD_RADIUS;
+    for step in 1..48 {
+        let width = card::wedge_width(step as f32 * 0.25);
+        assert!(width <= last && (0.0..=CARD_RADIUS).contains(&width), "{step}: {width}");
+        last = width;
+    }
+    // Halfway down, the circle is r - sqrt(r² - (r/2)²) in from the edge.
+    assert!((card::wedge_width(6.0) - (12.0 - (144.0f32 - 36.0).sqrt())).abs() < 1e-4);
+}
