@@ -190,7 +190,7 @@ impl Workspace {
         self.chat.update(cx, |chat, _| chat.set_header_insets(leading, trailing));
         self.panel.update(cx, |panel, cx| panel.set_header_trailing(gpui::px(0.0), cx));
         let open = self.panel.read(cx).is_open();
-        card::column(column, open, cx.theme())
+        card::column(column, open, cx.theme(), &self.card_grain)
     }
 
     /// The Routines page on the card, under an empty top row that still drags the window.
@@ -203,7 +203,7 @@ impl Workspace {
             .child(div().flex_none().h(card::header_gap()))
             .child(div().flex().flex_1().min_h_0().child(self.routines.clone()))
             .into_any_element();
-        card::column(page, false, cx.theme())
+        card::column(page, false, cx.theme(), &self.card_grain)
     }
 
     /// The panel toggle at the window's top-right, in the top bar's row. Not shown on the Routines page, which has

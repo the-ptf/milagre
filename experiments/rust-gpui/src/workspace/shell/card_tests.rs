@@ -88,6 +88,43 @@ fn one_grain_under_the_whole_window_renders_once(cx: &mut TestAppContext) {
     assert_eq!(renders(cx), before, "no render for hover or scroll");
 }
 
+/// The card has its own grain, 1.5 to 2 times the surface's, over its fill and under its content, rendered once: not
+/// for a scroll of the transcript, a hover, or a keystroke in the composer.
+#[gpui::test]
+fn the_card_has_its_own_stronger_grain_that_renders_once(cx: &mut TestAppContext) {
+    use crate::ui::grain::{CARD_STRENGTH, STRENGTH};
+    let (workspace, cx) = testing::mount_workspace(cx);
+    let card = cx.debug_bounds("chat-card").expect("the card is drawn");
+    let grain = cx.debug_bounds("card-grain").expect("the card's grain is drawn");
+    assert_eq!(grain, card, "the grain fills the card, and ends where it does");
+    let ratio = CARD_STRENGTH / STRENGTH;
+    assert!((1.5..=2.0).contains(&ratio), "the card's grain is {ratio} times the surface's");
+    let renders = |cx: &mut gpui::VisualTestContext| workspace.read_with(cx, |w, cx| w.card_grain.read(cx).renders());
+    let page = cx.debug_bounds("chat-card-content").expect("the content").center();
+    // Mouse mode first, then settle: the first mouse move after typing (and the first key after the mouse) refreshes
+    // every view once, whatever they are.
+    cx.simulate_mouse_move(page, None, Modifiers::none());
+    cx.run_until_parked();
+    let before = renders(cx);
+    assert!(before >= 1);
+    for dy in [-300.0, 300.0] {
+        cx.simulate_event(gpui::ScrollEvent {
+            position: page,
+            delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(dy))),
+            ..Default::default()
+        });
+    }
+    cx.run_until_parked();
+    assert_eq!(renders(cx), before, "no render of the card's grain for a hover or a scroll");
+    // Typing: the first key is the mode switch; the keys after it render nothing of the grain.
+    cx.simulate_keystrokes("a");
+    cx.run_until_parked();
+    let before = renders(cx);
+    cx.simulate_keystrokes("b c d");
+    cx.run_until_parked();
+    assert_eq!(renders(cx), before, "no render of the card's grain for typing");
+}
+
 #[gpui::test]
 fn the_routines_page_and_the_diff_sit_on_the_card(cx: &mut TestAppContext) {
     let (_workspace, cx) = testing::mount_workspace(cx);

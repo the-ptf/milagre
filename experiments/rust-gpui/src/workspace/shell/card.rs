@@ -3,6 +3,7 @@
 //! drawer, the diff over the Chat and the Routines page sit in a card right under the top row, `page`-filled with a 1px
 //! `line` border on its top and sides and 12px top corners, 8px from the panel (or the window's right edge). Like
 //! Linear's content panel it runs down to the window's bottom edge, with no bottom border or rounded bottom corners.
+//! A grain of its own (`GrainView::card`, a bit stronger than the surface's) lies over its fill and under its content.
 //! Its left edge is the sidebar's (the sidebar's rows already end 8px short of it, as in the design).
 //!
 //! GPUI clips to rectangles, so the card's content is laid out 1px inside its border and the corners are cut over
@@ -10,9 +11,10 @@
 //! top ([`corners`]). What the content paints into a corner (a diff's bar, the Routines page's fill) never shows
 //! past the curve.
 
-use gpui::{AnyElement, Bounds, PathBuilder, Pixels, Rgba, Window, canvas, div, point, prelude::*, px};
+use gpui::{AnyElement, Bounds, Entity, PathBuilder, Pixels, Rgba, Window, canvas, div, point, prelude::*, px};
 
 use crate::theme::Theme;
+use crate::ui::grain::GrainView;
 use crate::workspace::chrome::TOP_ROW;
 
 /// The card's top corner radius.
@@ -51,7 +53,7 @@ pub fn panel_lead() -> Pixels {
 /// `content` (a column whose first [`TOP_ROW`] px are its header in the top row) on the card. The column fills the card's
 /// width, 1px inside its side borders, from the window's top to its bottom; what follows its header must leave
 /// [`header_gap`] first.
-pub fn column(content: AnyElement, panel_open: bool, theme: &Theme) -> AnyElement {
+pub fn column(content: AnyElement, panel_open: bool, theme: &Theme, grain: &Entity<GrainView>) -> AnyElement {
     let right = px(right_gap(panel_open));
     let inset = px(CARD_BORDER);
     let (surface, line) = (theme.canvas, theme.line);
@@ -74,6 +76,13 @@ pub fn column(content: AnyElement, panel_open: bool, theme: &Theme) -> AnyElemen
                 .border_r(inset)
                 .border_color(theme.line)
                 .bg(theme.page),
+        )
+        // The card's own, stronger grain: over the fill, under the content, a cached view of its own (rendered once,
+        // again only on a theme change). Its rectangle ends at the card's top corners; `corners` below cuts them.
+        .child(
+            gpui::AnyView::from(grain.clone())
+                .cached(gpui::StyleRefinement::default().absolute().top(top()).left_0().right(right).bottom_0())
+                .into_any_element(),
         )
         .child(
             div()

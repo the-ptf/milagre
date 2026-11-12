@@ -48,6 +48,8 @@ pub struct Workspace {
     pub panel: Entity<Panel>,
     /// The film grain under the whole window: the sidebar, the top row and the panel are transparent over it.
     pub grain: Entity<GrainView>,
+    /// The Chat card's own grain, stronger than the surface's (`shell/card.rs`).
+    pub card_grain: Entity<GrainView>,
     pub settings: Entity<SettingsModal>,
     /// ⌘K (WP-50), above everything else.
     pub palette: Entity<PaletteView>,
@@ -145,6 +147,7 @@ impl Workspace {
             link: None,
             panel,
             grain: cx.new(|_| GrainView::new()),
+            card_grain: cx.new(|_| GrainView::card()),
             settings,
             palette,
             dialog_host,

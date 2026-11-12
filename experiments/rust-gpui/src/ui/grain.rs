@@ -22,7 +22,9 @@ fn tiles_for(length: f32) -> usize {
 }
 
 /// How much of the baked texture shows: Victor asked for a quieter grain than the reference.
-const STRENGTH: f32 = 0.5;
+pub const STRENGTH: f32 = 0.5;
+/// Inside the Chat card the grain is a little stronger than outside it: Victor asked for 1.5 to 2 times, so 1.75.
+pub const CARD_STRENGTH: f32 = STRENGTH * 1.75;
 
 const LIGHT_SPECKS: &str = "grain/grain-light.png";
 const DARK_SPECKS: &str = "grain/grain-dark.png";
@@ -35,17 +37,29 @@ fn texture(appearance: Appearance) -> &'static str {
     }
 }
 
-/// The texture's mean strength once baked alpha (about 3.5 %) and [`STRENGTH`] are applied.
-const MEAN_SPECK: f32 = 0.035 * STRENGTH;
+/// The texture's mean strength once baked alpha (about 3.5 %) and `strength` are applied.
+fn mean_speck(strength: f32) -> f32 {
+    0.035 * strength
+}
+
+fn grained_at(surface: gpui::Rgba, appearance: Appearance, strength: f32) -> gpui::Hsla {
+    let a = mean_speck(strength);
+    let speck = match appearance {
+        Appearance::Dark => gpui::Rgba { r: 1.0, g: 1.0, b: 1.0, a },
+        Appearance::Light => gpui::Rgba { r: 0.0, g: 0.0, b: 0.0, a },
+    };
+    gpui::Hsla::from(surface).blend(gpui::Hsla::from(speck))
+}
 
 /// `surface` as it looks with the grain on it, on average: the colour for an edge fade that covers the grain at its
 /// opaque end, so the faded band does not read as a flat patch next to the grained surface around it.
 pub fn grained(surface: gpui::Rgba, appearance: Appearance) -> gpui::Hsla {
-    let speck = match appearance {
-        Appearance::Dark => gpui::Rgba { r: 1.0, g: 1.0, b: 1.0, a: MEAN_SPECK },
-        Appearance::Light => gpui::Rgba { r: 0.0, g: 0.0, b: 0.0, a: MEAN_SPECK },
-    };
-    gpui::Hsla::from(surface).blend(gpui::Hsla::from(speck))
+    grained_at(surface, appearance, STRENGTH)
+}
+
+/// [`grained`] for a surface inside the Chat card (`page`), where the grain is [`CARD_STRENGTH`].
+pub fn grained_card(surface: gpui::Rgba, appearance: Appearance) -> gpui::Hsla {
+    grained_at(surface, appearance, CARD_STRENGTH)
 }
 
 /// Starts decoding both textures (see `preload_logos`); whether both are ready.
@@ -58,6 +72,8 @@ pub struct GrainView {
     renders: usize,
     /// The debug selector, so tests can find it.
     selector: &'static str,
+    /// How much of the baked texture shows.
+    strength: f32,
 }
 
 impl GrainView {
@@ -66,7 +82,12 @@ impl GrainView {
     }
 
     pub fn named(selector: &'static str) -> Self {
-        Self { renders: 0, selector }
+        Self { renders: 0, selector, strength: STRENGTH }
+    }
+
+    /// The grain inside the Chat card: [`CARD_STRENGTH`].
+    pub fn card() -> Self {
+        Self { renders: 0, selector: "card-grain", strength: CARD_STRENGTH }
     }
 
     /// How many times it has rendered (tests: hovering and scrolling the sidebar must not render it).
@@ -88,8 +109,8 @@ impl Render for GrainView {
         let viewport = window.viewport_size();
         let (columns, rows) = (tiles_for(f32::from(viewport.width)), tiles_for(f32::from(viewport.height)));
         let path = texture(cx.theme().appearance);
-        let selector = self.selector;
-        div().debug_selector(move || selector.into()).size_full().overflow_hidden().opacity(STRENGTH).flex().flex_col().children(
+        let (selector, strength) = (self.selector, self.strength);
+        div().debug_selector(move || selector.into()).size_full().overflow_hidden().opacity(strength).flex().flex_col().children(
             (0..rows).map(|_| div().flex().flex_none().children((0..columns).map(|_| img(path).flex_none().size(px(GRAIN_TILE))))),
         )
     }
