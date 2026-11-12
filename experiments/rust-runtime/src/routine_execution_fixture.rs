@@ -1,4 +1,4 @@
-//! Test-binary-only existing-Chat schedule composition. No actor timer or RPC is installed.
+//! Fixture-only existing-Chat scheduling. Actor activation additionally requires the captured synthetic-root marker.
 use milagre_owner_store::{
     chat_host::{ChatHost, RoutineFixtureError, TurnId},
     jsjson,
@@ -13,6 +13,7 @@ type Result<T> = std::result::Result<T, String>;
 struct Pending {
     chat: String,
     turn: Option<TurnId>,
+    interrupt_sent: bool,
 }
 pub(crate) struct Scheduler {
     pub(crate) store: RoutineStore,
@@ -22,6 +23,7 @@ pub(crate) struct Scheduler {
     stopped: bool,
     fenced: Option<String>,
     owner: OwnerCheck,
+    changed: bool,
 }
 impl Scheduler {
     pub(crate) fn open(
@@ -34,7 +36,7 @@ impl Scheduler {
         let mut store = RoutineStore::open(root, owner.clone(), now).map_err(|e| e.to_string())?;
         // Once per owner lifetime, before any claim. A retained running row is failed,
         // never dispatched again, even if the former launch result was unknown.
-        store
+        let recovered = store
             .execute(StoreCommand::RecoverInterrupted, now)
             .map_err(|e| e.to_string())?;
         Ok(Self {
@@ -45,14 +47,41 @@ impl Scheduler {
             stopped: false,
             fenced: None,
             owner,
+            changed: recovered.changed,
         })
     }
+    pub(crate) fn model(&self) -> &str {
+        &self.model
+    }
+    pub(crate) fn is_fenced(&self) -> bool {
+        self.fenced.is_some()
+    }
+    pub(crate) fn has_active(&self, host: &ChatHost) -> bool {
+        self.pending.values().any(|pending| {
+            pending.turn.is_some() && host.active_turn(&pending.chat) == pending.turn
+        })
+    }
+
+    pub(crate) fn close_for_recovery(&mut self, host: &ChatHost) -> Result<()> {
+        if self.pending.values().any(|pending| {
+            pending.turn.is_some() && host.active_turn(&pending.chat) == pending.turn
+        }) {
+            return Err("Actual scheduled/native work remains active".into());
+        }
+        self.store.close().map_err(|e| e.to_string())?;
+        self.pending.clear();
+        Ok(())
+    }
+
     pub(crate) fn pending(&self) -> usize {
         self.pending.len()
     }
     fn transaction(&mut self, command: StoreCommand, now: i64) -> Result<Value> {
         match self.store.execute(command, now) {
-            Ok(reply) => Ok(reply.value),
+            Ok(reply) => {
+                self.changed |= reply.changed;
+                Ok(reply.value)
+            }
             Err(error) => self.fence(error.to_string()),
         }
     }
@@ -66,12 +95,14 @@ impl Scheduler {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (self.owner)()))
             .map_err(|_| "Fixture dispatch owner check panicked".to_owned())?
     }
+    #[cfg(test)]
     pub(crate) fn tick(&mut self, host: &mut ChatHost, now: i64) -> Result<()> {
         match self.tick_once(host, now) {
             Ok(()) => Ok(()),
             Err(error) => self.fence(error),
         }
     }
+    #[cfg(test)]
     fn tick_once(&mut self, host: &mut ChatHost, now: i64) -> Result<()> {
         if let Some(error) = &self.fenced {
             return Err(error.clone());
@@ -83,6 +114,25 @@ impl Scheduler {
             return self.fence(error.to_string());
         }
         host.take_notices(); // This fixture has no publisher; saved owner state is the terminal authority.
+        self.advance(host, now)
+    }
+    pub(crate) fn take_changed(&mut self) -> bool {
+        std::mem::take(&mut self.changed)
+    }
+    pub(crate) fn advance(&mut self, host: &mut ChatHost, now: i64) -> Result<()> {
+        let result = self.advance_once(host, now);
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) => self.fence(error),
+        }
+    }
+    fn advance_once(&mut self, host: &mut ChatHost, now: i64) -> Result<()> {
+        if let Some(error) = &self.fenced {
+            return Err(error.clone());
+        }
+        self.check_owner()?;
+        host.require_project_ready(&self.project)
+            .map_err(|e| e.to_string())?;
         self.finish_saved(host, now)?;
         if self.stopped || host.is_quitting() {
             return Ok(());
@@ -114,6 +164,7 @@ impl Scheduler {
                         Pending {
                             chat,
                             turn: sent.turn,
+                            interrupt_sent: false,
                         },
                     );
                 }
@@ -222,14 +273,29 @@ impl Scheduler {
         }
         Ok(())
     }
+    // Revocation never fabricates finish. The durable running rows remain and
+    // RecoverInterrupted classifies them only on the next verified lifetime.
+    pub(crate) fn revoke(&mut self) {
+        self.stopped = true;
+        self.pending.clear();
+    }
     pub(crate) fn stop(&mut self, host: &mut ChatHost) -> Result<()> {
         self.stopped = true;
-        for pending in self.pending.values() {
-            if pending.turn.is_some() && host.active_turn(&pending.chat) == pending.turn {
+        for pending in self.pending.values_mut() {
+            if !pending.interrupt_sent
+                && pending.turn.is_some()
+                && host.active_turn(&pending.chat) == pending.turn
+            {
                 host.interrupt(&pending.chat).map_err(|e| e.to_string())?;
+                pending.interrupt_sent = true;
             }
         }
         Ok(())
+    }
+    pub(crate) fn owns_active(&self, host: &ChatHost, chat: &str) -> bool {
+        self.pending
+            .values()
+            .any(|p| p.chat == chat && p.turn.is_some() && host.active_turn(chat) == p.turn)
     }
     pub(crate) fn close(&mut self) -> Result<()> {
         if !self.pending.is_empty() {

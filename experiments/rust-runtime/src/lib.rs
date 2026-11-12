@@ -30,7 +30,7 @@ pub mod instructions;
 mod jobs;
 mod owned;
 mod ports;
-#[cfg(all(test, feature = "routine-execution-fixture"))]
+#[cfg(feature = "routine-execution-fixture")]
 mod routine_execution_fixture;
 mod terminals;
 

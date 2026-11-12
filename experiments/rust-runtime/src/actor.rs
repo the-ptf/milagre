@@ -534,7 +534,19 @@ impl Drop for State {
         #[cfg(feature = "chat-runtime")]
         if let Some(routines) = &mut self.routines {
             // Unknown routine persistence/cleanup cannot release this owner's Project lock.
+            #[cfg(feature = "routine-execution-fixture")]
+            {
+                routines.interrupt_before_drop(&mut self.host);
+                let now = self.host.states.now();
+                let _ = routines.stop_execution(&mut self.host, now);
+            }
             while routines.close().is_err() {
+                #[cfg(feature = "routine-execution-fixture")]
+                {
+                    let now = self.host.states.now();
+                    let _ = self.host.tick(now);
+                    let _ = routines.advance(&mut self.host, now);
+                }
                 thread::sleep(Duration::from_millis(20));
             }
         }
@@ -597,7 +609,7 @@ impl State {
     #[cfg(feature = "chat-runtime")]
     fn reopen_routines(&mut self) -> Result<(), RpcError> {
         if let Some(routines) = &mut self.routines {
-            return routines.reopen(self.host.states.now());
+            return routines.reopen(&self.host, self.host.states.now());
         }
         if self.configured.is_none() {
             return Ok(());
@@ -705,7 +717,9 @@ impl State {
             configured.check()?;
             if crate::configured_routines::METHODS.contains(&method) {
                 if crate::configured_routines::FLAGS.contains(&method) {
-                    return Ok(json!({"enabled":true,"executionSupported":false}));
+                    return Ok(
+                        json!({"enabled":true,"executionSupported":self.routines.as_ref().is_some_and(|r|r.execution_supported())}),
+                    );
                 }
                 self.host
                     .require_project_ready(&self.project)
@@ -1176,6 +1190,14 @@ impl State {
         if let Some(error) = first_failure {
             return Err(convert(error));
         }
+        #[cfg(feature = "routine-execution-fixture")]
+        if self.host.is_project_ready(&self.project) {
+            if let Some(routines) = &mut self.routines {
+                if routines.advance(&mut self.host, now)? {
+                    self.queue_event("routines:changed", json!({}))?;
+                }
+            }
+        }
         Ok(())
     }
     fn publish(&mut self, shared: &Shared, publication: &Publication<'_>) -> Result<(), RpcError> {
@@ -1425,10 +1447,23 @@ impl State {
         force: bool,
         refused: &mut bool,
     ) -> RpcResult {
+        #[cfg(feature = "routine-execution-fixture")]
+        if let Some(routines) = &mut self.routines {
+            let now = self.host.states.now();
+            routines.stop_execution(&mut self.host, now)?;
+        }
         // This fixture explicitly cancels its synthetic turns. Production quit-time
         // suspend/resume remains unported and must not reuse this policy.
         let chats: Vec<_> = self.host.runs().keys().cloned().collect();
         for chat in chats {
+            #[cfg(feature = "routine-execution-fixture")]
+            if self
+                .routines
+                .as_ref()
+                .is_some_and(|r| r.owns_active(&self.host, &chat))
+            {
+                continue; // The scheduler interrupts its exact captured turn once.
+            }
             self.host.interrupt(&chat).map_err(convert)?;
         }
         // As on a normal tick and in ChatHost::shutdown, a refused late event is diagnostic, not a veto on
@@ -1889,12 +1924,18 @@ fn start_provider(
     let routines = configured
         .as_ref()
         .map(|config| {
-            crate::configured_routines::ConfiguredRoutines::open(
+            #[allow(unused_mut)] // Fixture execution activation is absent from normal builds.
+            let mut service = crate::configured_routines::ConfiguredRoutines::open(
                 config.data_root(),
                 project.clone(),
                 config.retained_check(),
                 epoch,
-            )
+            )?;
+            #[cfg(feature = "routine-execution-fixture")]
+            if let Some(model) = config.routine_execution_model() {
+                service.activate(model, epoch)?;
+            }
+            Ok::<_, RpcError>(service)
         })
         .transpose()?;
     let (send, requests) = mpsc::sync_channel(QUEUE);
@@ -3300,6 +3341,142 @@ mod publication_tests {
             crate::claude_content::SharedContent::new(isolation, state.project.clone()).unwrap();
         replacement.shutdown();
         server.shutdown().unwrap();
+    }
+
+    #[cfg(feature = "routine-execution-fixture")]
+    #[test]
+    fn fenced_schedule_cannot_block_shutdown_of_its_actual_successor_turn() {
+        use milagre_routines::StoreCommand;
+        let (profile, mut state, shared) = fixture();
+        fs::create_dir_all(state.project.join(".milagre")).unwrap();
+        fs::write(
+            state.project.join(".milagre/coordination.json"),
+            json!({
+                "next_id":10,"worktrees":{"1":{"id":1,"name":"main","path":state.project}},
+                "sessions":{"1":{"id":1,"worktree_id":1}},"messages":[]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        state.host.open_project(&state.project).unwrap();
+        state.opened = true;
+        let provider = milagre_owner_store::chat_host::MockProvider::new("claude");
+        state.host.register(Box::new(provider.clone()));
+        attach_routine_store(&profile, &mut state);
+        let routines = state.routines.as_mut().unwrap();
+        routines.activate("sonnet".into(), 0).unwrap();
+        let chat = format!("{}#1", state.project.display());
+        let row = routines.fixture_store().execute(StoreCommand::Create(json!({
+            "name":"A", "prompt":"scheduled A", "trigger":{"kind":"schedule","cron":"* * * * *","timezone":"UTC"},
+            "target":{"kind":"chat","chatId":chat}, "createdBy":{"kind":"user"},
+            "provider":"claude", "model":"sonnet", "permissionMode":"ask", "maxRuns":1
+        })), 0).unwrap().value;
+        let id = row["id"].as_str().unwrap().to_owned();
+        let due = row["nextRunAt"].as_i64().unwrap();
+        routines.advance(&mut state.host, due).unwrap();
+        assert!(state.host.pump().is_empty());
+        let turn_a = state.host.active_turn(&chat).unwrap();
+        provider.emit_for(
+            &chat,
+            turn_a,
+            json!({"type":"session-started","nativeId":"schedule-A-session"}),
+        );
+        assert!(state.host.pump().is_empty());
+        let sent_b = state
+            .host
+            .send(&json!({"projectPath":state.project,"sessionId":1,
+            "provider":"claude","model":"sonnet","body":"user B","delivery":"queue"}))
+            .unwrap();
+        assert!(sent_b.queued);
+        provider.emit_for(&chat, turn_a, json!({"type":"turn-completed"}));
+        assert!(state.host.pump().is_empty());
+        assert!(state.host.pump().is_empty());
+        let turn_b = state.host.active_turn(&chat).unwrap();
+        assert_ne!(turn_a, turn_b);
+        assert_eq!(provider.state.lock().unwrap().turns.len(), 2);
+
+        // Real pre-write FinishRun fault, after A's terminal and B's admission.
+        let file = profile.path().join("routines/routines.json");
+        let backup = file.with_extension("held");
+        let before = fs::read(&file).unwrap();
+        fs::rename(&file, &backup).unwrap();
+        fs::create_dir(&file).unwrap();
+        assert!(state
+            .routines
+            .as_mut()
+            .unwrap()
+            .advance(&mut state.host, due + 1)
+            .is_err());
+        fs::remove_dir(&file).unwrap();
+        fs::rename(&backup, &file).unwrap();
+        assert_eq!(fs::read(&file).unwrap(), before);
+        let saved: Value = serde_json::from_slice(&before).unwrap();
+        assert_eq!(saved["runs"][&id][0]["status"], "running");
+
+        let server = Server::bind(profile, Arc::new(Empty), Config::default()).unwrap();
+        let mut refused = false;
+        // The fixed path reaches generic cancellation of B, but cannot release
+        // its Project lock until the provider's actual terminal is received.
+        assert!(server
+            .events()
+            .transaction(|publication| state.shutdown(&shared, publication, false, &mut refused))
+            .is_err());
+        let interrupts = provider.state.lock().unwrap().interrupts.clone();
+        assert_eq!(state.host.active_turn(&chat), Some(turn_b));
+        assert!(state.project.join(".milagre/runtime.lock").exists());
+        assert!(server.profile_path().exists());
+        assert_eq!(fs::read(&file).unwrap(), before);
+        provider.emit_for(&chat, turn_b, json!({"type":"turn-cancelled"}));
+        assert!(state.host.pump().is_empty());
+        assert_eq!(
+            state.host.states.whole_state(&state.project).unwrap()["messages"]
+                .as_array()
+                .unwrap()
+                .len(),
+            4
+        );
+        server
+            .events()
+            .transaction(|publication| state.shutdown(&shared, publication, false, &mut refused))
+            .unwrap();
+        assert_eq!(
+            provider.state.lock().unwrap().turns.len(),
+            2,
+            "no replay of A"
+        );
+        assert!(!state.project.join(".milagre/runtime.lock").exists());
+        assert_eq!(
+            fs::read(&file).unwrap(),
+            before,
+            "uncertain A is not fabricated finished"
+        );
+        let mut next = crate::configured_routines::ConfiguredRoutines::open(
+            server.profile_path(),
+            state.project.clone(),
+            Arc::new(|| Ok(())),
+            due + 2,
+        )
+        .unwrap();
+        next.activate("sonnet".into(), due + 2).unwrap();
+        let recovered = next
+            .fixture_store()
+            .execute(StoreCommand::Runs(id), due + 2)
+            .unwrap()
+            .value;
+        assert_eq!(recovered[0]["status"], "failed");
+        assert_eq!(recovered[0]["error"], "daemon restarted");
+        next.close().unwrap();
+        assert_eq!(
+            provider.state.lock().unwrap().turns.len(),
+            2,
+            "startup recovery never replays A"
+        );
+        server.shutdown().unwrap();
+        assert_eq!(
+            interrupts,
+            vec![chat],
+            "Stop reaches successor B before returning pending"
+        );
     }
 
     #[test]

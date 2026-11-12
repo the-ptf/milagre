@@ -1,10 +1,13 @@
 # Existing-Chat schedule execution prototype
 
-`routine-execution-fixture` is default-off. The runtime composition is additionally
-`cfg(test)`: enabling it on an executable installs no actor timer, execution RPC
-or scheduling capability. Normal `chat-runtime` remains paused-storage-only, with
-unchanged routine methods and `executionSupported:false`. Nothing here updates
-an installed app or executes a real provider.
+`routine-execution-fixture` is default-off. Normal `chat-runtime`, including a
+feature-on binary opening a normal root, remains paused-storage-only. A separate
+explicit `routine-fixture-create` / `routine-fixture-open` preset captures a private
+`routineExecutionFixture:true` manifest field on a synthetic-account/fixed-native
+root. Only that captured marker plus the actual fixture configuration activates
+the periodic actor driver. Ordinary `fixture-create` stays paused-only too.
+No installed app, real account/provider, existing production root or normal binary
+is changed by this checkpoint.
 
 The feature enables a separate fixture-only owner entrypoint. It derives the
 message, prompt and routine-run context from the complete durable `{routine,run}`
@@ -77,8 +80,8 @@ Logs: `/tmp/milagre-routine-execution-{owner,owner-full,owner-clippy,runtime,run
 
 ## Still required
 
-- Actor timer/public capability integration, bounded execution notifications and
-  approved enable/Run-now behavior. The installed paused feature is unchanged.
+- Public enable/Run-now behavior and normal-root authority remain unavailable.
+  The actor timer exists only in the explicit synthetic preset below.
 - New Chats, Worktrees, shared Links, broader current model/account/mode policy,
   fallbacks, prompt placeholders/timezone rendering and background work.
 - Quiet divider/unread updates and naming, plus broader Node scheduler traces.
@@ -92,5 +95,88 @@ busy checks/send, and any failed close/owner shutdown/native drain retains the
 actual fixture root/profile and owners. Regressions fail under the old alias and
 teardown behaviors. Saved full runs pass 134 runtime tests and 228 owner tests;
 root's focused rerun passes all nine prototype cases. The earlier 133 count
-predates the retained-teardown regression. Evidence remains test-only; there is
-no actor timer, execution RPC or installed scheduling.
+predates the retained-teardown regression. That prototype evidence is manual-driver-only. The later actor preset below
+adds timer evidence; no execution RPC or installed scheduling is enabled.
+
+
+## Explicit actor timer preset
+
+The actor's existing 20 ms coalesced tick advances the scheduler after its normal
+owner/provider pump. It never consumes the publisher's notices or creates a timer
+thread per Routine. `ConfiguredRoutines` owns either the paused store or the
+scheduler's same store; it never starts a second concurrent routine writer.
+Committed changes emit at most one `routines:changed` event per tick through the
+existing bounded publication queue. Startup recovers interrupted Runs before new
+claims. Stop closes claim admission, interrupts exact scheduled turns, and refuses
+close as `QUIT_PENDING` until saved terminal settlement. Repeated shutdown after
+the host has closed does not try to reopen/read that host.
+
+The explicit create preset seeds one backend-created, past-due, existing-Chat,
+Claude/Ask schedule with maxRuns 1. Node's real store-open upkeep retimes missed
+slots, so the actual wire acceptance waits for the next wall-clock minute with a
+75-second deadline. There is no raw-clock RPC, injected result, or manual driver
+call. The fixed native child asserts the literal prompt including the pass hint,
+emits a real protocol text delta and result, and waits for real cleanup.
+`routine-blocked-fixture-create` is a second explicit synthetic preset whose native
+child emits init and waits on stdin. It permits a deterministic active-turn Stop.
+
+The execution flag reports true only on these captured roots. Existing CRUD uses
+that one writer. Reads can show active schedules; completed schedules stay hidden
+as Node's list does. Public creation still requires enabled:false and enabling
+updates/Run-now remain refused. This does not claim a usable scheduling UI.
+
+The wire tests require persisted Acted, exact routine-run context and actual saved
+reply, one counted completed Routine, process restart with no redelivery, and native
+Quit/profile/socket/Project-lock cleanup. A manifest-revocation branch waits for
+an actual timer diagnostic, observes closing admission and unchanged saved bytes,
+then restores authority, stops, and reopens a new lifetime. Restoring bytes alone
+does not clear the actor's existing publication-failure latch. The active-turn
+case waits for real native init before Stop, then requires one saved failed Run.
+Normal-root activation is refused before creation or reopen. Existing ordinary
+fixture wire checks still require executionSupported:false.
+
+Fresh acceptance passes 137 runtime tests (including both actual actor/native
+wire cases), feature-on and normal `chat-runtime` all-target strict Clippy, fmt,
+JS lint/format and whitespace checks. Logs:
+`/tmp/milagre-routine-actor-full-accepted.log`,
+`/tmp/milagre-routine-actor-clippy-final.log`, and
+`/tmp/milagre-routine-actor-normal-clippy.log`.
+
+The active Stop regression initially exposed repeated cancellation of a native
+generation after its worker ended but before owner settlement. Each captured
+scheduled Turn now records one accepted interruption, and the actor's generic
+cancellation loop excludes that exact scheduled Turn. Repeated Stop continues
+pumping/persisting terminal cleanup without resending cancellation. The original
+failure remains in `/tmp/milagre-routine-actor-full.log` and
+`/tmp/milagre-routine-actor-stopfix.log`; both actual wire cases pass after the fix
+in `/tmp/milagre-routine-actor-stop-idempotent.log` and the full accepted run.
+
+Other initial failed logs are retained: `/tmp/milagre-routine-actor-wire*.log`.
+Early harness failures assumed an overdue
+slot dispatches immediately (Node upkeep retimes it), polled the completed row from
+list (Node hides it), and omitted a native text delta. Corrected checks observe the
+real store/timer protocol rather than weakening outcome or no-replay assertions.
+
+
+### Fenced claim with a later user turn
+
+Recovery-close checks the exact captured scheduled TurnId, not any later activity
+in the same Chat. A fenced completed schedule A cannot keep shutdown from reaching
+generic cancellation of user turn B. The actor regression queues B during A,
+emits a bound native-session init and A terminal, observes B start, then replaces
+the routine file with a directory to force a real pre-write FinishRun refusal.
+It verifies the first Stop interrupts B while the Project lock and private profile
+remain owned; A stays running on disk. After B's actual cancellation terminal,
+retry closes normally. Fresh scheduler startup classifies A failed with
+`daemon restarted`, and provider turn count remains two. This is deterministic
+MockProvider event/binding evidence, not a second native or launcher-EOF probe.
+
+The original Chat-wide active checks fail the test cleanly after teardown:
+`/tmp/milagre-routine-actor-successor-mutant.log` records zero interrupts instead
+of the required B interrupt. The fixed focused test passes in
+`/tmp/milagre-routine-actor-successor.log`. The earlier 137-test acceptance
+predates this regression. Fresh acceptance passes 138 runtime tests in
+`/tmp/milagre-routine-actor-full-successor.log`, plus feature-on and normal
+all-target strict Clippy in `/tmp/milagre-routine-actor-clippy-successor.log`
+and `/tmp/milagre-routine-actor-normal-clippy-successor.log`. Formatting,
+JS lint/format and whitespace checks also pass.

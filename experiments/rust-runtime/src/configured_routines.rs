@@ -20,6 +20,10 @@ pub(crate) const FLAGS: &[&str] = &["routines:enabled:read", "routines:enabled:s
 pub(crate) fn execution_unavailable() -> RpcError {
     RpcError::new("ROUTINE_EXECUTION_UNAVAILABLE", "Automatic routine execution is not available in this Rust runtime. Save schedules with enabled:false; no timer or agent will run them.")
 }
+#[cfg(feature = "routine-execution-fixture")]
+fn execution_error(message: String) -> RpcError {
+    RpcError::new("ROUTINE_EXECUTION_FAILED", message)
+}
 fn invalid(message: impl Into<String>) -> RpcError {
     RpcError::new("COMMAND_FAILED", jsjson::js_string(&message.into()))
 }
@@ -34,8 +38,33 @@ fn convert(error: StoreError) -> RpcError {
     };
     RpcError::new(code, jsjson::js_string(&error.to_string()))
 }
+
+enum Storage {
+    Paused(RoutineStore),
+    #[cfg(feature = "routine-execution-fixture")]
+    Executing(crate::routine_execution_fixture::Scheduler),
+}
+impl std::ops::Deref for Storage {
+    type Target = RoutineStore;
+    fn deref(&self) -> &RoutineStore {
+        match self {
+            Self::Paused(v) => v,
+            #[cfg(feature = "routine-execution-fixture")]
+            Self::Executing(v) => &v.store,
+        }
+    }
+}
+impl std::ops::DerefMut for Storage {
+    fn deref_mut(&mut self) -> &mut RoutineStore {
+        match self {
+            Self::Paused(v) => v,
+            #[cfg(feature = "routine-execution-fixture")]
+            Self::Executing(v) => &mut v.store,
+        }
+    }
+}
 pub(crate) struct ConfiguredRoutines {
-    store: RoutineStore,
+    store: Storage,
     project: PathBuf,
     revoked: bool,
     root: PathBuf,
@@ -51,25 +80,157 @@ impl ConfiguredRoutines {
         let retained = check.clone();
         let owner: OwnerCheck = Arc::new(move || retained().map_err(|e| e.message));
         Ok(Self {
-            store: RoutineStore::open(root, owner, now).map_err(convert)?,
+            store: Storage::Paused(RoutineStore::open(root, owner, now).map_err(convert)?),
             project,
             revoked: false,
             root: root.to_owned(),
             check,
         })
     }
-    pub(crate) fn reopen(&mut self, now: i64) -> Result<(), RpcError> {
+    pub(crate) fn reopen(
+        &mut self,
+        host: &milagre_owner_store::chat_host::ChatHost,
+        now: i64,
+    ) -> Result<(), RpcError> {
+        #[cfg(feature = "routine-execution-fixture")]
+        if let Storage::Executing(s) = &mut self.store {
+            if !self.revoked && !s.is_fenced() {
+                return Ok(());
+            }
+            s.close_for_recovery(host).map_err(execution_error)?;
+        }
+        #[cfg(not(feature = "routine-execution-fixture"))]
+        let _ = host;
         self.close()?;
         let retained = self.check.clone();
         let owner: OwnerCheck = Arc::new(move || retained().map_err(|e| e.message));
-        self.store = RoutineStore::open(&self.root, owner, now).map_err(convert)?;
+        #[cfg(feature = "routine-execution-fixture")]
+        if let Storage::Executing(scheduler) = &self.store {
+            let model = scheduler.model().to_owned();
+            self.store = Storage::Executing(
+                crate::routine_execution_fixture::Scheduler::open(
+                    &self.root,
+                    self.project.clone(),
+                    model,
+                    owner,
+                    now,
+                )
+                .map_err(execution_error)?,
+            );
+        } else {
+            self.store =
+                Storage::Paused(RoutineStore::open(&self.root, owner, now).map_err(convert)?);
+        }
+        #[cfg(not(feature = "routine-execution-fixture"))]
+        {
+            self.store =
+                Storage::Paused(RoutineStore::open(&self.root, owner, now).map_err(convert)?);
+        }
         self.revoked = false;
         Ok(())
     }
+    #[cfg(feature = "routine-execution-fixture")]
+    pub(crate) fn activate(&mut self, model: String, now: i64) -> Result<(), RpcError> {
+        self.store.close().map_err(convert)?;
+        let retained = self.check.clone();
+        let owner: OwnerCheck = Arc::new(move || retained().map_err(|e| e.message));
+        self.store = Storage::Executing(
+            crate::routine_execution_fixture::Scheduler::open(
+                &self.root,
+                self.project.clone(),
+                model,
+                owner,
+                now,
+            )
+            .map_err(execution_error)?,
+        );
+        Ok(())
+    }
+    #[cfg(all(test, feature = "routine-execution-fixture"))]
+    pub(crate) fn fixture_store(&mut self) -> &mut RoutineStore {
+        &mut self.store
+    }
+    pub(crate) fn execution_supported(&self) -> bool {
+        #[cfg(feature = "routine-execution-fixture")]
+        if matches!(self.store, Storage::Executing(_)) {
+            return true;
+        }
+        false
+    }
+    #[cfg(feature = "routine-execution-fixture")]
+    pub(crate) fn advance(
+        &mut self,
+        host: &mut milagre_owner_store::chat_host::ChatHost,
+        now: i64,
+    ) -> Result<bool, RpcError> {
+        if self.revoked {
+            return Ok(false);
+        }
+        if let Storage::Executing(s) = &mut self.store {
+            s.advance(host, now).map_err(execution_error)?;
+            return Ok(s.take_changed());
+        }
+        Ok(false)
+    }
+    #[cfg(feature = "routine-execution-fixture")]
+    pub(crate) fn stop_execution(
+        &mut self,
+        host: &mut milagre_owner_store::chat_host::ChatHost,
+        now: i64,
+    ) -> Result<(), RpcError> {
+        if let Storage::Executing(s) = &mut self.store {
+            s.stop(host).map_err(execution_error)?;
+            if s.is_fenced() {
+                if s.has_active(host) {
+                    return Err(RpcError::new(
+                        "QUIT_PENDING",
+                        "Actual scheduled native work remains active",
+                    ));
+                }
+                // No success is fabricated. A retained uncertain Run remains running
+                // on disk and only the next verified lifetime recovers it as failed.
+                s.close_for_recovery(host).map_err(execution_error)?;
+            } else if host.is_project_ready(&self.project) {
+                s.advance(host, now).map_err(execution_error)?;
+            }
+        }
+        Ok(())
+    }
+    #[cfg(feature = "routine-execution-fixture")]
+    pub(crate) fn interrupt_before_drop(
+        &mut self,
+        host: &mut milagre_owner_store::chat_host::ChatHost,
+    ) {
+        if let Storage::Executing(s) = &mut self.store {
+            let _ = s.stop(host);
+        }
+    }
+    #[cfg(feature = "routine-execution-fixture")]
+    pub(crate) fn owns_active(
+        &self,
+        host: &milagre_owner_store::chat_host::ChatHost,
+        chat: &str,
+    ) -> bool {
+        matches!(&self.store, Storage::Executing(s) if s.owns_active(host, chat))
+    }
     pub(crate) fn revoke(&mut self) {
         self.revoked = true;
+        #[cfg(feature = "routine-execution-fixture")]
+        if let Storage::Executing(s) = &mut self.store {
+            s.revoke();
+        }
     }
     pub(crate) fn close(&mut self) -> Result<(), RpcError> {
+        #[cfg(feature = "routine-execution-fixture")]
+        if let Storage::Executing(s) = &mut self.store {
+            if s.pending() > 0 {
+                return Err(RpcError::new(
+                    "QUIT_PENDING",
+                    "Actual scheduled native turns still need terminal cleanup",
+                ));
+            }
+            return s.close().map_err(execution_error);
+        }
         self.store.close().map_err(convert)
     }
     // Host owns target grants and serializes this call with actual Project transitions.
@@ -97,10 +258,11 @@ impl ConfiguredRoutines {
             )
         })?;
         let args = ordinary.as_array().unwrap();
+        let execution = self.execution_supported();
         let mut emit = false;
         let value = match method {
             "routines:enabled:read" | "routines:enabled:save" => {
-                json!({"enabled":true,"executionSupported":false})
+                json!({"enabled":true,"executionSupported":execution})
             }
             "routines:list" => {
                 if !args.is_empty() {
@@ -117,7 +279,7 @@ impl ConfiguredRoutines {
                     .as_array()
                     .ok_or_else(|| invalid("Invalid stored routine list"))?
                     .iter()
-                    .any(|r| r["enabled"] == true)
+                    .any(|r| r["enabled"] == true && !execution)
                 {
                     return Err(execution_unavailable());
                 }

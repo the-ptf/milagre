@@ -328,6 +328,26 @@ impl DataRoot {
     }
 
     fn create(root: &Path, config: LaunchConfig) -> Result<Arc<Self>, RpcError> {
+        Self::create_inner(root, config, false)
+    }
+    fn create_inner(
+        root: &Path,
+        config: LaunchConfig,
+        execution: bool,
+    ) -> Result<Arc<Self>, RpcError> {
+        Self::create_variant(root, config, execution, false)
+    }
+    fn create_variant(
+        root: &Path,
+        config: LaunchConfig,
+        execution: bool,
+        blocked: bool,
+    ) -> Result<Arc<Self>, RpcError> {
+        if execution && (!cfg!(feature = "routine-execution-fixture") || !config.fixture) {
+            return Err(refused(
+                "Routine execution requires the explicit synthetic fixture",
+            ));
+        }
         let policy = protected_policy();
         let root = check_location(root, &policy)?;
         // Exclusive directory creation precedes every seed. An existing directory, even empty, is never adopted.
@@ -335,7 +355,14 @@ impl DataRoot {
         let isolation = Isolation::create(&root, &policy).map_err(|e| refused(e.to_string()))?;
         let (pin, directory) = Self::directory(&root)?;
         let lock = Self::lock(&directory)?;
-        let manifest = json!({"schema":1,"kind":"milagre-rust-chat","root":root,"fixture":config.fixture,"launch":config.value}).to_string().into_bytes();
+        let mut manifest = json!({"schema":1,"kind":"milagre-rust-chat","root":root,"fixture":config.fixture,"launch":config.value});
+        if execution {
+            manifest["routineExecutionFixture"] = json!(true);
+            if blocked {
+                manifest["routineFixtureBlocked"] = json!(true);
+            }
+        }
+        let manifest = manifest.to_string().into_bytes();
         let project = isolation
             .project(Path::new("project"))
             .map_err(|e| refused(e.to_string()))?;
@@ -384,6 +411,14 @@ impl DataRoot {
         {
             return Err(refused(
                 "This is not the selected dedicated Rust Chat runtime root",
+            ));
+        }
+        if manifest
+            .get("routineExecutionFixture")
+            .is_some_and(|v| v != true || !fixture || !cfg!(feature = "routine-execution-fixture"))
+        {
+            return Err(refused(
+                "Routine execution fixture cannot be opened by this runtime",
             ));
         }
         let config = LaunchConfig::parse(manifest["launch"].clone(), fixture)?;
@@ -444,6 +479,12 @@ pub(crate) struct Bootstrap {
     accounts: Accounts,
 }
 impl Bootstrap {
+    #[cfg(feature = "routine-execution-fixture")]
+    pub(crate) fn routine_execution_model(&self) -> Option<String> {
+        let manifest: Value = serde_json::from_slice(&self.root.manifest).ok()?;
+        (self.root.config.fixture && manifest["routineExecutionFixture"] == true)
+            .then(|| self.root.config.model.clone())
+    }
     pub(crate) fn data_root(&self) -> &Path {
         self.root.isolation.root()
     }
@@ -606,6 +647,32 @@ pub fn start(args: &[String]) -> Result<RunningChat, Box<dyn std::error::Error>>
             DataRoot::create(Path::new(root), LaunchConfig::parse(value, false)?)?
         }
         [mode, root] if mode == "open" => DataRoot::open(Path::new(root), false)?,
+        #[cfg(feature = "routine-execution-fixture")]
+        [mode, root]
+            if matches!(
+                mode.as_str(),
+                "routine-fixture-create" | "routine-blocked-fixture-create"
+            ) =>
+        {
+            let root = check_location(Path::new(root), &protected_policy())?;
+            let config = fixture_config(&root)?;
+            let data = DataRoot::create_variant(
+                &root,
+                config,
+                true,
+                mode == "routine-blocked-fixture-create",
+            )?;
+            fs::DirBuilder::new()
+                .mode(0o700)
+                .create(&data.config.home)?;
+            fs::DirBuilder::new()
+                .mode(0o700)
+                .create(&data.config.config_directory)?;
+            seed_due_routine(&data)?;
+            data
+        }
+        #[cfg(feature = "routine-execution-fixture")]
+        [mode, root] if mode == "routine-fixture-open" => DataRoot::open(Path::new(root), true)?,
         #[cfg(feature = "chat-runtime-fixture")]
         [mode, root] if mode == "fixture-create" => {
             let root = check_location(Path::new(root), &protected_policy())?;
@@ -740,8 +807,50 @@ fn fixture_config(root: &Path) -> Result<LaunchConfig, Box<dyn std::error::Error
     )?)
 }
 
+#[cfg(feature = "routine-execution-fixture")]
+fn seed_due_routine(data: &Arc<DataRoot>) -> Result<(), RpcError> {
+    let owned = data.clone();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let at = now - 60_000;
+    let owner: milagre_routines::OwnerCheck =
+        Arc::new(move || owned.check().map_err(|e| e.message));
+    let mut store = milagre_routines::RoutineStore::open(data.isolation.root(), owner, at)
+        .map_err(|e| refused(e.to_string()))?;
+    store.execute(milagre_routines::StoreCommand::Create(json!({"name":"Actor timer fixture","prompt":"Check the scheduled actor fixture","trigger":{"kind":"schedule","cron":"* * * * *","timezone":"UTC"},"target":{"kind":"chat","chatId":format!("{}#1",data.project().display())},"createdBy":{"kind":"user"},"provider":"claude","model":data.config.model,"permissionMode":"ask","maxRuns":1})), at).map_err(|e|refused(e.to_string()))?;
+    store.close().map_err(|e| refused(e.to_string()))
+}
+
 #[cfg(feature = "chat-runtime-fixture")]
 fn fixture_script(root: &DataRoot) -> Result<Value, RpcError> {
+    #[cfg(feature = "routine-execution-fixture")]
+    if serde_json::from_slice::<Value>(&root.manifest).map_err(|e| refused(e.to_string()))?
+        ["routineExecutionFixture"]
+        == true
+    {
+        let blocked = serde_json::from_slice::<Value>(&root.manifest)
+            .map_err(|e| refused(e.to_string()))?["routineFixtureBlocked"]
+            == true;
+        let mut script = json!([
+            {"expect":{"subtype":"initialize"}}, {"reply":{}},
+            {"expect":{"subtype":"set_max_thinking_tokens"}}, {"reply":{}},
+            {"expect":{"type":"user","fields":{"/message/content":[{"type":"text","text":format!("Check the scheduled actor fixture{}","\n\nIf nothing needs doing, reply starting with \"(pass)\" and a short reason.")}]}}},
+            {"emit":{"type":"system","subtype":"init","session_id":"actor-routine-native"}},
+            {"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Actor timer completed"}}}},
+            {"emit":{"type":"result","subtype":"success","num_turns":1,"result":"done"}},
+            {"wait_eof":true}
+        ]);
+        if blocked {
+            script.as_array_mut().unwrap().truncate(6);
+            script
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"wait_eof":true}));
+        }
+        return Ok(script);
+    }
     let state: Value = milagre_owner_store::jsjson::parse_bytes(&read_coordination(
         &root.project().join(".milagre/coordination.json"),
     )?)
@@ -820,6 +929,29 @@ mod tests {
 
     fn config() -> LaunchConfig {
         LaunchConfig::parse(json!({"program":"/explicit/unused-claude","home":"/explicit/unused-home","configDirectory":"/explicit/unused-account","skillsDirectory":"/explicit/unused-bundle","model":"sonnet","path":"/usr/bin:/bin","accountId":"11111111-1111-4111-8111-111111111111","accountLabel":"Explicit selected account","userName":"explicit-user"}), false).unwrap()
+    }
+
+    #[cfg(feature = "routine-execution-fixture")]
+    #[test]
+    fn execution_activation_rejects_normal_roots_before_creation_and_reopen() {
+        let parent = IsolatedProfile::create().unwrap();
+        let forbidden = parent.path().join("forbidden");
+        assert!(DataRoot::create_inner(&forbidden, config(), true).is_err());
+        assert!(!forbidden.exists());
+        let path = parent.path().join("normal");
+        let root = DataRoot::create(&path, config()).unwrap();
+        let bootstrap = Bootstrap {
+            accounts: root.config.accounts().unwrap(),
+            root: root.clone(),
+        };
+        assert!(bootstrap.routine_execution_model().is_none());
+        drop(bootstrap);
+        drop(root);
+        let mut manifest: Value =
+            serde_json::from_slice(&fs::read(path.join(MANIFEST)).unwrap()).unwrap();
+        manifest["routineExecutionFixture"] = json!(true);
+        fs::write(path.join(MANIFEST), manifest.to_string()).unwrap();
+        assert!(DataRoot::open(&path, false).is_err());
     }
 
     #[test]
