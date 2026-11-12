@@ -118,3 +118,9 @@ Round 8 (2026-11-12): first key created without Electron, replacing `milagre com
 for the Preview. Real check (ignored test `real_daemon_created_key_survives_a_restart`, throwaway
 profile, test password instead of the Keychain): Milagre.app's daemon accepted the created key, and
 after a daemon restart the saved key unlocked it again.
+
+Live end-to-end (2026-11-12 17:00, Victor present, run by GPUI Chat #11899): with Milagre.app quit
+and its daemon stopped, the GPUI Preview (c196660e, client a59bbb9d5) cold-started Milagre.app's
+daemon in Node mode, the daemon came up locked, Victor allowed the Keychain prompt, and the
+Preview's own `unlock_computers` brought all 5 paired computers online over the relay before
+Milagre.app was reopened. Electron then adopted the Preview-started daemon.
