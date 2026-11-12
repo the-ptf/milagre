@@ -206,3 +206,14 @@ Permission settlement remains fixed-native evidence in this new client suite;
 real native permission buttons were accepted separately by the desktop. Real
 questions, live mode switches, nonempty queue lifecycle, native GPUI adoption and
 existing production-profile adoption remain required.
+
+## Sidebar capability
+
+`guard.sidebar_actions(&client)` adds typed rename, Done/reopen, keep and restore
+for the exact opened connection. See [CONTRACT.md](CONTRACT.md#dedicated-sidebar-actions-owned-chat-default-off).
+It is weak like ChatActions and has no raw patch/clock/path escape hatch. Current
+frontend pin state remains local; `keep` only reveals a hidden Run Chat. Legacy pin
+fields are not presented as a synchronization service. Older dedicated runtimes
+can advertise `chat:patch` while admitting only unread; their field refusal stays
+visible. Pair this API with a backend that implements CONFIGURED-SIDEBAR.md before
+adopting it. No app, production profile or real provider is run by these tests.

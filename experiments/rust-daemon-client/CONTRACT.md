@@ -273,3 +273,47 @@ The script has no executable or profile override. It builds only this crate's te
 The real test covers all six reads plus explicit open, snapshot acknowledgment, socket-mode tamper refusal and restoration, reconnect to the same PID, and three private scripted sends that force result and snapshot paging beyond the runtime's 4,096-byte frame limit. This older hydration setup still uses a private test-only raw helper. The fifth child below independently tests the public ScriptedActions capability. While the original reader remains connected after accepting its snapshot, it observes three completed turns with state and at least one restored state body larger than the 4,096-byte frame limit, in increasing global sequence. It then checks transcript total six and the summary after reconnect, and requires stop acknowledgment, exit 0 and absence of daemon profile, socket and private launch root. A second child survives Client drop, accepts another reader, and cleans up after last-authority drop. A third real child is paused after receipt/peer admission and before result publication; dropping the launch waiter and releasing the test-only barrier must clean up without signals. A fourth child uses the populated preset: two real owner summaries (4 and 2 messages), titles/model/outcome/timestamps, discriminating before/turns/limit paging, snapshot-first admission, same-PID reconnect and complete cleanup with zero client sends. The runtime also has a deterministic no-actor test proving startup notices are drained before admission. Evidence markers report these checks separately. A fifth child uses the public capability for two sends and one interrupt, proves both pre-open refusals, exact real agent sequences, four stored messages, typed disconnect and complete cleanup. This is fixture compatibility evidence, not production-provider execution or native UI evidence.
 
 Remaining gates: measured concurrent multiplexing; shared adoption by Tauri and the off-by-default GPUI adapter. Hydration failures still require explicit reconnect/resync. GPUI owns presentation DTO mapping and reducers, not endpoint authority. The separate default-disabled `owned-chat` capability now provides dedicated-runtime launch and typed Chat actions; [OWNED-CHAT.md](OWNED-CHAT.md) records fixed-native permission checks and root's real selected-account text/stream/save/cleanup acceptance. Full production account/profile adoption remains gated. Design/Artifact authoring follows the native content gate.
+
+## Dedicated Sidebar actions (owned-chat, default off)
+
+`OwnedChatGuard::sidebar_actions(&client) -> Result<SidebarActions>` mints another
+weak capability only for that exact guard and Client. It uses executor-independent
+futures and the existing bounded I/O worker, not a caller-thread Tokio runtime.
+Every method requires this connection's explicit `open_view`, positive JSON-safe
+numeric Chat ID, and the captured Project. It exposes no arbitrary patch, account,
+model, Worktree, directory, delete/archive or caller-clock field.
+
+| API | Exact `chat:patch` fields |
+| --- | --- |
+| `rename(chat, title)` | `{title}`; unchanged string, at most 16,384 UTF-16 units. Empty clears explicit title. |
+| `mark_done(chat, true)` | `{done:true,unread:false}`; the backend supplies its clock and completes targeting routines first. |
+| `mark_done(chat, false)` | `{done:false}`; no routine is restarted. |
+| `keep(chat)` | `{kept:true}`; keeps a hidden Run Chat visible without storing `kept`. |
+| `restore(chat)` | `{archived:false}`; restores and clears Done, never archives or deletes. |
+
+Each request is `[captured_project, numeric_chat, fixed_patch]`; encoded arguments
+must fit 128 KiB. Unicode titles are validated without truncation or trimming.
+Ordinary Rust strings cannot carry lone UTF-16 surrogates. Unknown/absent Chat
+validation and flush-before-success remain the backend's responsibility. Requests
+against older runtimes preserve their remote refusal; method advertisement alone
+does not establish that all these new patch fields are implemented.
+
+Modern React pins remain device-local (`chat-pins.ts`). A frontend may use `keep`
+when pinning a hidden Run Chat and keep its own pin ordering. This capability does
+not expose legacy persisted `pinned`/`pin_order` as a new pin sync service.
+
+Capabilities and submitted waits do not retain the Client. Dropping an unpolled
+future sends nothing; dropping a submitted future cancels only its local wait.
+Missing advertised `chat:patch` returns `Capability`; closed connections return
+`Disconnected`. There is no retry, reconnect, implicit view open or replay. Remote
+errors and arbitrary nested details are preserved unchanged. Direct metadata edit
+failures remain errors. The dedicated backend returns the accepted Chat send
+receipt after a later metadata-save failure and retains its persistence warning;
+it does not make the unchanged frontend treat that accepted send as unsent.
+Submitted transport failures still require status reconciliation before retry.
+
+The six socketpair tests cover exact wire fields, UTF-16 boundaries and JSON-safe
+Chat IDs, no enqueue on invalid/unpolled calls, guard mismatch, explicit view,
+weak pending lifetime, missing capability, raw remote details and submitted timeout
+without replay. These are client contract checks. They do not claim real backend
+or frontend Sidebar adoption, device-local pin persistence, or installed UI proof.

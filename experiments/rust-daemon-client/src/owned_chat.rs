@@ -78,6 +78,11 @@ impl OwnedChatGuard {
         client.owned_git_for(&self.authority)
     }
 
+    /// Bounded metadata actions for this exact connection; frontend pins stay local.
+    pub fn sidebar_actions(&self, client: &Client) -> Result<crate::SidebarActions> {
+        client.owned_sidebar_for(&self.authority)
+    }
+
     pub fn info(&self) -> &OwnedChatInfo {
         &self.info
     }

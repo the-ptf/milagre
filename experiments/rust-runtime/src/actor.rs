@@ -507,6 +507,8 @@ struct State {
     pending: VecDeque<(String, Value)>,
     // Actor-owned edits publish only after their explicit durability boundary.
     project_changed: bool,
+    #[cfg(feature = "chat-runtime")]
+    accepted_send_metadata_failure: Option<String>,
     answers: HashMap<AnswerId, SyncSender<RpcResult>>,
     modes: HashMap<ModeChangeId, SyncSender<RpcResult>>,
     settled_replies: Vec<(SyncSender<RpcResult>, RpcResult)>,
@@ -786,7 +788,7 @@ impl State {
                 }
                 if method == "chat:patch" {
                     configured.require_project(args.first())?;
-                    return self.patch_unread(args);
+                    return self.patch_chat(args);
                 }
                 let state = if method == "canvas:snapshot" {
                     self.host
@@ -948,7 +950,12 @@ impl State {
                 }
                 #[cfg(feature = "chat-runtime")]
                 self.admit_content_send(&request)?;
-                self.host.call(method, args).map_err(convert)
+                let sent = self.host.call(method, args).map_err(convert)?;
+                #[cfg(feature = "chat-runtime")]
+                if self.configured.is_some() && !request["sessionId"].is_null() {
+                    return self.finish_accepted_send(&request["sessionId"], sent);
+                }
+                Ok(sent)
             }
             "agent:respond-permission" | "agent:answer-question" | "agent:set-permission-mode" => {
                 if method == "agent:set-permission-mode" && self.provider != "claude" {
@@ -1065,10 +1072,33 @@ impl State {
             "Configured content Chat admission is full",
         ))
     }
-    /// Narrow configured-runtime subset of runtime.cjs patchChat / project-edits.patchSession.
-    /// False removes the field. All other patch fields remain unsupported, including mixed patches.
+    /// Node acknowledges the accepted message even if its later metadata edit
+    /// fails. Returning a send error here would restore an already-sent composer.
+    /// The owner retains dirty persistence state; publication retains the warning.
     #[cfg(feature = "chat-runtime")]
-    fn patch_unread(&mut self, args: &[Value]) -> RpcResult {
+    fn finish_accepted_send(&mut self, session: &Value, sent: Value) -> RpcResult {
+        if let Err(cause) = self.patch_chat(&[
+            json!(self.project),
+            session.clone(),
+            json!({"done":false,"kept":true}),
+        ]) {
+            self.accepted_send_metadata_failure = Some(
+                format!(
+                    "Accepted Chat send metadata save failed ({}): {}",
+                    cause.code, cause.message
+                )
+                .chars()
+                .take(4096)
+                .collect(),
+            );
+        }
+        Ok(sent)
+    }
+
+    /// Dedicated metadata subset of runtime.cjs patchChat. All writes pass the
+    /// one acquired Project writer; Done completes stored heartbeats first.
+    #[cfg(feature = "chat-runtime")]
+    fn patch_chat(&mut self, args: &[Value]) -> RpcResult {
         if args.first().and_then(Value::as_str) != self.project.to_str() {
             return Err(RpcError::new(
                 "ISOLATED_SCOPE_ONLY",
@@ -1081,7 +1111,7 @@ impl State {
         let invalid = || {
             RpcError::new(
                 "INVALID_CHAT_PATCH",
-                "Expected an existing positive Chat ID and only {unread: boolean}",
+                "Expected an existing positive Chat ID and a supported metadata patch",
             )
         };
         if args.len() != 3 {
@@ -1091,41 +1121,36 @@ impl State {
             .as_f64()
             .filter(|id| id.fract() == 0.0 && *id >= 1.0 && *id <= 9_007_199_254_740_991.0)
             .ok_or_else(invalid)? as i64;
-        let patch = args[2]
-            .as_object()
-            .filter(|patch| patch.len() == 1)
-            .ok_or_else(invalid)?;
-        let unread = patch
-            .get("unread")
-            .and_then(Value::as_bool)
-            .ok_or_else(invalid)?;
-        let mut exists = false;
+        let patch = crate::configured_chat_patch::Patch::parse(&args[2], self.host.states.now())?;
+        if !self.host.states.current(&self.project).is_some_and(|s| {
+            s.sessions()
+                .is_some_and(|sessions| sessions.contains_key(&session.to_string()))
+        }) {
+            return Err(RpcError::new("CHAT_NOT_FOUND", "Choose an existing Chat"));
+        }
+        if patch.done {
+            let chat = format!("{}#{session}", self.project.display());
+            if self
+                .routines
+                .as_mut()
+                .ok_or_else(closed)?
+                .chat_done(&chat, self.host.states.now())?
+            {
+                self.queue_event("routines:changed", json!({}))?;
+            }
+        }
         let (_, changed) = self
             .host
             .states
             .update(&self.project, Some(&[]), true, |current| {
-                let mut next = current
-                    .sessions()?
-                    .get(&session.to_string())?
-                    .as_object()?
-                    .clone();
-                exists = true;
-                if unread {
-                    if next.get("unread") == Some(&Value::Bool(true)) {
-                        return None;
-                    }
-                    next.insert("unread".into(), Value::Bool(true));
-                } else if next.shift_remove("unread").is_none() {
-                    return None;
-                }
-                Some(agent_runs::with_session(current, session, next))
+                let old = current.sessions()?.get(&session.to_string())?.as_object()?;
+                let next = patch.apply(old);
+                (jsjson::to_string(&Value::Object(next.clone()))
+                    != jsjson::to_string(&Value::Object(old.clone())))
+                .then(|| agent_runs::with_session(current, session, next))
             })
             .map_err(convert)?;
-        if !exists {
-            return Err(RpcError::new("CHAT_NOT_FOUND", "Choose an existing Chat"));
-        }
-        // A failed save retains the owner's dirty state and persistence error. It cannot
-        // produce a success reply; ordinary persistence publication reports the failure.
+        // Even an unchanged retry must flush the prior dirty save before success.
         self.host
             .states
             .flush(Some(&self.project))
@@ -1204,6 +1229,10 @@ impl State {
         self.sync_readiness();
         let notices = self.host.take_notices();
         let state_events = self.host.states.take_events();
+        #[cfg(feature = "chat-runtime")]
+        if let Some(error) = self.accepted_send_metadata_failure.take() {
+            record_failure(shared, error);
+        }
         // Audit does not require a hydrated snapshot or a working wire. In
         // particular, shutdown can strand a lock after removing its state slot.
         // Consume these once before either fallible publication boundary.
@@ -1975,6 +2004,8 @@ fn start_provider(
         next_readiness_check: Instant::now(),
         pending: VecDeque::new(),
         project_changed: false,
+        #[cfg(feature = "chat-runtime")]
+        accepted_send_metadata_failure: None,
         answers: HashMap::new(),
         modes: HashMap::new(),
         settled_replies: Vec::new(),
@@ -2699,6 +2730,8 @@ mod publication_tests {
             next_readiness_check: Instant::now(),
             pending: VecDeque::new(),
             project_changed: false,
+            #[cfg(feature = "chat-runtime")]
+            accepted_send_metadata_failure: None,
             answers: HashMap::new(),
             modes: HashMap::new(),
             settled_replies: Vec::new(),
@@ -3068,7 +3101,7 @@ mod publication_tests {
             vec![
                 json!(state.project),
                 json!(1),
-                json!({"title":"unsupported"}),
+                json!({"accountId":"unsupported"}),
             ],
             vec![
                 json!(state.project),
@@ -3076,7 +3109,7 @@ mod publication_tests {
                 json!({"unread":false,"archived":true}),
             ],
         ] {
-            assert!(state.patch_unread(&args).is_err(), "{args:?}");
+            assert!(state.patch_chat(&args).is_err(), "{args:?}");
             assert_eq!(
                 state.host.states.whole_state(&state.project).unwrap(),
                 before
@@ -3085,7 +3118,7 @@ mod publication_tests {
             assert!(!state.project_changed);
         }
         let args = [json!(state.project), json!(1), json!({"unread":false})];
-        assert_eq!(state.patch_unread(&args).unwrap(), Value::Null);
+        assert_eq!(state.patch_chat(&args).unwrap(), Value::Null);
         let mut expected = before;
         expected["sessions"]["1"]
             .as_object_mut()
@@ -3109,14 +3142,14 @@ mod publication_tests {
             expected
         );
         assert!(!state.project_changed);
-        assert_eq!(state.patch_unread(&args).unwrap(), Value::Null);
+        assert_eq!(state.patch_chat(&args).unwrap(), Value::Null);
         assert!(
             !state.project_changed,
             "an unchanged read mark needs no new publication"
         );
         state.host.forget(&state.project, false).unwrap();
         assert_eq!(
-            state.patch_unread(&args).unwrap_err().code,
+            state.patch_chat(&args).unwrap_err().code,
             "PROJECT_NOT_READY"
         );
         assert!(!state.host.states.has(&state.project));
@@ -3127,9 +3160,30 @@ mod publication_tests {
     #[cfg(feature = "chat-runtime")]
     #[test]
     fn unread_patch_reports_update_and_flush_failures_without_success() {
-        let (_profile, mut state, _, _, _) = shutdown_fixture();
+        let (profile, mut state, _, _, _) = shutdown_fixture();
+        attach_routine_store(&profile, &mut state);
+        assert!(state.host.tick(1000).is_empty());
+        let unchanged = state.host.states.whole_state(&state.project).unwrap();
+        for patch in [
+            json!({"title":"failed rename"}),
+            json!({"pinned":true}),
+            json!({"done":true}),
+        ] {
+            state
+                .host
+                .states
+                .fail_next_commit("metadata commit refused");
+            let error = state
+                .patch_chat(&[json!(state.project), json!(1), patch])
+                .unwrap_err();
+            assert!(error.message.contains("metadata commit refused"));
+            assert_eq!(
+                state.host.states.whole_state(&state.project).unwrap(),
+                unchanged
+            );
+        }
         state
-            .patch_unread(&[json!(state.project), json!(1), json!({"unread":false})])
+            .patch_chat(&[json!(state.project), json!(1), json!({"unread":false})])
             .unwrap();
         state.project_changed = false;
         let before = state.host.states.whole_state(&state.project).unwrap();
@@ -3141,7 +3195,7 @@ mod publication_tests {
             .states
             .fail_next_commit("injected unread commit failure");
         assert!(state
-            .patch_unread(&args)
+            .patch_chat(&args)
             .unwrap_err()
             .message
             .contains("injected unread"));
@@ -3155,7 +3209,7 @@ mod publication_tests {
         fs::rename(&coordination, &backup).unwrap();
         fs::create_dir(&coordination).unwrap();
         assert!(state
-            .patch_unread(&args)
+            .patch_chat(&args)
             .unwrap_err()
             .message
             .contains("coordination.json"));
@@ -3172,7 +3226,7 @@ mod publication_tests {
         fs::remove_dir(&coordination).unwrap();
         fs::rename(backup, &coordination).unwrap();
         // Retrying the same mark must still flush the retained dirty owner state.
-        assert_eq!(state.patch_unread(&args).unwrap(), Value::Null);
+        assert_eq!(state.patch_chat(&args).unwrap(), Value::Null);
         let disk: Value = serde_json::from_slice(&fs::read(&coordination).unwrap()).unwrap();
         assert_eq!(disk["sessions"]["1"]["unread"], true);
         assert!(state
@@ -3183,6 +3237,123 @@ mod publication_tests {
             .get("persistence")
             .is_none());
         state.host.shutdown(true).unwrap();
+    }
+
+    #[cfg(feature = "chat-runtime")]
+    #[test]
+    fn accepted_send_metadata_flush_failure_keeps_receipt_and_warning_without_replay() {
+        for stop_before_retry in [false, true] {
+            let (profile, mut state, shared, provider, _) = shutdown_fixture();
+            attach_routine_store(&profile, &mut state);
+            assert!(state.host.tick(1000).is_empty());
+            // This mock retains a session for the second turn; it is not a
+            // handoff/restore test, which has a separate owner gate.
+            state
+                .host
+                .states
+                .update(&state.project, Some(&[]), true, |current| {
+                    let mut session = current.sessions().unwrap()["1"]
+                        .as_object()
+                        .unwrap()
+                        .clone();
+                    session.insert("native_session_id".into(), json!("metadata-mock-session"));
+                    Some(agent_runs::with_session(current, 1, session))
+                })
+                .unwrap();
+            state
+                .patch_chat(&[json!(state.project), json!(1), json!({"done":true})])
+                .unwrap();
+            let request = json!({"projectPath":state.project,"sessionId":1,"provider":"kiro",
+                "model":"fixture","body":"accepted exactly once","clientMessageId":"accepted-metadata-fault"});
+            // Execute the real acceptance first; inject a real filesystem failure
+            // only at the subsequent metadata boundary, never at send admission.
+            let sent = state.host.call("chat:send", &[request]).unwrap();
+            let coordination = state.project.join(".milagre/coordination.json");
+            let backup = coordination.with_extension("before-metadata-fault");
+            fs::rename(&coordination, &backup).unwrap();
+            fs::create_dir(&coordination).unwrap();
+            let result = state.finish_accepted_send(&json!(1), sent.clone()).unwrap();
+            assert_eq!(result, sent, "accepted sends remain fulfilled like Node");
+            let database = milagre_owner_store::chat_db::ChatDb::new(&state.project);
+            let saved_user_count = database
+                .query(|connection| {
+                    Ok(connection.query_row(
+                        "SELECT count(*) FROM messages WHERE client_message_id = ?1",
+                        ["accepted-metadata-fault"],
+                        |row| row.get::<_, i64>(0),
+                    )?)
+                })
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                saved_user_count, 1,
+                "the accepted message is actually on disk once"
+            );
+            assert_eq!(
+                provider.state.lock().unwrap().turns.len(),
+                2,
+                "no second acceptance/replay"
+            );
+            let current = state.host.states.whole_state(&state.project).unwrap();
+            assert_eq!(
+                current["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|m| m["clientMessageId"] == "accepted-metadata-fault")
+                    .count(),
+                1
+            );
+            assert!(current["sessions"]["1"].get("done_at").is_none());
+            assert!(current["persistence"]["error"].is_string());
+            assert!(state
+                .accepted_send_metadata_failure
+                .as_ref()
+                .unwrap()
+                .contains("metadata save failed"));
+            // Publish the actual persistence event and keep its diagnostic without
+            // marking this accepted send as a wire failure or latching delivery.
+            let server = Server::bind(profile, Arc::new(Empty), Config::default()).unwrap();
+            server
+                .events()
+                .transaction(|publication| state.publish(&shared, publication))
+                .unwrap();
+            assert!(shared
+                .failure
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .contains("coordination.json"));
+            assert!(!shared.delivery_failed.load(Ordering::Acquire));
+            assert!(!shared.closing.load(Ordering::Acquire));
+            if stop_before_retry {
+                assert!(state.host.shutdown(true).is_err());
+                assert!(state.project.join(".milagre/runtime.lock").exists());
+            }
+            fs::remove_dir(&coordination).unwrap();
+            fs::rename(&backup, &coordination).unwrap();
+            if !stop_before_retry {
+                state
+                    .patch_chat(&[
+                        json!(state.project),
+                        json!(1),
+                        json!({"done":false,"kept":true}),
+                    ])
+                    .unwrap();
+                assert!(state
+                    .host
+                    .states
+                    .whole_state(&state.project)
+                    .unwrap()
+                    .get("persistence")
+                    .is_none());
+            }
+            state.host.shutdown(true).unwrap();
+            let disk: Value = serde_json::from_slice(&fs::read(&coordination).unwrap()).unwrap();
+            assert!(disk["sessions"]["1"].get("done_at").is_none());
+            server.shutdown().unwrap();
+        }
     }
 
     #[test]
@@ -3949,6 +4120,8 @@ mod job_tests {
             next_readiness_check: Instant::now(),
             pending: VecDeque::new(),
             project_changed: false,
+            #[cfg(feature = "chat-runtime")]
+            accepted_send_metadata_failure: None,
             answers: HashMap::new(),
             modes: HashMap::new(),
             settled_replies: vec![],

@@ -87,6 +87,44 @@ impl ConfiguredRoutines {
             check,
         })
     }
+    /// Node scheduler.chatDone: finish each currently listed heartbeat before
+    /// Project metadata is saved. Partial store failures remain failures, not a
+    /// successful Done reply; no automatic cross-store retry is invented.
+    pub(crate) fn chat_done(&mut self, chat: &str, now: i64) -> Result<bool, RpcError> {
+        if self.revoked {
+            return Err(RpcError::new(
+                "ROUTINE_OWNER_LOST",
+                "Reopen the dedicated Project before editing its routines",
+            ));
+        }
+        let rows = self
+            .store
+            .execute(StoreCommand::List, now)
+            .map_err(convert)?
+            .value;
+        let mut changed = false;
+        for row in rows
+            .as_array()
+            .ok_or_else(|| invalid("Invalid stored routine list"))?
+        {
+            if row["target"]["kind"] == "chat" && row["target"]["chatId"] == chat {
+                let id = row["id"]
+                    .as_str()
+                    .ok_or_else(|| invalid("Invalid stored routine identity"))?;
+                self.store
+                    .execute(
+                        StoreCommand::Complete {
+                            id: id.into(),
+                            reason: Some("chat done".into()),
+                        },
+                        now,
+                    )
+                    .map_err(convert)?;
+                changed = true;
+            }
+        }
+        Ok(changed)
+    }
     pub(crate) fn reopen(
         &mut self,
         host: &milagre_owner_store::chat_host::ChatHost,
@@ -634,6 +672,58 @@ mod tests {
             .invoke("routines:create", &[settings], &state, 1_790_000_000_000)
             .is_err());
         assert!(!profile.path().join("routines/routines.json").exists());
+        service.close().unwrap();
+    }
+    #[test]
+    fn done_refuses_revoked_owner_without_finishing_durable_heartbeat() {
+        let denied = Arc::new(AtomicBool::new(false));
+        let gate = denied.clone();
+        let (profile, mut service, state) = setup(Arc::new(move || {
+            if gate.load(Ordering::Acquire) {
+                Err(RpcError::new("OWNER_REVOKED", "revoked Done owner"))
+            } else {
+                Ok(())
+            }
+        }));
+        let settings = input(&service);
+        service
+            .invoke("routines:create", &[settings], &state, 1_790_000_000_000)
+            .unwrap();
+        let file = profile.path().join("routines/routines.json");
+        let saved = fs::read(&file).unwrap();
+        denied.store(true, Ordering::Release);
+        assert_eq!(
+            service
+                .chat_done(
+                    &format!("{}#1", service.project.display()),
+                    1_790_000_000_001
+                )
+                .unwrap_err()
+                .code,
+            "ROUTINE_OWNER_LOST"
+        );
+        assert_eq!(fs::read(&file).unwrap(), saved);
+        denied.store(false, Ordering::Release);
+        service.close().unwrap();
+        let mut service = ConfiguredRoutines::open(
+            profile.path(),
+            service.project.clone(),
+            Arc::new(|| Ok(())),
+            1_790_000_000_002,
+        )
+        .unwrap();
+        assert!(service
+            .chat_done(
+                &format!("{}#1", service.project.display()),
+                1_790_000_000_002
+            )
+            .unwrap());
+        let completed: Value = serde_json::from_slice(&fs::read(file).unwrap()).unwrap();
+        assert_eq!(completed["routines"][0]["completedReason"], "chat done");
+        assert_eq!(
+            completed["routines"][0]["completedAt"],
+            1_790_000_000_002_i64
+        );
         service.close().unwrap();
     }
     #[test]

@@ -981,3 +981,6 @@ mod git_reads;
 mod owned_actions;
 #[cfg(feature = "owned-chat")]
 mod terminal_actions;
+
+#[cfg(feature = "owned-chat")]
+mod sidebar_actions;

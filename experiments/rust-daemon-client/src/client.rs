@@ -27,6 +27,10 @@ pub(crate) mod git_reads;
 #[path = "terminal_actions.rs"]
 pub(crate) mod terminal_actions;
 
+#[cfg(feature = "owned-chat")]
+#[path = "sidebar_actions.rs"]
+pub(crate) mod sidebar_actions;
+
 static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
 
 struct Handle {
