@@ -27,9 +27,9 @@ pub const DONE_CHATS: usize = 2 + DONE_TABLE.len();
 /// it ran in seconds, provider), most recently marked first. Across this Mac, the offline tianxu and deer.
 const DONE_TABLE: [(usize, &str, i64, i64, i64, Provider); 18] = [
     (HOME, "Mac Disk Cleanup", 95, 41, 1_220, Provider::Claude),
+    (MILAGRE, "Reproduce Windows NSIS Daemon crash on first launch", 420, 55, 5_404, Provider::Codex),
     (ADE, "GPUI Settings package (Antigravity)", 240, 77, 3_730, Provider::Antigravity),
     (HOME, "Find 1Password recovery codes", 180, 130, 953, Provider::Claude),
-    (MILAGRE, "Reproduce Windows NSIS Daemon crash on first launch", 420, 205, 5_404, Provider::Codex),
     (HAPPIERGYM, "HealthKit workout export drops heart rate", 600, 290, 2_412, Provider::Claude),
     (RD_CAR, "Fleet report plan options", 700, 380, 618, Provider::Claude),
     (SITE, "Landing Dawn hero polish", 900, 515, 1_847, Provider::Claude),
@@ -346,6 +346,9 @@ impl FixtureData {
             ..named(ADE, "Triage GitHub issues", 25)
         });
         push(Spec { done: Some(18), ran: Some(62), ..named(HOME, "What's a good name for a CLI?", 28) });
+        // On tianxu, offline: the rows are greyscale and dimmed, PRs and failure included.
+        push(Spec { outcome: Some(Outcome::Failed), prs: vec![1001, 1002], ..named(MILAGRE, "Windows daemon autostart", 29) });
+        push(Spec { unread: true, prs: vec![998], ..named(ADE_COPY, "Port the terminal owner to Windows", 35) });
         // A Routine's Run: hidden, but listed while it waits on an approval.
         push(Spec {
             routine: Some(Some(true)),

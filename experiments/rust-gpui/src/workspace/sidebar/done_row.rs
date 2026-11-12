@@ -7,6 +7,9 @@
 //! Under the pointer the row takes the hover fill, the mark its Project's colour, the title `ink`, and the run's length
 //! gives way to Reopen (the undo arrow). Clicking the row opens its Chat; Reopen takes it back to the list (⌘Z undoes
 //! it). The swap is a group hover, so it changes no layout and the sidebar does not re-render for it.
+//!
+//! On an offline computer the row stays greyscale (the mark never takes its colour) at half strength, as the list's
+//! rows do; the computer keeps the desktop's orange "offline".
 
 use std::ops::Range;
 
@@ -14,7 +17,7 @@ use gpui::{AnyElement, ClickEvent, Context, MouseButton, SharedString, Window, d
 
 use super::Sidebar;
 use super::bottom::DONE_ROW;
-use super::row::{ChatRow, MarkLook, project_mark_as};
+use super::row::{ChatRow, MarkLook, OFFLINE_OPACITY, greyed, project_mark_as, row_offline};
 use crate::theme::{ActiveTheme, RADIUS_CONTROL, TEXT_11, TEXT_13, TextStepExt, Theme, sidebar_step};
 use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize};
 
@@ -56,10 +59,21 @@ impl Sidebar {
 
     fn done_row(&self, ix: usize, row: &ChatRow, look: DoneLook, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let group: SharedString = format!("done-row-{ix}").into();
+        let offline = row_offline(row);
+        let greyed_theme = greyed(theme);
+        let theme = if offline { &greyed_theme } else { theme };
         let lit = look.hovered;
         let hover = theme.hover2;
         let (title_ink, rest_ink) = (theme.ink, theme.ink3);
-        let mark = project_mark_as(row, theme, if lit { MarkLook::Colour } else { MarkLook::GreyUntilHover(group.clone()) });
+        let mark = project_mark_as(
+            row,
+            theme,
+            match (offline, lit) {
+                (true, _) => MarkLook::Grey,
+                (false, true) => MarkLook::Colour,
+                (false, false) => MarkLook::GreyUntilHover(group.clone()),
+            },
+        );
 
         let title = div()
             .min_w_0()
@@ -137,6 +151,7 @@ impl Sidebar {
             .cursor_pointer()
             .when(look.selected || lit, |el| el.bg(hover))
             .when(!look.selected, |el| el.hover(move |style| style.bg(hover)))
+            .when(offline, |el| el.opacity(OFFLINE_OPACITY))
             .on_click(cx.listener(move |this, _, window, cx| {
                 window.focus(&this.focus, cx);
                 this.select_done(ix, cx);

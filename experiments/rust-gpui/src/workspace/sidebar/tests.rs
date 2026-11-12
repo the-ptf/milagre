@@ -223,8 +223,9 @@ fn rows_come_from_the_domain_data_through_the_list_and_mark_rules() {
             ("G", "Gestor RDCar", "Chats · deer", Unread),
             // The two Chats marked Done minutes ago are in the Done list only.
             ("M", "Identify issues to close", "milagre-ade · Victor XPro", Idle),
-            ("H", "Nightly dependency check", "happiergym · Victor XPro", Waiting),
-            ("M", "Babysit PR #1013", "milagre-ade · #1013 · Victor XPro", Idle),
+            // On tianxu, offline (drawn greyscale and dimmed).
+            ("M", "Windows daemon autostart", "milagre · #1001 · +1 · tianxu, offline", Idle),
+            ("M", "Port the terminal owner to Windows", "milagre-ade · #998 · tianxu, offline", Unread),
         ]
     );
     // What each row's edges show (design `gpui-sidebar-v-a`).
@@ -243,8 +244,8 @@ fn rows_come_from_the_domain_data_through_the_list_and_mark_rules() {
             RowState::Working,
             RowState::Idle { unread: true },
             RowState::Idle { unread: false },
-            RowState::Approval,
-            RowState::Idle { unread: false }
+            RowState::Failed,
+            RowState::Idle { unread: true }
         ]
     );
     assert!(rows[6].failed, "an idle Chat whose last turn failed shows the red alert");
@@ -255,7 +256,8 @@ fn rows_come_from_the_domain_data_through_the_list_and_mark_rules() {
     assert_eq!(rows[2].computer.as_deref(), Some("Victor XPro"));
     assert_eq!(rows[10].recency.as_deref(), Some("14m"), "an idle row's right edge: when it last moved");
     assert!(rows[9].chats_home && rows[9].project.as_ref() == "Chat", "a Chat without a Project");
-    assert!(rows[10].dimmed() && rows[12].dimmed() && !rows[4].dimmed(), "read idle rows are dimmed");
+    assert!(rows[10].dimmed() && !rows[12].dimmed() && !rows[4].dimmed(), "read idle rows are dimmed");
+    assert!(rows[11].offline.is_some() && rows[12].offline.is_some() && rows[10].offline.is_none(), "tianxu's rows");
     let offline = rows[4].offline.clone().expect("tianxu is offline");
     assert_eq!(&rows[4].detail[offline], "tianxu, offline");
     assert_eq!(rows[4].computer.as_deref(), Some("tianxu, offline"));

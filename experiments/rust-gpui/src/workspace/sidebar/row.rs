@@ -388,7 +388,9 @@ impl ChatRowView {
 impl Render for ChatRowView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.renders.set(self.renders.get() + 1);
-        let theme = *cx.theme();
+        // An offline computer's row is greyscale (its computer keeps the desktop's orange "offline") and half strength.
+        let offline = row_offline(&self.row);
+        let theme = if offline { greyed(cx.theme()) } else { *cx.theme() };
         let (ix, row, selected, hovered) = (self.ix, &self.row, self.selected, self.hovered || self.show_hover);
         let hover = theme.hover;
         // The computer brightens to ink-3 on the hovered and the selected row.
@@ -443,7 +445,7 @@ impl Render for ChatRowView {
                     .gap(px(META_GAP))
                     .min_w_0()
                     .overflow_hidden()
-                    .child(project_mark(row, &theme))
+                    .child(project_mark_as(row, &theme, if offline { MarkLook::Grey } else { MarkLook::Colour }))
                     .child(div().flex_none().text_color(theme.ink3).child(row.project.clone()))
                     .when(!row.extra.is_empty(), |el| el.child(div().min_w_0().truncate().text_color(theme.ink4).child(row.extra.clone())))
                     .children(row.computer.clone().map(|name| {
@@ -492,7 +494,7 @@ impl Render for ChatRowView {
                 .when(selected, |el| el.bg(theme.hover2))
                 .when(!selected && self.show_hover, |el| el.bg(hover))
                 .when(!selected, |el| el.hover(move |style| style.bg(hover)))
-                .when(self.dragging, |el| el.opacity(0.5))
+                .when(self.dragging || offline, |el| el.opacity(OFFLINE_OPACITY))
                 .when(self.draggable, |el| {
                     let drag = super::drag::ChatDrag { key: row.key.to_string(), pinned: self.pinned };
                     el.on_drag(drag, |_, _, _, cx| cx.new(|_| super::drag::DragGhost))
@@ -579,21 +581,31 @@ fn state_mark(ix: usize, row: &ChatRow, theme: &Theme) -> gpui::AnyElement {
     }
 }
 
-/// How a Project mark is drawn: in its colour, or greyed until the pointer is on the element of this group (a Done
-/// row).
+/// How a Project mark is drawn: in its colour, greyed (an offline computer's row), or greyed until the pointer is on
+/// the element of this group (a Done row).
 #[derive(Clone, PartialEq, Eq)]
 pub(super) enum MarkLook {
     Colour,
+    Grey,
     GreyUntilHover(SharedString),
 }
 
-/// The second line's Project mark: the Project's colour (or the neutral `line-strong`) with its letter, or for a Chat
-/// without a Project a grey bubble.
-fn project_mark(row: &ChatRow, theme: &Theme) -> gpui::AnyElement {
-    project_mark_as(row, theme, MarkLook::Colour)
+/// An offline computer's row (and a dragged one) at half strength (the desktop's `opacity-50`).
+pub(super) const OFFLINE_OPACITY: f32 = 0.5;
+
+/// The Chat's computer is offline.
+pub(super) fn row_offline(row: &ChatRow) -> bool {
+    row.offline.is_some()
 }
 
-/// [`project_mark`] in a [`MarkLook`]. Greyed, the fill is `hover-2` and the letter `ink-4`.
+/// The theme an offline computer's row draws with: every state colour (accent, green, orange, red) is `ink-4`, so the
+/// row is greyscale. `orange-ink`, the computer's "offline", stays (the desktop keeps it orange).
+pub(super) fn greyed(theme: &Theme) -> Theme {
+    Theme { accent: theme.ink4, green: theme.ink4, orange: theme.ink4, red: theme.ink4, ..*theme }
+}
+
+/// The second line's Project mark: the Project's colour (or the neutral `line-strong`) with its letter, or for a Chat
+/// without a Project a grey bubble; in a [`MarkLook`]. Greyed, the fill is `hover-2` and the letter `ink-4`.
 pub(super) fn project_mark_as(row: &ChatRow, theme: &Theme, look: MarkLook) -> gpui::AnyElement {
     if row.chats_home {
         return Icon::new(IconName::BubbleChat).size(IconSize::S14).color(theme.ink4).into_any_element();
@@ -615,6 +627,7 @@ pub(super) fn project_mark_as(row: &ChatRow, theme: &Theme, look: MarkLook) -> g
         .font_weight(FontWeight::BOLD);
     match look {
         MarkLook::Colour => mark.bg(fill).text_color(ink),
+        MarkLook::Grey => mark.bg(grey_fill).text_color(grey_ink),
         MarkLook::GreyUntilHover(group) => {
             mark.bg(grey_fill).text_color(grey_ink).group_hover(group, move |style| style.bg(fill).text_color(ink))
         }
