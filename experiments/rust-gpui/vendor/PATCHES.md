@@ -44,5 +44,15 @@ pass, all on the GPU. The headless renderer (`MetalHeadlessRenderer`, snapshots)
 snapshots show the blur too; GPUI's test platform draws nothing.
 
 To regenerate the diff: `diff -ruN ~/.cargo/registry/src/*/gpui-pre-apple-0.3.12 vendor/gpui-pre-apple` (ignore the
-missing `Cargo.lock` and `.cargo-ok`). To upgrade GPUI: copy the new gpui-pre-apple, reapply the four changes above,
+missing `Cargo.lock` and `.cargo-ok`). To upgrade GPUI: copy the new gpui-pre-apple, reapply the four changes above and the two text patches below,
 bump the version in `[patch.crates-io]`'s target together with gpui-pre.
+
+## gpui-pre-apple 0.3.12: text drawn like the desktop's Chromium
+
+Two small changes in `src/text_system.rs`, each marked `Milagre patch`, so text matches the Electron app's
+(`-webkit-font-smoothing: antialiased`, `font-weight: 500` on the system font):
+
+| Change                       | Why                                                                                                                                                                                                                                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `glyph_dilation_for_color` returns 0 (`MILAGRE_FONT_SMOOTHING = false`) | Upstream turns on CoreGraphics font smoothing, which dilates strokes by the text colour's luminance: light text on the dark theme drew up to four levels heavier, a weight above the desktop's. Chromium's `antialiased` draws plain grayscale coverage, no dilation. |
+| `font_id` snaps each face's weight to the nearest hundred before `find_best_match` | font-kit maps Core Text's weight trait piecewise, so SF Pro's Medium (0.23) reads as 530; CSS matching for 500 then looks below 500 first and took Regular. Every 500 label in the app drew Regular; Chromium draws it Medium.                                       |

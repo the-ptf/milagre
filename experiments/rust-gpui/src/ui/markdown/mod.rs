@@ -363,6 +363,7 @@ impl RenderOnce for Markdown {
             .w_full()
             .min_w_0()
             .font_family(crate::theme::ui_font())
+            .font_features(crate::theme::ui_features())
             .text_size(px(self.size))
             .line_height(px(self.size * CHAT_LINE))
             .text_color(theme.ink)

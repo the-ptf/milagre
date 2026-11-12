@@ -313,6 +313,7 @@ impl Render for Workspace {
             .bg(surface)
             .text_color(theme.ink)
             .font_family(crate::theme::ui_font())
+            .font_features(crate::theme::ui_features())
             // The shell's window-level keys: ⌘B, ⌘N, the Window menu, and Escape after every view under focus.
             .on_key_down(cx.listener(Self::on_escape_key))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))

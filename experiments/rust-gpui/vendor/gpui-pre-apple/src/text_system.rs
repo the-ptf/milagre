@@ -159,9 +159,16 @@ impl PlatformTextSystem for AppleTextSystem {
                 lock.font_ids_by_font_key[&font_key].as_ref()
             };
 
+            // Milagre patch: snap each face's weight to the nearest hundred before matching. font-kit maps Core
+            // Text's weight trait piecewise, so SF Pro's Medium (trait 0.23) reads as 530, and CSS matching for 500
+            // looks below 500 first and picks Regular. Chromium resolves `font-weight: 500` to that Medium face.
             let candidate_properties = candidates
                 .iter()
-                .map(|font_id| lock.fonts[font_id.0].properties())
+                .map(|font_id| {
+                    let mut properties = lock.fonts[font_id.0].properties();
+                    properties.weight.0 = (properties.weight.0 / 100.0).round() * 100.0;
+                    properties
+                })
                 .collect::<SmallVec<[_; 4]>>();
 
             let ix = font_kit::matching::find_best_match(
@@ -226,7 +233,10 @@ impl PlatformTextSystem for AppleTextSystem {
         // When font smoothing is enabled, CoreGraphics thickens glyph strokes by an amount that
         // depends on the foreground color's luminance. We replicate the logic used by CoreGraphics
         // to select between the different levels of dilation.
-        if !font_smoothing_allowed_by_user() {
+        // Milagre patch: no dilation, as the desktop's `-webkit-font-smoothing: antialiased` draws its text (plain
+        // grayscale antialiasing). CoreGraphics' smoothing thickened light text on the dark theme by up to four
+        // levels, so every line read a weight heavier than the Electron app's.
+        if !MILAGRE_FONT_SMOOTHING || !font_smoothing_allowed_by_user() {
             return 0;
         }
         let rgba: Rgba = color.into();
@@ -235,6 +245,10 @@ impl PlatformTextSystem for AppleTextSystem {
         level.clamp(0, 4) as u8
     }
 }
+
+/// Milagre patch: CoreGraphics font smoothing (stroke dilation) is off; see `glyph_dilation_for_color`.
+#[cfg(target_os = "macos")]
+const MILAGRE_FONT_SMOOTHING: bool = false;
 
 #[cfg(target_os = "macos")]
 fn font_smoothing_allowed_by_user() -> bool {

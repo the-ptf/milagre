@@ -6,7 +6,7 @@
 
 use std::sync::OnceLock;
 
-use gpui::{App, Styled, font, px};
+use gpui::{App, FontFeatures, Styled, font, px};
 
 /// GPUI's name for the platform UI font (SF Pro on macOS; `.AppleSystemUIFont` underneath).
 pub const SANS: &str = ".SystemUIFont";
@@ -21,6 +21,15 @@ pub const SANS: &str = ".SystemUIFont";
 pub const MONO: &str = ".AppleSystemUIFontMonospaced";
 /// Menlo ships with every macOS and is what the phone uses for code.
 pub const MONO_FALLBACK: &str = "Menlo";
+
+/// The OpenType features the desktop's `body` sets (`font-feature-settings: "cv11", "ss01"`): SF Pro's straight-sided
+/// six and nine (`ss01`), and Inter's single-storey a and open digits when Settings › Appearance picks Inter.
+pub const UI_FEATURES: [&str; 2] = ["cv11", "ss01"];
+
+/// [`UI_FEATURES`] as GPUI takes them, for the root of a window's text (it inherits like the desktop's `body`).
+pub fn ui_features() -> FontFeatures {
+    FontFeatures(std::sync::Arc::new(UI_FEATURES.iter().map(|tag| ((*tag).to_string(), 1)).collect()))
+}
 
 static MONO_FAMILY: OnceLock<&'static str> = OnceLock::new();
 
